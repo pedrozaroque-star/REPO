@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { useLanguage } from '@/lib/i18n'
-import { BellRing, ChefHat, Clock, AlertTriangle, Send, UtensilsCrossed, PackageOpen, X, Loader2, Play, Maximize, Minimize, HelpCircle, CheckCircle2, TrendingDown, Calendar } from 'lucide-react'
+import { BellRing, ChefHat, Clock, AlertTriangle, Send, UtensilsCrossed, PackageOpen, X, Loader2, Play, Maximize, Minimize, HelpCircle, CheckCircle2, TrendingDown, Calendar, FileText, BookOpen } from 'lucide-react'
 import { useAuth } from '@/components/ProtectedRoute'
 import { createClient } from '@/lib/supabase-client'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -58,6 +58,12 @@ export default function PreparadorPage() {
     const businessDow = getDowFromDate(selectedDate)
     const isToday = selectedDate === todayLAStr
     const [viewMode, setViewMode] = useState<'30min' | 'tramos'>('30min')
+    
+    // Guide Modal State
+    const [showGuideModal, setShowGuideModal] = useState(false)
+    const [guideModalDow, setGuideModalDow] = useState<number>(1)
+    const [guideModalData, setGuideModalData] = useState<any[]>([])
+    const [guideModalLoading, setGuideModalLoading] = useState(false)
     
     // Meat Historial Data
     const [meatData, setMeatData] = useState<MeatData[]>([])
@@ -479,9 +485,57 @@ export default function PreparadorPage() {
             }
         }
         fetchIntelligence()
-        const int = setInterval(fetchIntelligence, 3 * 60 * 1000) // Refrescar acelerador vivo cada 3 minutos
+        const int = setInterval(fetchIntelligence, 3 * 60 * 1000)
         return () => clearInterval(int)
-    }, [storeId])
+    }, [storeId, isToday])
+
+    // Load Guide History for Modal
+    useEffect(() => {
+        if (!showGuideModal || !storeId) return
+        const fetchGuideHistory = async () => {
+            setGuideModalLoading(true)
+            try {
+                const res = await fetch(`/api/inventory/preparador-history?storeId=${storeId}&dow=${guideModalDow}&_t=${Date.now()}`, { cache: 'no-store' })
+                const json = await res.json()
+                if (Array.isArray(json)) {
+                    const PROTEINS = ['ASADA', 'PASTOR', 'POLLO', 'CABEZA', 'LENGUA']
+                    const OPERATIONAL_TIMES: string[] = []
+                    for (let h = 8; h <= 23; h++) {
+                        const hh = h.toString().padStart(2, '0')
+                        OPERATIONAL_TIMES.push(`${hh}:00`)
+                        OPERATIONAL_TIMES.push(`${hh}:30`)
+                    }
+                    OPERATIONAL_TIMES.push('00:00', '00:30', '01:00', '01:30')
+
+                    const intervalsMap: Record<string, any> = {}
+                    json.forEach((d: any) => {
+                        if (!intervalsMap[d.interval_start]) {
+                            intervalsMap[d.interval_start] = {}
+                        }
+                        intervalsMap[d.interval_start][d.meat_type] = d.avg_lbs
+                    })
+
+                    const rows: any[] = []
+                    OPERATIONAL_TIMES.forEach(tStr => {
+                        const intervalKey = `${tStr}:00`
+                        const row: any = { time: tStr }
+                        PROTEINS.forEach(proto => {
+                            const avg = (intervalsMap[intervalKey] && intervalsMap[intervalKey][proto]) ? intervalsMap[intervalKey][proto] : 0
+                            const maxTray = Math.max(1, Math.ceil(avg))
+                            row[proto] = { avg: Number(avg.toFixed(1)), maxTray }
+                        })
+                        rows.push(row)
+                    })
+                    setGuideModalData(rows)
+                }
+            } catch (e) {
+                console.error(e)
+            } finally {
+                setGuideModalLoading(false)
+            }
+        }
+        fetchGuideHistory()
+    }, [showGuideModal, storeId, guideModalDow])
 
     // Clock Bucket Updater
     useEffect(() => {
@@ -871,9 +925,15 @@ export default function PreparadorPage() {
                                 <p className="text-sm md:text-base text-slate-500 font-medium hidden sm:block">{t('prep.liveProjection')}</p>
                             </div>
                         </div>
-                        <button onClick={() => setShowDayModal(true)} className="bg-blue-100 hover:bg-blue-200 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300 dark:hover:bg-blue-900 px-4 md:px-6 py-2 md:py-3 rounded-xl text-sm md:text-lg font-black transition-colors shrink-0 shadow-sm ml-2">
-                            {t('prep.viewDay')}
-                        </button>
+                        <div className="flex items-center gap-2 shrink-0 ml-2">
+                            <button onClick={() => setShowGuideModal(true)} className="bg-red-600 hover:bg-red-700 text-white px-3 md:px-5 py-2 md:py-3 rounded-xl text-sm md:text-base font-black transition-colors shrink-0 shadow-sm flex items-center gap-1.5 cursor-pointer">
+                                <BookOpen size={16} />
+                                <span>{t('prep.viewGuide')}</span>
+                            </button>
+                            <button onClick={() => setShowDayModal(true)} className="bg-blue-100 hover:bg-blue-200 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300 dark:hover:bg-blue-900 px-4 md:px-6 py-2 md:py-3 rounded-xl text-sm md:text-lg font-black transition-colors shrink-0 shadow-sm cursor-pointer">
+                                {t('prep.viewDay')}
+                            </button>
+                        </div>
                     </div>
 
                     {fetchingMeat ? (
@@ -1200,6 +1260,147 @@ export default function PreparadorPage() {
                     </div>
                 )
             })()}
+
+            {/* Guide & Table Modal */}
+            <AnimatePresence>
+                {showGuideModal && (
+                    <motion.div 
+                        initial={{ opacity: 0 }} 
+                        animate={{ opacity: 1 }} 
+                        exit={{ opacity: 0 }} 
+                        className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[9999] flex items-center justify-center p-3 md:p-6"
+                        onClick={() => setShowGuideModal(false)}
+                    >
+                        <motion.div 
+                            initial={{ scale: 0.95, opacity: 0 }} 
+                            animate={{ scale: 1, opacity: 1 }} 
+                            exit={{ scale: 0.95, opacity: 0 }} 
+                            onClick={e => e.stopPropagation()}
+                            className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl w-full max-w-4xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden"
+                        >
+                            {/* Modal Header */}
+                            <div className="p-4 md:p-5 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center bg-slate-50 dark:bg-slate-950/50 shrink-0">
+                                <div>
+                                    <h3 className="font-black text-slate-800 dark:text-white text-base md:text-xl flex items-center gap-2">
+                                        <span>📖</span>
+                                        <span>{t('prep.guideModalTitle')}</span>
+                                    </h3>
+                                    <p className="text-xs text-slate-500 font-bold mt-0.5">Control de Ritmo & Máximos Sugeridos en Charola (8:00 AM – Cierre)</p>
+                                </div>
+                                <button 
+                                    onClick={() => setShowGuideModal(false)} 
+                                    className="p-2 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-full text-slate-500 transition-colors cursor-pointer"
+                                >
+                                    <X size={20} />
+                                </button>
+                            </div>
+
+                            {/* Modal Body Scrollable */}
+                            <div className="p-4 md:p-6 overflow-y-auto space-y-6 flex-1">
+                                {/* Operational Guide Summary */}
+                                <div className="bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 rounded-2xl p-4 space-y-3">
+                                    <h4 className="font-black text-slate-900 dark:text-white text-sm flex items-center gap-2">
+                                        <span>💡</span> Guía Operativa para Taqueros y Cocineros
+                                    </h4>
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+                                        <div className="bg-blue-50 dark:bg-blue-900/30 p-3 rounded-xl border border-blue-200 dark:border-blue-800">
+                                            <span className="font-black text-blue-700 dark:text-blue-300 block mb-1">1. PROYECCIÓN (Proy)</span>
+                                            <p className="text-slate-600 dark:text-slate-300 font-medium">Consumo estimado de carne cruda para ese bloque de 30 minutos según el historial de 3 meses.</p>
+                                        </div>
+                                        <div className="bg-amber-50 dark:bg-amber-900/30 p-3 rounded-xl border border-amber-200 dark:border-amber-800">
+                                            <span className="font-black text-amber-800 dark:text-amber-300 block mb-1">2. MÁX. CHAROLA (Límite)</span>
+                                            <p className="text-slate-700 dark:text-slate-300 font-medium">Cantidad máxima recomendada de carne cocinada que debe haber en la charola a la vez.</p>
+                                        </div>
+                                        <div className="bg-emerald-50 dark:bg-emerald-900/30 p-3 rounded-xl border border-emerald-200 dark:border-emerald-800">
+                                            <span className="font-black text-emerald-800 dark:text-emerald-300 block mb-1">3. BENEFICIO CALIDAD</span>
+                                            <p className="text-slate-700 dark:text-slate-300 font-medium">Garantiza carne siempre jugosa, caliente y recién hecha sin acumular carne seca ni mermas.</p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* DOW Tabs */}
+                                <div className="space-y-2">
+                                    <label className="text-xs font-black uppercase text-slate-500 tracking-wider block">Selecciona el Día de la Semana:</label>
+                                    <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-none">
+                                        {[
+                                            { dow: 1, name: 'Lunes' },
+                                            { dow: 2, name: 'Martes' },
+                                            { dow: 3, name: 'Miércoles' },
+                                            { dow: 4, name: 'Jueves' },
+                                            { dow: 5, name: 'Viernes' },
+                                            { dow: 6, name: 'Sábado' },
+                                            { dow: 7, name: 'Domingo' }
+                                        ].map(item => (
+                                            <button 
+                                                key={item.dow}
+                                                onClick={() => setGuideModalDow(item.dow)}
+                                                className={`px-4 py-2 rounded-xl font-black text-xs md:text-sm whitespace-nowrap transition-all duration-200 cursor-pointer ${guideModalDow === item.dow ? 'bg-red-600 text-white shadow-md scale-105' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-200'}`}
+                                            >
+                                                {item.name}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                {/* Table */}
+                                <div className="border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-xs">
+                                    <div className="overflow-x-auto max-h-[45vh]">
+                                        <table className="w-full text-left text-xs">
+                                            <thead className="bg-slate-100 dark:bg-slate-950 text-slate-700 dark:text-slate-400 font-extrabold uppercase sticky top-0 z-30 border-b border-slate-200 dark:border-slate-800">
+                                                <tr>
+                                                    <th className="p-3 sticky left-0 bg-slate-100 dark:bg-slate-950 z-40 border-r border-slate-200 dark:border-slate-800">Hora</th>
+                                                    <th className="p-3 text-red-700 dark:text-red-400">🥩 Asada</th>
+                                                    <th className="p-3 text-orange-700 dark:text-orange-400">🌮 Pastor</th>
+                                                    <th className="p-3 text-amber-700 dark:text-amber-400">🍗 Pollo</th>
+                                                    <th className="p-3 text-emerald-700 dark:text-emerald-400">🐮 Cabeza</th>
+                                                    <th className="p-3 text-blue-700 dark:text-blue-400">👅 Lengua</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-slate-200 dark:divide-slate-800 font-semibold">
+                                                {guideModalLoading ? (
+                                                    <tr>
+                                                        <td colSpan={6} className="text-center py-12 text-slate-400">
+                                                            <Loader2 className="w-8 h-8 animate-spin mx-auto mb-2 text-blue-500" />
+                                                            <span>Cargando tabla de máximos...</span>
+                                                        </td>
+                                                    </tr>
+                                                ) : guideModalData.map((r, idx) => {
+                                                    const isPeak = r.ASADA.avg >= 12.0 || r.POLLO.avg >= 3.0
+                                                    return (
+                                                        <tr key={r.time} className={`hover:bg-amber-50/40 dark:hover:bg-slate-800/50 transition-colors ${idx % 2 === 0 ? 'bg-white dark:bg-slate-900' : 'bg-slate-50/60 dark:bg-slate-900/60'} ${isPeak ? 'bg-red-50/30 dark:bg-red-950/20' : ''}`}>
+                                                            <td className="p-3 font-black text-slate-900 dark:text-white sticky left-0 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 shadow-xs">{r.time}</td>
+                                                            <td className="p-3">
+                                                                <div className="font-black text-red-800 dark:text-red-300 text-sm">{r.ASADA.avg} <span className="text-[10px] text-slate-500 font-normal">lbs</span></div>
+                                                                <div className="text-[10px] font-black text-amber-900 dark:text-amber-200 bg-amber-100 dark:bg-amber-900/50 border border-amber-300 dark:border-amber-700 px-2 py-0.5 rounded-md inline-block mt-0.5">🔥 Máx: {r.ASADA.maxTray} lbs</div>
+                                                            </td>
+                                                            <td className="p-3">
+                                                                <div className="font-black text-orange-800 dark:text-orange-300 text-sm">{r.PASTOR.avg} <span className="text-[10px] text-slate-500 font-normal">lbs</span></div>
+                                                                <div className="text-[10px] font-black text-amber-900 dark:text-amber-200 bg-amber-100 dark:bg-amber-900/50 border border-amber-300 dark:border-amber-700 px-2 py-0.5 rounded-md inline-block mt-0.5">🔥 Máx: {r.PASTOR.maxTray} lbs</div>
+                                                            </td>
+                                                            <td className="p-3">
+                                                                <div className="font-black text-amber-800 dark:text-amber-300 text-sm">{r.POLLO.avg} <span className="text-[10px] text-slate-500 font-normal">lbs</span></div>
+                                                                <div className="text-[10px] font-black text-amber-900 dark:text-amber-200 bg-amber-100 dark:bg-amber-900/50 border border-amber-300 dark:border-amber-700 px-2 py-0.5 rounded-md inline-block mt-0.5">🔥 Máx: {r.POLLO.maxTray} lbs</div>
+                                                            </td>
+                                                            <td className="p-3">
+                                                                <div className="font-black text-emerald-800 dark:text-emerald-300 text-sm">{r.CABEZA.avg} <span className="text-[10px] text-slate-500 font-normal">lbs</span></div>
+                                                                <div className="text-[10px] font-black text-amber-900 dark:text-amber-200 bg-amber-100 dark:bg-amber-900/50 border border-amber-300 dark:border-amber-700 px-2 py-0.5 rounded-md inline-block mt-0.5">🔥 Máx: {r.CABEZA.maxTray} lbs</div>
+                                                            </td>
+                                                            <td className="p-3">
+                                                                <div className="font-black text-blue-800 dark:text-blue-300 text-sm">{r.LENGUA.avg} <span className="text-[10px] text-slate-500 font-normal">lbs</span></div>
+                                                                <div className="text-[10px] font-black text-amber-900 dark:text-amber-200 bg-amber-100 dark:bg-amber-900/50 border border-amber-300 dark:border-amber-700 px-2 py-0.5 rounded-md inline-block mt-0.5">🔥 Máx: {r.LENGUA.maxTray} lbs</div>
+                                                            </td>
+                                                        </tr>
+                                                    )
+                                                })}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        </motion.div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
 
             <audio id="audio-tick" src="/sounds/tick.mp3" preload="auto" />
 

@@ -2049,6 +2049,8 @@ const dictionaries: Record<Language, Dictionary> = {
         },
         // PREPARADOR (PREP LINE)
         prep: {
+            viewGuide: 'VER GUÍA',
+            guideModalTitle: '📖 Guía Operativa y Tabla de Máximos en Charola',
             maxTray: 'Máx. Charola',
             maxTrayDesc: 'Límite Máximo Sugerido en Charola',
             selectDate: 'Seleccionar Fecha',
@@ -4354,6 +4356,8 @@ const dictionaries: Record<Language, Dictionary> = {
         },
         // PREPARADOR (PREP LINE)
         prep: {
+            viewGuide: 'VIEW GUIDE',
+            guideModalTitle: '📖 Operational Guide & Max Tray Table',
             maxTray: 'Max Tray',
             maxTrayDesc: 'Suggested Max Holding Capacity on Tray',
             selectDate: 'Select Date',
