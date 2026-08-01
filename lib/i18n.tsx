@@ -2049,6 +2049,8 @@ const dictionaries: Record<Language, Dictionary> = {
         },
         // PREPARADOR (PREP LINE)
         prep: {
+            maxTray: 'Máx. Charola',
+            maxTrayDesc: 'Límite Máximo Sugerido en Charola',
             selectDate: 'Seleccionar Fecha',
             today: 'Hoy',
             accessDenied: '🚫 ACCESO DENEGADO',
@@ -4352,6 +4354,8 @@ const dictionaries: Record<Language, Dictionary> = {
         },
         // PREPARADOR (PREP LINE)
         prep: {
+            maxTray: 'Max Tray',
+            maxTrayDesc: 'Suggested Max Holding Capacity on Tray',
             selectDate: 'Select Date',
             today: 'Today',
             accessDenied: '🚫 ACCESS DENIED',

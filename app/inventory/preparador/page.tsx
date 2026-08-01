@@ -959,10 +959,13 @@ export default function PreparadorPage() {
                                                     const projectedLbs = m.avg_lbs * intelligenceAcelerador
                                                     const displayVal = viewMode === '30min' ? projectedLbs : (projectedLbs / (m.duration || 1))
                                                     const realVal = m.real_lbs !== undefined ? (viewMode === '30min' ? m.real_lbs : m.real_lbs / (m.elapsed_hours || m.duration || 1)) : undefined
+                                                    const maxTrayLbs = Math.max(1, Math.ceil(displayVal))
 
                                                     return (
                                                         <div key={m.meat_type} className={`bg-white/60 dark:bg-slate-900/60 p-3 xl:p-4 rounded-2xl flex flex-col items-center justify-center shadow-sm w-full ${m.meat_type === 'ASADA' ? 'col-span-2 shadow-md border border-blue-200/50 dark:border-blue-800/50 bg-blue-50/50 dark:bg-blue-900/30 py-4 xl:py-6' : 'border border-slate-100 dark:border-slate-800 py-4 xl:py-5'}`}>
-                                                            <span className={`uppercase tracking-widest text-slate-600 dark:text-slate-300 mb-1 md:mb-2 ${m.meat_type === 'ASADA' ? 'text-lg md:text-2xl font-black text-blue-800 dark:text-blue-300' : 'text-base md:text-xl font-black'}`}>{m.meat_type}</span>
+                                                            <div className="flex items-center gap-2 mb-1 md:mb-2">
+                                                                <span className={`uppercase tracking-widest text-slate-600 dark:text-slate-300 ${m.meat_type === 'ASADA' ? 'text-lg md:text-2xl font-black text-blue-800 dark:text-blue-300' : 'text-base md:text-xl font-black'}`}>{m.meat_type}</span>
+                                                            </div>
                                                             
                                                             <div className="flex w-full items-center justify-center gap-4">
                                                                 {/* Projected Column */}
@@ -998,6 +1001,12 @@ export default function PreparadorPage() {
                                                                         </div>
                                                                     </>
                                                                 )}
+                                                            </div>
+
+                                                            {/* Max Holding Tray Buffer Badge */}
+                                                            <div className="mt-3 flex items-center gap-1.5 bg-amber-500/10 dark:bg-amber-500/20 border border-amber-300 dark:border-amber-700/80 px-3 py-1 rounded-full text-amber-900 dark:text-amber-200 text-xs font-black shadow-xs">
+                                                                <span>🔥</span>
+                                                                <span>{t('prep.maxTray')}: {maxTrayLbs} lbs</span>
                                                             </div>
                                                         </div>
                                                     )
