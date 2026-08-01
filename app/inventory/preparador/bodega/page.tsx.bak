@@ -232,37 +232,26 @@ export default function BodegaPWA() {
             let tempH = h
             let tempM = curM
             
-            // Generate next 10 hourly buckets for the carousel
+            // Generate next 10 buckets for the carousel
             for (let i = 0; i < 10; i++) {
                 let hrStr = tempH.toString().padStart(2, '0')
-                let bucketId = `${hrStr}:00:00`
-                let halfBucketId = `${hrStr}:30:00`
+                let minStr = tempM.toString().padStart(2, '0')
+                let bucketId = `${hrStr}:${minStr}:00`
                 
-                let nxtH = (tempH + 1) % 24
+                let nxtM = tempM === 0 ? 30 : 0
+                let nxtH = tempM === 30 ? (tempH + 1) % 24 : tempH
                 
-                let label = `${formatTime12(tempH, 0)} a ${formatTime12(nxtH, 0)}`
+                let label = `${formatTime12(tempH, tempM)} a ${formatTime12(nxtH, nxtM)}`
                 
                 let data: MeatData[] = []
                 if (meatData.length > 0) {
-                    const allowedTypes = ['CABEZA', 'LENGUA', 'CHAMPURRADO', 'AGUACATE', 'FRIJOL MOLIDO', 'ARROZ']
-                    data = allowedTypes.map(type => {
-                        const m00 = meatData.find(m => m.interval_start === bucketId && m.meat_type === type)
-                        const m30 = meatData.find(m => m.interval_start === halfBucketId && m.meat_type === type)
-                        
-                        const totalAvg = (m00 ? m00.avg_lbs : 0) + (m30 ? m30.avg_lbs : 0)
-                        
-                        return {
-                            interval_start: bucketId,
-                            meat_type: type,
-                            avg_lbs: totalAvg,
-                            samples: (m00?.samples || 0) + (m30?.samples || 0)
-                        }
-                    })
+                    data = meatData.filter(m => m.interval_start === bucketId)
                 }
                 
                 arr.push({ id: bucketId, label, isCurrent: i === 0, data })
                 
                 tempH = nxtH
+                tempM = nxtM
             }
 
             setCarouselBuckets(arr)

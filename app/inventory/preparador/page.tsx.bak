@@ -514,55 +514,38 @@ export default function PreparadorLineaPage() {
             
             const arr = []
             let tempH = 6 
+            let tempM = 0
             let foundCurrentIndex = 0
             
-            // Generate full 24 hourly buckets (6:00 AM to 5:00 AM)
-            for (let i = 0; i < 24; i++) {
+            // Generate full 48 buckets (6:00 AM to 5:30 AM)
+            for (let i = 0; i < 48; i++) {
                 let hrStr = tempH.toString().padStart(2, '0')
-                let bucketId = `${hrStr}:00:00`
-                let halfBucketId = `${hrStr}:30:00`
+                let minStr = tempM.toString().padStart(2, '0')
+                let bucketId = `${hrStr}:${minStr}:00`
                 
-                let nxtH = (tempH + 1) % 24
+                let nxtM = tempM === 0 ? 30 : 0
+                let nxtH = tempM === 30 ? (tempH + 1) % 24 : tempH
                 
-                let label = `${formatTime12(tempH, 0)} a ${formatTime12(nxtH, 0)}`
+                let label = `${formatTime12(tempH, tempM)} a ${formatTime12(nxtH, nxtM)}`
                 
                 let data: MeatData[] = []
                 if (meatData.length > 0) {
                     const sortOrder: Record<string, number> = { 'ASADA': 1, 'PASTOR': 2, 'POLLO': 3, 'CABEZA': 4, 'LENGUA': 5, 'CARNITAS': 6 }
-                    const proteins = ['ASADA', 'PASTOR', 'POLLO', 'CABEZA', 'LENGUA']
-                    
-                    data = proteins.map(proto => {
-                        const m00 = meatData.find(m => m.interval_start === bucketId && m.meat_type === proto)
-                        const m30 = meatData.find(m => m.interval_start === halfBucketId && m.meat_type === proto)
-                        
-                        const avg00 = m00 ? m00.avg_lbs : 0
-                        const avg30 = m30 ? m30.avg_lbs : 0
-                        const totalAvg = avg00 + avg30
-                        
-                        const r00 = realMeatData.find(rm => rm.interval_start === bucketId && rm.meat_type === proto)
-                        const r30 = realMeatData.find(rm => rm.interval_start === halfBucketId && rm.meat_type === proto)
-                        
-                        let realSum: number | undefined = undefined
-                        if (r00 || r30) {
-                            realSum = (r00 ? r00.real_lbs : 0) + (r30 ? r30.real_lbs : 0)
-                        }
-                        
-                        return {
-                            interval_start: bucketId,
-                            meat_type: proto,
-                            avg_lbs: totalAvg,
-                            samples: (m00?.samples || 0) + (m30?.samples || 0),
-                            real_lbs: realSum
-                        }
-                    }).sort((a,b) => (sortOrder[a.meat_type] || 99) - (sortOrder[b.meat_type] || 99))
+                    data = meatData.filter(m => m.interval_start === bucketId && m.meat_type !== 'CARNITAS')
+                        .sort((a,b) => (sortOrder[a.meat_type] || 99) - (sortOrder[b.meat_type] || 99))
+                        .map(m => {
+                             const realD = realMeatData.find(rm => rm.interval_start === bucketId && rm.meat_type === m.meat_type)
+                             return { ...m, real_lbs: realD ? realD.real_lbs : undefined }
+                        })
                 }
                 
-                let isCurrent = (tempH === h)
+                let isCurrent = (tempH === h && tempM === curM)
                 if (isCurrent) foundCurrentIndex = i
 
                 arr.push({ id: bucketId, label, isCurrent, data })
                 
                 tempH = nxtH
+                tempM = nxtM
             }
 
             setCurrentBucketIndex(foundCurrentIndex)
@@ -573,9 +556,9 @@ export default function PreparadorLineaPage() {
             
             setCarouselBuckets(arr)
 
-            // Trigger Alert 10 minutes before the top of each hour (at :50)
-            if (m === 50 && arr.length > 1 && foundCurrentIndex < 23) {
-                const signature = `${h}-50`
+            // Trigger Alert 10 minutes before the hour/half-hour (at :20 or :50)
+            if ((m === 20 || m === 50) && arr.length > 1 && foundCurrentIndex < 47) {
+                const signature = `${h}-${m}`
                 if (lastCookAlertRef.current !== signature) {
                     lastCookAlertRef.current = signature
                     setNextBlockLabel(arr[foundCurrentIndex + 1].label)
@@ -586,6 +569,7 @@ export default function PreparadorLineaPage() {
                     }
                     // Play sound if available
                     if (cookAlarmRef.current) {
+                        // Reset audio and play
                         try {
                             cookAlarmRef.current.src = "/sounds/alarm.mp3"
                             cookAlarmRef.current.muted = false
