@@ -630,9 +630,11 @@ export default function PreparadorPage() {
                     const signature = `${h}-${m}`
                     if (lastCookAlertRef.current !== signature) {
                         lastCookAlertRef.current = signature
-                        setNextBlockLabel(arr[foundCurrentIndex + 1]?.label || '')
-                        setShowCookAlert(true)
-                        if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate([500, 200, 500])
+                        if (cardDisplayMode === 'advanced') {
+                            setNextBlockLabel(arr[foundCurrentIndex + 1]?.label || '')
+                            setShowCookAlert(true)
+                            if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate([500, 200, 500])
+                        }
                     }
                 }
             } else {
