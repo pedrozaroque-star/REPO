@@ -62,7 +62,7 @@ export default function PreparadorPage() {
     
     // Guide Modal State
     const [showGuideModal, setShowGuideModal] = useState(false)
-    const [guideModalDow, setGuideModalDow] = useState<number>(1)
+    const [guideModalDow, setGuideModalDow] = useState<number>(businessDow)
     const [guideModalData, setGuideModalData] = useState<any[]>([])
     const [guideModalLoading, setGuideModalLoading] = useState(false)
     
@@ -489,6 +489,13 @@ export default function PreparadorPage() {
         const int = setInterval(fetchIntelligence, 3 * 60 * 1000)
         return () => clearInterval(int)
     }, [storeId, isToday])
+
+    // Sync Guide Modal DOW when opening
+    useEffect(() => {
+        if (showGuideModal) {
+            setGuideModalDow(businessDow)
+        }
+    }, [showGuideModal, businessDow])
 
     // Load Guide History for Modal
     useEffect(() => {

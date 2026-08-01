@@ -35,6 +35,14 @@ function getOperationalTimeOrder() {
 
 const OPERATIONAL_TIMES = getOperationalTimeOrder()
 
+const getTodayLADow = () => {
+    const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
+    const [y, m, d] = todayStr.split('-').map(Number)
+    const dateObj = new Date(y, m - 1, d)
+    const dayNum = dateObj.getDay()
+    return dayNum === 0 ? 7 : dayNum
+}
+
 export default function TablaMaximosPage() {
     const { t } = useLanguage()
     const { user } = useAuth()
@@ -42,7 +50,7 @@ export default function TablaMaximosPage() {
 
     const [stores, setStores] = useState<any[]>([])
     const [storeId, setStoreId] = useState('')
-    const [selectedDow, setSelectedDow] = useState<number>(1)
+    const [selectedDow, setSelectedDow] = useState<number>(getTodayLADow())
     const [tableData, setTableData] = useState<any[]>([])
     const [loading, setLoading] = useState(false)
 
