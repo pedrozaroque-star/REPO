@@ -343,7 +343,7 @@ export default function PreparadorLineaPage() {
     // Load Stores
     useEffect(() => {
         const fetchStores = async () => {
-            const { data } = await supabase.from('stores').select('id, name, external_id').eq('is_active', true).order('name')
+            const { data } = await supabase.from('stores').select('id, name, external_id, opening_time, closing_time').eq('is_active', true).order('name')
             if (data) {
                 setStores(data)
                 
@@ -512,14 +512,24 @@ export default function PreparadorLineaPage() {
                 return `${h12}:${min.toString().padStart(2, '0')}${p}`
             }
             
+            // Derive store opening hour dynamically
+            const activeStoreObj = stores.find(s => s.id === storeId)
+            let openH = 8
+            if (activeStoreObj && activeStoreObj.opening_time) {
+                const parts = activeStoreObj.opening_time.split(':').map(Number)
+                if (!isNaN(parts[0])) {
+                    openH = Math.max(6, parts[0] - 1) // 1 hour prep lead time before public opening
+                }
+            }
+
             // Define 6 Peak & Operational Time Period Blocks
             const PEAK_PERIODS = [
-                { id: 'p1', name: 'Desayuno / Mañana', startH: 6, endH: 11, duration: 5, isPeak: false },
+                { id: 'p1', name: 'Apertura / Desayuno', startH: openH, endH: 11, duration: Math.max(1, 11 - openH), isPeak: false },
                 { id: 'p2', name: 'HORA PICO AM', startH: 11, endH: 14, duration: 3, isPeak: true },
                 { id: 'p3', name: 'Tarde / Transición', startH: 14, endH: 17, duration: 3, isPeak: false },
                 { id: 'p4', name: 'HORA PICO PM', startH: 17, endH: 21, duration: 4, isPeak: true },
                 { id: 'p5', name: 'Noche / Cena Tardía', startH: 21, endH: 1, duration: 4, isPeak: false },
-                { id: 'p6', name: 'Madrugada / Cierre', startH: 1, endH: 6, duration: 5, isPeak: false }
+                { id: 'p6', name: 'Madrugada / Cierre', startH: 1, endH: openH, duration: (24 - 1 + openH) % 24 || 5, isPeak: false }
             ]
 
             const isHourInPeriod = (hr: number, startH: number, endH: number) => {
