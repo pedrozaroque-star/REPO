@@ -831,10 +831,11 @@ export default function PreparadorPage() {
                 <div className="flex items-center gap-3">
                     <button 
                         onClick={toggleFullscreen} 
-                        className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors text-slate-600 dark:text-slate-300 cursor-pointer"
+                        className="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 px-3 py-2 rounded-xl font-bold text-xs transition-colors cursor-pointer border border-slate-200 dark:border-slate-700 shadow-xs"
                         title={t('prep.tabletMode')}
                     >
-                        {isFullscreen ? <Minimize size={20} /> : <Maximize size={20} />}
+                        {isFullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
+                        <span className="font-extrabold uppercase">{isFullscreen ? t('prep.exit') : t('prep.tablet')}</span>
                     </button>
                     <div>
                         <h1 className="font-black text-lg md:text-xl text-slate-800 dark:text-white uppercase tracking-wider">{t('prep.title')}</h1>
