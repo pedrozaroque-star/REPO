@@ -49,7 +49,7 @@ export default function PreparadorLineaPage() {
     const [meatData, setMeatData] = useState<MeatData[]>([])
     const [realMeatData, setRealMeatData] = useState<{interval_start: string, meat_type: string, real_lbs: number}[]>([])
     const [fetchingMeat, setFetchingMeat] = useState(false)
-    const [carouselBuckets, setCarouselBuckets] = useState<{ id: string, label: string, isCurrent: boolean, data: MeatData[] }[]>([])
+    const [carouselBuckets, setCarouselBuckets] = useState<{ id: string, name?: string, isPeak?: boolean, duration?: number, label: string, isCurrent: boolean, data: any[] }[]>([])
     const [intelligenceAcelerador, setIntelligenceAcelerador] = useState(1.0)
     const [weatherAlert, setWeatherAlert] = useState(false)
     const [activeIndex, setActiveIndex] = useState(0)
@@ -512,58 +512,76 @@ export default function PreparadorLineaPage() {
                 return `${h12}:${min.toString().padStart(2, '0')}${p}`
             }
             
-            const arr = []
-            let tempH = 6 
+            // Define 6 Peak & Operational Time Period Blocks
+            const PEAK_PERIODS = [
+                { id: 'p1', name: 'Desayuno / Mañana', startH: 6, endH: 11, duration: 5, isPeak: false },
+                { id: 'p2', name: 'HORA PICO AM', startH: 11, endH: 14, duration: 3, isPeak: true },
+                { id: 'p3', name: 'Tarde / Transición', startH: 14, endH: 17, duration: 3, isPeak: false },
+                { id: 'p4', name: 'HORA PICO PM', startH: 17, endH: 21, duration: 4, isPeak: true },
+                { id: 'p5', name: 'Noche / Cena Tardía', startH: 21, endH: 1, duration: 4, isPeak: false },
+                { id: 'p6', name: 'Madrugada / Cierre', startH: 1, endH: 6, duration: 5, isPeak: false }
+            ]
+
+            const isHourInPeriod = (hr: number, startH: number, endH: number) => {
+                if (startH < endH) return hr >= startH && hr < endH
+                return hr >= startH || hr < endH
+            }
+
+            const arr: any[] = []
             let foundCurrentIndex = 0
-            
-            // Generate full 24 hourly buckets (6:00 AM to 5:00 AM)
-            for (let i = 0; i < 24; i++) {
-                let hrStr = tempH.toString().padStart(2, '0')
-                let bucketId = `${hrStr}:00:00`
-                let halfBucketId = `${hrStr}:30:00`
+
+            PEAK_PERIODS.forEach((period, idx) => {
+                let startLabel = formatTime12(period.startH, 0)
+                let endLabel = formatTime12(period.endH, 0)
+                let label = `${startLabel} a ${endLabel}`
                 
-                let nxtH = (tempH + 1) % 24
-                
-                let label = `${formatTime12(tempH, 0)} a ${formatTime12(nxtH, 0)}`
-                
-                let data: MeatData[] = []
+                let data: any[] = []
                 if (meatData.length > 0) {
                     const sortOrder: Record<string, number> = { 'ASADA': 1, 'PASTOR': 2, 'POLLO': 3, 'CABEZA': 4, 'LENGUA': 5, 'CARNITAS': 6 }
                     const proteins = ['ASADA', 'PASTOR', 'POLLO', 'CABEZA', 'LENGUA']
                     
                     data = proteins.map(proto => {
-                        const m00 = meatData.find(m => m.interval_start === bucketId && m.meat_type === proto)
-                        const m30 = meatData.find(m => m.interval_start === halfBucketId && m.meat_type === proto)
-                        
-                        const avg00 = m00 ? m00.avg_lbs : 0
-                        const avg30 = m30 ? m30.avg_lbs : 0
-                        const totalAvg = avg00 + avg30
-                        
-                        const r00 = realMeatData.find(rm => rm.interval_start === bucketId && rm.meat_type === proto)
-                        const r30 = realMeatData.find(rm => rm.interval_start === halfBucketId && rm.meat_type === proto)
-                        
-                        let realSum: number | undefined = undefined
-                        if (r00 || r30) {
-                            realSum = (r00 ? r00.real_lbs : 0) + (r30 ? r30.real_lbs : 0)
-                        }
-                        
+                        let totalAvg = 0
+                        let totalSamples = 0
+                        let totalRealSum = 0
+                        let hasReal = false
+
+                        meatData.forEach(m => {
+                            if (m.meat_type !== proto) return
+                            const [hhStr] = m.interval_start.split(':')
+                            const hh = parseInt(hhStr, 10)
+                            if (isHourInPeriod(hh, period.startH, period.endH)) {
+                                totalAvg += m.avg_lbs
+                                totalSamples += (m.samples || 0)
+                            }
+                        })
+
+                        realMeatData.forEach(rm => {
+                            if (rm.meat_type !== proto) return
+                            const [hhStr] = rm.interval_start.split(':')
+                            const hh = parseInt(hhStr, 10)
+                            if (isHourInPeriod(hh, period.startH, period.endH)) {
+                                totalRealSum += Number(rm.real_lbs || 0)
+                                hasReal = true
+                            }
+                        })
+
                         return {
-                            interval_start: bucketId,
+                            interval_start: `${period.startH.toString().padStart(2, '0')}:00:00`,
                             meat_type: proto,
                             avg_lbs: totalAvg,
-                            samples: (m00?.samples || 0) + (m30?.samples || 0),
-                            real_lbs: realSum
+                            duration: period.duration,
+                            samples: totalSamples,
+                            real_lbs: hasReal ? totalRealSum : undefined
                         }
                     }).sort((a,b) => (sortOrder[a.meat_type] || 99) - (sortOrder[b.meat_type] || 99))
                 }
-                
-                let isCurrent = (tempH === h)
-                if (isCurrent) foundCurrentIndex = i
 
-                arr.push({ id: bucketId, label, isCurrent, data })
-                
-                tempH = nxtH
-            }
+                let isCurrent = isHourInPeriod(h, period.startH, period.endH)
+                if (isCurrent) foundCurrentIndex = idx
+
+                arr.push({ id: period.id, name: period.name, isPeak: period.isPeak, duration: period.duration, label, isCurrent, data })
+            })
 
             setCurrentBucketIndex(foundCurrentIndex)
             if (!hasInitializedRef.current) {
@@ -573,31 +591,32 @@ export default function PreparadorLineaPage() {
             
             setCarouselBuckets(arr)
 
-            // Trigger Alert 10 minutes before the top of each hour (at :50)
-            if (m === 50 && arr.length > 1 && foundCurrentIndex < 23) {
-                const signature = `${h}-50`
-                if (lastCookAlertRef.current !== signature) {
-                    lastCookAlertRef.current = signature
-                    setNextBlockLabel(arr[foundCurrentIndex + 1].label)
-                    setShowCookAlert(true)
-                    // Haptic feedback / vibration for tablet alerts
-                    if (typeof navigator !== 'undefined' && navigator.vibrate) {
-                        navigator.vibrate([500, 200, 500])
-                    }
-                    // Play sound if available
-                    if (cookAlarmRef.current) {
-                        try {
-                            cookAlarmRef.current.src = "/sounds/alarm.mp3"
-                            cookAlarmRef.current.muted = false
-                            cookAlarmRef.current.volume = 1.0
-                            const playPromise = cookAlarmRef.current.play()
-                            if (playPromise !== undefined) {
-                                playPromise.catch(e => console.error("Audio block:", e))
-                            }
-                        } catch(err) {}
+            // Trigger Alert 10 minutes before the end of each peak block (at :50)
+            PEAK_PERIODS.forEach((period, idx) => {
+                let preEndH = period.endH === 0 ? 23 : (period.endH - 1 + 24) % 24
+                if (h === preEndH && m === 50 && idx < 5) {
+                    const signature = `${period.id}-50`
+                    if (lastCookAlertRef.current !== signature) {
+                        lastCookAlertRef.current = signature
+                        setNextBlockLabel(arr[(idx + 1) % 6]?.label || '')
+                        setShowCookAlert(true)
+                        if (typeof navigator !== 'undefined' && navigator.vibrate) {
+                            navigator.vibrate([500, 200, 500])
+                        }
+                        if (cookAlarmRef.current) {
+                            try {
+                                cookAlarmRef.current.src = "/sounds/alarm.mp3"
+                                cookAlarmRef.current.muted = false
+                                cookAlarmRef.current.volume = 1.0
+                                const playPromise = cookAlarmRef.current.play()
+                                if (playPromise !== undefined) {
+                                    playPromise.catch(e => console.error("Audio block:", e))
+                                }
+                            } catch(err) {}
+                        }
                     }
                 }
-            }
+            })
         }
         
         updateBuckets()
@@ -642,8 +661,7 @@ export default function PreparadorLineaPage() {
             console.error("Error enviando alerta:", error)
         } else {
             setCart([])
-            // Sonido local para feedback (Opcional, previene que duden si se mandó)
-            const au = new Audio('/sounds/success.mp3') // Placeholder, si no existe no pasa nada (ignora error)
+            const au = new Audio('/sounds/success.mp3')
             au.play().catch(()=>{})
         }
         setSending(false)
@@ -659,7 +677,7 @@ export default function PreparadorLineaPage() {
         <div ref={containerRef} className={`flex flex-col overflow-hidden bg-slate-100 dark:bg-slate-950 transition-all ${isFullscreen ? 'fixed inset-0 z-[9999] h-screen w-screen' : 'h-[calc(100vh-64px)]'}`}>
             <audio ref={cookAlarmRef} src="/sounds/alarm.mp3" preload="auto" loop className="hidden" />
 
-            {/* Modal Alerta de Cocción (6 minutos antes del bloque) */}
+            {/* Modal Alerta de Cocción */}
             <AnimatePresence>
                 {showCookAlert && (
                     <motion.div 
@@ -686,18 +704,12 @@ export default function PreparadorLineaPage() {
                                 onClick={() => {
                                     setShowCookAlert(false)
                                     if (cookAlarmRef.current) {
-                                        try {
-                                            cookAlarmRef.current.muted = true
-                                            cookAlarmRef.current.volume = 0
-                                            cookAlarmRef.current.pause()
-                                            cookAlarmRef.current.removeAttribute('src')
-                                            cookAlarmRef.current.load()
-                                        } catch(e) {}
+                                        cookAlarmRef.current.pause()
+                                        cookAlarmRef.current.currentTime = 0
                                     }
                                 }}
-                                className="w-full md:w-[400px] bg-emerald-500 hover:bg-emerald-400 active:bg-emerald-600 text-white font-black text-3xl px-10 py-8 rounded-3xl shadow-[0_0_50px_rgba(16,185,129,0.3)] transition-transform active:scale-95 border-b-8 border-emerald-700 flex flex-col items-center justify-center"
+                                className="w-full bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 text-white font-black py-6 rounded-2xl text-2xl uppercase tracking-wider shadow-2xl transition-transform active:scale-95 cursor-pointer"
                             >
-                                <CheckCircle2 size={40} className="mb-2" />
                                 {t('prep.understood')}
                             </button>
                         </motion.div>
@@ -705,37 +717,29 @@ export default function PreparadorLineaPage() {
                 )}
             </AnimatePresence>
 
-            {/* Header / Config Bar */}
-            <div className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 p-4 flex flex-col md:flex-row gap-4 justify-between items-center shadow-sm shrink-0">
-                <div className="flex items-center gap-3 w-full md:w-auto justify-center md:justify-start">
-                    <div className="bg-gradient-to-r from-red-600 to-orange-500 p-2 rounded-lg text-white shadow-md shrink-0">
-                        <ChefHat size={24} />
-                    </div>
-                    <div>
-                        <h1 className="text-xl font-black text-slate-800 dark:text-white leading-tight">{t('prep.title')}</h1>
-                        <p className="text-xs text-slate-500 font-medium">{t('prep.subtitle')}</p>
-                    </div>
-                </div>
-                
-                <div className="flex items-center justify-center gap-2 md:gap-4 flex-wrap w-full md:w-auto">
+            {/* Header / Navbar */}
+            <div className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 p-4 flex justify-between items-center shrink-0 shadow-sm">
+                <div className="flex items-center gap-3">
                     <button 
-                        onClick={toggleFullscreen}
-                        className="flex items-center gap-2 bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 px-3 py-2 rounded-lg font-bold text-sm transition-colors"
+                        onClick={toggleFullscreen} 
+                        className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors text-slate-600 dark:text-slate-300 cursor-pointer"
                         title={t('prep.tabletMode')}
                     >
-                        {isFullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
-                        <span className="hidden sm:inline">{isFullscreen ? t('prep.exit') : t('prep.tablet')}</span>
+                        {isFullscreen ? <Minimize size={20} /> : <Maximize size={20} />}
                     </button>
-                    
+                    <div>
+                        <h1 className="font-black text-lg md:text-xl text-slate-800 dark:text-white uppercase tracking-wider">{t('prep.title')}</h1>
+                        <p className="text-xs text-slate-500 font-medium hidden sm:block">{t('prep.subtitle')}</p>
+                    </div>
+                </div>
+
+                <div className="flex items-center gap-3">
                     {(() => {
                         const isSuper = ['admin', 'supervisor'].includes(user?.role?.toLowerCase() || '')
                         return (
                             <select 
                                 value={storeId} 
-                                onChange={e => {
-                                    setStoreId(e.target.value)
-                                    localStorage.setItem('teg_preparador_store', e.target.value)
-                                }}
+                                onChange={e => setStoreId(e.target.value)}
                                 disabled={!isSuper}
                                 className={`border-none rounded-lg p-2 font-bold focus:ring-2 focus:ring-red-500 outline-none relative z-50 ${!isSuper ? 'bg-slate-200 dark:bg-slate-900 text-slate-500 dark:text-slate-600 cursor-not-allowed' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 cursor-pointer'}`}
                             >
@@ -762,7 +766,7 @@ export default function PreparadorLineaPage() {
             {/* Split Screen Container */}
             <div className="flex flex-col lg:flex-row flex-1 overflow-y-auto lg:overflow-hidden">
                 
-                {/* LADO IZQUIERDO: PROYECCIÓN (oculta en md pero visible apilada en movil/tablet portrait si ajustamos breakpoints. Usaremos lg para side-by-side) */}
+                {/* LADO IZQUIERDO: PROYECCIÓN POR TRAMOS PICO */}
                 <div className="w-full lg:w-[48%] border-b lg:border-b-0 lg:border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 md:p-6 xl:p-8 flex flex-col shrink-0 lg:shrink lg:overflow-y-auto">
                     <div className="flex justify-between items-center mb-6 bg-slate-50 dark:bg-slate-800/50 p-4 rounded-xl border border-slate-200 dark:border-slate-700">
                         <div className="flex items-center gap-4">
@@ -845,56 +849,67 @@ export default function PreparadorLineaPage() {
                                             <div className="flex justify-between items-center mb-6 pb-4 border-b border-slate-200/50 dark:border-slate-700/50">
                                                 <div className={`font-black tracking-tight flex items-center gap-3 ${isTop ? 'text-blue-900 dark:text-blue-300' : 'text-slate-800 dark:text-slate-200'}`}>
                                                     {isRealCurrent && <div className="w-4 h-4 rounded-full bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.8)] animate-pulse" />}
-                                                            <div className="flex flex-col md:flex-row md:items-center gap-1 md:gap-4">
-                                                                <span className="uppercase text-lg md:text-2xl flex items-center gap-2">
-                                                                    {isRealCurrent ? t('prep.now') : (localIndex === 1 && activeIndex === currentBucketIndex ? t('prep.next') : (activeIndex < currentBucketIndex ? t('prep.past') : t('prep.projection')))}
-                                                                    {isTop && <HelpCircle size={20} className="text-blue-500/50 hover:text-blue-500 transition-colors" />}
+                                                    <div className="flex flex-col md:flex-row md:items-center gap-1 md:gap-4">
+                                                        <span className="uppercase text-lg md:text-2xl flex items-center gap-2 font-black">
+                                                            {bucket.name}
+                                                            {bucket.isPeak && (
+                                                                <span className="text-xs px-2.5 py-1 rounded-full bg-red-600 text-white font-black animate-pulse shadow-md">
+                                                                    PICO
                                                                 </span>
-                                                                <span className={`text-2xl md:text-4xl font-black lowercase tracking-tighter [font-feature-settings:'tnum'] ${isTop ? 'opacity-90 text-blue-950 dark:text-blue-100' : 'opacity-60'}`}>
-                                                                    {bucket.label}
-                                                                </span>
+                                                            )}
+                                                            {isTop && <HelpCircle size={20} className="text-blue-500/50 hover:text-blue-500 transition-colors" />}
+                                                        </span>
+                                                        <span className={`text-lg md:text-2xl font-black lowercase tracking-tighter [font-feature-settings:'tnum'] ${isTop ? 'opacity-90 text-blue-950 dark:text-blue-100' : 'opacity-60'}`}>
+                                                            {bucket.label} ({bucket.duration}h)
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            
+                                            <div className="grid grid-cols-2 gap-3 xl:gap-4">
+                                                {bucket.data.length > 0 ? bucket.data.map((m: any) => {
+                                                    const valPerHour = (m.avg_lbs * intelligenceAcelerador) / (m.duration || 1)
+                                                    const totalVal = m.avg_lbs * intelligenceAcelerador
+                                                    const realValPerHour = m.real_lbs !== undefined ? m.real_lbs / (m.duration || 1) : undefined
+
+                                                    return (
+                                                        <div key={m.meat_type} className={`bg-white/60 dark:bg-slate-900/60 p-3 xl:p-4 rounded-2xl flex flex-col items-center justify-center shadow-sm w-full ${m.meat_type === 'ASADA' ? 'col-span-2 shadow-md border border-blue-200/50 dark:border-blue-800/50 bg-blue-50/50 dark:bg-blue-900/30 py-4 xl:py-6' : 'border border-slate-100 dark:border-slate-800 py-4 xl:py-5'}`}>
+                                                            <span className={`uppercase tracking-widest text-slate-600 dark:text-slate-300 mb-1 md:mb-2 ${m.meat_type === 'ASADA' ? 'text-lg md:text-2xl font-black text-blue-800 dark:text-blue-300' : 'text-base md:text-xl font-black'}`}>{m.meat_type}</span>
+                                                            
+                                                            <div className="flex w-full items-center justify-center gap-4">
+                                                                {/* Projected Column (lbs/hr) */}
+                                                                <div className={`flex flex-col items-center justify-center leading-none transition-all duration-300 ${realValPerHour !== undefined ? 'opacity-40 scale-90' : 'opacity-100'}`}>
+                                                                    <span className={`font-black tracking-tighter leading-none ${m.meat_type === 'ASADA' ? 'text-5xl xl:text-6xl text-blue-700 dark:text-blue-400 drop-shadow-sm' : 'text-4xl xl:text-5xl text-slate-800 dark:text-white'}`}>
+                                                                        {valPerHour.toFixed(1)}
+                                                                    </span>
+                                                                    <span className="text-[10px] md:text-xs font-bold text-slate-500 dark:text-slate-400 tracking-wider mt-2 bg-white/50 dark:bg-slate-800/50 px-2 py-0.5 rounded-md">lbs/hr (total: {totalVal.toFixed(1)} lbs)</span>
+                                                                </div>
+                                                                
+                                                                {/* Real Consumed Column */}
+                                                                {realValPerHour !== undefined ? (
+                                                                    <>
+                                                                        <div className="h-16 w-px bg-slate-300/50 dark:bg-slate-700/50"></div>
+                                                                        <div className="flex flex-col items-center justify-center leading-none">
+                                                                            <span className={`font-black tracking-tighter leading-none text-emerald-600 dark:text-emerald-400 ${m.meat_type === 'ASADA' ? 'text-4xl xl:text-5xl animate-pulse' : 'text-3xl xl:text-4xl animate-pulse'}`}>
+                                                                                {realValPerHour.toFixed(1)}
+                                                                            </span>
+                                                                            <span className="text-[10px] md:text-xs font-bold text-emerald-700 dark:text-emerald-500 tracking-wider mt-2 bg-emerald-500/10 px-2 py-0.5 rounded-md">{t('prep.real')}/hr</span>
+                                                                        </div>
+                                                                    </>
+                                                                ) : (activeIndex < currentBucketIndex) && (
+                                                                    <>
+                                                                        <div className="h-16 w-px bg-slate-300/50 dark:bg-slate-700/50"></div>
+                                                                        <div className="flex flex-col items-center justify-center leading-none">
+                                                                            <span className="text-[10px] md:text-xs font-bold text-amber-600 dark:text-amber-400 tracking-wide mt-2 bg-amber-500/10 px-2 py-1 rounded-md animate-pulse">
+                                                                                {t('prep.syncing')}
+                                                                            </span>
+                                                                        </div>
+                                                                    </>
+                                                                )}
                                                             </div>
                                                         </div>
-                                                    </div>
-                                                    
-                                                    <div className="grid grid-cols-2 gap-3 xl:gap-4">
-                                                        {bucket.data.length > 0 ? bucket.data.map(m => (
-                                                            <div key={m.meat_type} className={`bg-white/60 dark:bg-slate-900/60 p-3 xl:p-4 rounded-2xl flex flex-col items-center justify-center shadow-sm w-full ${m.meat_type === 'ASADA' ? 'col-span-2 shadow-md border border-blue-200/50 dark:border-blue-800/50 bg-blue-50/50 dark:bg-blue-900/30 py-4 xl:py-6' : 'border border-slate-100 dark:border-slate-800 py-4 xl:py-5'}`}>
-                                                                <span className={`uppercase tracking-widest text-slate-600 dark:text-slate-300 mb-1 md:mb-2 ${m.meat_type === 'ASADA' ? 'text-lg md:text-2xl font-black text-blue-800 dark:text-blue-300' : 'text-base md:text-xl font-black'}`}>{m.meat_type}</span>
-                                                                
-                                                                <div className="flex w-full items-center justify-center gap-4">
-                                                                    {/* Projected Column (attenuated when real data exists) */}
-                                                                    <div className={`flex flex-col items-center justify-center leading-none transition-all duration-300 ${m.real_lbs !== undefined ? 'opacity-40 scale-90' : 'opacity-100'}`}>
-                                                                        <span className={`font-black tracking-tighter leading-none ${m.meat_type === 'ASADA' ? 'text-6xl xl:text-[5.5rem] text-blue-700 dark:text-blue-400 drop-shadow-sm' : 'text-5xl xl:text-6xl text-slate-800 dark:text-white'}`}>
-                                                                            {(m.avg_lbs * intelligenceAcelerador).toFixed(1)}
-                                                                        </span>
-                                                                        <span className="text-[10px] md:text-xs font-bold text-slate-500 dark:text-slate-400 tracking-wider mt-2 bg-white/50 dark:bg-slate-800/50 px-2 py-0.5 rounded-md">{t('prep.proy')} {m.avg_lbs.toFixed(1)}</span>
-                                                                    </div>
-                                                                    
-                                                                    {/* Real Consumed Column */}
-                                                                    {m.real_lbs !== undefined ? (
-                                                                        <>
-                                                                            <div className="h-16 w-px bg-slate-300/50 dark:bg-slate-700/50"></div>
-                                                                            <div className="flex flex-col items-center justify-center leading-none">
-                                                                                <span className={`font-black tracking-tighter leading-none text-emerald-600 dark:text-emerald-400 ${m.meat_type === 'ASADA' ? 'text-4xl xl:text-5xl animate-pulse' : 'text-3xl xl:text-4xl animate-pulse'}`}>
-                                                                                    {m.real_lbs.toFixed(1)}
-                                                                                </span>
-                                                                                <span className="text-[10px] md:text-xs font-bold text-emerald-700 dark:text-emerald-500 tracking-wider mt-2 bg-emerald-500/10 px-2 py-0.5 rounded-md">{t('prep.real')}</span>
-                                                                            </div>
-                                                                        </>
-                                                                    ) : (activeIndex < currentBucketIndex) && (
-                                                                        <>
-                                                                            <div className="h-16 w-px bg-slate-300/50 dark:bg-slate-700/50"></div>
-                                                                            <div className="flex flex-col items-center justify-center leading-none">
-                                                                                <span className="text-[10px] md:text-xs font-bold text-amber-600 dark:text-amber-400 tracking-wide mt-2 bg-amber-500/10 px-2 py-1 rounded-md animate-pulse">
-                                                                                    {t('prep.syncing')}
-                                                                                </span>
-                                                                            </div>
-                                                                        </>
-                                                                    )}
-                                                                </div>
-                                                            </div>
-                                                )) : <p className="col-span-2 text-center text-sm font-medium text-slate-400 py-6 opacity-70">{t('prep.noProjectionData')}</p>}
+                                                    )
+                                                }) : <p className="col-span-2 text-center text-sm font-medium text-slate-400 py-6 opacity-70">{t('prep.noProjectionData')}</p>}
                                             </div>
                                         </div>
                                     </motion.div>
@@ -902,7 +917,7 @@ export default function PreparadorLineaPage() {
                             })}
                             </AnimatePresence>
                             
-                            {/* Pagination Indicators - Hint of remaining buckets */}
+                            {/* Pagination Indicators */}
                             <div className="absolute top-0 right-0 h-full w-8 flex flex-col items-center justify-center gap-1 opacity-30 z-10 pointer-events-none hidden md:flex">
                                 {carouselBuckets.map((b, i) => (
                                     <div key={b.id} className={`w-1.5 h-1.5 rounded-full transition-all duration-300 ${i === activeIndex ? 'bg-blue-600 scale-150' : i === activeIndex + 1 ? 'bg-slate-600' : 'bg-slate-300'}`} />

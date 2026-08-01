@@ -42,7 +42,7 @@ export default function BodegaPWA() {
     // Meat Historial Data (Cabeza, Lengua)
     const [meatData, setMeatData] = useState<MeatData[]>([])
     const [fetchingMeat, setFetchingMeat] = useState(false)
-    const [carouselBuckets, setCarouselBuckets] = useState<{id: string, label: string, data: MeatData[], isCurrent: boolean}[]>([])
+    const [carouselBuckets, setCarouselBuckets] = useState<{ id: string, name?: string, isPeak?: boolean, duration?: number, label: string, data: any[], isCurrent: boolean }[]>([])
     const [activeIndex, setActiveIndex] = useState(0)
     
     // Touch handlers for carousel swipe
@@ -226,44 +226,58 @@ export default function BodegaPWA() {
                 return `${h12}:${min.toString().padStart(2, '0')}${p}`
             }
             
-            const arr = []
-            let curHStr = h.toString().padStart(2, '0')
-            let curMStr = curM.toString().padStart(2, '0')
-            let tempH = h
-            let tempM = curM
-            
-            // Generate next 10 hourly buckets for the carousel
-            for (let i = 0; i < 10; i++) {
-                let hrStr = tempH.toString().padStart(2, '0')
-                let bucketId = `${hrStr}:00:00`
-                let halfBucketId = `${hrStr}:30:00`
+            // Define 6 Peak & Operational Time Period Blocks
+            const PEAK_PERIODS = [
+                { id: 'p1', name: 'Desayuno / Mañana', startH: 6, endH: 11, duration: 5, isPeak: false },
+                { id: 'p2', name: 'HORA PICO AM', startH: 11, endH: 14, duration: 3, isPeak: true },
+                { id: 'p3', name: 'Tarde / Transición', startH: 14, endH: 17, duration: 3, isPeak: false },
+                { id: 'p4', name: 'HORA PICO PM', startH: 17, endH: 21, duration: 4, isPeak: true },
+                { id: 'p5', name: 'Noche / Cena Tardía', startH: 21, endH: 1, duration: 4, isPeak: false },
+                { id: 'p6', name: 'Madrugada / Cierre', startH: 1, endH: 6, duration: 5, isPeak: false }
+            ]
+
+            const isHourInPeriod = (hr: number, startH: number, endH: number) => {
+                if (startH < endH) return hr >= startH && hr < endH
+                return hr >= startH || hr < endH
+            }
+
+            const arr: any[] = []
+
+            PEAK_PERIODS.forEach((period) => {
+                let startLabel = formatTime12(period.startH, 0)
+                let endLabel = formatTime12(period.endH, 0)
+                let label = `${startLabel} a ${endLabel}`
                 
-                let nxtH = (tempH + 1) % 24
-                
-                let label = `${formatTime12(tempH, 0)} a ${formatTime12(nxtH, 0)}`
-                
-                let data: MeatData[] = []
+                let data: any[] = []
                 if (meatData.length > 0) {
                     const allowedTypes = ['CABEZA', 'LENGUA', 'CHAMPURRADO', 'AGUACATE', 'FRIJOL MOLIDO', 'ARROZ']
                     data = allowedTypes.map(type => {
-                        const m00 = meatData.find(m => m.interval_start === bucketId && m.meat_type === type)
-                        const m30 = meatData.find(m => m.interval_start === halfBucketId && m.meat_type === type)
-                        
-                        const totalAvg = (m00 ? m00.avg_lbs : 0) + (m30 ? m30.avg_lbs : 0)
-                        
+                        let totalAvg = 0
+                        let totalSamples = 0
+
+                        meatData.forEach(m => {
+                            if (m.meat_type !== type) return
+                            const [hhStr] = m.interval_start.split(':')
+                            const hh = parseInt(hhStr, 10)
+                            if (isHourInPeriod(hh, period.startH, period.endH)) {
+                                totalAvg += m.avg_lbs
+                                totalSamples += (m.samples || 0)
+                            }
+                        })
+
                         return {
-                            interval_start: bucketId,
+                            interval_start: `${period.startH.toString().padStart(2, '0')}:00:00`,
                             meat_type: type,
                             avg_lbs: totalAvg,
-                            samples: (m00?.samples || 0) + (m30?.samples || 0)
+                            duration: period.duration,
+                            samples: totalSamples
                         }
                     })
                 }
-                
-                arr.push({ id: bucketId, label, isCurrent: i === 0, data })
-                
-                tempH = nxtH
-            }
+
+                let isCurrent = isHourInPeriod(h, period.startH, period.endH)
+                arr.push({ id: period.id, name: period.name, isPeak: period.isPeak, duration: period.duration, label, isCurrent, data })
+            })
 
             setCarouselBuckets(arr)
         }
