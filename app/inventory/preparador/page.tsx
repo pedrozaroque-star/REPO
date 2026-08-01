@@ -1298,22 +1298,22 @@ export default function PreparadorPage() {
                             {/* Modal Body Scrollable */}
                             <div className="p-4 md:p-6 overflow-y-auto space-y-6 flex-1">
                                 {/* Operational Guide Summary */}
-                                <div className="bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 rounded-2xl p-4 space-y-3">
+                                <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 space-y-3 shadow-xs">
                                     <h4 className="font-black text-slate-900 dark:text-white text-sm flex items-center gap-2">
                                         <span>💡</span> Guía Operativa para Taqueros y Cocineros
                                     </h4>
                                     <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
-                                        <div className="bg-blue-50 dark:bg-blue-900/30 p-3 rounded-xl border border-blue-200 dark:border-blue-800">
-                                            <span className="font-black text-blue-700 dark:text-blue-300 block mb-1">1. PROYECCIÓN (Proy)</span>
-                                            <p className="text-slate-600 dark:text-slate-300 font-medium">Consumo estimado de carne cruda para ese bloque de 30 minutos según el historial de 3 meses.</p>
+                                        <div className="bg-slate-50 dark:bg-slate-800/80 p-3 rounded-xl border border-slate-200 dark:border-slate-700">
+                                            <span className="font-black text-slate-900 dark:text-white block mb-1">1. PROYECCIÓN (Proy)</span>
+                                            <p className="text-slate-600 dark:text-slate-400 font-medium">Consumo estimado de carne cruda para ese bloque de 30 minutos según el historial de 3 meses.</p>
                                         </div>
-                                        <div className="bg-amber-50 dark:bg-amber-900/30 p-3 rounded-xl border border-amber-200 dark:border-amber-800">
-                                            <span className="font-black text-amber-800 dark:text-amber-300 block mb-1">2. MÁX. CHAROLA (Límite)</span>
-                                            <p className="text-slate-700 dark:text-slate-300 font-medium">Cantidad máxima recomendada de carne cocinada que debe haber en la charola a la vez.</p>
+                                        <div className="bg-slate-50 dark:bg-slate-800/80 p-3 rounded-xl border border-slate-200 dark:border-slate-700">
+                                            <span className="font-black text-slate-900 dark:text-white block mb-1">2. MÁX. CHAROLA (Límite)</span>
+                                            <p className="text-slate-600 dark:text-slate-400 font-medium">Cantidad máxima recomendada de carne cocinada que debe haber en la charola a la vez.</p>
                                         </div>
-                                        <div className="bg-emerald-50 dark:bg-emerald-900/30 p-3 rounded-xl border border-emerald-200 dark:border-emerald-800">
-                                            <span className="font-black text-emerald-800 dark:text-emerald-300 block mb-1">3. BENEFICIO CALIDAD</span>
-                                            <p className="text-slate-700 dark:text-slate-300 font-medium">Garantiza carne siempre jugosa, caliente y recién hecha sin acumular carne seca ni mermas.</p>
+                                        <div className="bg-slate-50 dark:bg-slate-800/80 p-3 rounded-xl border border-slate-200 dark:border-slate-700">
+                                            <span className="font-black text-slate-900 dark:text-white block mb-1">3. BENEFICIO CALIDAD</span>
+                                            <p className="text-slate-600 dark:text-slate-400 font-medium">Garantiza carne siempre jugosa, caliente y recién hecha sin acumular carne seca ni mermas.</p>
                                         </div>
                                     </div>
                                 </div>
@@ -1346,14 +1346,14 @@ export default function PreparadorPage() {
                                 <div className="border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-xs">
                                     <div className="overflow-x-auto max-h-[45vh]">
                                         <table className="w-full text-left text-xs">
-                                            <thead className="bg-slate-100 dark:bg-slate-950 text-slate-700 dark:text-slate-400 font-extrabold uppercase sticky top-0 z-30 border-b border-slate-200 dark:border-slate-800">
+                                            <thead className="bg-slate-100 dark:bg-slate-950 text-slate-700 dark:text-slate-300 font-extrabold uppercase sticky top-0 z-30 border-b border-slate-200 dark:border-slate-800">
                                                 <tr>
-                                                    <th className="p-3 sticky left-0 bg-slate-100 dark:bg-slate-950 z-40 border-r border-slate-200 dark:border-slate-800">Hora</th>
-                                                    <th className="p-3 text-red-700 dark:text-red-400">🥩 Asada</th>
-                                                    <th className="p-3 text-orange-700 dark:text-orange-400">🌮 Pastor</th>
-                                                    <th className="p-3 text-amber-700 dark:text-amber-400">🍗 Pollo</th>
-                                                    <th className="p-3 text-emerald-700 dark:text-emerald-400">🐮 Cabeza</th>
-                                                    <th className="p-3 text-blue-700 dark:text-blue-400">👅 Lengua</th>
+                                                    <th className="p-3 sticky left-0 bg-slate-100 dark:bg-slate-950 z-40 border-r border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white">Hora</th>
+                                                    <th className="p-3 text-slate-800 dark:text-slate-200">🥩 Asada</th>
+                                                    <th className="p-3 text-slate-800 dark:text-slate-200">🌮 Pastor</th>
+                                                    <th className="p-3 text-slate-800 dark:text-slate-200">🍗 Pollo</th>
+                                                    <th className="p-3 text-slate-800 dark:text-slate-200">🐮 Cabeza</th>
+                                                    <th className="p-3 text-slate-800 dark:text-slate-200">👅 Lengua</th>
                                                 </tr>
                                             </thead>
                                             <tbody className="divide-y divide-slate-200 dark:divide-slate-800 font-semibold">
@@ -1367,28 +1367,14 @@ export default function PreparadorPage() {
                                                 ) : guideModalData.map((r, idx) => {
                                                     const isPeak = r.ASADA.avg >= 12.0 || r.POLLO.avg >= 3.0
                                                     return (
-                                                        <tr key={r.time} className={`hover:bg-amber-50/40 dark:hover:bg-slate-800/50 transition-colors ${idx % 2 === 0 ? 'bg-white dark:bg-slate-900' : 'bg-slate-50/60 dark:bg-slate-900/60'} ${isPeak ? 'bg-red-50/30 dark:bg-red-950/20' : ''}`}>
+                                                        <tr key={r.time} className={`hover:bg-slate-100 dark:hover:bg-slate-800/50 transition-colors ${idx % 2 === 0 ? 'bg-white dark:bg-slate-900' : 'bg-slate-50/70 dark:bg-slate-900/60'} ${isPeak ? 'bg-amber-50/30 dark:bg-amber-950/10' : ''}`}>
                                                             <td className="p-3 font-black text-slate-900 dark:text-white sticky left-0 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 shadow-xs">{r.time}</td>
-                                                            <td className="p-3">
-                                                                <div className="font-black text-red-800 dark:text-red-300 text-sm">{r.ASADA.avg} <span className="text-[10px] text-slate-500 font-normal">lbs</span></div>
-                                                                <div className="text-[10px] font-black text-amber-900 dark:text-amber-200 bg-amber-100 dark:bg-amber-900/50 border border-amber-300 dark:border-amber-700 px-2 py-0.5 rounded-md inline-block mt-0.5">🔥 Máx: {r.ASADA.maxTray} lbs</div>
-                                                            </td>
-                                                            <td className="p-3">
-                                                                <div className="font-black text-orange-800 dark:text-orange-300 text-sm">{r.PASTOR.avg} <span className="text-[10px] text-slate-500 font-normal">lbs</span></div>
-                                                                <div className="text-[10px] font-black text-amber-900 dark:text-amber-200 bg-amber-100 dark:bg-amber-900/50 border border-amber-300 dark:border-amber-700 px-2 py-0.5 rounded-md inline-block mt-0.5">🔥 Máx: {r.PASTOR.maxTray} lbs</div>
-                                                            </td>
-                                                            <td className="p-3">
-                                                                <div className="font-black text-amber-800 dark:text-amber-300 text-sm">{r.POLLO.avg} <span className="text-[10px] text-slate-500 font-normal">lbs</span></div>
-                                                                <div className="text-[10px] font-black text-amber-900 dark:text-amber-200 bg-amber-100 dark:bg-amber-900/50 border border-amber-300 dark:border-amber-700 px-2 py-0.5 rounded-md inline-block mt-0.5">🔥 Máx: {r.POLLO.maxTray} lbs</div>
-                                                            </td>
-                                                            <td className="p-3">
-                                                                <div className="font-black text-emerald-800 dark:text-emerald-300 text-sm">{r.CABEZA.avg} <span className="text-[10px] text-slate-500 font-normal">lbs</span></div>
-                                                                <div className="text-[10px] font-black text-amber-900 dark:text-amber-200 bg-amber-100 dark:bg-amber-900/50 border border-amber-300 dark:border-amber-700 px-2 py-0.5 rounded-md inline-block mt-0.5">🔥 Máx: {r.CABEZA.maxTray} lbs</div>
-                                                            </td>
-                                                            <td className="p-3">
-                                                                <div className="font-black text-blue-800 dark:text-blue-300 text-sm">{r.LENGUA.avg} <span className="text-[10px] text-slate-500 font-normal">lbs</span></div>
-                                                                <div className="text-[10px] font-black text-amber-900 dark:text-amber-200 bg-amber-100 dark:bg-amber-900/50 border border-amber-300 dark:border-amber-700 px-2 py-0.5 rounded-md inline-block mt-0.5">🔥 Máx: {r.LENGUA.maxTray} lbs</div>
-                                                            </td>
+                                                            {['ASADA', 'PASTOR', 'POLLO', 'CABEZA', 'LENGUA'].map(proto => (
+                                                                <td key={proto} className="p-3">
+                                                                    <div className="font-extrabold text-slate-900 dark:text-white text-sm">{r[proto].avg} <span className="text-[10px] text-slate-500 font-normal">lbs</span></div>
+                                                                    <div className="text-[10px] font-bold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-2 py-0.5 rounded-md inline-block mt-0.5">🔥 Máx: {r[proto].maxTray} lbs</div>
+                                                                </td>
+                                                            ))}
                                                         </tr>
                                                     )
                                                 })}

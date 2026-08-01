@@ -146,42 +146,28 @@ export default function TablaMaximosPage() {
 
                 <div className="overflow-x-auto">
                     <table className="w-full text-left text-xs">
-                        <thead className="bg-slate-100 dark:bg-slate-950 text-slate-700 dark:text-slate-400 font-extrabold uppercase border-b border-slate-200 dark:border-slate-800">
+                        <thead className="bg-slate-100 dark:bg-slate-950 text-slate-700 dark:text-slate-300 font-extrabold uppercase border-b border-slate-200 dark:border-slate-800">
                             <tr>
-                                <th className="p-3 sticky left-0 bg-slate-100 dark:bg-slate-950 z-20 border-r border-slate-200 dark:border-slate-800">Hora</th>
-                                <th className="p-3 text-red-700 dark:text-red-400">🥩 Asada</th>
-                                <th className="p-3 text-orange-700 dark:text-orange-400">🌮 Pastor</th>
-                                <th className="p-3 text-amber-700 dark:text-amber-400">🍗 Pollo</th>
-                                <th className="p-3 text-emerald-700 dark:text-emerald-400">🐮 Cabeza</th>
-                                <th className="p-3 text-blue-700 dark:text-blue-400">👅 Lengua</th>
+                                <th className="p-3 sticky left-0 bg-slate-100 dark:bg-slate-950 z-20 border-r border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white">Hora</th>
+                                <th className="p-3 text-slate-800 dark:text-slate-200">🥩 Asada</th>
+                                <th className="p-3 text-slate-800 dark:text-slate-200">🌮 Pastor</th>
+                                <th className="p-3 text-slate-800 dark:text-slate-200">🍗 Pollo</th>
+                                <th className="p-3 text-slate-800 dark:text-slate-200">🐮 Cabeza</th>
+                                <th className="p-3 text-slate-800 dark:text-slate-200">👅 Lengua</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-200 dark:divide-slate-800 font-semibold">
                             {tableData.map((r, idx) => {
                                 const isPeak = r.ASADA.avg >= 12.0 || r.POLLO.avg >= 3.0
                                 return (
-                                    <tr key={r.time} className={`hover:bg-amber-50/40 dark:hover:bg-slate-800/50 transition-colors ${idx % 2 === 0 ? 'bg-white dark:bg-slate-900' : 'bg-slate-50/60 dark:bg-slate-900/60'} ${isPeak ? 'bg-red-50/30 dark:bg-red-950/20' : ''}`}>
+                                    <tr key={r.time} className={`hover:bg-slate-100 dark:hover:bg-slate-800/50 transition-colors ${idx % 2 === 0 ? 'bg-white dark:bg-slate-900' : 'bg-slate-50/70 dark:bg-slate-900/60'} ${isPeak ? 'bg-amber-50/30 dark:bg-amber-950/10' : ''}`}>
                                         <td className="p-3 font-black text-slate-900 dark:text-white sticky left-0 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 shadow-xs">{r.time}</td>
-                                        <td className="p-3">
-                                            <div className="font-black text-red-800 dark:text-red-300 text-sm">{r.ASADA.avg} <span className="text-[10px] text-slate-500 font-normal">lbs</span></div>
-                                            <div className="text-[10px] font-black text-amber-900 dark:text-amber-200 bg-amber-100 dark:bg-amber-900/50 border border-amber-300 dark:border-amber-700 px-2 py-0.5 rounded-md inline-block mt-0.5">🔥 Máx: {r.ASADA.maxTray} lbs</div>
-                                        </td>
-                                        <td className="p-3">
-                                            <div className="font-black text-orange-800 dark:text-orange-300 text-sm">{r.PASTOR.avg} <span className="text-[10px] text-slate-500 font-normal">lbs</span></div>
-                                            <div className="text-[10px] font-black text-amber-900 dark:text-amber-200 bg-amber-100 dark:bg-amber-900/50 border border-amber-300 dark:border-amber-700 px-2 py-0.5 rounded-md inline-block mt-0.5">🔥 Máx: {r.PASTOR.maxTray} lbs</div>
-                                        </td>
-                                        <td className="p-3">
-                                            <div className="font-black text-amber-800 dark:text-amber-300 text-sm">{r.POLLO.avg} <span className="text-[10px] text-slate-500 font-normal">lbs</span></div>
-                                            <div className="text-[10px] font-black text-amber-900 dark:text-amber-200 bg-amber-100 dark:bg-amber-900/50 border border-amber-300 dark:border-amber-700 px-2 py-0.5 rounded-md inline-block mt-0.5">🔥 Máx: {r.POLLO.maxTray} lbs</div>
-                                        </td>
-                                        <td className="p-3">
-                                            <div className="font-black text-emerald-800 dark:text-emerald-300 text-sm">{r.CABEZA.avg} <span className="text-[10px] text-slate-500 font-normal">lbs</span></div>
-                                            <div className="text-[10px] font-black text-amber-900 dark:text-amber-200 bg-amber-100 dark:bg-amber-900/50 border border-amber-300 dark:border-amber-700 px-2 py-0.5 rounded-md inline-block mt-0.5">🔥 Máx: {r.CABEZA.maxTray} lbs</div>
-                                        </td>
-                                        <td className="p-3">
-                                            <div className="font-black text-blue-800 dark:text-blue-300 text-sm">{r.LENGUA.avg} <span className="text-[10px] text-slate-500 font-normal">lbs</span></div>
-                                            <div className="text-[10px] font-black text-amber-900 dark:text-amber-200 bg-amber-100 dark:bg-amber-900/50 border border-amber-300 dark:border-amber-700 px-2 py-0.5 rounded-md inline-block mt-0.5">🔥 Máx: {r.LENGUA.maxTray} lbs</div>
-                                        </td>
+                                        {['ASADA', 'PASTOR', 'POLLO', 'CABEZA', 'LENGUA'].map(proto => (
+                                            <td key={proto} className="p-3">
+                                                <div className="font-extrabold text-slate-900 dark:text-white text-sm">{r[proto].avg} <span className="text-[10px] text-slate-500 font-normal">lbs</span></div>
+                                                <div className="text-[10px] font-bold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-2 py-0.5 rounded-md inline-block mt-0.5">🔥 Máx: {r[proto].maxTray} lbs</div>
+                                            </td>
+                                        ))}
                                     </tr>
                                 )
                             })}
