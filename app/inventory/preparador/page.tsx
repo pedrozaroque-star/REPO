@@ -57,6 +57,7 @@ export default function PreparadorPage() {
 
     const businessDow = getDowFromDate(selectedDate)
     const isToday = selectedDate === todayLAStr
+    const [viewMode, setViewMode] = useState<'30min' | 'tramos'>('30min')
     
     // Meat Historial Data
     const [meatData, setMeatData] = useState<MeatData[]>([])
@@ -485,16 +486,21 @@ export default function PreparadorPage() {
     // Clock Bucket Updater
     useEffect(() => {
         const updateBuckets = () => {
-            const d = new Date()
+            const laTimeStr = new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })
+            const d = new Date(laTimeStr)
+            
             const formatter = new Intl.DateTimeFormat('en-US', {
-                timeZone: 'America/Los_Angeles', hour: 'numeric', minute: 'numeric', hour12: false
-            });
+                timeZone: 'America/Los_Angeles',
+                hour: 'numeric',
+                minute: 'numeric',
+                hour12: false
+            })
+            
             let timeParts = formatter.format(d).split(':')
             let h = parseInt(timeParts[0], 10)
             let m = parseInt(timeParts[1], 10)
             if (h === 24) h = 0;
             
-            // Current Bucket
             let curM = m >= 30 ? 30 : 0
             
             const formatTime12 = (hr: number, min: number) => {
@@ -514,128 +520,161 @@ export default function PreparadorPage() {
                 }
             }
 
-            // Define 6 Peak & Operational Time Period Blocks
-            const PEAK_PERIODS = [
-                { id: 'p1', name: 'Apertura / Desayuno', startH: openH, endH: 11, duration: Math.max(1, 11 - openH), isPeak: false },
-                { id: 'p2', name: 'HORA PICO AM', startH: 11, endH: 14, duration: 3, isPeak: true },
-                { id: 'p3', name: 'Tarde / Transición', startH: 14, endH: 17, duration: 3, isPeak: false },
-                { id: 'p4', name: 'HORA PICO PM', startH: 17, endH: 21, duration: 4, isPeak: true },
-                { id: 'p5', name: 'Noche / Cena Tardía', startH: 21, endH: 1, duration: 4, isPeak: false },
-                { id: 'p6', name: 'Madrugada / Cierre', startH: 1, endH: openH, duration: (24 - 1 + openH) % 24 || 5, isPeak: false }
-            ]
-
-            const isHourInPeriod = (hr: number, startH: number, endH: number) => {
-                if (startH < endH) return hr >= startH && hr < endH
-                return hr >= startH || hr < endH
-            }
-
-            const arr: any[] = []
-            let foundCurrentIndex = 0
-
-            PEAK_PERIODS.forEach((period, idx) => {
-                let startLabel = formatTime12(period.startH, 0)
-                let endLabel = formatTime12(period.endH, 0)
-                let label = `${startLabel} a ${endLabel}`
+            if (viewMode === '30min') {
+                const arr: any[] = []
+                let tempH = openH
+                let tempM = 0
+                let foundCurrentIndex = 0
                 
-                let isCurrent = isHourInPeriod(h, period.startH, period.endH)
-                if (isCurrent) foundCurrentIndex = idx
-
-                // Calculate elapsed hours for current in-progress period vs completed periods
-                let elapsedHours = period.duration
-                if (isCurrent) {
-                    let startMins = period.startH * 60
-                    let curMins = h * 60 + m
-                    if (curMins < startMins) curMins += 24 * 60
-                    let diffMins = Math.max(15, curMins - startMins)
-                    elapsedHours = Math.min(period.duration, diffMins / 60)
-                }
-                
-                let data: any[] = []
-                if (meatData.length > 0) {
-                    const sortOrder: Record<string, number> = { 'ASADA': 1, 'PASTOR': 2, 'POLLO': 3, 'CABEZA': 4, 'LENGUA': 5, 'CARNITAS': 6 }
-                    const proteins = ['ASADA', 'PASTOR', 'POLLO', 'CABEZA', 'LENGUA']
+                // Generate 48 30-minute buckets starting from openH
+                for (let i = 0; i < 48; i++) {
+                    let hrStr = tempH.toString().padStart(2, '0')
+                    let minStr = tempM.toString().padStart(2, '0')
+                    let bucketId = `${hrStr}:${minStr}:00`
                     
-                    data = proteins.map(proto => {
-                        let totalAvg = 0
-                        let totalSamples = 0
-                        let totalRealSum = 0
-                        let hasReal = false
-
-                        meatData.forEach(m => {
-                            if (m.meat_type !== proto) return
-                            const [hhStr] = m.interval_start.split(':')
-                            const hh = parseInt(hhStr, 10)
-                            if (isHourInPeriod(hh, period.startH, period.endH)) {
-                                totalAvg += m.avg_lbs
-                                totalSamples += (m.samples || 0)
+                    let nxtM = tempM === 0 ? 30 : 0
+                    let nxtH = tempM === 30 ? (tempH + 1) % 24 : tempH
+                    let label = `${formatTime12(tempH, tempM)} a ${formatTime12(nxtH, nxtM)}`
+                    
+                    let data: any[] = []
+                    if (meatData.length > 0) {
+                        const sortOrder: Record<string, number> = { 'ASADA': 1, 'PASTOR': 2, 'POLLO': 3, 'CABEZA': 4, 'LENGUA': 5, 'CARNITAS': 6 }
+                        const proteins = ['ASADA', 'PASTOR', 'POLLO', 'CABEZA', 'LENGUA']
+                        
+                        data = proteins.map(proto => {
+                            const mData = meatData.find(m => m.interval_start === bucketId && m.meat_type === proto)
+                            const realD = realMeatData.find(rm => rm.interval_start === bucketId && rm.meat_type === proto)
+                            return {
+                                interval_start: bucketId,
+                                meat_type: proto,
+                                avg_lbs: mData ? mData.avg_lbs : 0,
+                                duration: 0.5,
+                                samples: mData ? mData.samples : 0,
+                                real_lbs: realD ? realD.real_lbs : undefined
                             }
-                        })
+                        }).sort((a,b) => (sortOrder[a.meat_type] || 99) - (sortOrder[b.meat_type] || 99))
+                    }
+                    
+                    let isCurrent = (tempH === h && tempM === curM)
+                    if (isCurrent) foundCurrentIndex = i
 
-                        realMeatData.forEach(rm => {
-                            if (rm.meat_type !== proto) return
-                            const [hhStr] = rm.interval_start.split(':')
-                            const hh = parseInt(hhStr, 10)
-                            if (isHourInPeriod(hh, period.startH, period.endH)) {
-                                totalRealSum += Number(rm.real_lbs || 0)
-                                hasReal = true
-                            }
-                        })
-
-                        return {
-                            interval_start: `${period.startH.toString().padStart(2, '0')}:00:00`,
-                            meat_type: proto,
-                            avg_lbs: totalAvg,
-                            duration: period.duration,
-                            elapsed_hours: elapsedHours,
-                            samples: totalSamples,
-                            real_lbs: hasReal ? totalRealSum : undefined
-                        }
-                    }).sort((a,b) => (sortOrder[a.meat_type] || 99) - (sortOrder[b.meat_type] || 99))
+                    arr.push({ id: bucketId, name: '30 MIN', isPeak: false, duration: 0.5, label, isCurrent, data })
+                    
+                    tempH = nxtH
+                    tempM = nxtM
                 }
 
-                arr.push({ id: period.id, name: period.name, isPeak: period.isPeak, duration: period.duration, label, isCurrent, data })
-            })
+                setCurrentBucketIndex(foundCurrentIndex)
+                if (!hasInitializedRef.current) {
+                    setActiveIndex(foundCurrentIndex)
+                    hasInitializedRef.current = true
+                }
+                setCarouselBuckets(arr)
 
-            setCurrentBucketIndex(foundCurrentIndex)
-            if (!hasInitializedRef.current) {
-                setActiveIndex(foundCurrentIndex)
-                hasInitializedRef.current = true
-            }
-            
-            setCarouselBuckets(arr)
-
-            // Trigger Alert 10 minutes before the end of each peak block (at :50)
-            PEAK_PERIODS.forEach((period, idx) => {
-                let preEndH = period.endH === 0 ? 23 : (period.endH - 1 + 24) % 24
-                if (h === preEndH && m === 50 && idx < 5) {
-                    const signature = `${period.id}-50`
+                if ((m === 20 || m === 50) && arr.length > 1 && foundCurrentIndex < 47) {
+                    const signature = `${h}-${m}`
                     if (lastCookAlertRef.current !== signature) {
                         lastCookAlertRef.current = signature
-                        setNextBlockLabel(arr[(idx + 1) % 6]?.label || '')
+                        setNextBlockLabel(arr[foundCurrentIndex + 1]?.label || '')
                         setShowCookAlert(true)
-                        if (typeof navigator !== 'undefined' && navigator.vibrate) {
-                            navigator.vibrate([500, 200, 500])
-                        }
-                        if (cookAlarmRef.current) {
-                            try {
-                                cookAlarmRef.current.src = "/sounds/alarm.mp3"
-                                cookAlarmRef.current.muted = false
-                                cookAlarmRef.current.volume = 1.0
-                                const playPromise = cookAlarmRef.current.play()
-                                if (playPromise !== undefined) {
-                                    playPromise.catch(e => console.error("Audio block:", e))
-                                }
-                            } catch(err) {}
-                        }
+                        if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate([500, 200, 500])
                     }
                 }
-            })
+            } else {
+                // Peak Periods Block Mode
+                const PEAK_PERIODS = [
+                    { id: 'p1', name: 'Apertura / Desayuno', startH: openH, endH: 11, duration: Math.max(1, 11 - openH), isPeak: false },
+                    { id: 'p2', name: 'HORA PICO AM', startH: 11, endH: 14, duration: 3, isPeak: true },
+                    { id: 'p3', name: 'Tarde / Transición', startH: 14, endH: 17, duration: 3, isPeak: false },
+                    { id: 'p4', name: 'HORA PICO PM', startH: 17, endH: 21, duration: 4, isPeak: true },
+                    { id: 'p5', name: 'Noche / Cena Tardía', startH: 21, endH: 1, duration: 4, isPeak: false },
+                    { id: 'p6', name: 'Madrugada / Cierre', startH: 1, endH: openH, duration: (24 - 1 + openH) % 24 || 5, isPeak: false }
+                ]
+
+                const isHourInPeriod = (hr: number, startH: number, endH: number) => {
+                    if (startH < endH) return hr >= startH && hr < endH
+                    return hr >= startH || hr < endH
+                }
+
+                const arr: any[] = []
+                let foundCurrentIndex = 0
+
+                PEAK_PERIODS.forEach((period, idx) => {
+                    let startLabel = formatTime12(period.startH, 0)
+                    let endLabel = formatTime12(period.endH, 0)
+                    let label = `${startLabel} a ${endLabel}`
+                    
+                    let isCurrent = isHourInPeriod(h, period.startH, period.endH)
+                    if (isCurrent) foundCurrentIndex = idx
+
+                    let elapsedHours = period.duration
+                    if (isCurrent) {
+                        let startMins = period.startH * 60
+                        let curMins = h * 60 + m
+                        if (curMins < startMins) curMins += 24 * 60
+                        let diffMins = Math.max(15, curMins - startMins)
+                        elapsedHours = Math.min(period.duration, diffMins / 60)
+                    }
+                    
+                    let data: any[] = []
+                    if (meatData.length > 0) {
+                        const sortOrder: Record<string, number> = { 'ASADA': 1, 'PASTOR': 2, 'POLLO': 3, 'CABEZA': 4, 'LENGUA': 5, 'CARNITAS': 6 }
+                        const proteins = ['ASADA', 'PASTOR', 'POLLO', 'CABEZA', 'LENGUA']
+                        
+                        data = proteins.map(proto => {
+                            let totalAvg = 0
+                            let totalSamples = 0
+                            let totalRealSum = 0
+                            let hasReal = false
+
+                            meatData.forEach(m => {
+                                if (m.meat_type !== proto) return
+                                const [hhStr] = m.interval_start.split(':')
+                                const hh = parseInt(hhStr, 10)
+                                if (isHourInPeriod(hh, period.startH, period.endH)) {
+                                    totalAvg += m.avg_lbs
+                                    totalSamples += (m.samples || 0)
+                                }
+                            })
+
+                            realMeatData.forEach(rm => {
+                                if (rm.meat_type !== proto) return
+                                const [hhStr] = rm.interval_start.split(':')
+                                const hh = parseInt(hhStr, 10)
+                                if (isHourInPeriod(hh, period.startH, period.endH)) {
+                                    totalRealSum += Number(rm.real_lbs || 0)
+                                    hasReal = true
+                                }
+                            })
+
+                            return {
+                                interval_start: `${period.startH.toString().padStart(2, '0')}:00:00`,
+                                meat_type: proto,
+                                avg_lbs: totalAvg,
+                                duration: period.duration,
+                                elapsed_hours: elapsedHours,
+                                samples: totalSamples,
+                                real_lbs: hasReal ? totalRealSum : undefined
+                            }
+                        }).sort((a,b) => (sortOrder[a.meat_type] || 99) - (sortOrder[b.meat_type] || 99))
+                    }
+
+                    arr.push({ id: period.id, name: period.name, isPeak: period.isPeak, duration: period.duration, label, isCurrent, data })
+                })
+
+                setCurrentBucketIndex(foundCurrentIndex)
+                if (!hasInitializedRef.current) {
+                    setActiveIndex(foundCurrentIndex)
+                    hasInitializedRef.current = true
+                }
+                setCarouselBuckets(arr)
+            }
         }
         
         updateBuckets()
-        const int = setInterval(updateBuckets, 60000) // update every minute
+        const int = setInterval(updateBuckets, 60000)
         return () => clearInterval(int)
-    }, [meatData, realMeatData])
+    }, [meatData, realMeatData, viewMode, storeId])
 
     const addToCart = (item: string) => {
         setCart(prev => {
@@ -747,6 +786,22 @@ export default function PreparadorPage() {
                 </div>
 
                 <div className="flex items-center gap-3">
+                    {/* View Mode Switcher (30 Min vs Tramos) */}
+                    <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-lg border border-slate-200 dark:border-slate-700 font-bold text-xs">
+                        <button 
+                            onClick={() => setViewMode('30min')}
+                            className={`px-3 py-1 rounded-md transition-colors cursor-pointer ${viewMode === '30min' ? 'bg-blue-600 text-white shadow-sm font-black' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'}`}
+                        >
+                            30 Min
+                        </button>
+                        <button 
+                            onClick={() => setViewMode('tramos')}
+                            className={`px-3 py-1 rounded-md transition-colors cursor-pointer ${viewMode === 'tramos' ? 'bg-blue-600 text-white shadow-sm font-black' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'}`}
+                        >
+                            Tramos
+                        </button>
+                    </div>
+
                     {/* Date Picker Selector */}
                     <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-800 p-2 rounded-lg border border-slate-200 dark:border-slate-700">
                         <Calendar size={18} className="text-blue-500 shrink-0" />
@@ -893,7 +948,7 @@ export default function PreparadorPage() {
                                                             {isTop && <HelpCircle size={20} className="text-blue-500/50 hover:text-blue-500 transition-colors" />}
                                                         </span>
                                                         <span className={`text-lg md:text-2xl font-black lowercase tracking-tighter [font-feature-settings:'tnum'] ${isTop ? 'opacity-90 text-blue-950 dark:text-blue-100' : 'opacity-60'}`}>
-                                                            {bucket.label} ({bucket.duration}h)
+                                                            {bucket.label} {viewMode === 'tramos' ? `(${bucket.duration}h)` : ''}
                                                         </span>
                                                     </div>
                                                 </div>
@@ -901,34 +956,36 @@ export default function PreparadorPage() {
                                             
                                             <div className="grid grid-cols-2 gap-3 xl:gap-4">
                                                 {bucket.data.length > 0 ? bucket.data.map((m: any) => {
-                                                    const valPerHour = (m.avg_lbs * intelligenceAcelerador) / (m.duration || 1)
-                                                    const totalVal = m.avg_lbs * intelligenceAcelerador
-                                                    const realValPerHour = m.real_lbs !== undefined ? m.real_lbs / (m.elapsed_hours || m.duration || 1) : undefined
+                                                    const projectedLbs = m.avg_lbs * intelligenceAcelerador
+                                                    const displayVal = viewMode === '30min' ? projectedLbs : (projectedLbs / (m.duration || 1))
+                                                    const realVal = m.real_lbs !== undefined ? (viewMode === '30min' ? m.real_lbs : m.real_lbs / (m.elapsed_hours || m.duration || 1)) : undefined
 
                                                     return (
                                                         <div key={m.meat_type} className={`bg-white/60 dark:bg-slate-900/60 p-3 xl:p-4 rounded-2xl flex flex-col items-center justify-center shadow-sm w-full ${m.meat_type === 'ASADA' ? 'col-span-2 shadow-md border border-blue-200/50 dark:border-blue-800/50 bg-blue-50/50 dark:bg-blue-900/30 py-4 xl:py-6' : 'border border-slate-100 dark:border-slate-800 py-4 xl:py-5'}`}>
                                                             <span className={`uppercase tracking-widest text-slate-600 dark:text-slate-300 mb-1 md:mb-2 ${m.meat_type === 'ASADA' ? 'text-lg md:text-2xl font-black text-blue-800 dark:text-blue-300' : 'text-base md:text-xl font-black'}`}>{m.meat_type}</span>
                                                             
                                                             <div className="flex w-full items-center justify-center gap-4">
-                                                                {/* Projected Column (lbs/hr) */}
+                                                                {/* Projected Column */}
                                                                 <div className="flex flex-col items-center justify-center leading-none">
                                                                     <span className={`font-black tracking-tighter leading-none ${m.meat_type === 'ASADA' ? 'text-5xl xl:text-6xl text-blue-700 dark:text-blue-400 drop-shadow-sm' : 'text-4xl xl:text-5xl text-slate-900 dark:text-white'}`}>
-                                                                        {valPerHour.toFixed(1)}
+                                                                        {displayVal.toFixed(1)}
                                                                     </span>
                                                                     <span className="text-xs md:text-sm font-extrabold text-slate-700 dark:text-slate-200 tracking-wider mt-2 bg-slate-100 dark:bg-slate-800 px-2.5 py-1 rounded-md border border-slate-200/80 dark:border-slate-700 shadow-sm">
-                                                                        lbs/hr (total: {totalVal.toFixed(1)} lbs)
+                                                                        {viewMode === '30min' ? `lbs (proy: ${m.avg_lbs.toFixed(1)})` : `lbs/hr (total: ${projectedLbs.toFixed(1)} lbs)`}
                                                                     </span>
                                                                 </div>
                                                                 
                                                                 {/* Real Consumed Column */}
-                                                                {realValPerHour !== undefined ? (
+                                                                {realVal !== undefined ? (
                                                                     <>
                                                                         <div className="h-16 w-px bg-slate-300/50 dark:bg-slate-700/50"></div>
                                                                         <div className="flex flex-col items-center justify-center leading-none">
                                                                             <span className={`font-black tracking-tighter leading-none text-emerald-600 dark:text-emerald-400 ${m.meat_type === 'ASADA' ? 'text-4xl xl:text-5xl' : 'text-3xl xl:text-4xl'}`}>
-                                                                                {realValPerHour.toFixed(1)}
+                                                                                {realVal.toFixed(1)}
                                                                             </span>
-                                                                            <span className="text-xs md:text-sm font-extrabold text-emerald-800 dark:text-emerald-300 tracking-wider mt-2 bg-emerald-100 dark:bg-emerald-900/50 px-2.5 py-1 rounded-md border border-emerald-300 dark:border-emerald-700">{t('prep.real')}/hr (total: {m.real_lbs.toFixed(1)} lbs)</span>
+                                                                            <span className="text-xs md:text-sm font-extrabold text-emerald-800 dark:text-emerald-300 tracking-wider mt-2 bg-emerald-100 dark:bg-emerald-900/50 px-2.5 py-1 rounded-md border border-emerald-300 dark:border-emerald-700">
+                                                                                {viewMode === '30min' ? `${t('prep.real')} lbs` : `${t('prep.real')}/hr (total: ${m.real_lbs.toFixed(1)} lbs)`}
+                                                                            </span>
                                                                         </div>
                                                                     </>
                                                                 ) : (activeIndex < currentBucketIndex) && (
