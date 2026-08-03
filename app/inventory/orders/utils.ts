@@ -89,6 +89,7 @@ export type CalculatedOrderLine = {
     variance?: number | null
     purchase_unit_cost?: number
     unit_measure?: string
+    adjusted_qty?: number
 }
 
 export type OrderRecord = {

@@ -285,10 +285,11 @@ export default function InventoryOrdersPage() {
                             inventory_item_id: l.inventory_item_id,
                             item_name: itemMeta?.name || `Product #${l.inventory_item_id}`,
                             unit_description: itemMeta?.order_unit_description || itemMeta?.unit_type || 'Unit',
-                            par_value: 0,
+                            par_value: l.par_value || 0,
                             par_ideal_value: 0,
                             leftover_value: l.leftover_value,
-                            calculated_qty: 0,
+                            calculated_qty: l.calculated_qty || 0,
+                            adjusted_qty: l.adjusted_qty ?? undefined,
                             rounding_rule: 'none',
                             qb_item_id: itemMeta?.qb_item_id || l.qb_item_id || 'UNKNOWN',
                             is_extraordinary: true
@@ -387,25 +388,26 @@ export default function InventoryOrdersPage() {
         }
     }, [activeTab, storeId])
 
-    // Load history/leftovers data when tab or week changes
+    // Load history/leftovers data function
+    const loadHistoryData = useCallback(async () => {
+        if (!storeId) return
+        setHistoryLoading(true)
+        try {
+            const result = await fetchHistoryData(storeId, historyMonday)
+            setHistoryOrders(result.orders)
+            setHistoryCounts(result.counts)
+            setHistoryBases(result.bases)
+        } catch (e) {
+            console.error('Error loading history data:', e)
+        } finally {
+            setHistoryLoading(false)
+        }
+    }, [storeId, historyMonday])
+
     useEffect(() => {
         if (!storeId || (activeTab !== 'history' && activeTab !== 'leftovers')) return
-        
-        async function loadHistoryData() {
-            setHistoryLoading(true)
-            try {
-                const result = await fetchHistoryData(storeId, historyMonday)
-                setHistoryOrders(result.orders)
-                setHistoryCounts(result.counts)
-                setHistoryBases(result.bases)
-            } catch (e) {
-                console.error('Error loading history data:', e)
-            } finally {
-                setHistoryLoading(false)
-            }
-        }
         loadHistoryData()
-    }, [activeTab, storeId, historyMonday])
+    }, [activeTab, storeId, historyMonday, loadHistoryData])
 
     // --- Edit Modal Handlers ---
     function handleOpenEditModal(order: any) {
@@ -476,7 +478,7 @@ export default function InventoryOrdersPage() {
             } else {
                 alert(t('bodegaOrders.savedLocal'))
                 setEditModal({ open: false, order: null })
-                await loadData()
+                await Promise.all([loadData(), loadHistoryData()])
             }
         } catch (e: any) {
             alert(t('bodegaOrders.errorSave') + e.message)
@@ -530,7 +532,7 @@ export default function InventoryOrdersPage() {
             } else {
                 alert(t('bodegaOrders.orderSentDesc', { number: data.estimateNumber }))
                 setEditModal({ open: false, order: null })
-                await loadData()
+                await Promise.all([loadData(), loadHistoryData()])
             }
         } catch (e: any) {
             alert(t('bodegaOrders.errorSendQb') + e.message)
