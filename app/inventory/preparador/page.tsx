@@ -1043,10 +1043,10 @@ export default function PreparadorPage() {
                                         style={{ transformStyle: 'preserve-3d' }}
                                     >
                                         <div 
-                                            onClick={() => { if (isTop) setShowInfoModal(true) }}
+                                            onClick={() => { if (isTop && cardDisplayMode === 'advanced') setShowInfoModal(true) }}
                                             className={`rounded-3xl border border-slate-200/50 dark:border-slate-700/50 p-6 xl:p-8 shadow-2xl transition-all duration-500 overflow-hidden relative ${
                                             isTop 
-                                                ? 'bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-900/40 dark:to-indigo-900/30 cursor-pointer hover:ring-2 hover:ring-blue-500/50' 
+                                                ? `bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-900/40 dark:to-indigo-900/30 ${cardDisplayMode === 'advanced' ? 'cursor-pointer hover:ring-2 hover:ring-blue-500/50' : ''}` 
                                                 : 'bg-white/95 dark:bg-slate-800/95 backdrop-blur-md scale-[0.98] opacity-90'
                                         }`}>
                                             <div className="absolute inset-0 bg-gradient-to-tl from-white/10 to-transparent pointer-events-none" />
@@ -1062,7 +1062,7 @@ export default function PreparadorPage() {
                                                                     PICO
                                                                 </span>
                                                             )}
-                                                            {isTop && <HelpCircle size={20} className="text-blue-500/50 hover:text-blue-500 transition-colors" />}
+                                                            {isTop && cardDisplayMode === 'advanced' && <HelpCircle size={20} className="text-blue-500/50 hover:text-blue-500 transition-colors" />}
                                                         </span>
                                                         <span className={`text-lg md:text-2xl font-black lowercase tracking-tighter [font-feature-settings:'tnum'] ${isTop ? 'opacity-90 text-blue-950 dark:text-blue-100' : 'opacity-60'}`}>
                                                             {bucket.label} {viewMode === 'tramos' ? `(${bucket.duration}h)` : ''}
@@ -1594,7 +1594,7 @@ export default function PreparadorPage() {
 
             {/* Info Modal */}
             <AnimatePresence>
-                {showInfoModal && (
+                {cardDisplayMode === 'advanced' && showInfoModal && (
                     <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4">
                         <motion.div 
                             initial={{ opacity: 0 }} 
