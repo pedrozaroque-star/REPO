@@ -82,6 +82,32 @@ export default function PreparadorPage() {
     const [touchEnd, setTouchEnd] = useState<number | null>(null)
     const [showInfoModal, setShowInfoModal] = useState(false)
 
+    // Manual Overrides State
+    const [manualOverrides, setManualOverrides] = useState<Record<string, number>>({})
+    const [editingMeatItem, setEditingMeatItem] = useState<{ key: string, meatType: string, bucketLabel: string, currentVal: number } | null>(null)
+    const [tempEditValue, setTempEditValue] = useState<number>(1)
+
+    // Load Manual Overrides from localStorage
+    useEffect(() => {
+        if (!storeId || !selectedDate) return
+        const storageKey = `teg_prep_overrides_${storeId}_${selectedDate}`
+        const saved = localStorage.getItem(storageKey)
+        if (saved) {
+            try {
+                setManualOverrides(JSON.parse(saved))
+            } catch (e) {}
+        } else {
+            setManualOverrides({})
+        }
+    }, [storeId, selectedDate])
+
+    // Save Manual Overrides to localStorage
+    useEffect(() => {
+        if (!storeId || !selectedDate) return
+        const storageKey = `teg_prep_overrides_${storeId}_${selectedDate}`
+        localStorage.setItem(storageKey, JSON.stringify(manualOverrides))
+    }, [manualOverrides, storeId, selectedDate])
+
     // Inactivity Reset Effect (Aero snap-back)
     useEffect(() => {
         if (activeIndex === currentBucketIndex) return;
@@ -1052,6 +1078,10 @@ export default function PreparadorPage() {
                                                     const realVal = m.real_lbs !== undefined ? (viewMode === '30min' ? m.real_lbs : m.real_lbs / (m.elapsed_hours || m.duration || 1)) : undefined
                                                     const maxTrayLbs = Math.max(1, Math.ceil(displayVal))
 
+                                                    const overrideKey = `${bucket.id || bucket.label || localIndex}_${m.meat_type}`
+                                                    const hasOverride = manualOverrides[overrideKey] !== undefined
+                                                    const effectiveMaxLbs = hasOverride ? manualOverrides[overrideKey] : maxTrayLbs
+
                                                     return (
                                                         <div key={m.meat_type} className={`bg-white/60 dark:bg-slate-900/60 p-3 xl:p-4 rounded-2xl flex flex-col items-center justify-center shadow-sm w-full ${m.meat_type === 'ASADA' ? 'col-span-2 shadow-md border border-blue-200/50 dark:border-blue-800/50 bg-blue-50/50 dark:bg-blue-900/30 py-4 xl:py-6' : 'border border-slate-100 dark:border-slate-800 py-4 xl:py-5'}`}>
                                                             <div className="flex items-center gap-2 mb-1 md:mb-2">
@@ -1059,15 +1089,32 @@ export default function PreparadorPage() {
                                                             </div>
                                                             
                                                             {cardDisplayMode === 'basic' ? (
-                                                                /* Modo Básico: Ultra-Simple (Solo Nombre + Máximo de Libras) */
-                                                                <div className="flex flex-col items-center justify-center py-2">
+                                                                /* Modo Básico: Ultra-Simple con Clic para Modificar */
+                                                                <button 
+                                                                    onClick={() => {
+                                                                        setEditingMeatItem({
+                                                                            key: overrideKey,
+                                                                            meatType: m.meat_type,
+                                                                            bucketLabel: bucket.label,
+                                                                            currentVal: effectiveMaxLbs
+                                                                        })
+                                                                        setTempEditValue(effectiveMaxLbs)
+                                                                    }}
+                                                                    className="flex flex-col items-center justify-center py-2 group cursor-pointer w-full hover:bg-slate-100/50 dark:hover:bg-slate-800/50 rounded-2xl transition-all"
+                                                                    title="Clic para modificar cantidad de libras"
+                                                                >
                                                                     <div className="flex items-baseline gap-1 my-1">
-                                                                        <span className={`font-black tracking-tighter leading-none text-slate-900 dark:text-white ${m.meat_type === 'ASADA' ? 'text-6xl xl:text-7xl text-blue-700 dark:text-blue-400' : 'text-5xl xl:text-6xl'}`}>
-                                                                            {maxTrayLbs}
+                                                                        <span className={`font-black tracking-tighter leading-none transition-transform group-hover:scale-105 ${m.meat_type === 'ASADA' ? 'text-6xl xl:text-7xl text-blue-700 dark:text-blue-400' : 'text-5xl xl:text-6xl text-slate-900 dark:text-white'}`}>
+                                                                            {effectiveMaxLbs}
                                                                         </span>
                                                                         <span className="text-xl md:text-2xl font-bold text-slate-500">lbs</span>
                                                                     </div>
-                                                                </div>
+                                                                    {hasOverride && (
+                                                                        <span className="text-[10px] font-black uppercase bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-200 px-2 py-0.5 rounded-full border border-amber-300 dark:border-amber-700 shadow-xs mt-1">
+                                                                            ✏️ Modificado
+                                                                        </span>
+                                                                    )}
+                                                                </button>
                                                             ) : (
                                                                 /* Modo Avanzado: Vista Completa con Proyección, Real y Máximo */
                                                                 <>
@@ -1306,6 +1353,115 @@ export default function PreparadorPage() {
                     </div>
                 )
             })()}
+
+            {/* Manual Override Edit Modal */}
+            <AnimatePresence>
+                {editingMeatItem && (
+                    <motion.div 
+                        initial={{ opacity: 0 }} 
+                        animate={{ opacity: 1 }} 
+                        exit={{ opacity: 0 }}
+                        className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[9999] flex items-center justify-center p-4"
+                        onClick={() => setEditingMeatItem(null)}
+                    >
+                        <motion.div 
+                            initial={{ scale: 0.9, opacity: 0 }} 
+                            animate={{ scale: 1, opacity: 1 }} 
+                            exit={{ scale: 0.9, opacity: 0 }}
+                            onClick={e => e.stopPropagation()}
+                            className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 md:p-8 max-w-lg w-full shadow-2xl flex flex-col items-center text-center space-y-6"
+                        >
+                            <div>
+                                <span className="text-xs font-black uppercase text-blue-600 dark:text-blue-400 tracking-wider">
+                                    Bloque: {editingMeatItem.bucketLabel}
+                                </span>
+                                <h3 className="text-2xl md:text-3xl font-black text-slate-900 dark:text-white uppercase mt-1">
+                                    ✏️ Modificar Proyección - {editingMeatItem.meatType}
+                                </h3>
+                                <p className="text-xs md:text-sm text-slate-500 font-bold mt-1">
+                                    Ajusta manualmente la cantidad máxima de libras sugerida:
+                                </p>
+                            </div>
+
+                            {/* Big Number Stepper */}
+                            <div className="flex items-center gap-4 bg-slate-50 dark:bg-slate-800/80 p-4 rounded-2xl border border-slate-200 dark:border-slate-700 w-full justify-center">
+                                <button 
+                                    onClick={() => setTempEditValue(prev => Math.max(1, prev - 1))}
+                                    className="w-14 h-14 bg-red-600 hover:bg-red-700 text-white rounded-2xl font-black text-3xl flex items-center justify-center cursor-pointer shadow-md active:scale-95 transition-transform"
+                                >
+                                    -
+                                </button>
+                                <div className="flex items-baseline gap-1 px-4">
+                                    <input 
+                                        type="number" 
+                                        value={tempEditValue}
+                                        onChange={e => setTempEditValue(Math.max(1, parseInt(e.target.value) || 1))}
+                                        className="text-5xl md:text-6xl font-black text-slate-900 dark:text-white text-center w-28 bg-transparent outline-none border-b-2 border-blue-500"
+                                    />
+                                    <span className="text-2xl font-bold text-slate-500">lbs</span>
+                                </div>
+                                <button 
+                                    onClick={() => setTempEditValue(prev => prev + 1)}
+                                    className="w-14 h-14 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl font-black text-3xl flex items-center justify-center cursor-pointer shadow-md active:scale-95 transition-transform"
+                                >
+                                    +
+                                </button>
+                            </div>
+
+                            {/* Preset Fast Tap Buttons */}
+                            <div className="w-full">
+                                <label className="text-[11px] font-black uppercase text-slate-400 tracking-wider block mb-2">Selección Rápida:</label>
+                                <div className="grid grid-cols-5 gap-2">
+                                    {[1, 2, 3, 4, 5, 6, 8, 10, 12, 15].map(val => (
+                                        <button
+                                            key={val}
+                                            onClick={() => setTempEditValue(val)}
+                                            className={`py-2 rounded-xl font-black text-sm transition-all cursor-pointer ${tempEditValue === val ? 'bg-blue-600 text-white shadow-md scale-105' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'}`}
+                                        >
+                                            {val} lbs
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* Actions */}
+                            <div className="flex flex-col sm:flex-row gap-3 w-full pt-2">
+                                {manualOverrides[editingMeatItem.key] !== undefined && (
+                                    <button 
+                                        onClick={() => {
+                                            const copy = { ...manualOverrides }
+                                            delete copy[editingMeatItem.key]
+                                            setManualOverrides(copy)
+                                            setEditingMeatItem(null)
+                                        }}
+                                        className="flex-1 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-extrabold py-3.5 rounded-xl text-xs uppercase cursor-pointer transition-colors border border-slate-200 dark:border-slate-700"
+                                    >
+                                        🔄 Restaurar Auto
+                                    </button>
+                                )}
+                                <button 
+                                    onClick={() => setEditingMeatItem(null)}
+                                    className="flex-1 bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 font-extrabold py-3.5 rounded-xl text-sm uppercase cursor-pointer transition-colors"
+                                >
+                                    Cancelar
+                                </button>
+                                <button 
+                                    onClick={() => {
+                                        setManualOverrides(prev => ({
+                                            ...prev,
+                                            [editingMeatItem.key]: tempEditValue
+                                        }))
+                                        setEditingMeatItem(null)
+                                    }}
+                                    className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-extrabold py-3.5 rounded-xl text-sm uppercase cursor-pointer transition-colors shadow-lg shadow-blue-600/30"
+                                >
+                                    Guardar
+                                </button>
+                            </div>
+                        </motion.div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
 
             {/* Guide & Table Modal */}
             <AnimatePresence>
