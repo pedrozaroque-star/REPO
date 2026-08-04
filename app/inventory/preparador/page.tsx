@@ -58,7 +58,7 @@ export default function PreparadorPage() {
     const businessDow = getDowFromDate(selectedDate)
     const isToday = selectedDate === todayLAStr
     const [viewMode, setViewMode] = useState<'30min' | 'tramos'>('30min')
-    const [cardDisplayMode, setCardDisplayMode] = useState<'basic' | 'advanced'>('basic')
+    const [cardDisplayMode, setCardDisplayMode] = useState<'manual' | 'basic' | 'advanced'>('manual')
     
     // Guide Modal State
     const [showGuideModal, setShowGuideModal] = useState(false)
@@ -82,9 +82,10 @@ export default function PreparadorPage() {
     const [touchEnd, setTouchEnd] = useState<number | null>(null)
     const [showInfoModal, setShowInfoModal] = useState(false)
 
-    // Manual Overrides State
+    // Manual Overrides & Weekly Schedule State
     const [manualOverrides, setManualOverrides] = useState<Record<string, number>>({})
-    const [editingMeatItem, setEditingMeatItem] = useState<{ key: string, meatType: string, bucketLabel: string, currentVal: number } | null>(null)
+    const [manualWeeklySchedule, setManualWeeklySchedule] = useState<Record<string, number>>({})
+    const [editingMeatItem, setEditingMeatItem] = useState<{ key: string, meatType: string, bucketLabel: string, intervalStart?: string, currentVal: number, isManualMode?: boolean } | null>(null)
     const [tempEditValue, setTempEditValue] = useState<number>(1)
 
     // Load Manual Overrides from localStorage
@@ -100,6 +101,39 @@ export default function PreparadorPage() {
             setManualOverrides({})
         }
     }, [storeId, selectedDate])
+
+    // Load Manual Weekly Schedule from API & localStorage
+    useEffect(() => {
+        if (!storeId) return
+        const fetchManualSchedule = async () => {
+            const storageKey = `teg_prep_manual_weekly_${storeId}_${businessDow}`
+            const cached = localStorage.getItem(storageKey)
+            if (cached) {
+                try {
+                    setManualWeeklySchedule(JSON.parse(cached))
+                } catch (e) {}
+            }
+            
+            try {
+                const res = await fetch(`/api/inventory/preparador-manual-schedule?storeId=${storeId}&dow=${businessDow}&_t=${Date.now()}`, { cache: 'no-store' })
+                if (res.ok) {
+                    const data = await res.json()
+                    if (Array.isArray(data) && data.length > 0) {
+                        const map: Record<string, number> = {}
+                        data.forEach((item: any) => {
+                            const key = `${item.interval_start}_${item.meat_type}`
+                            map[key] = Number(item.max_lbs)
+                        })
+                        setManualWeeklySchedule(map)
+                        localStorage.setItem(storageKey, JSON.stringify(map))
+                    }
+                }
+            } catch (e) {
+                console.error('Error fetching manual schedule:', e)
+            }
+        }
+        fetchManualSchedule()
+    }, [storeId, businessDow])
 
     // Save Manual Overrides to localStorage
     useEffect(() => {
@@ -878,8 +912,14 @@ export default function PreparadorPage() {
 
                 {!isFullscreen && (
                     <div className="flex items-center gap-3">
-                        {/* Card Display Mode Switcher (Básica vs Avanzada) */}
+                        {/* Card Display Mode Switcher (Manual | Básica | Avanzada) */}
                         <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-lg border border-slate-200 dark:border-slate-700 font-bold text-xs">
+                            <button 
+                                onClick={() => setCardDisplayMode('manual')}
+                                className={`px-3 py-1 rounded-md transition-colors cursor-pointer ${cardDisplayMode === 'manual' ? 'bg-purple-600 text-white shadow-sm font-black' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'}`}
+                            >
+                                {t('prep.manualMode')}
+                            </button>
                             <button 
                                 onClick={() => setCardDisplayMode('basic')}
                                 className={`px-3 py-1 rounded-md transition-colors cursor-pointer ${cardDisplayMode === 'basic' ? 'bg-emerald-600 text-white shadow-sm font-black' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'}`}
@@ -1078,6 +1118,10 @@ export default function PreparadorPage() {
                                                     const realVal = m.real_lbs !== undefined ? (viewMode === '30min' ? m.real_lbs : m.real_lbs / (m.elapsed_hours || m.duration || 1)) : undefined
                                                     const maxTrayLbs = Math.max(1, Math.ceil(displayVal))
 
+                                                    const intervalStart = bucket.id || '00:00:00'
+                                                    const manualKey = `${intervalStart}_${m.meat_type}`
+                                                    const manualScheduledLbs = manualWeeklySchedule[manualKey] !== undefined ? manualWeeklySchedule[manualKey] : maxTrayLbs
+
                                                     const overrideKey = `${bucket.id || bucket.label || localIndex}_${m.meat_type}`
                                                     const hasOverride = manualOverrides[overrideKey] !== undefined
                                                     const effectiveMaxLbs = hasOverride ? manualOverrides[overrideKey] : maxTrayLbs
@@ -1088,7 +1132,34 @@ export default function PreparadorPage() {
                                                                 <span className={`uppercase tracking-widest text-slate-600 dark:text-slate-300 ${m.meat_type === 'ASADA' ? 'text-lg md:text-2xl font-black text-blue-800 dark:text-blue-300' : 'text-base md:text-xl font-black'}`}>{m.meat_type}</span>
                                                             </div>
                                                             
-                                                            {cardDisplayMode === 'basic' ? (
+                                                            {cardDisplayMode === 'manual' ? (
+                                                                /* Modo Manual: Programado Semanal (Lunes a Lunes) */
+                                                                <button 
+                                                                    onClick={() => {
+                                                                        setEditingMeatItem({
+                                                                            key: manualKey,
+                                                                            meatType: m.meat_type,
+                                                                            bucketLabel: bucket.label,
+                                                                            intervalStart: intervalStart,
+                                                                            currentVal: manualScheduledLbs,
+                                                                            isManualMode: true
+                                                                        })
+                                                                        setTempEditValue(manualScheduledLbs)
+                                                                    }}
+                                                                    className="flex flex-col items-center justify-center py-2 group cursor-pointer w-full hover:bg-purple-100/50 dark:hover:bg-purple-900/30 rounded-2xl transition-all"
+                                                                    title="Clic para fijar meta semanal permanente para este día"
+                                                                >
+                                                                    <div className="flex items-baseline gap-1 my-1">
+                                                                        <span className={`font-black tracking-tighter leading-none transition-transform group-hover:scale-105 ${m.meat_type === 'ASADA' ? 'text-6xl xl:text-7xl text-purple-700 dark:text-purple-400' : 'text-5xl xl:text-6xl text-slate-900 dark:text-white'}`}>
+                                                                            {manualScheduledLbs}
+                                                                        </span>
+                                                                        <span className="text-xl md:text-2xl font-bold text-slate-500">lbs</span>
+                                                                    </div>
+                                                                    <span className="text-[10px] font-black uppercase bg-purple-100 dark:bg-purple-900/60 text-purple-800 dark:text-purple-200 px-2.5 py-0.5 rounded-full border border-purple-300 dark:border-purple-700 shadow-xs mt-1">
+                                                                        📋 Programado Semanal
+                                                                    </span>
+                                                                </button>
+                                                            ) : cardDisplayMode === 'basic' ? (
                                                                 /* Modo Básico: Ultra-Simple con Clic para Modificar */
                                                                 <button 
                                                                     onClick={() => {
@@ -1372,14 +1443,16 @@ export default function PreparadorPage() {
                             className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 md:p-8 max-w-lg w-full shadow-2xl flex flex-col items-center text-center space-y-6"
                         >
                             <div>
-                                <span className="text-xs font-black uppercase text-blue-600 dark:text-blue-400 tracking-wider">
+                                <span className={`text-xs font-black uppercase tracking-wider ${editingMeatItem.isManualMode ? 'text-purple-600 dark:text-purple-400' : 'text-blue-600 dark:text-blue-400'}`}>
                                     Bloque: {editingMeatItem.bucketLabel}
                                 </span>
                                 <h3 className="text-2xl md:text-3xl font-black text-slate-900 dark:text-white uppercase mt-1">
-                                    ✏️ Modificar Proyección - {editingMeatItem.meatType}
+                                    {editingMeatItem.isManualMode ? '📋 Programación Semanal' : '✏️ Modificar Proyección'} - {editingMeatItem.meatType}
                                 </h3>
                                 <p className="text-xs md:text-sm text-slate-500 font-bold mt-1">
-                                    Ajusta manualmente la cantidad máxima de libras sugerida:
+                                    {editingMeatItem.isManualMode 
+                                        ? `Se guardará para los ${['', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'][businessDow] || 'días'} en este horario:`
+                                        : 'Ajusta manualmente la cantidad máxima de libras sugerida:'}
                                 </p>
                             </div>
 
@@ -1396,7 +1469,7 @@ export default function PreparadorPage() {
                                         type="number" 
                                         value={tempEditValue}
                                         onChange={e => setTempEditValue(Math.max(1, parseInt(e.target.value) || 1))}
-                                        className="text-5xl md:text-6xl font-black text-slate-900 dark:text-white text-center w-28 bg-transparent outline-none border-b-2 border-blue-500"
+                                        className="text-5xl md:text-6xl font-black text-slate-900 dark:text-white text-center w-28 bg-transparent outline-none border-b-2 border-purple-500"
                                     />
                                     <span className="text-2xl font-bold text-slate-500">lbs</span>
                                 </div>
@@ -1416,7 +1489,7 @@ export default function PreparadorPage() {
                                         <button
                                             key={val}
                                             onClick={() => setTempEditValue(val)}
-                                            className={`py-2 rounded-xl font-black text-sm transition-all cursor-pointer ${tempEditValue === val ? 'bg-blue-600 text-white shadow-md scale-105' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'}`}
+                                            className={`py-2 rounded-xl font-black text-sm transition-all cursor-pointer ${tempEditValue === val ? 'bg-purple-600 text-white shadow-md scale-105' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'}`}
                                         >
                                             {val} lbs
                                         </button>
@@ -1426,7 +1499,7 @@ export default function PreparadorPage() {
 
                             {/* Actions */}
                             <div className="flex flex-col sm:flex-row gap-3 w-full pt-2">
-                                {manualOverrides[editingMeatItem.key] !== undefined && (
+                                {!editingMeatItem.isManualMode && manualOverrides[editingMeatItem.key] !== undefined && (
                                     <button 
                                         onClick={() => {
                                             const copy = { ...manualOverrides }
@@ -1446,14 +1519,42 @@ export default function PreparadorPage() {
                                     Cancelar
                                 </button>
                                 <button 
-                                    onClick={() => {
-                                        setManualOverrides(prev => ({
-                                            ...prev,
-                                            [editingMeatItem.key]: tempEditValue
-                                        }))
+                                    onClick={async () => {
+                                        if (editingMeatItem.isManualMode && editingMeatItem.intervalStart) {
+                                            const key = `${editingMeatItem.intervalStart}_${editingMeatItem.meatType}`
+                                            const updatedMap = {
+                                                ...manualWeeklySchedule,
+                                                [key]: tempEditValue
+                                            }
+                                            setManualWeeklySchedule(updatedMap)
+                                            
+                                            const storageKey = `teg_prep_manual_weekly_${storeId}_${businessDow}`
+                                            localStorage.setItem(storageKey, JSON.stringify(updatedMap))
+
+                                            try {
+                                                await fetch('/api/inventory/preparador-manual-schedule', {
+                                                    method: 'POST',
+                                                    headers: { 'Content-Type': 'application/json' },
+                                                    body: JSON.stringify({
+                                                        storeId,
+                                                        dow: businessDow,
+                                                        intervalStart: editingMeatItem.intervalStart,
+                                                        meatType: editingMeatItem.meatType,
+                                                        maxLbs: tempEditValue
+                                                    })
+                                                })
+                                            } catch (e) {
+                                                console.error('Error saving manual schedule:', e)
+                                            }
+                                        } else {
+                                            setManualOverrides(prev => ({
+                                                ...prev,
+                                                [editingMeatItem.key]: tempEditValue
+                                            }))
+                                        }
                                         setEditingMeatItem(null)
                                     }}
-                                    className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-extrabold py-3.5 rounded-xl text-sm uppercase cursor-pointer transition-colors shadow-lg shadow-blue-600/30"
+                                    className="flex-1 bg-purple-600 hover:bg-purple-700 text-white font-extrabold py-3.5 rounded-xl text-sm uppercase cursor-pointer transition-colors shadow-lg shadow-purple-600/30"
                                 >
                                     Guardar
                                 </button>

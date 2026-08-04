@@ -2049,6 +2049,7 @@ const dictionaries: Record<Language, Dictionary> = {
         },
         // PREPARADOR (PREP LINE)
         prep: {
+            manualMode: 'Manual',
             basicMode: 'Básica',
             advancedMode: 'Avanzada',
             viewGuide: 'VER GUÍA',
@@ -4358,6 +4359,7 @@ const dictionaries: Record<Language, Dictionary> = {
         },
         // PREPARADOR (PREP LINE)
         prep: {
+            manualMode: 'Manual',
             basicMode: 'Basic',
             advancedMode: 'Advanced',
             viewGuide: 'VIEW GUIDE',

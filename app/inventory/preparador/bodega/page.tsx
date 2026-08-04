@@ -46,7 +46,7 @@ export default function BodegaPWA() {
     const businessDow = getDowFromDate(selectedDate)
     const isToday = selectedDate === todayLAStr
     const [viewMode, setViewMode] = useState<'30min' | 'tramos'>('30min')
-    const [cardDisplayMode, setCardDisplayMode] = useState<'basic' | 'advanced'>('basic')
+    const [cardDisplayMode, setCardDisplayMode] = useState<'manual' | 'basic' | 'advanced'>('manual')
     
     // Alarma
     const audioRef = useRef<HTMLAudioElement | null>(null)
@@ -600,8 +600,14 @@ export default function BodegaPWA() {
 
                     {!isFullscreen && (
                         <>
-                            {/* Card Display Mode Switcher (Básica vs Avanzada) */}
+                            {/* Card Display Mode Switcher (Manual | Básica | Avanzada) */}
                             <div className="flex bg-slate-800/80 p-1 rounded-lg border border-slate-700 font-bold text-xs">
+                                <button 
+                                    onClick={() => setCardDisplayMode('manual')}
+                                    className={`px-2.5 py-1 rounded transition-colors cursor-pointer ${cardDisplayMode === 'manual' ? 'bg-purple-600 text-white shadow-sm font-black' : 'text-slate-400 hover:text-white'}`}
+                                >
+                                    {t('prep.manualMode')}
+                                </button>
                                 <button 
                                     onClick={() => setCardDisplayMode('basic')}
                                     className={`px-2.5 py-1 rounded transition-colors cursor-pointer ${cardDisplayMode === 'basic' ? 'bg-emerald-600 text-white shadow-sm font-black' : 'text-slate-400 hover:text-white'}`}
