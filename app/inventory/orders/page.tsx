@@ -676,7 +676,7 @@ export default function InventoryOrdersPage() {
 
     async function handleLiquidsParChange(itemId: string, value: string) {
         if (!storeId) return
-        let numVal = parseFloat(value) || 0
+        let numVal = value === '' ? 0 : (parseFloat(value) || 0)
         const item = items.find(i => i.id === itemId)
         if (item && numVal > 0) {
             if (item.order_rounding_rule === 'ceiling_60') numVal = Math.ceil(numVal / 60) * 60
@@ -684,8 +684,6 @@ export default function InventoryOrdersPage() {
             else if (item.order_rounding_rule === 'ceiling_4') numVal = Math.ceil(numVal / 4) * 4
         }
 
-        const itemCounts = counts[itemId] || {}
-        const hasAnyLeftover = Object.keys(itemCounts).length > 0
         const nextWeekMonday = addDays(activeMonday, 7)
 
         const b = bases[itemId] || { inventory_item_id: itemId, mon_par: 0, tue_par: 0, wed_par: 0, thu_par: 0, fri_par: 0, sat_par: 0, sun_par: 0 }
@@ -701,28 +699,29 @@ export default function InventoryOrdersPage() {
             sun_par: numVal
         }
 
+        const newBases = { ...bases, [itemId]: updatedItemBase as any }
+        setBases(newBases)
+        setHasBaseChanges(true)
+
         setIsLiveSaving(true)
 
-        if (hasAnyLeftover) {
-            saveSingleItemWeeklyBase(storeId, nextWeekMonday, updatedItemBase as any)
-                .then(() => setIsLiveSaving(false))
-                .catch(err => {
-                    console.error('Error auto-saving liquids PAR base for next week:', err)
-                    setIsLiveSaving(false)
-                })
-        } else {
-            setBases(prev => ({ ...prev, [itemId]: updatedItemBase as any }))
-            setHasBaseChanges(true)
-
-            Promise.all([
+        try {
+            await Promise.all([
                 saveSingleItemWeeklyBase(storeId, activeMonday, updatedItemBase as any),
                 saveSingleItemWeeklyBase(storeId, nextWeekMonday, updatedItemBase as any)
             ])
-                .then(() => setIsLiveSaving(false))
-                .catch(err => {
-                    console.error('Error auto-saving liquids PAR base:', err)
-                    setIsLiveSaving(false)
-                })
+
+            const lines = await calculateDailyOrder(
+                storeId, selectedOrderDate, items,
+                newBases, counts, activeMonday,
+                parIdeal, overrideDayField, parBoostPercent,
+                orderType
+            )
+            setOrderLines(lines)
+        } catch (err) {
+            console.error('Error auto-saving liquids PAR base:', err)
+        } finally {
+            setIsLiveSaving(false)
         }
     }
 
@@ -746,7 +745,7 @@ export default function InventoryOrdersPage() {
                     const fieldDateStr = addDays(activeMonday, idx)
                     const hasLeftover = itemCounts[fieldDateStr] !== undefined && itemCounts[fieldDateStr] !== null
                     const isPastDay = fieldDateStr < todayStr
-                    const isLocked = hasLeftover || isPastDay
+                    const isLocked = (orderType === 'daily') ? (hasLeftover || isPastDay) : false
 
                     nextBasePayload[f] = (b as any)[f] || 0
 
@@ -765,8 +764,8 @@ export default function InventoryOrdersPage() {
             await saveWeeklyBases(storeId, nextWeekMonday, nextWeekBasesList)
 
             const successMsg = language === 'es'
-                ? `⚡ PAR Guardado exitosamente. Los días con sobrante mantuvieron su histórico e impactaron a la próxima semana (${nextWeekMonday}). Los días sin sobrante se actualizaron de inmediato.`
-                : `⚡ PAR saved successfully. Days with leftovers preserved historical counts for next week (${nextWeekMonday}). Days without leftovers updated immediately.`
+                ? `⚡ PAR Guardado exitosamente. Se actualizaron las bases de la semana actual (${activeMonday}) y la próxima semana (${nextWeekMonday}).`
+                : `⚡ PAR saved successfully. Bases updated for current week (${activeMonday}) and next week (${nextWeekMonday}).`
             alert(successMsg)
             setOriginalBases(JSON.parse(JSON.stringify(bases)))
             setHasBaseChanges(false)
