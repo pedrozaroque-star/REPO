@@ -1133,9 +1133,10 @@ export default function PreparadorPage() {
                                                             </div>
                                                             
                                                             {cardDisplayMode === 'manual' ? (
-                                                                /* Modo Manual: Programado Semanal con números gigantes sin leyenda */
+                                                                /* Modo Manual: Programado Semanal (Desactivada la edición en Modo Tableta) */
                                                                 <button 
                                                                     onClick={() => {
+                                                                        if (isFullscreen) return;
                                                                         setEditingMeatItem({
                                                                             key: manualKey,
                                                                             meatType: m.meat_type,
@@ -1146,20 +1147,21 @@ export default function PreparadorPage() {
                                                                         })
                                                                         setTempEditValue(manualScheduledLbs)
                                                                     }}
-                                                                    className="flex flex-col items-center justify-center py-2 group cursor-pointer w-full hover:bg-purple-100/50 dark:hover:bg-purple-900/30 rounded-2xl transition-all"
-                                                                    title="Clic para fijar meta semanal permanente para este día"
+                                                                    className={`flex flex-col items-center justify-center py-2 group w-full rounded-2xl transition-all ${isFullscreen ? 'cursor-default' : 'cursor-pointer hover:bg-purple-100/50 dark:hover:bg-purple-900/30'}`}
+                                                                    title={isFullscreen ? undefined : "Clic para fijar meta semanal permanente para este día"}
                                                                 >
                                                                     <div className="flex items-baseline gap-1 my-1">
-                                                                        <span className={`font-black tracking-tighter leading-none transition-transform group-hover:scale-105 ${m.meat_type === 'ASADA' ? 'text-7xl xl:text-8xl text-purple-700 dark:text-purple-400' : 'text-6xl xl:text-7xl text-slate-900 dark:text-white'}`}>
+                                                                        <span className={`font-black tracking-tighter leading-none transition-transform ${isFullscreen ? '' : 'group-hover:scale-105'} ${m.meat_type === 'ASADA' ? 'text-7xl xl:text-8xl text-purple-700 dark:text-purple-400' : 'text-6xl xl:text-7xl text-slate-900 dark:text-white'}`}>
                                                                             {manualScheduledLbs}
                                                                         </span>
                                                                         <span className="text-2xl md:text-3xl font-bold text-slate-500">lbs</span>
                                                                     </div>
                                                                 </button>
                                                             ) : cardDisplayMode === 'basic' ? (
-                                                                /* Modo Básico: Ultra-Simple con Clic para Modificar */
+                                                                /* Modo Básico: Ultra-Simple (Desactivada la edición en Modo Tableta) */
                                                                 <button 
                                                                     onClick={() => {
+                                                                        if (isFullscreen) return;
                                                                         setEditingMeatItem({
                                                                             key: overrideKey,
                                                                             meatType: m.meat_type,
@@ -1168,11 +1170,11 @@ export default function PreparadorPage() {
                                                                         })
                                                                         setTempEditValue(effectiveMaxLbs)
                                                                     }}
-                                                                    className="flex flex-col items-center justify-center py-2 group cursor-pointer w-full hover:bg-slate-100/50 dark:hover:bg-slate-800/50 rounded-2xl transition-all"
-                                                                    title="Clic para modificar cantidad de libras"
+                                                                    className={`flex flex-col items-center justify-center py-2 group w-full rounded-2xl transition-all ${isFullscreen ? 'cursor-default' : 'cursor-pointer hover:bg-slate-100/50 dark:hover:bg-slate-800/50'}`}
+                                                                    title={isFullscreen ? undefined : "Clic para modificar cantidad de libras"}
                                                                 >
                                                                     <div className="flex items-baseline gap-1 my-1">
-                                                                        <span className={`font-black tracking-tighter leading-none transition-transform group-hover:scale-105 ${m.meat_type === 'ASADA' ? 'text-7xl xl:text-8xl text-blue-700 dark:text-blue-400' : 'text-6xl xl:text-7xl text-slate-900 dark:text-white'}`}>
+                                                                        <span className={`font-black tracking-tighter leading-none transition-transform ${isFullscreen ? '' : 'group-hover:scale-105'} ${m.meat_type === 'ASADA' ? 'text-7xl xl:text-8xl text-blue-700 dark:text-blue-400' : 'text-6xl xl:text-7xl text-slate-900 dark:text-white'}`}>
                                                                             {effectiveMaxLbs}
                                                                         </span>
                                                                         <span className="text-2xl md:text-3xl font-bold text-slate-500">lbs</span>
@@ -1422,9 +1424,9 @@ export default function PreparadorPage() {
                 )
             })()}
 
-            {/* Manual Override Edit Modal */}
+            {/* Manual Override Edit Modal (Desactivado en Modo Tableta Kiosco) */}
             <AnimatePresence>
-                {editingMeatItem && (
+                {!isFullscreen && editingMeatItem && (
                     <motion.div 
                         initial={{ opacity: 0 }} 
                         animate={{ opacity: 1 }} 
