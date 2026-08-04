@@ -1133,7 +1133,7 @@ export default function PreparadorPage() {
                                                             </div>
                                                             
                                                             {cardDisplayMode === 'manual' ? (
-                                                                /* Modo Manual: Programado Semanal (Lunes a Lunes) */
+                                                                /* Modo Manual: Programado Semanal con números gigantes sin leyenda */
                                                                 <button 
                                                                     onClick={() => {
                                                                         setEditingMeatItem({
@@ -1150,14 +1150,11 @@ export default function PreparadorPage() {
                                                                     title="Clic para fijar meta semanal permanente para este día"
                                                                 >
                                                                     <div className="flex items-baseline gap-1 my-1">
-                                                                        <span className={`font-black tracking-tighter leading-none transition-transform group-hover:scale-105 ${m.meat_type === 'ASADA' ? 'text-6xl xl:text-7xl text-purple-700 dark:text-purple-400' : 'text-5xl xl:text-6xl text-slate-900 dark:text-white'}`}>
+                                                                        <span className={`font-black tracking-tighter leading-none transition-transform group-hover:scale-105 ${m.meat_type === 'ASADA' ? 'text-7xl xl:text-8xl text-purple-700 dark:text-purple-400' : 'text-6xl xl:text-7xl text-slate-900 dark:text-white'}`}>
                                                                             {manualScheduledLbs}
                                                                         </span>
-                                                                        <span className="text-xl md:text-2xl font-bold text-slate-500">lbs</span>
+                                                                        <span className="text-2xl md:text-3xl font-bold text-slate-500">lbs</span>
                                                                     </div>
-                                                                    <span className="text-[10px] font-black uppercase bg-purple-100 dark:bg-purple-900/60 text-purple-800 dark:text-purple-200 px-2.5 py-0.5 rounded-full border border-purple-300 dark:border-purple-700 shadow-xs mt-1">
-                                                                        📋 Programado Semanal
-                                                                    </span>
                                                                 </button>
                                                             ) : cardDisplayMode === 'basic' ? (
                                                                 /* Modo Básico: Ultra-Simple con Clic para Modificar */
@@ -1175,10 +1172,10 @@ export default function PreparadorPage() {
                                                                     title="Clic para modificar cantidad de libras"
                                                                 >
                                                                     <div className="flex items-baseline gap-1 my-1">
-                                                                        <span className={`font-black tracking-tighter leading-none transition-transform group-hover:scale-105 ${m.meat_type === 'ASADA' ? 'text-6xl xl:text-7xl text-blue-700 dark:text-blue-400' : 'text-5xl xl:text-6xl text-slate-900 dark:text-white'}`}>
+                                                                        <span className={`font-black tracking-tighter leading-none transition-transform group-hover:scale-105 ${m.meat_type === 'ASADA' ? 'text-7xl xl:text-8xl text-blue-700 dark:text-blue-400' : 'text-6xl xl:text-7xl text-slate-900 dark:text-white'}`}>
                                                                             {effectiveMaxLbs}
                                                                         </span>
-                                                                        <span className="text-xl md:text-2xl font-bold text-slate-500">lbs</span>
+                                                                        <span className="text-2xl md:text-3xl font-bold text-slate-500">lbs</span>
                                                                     </div>
                                                                     {hasOverride && (
                                                                         <span className="text-[10px] font-black uppercase bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-200 px-2 py-0.5 rounded-full border border-amber-300 dark:border-amber-700 shadow-xs mt-1">
