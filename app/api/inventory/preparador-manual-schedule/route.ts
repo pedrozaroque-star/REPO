@@ -11,22 +11,23 @@ export const dynamic = 'force-dynamic'
 export async function GET(request: NextRequest) {
     try {
         const searchParams = request.nextUrl.searchParams
-        const storeId = searchParams.get('storeId')
+        const rawStoreId = searchParams.get('storeId')
         const dow = searchParams.get('dow') // 1 (Monday) to 7 (Sunday)
 
-        if (!storeId || !dow) {
+        if (!rawStoreId || !dow) {
             return NextResponse.json({ error: 'Missing storeId or dow' }, { status: 400 })
         }
 
+        const numericStoreId = parseInt(rawStoreId, 10)
         const supabase = await getSupabaseAdminClient()
         const { data, error } = await supabase
             .from('prep_manual_schedule')
             .select('interval_start, meat_type, max_lbs')
-            .eq('store_id', storeId)
-            .eq('day_of_week', parseInt(dow))
+            .eq('store_id', isNaN(numericStoreId) ? rawStoreId : numericStoreId)
+            .eq('day_of_week', parseInt(dow, 10))
 
         if (error) {
-            // If table does not exist yet in DB, return empty array cleanly
+            console.error('GET prep_manual_schedule error:', error.message)
             return NextResponse.json([])
         }
 
@@ -45,14 +46,15 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
         }
 
+        const numericStoreId = parseInt(String(storeId), 10)
         const supabase = await getSupabaseAdminClient()
         const { data, error } = await supabase
             .from('prep_manual_schedule')
             .upsert({
-                store_id: storeId,
-                day_of_week: parseInt(dow),
+                store_id: isNaN(numericStoreId) ? storeId : numericStoreId,
+                day_of_week: parseInt(String(dow), 10),
                 interval_start: intervalStart,
-                meat_type: meatType,
+                meat_type: String(meatType).toUpperCase(),
                 max_lbs: Number(maxLbs),
                 updated_at: new Date().toISOString()
             }, {
@@ -61,8 +63,8 @@ export async function POST(request: NextRequest) {
             .select()
 
         if (error) {
-            console.warn('prep_manual_schedule upsert warning:', error.message)
-            return NextResponse.json({ success: true, warning: error.message })
+            console.error('prep_manual_schedule upsert error:', error.message)
+            return NextResponse.json({ error: error.message }, { status: 500 })
         }
 
         return NextResponse.json({ success: true, data })
