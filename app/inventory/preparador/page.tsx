@@ -102,37 +102,52 @@ export default function PreparadorPage() {
         }
     }, [storeId, selectedDate])
 
-    // Load Manual Weekly Schedule from API & localStorage
+    // Helper function to normalize time format (e.g., '12:00' -> '12:00:00')
+    const normTime = (t: string) => {
+        if (!t) return '00:00:00'
+        const parts = t.split(':')
+        if (parts.length === 2) return `${parts[0].padStart(2, '0')}:${parts[1].padStart(2, '0')}:00`
+        if (parts.length === 3) return `${parts[0].padStart(2, '0')}:${parts[1].padStart(2, '0')}:${parts[2].padStart(2, '0')}`
+        return t
+    }
+
+    // Load Manual Weekly Schedule from API & localStorage with 10s polling for multi-device sync
     useEffect(() => {
         if (!storeId) return
+        const storageKey = `teg_prep_manual_weekly_${storeId}_${businessDow}`
+        
         const fetchManualSchedule = async () => {
-            const storageKey = `teg_prep_manual_weekly_${storeId}_${businessDow}`
+            try {
+                const res = await fetch(`/api/inventory/preparador-manual-schedule?storeId=${storeId}&dow=${businessDow}&_t=${Date.now()}`, { cache: 'no-store' })
+                if (res.ok) {
+                    const data = await res.json()
+                    if (Array.isArray(data)) {
+                        const map: Record<string, number> = {}
+                        data.forEach((item: any) => {
+                            const key = `${normTime(item.interval_start)}_${item.meat_type}`
+                            map[key] = Number(item.max_lbs)
+                        })
+                        setManualWeeklySchedule(map)
+                        localStorage.setItem(storageKey, JSON.stringify(map))
+                        return
+                    }
+                }
+            } catch (e) {
+                console.error('Error fetching manual schedule:', e)
+            }
+
+            // Fallback to cache if API failed
             const cached = localStorage.getItem(storageKey)
             if (cached) {
                 try {
                     setManualWeeklySchedule(JSON.parse(cached))
                 } catch (e) {}
             }
-            
-            try {
-                const res = await fetch(`/api/inventory/preparador-manual-schedule?storeId=${storeId}&dow=${businessDow}&_t=${Date.now()}`, { cache: 'no-store' })
-                if (res.ok) {
-                    const data = await res.json()
-                    if (Array.isArray(data) && data.length > 0) {
-                        const map: Record<string, number> = {}
-                        data.forEach((item: any) => {
-                            const key = `${item.interval_start}_${item.meat_type}`
-                            map[key] = Number(item.max_lbs)
-                        })
-                        setManualWeeklySchedule(map)
-                        localStorage.setItem(storageKey, JSON.stringify(map))
-                    }
-                }
-            } catch (e) {
-                console.error('Error fetching manual schedule:', e)
-            }
         }
+
         fetchManualSchedule()
+        const interval = setInterval(fetchManualSchedule, 10000)
+        return () => clearInterval(interval)
     }, [storeId, businessDow])
 
     // Save Manual Overrides to localStorage
@@ -1118,7 +1133,7 @@ export default function PreparadorPage() {
                                                     const realVal = m.real_lbs !== undefined ? (viewMode === '30min' ? m.real_lbs : m.real_lbs / (m.elapsed_hours || m.duration || 1)) : undefined
                                                     const maxTrayLbs = Math.max(1, Math.ceil(displayVal))
 
-                                                    const intervalStart = bucket.id || '00:00:00'
+                                                    const intervalStart = normTime(bucket.id || '00:00:00')
                                                     const manualKey = `${intervalStart}_${m.meat_type}`
                                                     const manualScheduledLbs = manualWeeklySchedule[manualKey] !== undefined ? manualWeeklySchedule[manualKey] : maxTrayLbs
 

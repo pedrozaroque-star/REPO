@@ -47,6 +47,54 @@ export default function BodegaPWA() {
     const isToday = selectedDate === todayLAStr
     const [viewMode, setViewMode] = useState<'30min' | 'tramos'>('30min')
     const [cardDisplayMode, setCardDisplayMode] = useState<'manual' | 'basic' | 'advanced'>('manual')
+    const [manualWeeklySchedule, setManualWeeklySchedule] = useState<Record<string, number>>({})
+    
+    // Helper function to normalize time format (e.g., '12:00' -> '12:00:00')
+    const normTime = (t: string) => {
+        if (!t) return '00:00:00'
+        const parts = t.split(':')
+        if (parts.length === 2) return `${parts[0].padStart(2, '0')}:${parts[1].padStart(2, '0')}:00`
+        if (parts.length === 3) return `${parts[0].padStart(2, '0')}:${parts[1].padStart(2, '0')}:${parts[2].padStart(2, '0')}`
+        return t
+    }
+
+    // Load Manual Weekly Schedule from API & localStorage with 10s polling for multi-device sync
+    useEffect(() => {
+        if (!storeId) return
+        const storageKey = `teg_prep_manual_weekly_${storeId}_${businessDow}`
+        
+        const fetchManualSchedule = async () => {
+            try {
+                const res = await fetch(`/api/inventory/preparador-manual-schedule?storeId=${storeId}&dow=${businessDow}&_t=${Date.now()}`, { cache: 'no-store' })
+                if (res.ok) {
+                    const data = await res.json()
+                    if (Array.isArray(data)) {
+                        const map: Record<string, number> = {}
+                        data.forEach((item: any) => {
+                            const key = `${normTime(item.interval_start)}_${item.meat_type}`
+                            map[key] = Number(item.max_lbs)
+                        })
+                        setManualWeeklySchedule(map)
+                        localStorage.setItem(storageKey, JSON.stringify(map))
+                        return
+                    }
+                }
+            } catch (e) {
+                console.error('Error fetching manual schedule in bodega:', e)
+            }
+
+            const cached = localStorage.getItem(storageKey)
+            if (cached) {
+                try {
+                    setManualWeeklySchedule(JSON.parse(cached))
+                } catch (e) {}
+            }
+        }
+
+        fetchManualSchedule()
+        const interval = setInterval(fetchManualSchedule, 10000)
+        return () => clearInterval(interval)
+    }, [storeId, businessDow])
     
     // Alarma
     const audioRef = useRef<HTMLAudioElement | null>(null)
@@ -800,10 +848,20 @@ export default function BodegaPWA() {
 
                                                             const maxVal = Math.max(1, Math.ceil(val))
 
+                                                            const intervalStart = normTime(bucket.id || '00:00:00')
+                                                            const manualKey = `${intervalStart}_${m.meat_type}`
+                                                            const manualScheduledLbs = manualWeeklySchedule[manualKey] !== undefined ? manualWeeklySchedule[manualKey] : maxVal
+
                                                             return (
                                                             <div key={m.meat_type} className={`rounded-xl md:rounded-2xl flex flex-col items-center justify-center border shadow-md ${isTop ? 'bg-slate-950/50 p-3 md:p-5 border-slate-700/50' : 'bg-slate-950/30 p-2 md:p-4 border-slate-800'}`}>
                                                                 <span className={`font-black uppercase tracking-widest mb-1 md:mb-2 text-center leading-none ${isTop ? 'text-[10px] xl:text-sm text-slate-400' : 'text-[9px] md:text-xs text-slate-600'}`}>{typeLab}</span>
-                                                                {cardDisplayMode === 'basic' ? (
+                                                                {cardDisplayMode === 'manual' ? (
+                                                                    <div className="flex flex-col items-center justify-center">
+                                                                        <span className={`font-black tracking-tighter flex items-baseline gap-1 ${isTop ? 'text-4xl xl:text-6xl text-purple-400' : 'text-2xl md:text-3xl text-purple-300'}`}>
+                                                                            {manualScheduledLbs} <span className={`font-medium opacity-50 ${isTop ? 'text-xs xl:text-base text-slate-400' : 'text-[10px] md:text-xs text-slate-500'}`}>{unitLab}</span>
+                                                                        </span>
+                                                                    </div>
+                                                                ) : cardDisplayMode === 'basic' ? (
                                                                     <div className="flex flex-col items-center justify-center">
                                                                         <span className={`font-black tracking-tighter flex items-baseline gap-1 ${isTop ? 'text-3xl xl:text-5xl text-white' : 'text-xl md:text-2xl text-slate-400'}`}>
                                                                             {maxVal} <span className={`font-medium opacity-50 ${isTop ? 'text-xs xl:text-base text-slate-500' : 'text-[10px] md:text-xs text-slate-600'}`}>{unitLab}</span>
