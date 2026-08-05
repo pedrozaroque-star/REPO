@@ -853,27 +853,27 @@ export default function BodegaPWA() {
                                                             const manualScheduledLbs = manualWeeklySchedule[manualKey] !== undefined ? manualWeeklySchedule[manualKey] : maxVal
 
                                                             return (
-                                                            <div key={m.meat_type} className={`rounded-xl md:rounded-2xl flex flex-col items-center justify-center border shadow-md ${isTop ? 'bg-slate-950/50 p-3 md:p-5 border-slate-700/50' : 'bg-slate-950/30 p-2 md:p-4 border-slate-800'}`}>
-                                                                <span className={`font-black uppercase tracking-widest mb-1 md:mb-2 text-center leading-none ${isTop ? 'text-[10px] xl:text-sm text-slate-400' : 'text-[9px] md:text-xs text-slate-600'}`}>{typeLab}</span>
-                                                                {cardDisplayMode === 'manual' ? (
-                                                                    <div className="flex flex-col items-center justify-center">
-                                                                        <span className={`font-black tracking-tighter flex items-baseline gap-1 ${isTop ? 'text-4xl xl:text-6xl text-purple-400' : 'text-2xl md:text-3xl text-purple-300'}`}>
-                                                                            {manualScheduledLbs} <span className={`font-medium opacity-50 ${isTop ? 'text-xs xl:text-base text-slate-400' : 'text-[10px] md:text-xs text-slate-500'}`}>{unitLab}</span>
+                                                                <div key={m.meat_type} className={`rounded-xl md:rounded-2xl flex flex-col items-center justify-center border shadow-md ${isTop ? 'bg-slate-950/50 p-3 md:p-5 border-slate-700/50' : 'bg-slate-950/30 p-2 md:p-4 border-slate-800'}`}>
+                                                                    <span className={`font-black uppercase tracking-widest mb-1 md:mb-2 text-center leading-none ${isTop ? 'text-lg xl:text-2xl text-slate-200' : 'text-sm md:text-lg text-slate-400'}`}>{typeLab}</span>
+                                                                    {cardDisplayMode === 'manual' ? (
+                                                                        <div className="flex flex-col items-center justify-center">
+                                                                            <span className={`font-black tracking-tighter flex items-baseline gap-1.5 ${isTop ? 'text-6xl xl:text-8xl text-purple-400' : 'text-4xl md:text-5xl text-purple-300'}`}>
+                                                                                {manualScheduledLbs} <span className={`font-black opacity-60 ${isTop ? 'text-xl xl:text-3xl text-slate-300' : 'text-sm md:text-lg text-slate-400'}`}>{unitLab}</span>
+                                                                            </span>
+                                                                        </div>
+                                                                    ) : cardDisplayMode === 'basic' ? (
+                                                                        <div className="flex flex-col items-center justify-center">
+                                                                            <span className={`font-black tracking-tighter flex items-baseline gap-1.5 ${isTop ? 'text-6xl xl:text-8xl text-white' : 'text-4xl md:text-5xl text-slate-300'}`}>
+                                                                                {maxVal} <span className={`font-black opacity-60 ${isTop ? 'text-xl xl:text-3xl text-slate-300' : 'text-sm md:text-lg text-slate-400'}`}>{unitLab}</span>
+                                                                            </span>
+                                                                        </div>
+                                                                    ) : (
+                                                                        <span className={`font-black tracking-tighter flex items-baseline gap-1.5 ${isTop ? 'text-5xl xl:text-7xl text-white' : 'text-3xl md:text-4xl text-slate-300'}`}>
+                                                                            {val.toFixed(1)} <span className={`font-black opacity-60 ${isTop ? 'text-lg xl:text-2xl text-slate-400' : 'text-xs md:text-base text-slate-500'}`}>{unitLab}</span>
                                                                         </span>
-                                                                    </div>
-                                                                ) : cardDisplayMode === 'basic' ? (
-                                                                    <div className="flex flex-col items-center justify-center">
-                                                                        <span className={`font-black tracking-tighter flex items-baseline gap-1 ${isTop ? 'text-3xl xl:text-5xl text-white' : 'text-xl md:text-2xl text-slate-400'}`}>
-                                                                            {maxVal} <span className={`font-medium opacity-50 ${isTop ? 'text-xs xl:text-base text-slate-500' : 'text-[10px] md:text-xs text-slate-600'}`}>{unitLab}</span>
-                                                                        </span>
-                                                                    </div>
-                                                                ) : (
-                                                                    <span className={`font-black tracking-tighter flex items-baseline gap-1 ${isTop ? 'text-3xl xl:text-5xl text-white' : 'text-xl md:text-2xl text-slate-400'}`}>
-                                                                        {val.toFixed(1)} <span className={`font-medium opacity-50 ${isTop ? 'text-xs xl:text-base text-slate-500' : 'text-[10px] md:text-xs text-slate-600'}`}>{unitLab}</span>
-                                                                    </span>
-                                                                )}
-                                                            </div>
-                                                        )};
+                                                                    )}
+                                                                </div>
+                                                            )};
 
                                                         return (
                                                             <div className="flex flex-col gap-3 lg:gap-4">

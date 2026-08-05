@@ -1144,7 +1144,7 @@ export default function PreparadorPage() {
                                                     return (
                                                         <div key={m.meat_type} className={`bg-white/60 dark:bg-slate-900/60 p-3 xl:p-4 rounded-2xl flex flex-col items-center justify-center shadow-sm w-full ${m.meat_type === 'ASADA' ? 'col-span-2 shadow-md border border-blue-200/50 dark:border-blue-800/50 bg-blue-50/50 dark:bg-blue-900/30 py-4 xl:py-6' : 'border border-slate-100 dark:border-slate-800 py-4 xl:py-5'}`}>
                                                             <div className="flex items-center gap-2 mb-1 md:mb-2">
-                                                                <span className={`uppercase tracking-widest text-slate-600 dark:text-slate-300 ${m.meat_type === 'ASADA' ? 'text-lg md:text-2xl font-black text-blue-800 dark:text-blue-300' : 'text-base md:text-xl font-black'}`}>{m.meat_type}</span>
+                                                                <span className={`uppercase tracking-widest ${m.meat_type === 'ASADA' ? 'text-2xl md:text-3xl font-black text-blue-900 dark:text-blue-200' : 'text-xl md:text-2xl font-black text-slate-800 dark:text-slate-200'}`}>{m.meat_type}</span>
                                                             </div>
                                                             
                                                             {cardDisplayMode === 'manual' ? (
@@ -1165,11 +1165,11 @@ export default function PreparadorPage() {
                                                                     className={`flex flex-col items-center justify-center py-2 group w-full rounded-2xl transition-all ${isFullscreen ? 'cursor-default' : 'cursor-pointer hover:bg-purple-100/50 dark:hover:bg-purple-900/30'}`}
                                                                     title={isFullscreen ? undefined : "Clic para fijar meta semanal permanente para este día"}
                                                                 >
-                                                                    <div className="flex items-baseline gap-1 my-1">
-                                                                        <span className={`font-black tracking-tighter leading-none transition-transform ${isFullscreen ? '' : 'group-hover:scale-105'} ${m.meat_type === 'ASADA' ? 'text-7xl xl:text-8xl text-purple-700 dark:text-purple-400' : 'text-6xl xl:text-7xl text-slate-900 dark:text-white'}`}>
+                                                                    <div className="flex items-baseline gap-1.5 my-1">
+                                                                        <span className={`font-black tracking-tighter leading-none transition-transform ${isFullscreen ? '' : 'group-hover:scale-105'} ${m.meat_type === 'ASADA' ? 'text-8xl xl:text-9xl text-purple-700 dark:text-purple-400' : 'text-7xl xl:text-8xl text-slate-900 dark:text-white'}`}>
                                                                             {manualScheduledLbs}
                                                                         </span>
-                                                                        <span className="text-2xl md:text-3xl font-bold text-slate-500">lbs</span>
+                                                                        <span className="text-3xl md:text-4xl font-black text-slate-400 dark:text-slate-500">lbs</span>
                                                                     </div>
                                                                 </button>
                                                             ) : cardDisplayMode === 'basic' ? (
@@ -1188,11 +1188,11 @@ export default function PreparadorPage() {
                                                                     className={`flex flex-col items-center justify-center py-2 group w-full rounded-2xl transition-all ${isFullscreen ? 'cursor-default' : 'cursor-pointer hover:bg-slate-100/50 dark:hover:bg-slate-800/50'}`}
                                                                     title={isFullscreen ? undefined : "Clic para modificar cantidad de libras"}
                                                                 >
-                                                                    <div className="flex items-baseline gap-1 my-1">
-                                                                        <span className={`font-black tracking-tighter leading-none transition-transform ${isFullscreen ? '' : 'group-hover:scale-105'} ${m.meat_type === 'ASADA' ? 'text-7xl xl:text-8xl text-blue-700 dark:text-blue-400' : 'text-6xl xl:text-7xl text-slate-900 dark:text-white'}`}>
+                                                                    <div className="flex items-baseline gap-1.5 my-1">
+                                                                        <span className={`font-black tracking-tighter leading-none transition-transform ${isFullscreen ? '' : 'group-hover:scale-105'} ${m.meat_type === 'ASADA' ? 'text-8xl xl:text-9xl text-blue-700 dark:text-blue-400' : 'text-7xl xl:text-8xl text-slate-900 dark:text-white'}`}>
                                                                             {effectiveMaxLbs}
                                                                         </span>
-                                                                        <span className="text-2xl md:text-3xl font-bold text-slate-500">lbs</span>
+                                                                        <span className="text-3xl md:text-4xl font-black text-slate-400 dark:text-slate-500">lbs</span>
                                                                     </div>
                                                                     {hasOverride && (
                                                                         <span className="text-[10px] font-black uppercase bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-200 px-2 py-0.5 rounded-full border border-amber-300 dark:border-amber-700 shadow-xs mt-1">
