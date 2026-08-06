@@ -1774,7 +1774,7 @@ export default function SchedulePlanner() {
                                                                             </span>
                                                                             {v.isNotified && (
                                                                                 <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 border border-green-200 dark:border-green-800 flex items-center gap-1">
-                                                                                    <span>✓</span> {v.type === 'LUN' ? (language === 'en' ? 'Logged' : 'Registrado') : (language === 'en' ? 'Sent' : 'Enviado')}
+                                                                                    <span>✓</span> {language === 'en' ? 'Sent' : 'Enviado'}
                                                                                 </span>
                                                                             )}
                                                                         </div>

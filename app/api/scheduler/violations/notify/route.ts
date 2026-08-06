@@ -118,11 +118,11 @@ export async function POST(req: Request) {
             out_time: v.outDate,
             allowed_minutes: v.allowed,
             actual_minutes: Math.round(v.actual),
-            status: v.type === 'LUN' ? 'Registrado' : 'Avisado',
+            status: 'Avisado',
             notified_recipients: {
                 initiator: userEmail,
                 initiator_role: userRole,
-                email_sent: v.type === 'BRK'
+                email_sent: true
             }
         }))
 
@@ -172,9 +172,6 @@ export async function POST(req: Request) {
         const { data: emps } = await supabase.from('toast_employees').select('toast_guid, email, first_name').in('toast_guid', emailsToFetch)
 
         for (const v of violations) {
-            // ONLY email employees for BREAKS, stop notifying for LUNCHES
-            if (v.type === 'LUN') continue;
-
             const empDb = emps?.find((e: any) => e.toast_guid === v.employeeRef)
             const empEmail = empDb?.email
             const empName = v.name || empDb?.first_name || 'Empleado'
