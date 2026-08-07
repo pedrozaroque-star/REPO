@@ -47,6 +47,7 @@ type MenuItem = {
     path: string
     icon: React.ReactNode
     roles: string[]
+    tooltip?: string
 }
 
 type MenuGroup = {
@@ -77,20 +78,10 @@ const GROUP_COLORS: Record<string, { icon: string; activeBg: string; activeBorde
         activeBg: 'bg-purple-50 dark:bg-purple-950/40',
         activeBorder: 'border-l-purple-500',
     },
-    kioskos: {
-        icon: 'text-pink-600 dark:text-pink-400',
-        activeBg: 'bg-pink-50 dark:bg-pink-950/40',
-        activeBorder: 'border-l-pink-500',
-    },
     equipo: {
         icon: 'text-cyan-600 dark:text-cyan-400',
         activeBg: 'bg-cyan-50 dark:bg-cyan-950/40',
         activeBorder: 'border-l-cyan-500',
-    },
-    food_cost: {
-        icon: 'text-amber-600 dark:text-amber-400',
-        activeBg: 'bg-amber-50 dark:bg-amber-950/40',
-        activeBorder: 'border-l-amber-500',
     },
 }
 
@@ -101,8 +92,7 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
     const { t, language, setLanguage } = useLanguage()
 
     const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({
-        operaciones: false, gestion: false, analisis: true,
-        inventario: false, kioskos: false, equipo: false, food_cost: false,
+        operaciones: true, analisis: false, inventario: false, equipo: false, gestion: false,
     })
     const [userDropdownOpen, setUserDropdownOpen] = useState(false)
     const dropdownRef = useRef<HTMLDivElement>(null)
@@ -121,15 +111,35 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
         return () => document.removeEventListener('mousedown', handleClickOutside)
     }, [userDropdownOpen])
 
-    // Menu groups (same as TopNav)
+    // Menu groups (Structured into 5 main logical groups)
     const menuGroups: MenuGroup[] = [
         {
-            title: t('sections.analysis'), id: 'analisis',
+            title: t('sections.analysis'),
+            id: 'analisis',
             items: [
-                { name: t('items.sales'), plainName: 'Ventas', path: '/ventas', icon: <DollarSign size={20} />, roles: ['admin', 'manager', 'supervisor'] },
-                { name: t('items.discounts'), plainName: 'Descuentos', path: '/admin/auditoria-descuentos', icon: <ClipboardList size={20} />, roles: ['admin', 'supervisor', 'manager'] },
                 {
-                    name: t('items.reports'), plainName: 'Reportes',
+                    name: t('items.sales'),
+                    plainName: 'Ventas',
+                    path: '/ventas',
+                    icon: <DollarSign size={20} />,
+                    roles: ['admin', 'manager', 'supervisor'],
+                    tooltip: language === 'en'
+                        ? 'Live net sales analysis, hourly comparisons, and revenue trends (Análisis de ventas netas e ingresos)'
+                        : 'Análisis en vivo de ventas netas, comparativos por hora y tendencias de ingresos'
+                },
+                {
+                    name: t('items.discounts'),
+                    plainName: 'Descuentos',
+                    path: '/admin/auditoria-descuentos',
+                    icon: <ClipboardList size={20} />,
+                    roles: ['admin', 'supervisor', 'manager'],
+                    tooltip: language === 'en'
+                        ? 'Detailed audit of manager comps, promos, and POS discounts (Auditoría de cortesías y descuentos)'
+                        : 'Auditoría detallada de cortesías, promociones y descuentos aplicados en la caja POS'
+                },
+                {
+                    name: t('items.reports'),
+                    plainName: 'Reportes',
                     path: '/ventas/reportes',
                     icon: (
                         <div className="relative inline-block">
@@ -140,50 +150,305 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                             </span>
                         </div>
                     ),
-                    roles: ['manager', 'supervisor', 'admin']
+                    roles: ['manager', 'supervisor', 'admin'],
+                    tooltip: language === 'en'
+                        ? 'Consolidated sales reports, delivery channels, taxes, and payment methods (Reportes financieros consolidados)'
+                        : 'Reportes consolidados de ventas, canales de entrega, impuestos y métodos de pago'
                 },
-                { name: t('items.planner'), plainName: 'Planificador', path: '/planificador', icon: <Calendar size={20} />, roles: ['manager', 'supervisor', 'admin'] },
-                { name: t('items.breaks_ai'), plainName: 'Descansos', path: '/descansos', icon: <Zap size={20} />, roles: ['manager', 'supervisor', 'admin'] },
-                { name: t('items.feedback'), plainName: 'Feedback', path: '/feedback', icon: <MessageSquare size={20} />, roles: ['asistente', 'manager', 'supervisor', 'admin'] },
-                { name: t('items.drive_thru_leaderboard'), plainName: 'Drive-Thru', path: '/drive-thru', icon: <Timer size={20} />, roles: ['manager', 'supervisor', 'admin'] },
+                {
+                    name: t('items.planner'),
+                    plainName: 'Planificador',
+                    path: '/planificador',
+                    icon: <Calendar size={20} />,
+                    roles: ['manager', 'supervisor', 'admin'],
+                    tooltip: language === 'en'
+                        ? 'Weekly demand forecasting and revenue planning (Proyección y planificación de demanda e ingresos)'
+                        : 'Proyección y planificación de demanda e ingresos semanales'
+                },
+                {
+                    name: t('items.breaks_ai'),
+                    plainName: 'Descansos',
+                    path: '/descansos',
+                    icon: <Zap size={20} />,
+                    roles: ['manager', 'supervisor', 'admin'],
+                    tooltip: language === 'en'
+                        ? 'Smart meal break scheduling and labor compliance tracking (Programación de descansos y comidas según norma)'
+                        : 'Programación inteligente y control de descansos/comidas según norma laboral'
+                },
+                {
+                    name: t('items.feedback'),
+                    plainName: 'Feedback',
+                    path: '/feedback',
+                    icon: <MessageSquare size={20} />,
+                    roles: ['asistente', 'manager', 'supervisor', 'admin'],
+                    tooltip: language === 'en'
+                        ? 'Customer feedback and reviews collected from kiosks and surveys (Revisiones y opiniones de clientes)'
+                        : 'Revisiones y comentarios de clientes recopilados en kioskos y encuestas'
+                },
+                {
+                    name: t('items.drive_thru_leaderboard'),
+                    plainName: 'Drive-Thru',
+                    path: '/drive-thru',
+                    icon: <Timer size={20} />,
+                    roles: ['manager', 'supervisor', 'admin'],
+                    tooltip: language === 'en'
+                        ? 'Drive-Thru speed of service metrics and store leaderboard (Métricas de velocidad de atención autoservicio)'
+                        : 'Métricas de velocidad de atención y ranking entre sucursales para el Drive-Thru'
+                },
             ]
         },
         {
-            title: t('sections.operations'), id: 'operaciones',
+            title: t('sections.operations'),
+            id: 'operaciones',
             items: [
-                { name: t('items.supervisor'), plainName: 'Supervisor', path: '/inspecciones', icon: <ClipboardList size={20} />, roles: ['supervisor', 'admin'] },
-                { name: t('items.manager'), plainName: 'Manager', path: '/checklists-manager', icon: <Briefcase size={20} />, roles: ['manager', 'supervisor', 'admin'] },
-                { name: t('items.assistants'), plainName: 'Asistentes', path: '/checklists', icon: <CheckSquare size={20} />, roles: ['asistente', 'manager', 'supervisor', 'admin'] },
-                { name: t('items.schedules'), plainName: 'Horarios', path: '/horarios', icon: <Clock size={20} />, roles: ['manager', 'supervisor', 'admin'] },
-                { name: t('items.dashboard'), plainName: 'Dashboard', path: '/dashboard', icon: <LayoutDashboard size={20} />, roles: ['manager', 'supervisor', 'admin'] },
-                { name: t('items.safe'), plainName: 'Caja Fuerte', path: '/caja-fuerte', icon: <Shield size={20} />, roles: ['admin', 'supervisor', 'manager', 'asistente'] },
-                { name: t('items.basecamp'), plainName: 'Basecamp', path: '/basecamp', icon: <BasecampIcon size={20} />, roles: ['manager', 'supervisor', 'admin', 'asistente'] },
+                {
+                    name: t('items.basecamp') || 'Basecamp',
+                    plainName: 'Basecamp',
+                    path: '/basecamp',
+                    icon: <BasecampIcon size={20} />,
+                    roles: ['manager', 'supervisor', 'admin', 'asistente'],
+                    tooltip: language === 'en'
+                        ? 'Communication hub, operational tickets, and company announcements (Casos, tickets y avisos a corporativo)'
+                        : 'Plataforma diaria de comunicación, casos operativos y avisos a la compañía'
+                },
+                {
+                    name: t('items.dashboard'),
+                    plainName: 'Dashboard',
+                    path: '/dashboard',
+                    icon: <LayoutDashboard size={20} />,
+                    roles: ['manager', 'supervisor', 'admin'],
+                    tooltip: language === 'en'
+                        ? 'Executive dashboard with real-time Toast POS sales and store alerts (Tablero principal con métricas en vivo)'
+                        : 'Tablero principal con métricas en tiempo real, ventas Toast POS y alertas operativas'
+                },
+                {
+                    name: t('items.manager'),
+                    plainName: 'Checklists Manager',
+                    path: '/checklists-manager',
+                    icon: <Briefcase size={20} />,
+                    roles: ['manager', 'supervisor', 'admin'],
+                    tooltip: language === 'en'
+                        ? 'Opening, shift change, and closing task checklists for managers (Listas de tareas para gerentes)'
+                        : 'Listas de tareas de apertura, cambio de turno y cierre para el gerente'
+                },
+                {
+                    name: t('items.assistants'),
+                    plainName: 'Checklists Asistentes',
+                    path: '/checklists',
+                    icon: <CheckSquare size={20} />,
+                    roles: ['asistente', 'manager', 'supervisor', 'admin'],
+                    tooltip: language === 'en'
+                        ? 'Daily operational checklists for assistant managers and line leads (Rutinas operativas para asistentes)'
+                        : 'Checklists de rutinas operativas diarias para asistentes de gerencia'
+                },
+                {
+                    name: t('items.supervisor'),
+                    plainName: 'Checklists Supervisor',
+                    path: '/inspecciones',
+                    icon: <ClipboardList size={20} />,
+                    roles: ['supervisor', 'admin'],
+                    tooltip: language === 'en'
+                        ? 'Quality, cleanliness, and brand standard audits by supervisors (Auditorías de calidad e higiene)'
+                        : 'Auditorías de calidad, limpieza y estándares de marca por supervisores'
+                },
+                {
+                    name: t('items.prep'),
+                    plainName: 'Preparador (Pace)',
+                    path: '/inventory/preparador',
+                    icon: <ChefHat size={20} />,
+                    roles: ['admin', 'manager', 'supervisor', 'asistente'],
+                    tooltip: language === 'en'
+                        ? 'Intraday 30-min meat cooking pace projection for grill cooks (Proyección de carne a cocinar por bloques)'
+                        : 'Proyección intradía de libras de carne a cocinar por bloques de 30 minutos'
+                },
+                {
+                    name: t('items.actividades') || 'Actividades',
+                    plainName: 'Actividades',
+                    path: '/actividades',
+                    icon: <ClipboardList size={20} />,
+                    roles: ['manager', 'supervisor', 'admin', 'asistente'],
+                    tooltip: language === 'en'
+                        ? 'Assignment and tracking of individual maintenance tasks (Asignación de tareas individuales)'
+                        : 'Asignación y seguimiento de tareas individuales de mantenimiento y limpieza'
+                },
+                {
+                    name: t('items.safe'),
+                    plainName: 'Caja Fuerte',
+                    path: '/caja-fuerte',
+                    icon: <Shield size={20} />,
+                    roles: ['admin', 'supervisor', 'manager', 'asistente'],
+                    tooltip: language === 'en'
+                        ? 'Safe audit of bills, coins, and uniform sales cash reconciliation (Arqueo semanal de bóveda)'
+                        : 'Arqueo de billetes, monedas y conciliación de efectivo de uniformes en bóveda'
+                },
             ]
         },
         {
-            title: t('sections.management'), id: 'gestion',
+            title: t('sections.inventory'),
+            id: 'inventario',
             items: [
-                { name: t('items.stores'), plainName: 'Tiendas', path: '/tiendas', icon: <Store size={20} />, roles: ['admin'] },
-                { name: t('items.tv_menus'), plainName: 'TV Menús', path: '/admin/tv-menus', icon: <Monitor size={20} />, roles: ['admin', 'supervisor'] },
-                { name: t('items.users'), plainName: 'Usuarios', path: '/usuarios', icon: <Users size={20} />, roles: ['admin', 'supervisor'] },
-                { name: t('items.templates'), plainName: 'Plantillas', path: '/admin/plantillas', icon: <FileEdit size={20} />, roles: ['admin'] },
+                {
+                    name: t('items.bodega_orders'),
+                    plainName: 'Orden diaria',
+                    path: '/inventory/orders',
+                    icon: <Truck size={20} />,
+                    roles: ['admin', 'manager', 'supervisor'],
+                    tooltip: language === 'en'
+                        ? 'Auto-calculation of daily warehouse supply orders sent to QuickBooks (Pedido diario a Bodega Central)'
+                        : 'Generación automática de pedidos diarios a Bodega Central y envío a QuickBooks'
+                },
+                {
+                    name: t('items.uniforms_control'),
+                    plainName: 'Control de Uniformes',
+                    path: '/inventory/uniforms',
+                    icon: <Shirt size={20} />,
+                    roles: ['admin', 'manager', 'supervisor', 'asistente'],
+                    tooltip: language === 'en'
+                        ? 'Uniform stock management, new hire package issues, and sales (Existencias de ropa y entregas)'
+                        : 'Gestión de existencias de uniformes, paquetes a empleados y ventas'
+                },
+                {
+                    name: language === 'en' ? 'Food Cost & Margins' : 'Food Cost & Márgenes',
+                    plainName: 'Food Cost & Márgenes',
+                    path: '/admin/food-cost',
+                    icon: <TrendingUp size={20} />,
+                    roles: ['admin', 'manager', 'supervisor'],
+                    tooltip: language === 'en'
+                        ? 'Comprehensive food cost analysis, meat yields, and menu margins (Análisis general, carnes y márgenes)'
+                        : 'Análisis integral de Food Cost por sucursal, rendimiento de carnes y margen por platillo'
+                },
+                {
+                    name: t('items.ingredients'),
+                    plainName: 'Insumos de Bodega',
+                    path: '/inventory/items',
+                    icon: <Store size={20} />,
+                    roles: ['admin', 'manager', 'supervisor'],
+                    tooltip: language === 'en'
+                        ? 'Master raw ingredients catalog with purchase costs (Catálogo maestro de insumos y costos)'
+                        : 'Catálogo maestro de ingredientes e insumos con sus costos y empaques'
+                },
+                {
+                    name: t('items.menu_catalog'),
+                    plainName: 'Recetas (Menú)',
+                    path: '/inventory/menu',
+                    icon: <ClipboardList size={20} />,
+                    roles: ['admin', 'manager', 'supervisor'],
+                    tooltip: language === 'en'
+                        ? 'Recipe engineering and ingredient portioning per menu item (Fichas técnicas y recetas teóricas)'
+                        : 'Fichas técnicas y recetas con la porción exacta de cada ingrediente por platillo'
+                },
+                {
+                    name: t('items.food_costs'),
+                    plainName: 'Costos (Legacy)',
+                    path: '/inventory/costs',
+                    icon: <TrendingUp size={20} />,
+                    roles: ['admin', 'manager'],
+                    tooltip: language === 'en'
+                        ? 'Legacy dish cost analysis (Márgenes por platillo)'
+                        : 'Análisis de costos y margen de ganancia por platillo del menú'
+                },
             ]
         },
         {
-            title: t('sections.inventory'), id: 'inventario',
+            title: t('sections.team'),
+            id: 'equipo',
             items: [
-                { name: t('items.ingredients'), plainName: 'Insumos de Bodega', path: '/inventory/items', icon: <Store size={20} />, roles: ['admin', 'manager', 'supervisor'] },
-                { name: t('items.menu_catalog'), plainName: 'Recetas (Menú)', path: '/inventory/menu', icon: <ClipboardList size={20} />, roles: ['admin', 'manager', 'supervisor'] },
-                { name: t('items.food_costs'), plainName: 'Costos', path: '/inventory/costs', icon: <TrendingUp size={20} />, roles: ['admin', 'manager'] },
-                { name: t('items.prep'), plainName: 'Preparador', path: '/inventory/preparador', icon: <ChefHat size={20} />, roles: ['admin', 'manager', 'supervisor', 'asistente'] },
-                { name: t('items.bodega_orders'), plainName: 'Orden diaria', path: '/inventory/orders', icon: <Truck size={20} />, roles: ['admin', 'manager', 'supervisor'] },
-                { name: t('items.uniforms_control'), plainName: 'Control de Uniformes', path: '/inventory/uniforms', icon: <Shirt size={20} />, roles: ['admin', 'manager', 'supervisor', 'asistente'] },
+                {
+                    name: t('items.schedules'),
+                    plainName: 'Horarios de Tienda',
+                    path: '/horarios',
+                    icon: <Clock size={20} />,
+                    roles: ['manager', 'supervisor', 'admin'],
+                    tooltip: language === 'en'
+                        ? 'Creation and publishing of weekly restaurant employee schedules (Programación semanal del personal)'
+                        : 'Creación y publicación de horarios de trabajo semanales del restaurante'
+                },
+                {
+                    name: (
+                        <div className="flex items-center gap-2">
+                            <span>{t('items.my_schedule')}</span>
+                            <span className="text-[10px] bg-purple-100 dark:bg-purple-950/60 text-purple-600 dark:text-purple-400 border border-purple-300 dark:border-purple-700 px-1.5 py-0.5 rounded font-black tracking-widest">BETA</span>
+                        </div>
+                    ),
+                    plainName: 'Mi Horario',
+                    path: '/mis-horarios',
+                    icon: <CalendarCheck size={20} />,
+                    roles: ['asistente', 'manager', 'supervisor', 'admin'],
+                    tooltip: language === 'en'
+                        ? '[BETA - Testing] Individual view of assigned work shifts and attendance records (Consulta de turnos en pruebas)'
+                        : '[BETA - En Pruebas] Consulta individual de turnos de trabajo asignados y registro de asistencias'
+                },
+                {
+                    name: (
+                        <div className="flex items-center gap-2">
+                            <span>{t('items.self_scheduling')}</span>
+                            <span className="text-[10px] bg-purple-100 dark:bg-purple-950/60 text-purple-600 dark:text-purple-400 border border-purple-300 dark:border-purple-700 px-1.5 py-0.5 rounded font-black tracking-widest">BETA</span>
+                        </div>
+                    ),
+                    plainName: 'Auto-Schedule',
+                    path: '/gestion/auto-schedule',
+                    icon: <UserCog size={20} />,
+                    roles: ['supervisor', 'admin'],
+                    tooltip: language === 'en'
+                        ? '[BETA - Testing] AI-powered automatic labor scheduling (Generador de turnos AI en pruebas)'
+                        : '[BETA - En Pruebas] Generación automática de horarios óptimos mediante inteligencia artificial'
+                },
             ]
         },
         {
-            title: t('sections.kiosks'), id: 'kioskos',
+            title: t('sections.management'),
+            id: 'gestion',
             items: [
-                { name: t('items.kiosk_feedback'), plainName: 'Kiosk Feedback', path: '/clientes', icon: <QrCode size={20} />, roles: ['admin', 'manager', 'supervisor'] },
+                {
+                    name: t('items.stores'),
+                    plainName: 'Tiendas',
+                    path: '/tiendas',
+                    icon: <Store size={20} />,
+                    roles: ['admin'],
+                    tooltip: language === 'en'
+                        ? 'Master setup and location data for all Tacos El Gavilan stores (Datos maestros de sucursales)'
+                        : 'Configuración y datos maestros de las sucursales de Tacos El Gavilan'
+                },
+                {
+                    name: t('items.users'),
+                    plainName: 'Usuarios',
+                    path: '/usuarios',
+                    icon: <Users size={20} />,
+                    roles: ['admin', 'supervisor'],
+                    tooltip: language === 'en'
+                        ? 'User accounts, access roles, and store assignment administration (Gestión de usuarios y permisos)'
+                        : 'Administración de usuarios, contraseñas y permisos por rol'
+                },
+                {
+                    name: t('items.templates'),
+                    plainName: 'Plantillas Checklists',
+                    path: '/admin/plantillas',
+                    icon: <FileEdit size={20} />,
+                    roles: ['admin'],
+                    tooltip: language === 'en'
+                        ? 'Design and editing of templates for operational checklists (Creador de plantillas)'
+                        : 'Diseño y edición de plantillas para listas de verificación operativas'
+                },
+                {
+                    name: t('items.tv_menus'),
+                    plainName: 'TV Menús',
+                    path: '/admin/tv-menus',
+                    icon: <Monitor size={20} />,
+                    roles: ['admin', 'supervisor'],
+                    tooltip: language === 'en'
+                        ? 'Digital menu board content, pricing, and display management (Gestión de pantallas de menú)'
+                        : 'Gestión de contenidos y precios en pantallas digitales de menú en tienda'
+                },
+                {
+                    name: t('items.kiosk_feedback'),
+                    plainName: 'Kiosk Feedback',
+                    path: '/clientes',
+                    icon: <QrCode size={20} />,
+                    roles: ['admin', 'manager', 'supervisor'],
+                    tooltip: language === 'en'
+                        ? 'In-store customer satisfaction survey kiosk setup (Configuración de pantallas de opinión)'
+                        : 'Configuración de pantallas de encuestas de satisfacción del cliente en comedor'
+                },
                 {
                     name: (
                         <div className="flex items-center gap-2">
@@ -192,24 +457,13 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                         </div>
                     ),
                     plainName: 'Eval. Staff',
-                    path: '/evaluacion', icon: <QrCode size={20} />,
-                    roles: ['admin', 'manager', 'supervisor']
+                    path: '/evaluacion',
+                    icon: <QrCode size={20} />,
+                    roles: ['admin', 'manager', 'supervisor'],
+                    tooltip: language === 'en'
+                        ? 'Periodic staff performance reviews and skills evaluation (Evaluación de desempeño del personal)'
+                        : 'Evaluación periódica de desempeño y habilidades del personal de tienda'
                 },
-            ]
-        },
-        {
-            title: t('sections.team'), id: 'equipo',
-            items: [
-                { name: t('items.actividades'), plainName: 'Actividades', path: '/actividades', icon: <ClipboardList size={20} />, roles: ['manager', 'supervisor', 'admin', 'asistente'] },
-                { name: t('items.my_schedule'), plainName: 'Mi Horario', path: '/mis-horarios', icon: <CalendarCheck size={20} />, roles: ['asistente', 'manager', 'supervisor', 'admin'] },
-                { name: t('items.self_scheduling'), plainName: 'Auto-Schedule', path: '/gestion/auto-schedule', icon: <UserCog size={20} />, roles: ['supervisor', 'admin'] },
-            ]
-        },
-        {
-            title: t('sections.food_cost'), id: 'food_cost',
-            items: [
-                { name: t('items.food_cost_report'), plainName: 'Food Cost', path: '/admin/food-cost', icon: <DollarSign size={20} />, roles: ['admin', 'manager', 'supervisor'] },
-                { name: t('items.food_cost_meats'), plainName: 'Carnes', path: '/admin/food-cost/meats', icon: <TrendingUp size={20} />, roles: ['admin', 'manager', 'supervisor'] },
             ]
         }
     ]
@@ -293,7 +547,7 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                 key={item.path}
                 href={item.path}
                 onClick={() => { if (isMobile) setMobileDrawerOpen(false) }}
-                title={isCollapsed && !isMobile ? (item.plainName || '') : undefined}
+                title={item.tooltip || (typeof item.name === 'string' ? item.name : item.plainName) || ''}
                 className={`group/item relative flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-all duration-200 border-l-[3px] ${
                     isActive
                         ? `${colors.activeBg} ${colors.activeBorder} font-semibold text-slate-900 dark:text-white`

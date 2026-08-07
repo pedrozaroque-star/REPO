@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { Scale, Loader2, AlertTriangle } from 'lucide-react'
 import DateRangeFilter from '@/components/sales/DateRangeFilter'
+import FoodCostNavigationTabs from '@/components/food-cost/FoodCostNavigationTabs'
 import { useLanguage } from '@/lib/i18n'
 
 interface BreakdownItem {
@@ -120,6 +121,7 @@ export default function MeatAnalysisPage() {
 
     return (
         <div className="p-6 max-w-[1600px] mx-auto space-y-6">
+            <FoodCostNavigationTabs />
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div>
                     <h1 className="text-3xl font-bold text-slate-900 dark:text-white flex items-center gap-3">
@@ -322,8 +324,8 @@ export default function MeatAnalysisPage() {
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
-                                    {data.breakdown.map((item) => (
-                                        <tr key={item.guid} className="hover:bg-slate-50 dark:hover:bg-slate-750/50">
+                                    {data.breakdown.map((item, idx) => (
+                                        <tr key={`${item.guid}-${idx}`} className="hover:bg-slate-50 dark:hover:bg-slate-750/50">
                                             <td className="px-6 py-3 font-medium text-slate-900 dark:text-slate-100">
                                                 {item.itemName}
                                             </td>

@@ -739,10 +739,49 @@ function TabSalesAndIssues({ storeId, stockData, pricingData, showToast, onTrans
   const { t, language } = useLanguage();
   const [empName, setEmpName] = useState('');
   const [empGuid, setEmpGuid] = useState('');
-  const [employeeList, setEmployeeList] = useState<Array<{id: string, name: string, toast_guid: string}>>([]);
+  const [employeeList, setEmployeeList] = useState<Array<{id: string, name: string, toast_guid: string, job_title?: string}>>([]);
   const [selectedEmpId, setSelectedEmpId] = useState<string>('');
   const [isCustomNameMode, setIsCustomNameMode] = useState(false);
   const [txType, setTxType] = useState<'sale' | 'new_hire' | 'damage'>('sale');
+
+  // Flexible Package State (Entrega / Asignación / Nuevo Ingreso)
+  const [pkgShirtCategory, setPkgShirtCategory] = useState<UniformCategory>('shirt_red');
+  const [pkgShirtSize, setPkgShirtSize] = useState<UniformSize>('M');
+  const [pkgShirtQty, setPkgShirtQty] = useState<number>(6);
+
+  const [pkgIncludeCap, setPkgIncludeCap] = useState<boolean>(true);
+  const [pkgCapCategory, setPkgCapCategory] = useState<UniformCategory>('cap_red');
+  const [pkgCapQty, setPkgCapQty] = useState<number>(1);
+
+  const [pkgIncludeJacket, setPkgIncludeJacket] = useState<boolean>(true);
+  const [pkgJacketCategory, setPkgJacketCategory] = useState<UniformCategory>('jacket_red');
+  const [pkgJacketSize, setPkgJacketSize] = useState<UniformSize>('M');
+  const [pkgJacketQty, setPkgJacketQty] = useState<number>(1);
+
+  const applyRoleDefaults = (emp: {id: string, name: string, toast_guid: string, job_title?: string}) => {
+    const job = (emp.job_title || '').toLowerCase();
+    if (job.includes('manager') && !job.includes('asst')) {
+      setPkgShirtCategory('shirt_manager');
+      setPkgCapCategory('cap_black');
+      setPkgJacketCategory('jacket_black');
+      setPkgIncludeJacket(false);
+    } else if (job.includes('asst')) {
+      setPkgShirtCategory('shirt_assistant');
+      setPkgCapCategory('cap_black');
+      setPkgJacketCategory('jacket_black');
+      setPkgIncludeJacket(false);
+    } else if (job.includes('shift leader')) {
+      setPkgShirtCategory('shirt_shift_leader');
+      setPkgCapCategory('cap_black');
+      setPkgJacketCategory('jacket_black');
+      setPkgIncludeJacket(true);
+    } else {
+      setPkgShirtCategory('shirt_red');
+      setPkgCapCategory('cap_red');
+      setPkgJacketCategory('jacket_red');
+      setPkgIncludeJacket(true);
+    }
+  };
 
   useEffect(() => {
     fetchEmployeesForStore(storeId).then(emps => {
@@ -751,9 +790,31 @@ function TabSalesAndIssues({ storeId, stockData, pricingData, showToast, onTrans
         setSelectedEmpId(emps[0].id);
         setEmpName(emps[0].name);
         setEmpGuid(emps[0].toast_guid);
+        applyRoleDefaults(emps[0]);
       }
     }).catch(console.error);
   }, [storeId]);
+
+  const handleEmployeeSelect = (empId: string) => {
+    setSelectedEmpId(empId);
+    const found = employeeList.find(x => x.id === empId);
+    if (found) {
+      setEmpName(found.name);
+      setEmpGuid(found.toast_guid);
+      applyRoleDefaults(found);
+    }
+  };
+
+  const handlePkgShirtCategoryChange = (newCat: UniformCategory) => {
+    setPkgShirtCategory(newCat);
+    if (newCat === 'shirt_assistant' || newCat === 'shirt_manager' || newCat === 'shirt_shift_leader') {
+      setPkgCapCategory('cap_black');
+      setPkgJacketCategory('jacket_black');
+    } else if (newCat === 'shirt_red') {
+      setPkgCapCategory('cap_red');
+      setPkgJacketCategory('jacket_red');
+    }
+  };
   
   // Sale specific
   const [saleCategory, setSaleCategory] = useState<UniformCategory>('shirt_red');
@@ -762,10 +823,6 @@ function TabSalesAndIssues({ storeId, stockData, pricingData, showToast, onTrans
   
   // Damage specific
   const [damageReason, setDamageReason] = useState('');
-
-  // New hire specific
-  const [newHireShirtSize, setNewHireShirtSize] = useState<UniformSize>('M');
-  const [newHireJacketSize, setNewHireJacketSize] = useState<UniformSize>('M');
 
   const [submitting, setSubmitting] = useState(false);
 
@@ -783,6 +840,50 @@ function TabSalesAndIssues({ storeId, stockData, pricingData, showToast, onTrans
     }
     return null;
   }, [txType, saleCategory, saleSize, stockData]);
+
+  // Stock helpers for package delivery form
+  const pkgShirtStock = useMemo(() => {
+    return stockData.find((s: any) => s.item_category === pkgShirtCategory && s.size === pkgShirtSize)?.quantity_on_hand || 0;
+  }, [stockData, pkgShirtCategory, pkgShirtSize]);
+
+  const pkgCapStock = useMemo(() => {
+    return stockData.find((s: any) => s.item_category === pkgCapCategory && s.size === 'ONE_SIZE')?.quantity_on_hand || 0;
+  }, [stockData, pkgCapCategory]);
+
+  const pkgJacketStock = useMemo(() => {
+    return stockData.find((s: any) => s.item_category === pkgJacketCategory && s.size === pkgJacketSize)?.quantity_on_hand || 0;
+  }, [stockData, pkgJacketCategory, pkgJacketSize]);
+
+  // Auto-clamp package quantities if stock changes or category/size changes
+  useEffect(() => {
+    if (txType === 'new_hire') {
+      if (pkgShirtStock === 0) {
+        setPkgShirtQty(0);
+      } else if (pkgShirtQty > pkgShirtStock || pkgShirtQty === 0) {
+        setPkgShirtQty(Math.min(6, pkgShirtStock));
+      }
+    }
+  }, [pkgShirtStock, txType]);
+
+  useEffect(() => {
+    if (txType === 'new_hire' && pkgIncludeCap) {
+      if (pkgCapStock === 0) {
+        setPkgCapQty(0);
+      } else if (pkgCapQty > pkgCapStock || pkgCapQty === 0) {
+        setPkgCapQty(Math.min(1, pkgCapStock));
+      }
+    }
+  }, [pkgCapStock, pkgIncludeCap, txType]);
+
+  useEffect(() => {
+    if (txType === 'new_hire' && pkgIncludeJacket) {
+      if (pkgJacketStock === 0) {
+        setPkgJacketQty(0);
+      } else if (pkgJacketQty > pkgJacketStock || pkgJacketQty === 0) {
+        setPkgJacketQty(Math.min(1, pkgJacketStock));
+      }
+    }
+  }, [pkgJacketStock, pkgIncludeJacket, txType]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -810,14 +911,70 @@ function TabSalesAndIssues({ storeId, stockData, pricingData, showToast, onTrans
           businessDate: getBusinessDate()
         });
       } else if (txType === 'new_hire') {
-        await recordNewHirePackage({ 
+        // Enforce strict stock limit validation before submitting
+        if (pkgShirtQty > pkgShirtStock) {
+          showToast(`No puedes entregar más de ${pkgShirtStock} camisas. Stock insuficiente.`, 'error');
+          setSubmitting(false);
+          return;
+        }
+
+        if (pkgIncludeCap && pkgCapQty > pkgCapStock) {
+          showToast(`No puedes entregar más de ${pkgCapStock} gorras. Stock insuficiente.`, 'error');
+          setSubmitting(false);
+          return;
+        }
+
+        if (pkgIncludeJacket && pkgJacketQty > pkgJacketStock) {
+          showToast(`No puedes entregar más de ${pkgJacketStock} chamarras. Stock insuficiente.`, 'error');
+          setSubmitting(false);
+          return;
+        }
+
+        const itemsToDeliver: Array<{ item_category: UniformCategory, size: UniformSize, quantity: number }> = [];
+
+        if (pkgShirtQty > 0) {
+          itemsToDeliver.push({
+            item_category: pkgShirtCategory,
+            size: pkgShirtSize,
+            quantity: pkgShirtQty
+          });
+        }
+
+        if (pkgIncludeCap && pkgCapQty > 0) {
+          itemsToDeliver.push({
+            item_category: pkgCapCategory,
+            size: 'ONE_SIZE',
+            quantity: pkgCapQty
+          });
+        }
+
+        if (pkgIncludeJacket && pkgJacketQty > 0) {
+          itemsToDeliver.push({
+            item_category: pkgJacketCategory,
+            size: pkgJacketSize,
+            quantity: pkgJacketQty
+          });
+        }
+
+        if (itemsToDeliver.length === 0) {
+          showToast('Selecciona al menos un artículo disponible para entregar', 'warning');
+          setSubmitting(false);
+          return;
+        }
+
+        const res = await recordNewHirePackage({ 
           storeId, 
           userEmail: user?.email || '',
           employeeName: empName,
           employeeToastGuid: empGuid || undefined,
-          sizes: { shirt: newHireShirtSize, cap: "ONE_SIZE", jacket: newHireJacketSize },
+          items: itemsToDeliver,
           businessDate: getBusinessDate()
         });
+
+        const hasWarning = res.results.some(r => r.warning);
+        if (hasWarning) {
+          showToast('Entrega procesada (algunas prendas tenían stock insuficiente)', 'warning');
+        }
       } else if (txType === 'damage') {
         if (!damageReason.trim()) {
           showToast(t('uniforms.toast.error'), 'warning');
@@ -842,6 +999,7 @@ function TabSalesAndIssues({ storeId, stockData, pricingData, showToast, onTrans
         setSelectedEmpId(employeeList[0].id);
         setEmpName(employeeList[0].name);
         setEmpGuid(employeeList[0].toast_guid);
+        applyRoleDefaults(employeeList[0]);
       } else {
         setEmpName('');
         setEmpGuid('');
@@ -876,6 +1034,7 @@ function TabSalesAndIssues({ storeId, stockData, pricingData, showToast, onTrans
                         setSelectedEmpId(employeeList[0].id);
                         setEmpName(employeeList[0].name);
                         setEmpGuid(employeeList[0].toast_guid);
+                        applyRoleDefaults(employeeList[0]);
                       }
                     }}
                     className="text-xs text-blue-600 dark:text-blue-400 hover:underline font-normal"
@@ -888,19 +1047,11 @@ function TabSalesAndIssues({ storeId, stockData, pricingData, showToast, onTrans
                   <select
                     className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-blue-500 outline-none font-medium text-sm"
                     value={selectedEmpId}
-                    onChange={e => {
-                      const empId = e.target.value;
-                      setSelectedEmpId(empId);
-                      const found = employeeList.find(x => x.id === empId);
-                      if (found) {
-                        setEmpName(found.name);
-                        setEmpGuid(found.toast_guid);
-                      }
-                    }}
+                    onChange={e => handleEmployeeSelect(e.target.value)}
                   >
                     {employeeList.map(emp => (
                       <option key={emp.id} value={emp.id}>
-                        {emp.name}
+                        {emp.name} {emp.job_title ? `(${emp.job_title})` : ''}
                       </option>
                     ))}
                   </select>
@@ -953,36 +1104,227 @@ function TabSalesAndIssues({ storeId, stockData, pricingData, showToast, onTrans
 
             <div className="bg-gray-50 dark:bg-gray-900/50 p-6 rounded-xl border border-gray-100 dark:border-gray-700">
               {txType === 'new_hire' ? (
-                <div className="space-y-4">
-                  <h4 className="font-medium text-blue-600 dark:text-blue-400 mb-4 flex items-center gap-2">
-                    <Package className="w-5 h-5" />
-                    {t('uniforms.sales.new_hire_auto')}
-                  </h4>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                        {t('uniforms.sales.shirt_size')}
-                      </label>
-                      <select 
-                        className="w-full bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 outline-none"
-                        value={newHireShirtSize}
-                        onChange={e => setNewHireShirtSize(e.target.value as UniformSize)}
-                      >
-                        {(SIZES_BY_CATEGORY['shirt_red'] || []).map(s => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
-                      </select>
+                <div className="space-y-6">
+                  <div className="flex items-center justify-between border-b border-gray-200 dark:border-gray-700 pb-3">
+                    <h4 className="font-bold text-blue-600 dark:text-blue-400 flex items-center gap-2 text-base">
+                      <Package className="w-5 h-5" />
+                      {t('uniforms.sales.new_hire_auto')}
+                    </h4>
+                    <span className="text-xs font-semibold px-2.5 py-1 bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300 rounded-full">
+                      $0.00 (Gratuito)
+                    </span>
+                  </div>
+
+                  {/* 1. SECCIÓN TORSO: Camisas / Polos */}
+                  <div className="space-y-3 bg-white dark:bg-gray-800 p-4 rounded-xl border border-gray-200 dark:border-gray-700">
+                    <span className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider block">
+                      1. {t('uniforms.sales.shirt_category')}
+                    </span>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                          {t('uniforms.sales.category')}
+                        </label>
+                        <select 
+                          className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm font-medium outline-none"
+                          value={pkgShirtCategory}
+                          onChange={e => handlePkgShirtCategoryChange(e.target.value as UniformCategory)}
+                        >
+                          <option value="shirt_red">{getCategoryDisplayName('shirt_red', language as "es" | "en")}</option>
+                          <option value="shirt_shift_leader">{getCategoryDisplayName('shirt_shift_leader', language as "es" | "en")}</option>
+                          <option value="shirt_assistant">{getCategoryDisplayName('shirt_assistant', language as "es" | "en")}</option>
+                          <option value="shirt_manager">{getCategoryDisplayName('shirt_manager', language as "es" | "en")}</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                          {t('uniforms.sales.shirt_size')}
+                        </label>
+                        <select 
+                          className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm font-medium outline-none"
+                          value={pkgShirtSize}
+                          onChange={e => setPkgShirtSize(e.target.value as UniformSize)}
+                        >
+                          {(SIZES_BY_CATEGORY[pkgShirtCategory] || []).map(s => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                          {t('uniforms.sales.shirt_qty')}
+                        </label>
+                        <input
+                          type="number"
+                          min={pkgShirtStock > 0 ? 1 : 0}
+                          max={pkgShirtStock}
+                          disabled={pkgShirtStock === 0}
+                          className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm font-medium outline-none disabled:opacity-50"
+                          value={pkgShirtQty}
+                          onChange={e => {
+                            const raw = parseInt(e.target.value) || 0;
+                            if (raw > pkgShirtStock) {
+                              showToast(`El stock máximo disponible es de ${pkgShirtStock} piezas.`, 'warning');
+                              setPkgShirtQty(pkgShirtStock);
+                            } else {
+                              setPkgShirtQty(Math.max(0, raw));
+                            }
+                          }}
+                        />
+                      </div>
                     </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                        {t('uniforms.sales.jacket_size')}
-                      </label>
-                      <select 
-                        className="w-full bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 outline-none"
-                        value={newHireJacketSize}
-                        onChange={e => setNewHireJacketSize(e.target.value as UniformSize)}
-                      >
-                        {(SIZES_BY_CATEGORY['jacket_red'] || []).map(s => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
-                      </select>
+                    <div className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1 pt-1">
+                      <span>Stock disponible:</span>
+                      <span className={`font-bold ${pkgShirtStock >= pkgShirtQty && pkgShirtStock > 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                        {pkgShirtStock} piezas
+                      </span>
                     </div>
+                  </div>
+
+                  {/* 2. SECCIÓN GORRA */}
+                  <div className="space-y-3 bg-white dark:bg-gray-800 p-4 rounded-xl border border-gray-200 dark:border-gray-700">
+                    <div className="flex items-center justify-between">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={pkgIncludeCap}
+                          onChange={e => setPkgIncludeCap(e.target.checked)}
+                          className="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
+                        />
+                        <span className="text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">
+                          2. {t('uniforms.sales.include_cap')}
+                        </span>
+                      </label>
+                    </div>
+
+                    {pkgIncludeCap && (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2">
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                            {t('uniforms.sales.cap_category')}
+                          </label>
+                          <select 
+                            className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm font-medium outline-none"
+                            value={pkgCapCategory}
+                            onChange={e => setPkgCapCategory(e.target.value as UniformCategory)}
+                          >
+                            <option value="cap_red">{getCategoryDisplayName('cap_red', language as "es" | "en")}</option>
+                            <option value="cap_black">{getCategoryDisplayName('cap_black', language as "es" | "en")}</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                            {t('uniforms.sales.cap_qty')}
+                          </label>
+                          <input
+                            type="number"
+                            min={pkgCapStock > 0 ? 1 : 0}
+                            max={pkgCapStock}
+                            disabled={pkgCapStock === 0}
+                            className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm font-medium outline-none disabled:opacity-50"
+                            value={pkgCapQty}
+                            onChange={e => {
+                              const raw = parseInt(e.target.value) || 0;
+                              if (raw > pkgCapStock) {
+                                showToast(`El stock máximo disponible es de ${pkgCapStock} piezas.`, 'warning');
+                                setPkgCapQty(pkgCapStock);
+                              } else {
+                                setPkgCapQty(Math.max(0, raw));
+                              }
+                            }}
+                          />
+                        </div>
+                      </div>
+                    )}
+                    {pkgIncludeCap && (
+                      <div className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1 pt-1">
+                        <span>Stock disponible:</span>
+                        <span className={`font-bold ${pkgCapStock >= pkgCapQty && pkgCapStock > 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                          {pkgCapStock} piezas
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* 3. SECCIÓN CHAMARRA */}
+                  <div className="space-y-3 bg-white dark:bg-gray-800 p-4 rounded-xl border border-gray-200 dark:border-gray-700">
+                    <div className="flex items-center justify-between">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={pkgIncludeJacket}
+                          onChange={e => setPkgIncludeJacket(e.target.checked)}
+                          className="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
+                        />
+                        <span className="text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">
+                          3. {t('uniforms.sales.include_jacket')}
+                        </span>
+                      </label>
+                    </div>
+
+                    {!pkgIncludeJacket && (
+                      <p className="text-xs text-amber-600 dark:text-amber-400 italic">
+                        {t('uniforms.sales.no_jacket_needed')}
+                      </p>
+                    )}
+
+                    {pkgIncludeJacket && (
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-2">
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                            {t('uniforms.sales.jacket_category')}
+                          </label>
+                          <select 
+                            className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm font-medium outline-none"
+                            value={pkgJacketCategory}
+                            onChange={e => setPkgJacketCategory(e.target.value as UniformCategory)}
+                          >
+                            <option value="jacket_red">{getCategoryDisplayName('jacket_red', language as "es" | "en")}</option>
+                            <option value="jacket_black">{getCategoryDisplayName('jacket_black', language as "es" | "en")}</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                            {t('uniforms.sales.jacket_size')}
+                          </label>
+                          <select 
+                            className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm font-medium outline-none"
+                            value={pkgJacketSize}
+                            onChange={e => setPkgJacketSize(e.target.value as UniformSize)}
+                          >
+                            {(SIZES_BY_CATEGORY[pkgJacketCategory] || []).map(s => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                            {t('uniforms.sales.jacket_qty')}
+                          </label>
+                          <input
+                            type="number"
+                            min={pkgJacketStock > 0 ? 1 : 0}
+                            max={pkgJacketStock}
+                            disabled={pkgJacketStock === 0}
+                            className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm font-medium outline-none disabled:opacity-50"
+                            value={pkgJacketQty}
+                            onChange={e => {
+                              const raw = parseInt(e.target.value) || 0;
+                              if (raw > pkgJacketStock) {
+                                showToast(`El stock máximo disponible es de ${pkgJacketStock} piezas.`, 'warning');
+                                setPkgJacketQty(pkgJacketStock);
+                              } else {
+                                setPkgJacketQty(Math.max(0, raw));
+                              }
+                            }}
+                          />
+                        </div>
+                      </div>
+                    )}
+                    {pkgIncludeJacket && (
+                      <div className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1 pt-1">
+                        <span>Stock disponible:</span>
+                        <span className={`font-bold ${pkgJacketStock >= pkgJacketQty && pkgJacketStock > 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                          {pkgJacketStock} piezas
+                        </span>
+                      </div>
+                    )}
                   </div>
                 </div>
               ) : (
@@ -1023,10 +1365,21 @@ function TabSalesAndIssues({ storeId, stockData, pricingData, showToast, onTrans
                         </label>
                         <input
                           type="number"
-                          min="1"
-                          className="w-full bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 outline-none"
+                          min={availableStock && availableStock > 0 ? 1 : 0}
+                          max={availableStock !== null ? availableStock : 999}
+                          disabled={availableStock === 0}
+                          className="w-full bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 outline-none disabled:opacity-50"
                           value={saleQty}
-                          onChange={e => setSaleQty(parseInt(e.target.value) || 1)}
+                          onChange={e => {
+                            const raw = parseInt(e.target.value) || 0;
+                            const max = availableStock !== null ? availableStock : 999;
+                            if (raw > max) {
+                              showToast(`El stock máximo disponible es de ${max} piezas.`, 'warning');
+                              setSaleQty(max);
+                            } else {
+                              setSaleQty(Math.max(0, raw));
+                            }
+                          }}
                         />
                       </div>
                     )}

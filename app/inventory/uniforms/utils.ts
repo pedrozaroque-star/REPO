@@ -20,7 +20,7 @@ export type UniformCategory =
 
 export type UniformSize = 'S' | 'M' | 'L' | 'XL' | '2XL' | '3XL' | 'ONE_SIZE'
 
-export type TransactionType = 'reception' | 'employee_sale' | 'new_hire_package' | 'damage_exchange' | 'manager_free' | 'manual_audit' | 'initial_count'
+export type TransactionType = 'reception' | 'employee_sale' | 'new_hire_package' | 'damage_exchange' | 'manager_free' | 'manual_audit' | 'initial_count' | 'initial_count_reset'
 
 export interface PricingRecord {
     id: string
@@ -136,11 +136,12 @@ export function getTransactionTypeLabel(type: TransactionType, lang: 'es' | 'en'
     const map: Record<TransactionType, { es: string, en: string }> = {
         reception: { es: 'Recepción', en: 'Reception' },
         employee_sale: { es: 'Venta a Empleado', en: 'Employee Sale' },
-        new_hire_package: { es: 'Paquete de Nuevo Ingreso', en: 'New Hire Package' },
+        new_hire_package: { es: 'Paquete de Entrega / Ingreso', en: 'Delivery Package' },
         damage_exchange: { es: 'Cambio por Daño', en: 'Damage Exchange' },
         manager_free: { es: 'Regalía Gerente', en: 'Manager Free' },
         manual_audit: { es: 'Auditoría Manual', en: 'Manual Audit' },
-        initial_count: { es: 'Conteo Inicial', en: 'Initial Count' }
+        initial_count: { es: 'Conteo Inicial', en: 'Initial Count' },
+        initial_count_reset: { es: 'Reinicio Conteo Inicial', en: 'Initial Count Reset' }
     }
     return map[type]?.[lang] || type
 }

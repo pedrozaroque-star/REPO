@@ -14,6 +14,7 @@
  */
 
 import { getSupabaseAdminClient } from '@/lib/supabase';
+import { getBusinessDate, type UniformCategory, type UniformSize } from './utils';
 
 export async function fetchStoresForUser(userRole: string, userStoreIds: string[]): Promise<{id: number, name: string}[]> {
   const supabase = await getSupabaseAdminClient();
@@ -177,7 +178,7 @@ export async function saveManualAudit(
   userEmail: string
 ): Promise<{success: boolean}> {
   const supabase = await getSupabaseAdminClient();
-  const businessDate = new Date().toISOString().split('T')[0];
+  const businessDate = getBusinessDate();
 
   for (const adj of adjustments) {
     const { data: existingStock } = await supabase
@@ -233,7 +234,7 @@ export async function recordUniformSale(payload: {
   userEmail: string 
 }): Promise<{success: boolean, processedQty: number, warning?: string}> {
   const supabase = await getSupabaseAdminClient();
-  const bDate = payload.businessDate || new Date().toISOString().split('T')[0];
+  const bDate = payload.businessDate || getBusinessDate();
 
   const { data: pricing } = await supabase
     .from('uniforms_pricing')
@@ -301,21 +302,26 @@ export async function recordNewHirePackage(payload: {
   storeId: number, 
   employeeName: string, 
   employeeToastGuid?: string, 
-  sizes: { shirt: string, cap: string, jacket: string }, 
+  items?: Array<{ item_category: UniformCategory, size: UniformSize, quantity: number }>,
+  sizes?: { shirt: string, cap: string, jacket: string }, 
   businessDate?: string, 
   userEmail: string 
 }): Promise<{results: Array<{item: string, requested: number, delivered: number, warning?: string}>}> {
   const supabase = await getSupabaseAdminClient();
-  const bDate = payload.businessDate || new Date().toISOString().split('T')[0];
-  const packageItems = [
-    { item: 'shirt_red', size: payload.sizes.shirt, requested: 6 },
-    { item: 'cap_red', size: payload.sizes.cap, requested: 1 },
-    { item: 'jacket_red', size: payload.sizes.jacket, requested: 1 }
-  ];
+  const bDate = payload.businessDate || getBusinessDate();
+  const packageItems: Array<{ item: UniformCategory, size: UniformSize, requested: number }> = payload.items 
+    ? payload.items.map(i => ({ item: i.item_category, size: i.size, requested: i.quantity }))
+    : [
+        { item: 'shirt_red' as UniformCategory, size: (payload.sizes?.shirt || 'M') as UniformSize, requested: 6 },
+        { item: 'cap_red' as UniformCategory, size: (payload.sizes?.cap || 'ONE_SIZE') as UniformSize, requested: 1 },
+        { item: 'jacket_red' as UniformCategory, size: (payload.sizes?.jacket || 'M') as UniformSize, requested: 1 }
+      ];
 
   const results: Array<{item: string, requested: number, delivered: number, warning?: string}> = [];
 
   for (const packItem of packageItems) {
+    if (packItem.requested <= 0) continue;
+
     const { data: stock } = await supabase
       .from('uniforms_inventory_stock')
       .select('quantity_on_hand')
@@ -383,7 +389,7 @@ export async function recordDamageExchange(payload: {
   userEmail: string 
 }): Promise<{success: boolean, warning?: string}> {
   const supabase = await getSupabaseAdminClient();
-  const bDate = payload.businessDate || new Date().toISOString().split('T')[0];
+  const bDate = payload.businessDate || getBusinessDate();
 
   const { data: stock } = await supabase
     .from('uniforms_inventory_stock')
@@ -438,7 +444,7 @@ export async function confirmOrderReception(payload: {
   userEmail: string 
 }): Promise<{success: boolean}> {
   const supabase = await getSupabaseAdminClient();
-  const businessDate = new Date().toISOString().split('T')[0];
+  const businessDate = getBusinessDate();
 
   for (const item of payload.items) {
     const { data: stock } = await supabase
@@ -812,10 +818,14 @@ export async function fetchEmployeesForStore(storeId?: number): Promise<Array<{
     const firstName = e.chosen_name || e.first_name || '';
     const lastName = e.last_name || '';
     const name = `${firstName} ${lastName}`.trim() || 'Empleado Sin Nombre';
+    const titles = (e.job_references && Array.isArray(e.job_references))
+      ? e.job_references.map((ref: any) => jobMap.get(ref.guid) || '').filter(Boolean)
+      : [];
     return {
       id: String(e.id),
       name,
-      toast_guid: e.toast_guid || ''
+      toast_guid: e.toast_guid || '',
+      job_title: titles.join(', ') || ''
     };
   });
 

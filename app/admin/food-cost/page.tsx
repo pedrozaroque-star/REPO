@@ -30,6 +30,7 @@ import FoodCostSummary from '@/components/food-cost/FoodCostSummary'
 import FoodCostCharts from '@/components/food-cost/FoodCostCharts'
 import { formatStoreName } from '@/lib/supabase'
 import DateRangeFilter from '@/components/sales/DateRangeFilter'
+import FoodCostNavigationTabs from '@/components/food-cost/FoodCostNavigationTabs'
 import { useLanguage } from '@/lib/i18n'
 
 interface FoodCostItem {
@@ -327,6 +328,8 @@ export default function FoodCostPage() {
     return (
         <div className="min-h-screen bg-transparent text-slate-900 dark:text-white font-sans pb-24">
             <div className="w-full mx-auto px-4 md:px-6 py-8 relative z-10">
+
+                <FoodCostNavigationTabs />
 
                 {/* Header Context */}
                 <div className="relative z-10 space-y-6">

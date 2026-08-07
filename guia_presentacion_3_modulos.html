@@ -1,0 +1,1432 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tacos Gavilan — Guía Maestra de Presentación: 3 Módulos</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;700&display=swap');
+
+    :root {
+      --red: #DA291C;
+      --red-dark: #b31f14;
+      --gold: #FFC72C;
+      --dark: #0f172a;
+      --slate-50: #f8fafc;
+      --slate-100: #f1f5f9;
+      --slate-200: #e2e8f0;
+      --slate-300: #cbd5e1;
+      --slate-400: #94a3b8;
+      --slate-500: #64748b;
+      --slate-600: #475569;
+      --slate-700: #334155;
+      --slate-800: #1e293b;
+      --slate-900: #0f172a;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Inter', system-ui, sans-serif;
+      background: var(--slate-50);
+      color: var(--slate-800);
+      line-height: 1.55;
+      font-size: 14px;
+      padding: 24px;
+    }
+
+    .page {
+      max-width: 1100px;
+      margin: 0 auto;
+      background: white;
+      border-radius: 20px;
+      padding: 40px 44px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.06);
+    }
+
+    /* ── HEADER ── */
+    .page-header {
+      border-bottom: 4px solid var(--red);
+      padding-bottom: 20px;
+      margin-bottom: 32px;
+    }
+
+    .logo-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .logo-title { font-size: 30px; font-weight: 900; color: var(--red); letter-spacing: -0.5px; }
+    .logo-sub { font-size: 14px; color: var(--slate-500); font-weight: 600; margin-top: 3px; }
+    .badge { background: #fff1f2; border: 1px solid #fecdd3; padding: 7px 16px; border-radius: 50px; font-size: 13px; font-weight: 700; color: var(--red-dark); white-space: nowrap; }
+
+    /* ── INTRO BOX ── */
+    .intro-box {
+      background: var(--slate-900);
+      color: white;
+      border-radius: 16px;
+      padding: 24px 28px;
+      margin-bottom: 36px;
+      border-left: 6px solid var(--gold);
+    }
+
+    .intro-box h3 { color: var(--gold); font-size: 16px; font-weight: 700; margin-bottom: 8px; }
+    .intro-box p { font-size: 13.5px; color: #cbd5e1; line-height: 1.65; }
+
+    /* ── MODULE SECTIONS ── */
+    .module { margin-bottom: 56px; }
+
+    .module-banner {
+      color: white;
+      border-radius: 14px;
+      padding: 18px 24px;
+      margin-bottom: 24px;
+    }
+
+    .mod-bodega { background: linear-gradient(135deg, #1e293b 0%, #334155 100%); }
+    .mod-uniforms { background: linear-gradient(135deg, #1d4ed8 0%, #2563eb 100%); }
+    .mod-safe { background: linear-gradient(135deg, #7e22ce 0%, #9333ea 100%); }
+
+    .module-banner h2 { font-size: 20px; font-weight: 800; margin-bottom: 3px; }
+    .module-banner .route { font-size: 12.5px; opacity: 0.8; font-family: 'JetBrains Mono', monospace; }
+
+    /* ── SECTION BLOCK ── */
+    .block {
+      background: var(--slate-50);
+      border: 1px solid var(--slate-200);
+      border-radius: 14px;
+      padding: 22px 24px;
+      margin-bottom: 20px;
+    }
+
+    .block-title {
+      font-size: 15px;
+      font-weight: 800;
+      color: var(--slate-900);
+      margin-bottom: 16px;
+      padding-bottom: 10px;
+      border-bottom: 2px dashed var(--slate-300);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    /* ── ITEMS LIST ── */
+    .items { display: flex; flex-direction: column; gap: 10px; }
+
+    .item {
+      background: white;
+      border: 1px solid var(--slate-200);
+      border-radius: 10px;
+      padding: 14px 16px;
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 12px;
+      align-items: start;
+    }
+
+    .item-badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 10px;
+      font-weight: 800;
+      font-family: 'JetBrains Mono', monospace;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      white-space: nowrap;
+    }
+
+    .badge-btn { background: #dbeafe; color: #1e3a8a; border: 1px solid #bfdbfe; }
+    .badge-tab { background: #f3e8ff; color: #5b21b6; border: 1px solid #ddd6fe; }
+    .badge-input { background: #d1fae5; color: #065f46; border: 1px solid #6ee7b7; }
+    .badge-col { background: #fef3c7; color: #78350f; border: 1px solid #fde68a; }
+    .badge-alert { background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; }
+    .badge-formula { background: #e0f2fe; color: #0c4a6e; border: 1px solid #7dd3fc; }
+    .badge-auto { background: #ecfdf5; color: #064e3b; border: 1px solid #6ee7b7; }
+
+    .item-content {}
+    .item-name { font-size: 13.5px; font-weight: 700; color: var(--slate-900); margin-bottom: 4px; }
+    .item-desc { font-size: 12.5px; color: var(--slate-500); line-height: 1.5; }
+    .item-desc code { background: var(--slate-100); color: var(--slate-700); padding: 1px 5px; border-radius: 4px; font-size: 11px; font-family: 'JetBrains Mono', monospace; }
+    .item-desc strong { color: var(--slate-800); }
+
+    /* ── SCRIPT BOX ── */
+    .script {
+      background: #0f172a;
+      color: #e2e8f0;
+      border-radius: 12px;
+      padding: 20px 24px;
+      margin-top: 16px;
+      border-left: 5px solid var(--gold);
+      font-size: 13px;
+      line-height: 1.7;
+    }
+
+    .script strong { color: var(--gold); }
+
+    /* ── FLOW STEPS ── */
+    .flow { display: flex; flex-direction: column; gap: 10px; margin-top: 8px; }
+
+    .flow-step {
+      background: white;
+      border-left: 5px solid #3b82f6;
+      border-radius: 0 10px 10px 0;
+      padding: 14px 18px;
+      font-size: 13px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    }
+
+    .flow-step strong { color: var(--slate-900); }
+
+    /* ── CALLOUT ── */
+    .callout {
+      border-radius: 12px;
+      padding: 16px 20px;
+      margin-top: 16px;
+      font-size: 13px;
+    }
+
+    .callout-warn { background: #fefce8; border: 1px solid #fef08a; color: #713f12; }
+    .callout-success { background: #f0fdf4; border: 1px solid #86efac; color: #14532d; }
+
+    /* ── PRINT ── */
+    @media print {
+      body { background: white; padding: 0; font-size: 13px; }
+      .page { box-shadow: none; padding: 20px 24px; border-radius: 0; max-width: 100%; }
+      .module { page-break-before: always; }
+      .module:first-of-type { page-break-before: avoid; }
+      .no-print { display: none; }
+    }
+    /* SCREENSHOT CALLOUT BLOCKS */
+    .sc-block {
+      background: #f0f9ff;
+      border: 2px solid #bae6fd;
+      border-radius: 14px;
+      padding: 14px 18px;
+      margin: 0 0 20px 0;
+    }
+    .sc-label {
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      color: #0369a1;
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .sc-block img {
+      width: 100%;
+      border-radius: 10px;
+      border: 1px solid #93c5fd;
+      display: block;
+    }
+  </style>
+</head>
+<body>
+<div class="page">
+
+  <!-- HEADER -->
+  <div class="page-header">
+    <div class="logo-row">
+      <div>
+        <div class="logo-title">Tacos Gavilan</div>
+        <div class="logo-sub">Guía Exhaustiva de Presentación Ejecutiva — 3 Módulos Clave del Sistema SM TEG</div>
+      </div>
+      <div class="badge">📅 Agosto 2026 &nbsp;|&nbsp; Manual Oficial de Demostración</div>
+    </div>
+  </div>
+
+  <!-- INTRO -->
+  <div class="intro-box">
+    <h3>🎯 Propósito de Esta Guía</h3>
+    <p>
+      Descripción técnica y operativa de cada botón, campo, pestaña, columna y regla de negocio visible en el frontend de los
+      <strong>3 módulos que se presentarán a dirección</strong>: Pedidos de Bodega, Control de Uniformes y Caja Fuerte.
+      Todos operan sobre Supabase y respetan la Regla TEG del cambio de día laboral a las <strong>6:00 AM</strong>.
+    </p>
+  </div>
+
+
+  <!-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ -->
+  <!-- MÓDULO 1: PEDIDOS DE BODEGA                                  -->
+  <!-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ -->
+  <div class="module">
+    <div class="module-banner mod-bodega">
+      <h2>📦 Módulo 1: Pedidos de Bodega (QuickBooks Orders)</h2>
+      <div class="route">Ruta: /inventory/orders — Pedidos de tienda a Bodega con envío directo a QuickBooks Online</div>
+    </div>
+
+    <!-- BARRA SUPERIOR -->
+    <div class="block">
+    <!-- SCREENSHOT PEDIDO DEL DIA -->
+    <div class="sc-block">
+      <div class="sc-label">📸 Captura Real del Sistema · Pestaña "Pedido del Día" — tabla completa con SOLO RASTREO al fondo</div>
+      <img src="screenshots/real_pedido_dia.png" alt="Pedido del Día - captura real del sistema">
+    </div>
+
+      <div class="block-title">🖥️ Barra Superior — Controles Siempre Visibles</div>
+      <div class="items">
+
+        <div class="item">
+          <span class="item-badge badge-btn">Selector</span>
+          <div class="item-content">
+            <div class="item-name">Tipo de Orden — Toggle de 3 botones</div>
+            <div class="item-desc">
+              Grupo de 3 botones en la barra superior derecha que cambia el modo de pedido completo:<br>
+              <strong>📦 Orden Diaria (Daily)</strong> — Insumos de cocina (carnes, tortillas, vegetales, desechables). PARs por día de semana.<br>
+              <strong>🧴 Orden Líquidos (Liquids)</strong> — Bebidas y aguas frescas. Usa un PAR fijo de lunes.<br>
+              <strong>🎽 Orden Uniformes (Uniforms)</strong> — Prendas de trabajo. Usa plantilla maestra centralizada de QuickBooks.
+            </div>
+          </div>
+        </div>
+
+        <div class="item">
+          <span class="item-badge badge-btn">Desplegable</span>
+          <div class="item-content">
+            <div class="item-name">Selector de Tienda</div>
+            <div class="item-desc">
+              Desplegable con las 15 tiendas activas. Gerentes solo ven su propia tienda.
+              Supervisores y Admins pueden cambiar entre todas las sucursales. Persiste en localStorage.
+            </div>
+          </div>
+        </div>
+
+        <div class="item">
+          <span class="item-badge badge-btn">ⓘ Info</span>
+          <div class="item-content">
+            <div class="item-name">Botón de Ayuda / Guía de Uso (ⓘ)</div>
+            <div class="item-desc">
+              Ícono circular junto al título. Al hacer clic abre el <strong>modal de ayuda</strong> con la guía completa de uso del módulo.
+            </div>
+          </div>
+        </div>
+
+        <div class="item">
+          <span class="item-badge badge-alert">⚠️ Banner</span>
+          <div class="item-content">
+            <div class="item-name">Banner de Re-autenticación QuickBooks (aparece si la sesión expiró)</div>
+            <div class="item-desc">
+              Aparece en amarillo cuando la sesión OAuth2 de QuickBooks ha expirado. Muestra el botón
+              <strong>"Iniciar Sesión en QB"</strong> con ícono giratorio de sincronización.
+              Al hacer clic inicia el flujo de reautenticación con QuickBooks Online.
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- PESTAÑAS PRINCIPALES -->
+    <div class="block">
+      <div class="block-title">📋 Las 4 Pestañas del Módulo</div>
+      <div class="items">
+
+        <div class="item">
+          <span class="item-badge badge-tab">Pestaña 1</span>
+          <div class="item-content">
+            <div class="item-name">📋 Pedido del Día (Daily Order) — PRINCIPAL</div>
+            <div class="item-desc">
+              Vista activa principal donde se elabora el pedido del día.
+              Muestra el <strong>contador de ítems a pedir</strong> en el badge de la pestaña.
+              Disponible solo para la semana activa; si el gerente navega a otra semana,
+              muestra una advertencia "No es la semana actual".
+            </div>
+          </div>
+        </div>
+
+        <div class="item">
+          <span class="item-badge badge-tab">Pestaña 2</span>
+          <div class="item-content">
+            <div class="item-name">⚙️ Configuración Semanal (Weekly Config)</div>
+            <div class="item-desc">
+              Tabla de 7 días editables con los PARs meta por ítem y día de semana.
+              Incluye navegador de semana (◀ / ▶) en la barra superior para ver o editar semanas pasadas y futuras.
+              Permite copiar el PAR de un día a otro y clonar toda una semana desde la semana anterior.
+            </div>
+          </div>
+        </div>
+
+        <div class="item">
+          <span class="item-badge badge-tab">Pestaña 3</span>
+          <div class="item-content">
+            <div class="item-name">📄 Historial (History)</div>
+            <div class="item-desc">
+              Lista de todas las órdenes enviadas esta semana con su número de Estimate QB y estado.
+              Badge muestra la cantidad de órdenes registradas.
+              Permite abrir órdenes pasadas en modal de solo lectura, o editar y reenviar la orden del día.
+            </div>
+          </div>
+        </div>
+
+        <div class="item">
+          <span class="item-badge badge-tab">Pestaña 4</span>
+          <div class="item-content">
+            <div class="item-name">📦 Sobrantes (Leftovers)</div>
+            <div class="item-desc">
+              Registro histórico de sobrantes capturados por ítem y día.
+              Útil para auditar el histórico de conteos físicos y validar que la fórmula de pedido sea correcta.
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- PESTAÑA 1: PEDIDO DEL DÍA — DETALLE -->
+    <div class="block">
+      <div class="block-title">📋 Pestaña 1 — Pedido del Día: Controles de Encabezado</div>
+      <div class="items">
+
+        <div class="item">
+          <span class="item-badge badge-btn">Navegador</span>
+          <div class="item-content">
+            <div class="item-name">Selector de Fecha — Botones ◀ Ayer / Hoy / Mañana ▶ + Campo de Fecha</div>
+            <div class="item-desc">
+              Permite navegar entre fechas de conteo de sobrante para hacer auditorías pasadas.
+              El botón <strong>"Hoy"</strong> se marca en azul cuando la fecha activa es la del día laboral actual.
+              Al cambiar la fecha, el sistema recalcula el pedido usando los sobrantes de ese día.
+            </div>
+          </div>
+        </div>
+
+        <div class="item">
+          <span class="item-badge badge-btn">Desplegable</span>
+          <div class="item-content">
+            <div class="item-name">Selector "Usar PAR de:" — Override de Día Base</div>
+            <div class="item-desc">
+              Desplegable que permite forzar un PAR diferente al automático.
+              Útil para días festivos, cierres tempranos o eventos especiales.
+              Opciones: <strong>Automático</strong> (detecta el día de mañana), o cualquier día de la semana
+              (Lunes a Domingo). Al cambiar, recalcula el pedido al instante.
+            </div>
+          </div>
+        </div>
+
+        <div class="item">
+          <span class="item-badge badge-btn">Desplegable</span>
+          <div class="item-content">
+            <div class="item-name">Incremento de PAR por Emergencia (PAR Boost)</div>
+            <div class="item-desc">
+              Selector de porcentaje de incremento adicional sobre el PAR calculado para días de alta demanda.
+              Opciones: <strong>Sin incremento / +10% / +15% / +20% / +25%</strong>.
+              Recalcula el pedido en tiempo real al seleccionar.
+            </div>
+          </div>
+        </div>
+
+        <div class="item">
+          <span class="item-badge badge-formula">Banner</span>
+          <div class="item-content">
+            <div class="item-name">Banner Cian — Fórmula de Sobrante Teórico</div>
+            <div class="item-desc">
+              Explicación visual fija de la fórmula usada por el sistema:<br>
+              <code>Sobrante Ayer + Llegó Hoy AM − Ventas Toast (Fecha)</code><br>
+              En días actuales muestra el consejo: "Cambia a una fecha pasada (ej. Ayer) para auditar ventas cerradas."
+            </div>
+          </div>
+        </div>
+
+        <div class="item">
+          <span class="item-badge badge-auto">Auto</span>
+          <div class="item-content">
+            <div class="item-name">Banner Verde — Orden ya Enviada a QB (si aplica)</div>
+            <div class="item-desc">
+              Aparece en verde cuando el pedido de hoy ya fue enviado a QuickBooks.
+              Muestra el número de Estimate generado y el botón <strong>⬇ Descargar PDF</strong>
+              que abre el Estimate oficial de QB en PDF en una nueva pestaña.
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- TARJETAS KPI + TABLA -->
+    <div class="block">
+      <div class="block-title">📊 Tarjetas de Resumen, Tabla de Pedido y Columnas</div>
+      <div class="items">
+
+        <div class="item">
+          <span class="item-badge badge-formula">KPIs</span>
+          <div class="item-content">
+            <div class="item-name">3 Tarjetas de Resumen (siempre visibles)</div>
+            <div class="item-desc">
+              <strong>Ítems a Pedir</strong> — Cuenta de productos con cantidad de pedido &gt; 0.<br>
+              <strong>Ítems con Exceso</strong> — Productos donde el sobrante supera el PAR (orden negativa).<br>
+              <strong>Estimate QB</strong> — Número de folio del Estimate si ya fue enviado, o "—" si está pendiente.
+            </div>
+          </div>
+        </div>
+
+        <div class="item">
+          <span class="item-badge badge-auto">Barra</span>
+          <div class="item-content">
+            <div class="item-name">Barra de Progreso de Captura de Sobrantes</div>
+            <div class="item-desc">
+              Barra horizontal que muestra cuántos ítems ya tienen su sobrante capturado vs el total.
+              Cuando el 100% está completo, aparece el badge verde <strong>"Todos los ítems capturados ✓"</strong>.
+            </div>
+          </div>
+        </div>
+
+        <div class="item">
+          <span class="item-badge badge-btn">Toggle</span>
+          <div class="item-content">
+            <div class="item-name">Panel "⚡ Acciones Rápidas" — Botones de Visibilidad de Columnas</div>
+            <div class="item-desc">
+              Dos botones toggle que muestran u ocultan columnas de la tabla:<br>
+              <strong>👁 PAR Ideal</strong> — Columna violeta con el PAR de referencia de la bodega.<br>
+              <strong>👁 Sugerido 🤖</strong> — Columna cian con el sobrante teórico calculado automáticamente por el sistema.
+            </div>
+          </div>
+        </div>
+
+        <div class="item">
+          <span class="item-badge badge-col">Columna</span>
+          <div class="item-content">
+            <div class="item-name">Columnas de la Tabla de Pedido</div>
+            <div class="item-desc">
+              <strong>Artículo</strong> — Nombre del insumo (columna fija/sticky al hacer scroll horizontal).<br>
+              <strong>Empaque / Packaging</strong> — Unidad de venta configurada en QuickBooks.<br>
+              <strong>Costo</strong> — Precio de compra sincronizado desde QB (<code>purchase_unit_cost</code>).<br>
+              <strong>PAR Ideal 🟣</strong> — Referencia histórica de nivel ideal (oculta/mostrable).<br>
+              <strong>PAR 🟢</strong> — PAR meta del día de mañana (o del día seleccionado en override).<br>
+              <strong>🤖 Sugerido 🩵</strong> — Sobrante teórico calculado automáticamente (oculta/mostrable).<br>
+              <strong>Sobrante 🟠</strong> — Campo editable: cantidad física que sobró en tienda hoy.<br>
+              <strong>Pedido 🔵</strong> — Resultado calculado: <code>PAR - Sobrante</code>.<br>
+              <strong>Ajuste 🟣</strong> — Campo editable: override manual del gerente si quiere cambiar la cantidad calculada.<br>
+              <strong>Cantidad Final ⬛</strong> — Valor definitivo que se enviará a QuickBooks (Ajuste ?? Pedido).
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- BOTONES DE ACCIÓN -->
+    <div class="block">
+      <div class="block-title">🔘 Botones de Acción Principales</div>
+      <div class="items">
+
+        <div class="item">
+          <span class="item-badge badge-btn">Gris</span>
+          <div class="item-content">
+            <div class="item-name">🖨 Imprimir Hoja de Conteo (Print Sheet)</div>
+            <div class="item-desc">
+              Abre <code>/inventory/orders/print-sheet</code> en nueva pestaña.
+              Genera la hoja limpia y optimizada para impresión que el gerente o taquero lleva al almacén
+              para el conteo físico de sobrantes.
+            </div>
+          </div>
+        </div>
+
+        <div class="item">
+          <span class="item-badge badge-btn">Azul</span>
+          <div class="item-content">
+            <div class="item-name">💾 Guardar Pedido Local (Generate Order)</div>
+            <div class="item-desc">
+              Llama a <code>saveOrderDraft</code> y guarda el estado actual del pedido en Supabase
+              (<code>inventory_orders</code> + <code>inventory_order_lines</code>) con estado <code>draft</code>.
+              No se envía a QuickBooks. Útil para guardar el avance antes de enviar.
+            </div>
+          </div>
+        </div>
+
+        <div class="item">
+          <span class="item-badge badge-input">Verde</span>
+          <div class="item-content">
+            <div class="item-name">📤 Enviar Pedido a QuickBooks (Send to QB)</div>
+            <div class="item-desc">
+              El botón más crítico del módulo. Realiza 3 pasos en secuencia:<br>
+              1. Guarda el borrador en Supabase (<code>draft</code>).<br>
+              2. Llama a <code>/api/inventory/orders/send-to-qb</code> con OAuth2 a QuickBooks Online API.<br>
+              3. Crea el Estimate oficial con DocNumber consecutivo (ej. <em>#2589647836600</em>).<br>
+              Al finalizar actualiza el estado a <code>sent</code> y muestra el banner verde de confirmación.
+              Se deshabilita si no es la semana actual.
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- SECCIÓN: Solo Rastreo y Artículos Extraordinarios -->
+    <div class="block">
+      <div class="block-title">📌 Secciones al Fondo de la Tabla de Pedido</div>
+      <div class="items">
+
+        <div class="item">
+          <span class="item-badge badge-col">Sección</span>
+          <div class="item-content">
+            <div class="item-name">SOLO RASTREO / TRACKING ONLY — Sección Especial (parte baja de la tabla)</div>
+            <div class="item-desc">
+              Ítems que tienen <code>qb_item_id = 'TRACK_ONLY'</code> en la base de datos.
+              Aparecen en una sección separada al final de la tabla con fondo gris diferenciado.
+              <strong>NO se incluyen en el pedido a QuickBooks</strong> — solo sirven para que el gerente lleve el conteo físico.
+              Ejemplos típicos: <em>Pan Birote, Carnitas</em> (se monitorean para bodega pero se piden por otro canal).<br>
+              Columnas disponibles: Artículo, Empaque, Costo, Sobrante (editable). La columna "Pedido" queda bloqueada.
+            </div>
+          </div>
+        </div>
+
+        <div class="item">
+          <span class="item-badge badge-btn">Buscador</span>
+          <div class="item-content">
+            <div class="item-name">➕ ARTÍCULOS EXTRA — Buscador de Artículos de Emergencia (debajo del TRACKING ONLY)</div>
+            <div class="item-desc">
+              Sección separada al pie de la tabla. Contiene un campo de búsqueda tipo dropdown
+              que consulta todos los artículos del catálogo de Bodega mapeados en QuickBooks
+              (<code>qb_item_id</code> válido), aunque no estén en la plantilla regular de la tienda.
+              Al seleccionar uno, se agrega como línea extraordinaria al pedido con sus propios
+              campos de Sobrante, Pedido y Ajuste. Al enviar a QB, estos ítems se incluyen en el Estimate.
+              Al recargar, las líneas extraordinarias guardadas se restauran desde la base de datos.
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- PESTAÑA 2: CONFIG SEMANAL -->
+    <div class="block">
+    <!-- SCREENSHOT CONFIG SEMANAL -->
+    <div class="sc-block">
+      <div class="sc-label">📸 Captura Real del Sistema · Pestaña "Config Semanal" — PARs editables L-D con panel de Sobrantes activo a la derecha</div>
+      <img src="screenshots/real_config_semanal.png" alt="Config Semanal - captura real del sistema">
+    </div>
+
+      <div class="block-title">⚙️ Pestaña 2 — Configuración Semanal: Botones y Controles</div>
+      <div class="items">
+
+        <div class="item">
+          <span class="item-badge badge-btn">Navegador</span>
+          <div class="item-content">
+            <div class="item-name">◀ Semana Anterior / Siguiente ▶ — Navegador de Semanas</div>
+            <div class="item-desc">
+              Aparece en la barra superior solo cuando la pestaña "Config Semanal" está activa.
+              Permite moverse entre semanas para revisar o editar PARs históricos o futuros.
+              Muestra la etiqueta verde "Semana Actual" cuando corresponde.
+            </div>
+          </div>
+        </div>
+
+        <div class="item">
+          <span class="item-badge badge-auto">Estado</span>
+          <div class="item-content">
+            <div class="item-name">💾 Guardar modificación del PAR ↔ ✅ Guardado en vivo activo</div>
+            <div class="item-desc">
+              El primer botón de la barra de acciones de Config Semanal cambia de estado:
+              <strong>"💾 Guardar modificación del PAR"</strong> (gris) — aparece cuando hay celdas editadas sin guardar.
+              Al hacer clic, guarda todos los cambios pendientes en la tabla <code>inventory_weekly_bases</code>.<br>
+              <strong>"✅ Guardado en vivo activo"</strong> (badge verde) — indica que los cambios se están guardando
+              célula por célula en tiempo real sin necesidad de hacer clic en Guardar.
+              Las celdas modificadas se resaltan en naranja/amarillo hasta que se confirma el guardado.
+            </div>
+          </div>
+        </div>
+
+        <div class="item">
+          <span class="item-badge badge-input">Acción</span>
+          <div class="item-content">
+            <div class="item-name">📋 Copiar Semana Anterior</div>
+            <div class="item-desc">
+              Copia todos los PARs de la semana anterior a la semana actual, ítem por ítem.
+              Útil al inicio de la semana para reutilizar la configuración base y solo ajustar donde sea necesario.
+            </div>
+          </div>
+        </div>
+
+        <div class="item">
+          <span class="item-badge badge-input">Acción</span>
+          <div class="item-content">
+            <div class="item-name">↑ Usar PAR Ideal (Copy from PAR Ideal)</div>
+            <div class="item-desc">
+              Rellena los PARs de la semana con los valores del PAR Ideal de referencia almacenado en la base de datos
+              (<code>inventory_par_ideal</code>). Sirve para restablecer configuraciones a los valores recomendados.
+            </div>
+          </div>
+        </div>
+
+        <div class="item">
+          <span class="item-badge badge-input">Acción</span>
+          <div class="item-content">
+            <div class="item-name">↔ Copiar PAR: [Día Origen▾] → [Día Destino▾] [Copiar]</div>
+            <div class="item-desc">
+              Selector doble: <strong>Día Origen</strong> (ej. Lunes) y <strong>Día Destino</strong> (o "Todos los días").
+              Al hacer clic en el botón azul <strong>[Copiar]</strong>, copia todos los PARs del día origen
+              a los días destino. Muy útil para distribuir la configuración de un solo día a toda la semana rápidamente.
+            </div>
+          </div>
+        </div>
+
+        <div class="item">
+          <span class="item-badge badge-tab">Toggle</span>
+          <div class="item-content">
+            <div class="item-name">Panel Derecho: Toggle "🟠 Sobrantes ↔ PAR Ideal" (vista de referencia)</div>
+            <div class="item-desc">
+              Dos botones en la esquina superior derecha del contenido de Config Semanal que cambian el
+              <strong>panel de referencia derecho</strong> de la tabla:<br>
+              <strong>🟠 Sobrantes</strong> — Muestra el histórico de sobrantes reales de las últimas semanas por día,
+              con indicadores de semáforo (38% ⬇️ exceso / 30% ✅ normal / ⬆️ escaso) para comparar el PAR actual
+              vs lo que históricamente ha sobrado. Las celdas se colorean en rojo/verde/amarillo según el rango.<br>
+              <strong>PAR Ideal</strong> — Muestra el valor de referencia del PAR Ideal de la bodega para cada ítem.
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- PESTAÑA 3: HISTORIAL - TARJETAS Y MODAL -->
+    <div class="block">
+    <!-- SCREENSHOT HISTORIAL -->
+    <div class="sc-block">
+      <div class="sc-label">📸 Captura Real del Sistema · Pestaña "Historial" — 4 órdenes ENVIADAS con botones PDF · Ver · Eliminar y banner de Advertencia Operativa</div>
+      <img src="screenshots/real_historial.png" alt="Historial - captura real del sistema">
+    </div>
+
+      <div class="block-title">📄 Pestaña 3 — Historial: Tarjetas de Órdenes y sus Acciones</div>
+      <div class="items">
+
+        <div class="item">
+          <span class="item-badge badge-alert">Banner</span>
+          <div class="item-content">
+            <div class="item-name">⚠️ Banner "ADVERTENCIA OPERATIVA" (siempre visible en Historial)</div>
+            <div class="item-desc">
+              Mensaje de advertencia amarillo fijo en la parte superior del Historial que explica:
+              <em>"Desde aquí puedes editar cantidades de pedidos anteriores con el botón ✏ Editar,
+              lo cual actualizará el Estimate en QuickBooks automáticamente.
+              Al eliminar un pedido, también se eliminará de forma definitiva el Estimate en QuickBooks."</em><br>
+              El gerente debe leerlo antes de realizar cualquier acción destructiva.
+            </div>
+          </div>
+        </div>
+
+        <div class="item">
+          <span class="item-badge badge-col">Tarjetas</span>
+          <div class="item-content">
+            <div class="item-name">Tarjetas de Órdenes Registradas (una por cada pedido enviado)</div>
+            <div class="item-desc">
+              Cada tarjeta muestra: fecha del pedido, badge <strong>"ENVIADA"</strong> (verde) o <strong>"DRAFT"</strong> (gris),
+              número de Estimate QB (ej. <em>#2589647836744</em>), nombre del usuario que lo creó, y cantidad de ítems.
+              Cada tarjeta tiene 3 botones de acción:
+            </div>
+          </div>
+        </div>
+
+        <div class="item">
+          <span class="item-badge badge-btn">Historial</span>
+          <div class="item-content">
+            <div class="item-name">📄 PDF — Descargar Estimate como PDF</div>
+            <div class="item-desc">
+              Abre en nueva pestaña el PDF oficial del Estimate de QuickBooks Online.
+              Disponible para cualquier orden en estado <code>sent</code>.
+            </div>
+          </div>
+        </div>
+
+        <div class="item">
+          <span class="item-badge badge-btn">Historial</span>
+          <div class="item-content">
+            <div class="item-name">👁 Ver / ✏ Editar — Abrir Modal de Detalle</div>
+            <div class="item-desc">
+              Abre el modal de detalle completo de la orden.
+              Si la orden es <strong>de hoy</strong>: modo edición — sobrantes, ajustes y notas son editables.
+              Si es de <strong>otro día</strong>: modo solo lectura — datos no editables.<br><br>
+              <strong>Botones dentro del modal (modo edición de hoy):</strong><br>
+              <strong>[Cancelar]</strong> — Cierra sin guardar. En solo lectura dice "Cerrar".<br>
+              <strong>[💾 Guardar Local]</strong> — Guarda cambios en Supabase sin enviar a QB.<br>
+              <strong>[📤 Enviar a QB]</strong> — Guarda y envía simultáneamente a QuickBooks Online.
+            </div>
+          </div>
+        </div>
+
+        <div class="item">
+          <span class="item-badge badge-alert">Historial</span>
+          <div class="item-content">
+            <div class="item-name">🗑 Eliminar — Borrar Orden de la Base de Datos</div>
+            <div class="item-desc">
+              Elimina de forma permanente el registro de Supabase Y también elimina el Estimate correspondiente
+              en QuickBooks Online (no puede deshacerse). Requiere confirmación explícita antes de ejecutarse.
+              Solo disponible para órdenes recientes; las muy antiguas pueden no eliminarse si QB no lo permite.
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- PESTAÑA 4: SOBRANTES -->
+    <div class="block">
+    <!-- SCREENSHOT SOBRANTES -->
+    <div class="sc-block">
+      <div class="sc-label">📸 Captura Real del Sistema · Pestaña "Sobrantes" — tabla histórica por ítem y día con semáforo de eficiencia (rojo/verde/naranja) y badges filtrables</div>
+      <img src="screenshots/real_sobrantes.png" alt="Sobrantes - captura real del sistema">
+    </div>
+
+      <div class="block-title">📦 Pestaña 4 — Sobrantes: Filtros y Semáforo de Eficiencia</div>
+      <div class="items">
+
+        <div class="item">
+          <span class="item-badge badge-col">Filtros</span>
+          <div class="item-content">
+            <div class="item-name">Filtros de Semáforo — Badges de Estado de Eficiencia (fila superior)</div>
+            <div class="item-desc">
+              Tres badges filtrables que clasifican el estado de cada celda de sobrante:
+              <strong>⬇️ X Atrás</strong> (amarillo) — Ítems donde el sobrante % es alto: el PAR está por arriba de lo necesario. Se pide demasiado.<br>
+              <strong>✅ X% Bien</strong> (verde) — Ítems dentro del rango saludable de eficiencia.<br>
+              <strong>⬆️ Escasos</strong> (azul/cian) — Ítems donde el sobrante es muy bajo: riesgo de quedarse sin stock antes de que llegue el próximo pedido.<br>
+              Al hacer clic en cada badge se filtran las filas mostrando solo esa categoría de eficiencia.
+            </div>
+          </div>
+        </div>
+
+        <div class="item">
+          <span class="item-badge badge-formula">Stats</span>
+          <div class="item-content">
+            <div class="item-name">Estadísticas de la Semana (barra superior del contenido)</div>
+            <div class="item-desc">
+              Muestra estadísticas agregadas de la semana visualizada:
+              número de mensajes/entradas (<em>"355 msg."</em>), porcentaje de celdas sin datos (<em>"15.5% sin datos"</em>),
+              y semanas de historia disponible (<em>"473 Semanas"</em>).
+            </div>
+          </div>
+        </div>
+
+        <div class="item">
+          <span class="item-badge badge-col">Celdas</span>
+          <div class="item-content">
+            <div class="item-name">Celdas de Sobrante con Indicadores % y Color</div>
+            <div class="item-desc">
+              Cada celda muestra el valor del sobrante más el <strong>porcentaje respecto al PAR</strong> y un ícono de dirección:
+              <strong>38% ⬇️</strong> (fondo rojo) = sobrante muy alto, se está pidiendo demasiado.<br>
+              <strong>30% ✅</strong> (fondo verde) = sobrante saludable dentro del rango óptimo.<br>
+              <strong>⬆️</strong> (fondo amarillo) = sobrante bajo, alerta de posible falta de stock.
+            </div>
+          </div>
+        </div>
+
+        <div class="item">
+          <span class="item-badge badge-auto">Vista</span>
+          <div class="item-content">
+            <div class="item-name">Tabla de Sobrantes por Ítem y Día — Semana Navegable</div>
+            <div class="item-desc">
+              Tabla de todos los ítems del pedido con columnas para cada día de la semana (LUN a DOM).
+              La semana puede navegarse con el navegador de semanas visible en la cabecera.
+              Muestra el rango de fechas de la semana seleccionada (ej. "2026-09-01 → 2026-09-07").
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <div class="script">
+      🗣️ <strong>Guión para la Presentación — Módulo Pedidos de Bodega:</strong><br>
+      <em>"El Módulo de Pedidos de Bodega centraliza los tres tipos de pedidos de la tienda a la Bodega Central: el Pedido Diario de cocina,
+      el Pedido de Líquidos y el Pedido de Uniformes. El sistema calcula automáticamente cuánto pedir usando la fórmula
+      <b>PAR - Sobrante</b>. El gerente puede ajustar cantidades y en casos de alta demanda puede activar un incremento del 10 al 25%.
+      Al dar clic en 'Enviar a QuickBooks', el Estimate oficial se genera en segundos con su número de folio consecutivo.
+      Todo queda registrado en el sistema y la Bodega lo recibe en QuickBooks para preparar el envío."</em>
+    </div>
+  </div>
+
+
+  <!-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ -->
+  <!-- MÓDULO 2: CONTROL DE UNIFORMES                               -->
+  <!-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ -->
+  <div class="module">
+    <div class="module-banner mod-uniforms">
+      <h2>🎽 Módulo 2: Control de Inventario de Uniformes</h2>
+      <div class="route">Ruta: /inventory/uniforms — Stock, Entregas, Ventas, Recepción y Kardex</div>
+    </div>
+
+    <!-- BARRA SUPERIOR -->
+    <div class="block">
+      <div class="block-title">🖥️ Barra Superior del Módulo</div>
+      <div class="items">
+
+        <div class="item">
+          <span class="item-badge badge-btn">Desplegable</span>
+          <div class="item-content">
+            <div class="item-name">Selector de Tienda (con ícono de edificio 🏢)</div>
+            <div class="item-desc">
+              Desplegable con las 15 tiendas activas. Gerentes y Asistentes solo ven su tienda.
+              Al cambiar de tienda, se recarga el stock y el estado del módulo para esa sucursal.
+            </div>
+          </div>
+        </div>
+
+        <div class="item">
+          <span class="item-badge badge-alert">Wizard</span>
+          <div class="item-content">
+            <div class="item-name">Asistente de Primer Conteo Inicial (Setup Wizard) — solo la primera vez</div>
+            <div class="item-desc">
+              Si la tienda no tiene stock registrado, aparece automáticamente el Asistente de Conteo Inicial
+              en lugar del contenido normal. Muestra 8 categorías de prendas con campos numéricos para capturar
+              cuántas piezas hay físicamente en cada talla. Botón <strong>💾 Guardar Conteo Inicial</strong>
+              al terminar para registrar el inventario de apertura.
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- PESTAÑAS UNIFORMES -->
+    <div class="block">
+      <div class="block-title">📋 Las 4 Pestañas del Módulo de Uniformes</div>
+      <div class="items">
+
+        <div class="item">
+          <span class="item-badge badge-tab">Pestaña 1</span>
+          <div class="item-content">
+            <div class="item-name">📦 Stock y Auditoría (Stock & Audit)</div>
+            <div class="item-desc">Vista de existencias por categoría y talla. Semáforos de estado. Panel ejecutivo.</div>
+          </div>
+        </div>
+
+        <div class="item">
+          <span class="item-badge badge-tab">Pestaña 2</span>
+          <div class="item-content">
+            <div class="item-name">🛍️ Ventas y Entregas (Sales & Issues)</div>
+            <div class="item-desc">Ventas con cobro, paquetes de entrega y cambios por daño.</div>
+          </div>
+        </div>
+
+        <div class="item">
+          <span class="item-badge badge-tab">Pestaña 3</span>
+          <div class="item-content">
+            <div class="item-name">🚚 Recepción de Órdenes (Order Reception)</div>
+            <div class="item-desc">Carga y confirma pedidos de uniformes recibidos de Bodega/QuickBooks.</div>
+          </div>
+        </div>
+
+        <div class="item">
+          <span class="item-badge badge-tab">Pestaña 4</span>
+          <div class="item-content">
+            <div class="item-name">📜 Historial y Kardex (History & Kardex)</div>
+            <div class="item-desc">Bitácora completa de movimientos y consulta de uniformes entregados por empleado.</div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- PESTAÑA 1: STOCK Y AUDITORÍA -->
+    <div class="block">
+    <!-- SCREENSHOT UNIFORMES VENTAS EN -->
+    <div class="sc-block">
+      <div class="sc-label">📸 Captura Real del Sistema · Módulo Uniformes en inglés — formulario de Delivery Package con campo de Stock disponible</div>
+      <img src="screenshots/real_uniforms_en.png" alt="Uniforms Control - real screenshot English UI">
+    </div>
+
+      <div class="block-title">📦 Pestaña 1 — Stock y Auditoría: Botones y Controles</div>
+      <div class="items">
+
+        <div class="item">
+          <span class="item-badge badge-col">Vista</span>
+          <div class="item-content">
+            <div class="item-name">Tablero Ejecutivo Global (solo Admins y Supervisores)</div>
+            <div class="item-desc">
+              Tabla de las 15 tiendas mostrando: total de piezas, valor en $ del inventario,
+              si ya completaron el Conteo Inicial, y fecha de la última auditoría.
+            </div>
+          </div>
+        </div>
+
+        <div class="item">
+          <span class="item-badge badge-col">Vista</span>
+          <div class="item-content">
+            <div class="item-name">Matriz de Stock por Categoría y Talla con Semáforos</div>
+            <div class="item-desc">
+              Tabla de la tienda seleccionada con las 8 categorías de prendas (Playera Roja, Shift Leader, Assistant Polo, Store Manager, Gorra Roja, Gorra Negra, Chamarra Roja, Chamarra Negra)
+              y todas sus tallas. Semáforo de colores: <strong>🟢 OK</strong> / <strong>🟡 Stock Bajo</strong> / <strong>🔴 Agotado</strong>.
+            </div>
+          </div>
+        </div>
+
+        <div class="item">
+          <span class="item-badge badge-btn">Modal</span>
+          <div class="item-content">
+            <div class="item-name">⚙️ Botón "Editar Precios" (solo Admins)</div>
+            <div class="item-desc">
+              Abre el modal de precios de venta al personal sobre la tabla <code>uniforms_pricing</code>.
+              Precios configurables por categoría:
+              Playera Roja / Shift Leader / Assistant Polo: <strong>$7.00</strong>,
+              Store Manager: <strong>$0.00</strong>, Gorras: <strong>$1.00</strong>, Chamarras: <strong>$20.00</strong>.
+            </div>
+          </div>
+        </div>
+
+        <div class="item">
+          <span class="item-badge badge-alert">Peligro</span>
+          <div class="item-content">
+            <div class="item-name">🔄 Botón "Reiniciar Conteo Inicial" (solo Admins)</div>
+            <div class="item-desc">
+              Elimina todo el stock registrado de la tienda y activa nuevamente el Setup Wizard para
+              capturar un conteo físico desde cero. Requiere confirmación explícita en modal.
+            </div>
+          </div>
+        </div>
+
+        <div class="item">
+          <span class="item-badge badge-input">Acción</span>
+          <div class="item-content">
+            <div class="item-name">✏️ Botón "Modo Auditoría" / "Editar Stock Manualmente"</div>
+            <div class="item-desc">
+              Activa el modo edición directa de las existencias por talla.
+              En modo auditoría, los campos de cantidad se vuelven editables.
+              El gerente debe ingresar un <strong>motivo de ajuste</strong> obligatorio (ej. "Merma detectada en inventario").
+              Al guardar, registra la transacción de tipo <code>manual_audit</code> en el historial.
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- PESTAÑA 2: VENTAS Y ENTREGAS -->
+    <div class="block">
+    <!-- SCREENSHOT UNIFORMES VENTAS ES -->
+    <div class="sc-block">
+      <div class="sc-label">📸 Captura Real del Sistema · Ventas y Entregas en español — Victor Muñoz, Paquete Nuevo Ingreso, Lynnwood. Nota el stock disponible limitando la cantidad máxima</div>
+      <img src="screenshots/real_uniforms_es.png" alt="Control de Uniformes - captura real español">
+    </div>
+
+      <div class="block-title">🛍️ Pestaña 2 — Ventas y Entregas: Todos los Controles</div>
+      <div class="items">
+
+        <div class="item">
+          <span class="item-badge badge-btn">Buscador</span>
+          <div class="item-content">
+            <div class="item-name">Selector de Empleado (desde plantilla Toast POS)</div>
+            <div class="item-desc">
+              Desplegable que carga la plantilla activa de empleados desde Toast POS para esa tienda,
+              mostrando el <strong>nombre + puesto de trabajo</strong> (ej. <em>"Victor Muñoz (Asst. Manager)"</em>).
+              El puesto detectado activa automáticamente el paquete de uniformes correspondiente.
+              Botón <strong>"+ Ingresar nombre no registrado"</strong> para personal que no aparece en Toast.
+            </div>
+          </div>
+        </div>
+
+        <div class="item">
+          <span class="item-badge badge-tab">Opción 1</span>
+          <div class="item-content">
+            <div class="item-name">Tipo de Transacción: Venta a Empleado ($)</div>
+            <div class="item-desc">
+              Registra una venta con cobro en efectivo. Al seleccionar esta opción:
+              Selector de <strong>Categoría de prenda</strong>, selector de <strong>Talla</strong>, y campo numérico de <strong>Cantidad</strong>
+              con límite máximo igual al stock físico disponible (<code>max={stock}</code>).
+              Si stock = 0, el campo se deshabilita automáticamente.
+              Calcula el <strong>Total a Pagar</strong> en tiempo real.
+              El efectivo cobrado se alimenta a la conciliación de la Caja Fuerte del día.
+            </div>
+          </div>
+        </div>
+
+        <div class="item">
+          <span class="item-badge badge-tab">Opción 2</span>
+          <div class="item-content">
+            <div class="item-name">Tipo de Transacción: Paquete de Entrega / Nuevo Ingreso ($0.00)</div>
+            <div class="item-desc">
+              Entrega de uniforme de trabajo sin cobro. Controles disponibles:<br>
+              <strong>Categoría de Torso:</strong> Desplegable para elegir entre Playera Roja, Shirt Shift Leader, Polo Assistant Manager o Camisa Store Manager.<br>
+              <strong>Talla de Torso:</strong> Selector de talla (S, M, L, XL, 2XL, 3XL).<br>
+              <strong>Cantidad de Prendas de Torso:</strong> Input numérico con <code>max={stock}</code> — no se pueden pedir más piezas de las disponibles. Si stock = 0, campo deshabilitado.<br>
+              <strong>Checkbox "Incluir Gorra":</strong> Agrega gorra al paquete. Selector de color (Roja o Negra).<br>
+              <strong>Checkbox "Incluir Chamarra":</strong> Agrega chamarra al paquete. Selector de color (Roja o Negra). Se puede desmarcar si el empleado ya tiene su chamarra de un puesto anterior.<br>
+              <strong>Auto-ajuste al cambiar talla:</strong> Si se selecciona una talla con stock = 0, la cantidad se fuerza a 0.
+            </div>
+          </div>
+        </div>
+
+        <div class="item">
+          <span class="item-badge badge-tab">Opción 3</span>
+          <div class="item-content">
+            <div class="item-name">Tipo de Transacción: Cambio por Daño ($0.00)</div>
+            <div class="item-desc">
+              Reemplazo de prendas dañadas o defectuosas en turno.
+              Mismos selectores de categoría, talla y cantidad que la venta.
+              Campo de texto <strong>Motivo del Cambio</strong> obligatorio (ej. "Prenda rasgada en cocina").
+              Registra la transacción como <code>damage_exchange</code> en el historial.
+            </div>
+          </div>
+        </div>
+
+        <div class="item">
+          <span class="item-badge badge-input">Enviar</span>
+          <div class="item-content">
+            <div class="item-name">✅ Botón "Registrar Transacción" (submit del formulario)</div>
+            <div class="item-desc">
+              Ejecuta la transacción seleccionada. Valida previamente que la cantidad no exceda el stock.
+              Si hay violación, muestra alerta y bloquea el envío.
+              Al completarse: actualiza el stock en <code>uniforms_inventory_stock</code>,
+              registra en <code>uniforms_transactions</code> y muestra toast de confirmación verde.
+            </div>
+          </div>
+        </div>
+
+        <div class="item">
+          <span class="item-badge badge-col">KPI</span>
+          <div class="item-content">
+            <div class="item-name">Tarjeta "Ventas del Mes" (panel lateral)</div>
+            <div class="item-desc">
+              Panel lateral derecho que muestra el total de dinero recaudado por ventas de uniformes en el mes actual.
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- PESTAÑA 3: RECEPCIÓN DE ÓRDENES -->
+    <div class="block">
+      <div class="block-title">🚚 Pestaña 3 — Recepción de Órdenes: Conexión con Bodega/QB</div>
+      <div class="items">
+
+        <div class="item">
+          <span class="item-badge badge-tab">Modo</span>
+          <div class="item-content">
+            <div class="item-name">Toggle de Modo: "Por Estimate QB" vs "Manual"</div>
+            <div class="item-desc">
+              Permite elegir cómo se cargará la recepción:<br>
+              <strong>Modo Estimate QB:</strong> Carga la lista de órdenes enviadas recientemente o busca por número de Estimate.<br>
+              <strong>Modo Manual:</strong> El usuario agrega ítem por ítem con selectores de categoría, talla y cantidad.
+            </div>
+          </div>
+        </div>
+
+        <div class="item">
+          <span class="item-badge badge-col">Lista</span>
+          <div class="item-content">
+            <div class="item-name">Lista de Órdenes Recientes (Modo Estimate QB)</div>
+            <div class="item-desc">
+              Muestra hasta 10 órdenes de uniformes enviadas recientemente por la tienda a QuickBooks,
+              con número de Estimate y fecha. Botón <strong>"Cargar Orden"</strong> en cada fila para autocompletar.
+            </div>
+          </div>
+        </div>
+
+        <div class="item">
+          <span class="item-badge badge-btn">Buscador</span>
+          <div class="item-content">
+            <div class="item-name">Campo de Búsqueda por Número de Estimate / UUID</div>
+            <div class="item-desc">
+              Input de texto para escribir el número de Estimate de QB (ej. <em>2589647836600</em>)
+              o el UUID interno. Botón <strong>🔍 Buscar</strong>. Al encontrar la orden, carga automáticamente
+              las prendas, tallas y cantidades del pedido usando el parser inteligente.
+            </div>
+          </div>
+        </div>
+
+        <div class="item">
+          <span class="item-badge badge-auto">Auto</span>
+          <div class="item-content">
+            <div class="item-name">Parser Inteligente de Prendas QB → Categoría + Talla</div>
+            <div class="item-desc">
+              Al cargar una orden de QB, el sistema convierte automáticamente los nombres de ítems
+              de QuickBooks a las categorías del módulo:<br>
+              <em>"Team Members Red Large"</em> → <code>shirt_red</code> / Talla <code>L</code><br>
+              <em>"Shift Leader Black Small"</em> → <code>shirt_shift_leader</code> / Talla <code>S</code><br>
+              <em>"Jacket Red XL"</em> → <code>jacket_red</code> / Talla <code>XL</code>
+            </div>
+          </div>
+        </div>
+
+        <div class="item">
+          <span class="item-badge badge-col">Tabla</span>
+          <div class="item-content">
+            <div class="item-name">Tabla de Prendas del Pedido — Confirmación de Cantidades Recibidas</div>
+            <div class="item-desc">
+              Por cada prenda del pedido: categoría, talla, cantidad pedida y campo editable de
+              <strong>cantidad recibida</strong> (puede ser menor si llegó incompleto).
+              Checkbox <strong>"Faltante"</strong> para marcar prendas que no llegaron.
+              Campo de <strong>Notas</strong> por ítem para registrar observaciones.
+            </div>
+          </div>
+        </div>
+
+        <div class="item">
+          <span class="item-badge badge-input">Guardar</span>
+          <div class="item-content">
+            <div class="item-name">✅ Botón "Confirmar Recepción"</div>
+            <div class="item-desc">
+              Al confirmar: incrementa el stock físico en <code>uniforms_inventory_stock</code> (+qty recibida),
+              registra la transacción tipo <code>reception</code> en <code>uniforms_transactions</code>
+              con referencia al número de Estimate de QB, y muestra toast de confirmación verde.
+              También hay un botón <strong>"📋 Cargar Plantilla Estándar"</strong> para rellenar con
+              cantidades de ejemplo predefinidas.
+            </div>
+          </div>
+        </div>
+
+        <div class="item">
+          <span class="item-badge badge-btn">Manual</span>
+          <div class="item-content">
+            <div class="item-name">➕ Agregar Ítem / ➖ Quitar Ítem (Modo Manual)</div>
+            <div class="item-desc">
+              En modo manual, botones para agregar líneas de prenda individuales (categoría + talla + cantidad)
+              y para eliminar líneas innecesarias de la lista antes de confirmar.
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- PESTAÑA 4: HISTORIAL Y KARDEX -->
+    <div class="block">
+      <div class="block-title">📜 Pestaña 4 — Historial y Kardex</div>
+      <div class="items">
+
+        <div class="item">
+          <span class="item-badge badge-col">Filtros</span>
+          <div class="item-content">
+            <div class="item-name">Filtros de Búsqueda del Historial</div>
+            <div class="item-desc">
+              Selectores para filtrar la bitácora de transacciones por:<br>
+              <strong>Fecha</strong>, <strong>Empleado</strong>, <strong>Categoría de prenda</strong>,
+              <strong>Tipo de Movimiento</strong> (Venta, Entrega, Daño, Recepción, Auditoría).
+            </div>
+          </div>
+        </div>
+
+        <div class="item">
+          <span class="item-badge badge-col">Vista</span>
+          <div class="item-content">
+            <div class="item-name">Tabla de Bitácora de Transacciones</div>
+            <div class="item-desc">
+              Registro cronológico imborrable de todos los movimientos de uniformes con:
+              fecha, empleado, tipo de movimiento, categoría, talla, cantidad, precio unitario y total.
+            </div>
+          </div>
+        </div>
+
+        <div class="item">
+          <span class="item-badge badge-col">Vista</span>
+          <div class="item-content">
+            <div class="item-name">Kardex por Empleado</div>
+            <div class="item-desc">
+              Sección inferior que muestra el historial individual de uniformes entregados a un empleado específico.
+              Permite saber exactamente cuántas prendas y de qué tipo ha recibido cada trabajador desde su ingreso.
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <div class="script">
+      🗣️ <strong>Guión para la Presentación — Módulo Uniformes:</strong><br>
+      <em>"El Módulo de Control de Uniformes maneja todo el ciclo de vida del vestuario del personal.
+      Cuando llega mercancía de Bodega, vamos a 'Recepción de Órdenes', buscamos el Estimate de QuickBooks
+      y el sistema auto-completa las prendas y tallas. Al confirmar, el stock físico sube automáticamente.
+      Para entregar uniformes a un empleado nuevo o recién ascendido, buscamos su nombre, el sistema detecta su puesto
+      y sugiere el paquete correcto. Si el empleado ya tiene chamarra, simplemente desmarcamos esa opción.
+      El sistema nunca permite entregar más piezas de las que existen en el almacén.
+      Cada venta genera un cargo automático que aparece en la Caja Fuerte del día."</em>
+    </div>
+  </div>
+
+
+  <!-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ -->
+  <!-- MÓDULO 3: CAJA FUERTE                                        -->
+  <!-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ -->
+  <div class="module">
+    <div class="module-banner mod-safe">
+      <h2>🔐 Módulo 3: Arqueo y Control de Caja Fuerte</h2>
+      <div class="route">Ruta: /caja-fuerte — Arqueo Diario de Bóveda y Conciliación de Efectivo de Uniformes</div>
+    </div>
+
+    <!-- BARRA SUPERIOR -->
+    <div class="block">
+      <div class="block-title">🖥️ Barra Superior del Módulo</div>
+      <div class="items">
+
+        <div class="item">
+          <span class="item-badge badge-btn">Desplegable</span>
+          <div class="item-content">
+            <div class="item-name">Selector de Tienda</div>
+            <div class="item-desc">
+              Misma lógica que los otros módulos: Gerentes ven su tienda, Admins/Supervisores todas.
+              Al cambiar de tienda, recarga el arqueo guardado del día laboral activo para esa sucursal.
+            </div>
+          </div>
+        </div>
+
+        <div class="item">
+          <span class="item-badge badge-btn">Fecha</span>
+          <div class="item-content">
+            <div class="item-name">Selector de Fecha de Negocio</div>
+            <div class="item-desc">
+              Muestra la fecha del día laboral activo (aplica la regla de 6:00 AM).
+              Permite navegar a fechas pasadas para consultar arqueos anteriores.
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- SECCIONES DEL FORMULARIO DE ARQUEO -->
+    <div class="block">
+      <div class="block-title">💵 Secciones del Formulario de Arqueo de Bóveda</div>
+      <div class="items">
+
+        <div class="item">
+          <span class="item-badge badge-col">Sección 1</span>
+          <div class="item-content">
+            <div class="item-name">Billetes — Conteo de Efectivo en Denominaciones</div>
+            <div class="item-desc">
+              Campos numéricos para ingresar la cantidad de billetes por denominación:
+              <strong>$100 / $50 / $20 / $10 / $5 / $1</strong>.
+              El sistema calcula el subtotal de billetes automáticamente.
+            </div>
+          </div>
+        </div>
+
+        <div class="item">
+          <span class="item-badge badge-col">Sección 2</span>
+          <div class="item-content">
+            <div class="item-name">Monedas y Rollos (Coins & Rolls)</div>
+            <div class="item-desc">
+              Campos para rollos de monedas bancarios por denominación ($0.25, $0.10, $0.05, $0.01)
+              y campos adicionales para cambio suelto. Subtotal calculado automáticamente.
+            </div>
+          </div>
+        </div>
+
+        <div class="item">
+          <span class="item-badge badge-col">Sección 3</span>
+          <div class="item-content">
+            <div class="item-name">Fondos de Gavetas (Drawers)</div>
+            <div class="item-desc">
+              Campos para el fondo de caja asignado a cada cajero del turno.
+              Cada gaveta tiene un campo editable con el monto de fondo base.
+            </div>
+          </div>
+        </div>
+
+        <div class="item">
+          <span class="item-badge badge-tab">Sección 4</span>
+          <div class="item-content">
+            <div class="item-name">🎽 Recaudación de Uniformes — Sección Especial de Conciliación</div>
+            <div class="item-desc">
+              La sección más importante para la integración con el Módulo de Uniformes:<br><br>
+
+              <strong>Campo <code>uniforms_amount</code> (Editable — siempre abierto):</strong>
+              Input numérico para ingresar el efectivo físico real de ventas de uniformes que se encuentra en la bóveda.
+              Siempre editable, respeta dinero acumulado de ventas anteriores al inicio del sistema.<br><br>
+
+              <strong>Badge morado "Ventas Módulo (Hoy)":</strong>
+              Consulta en tiempo real la API <code>/api/inventory/uniforms/safe-reconciliation</code> y muestra:
+              <em>"X venta(s) de uniforme por un total de $Y.YY"</em> o <em>"Sin ventas de uniforme registradas hoy"</em>.
+              Sirve como referencia de auditoría para el gerente.<br><br>
+
+              <strong>Botón 💜 "Aplicar del Módulo" (aparece solo cuando el campo fue editado manualmente):</strong>
+              Permite copiar con un clic el total de ventas del módulo al campo editable, sincronizando manualmente
+              si el gerente así lo desea.
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- GRAN TOTAL Y GUARDADO -->
+    <div class="block">
+      <div class="block-title">🟢 Gran Total y Guardado del Arqueo</div>
+      <div class="items">
+
+        <div class="item">
+          <span class="item-badge badge-auto">Auto</span>
+          <div class="item-content">
+            <div class="item-name">Gran Total General (Live Calculation)</div>
+            <div class="item-desc">
+              Suma automática en tiempo real:
+              <code>Billetes + Monedas/Rollos + Fondos de Gavetas + Uniformes</code>.
+              Se actualiza instantáneamente al cambiar cualquier campo del formulario.
+            </div>
+          </div>
+        </div>
+
+        <div class="item">
+          <span class="item-badge badge-input">Guardar</span>
+          <div class="item-content">
+            <div class="item-name">💾 Botón "Guardar Conteo de Caja Fuerte"</div>
+            <div class="item-desc">
+              Guarda el registro en la tabla <code>cash_safe_counts</code> vinculando:
+              fecha de negocio calculada con la Regla TEG (6:00 AM),
+              tienda, usuario que realizó el arqueo, y todos los subtotales desglosados
+              incluyendo el monto de uniformes.
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <div class="script">
+      🗣️ <strong>Guión para la Presentación — Módulo Caja Fuerte:</strong><br>
+      <em>"El Módulo de Caja Fuerte digitaliza el arqueo diario de la bóveda de cada tienda.
+      El gerente ingresa el conteo de billetes, rollos de monedas y los fondos de gavetas.
+      Al llegar a la sección de Uniformes, el campo siempre está abierto para ingresar el dinero físico real,
+      incluyendo cualquier saldo acumulado antes de iniciar el sistema.
+      El módulo nos muestra en la etiqueta morada cuánto se cobró hoy por ventas de uniformes registradas en el sistema,
+      sirviendo como auditoría cruzada. El Gran Total se calcula automáticamente y queda registrado en la base de datos."</em>
+    </div>
+  </div>
+
+
+  <!-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ -->
+  <!-- FLUJO DE INTEGRACIÓN 360°                                    -->
+  <!-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ -->
+  <div class="module">
+    <div class="block">
+      <div class="block-title">🔄 Flujo de Integración 360° entre los 3 Módulos</div>
+      <div class="flow">
+        <div class="flow-step">
+          <strong>PASO 1 — Solicitar (Pedidos de Bodega):</strong><br>
+          Gerente de Lynwood elabora su Orden de Uniformes en <code>/inventory/orders</code> (tipo "Uniformes").
+          Da clic en "Enviar a QuickBooks". Se genera el Estimate QB #2589647836600 y queda guardado en Supabase.
+        </div>
+        <div class="flow-step">
+          <strong>PASO 2 — Recibir Mercancía (Control de Uniformes):</strong><br>
+          Al llegar el envío de Bodega, el gerente va a <code>/inventory/uniforms</code> → Pestaña "Recepción de Órdenes".
+          Busca el Estimate #2589647836600. El sistema carga las prendas automáticamente.
+          Al confirmar, las piezas se suman al stock físico de la tienda al instante.
+        </div>
+        <div class="flow-step">
+          <strong>PASO 3 — Distribuir al Personal (Control de Uniformes):</strong><br>
+          Gerente va a Pestaña "Ventas y Entregas". Selecciona empleado, tipo de transacción y cantidad.
+          Si es venta ($7.00): se cobra y el efectivo se registra para la Caja Fuerte.
+          Si es entrega de paquete ($0.00): se descuenta el stock sin cargo.
+        </div>
+        <div class="flow-step">
+          <strong>PASO 4 — Arqueo de Cierre (Caja Fuerte):</strong><br>
+          Al cierre del turno, gerente va a <code>/caja-fuerte</code>. Captura el arqueo de bóveda.
+          En la sección de Uniformes, el badge morado muestra cuánto se cobró hoy por ventas de uniformes.
+          El gerente confirma el monto físico y guarda el arqueo. Todo cuadra al centavo.
+        </div>
+      </div>
+
+      <div class="callout callout-success">
+        ✅ <strong>Verificación Técnica Final:</strong>
+        Todos los endpoints auditados contra Supabase en tiempo real. Integración validada con orden de prueba Lynwood
+        Estimate #2589647836600 (12 playeras rojas talla L). Build verificado con <code>npx tsc --noEmit</code> — <strong>0 errores</strong>.
+        Sistema listo para presentación y operación en producción.
+      </div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

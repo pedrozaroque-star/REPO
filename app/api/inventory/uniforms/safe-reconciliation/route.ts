@@ -52,11 +52,16 @@ export async function GET(request: Request) {
       0
     );
 
+    const breakdown = transactions.length === 0
+      ? 'Sin ventas de uniforme registradas hoy'
+      : `${transactions.length} venta(s) de uniforme por un total de $${totalCollected.toFixed(2)}`;
+
     return NextResponse.json({
       storeId,
       businessDate,
       totalCollected,
-      transactionCount: transactions.length
+      transactionCount: transactions.length,
+      breakdown
     });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });

@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react'
 import { useLanguage } from '@/lib/i18n'
+import FoodCostNavigationTabs from '@/components/food-cost/FoodCostNavigationTabs'
 import { createBrowserClient } from '@supabase/ssr'
 import {
     TrendingUp,
@@ -94,6 +95,8 @@ export default function CostReportPage() {
     return (
         <div className="p-6 max-w-[1600px] mx-auto space-y-6">
 
+            <FoodCostNavigationTabs />
+
             {/* Header */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
@@ -183,7 +186,7 @@ export default function CostReportPage() {
                                     </td>
                                 </tr>
                             ) : (
-                                sortedItems.map(item => {
+                                sortedItems.map((item, idx) => {
                                     // Traffic Light Logic
                                     let badgeColor = 'bg-slate-100 text-slate-500' // Default (No Recipe)
                                     let badgeText = t('inventory_costs.badge_no_recipe')
@@ -205,7 +208,7 @@ export default function CostReportPage() {
                                     }
 
                                     return (
-                                        <tr key={item.guid} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors group">
+                                        <tr key={`${item.guid}-${idx}`} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors group">
                                             <td className="px-6 py-4">
                                                 <div className="font-medium text-slate-900 dark:text-white">{item.name}</div>
                                                 <div className="text-xs text-slate-400">{item.group_name}</div>
