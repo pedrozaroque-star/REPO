@@ -132,13 +132,13 @@ export default function BodegaPWA() {
     const [touchEnd, setTouchEnd] = useState<number | null>(null)
     const [showInfoModal, setShowInfoModal] = useState(false)
 
-    // Snap back timer: si mueves el carrusel, a los 5 seg regresa solito a AHORA
+    // Snap back timer: si mueves el carrusel, a los 15 seg regresa solito a AHORA
     useEffect(() => {
         let timer: NodeJS.Timeout
         if (activeIndex !== 0) {
             timer = setTimeout(() => {
                 setActiveIndex(0)
-            }, 5000)
+            }, 15000)
         }
         return () => clearTimeout(timer)
     }, [activeIndex])

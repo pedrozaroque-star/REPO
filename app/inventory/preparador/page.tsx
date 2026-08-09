@@ -186,7 +186,7 @@ export default function PreparadorPage() {
         
         const timer = setTimeout(() => {
             setActiveIndex(currentBucketIndex) // Snap back to current time bucket
-        }, 5000)
+        }, 15000)
         
         return () => clearTimeout(timer)
     }, [activeIndex, currentBucketIndex])
