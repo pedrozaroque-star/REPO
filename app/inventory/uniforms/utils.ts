@@ -18,7 +18,7 @@ export type UniformCategory =
   | 'jacket_red' 
   | 'jacket_black'
 
-export type UniformSize = 'S' | 'M' | 'L' | 'XL' | '2XL' | '3XL' | 'ONE_SIZE'
+export type UniformSize = 'XS' | 'S' | 'M' | 'L' | 'XL' | '2XL' | '3XL' | 'ONE_SIZE'
 
 export type TransactionType = 'reception' | 'employee_sale' | 'new_hire_package' | 'damage_exchange' | 'manager_free' | 'manual_audit' | 'initial_count' | 'initial_count_reset'
 
@@ -90,14 +90,14 @@ export interface ExecutiveDashboardData {
 }
 
 export const SIZES_BY_CATEGORY: Record<string, UniformSize[]> = {
-    shirt_red: ['S', 'M', 'L', 'XL', '2XL', '3XL'],
-    shirt_shift_leader: ['S', 'M', 'L', 'XL', '2XL', '3XL'],
-    shirt_assistant: ['S', 'M', 'L', 'XL', '2XL', '3XL'],
-    shirt_manager: ['S', 'M', 'L', 'XL', '2XL', '3XL'],
+    shirt_red: ['XS', 'S', 'M', 'L', 'XL', '2XL', '3XL'],
+    shirt_shift_leader: ['XS', 'S', 'M', 'L', 'XL', '2XL', '3XL'],
+    shirt_assistant: ['XS', 'S', 'M', 'L', 'XL', '2XL', '3XL'],
+    shirt_manager: ['XS', 'S', 'M', 'L', 'XL', '2XL', '3XL'],
     cap_red: ['ONE_SIZE'],
     cap_black: ['ONE_SIZE'],
-    jacket_red: ['S', 'M', 'L', 'XL', '2XL', '3XL'],
-    jacket_black: ['S', 'M', 'L', 'XL', '2XL', '3XL'],
+    jacket_red: ['XS', 'S', 'M', 'L', 'XL', '2XL', '3XL'],
+    jacket_black: ['XS', 'S', 'M', 'L', 'XL', '2XL', '3XL'],
 }
 
 export const NEW_HIRE_PACKAGE: Array<{ item_category: UniformCategory, quantity: number }> = [

@@ -633,8 +633,8 @@ function parseUniformCategoryAndSize(itemName: string): { category: string, size
     size = '2XL';
   } else if (lower.includes('x-large') || lower.includes('xlarge') || lower.includes(' x-l') || lower.endsWith(' xl')) {
     size = 'XL';
-  } else if (lower.includes('x-small') || lower.includes('xsmall') || lower.includes(' xs')) {
-    size = 'S';
+  } else if (lower.includes('x-small') || lower.includes('xsmall') || lower.includes('extra small') || lower.includes(' xs') || lower.endsWith(' xs')) {
+    size = 'XS';
   } else if (lower.includes('large') || lower.endsWith(' l') || lower.includes(' l ')) {
     size = 'L';
   } else if (lower.includes('medium') || lower.endsWith(' m') || lower.includes(' m ')) {
