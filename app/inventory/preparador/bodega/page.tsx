@@ -181,12 +181,12 @@ export default function BodegaPWA() {
                 // Forzar tienda si el usuario no es admin/supervisor y tiene tienda asignada
                 const isSuper = ['admin', 'supervisor'].includes(user?.role?.toLowerCase() || '')
                 if (user && !isSuper && user.store_id) {
-                    setStoreId(user.store_id)
+                    setStoreId(String(user.store_id))
                 } else {
                     // Recordar o default si es supervisor/admin
                     const saved = localStorage.getItem('teg_preparador_store')
-                    if (saved && data.find(s => s.id === saved)) setStoreId(saved)
-                    else setStoreId(data[0].id)
+                    if (saved && data.find(s => String(s.id) === String(saved))) setStoreId(String(saved))
+                    else setStoreId(String(data[0].id))
                 }
             }
         }

@@ -6,25 +6,18 @@ const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 async function run() {
-    console.log('--- Checking prep_manual_schedule table ---');
+    console.log('--- Checking prep_manual_schedule table for Friday (5) and Saturday (6) ---');
     const { data, error } = await supabase
         .from('prep_manual_schedule')
-        .select('*');
+        .select('*')
+        .in('day_of_week', [5, 6]);
 
     if (error) {
         console.error('ERROR querying prep_manual_schedule:', error);
     } else {
-        console.log('SUCCESS! Total rows found:', data?.length);
-        console.log('Sample rows:', data);
+        console.log('Rows for Friday (5) & Saturday (6):', data?.length);
+        console.log(data);
     }
-
-    console.log('\n--- Checking stores table ---');
-    const { data: stores, error: storeErr } = await supabase
-        .from('stores')
-        .select('id, name')
-        .order('id');
-    
-    console.log('Stores:', stores);
 }
 
 run();
