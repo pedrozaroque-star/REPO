@@ -2711,7 +2711,7 @@ export default function InventoryOrdersPage() {
                                                                         <input
                                                                             id={`input_${rowIndex}_${colIndex}`}
                                                                             type="number"
-                                                                            placeholder={piVal ? String(piVal) : '-'}
+                                                                            placeholder=""
                                                                             className={`w-full p-2 text-center outline-none focus:bg-white focus:ring-2 text-sm transition-all rounded-lg ${
                                                                                 isOver
                                                                                 ? 'bg-indigo-50/50 text-indigo-700 font-bold border-b-2 border-b-indigo-400 focus:ring-indigo-400'
@@ -2804,7 +2804,7 @@ export default function InventoryOrdersPage() {
                                                                         <input
                                                                             id={`input_${rowIndex}_0`}
                                                                             type="number"
-                                                                            placeholder={piVal !== undefined && piVal !== null ? String(piVal) : '-'}
+                                                                            placeholder=""
                                                                             className={`w-full h-full p-2.5 text-center outline-none focus:bg-white focus:ring-2 text-sm transition-all ${
                                                                                 isOver
                                                                                 ? 'bg-indigo-50/50 text-indigo-700 font-bold border-b-2 border-b-indigo-400 focus:ring-indigo-400'
