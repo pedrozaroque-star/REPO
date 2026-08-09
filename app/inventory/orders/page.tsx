@@ -134,6 +134,7 @@ export default function InventoryOrdersPage() {
     const [items, setItems] = useState<OrderableItem[]>([])
     const [allItems, setAllItems] = useState<any[]>([])
     const [bases, setBases] = useState<Record<string, WeeklyBaseRecord>>({})
+    const [nextWeekBases, setNextWeekBases] = useState<Record<string, WeeklyBaseRecord>>({})
     const [originalBases, setOriginalBases] = useState<Record<string, WeeklyBaseRecord>>({})
     const [parIdeal, setParIdeal] = useState<Record<string, ParIdealRecord>>({})
     const [counts, setCounts] = useState<Record<string, Record<string, number>>>({})
@@ -265,6 +266,7 @@ export default function InventoryOrdersPage() {
             setAllItems(allInvItems)
             setMappedItems(mappedInvItems)
             setBases(weekData.bases)
+            setNextWeekBases((weekData as any).nextWeekBases || {})
             setOriginalBases(JSON.parse(JSON.stringify(weekData.bases || {})))
             setParIdeal(weekData.parIdeal)
             setCounts(weekData.counts)
@@ -647,13 +649,18 @@ export default function InventoryOrdersPage() {
         setBases(prev => ({ ...prev, [itemId]: updatedItemBase as any }))
         setHasBaseChanges(true)
 
+        // También actualizar en el estado local `nextWeekBases`
+        const nextBaseObj = nextWeekBases[itemId] || b
+        const updatedNextWeekBase = { ...nextBaseObj, inventory_item_id: itemId, [field]: numVal }
+        setNextWeekBases(prev => ({ ...prev, [itemId]: updatedNextWeekBase as any }))
+
         setIsLiveSaving(true)
 
         if (isLockedForCurrentWeek) {
             // Regla de negocio: Si el día YA tiene sobrante capturado o ya pasó,
             // Guardamos el nuevo PAR exclusivamente para la PRÓXIMA semana en Supabase.
             // El histórico de esta semana y el cálculo del % de sobrante usan originalBases.
-            saveSingleItemWeeklyBase(storeId, nextWeekMonday, updatedItemBase as any)
+            saveSingleItemWeeklyBase(storeId, nextWeekMonday, updatedNextWeekBase as any)
                 .then(() => setIsLiveSaving(false))
                 .catch(err => {
                     console.error('Error auto-saving PAR base for next week:', err)
@@ -701,6 +708,7 @@ export default function InventoryOrdersPage() {
 
         const newBases = { ...bases, [itemId]: updatedItemBase as any }
         setBases(newBases)
+        setNextWeekBases(prev => ({ ...prev, [itemId]: updatedItemBase as any }))
         setHasBaseChanges(true)
 
         setIsLiveSaving(true)
@@ -736,6 +744,7 @@ export default function InventoryOrdersPage() {
             Object.entries(bases).forEach(([itemId, b]: [string, any]) => {
                 const itemCounts = counts[itemId] || {}
                 const currentBaseObj = originalBases[itemId] || b
+                const nextBaseObj = nextWeekBases[itemId] || b
                 
                 const currentBasePayload: any = { inventory_item_id: itemId }
                 const nextBasePayload: any = { inventory_item_id: itemId }
@@ -747,7 +756,7 @@ export default function InventoryOrdersPage() {
                     const isPastDay = fieldDateStr < todayStr
                     const isLocked = (orderType === 'daily') ? (hasLeftover || isPastDay) : false
 
-                    nextBasePayload[f] = (b as any)[f] || 0
+                    nextBasePayload[f] = (nextBaseObj as any)[f] !== undefined ? (nextBaseObj as any)[f] : ((b as any)[f] || 0)
 
                     if (isLocked) {
                         currentBasePayload[f] = (currentBaseObj as any)[f] || 0
@@ -782,7 +791,7 @@ export default function InventoryOrdersPage() {
                 return [...lines, ...prevExtraordinary]
             })
         } catch (e: any) {
-            alert('Error: ' + e.message)
+            alert(t('bodegaOrders.errorSave') + e.message)
         } finally {
             setSavingPar(false)
         }
@@ -2690,13 +2699,20 @@ export default function InventoryOrdersPage() {
                                                                 const isOver = val !== undefined && (val || 0) > (piVal || 0)
                                                                 const isUnder = val !== undefined && (val || 0) < (piVal || 0)
 
+                                                                const dayOffset = fieldIndexMap[d.baseField] ?? 0
+                                                                const fieldDateStr = addDays(activeMonday, dayOffset)
+                                                                const hasLeftover = counts[item.id]?.[fieldDateStr] !== undefined && counts[item.id]?.[fieldDateStr] !== null
+                                                                const isPastDay = fieldDateStr < todayStr
+                                                                const isLocked = hasLeftover || isPastDay
+                                                                const nextWeekVal = nextWeekBases[item.id] ? (nextWeekBases[item.id] as any)[d.baseField] : undefined
+
                                                                 return (
-                                                                    <td key={`bc_${item.id}_${d.key}`} className="p-0 border-b border-emerald-100/50">
+                                                                    <td key={`bc_${item.id}_${d.key}`} className="p-1 border-b border-emerald-100/50 text-center">
                                                                         <input
                                                                             id={`input_${rowIndex}_${colIndex}`}
                                                                             type="number"
                                                                             placeholder={piVal ? String(piVal) : '-'}
-                                                                            className={`w-full h-full p-2.5 text-center outline-none focus:bg-white focus:ring-2 text-sm transition-all ${
+                                                                            className={`w-full p-2 text-center outline-none focus:bg-white focus:ring-2 text-sm transition-all rounded-lg ${
                                                                                 isOver
                                                                                 ? 'bg-indigo-50/50 text-indigo-700 font-bold border-b-2 border-b-indigo-400 focus:ring-indigo-400'
                                                                                 : isUnder
@@ -2708,6 +2724,11 @@ export default function InventoryOrdersPage() {
                                                                             onKeyDown={e => handleGridKeyDown(e, rowIndex, colIndex)}
                                                                             onFocus={e => e.target.select()}
                                                                         />
+                                                                        {isLocked && nextWeekVal !== undefined && nextWeekVal !== val && (
+                                                                            <div className="text-[10px] font-bold text-blue-700 bg-blue-50 border border-blue-200 rounded px-1 py-0.5 mt-0.5 text-center shadow-2xs" title="Este valor está guardado y se aplicará automáticamente a partir de la PRÓXIMA SEMANA">
+                                                                                ➡️ Próx: {nextWeekVal}
+                                                                            </div>
+                                                                        )}
                                                                     </td>
                                                                 )
                                                             })}

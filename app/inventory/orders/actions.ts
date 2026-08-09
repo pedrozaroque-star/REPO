@@ -296,6 +296,14 @@ export async function fetchWeeklyData(storeId: string | number, mondayStr: strin
         .gte('count_date', addDays(lastWeekMonday, 6)) // Solo domingo anterior
         .lte('count_date', thisSunday)
 
+    // Bases de la próxima semana (para previsualizar cambios guardados para próxima semana)
+    const nextWeekMonday = addDays(mondayStr, 7)
+    const { data: nextBases } = await supabase
+        .from('inventory_weekly_bases')
+        .select('*')
+        .eq('store_id', storeId)
+        .eq('week_start_date', nextWeekMonday)
+
     // Órdenes de esta semana
     const { data: orders } = await supabase
         .from('inventory_orders')
@@ -324,6 +332,22 @@ export async function fetchWeeklyData(storeId: string | number, mondayStr: strin
         })
     }
 
+    const nextWeekBasesMap: Record<string, WeeklyBaseRecord> = {}
+    if (nextBases && nextBases.length > 0) {
+        nextBases.forEach((b: any) => {
+            nextWeekBasesMap[b.inventory_item_id] = {
+                ...b,
+                mon_par: applyRound(b.inventory_item_id, b.mon_par),
+                tue_par: applyRound(b.inventory_item_id, b.tue_par),
+                wed_par: applyRound(b.inventory_item_id, b.wed_par),
+                thu_par: applyRound(b.inventory_item_id, b.thu_par),
+                fri_par: applyRound(b.inventory_item_id, b.fri_par),
+                sat_par: applyRound(b.inventory_item_id, b.sat_par),
+                sun_par: applyRound(b.inventory_item_id, b.sun_par)
+            }
+        })
+    }
+
     const parIdealMap: Record<string, ParIdealRecord> = {}
     parIdeal?.forEach((p: any) => { parIdealMap[p.inventory_item_id] = p })
 
@@ -335,6 +359,7 @@ export async function fetchWeeklyData(storeId: string | number, mondayStr: strin
 
     return {
         bases: basesMap,
+        nextWeekBases: nextWeekBasesMap,
         parIdeal: parIdealMap,
         counts: countsMap,
         orders: orders || [],
@@ -352,20 +377,33 @@ export async function saveWeeklyBases(
     weekStartDate: string,
     basesList: { inventory_item_id: string; mon_par: number; tue_par: number; wed_par: number; thu_par: number; fri_par: number; sat_par: number; sun_par: number }[]
 ) {
+    // 0. Obtener bases existentes en BD para weekStartDate para preservar datos previo si los hay
+    const { data: existingBases } = await supabase
+        .from('inventory_weekly_bases')
+        .select('*')
+        .eq('store_id', storeId)
+        .eq('week_start_date', weekStartDate)
+
+    const existingMap = new Map<string, any>()
+    existingBases?.forEach(eb => existingMap.set(eb.inventory_item_id, eb))
+
     // 1. Guardar en weekly bases de la semana seleccionada
-    const weeklyPayload = basesList.map(b => ({
-        store_id: storeId,
-        inventory_item_id: b.inventory_item_id,
-        week_start_date: weekStartDate,
-        mon_par: b.mon_par,
-        tue_par: b.tue_par,
-        wed_par: b.wed_par,
-        thu_par: b.thu_par,
-        fri_par: b.fri_par,
-        sat_par: b.sat_par,
-        sun_par: b.sun_par,
-        updated_at: new Date().toISOString()
-    }))
+    const weeklyPayload = basesList.map(b => {
+        const ex = existingMap.get(b.inventory_item_id)
+        return {
+            store_id: storeId,
+            inventory_item_id: b.inventory_item_id,
+            week_start_date: weekStartDate,
+            mon_par: b.mon_par ?? (ex?.mon_par || 0),
+            tue_par: b.tue_par ?? (ex?.tue_par || 0),
+            wed_par: b.wed_par ?? (ex?.wed_par || 0),
+            thu_par: b.thu_par ?? (ex?.thu_par || 0),
+            fri_par: b.fri_par ?? (ex?.fri_par || 0),
+            sat_par: b.sat_par ?? (ex?.sat_par || 0),
+            sun_par: b.sun_par ?? (ex?.sun_par || 0),
+            updated_at: new Date().toISOString()
+        }
+    })
 
     const { error: err1 } = await supabase
         .from('inventory_weekly_bases')
@@ -387,17 +425,26 @@ export async function saveSingleItemWeeklyBase(
     weekStartDate: string,
     b: { inventory_item_id: string; mon_par: number; tue_par: number; wed_par: number; thu_par: number; fri_par: number; sat_par: number; sun_par: number }
 ) {
+    // Buscar si ya existe la fila en la BD para no perder otros campos
+    const { data: existing } = await supabase
+        .from('inventory_weekly_bases')
+        .select('*')
+        .eq('store_id', storeId)
+        .eq('inventory_item_id', b.inventory_item_id)
+        .eq('week_start_date', weekStartDate)
+        .maybeSingle()
+
     const payload = {
         store_id: storeId,
         inventory_item_id: b.inventory_item_id,
         week_start_date: weekStartDate,
-        mon_par: b.mon_par || 0,
-        tue_par: b.tue_par || 0,
-        wed_par: b.wed_par || 0,
-        thu_par: b.thu_par || 0,
-        fri_par: b.fri_par || 0,
-        sat_par: b.sat_par || 0,
-        sun_par: b.sun_par || 0,
+        mon_par: b.mon_par !== undefined ? b.mon_par : (existing?.mon_par || 0),
+        tue_par: b.tue_par !== undefined ? b.tue_par : (existing?.tue_par || 0),
+        wed_par: b.wed_par !== undefined ? b.wed_par : (existing?.wed_par || 0),
+        thu_par: b.thu_par !== undefined ? b.thu_par : (existing?.thu_par || 0),
+        fri_par: b.fri_par !== undefined ? b.fri_par : (existing?.fri_par || 0),
+        sat_par: b.sat_par !== undefined ? b.sat_par : (existing?.sat_par || 0),
+        sun_par: b.sun_par !== undefined ? b.sun_par : (existing?.sun_par || 0),
         updated_at: new Date().toISOString()
     }
 
