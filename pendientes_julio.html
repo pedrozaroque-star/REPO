@@ -2020,6 +2020,18 @@
                                          </div>
                                      </td>
                                  </tr>
+                                 <tr>
+                                     <td><strong>08-Ago-2026</strong></td>
+                                     <td>7:45 PM - 7:50 PM</td>
+                                     <td style="text-align: center; font-weight: 700;">0.10</td>
+                                     <td><span class="table-badge-module">Inventario</span> <span class="table-badge-module">Uniformes</span> <span class="table-badge-module">Seguridad</span></td>
+                                     <td>
+                                         <div class="lang-split">
+                                              <div class="es-desc">- **Restricción de Botones de Control de Inventario**: Encapsulamiento de las acciones de administración (`Editar Precios`, `Reiniciar Conteo Inicial` y `Modo Auditoría`) en `app/inventory/uniforms/page.tsx` bajo la condición estricta de `isAdmin` (`user.role === 'admin'`). Ocultación completa para gerentes y asistentes.</div>
+                                              <div class="en-desc">- **Uniform Inventory Controls Security**: Encapsulated administrative actions (`Edit Pricing`, `Reset Initial Count`, and `Audit Mode`) in `app/inventory/uniforms/page.tsx` under strict `isAdmin` check (`user.role === 'admin'`). Completely hidden for store managers and assistants.</div>
+                                         </div>
+                                     </td>
+                                 </tr>
                             </tbody>
                        </table>
                 </div>

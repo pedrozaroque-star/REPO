@@ -566,8 +566,8 @@ function TabStockAndAudit({ storeId, stockData, setStockData, pricingData, setPr
     <div>
       <div className="flex flex-wrap items-center justify-between mb-6 gap-4">
         <h2 className="text-xl font-bold">{t('uniforms.stock.title')}</h2>
-        <div className="flex items-center gap-3">
-          {isAdmin && (
+        {isAdmin && (
+          <div className="flex items-center gap-3">
             <button
               onClick={() => setShowPricingModal(true)}
               className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 rounded-lg font-medium transition-colors"
@@ -575,51 +575,51 @@ function TabStockAndAudit({ storeId, stockData, setStockData, pricingData, setPr
               <DollarSign className="w-4 h-4" />
               {t('uniforms.stock.edit_pricing')}
             </button>
-          )}
 
-          <button
-            onClick={handleResetInitial}
-            disabled={submitting}
-            className="flex items-center gap-2 px-4 py-2 bg-red-50 hover:bg-red-100 text-red-700 dark:bg-red-900/20 dark:hover:bg-red-900/40 dark:text-red-300 rounded-lg font-medium transition-colors border border-red-200 dark:border-red-800"
-          >
-            <RotateCcw className="w-4 h-4" />
-            {t('uniforms.stock.reset_initial')}
-          </button>
-          
-          {auditMode ? (
-            <div className="flex items-center gap-3 bg-blue-50 dark:bg-blue-900/20 p-2 rounded-lg border border-blue-100 dark:border-blue-800">
-              <input
-                type="text"
-                placeholder={t('uniforms.stock.reason')}
-                className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md px-3 py-1.5 text-sm w-48"
-                value={auditReason}
-                onChange={(e) => setAuditReason(e.target.value)}
-              />
-              <button
-                onClick={() => { setAuditMode(false); setEditedStock({}); setAuditReason(''); }}
-                className="text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 text-sm font-medium"
-              >
-                {t('common.cancel')}
-              </button>
-              <button
-                onClick={handleSaveAudit}
-                disabled={submitting}
-                className="flex items-center gap-2 px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-sm font-medium transition-colors disabled:opacity-50"
-              >
-                {submitting ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                {t('uniforms.stock.save_audit')}
-              </button>
-            </div>
-          ) : (
             <button
-              onClick={() => setAuditMode(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg font-medium transition-colors shadow-sm"
+              onClick={handleResetInitial}
+              disabled={submitting}
+              className="flex items-center gap-2 px-4 py-2 bg-red-50 hover:bg-red-100 text-red-700 dark:bg-red-900/20 dark:hover:bg-red-900/40 dark:text-red-300 rounded-lg font-medium transition-colors border border-red-200 dark:border-red-800"
             >
-              <Edit2 className="w-4 h-4" />
-              {t('uniforms.stock.audit_mode')}
+              <RotateCcw className="w-4 h-4" />
+              {t('uniforms.stock.reset_initial')}
             </button>
-          )}
-        </div>
+            
+            {auditMode ? (
+              <div className="flex items-center gap-3 bg-blue-50 dark:bg-blue-900/20 p-2 rounded-lg border border-blue-100 dark:border-blue-800">
+                <input
+                  type="text"
+                  placeholder={t('uniforms.stock.reason')}
+                  className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md px-3 py-1.5 text-sm w-48"
+                  value={auditReason}
+                  onChange={(e) => setAuditReason(e.target.value)}
+                />
+                <button
+                  onClick={() => { setAuditMode(false); setEditedStock({}); setAuditReason(''); }}
+                  className="text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 text-sm font-medium"
+                >
+                  {t('common.cancel')}
+                </button>
+                <button
+                  onClick={handleSaveAudit}
+                  disabled={submitting}
+                  className="flex items-center gap-2 px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-sm font-medium transition-colors disabled:opacity-50"
+                >
+                  {submitting ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                  {t('uniforms.stock.save_audit')}
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => setAuditMode(true)}
+                className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg font-medium transition-colors shadow-sm"
+              >
+                <Edit2 className="w-4 h-4" />
+                {t('uniforms.stock.audit_mode')}
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="space-y-8">
