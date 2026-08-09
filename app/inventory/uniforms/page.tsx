@@ -981,16 +981,27 @@ function TabSalesAndIssues({ storeId, stockData, pricingData, showToast, onTrans
           setSubmitting(false);
           return;
         }
-        await recordDamageExchange({ 
+        if (saleQty <= 0) {
+          showToast('Ingresa una cantidad de reemplazos válida (mínimo 1 pieza).', 'warning');
+          setSubmitting(false);
+          return;
+        }
+        const res = await recordDamageExchange({ 
           storeId, 
           userEmail: user?.email || '',
           employeeName: empName,
           employeeToastGuid: empGuid || undefined,
           item_category: saleCategory,
           size: saleSize,
+          quantity: saleQty,
           reason: damageReason,
           businessDate: getBusinessDate()
         });
+        if (res.warning) {
+          showToast(res.warning, 'warning');
+          setSubmitting(false);
+          return;
+        }
       }
       
       showToast(t('uniforms.toast.sale_success'), 'success');
@@ -1358,10 +1369,10 @@ function TabSalesAndIssues({ storeId, stockData, pricingData, showToast, onTrans
                         {(SIZES_BY_CATEGORY[saleCategory] || []).map(s => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
                       </select>
                     </div>
-                    {txType === 'sale' && (
+                    {(txType === 'sale' || txType === 'damage') && (
                       <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                          {t('uniforms.sales.quantity')}
+                          {txType === 'damage' ? t('uniforms.sales.replacement_quantity') : t('uniforms.sales.quantity')}
                         </label>
                         <input
                           type="number"

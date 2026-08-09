@@ -382,6 +382,7 @@ export async function recordDamageExchange(payload: {
   storeId: number, 
   item_category: string, 
   size: string, 
+  quantity?: number,
   employeeName: string, 
   employeeToastGuid?: string,
   reason: string, 
@@ -390,6 +391,7 @@ export async function recordDamageExchange(payload: {
 }): Promise<{success: boolean, warning?: string}> {
   const supabase = await getSupabaseAdminClient();
   const bDate = payload.businessDate || getBusinessDate();
+  const qtyToDeduct = Math.max(1, payload.quantity || 1);
 
   const { data: stock } = await supabase
     .from('uniforms_inventory_stock')
@@ -400,11 +402,11 @@ export async function recordDamageExchange(payload: {
     .single();
 
   const prevQty = stock ? stock.quantity_on_hand : 0;
-  if (prevQty <= 0) {
-    return { success: false, warning: 'No stock available' };
+  if (prevQty < qtyToDeduct) {
+    return { success: false, warning: `No hay suficiente stock disponible. (Stock actual: ${prevQty} piezas)` };
   }
 
-  const newQty = prevQty - 1;
+  const newQty = prevQty - qtyToDeduct;
 
   await supabase
     .from('uniforms_inventory_stock')
@@ -420,7 +422,7 @@ export async function recordDamageExchange(payload: {
       item_category: payload.item_category,
       size: payload.size,
       transaction_type: 'damage_exchange',
-      quantity: -1,
+      quantity: -qtyToDeduct,
       previous_stock: prevQty,
       new_stock: newQty,
       unit_price: 0,

@@ -2032,6 +2032,18 @@
                                          </div>
                                      </td>
                                  </tr>
+                                 <tr>
+                                     <td><strong>08-Ago-2026</strong></td>
+                                     <td>7:50 PM - 7:55 PM</td>
+                                     <td style="text-align: center; font-weight: 700;">0.10</td>
+                                     <td><span class="table-badge-module">Inventario</span> <span class="table-badge-module">Uniformes</span> <span class="table-badge-module">Transacciones</span></td>
+                                     <td>
+                                         <div class="lang-split">
+                                              <div class="es-desc">- **Campo "Cantidad de Reemplazos" en Cambio por Daño**: Habilitación del selector numérico de cantidad en el formulario de Cambio por Daño (`txType === 'damage'`) en `app/inventory/uniforms/page.tsx` con label dinámico `Cantidad de Reemplazos` e integración en la server action `recordDamageExchange` para deducir cualquier N cantidad de prendas dañadas en una sola transacción.</div>
+                                              <div class="en-desc">- **Replacement Quantity Field in Damage Exchange**: Enabled numerical quantity selector on Damage Exchange form (`txType === 'damage'`) in `app/inventory/uniforms/page.tsx` with dynamic `Replacement Quantity` label, updating `recordDamageExchange` server action to support deducting N damaged items in a single transaction.</div>
+                                         </div>
+                                     </td>
+                                 </tr>
                             </tbody>
                        </table>
                 </div>
