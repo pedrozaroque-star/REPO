@@ -44,9 +44,27 @@ export default function PreparadorPage() {
     const [stores, setStores] = useState<any[]>([])
     const [storeId, setStoreId] = useState('')
     
-    // Calendar Date Selector
-    const todayLAStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
+    // Calendar Date Selector (Shift starts at 6:00 AM LA time)
+    const getLAEffectiveBusinessDate = () => {
+        const now = new Date()
+        const laDateStr = now.toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
+        const laTimeStr = now.toLocaleTimeString('en-US', { timeZone: 'America/Los_Angeles', hour12: false })
+        const hour = parseInt(laTimeStr.split(':')[0], 10)
+        
+        if (hour < 6) {
+            const [y, m, d] = laDateStr.split('-').map(Number)
+            const prevDay = new Date(y, m - 1, d - 1)
+            const py = prevDay.getFullYear()
+            const pm = String(prevDay.getMonth() + 1).padStart(2, '0')
+            const pd = String(prevDay.getDate()).padStart(2, '0')
+            return `${py}-${pm}-${pd}`
+        }
+        return laDateStr
+    }
+
+    const todayLAStr = getLAEffectiveBusinessDate()
     const [selectedDate, setSelectedDate] = useState<string>(todayLAStr)
+    const lastSaveTimeRef = useRef<number>(0)
 
     const getDowFromDate = (dateStr: string) => {
         const [y, m, d] = dateStr.split('-').map(Number)
@@ -118,17 +136,21 @@ export default function PreparadorPage() {
         const storageKey = `teg_prep_manual_weekly_${storeId}_${businessDow}`
         
         const fetchManualSchedule = async () => {
+            // Prevent background 10s polling from overwriting user's local edits while saving
+            if (Date.now() - lastSaveTimeRef.current < 8000) return
+
             try {
                 const res = await fetch(`/api/inventory/preparador-manual-schedule?storeId=${storeId}&dow=${businessDow}&_t=${Date.now()}`, { cache: 'no-store' })
                 if (res.ok) {
                     const data = await res.json()
                     if (Array.isArray(data)) {
+                        if (Date.now() - lastSaveTimeRef.current < 8000) return
                         const map: Record<string, number> = {}
                         data.forEach((item: any) => {
                             const key = `${normTime(item.interval_start)}_${item.meat_type}`
                             map[key] = Number(item.max_lbs)
                         })
-                        setManualWeeklySchedule(map)
+                        setManualWeeklySchedule(prev => ({ ...prev, ...map }))
                         localStorage.setItem(storageKey, JSON.stringify(map))
                         return
                     }
@@ -1557,6 +1579,7 @@ export default function PreparadorPage() {
                                 </button>
                                 <button 
                                     onClick={async () => {
+                                        lastSaveTimeRef.current = Date.now()
                                         if (editingMeatItem.isManualMode && editingMeatItem.intervalStart) {
                                             const updatedMap = { ...manualWeeklySchedule }
                                             if (applyToAllDay) {

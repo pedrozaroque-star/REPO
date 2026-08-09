@@ -32,8 +32,25 @@ export default function BodegaPWA() {
     const [stores, setStores] = useState<any[]>([])
     const [storeId, setStoreId] = useState('')
     
-    // Calendar Date Selector
-    const todayLAStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
+    // Calendar Date Selector (Shift starts at 6:00 AM LA time)
+    const getLAEffectiveBusinessDate = () => {
+        const now = new Date()
+        const laDateStr = now.toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
+        const laTimeStr = now.toLocaleTimeString('en-US', { timeZone: 'America/Los_Angeles', hour12: false })
+        const hour = parseInt(laTimeStr.split(':')[0], 10)
+        
+        if (hour < 6) {
+            const [y, m, d] = laDateStr.split('-').map(Number)
+            const prevDay = new Date(y, m - 1, d - 1)
+            const py = prevDay.getFullYear()
+            const pm = String(prevDay.getMonth() + 1).padStart(2, '0')
+            const pd = String(prevDay.getDate()).padStart(2, '0')
+            return `${py}-${pm}-${pd}`
+        }
+        return laDateStr
+    }
+
+    const todayLAStr = getLAEffectiveBusinessDate()
     const [selectedDate, setSelectedDate] = useState<string>(todayLAStr)
 
     const getDowFromDate = (dateStr: string) => {
@@ -74,7 +91,7 @@ export default function BodegaPWA() {
                             const key = `${normTime(item.interval_start)}_${item.meat_type}`
                             map[key] = Number(item.max_lbs)
                         })
-                        setManualWeeklySchedule(map)
+                        setManualWeeklySchedule(prev => ({ ...prev, ...map }))
                         localStorage.setItem(storageKey, JSON.stringify(map))
                         return
                     }
