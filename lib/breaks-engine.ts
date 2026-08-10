@@ -1,15 +1,28 @@
+/**
+ * @module breaks-engine
+ * @description Motor optimizador de Inteligencia Artificial para la programación automática de descansos (Breaks de 10 min y Lunches de 30 min) en sucursales de Tacos El Gavilan.
+ * @businessRules
+ * - Cumplimiento de la ley laboral de California (lunches obligatorios antes de la 5ta hora de trabajo).
+ * - Bloqueo de zona de pico (rush de ventas) para prevenir falta de personal en horas de alta demanda.
+ * - PRIORIDAD DE SALIDA ANTECIPADA (Regla Manager Jesús): Empleados que terminan su turno más temprano son priorizados para salir primero a lunch antes que los que terminan más tarde.
+ * - Espaciado mínimo de 30 min entre breaks y 45 min entre lunches de distintos empleados para mantener cobertura.
+ * - Respeto y persistencia de preferencias manuales guardadas por managers (AI Learning).
+ * @dataFlow Recibe turnos de la tienda, proyección de ventas por hora y preferencias aprendidas → Retorna turnos enriquecidos con breaks_schedule.
+ * @notes Se actualizó assignCohorts y la ordenación de Pass 1 (Meals) para ordenar por end_time (hora de fin de turno), asignando turnos de lunch más tempranos a trabajadores que concluyen jornada antes.
+ */
+
 import { Shift } from '@/app/planificador/lib/types'
 import { OperatingHour } from '@/lib/intelligence'
 
 // ══════════════════════════════════════════════════════════════════════════════
-//  BREAKS ENGINE V25 — ESPACIADO ESTRICTO PARA BREAKS Y LUNCHES FUERA DE PICO
+//  BREAKS ENGINE V26 — ESPACIADO ESTRICTO Y PRIORIDAD DE SALIDA ANTECIPADA
 //
 //  NUEVO:
+//  ✅ Prioridad a empleados que salen más temprano (end_time) para ir a lunch primero (Regla Manager Jesús)
 //  ✅ Los breaks también bloqueados en zona de pico (no solo lunches)
 //  ✅ Espaciado mínimo de 30 min entre breaks de distintos empleados
 //  ✅ Espaciado mínimo de 45 min entre lunches de distintos empleados
 //  ✅ Distribución equiespaciada dentro del intervalo post-pico
-//  ✅ Aumento de gap relaxed para rests (30 min) y meals (30 min)
 // ══════════════════════════════════════════════════════════════════════════════
 
 export type BreakBlock = {
@@ -307,6 +320,18 @@ function assignCohorts(shifts: any[]): void {
         groups.get(key)!.push(s)
     }
     for (const group of groups.values()) {
+        // Regla Manager Jesús: dentro del cohort, ordenar por end_time ascendente
+        // Los empleados que salen más temprano van al inicio del grupo (_cohortIdx = 0), recibiendo target de lunch más temprano
+        group.sort((a, b) => {
+            const eMsA = new Date(a.end_time).getTime()
+            const eMsB = new Date(b.end_time).getTime()
+            if (eMsA !== eMsB) return eMsA - eMsB
+            const sMsA = new Date(a.start_time).getTime()
+            const sMsB = new Date(b.start_time).getTime()
+            if (sMsA !== sMsB) return sMsA - sMsB
+            return 0
+        })
+
         group.forEach((s, i) => {
             s._cohortIdx = i
             s._cohortSize = group.length
@@ -816,7 +841,13 @@ export function scheduleBreaksWithDemand(shifts: Shift[], operatingHours: Operat
         const durA = eMsA - sMsA;
         const durB = eMsB - sMsB;
 
-        // PRIORIDAD 1: Turnos cortos primero para que tomen sus descansos temprano
+        // PRIORIDAD 1 (REGLA MANAGER JESÚS): Empleados que salen más temprano (end_time menor) van a lunch primero
+        if (eMsA !== eMsB) return eMsA - eMsB;
+
+        // PRIORIDAD 2: A igual hora de salida, los que entraron antes (start_time más temprano)
+        if (sMsA !== sMsB) return sMsA - sMsB;
+
+        // PRIORIDAD 3: Turnos más cortos
         if (durA !== durB) return durA - durB;
 
         const aCool = countCoolMealSlots(a, sMsA)

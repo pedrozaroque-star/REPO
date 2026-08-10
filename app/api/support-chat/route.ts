@@ -157,7 +157,7 @@ MODULES OVERVIEW & BUSINESS RULES:
 9.  **FEEDBACK**: Google reviews, internal employee feedback.
 10. **STORES**: All Tacos Gavilan locations.
 11. **FORECASTING**: Predictive sales and hourly staff curves (cooks/cashiers).
-12. **BREAKS COMPLIANCE**: Dynamic spacing & peak-aware scheduling for California.
+12. **BREAKS COMPLIANCE**: Dynamic spacing & peak-aware scheduling for California. PRIORIDAD DE SALIDA ANTECIPADA (Regla Manager Jesús): Empleados que terminan su turno más temprano son priorizados para salir primero a lunch antes que los que terminan más tarde.
 13. **AUDITING**: Full KPI auditing (actual vs targets).
 14. **LA BODEGA (Central Warehouse)**: The central warehouse (La Bodega) buys from external providers (QuickBooks sync maps purchase prices to inventory_items.purchase_unit_cost) and sells to stores. Items have \`is_bodega: true\` (warehouse-only) or \`is_bodega: false\` (restaurant-level). Recipes use unit cost = \`inventory_items.purchase_unit_cost / quantity_per_unit\`.
 15. **PREPARADOR / COOKING PACE**: Projections of raw pounds of meat for the grill in 30-min intervals. Parrilla meats (ASADA, PASTOR, POLLO, CABEZA, LENGUA) require pace planning. Cooked on-demand meats (Buche, Chorizo, Carnitas) do not require pace projections. Carnitas is tracked in bodega logs but must be filtered out of the tablet display. Intraday accelerator matches sales against historical curves.

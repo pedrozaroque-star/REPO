@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
-import { Calendar, Loader2, Zap, ArrowLeft, History, RefreshCw, Maximize, Minimize, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Calendar, Loader2, Zap, ArrowLeft, History, RefreshCw, Maximize, Minimize, ChevronLeft, ChevronRight, Plus, Trash2 } from 'lucide-react'
 import { useLanguage } from '@/lib/i18n'
 import { motion, AnimatePresence } from 'framer-motion'
 import { format, addMonths, subMonths, startOfMonth, endOfMonth, startOfWeek, endOfWeek, isSameMonth, isSameDay } from 'date-fns'
@@ -154,6 +154,13 @@ export default function DescansosPage() {
         const b = shift.breaks_schedule[breakIdx];
         if (!b.is_manual) return;
 
+        const shiftDurHrs = (new Date(shift.end_time).getTime() - new Date(shift.start_time).getTime()) / 3600000;
+        // En turnos de 6h o menos, restaurar IA elimina el lunch opcional
+        if (shiftDurHrs <= 6 && b.type === 'meal_30') {
+            await handleRemoveBreak(shift, breakIdx);
+            return;
+        }
+
         // Quitar la bandera is_manual del break
         const newBreaks = [...shift.breaks_schedule];
         newBreaks[breakIdx] = { ...b, is_manual: false };
@@ -181,6 +188,80 @@ export default function DescansosPage() {
         await triggerAiRecalculation(absentEmpIds, lastDataRef.current, false, true, false, shift.id);
 
         setTimeout(() => setAiStatus(null), 4000);
+    };
+
+    const handleAddManualBreak = async (emp: Employee, breakType: 'meal_30' | 'rest_10') => {
+        const shift = smartShifts.find(s => String(s.employee_id) === String(emp.id));
+        if (!shift || !shift.id) return;
+
+        const sMs = new Date(shift.start_time).getTime();
+        const eMs = new Date(shift.end_time).getTime();
+        const durMins = breakType === 'meal_30' ? 30 : 10;
+
+        let targetStartMs = sMs + Math.min((eMs - sMs) / 2, 2.5 * 3600000);
+        targetStartMs = Math.round(targetStartMs / (10 * 60000)) * (10 * 60000);
+        if (targetStartMs + durMins * 60000 > eMs) {
+            targetStartMs = eMs - durMins * 60000;
+        }
+        if (targetStartMs < sMs) {
+            targetStartMs = sMs;
+        }
+
+        const targetEndMs = targetStartMs + durMins * 60000;
+        const newBreak = {
+            type: breakType,
+            start_time: new Date(targetStartMs).toISOString(),
+            end_time: new Date(targetEndMs).toISOString(),
+            status: 'scheduled',
+            is_manual: true
+        };
+
+        const existingBreaks = (shift.breaks_schedule || []).map((b: any) => ({ ...b }));
+        const updatedBreaks = [...existingBreaks, newBreak].sort((a: any, b: any) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime());
+
+        try {
+            const { getSupabaseClient } = await import('@/lib/supabase');
+            const supabase = await getSupabaseClient();
+            await supabase.from('shifts').update({ breaks_schedule: updatedBreaks }).eq('id', shift.id);
+
+            const updatedShifts = lastDataRef.current.shifts.map(s =>
+                s.id === shift.id ? { ...s, breaks_schedule: updatedBreaks } : s
+            );
+            lastDataRef.current = { ...lastDataRef.current, shifts: updatedShifts };
+            setSmartShifts(prev => prev.map(s => s.id === shift.id ? { ...s, breaks_schedule: updatedBreaks } : s));
+
+            setAiStatus({
+                message: `✅ ${breakType === 'meal_30' ? 'Lunch (30 min)' : 'Break (10 min)'} agregado a ${emp.first_name}. Puedes arrastrarlo en la barra para ajustar la hora.`,
+                type: 'success'
+            });
+            setTimeout(() => setAiStatus(null), 5000);
+            setAbsentModalEmp(null);
+        } catch (err) {
+            console.error('Error adding manual break:', err);
+            setAiStatus({ message: '❌ Error al agregar el descanso', type: 'alert' });
+            setTimeout(() => setAiStatus(null), 4000);
+        }
+    };
+
+    const handleRemoveBreak = async (shift: Shift, breakIdx: number) => {
+        const updatedBreaks = (shift.breaks_schedule || []).filter((_: any, idx: number) => idx !== breakIdx);
+
+        try {
+            const { getSupabaseClient } = await import('@/lib/supabase');
+            const supabase = await getSupabaseClient();
+            await supabase.from('shifts').update({ breaks_schedule: updatedBreaks }).eq('id', shift.id);
+
+            const updatedShifts = lastDataRef.current.shifts.map(s =>
+                s.id === shift.id ? { ...s, breaks_schedule: updatedBreaks } : s
+            );
+            lastDataRef.current = { ...lastDataRef.current, shifts: updatedShifts };
+            setSmartShifts(prev => prev.map(s => s.id === shift.id ? { ...s, breaks_schedule: updatedBreaks } : s));
+
+            setAiStatus({ message: '🗑️ Descanso eliminado del turno', type: 'info' });
+            setTimeout(() => setAiStatus(null), 4000);
+        } catch (err) {
+            console.error('Error removing break:', err);
+        }
     };
 
     useEffect(() => {
@@ -1439,16 +1520,80 @@ export default function DescansosPage() {
             {/* Absent Modal Wrapper */}
             {absentModalEmp && (
                 <div className="fixed inset-0 z-[99999] bg-slate-900/80 flex items-center justify-center p-4 backdrop-blur-md">
-                    <div className="bg-white rounded-3xl shadow-2xl p-10 w-full max-w-xl border border-slate-300">
-                        <h3 className="text-4xl font-black text-slate-900 mb-2 flex items-center gap-3">
-                            <Calendar size={36} className="text-indigo-600" />
-                            Manage Employee
+                    <div className="bg-white rounded-3xl shadow-2xl p-8 w-full max-w-xl border border-slate-300 max-h-[90vh] overflow-y-auto">
+                        <h3 className="text-3xl font-black text-slate-900 mb-1 flex items-center gap-3">
+                            <Calendar size={32} className="text-indigo-600" />
+                            Gestión de Descansos y Asistencia
                         </h3>
-                        <p className="text-slate-900 text-3xl font-black mb-10 pb-8 border-b-2 border-slate-200">
+                        <p className="text-slate-900 text-2xl font-black mb-6 pb-4 border-b border-slate-200">
                             {absentModalEmp.first_name} {absentModalEmp.last_name}
                         </p>
 
-                        <div className="flex flex-col gap-6">
+                        {(() => {
+                            const shift = smartShifts.find(s => String(s.employee_id) === String(absentModalEmp.id));
+                            if (!shift) return <div className="text-slate-500 font-bold mb-6">Empleado sin turno programado hoy.</div>;
+
+                            const shiftStartStr = new Date(shift.start_time).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+                            const shiftEndStr = new Date(shift.end_time).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+                            const shiftDurHrs = ((new Date(shift.end_time).getTime() - new Date(shift.start_time).getTime()) / 3600000).toFixed(1);
+
+                            return (
+                                <div className="mb-6">
+                                    <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Turno Asignado:</div>
+                                    <div className="text-lg font-black text-slate-800 bg-slate-100 px-4 py-2.5 rounded-xl flex items-center justify-between mb-5 border border-slate-200">
+                                        <span>{shiftStartStr} - {shiftEndStr}</span>
+                                        <span className="text-xs bg-indigo-100 text-indigo-700 px-3 py-1 rounded-full font-bold">
+                                            {shiftDurHrs} hrs
+                                        </span>
+                                    </div>
+
+                                    {/* Botones para Agregar Descanso Manual */}
+                                    <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Agregar Descanso Manual:</div>
+                                    <div className="grid grid-cols-2 gap-3 mb-6">
+                                        <button
+                                            onClick={() => handleAddManualBreak(absentModalEmp, 'meal_30')}
+                                            className="px-4 py-3.5 bg-amber-500 hover:bg-amber-600 text-white font-black text-sm rounded-xl shadow-md flex items-center justify-center gap-2 transition-transform hover:scale-[1.02] active:scale-[0.98]"
+                                        >
+                                            🍽️ + Agregar Lunch (30 min)
+                                        </button>
+                                        <button
+                                            onClick={() => handleAddManualBreak(absentModalEmp, 'rest_10')}
+                                            className="px-4 py-3.5 bg-emerald-500 hover:bg-emerald-600 text-white font-black text-sm rounded-xl shadow-md flex items-center justify-center gap-2 transition-transform hover:scale-[1.02] active:scale-[0.98]"
+                                        >
+                                            ☕ + Agregar Break (10 min)
+                                        </button>
+                                    </div>
+
+                                    {/* Lista de descansos actuales */}
+                                    {shift.breaks_schedule && shift.breaks_schedule.length > 0 && (
+                                        <div className="mb-4">
+                                            <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Descansos Programados en Turno:</div>
+                                            <div className="space-y-2">
+                                                {shift.breaks_schedule.map((b: any, bIdx: number) => (
+                                                    <div key={bIdx} className="flex items-center justify-between bg-slate-50 p-3 rounded-xl border border-slate-200">
+                                                        <div className="flex items-center gap-2 font-bold text-slate-800 text-sm">
+                                                            <span>{b.type === 'meal_30' ? '🍽️ Lunch 30m' : '☕ Break 10m'}</span>
+                                                            <span className="text-slate-500">
+                                                                ({new Date(b.start_time).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })} - {new Date(b.end_time).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })})
+                                                            </span>
+                                                            {b.is_manual && <span className="text-xs text-blue-600 font-normal">📌 manual</span>}
+                                                        </div>
+                                                        <button
+                                                            onClick={() => handleRemoveBreak(shift, bIdx)}
+                                                            className="text-xs bg-red-100 hover:bg-red-200 text-red-700 px-3 py-1.5 rounded-lg font-bold transition-colors"
+                                                        >
+                                                            🗑️ Eliminar
+                                                        </button>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })()}
+
+                        <div className="flex flex-col gap-3 pt-4 border-t border-slate-200">
                             <button
                                 onClick={() => {
                                     const newSet = new Set(absentEmpIds);
@@ -1459,28 +1604,24 @@ export default function DescansosPage() {
                                         newSet.add(empIdStr);
                                     }
                                     setAbsentEmpIds(newSet);
-                                    triggerAiRecalculation(newSet, null, true); // Es una acción manual
+                                    triggerAiRecalculation(newSet, null, true);
                                     setAbsentModalEmp(null);
                                 }}
-                                className={`px-8 py-6 rounded-2xl text-2xl font-black shadow-xl flex items-center justify-center gap-3 transition-transform hover:scale-[1.02] active:scale-[0.98] ${absentEmpIds.has(String(absentModalEmp.id))
-                                    ? 'bg-indigo-600 text-white hover:bg-indigo-700 border-2 border-indigo-900'
-                                    : 'bg-red-600 text-white hover:bg-red-700 border-2 border-red-900'
+                                className={`px-6 py-4 rounded-xl text-lg font-black shadow-md flex items-center justify-center gap-2 transition-transform hover:scale-[1.01] active:scale-[0.99] ${absentEmpIds.has(String(absentModalEmp.id))
+                                    ? 'bg-indigo-600 text-white hover:bg-indigo-700'
+                                    : 'bg-red-600 text-white hover:bg-red-700'
                                     }`}
                             >
                                 {absentEmpIds.has(String(absentModalEmp.id))
-                                    ? 'Restore Shift (Unmark Absence)'
-                                    : 'Mark Absent (Remove from Schedule)'}
+                                    ? 'Restaurar Turno (Desmarcar Ausencia)'
+                                    : 'Marcar Ausente (Quitar del Horario)'}
                             </button>
                             <button
                                 onClick={() => setAbsentModalEmp(null)}
-                                className="px-8 py-5 rounded-2xl text-xl font-bold text-slate-900 bg-slate-200 hover:bg-slate-300 border-2 border-slate-300 mt-2 transition-colors shadow-sm"
+                                className="px-6 py-3.5 rounded-xl text-base font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 transition-colors"
                             >
-                                Cancel
+                                Cerrar
                             </button>
-                        </div>
-
-                        <div className="mt-10 text-lg text-slate-800 font-bold leading-relaxed text-center bg-amber-50 border border-amber-200 p-5 rounded-xl shadow-inner">
-                            When excluding this employee, the AI will automatically reschedule break times for the rest of the team to cover their hours.
                         </div>
                     </div>
                 </div>
