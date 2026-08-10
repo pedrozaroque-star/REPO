@@ -405,7 +405,7 @@ function ScheduleManager() {
     // --- REPLICACIÓN DE SEMANA ---
     const [showReplicationModal, setShowReplicationModal] = useState(false);
     const [replicationLoading, setReplicationLoading] = useState(false);
-    const [replicationCandidates, setReplicationCandidates] = useState<{ id: string, name: string }[]>([]);
+    const [replicationCandidates, setReplicationCandidates] = useState<{ id: string, name: string, existingCount: number }[]>([]);
 
     const weekStart = getMonday(currentDate)
     const weekDays = Array.from({ length: 14 }).map((_, i) => addDays(weekStart, i))
@@ -766,7 +766,7 @@ function ScheduleManager() {
             if (targetStoresList.length === 0) return;
 
             const supabase = await getSupabase();
-            const candidates: { id: string, name: string }[] = [];
+            const candidates: { id: string, name: string, existingCount: number }[] = [];
 
             const currentStart = formatDateISO(weekStart);
             const currentEnd = formatDateISO(addDays(weekStart, 6)); // Solo Semana 1
@@ -775,18 +775,7 @@ function ScheduleManager() {
 
             // Verificar tienda por tienda
             for (const store of targetStoresList) {
-                // ... (rest of logic unchanged) ...
-                // 1. Chequear semana ACTUAL (debe estar vacía)
-                const { count: currentCount } = await supabase
-                    .from('schedules')
-                    .select('*', { count: 'exact', head: true })
-                    .eq('store_id', store.id)
-                    .gte('date', currentStart)
-                    .lte('date', currentEnd);
-
-                if (currentCount && currentCount > 0) continue;
-
-                // 2. Chequear semana ANTERIOR (debe tener datos)
+                // 1. Chequear semana ANTERIOR (debe tener datos para copiar)
                 const { count: prevCount } = await supabase
                     .from('schedules')
                     .select('*', { count: 'exact', head: true })
@@ -794,11 +783,25 @@ function ScheduleManager() {
                     .gte('date', prevStart)
                     .lte('date', prevEnd);
 
-                if (prevCount && prevCount > 0) {
-                    // Evitar duplicados si la lista de tiendas base los tiene
-                    if (!candidates.some(c => c.id === store.id)) {
-                        candidates.push({ id: store.id, name: store.name });
-                    }
+                if (!prevCount || prevCount === 0) continue;
+
+                // 2. Chequear semana ACTUAL — umbral: si tiene menos del 50% de turnos vs anterior, es candidata
+                // Esto permite que tiendas con turnos parciales (ej: adelantados) también sean copiadas
+                const { count: currentCount } = await supabase
+                    .from('schedules')
+                    .select('*', { count: 'exact', head: true })
+                    .eq('store_id', store.id)
+                    .gte('date', currentStart)
+                    .lte('date', currentEnd);
+
+                const safeCurrentCount = currentCount || 0;
+                const threshold = Math.floor(prevCount * 0.5);
+
+                if (safeCurrentCount >= threshold) continue; // Ya tiene 50%+ → suficientemente llena
+
+                // Candidata: vacía o parcialmente llena
+                if (!candidates.some(c => c.id === store.id)) {
+                    candidates.push({ id: store.id, name: store.name, existingCount: safeCurrentCount });
                 }
             }
 
@@ -1912,6 +1915,11 @@ function ScheduleManager() {
                                         {replicationCandidates.map(c => (
                                             <li key={c.id} className="text-xs font-bold text-gray-600 dark:text-slate-400 uppercase tracking-wide">
                                                 {formatStoreName(c.name)}
+                                                {c.existingCount > 0 && (
+                                                    <span className="ml-1 text-[10px] font-medium text-amber-600 dark:text-amber-400 normal-case">
+                                                        ({c.existingCount} {t('schedule.existing_shifts')})
+                                                    </span>
+                                                )}
                                             </li>
                                         ))}
                                     </ul>

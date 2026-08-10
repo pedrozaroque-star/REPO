@@ -526,7 +526,8 @@ export async function calculateDailyOrder(
     parIdeal?: Record<string, ParIdealRecord>,
     overrideDayField?: string,
     parBoostPercent: number = 0,
-    orderType: OrderType = 'daily'
+    orderType: OrderType = 'daily',
+    nextWeekBases?: Record<string, WeeklyBaseRecord>
 ): Promise<CalculatedOrderLine[]> {
     const dayKey = getDayKey(dateStr)
     const dayIndex = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'].indexOf(dayKey)
@@ -574,7 +575,13 @@ export async function calculateDailyOrder(
     const lines: CalculatedOrderLine[] = []
 
     for (const item of items) {
-        const base = bases[item.id]
+        // Si el día seleccionado es Domingo (dayKey === 'sun') y estamos buscando 'mon_par' (Lunes),
+        // el Lunes pertenece a la PRÓXIMA SEMANA. Usamos nextWeekBases si está disponible.
+        let base = bases[item.id]
+        if (dayKey === 'sun' && actualTargetField === 'mon_par' && nextWeekBases && nextWeekBases[item.id]) {
+            base = nextWeekBases[item.id]
+        }
+
         const effectiveBase = base || {
             mon_par: 0, tue_par: 0, wed_par: 0, thu_par: 0, fri_par: 0, sat_par: 0, sun_par: 0
         }

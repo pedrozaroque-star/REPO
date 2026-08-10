@@ -320,7 +320,7 @@ export default function InventoryOrdersPage() {
                     storeId, selectedOrderDate, orderableItems,
                     weekData.bases, weekData.counts, activeMonday,
                     weekData.parIdeal, overrideDayField, parBoostPercent,
-                    orderType
+                    orderType, (weekData as any).nextWeekBases
                 )
                 setOrderLines([...lines, ...extraordinarySavedLines])
             }
@@ -373,7 +373,7 @@ export default function InventoryOrdersPage() {
                 storeId, selectedOrderDate, items,
                 bases, counts, activeMonday,
                 parIdeal, overrideDayField, parBoostPercent,
-                orderType
+                orderType, nextWeekBases
             ).then(newLines => {
                 setOrderLines(prev => {
                     const prevExtraordinary = prev.filter(l => l.is_extraordinary)
@@ -381,7 +381,7 @@ export default function InventoryOrdersPage() {
                 })
             })
         }
-    }, [loading, overrideDayField, storeId, selectedOrderDate, items, bases, counts, activeMonday, parIdeal, parBoostPercent, orderType])
+    }, [loading, overrideDayField, storeId, selectedOrderDate, items, bases, nextWeekBases, counts, activeMonday, parIdeal, parBoostPercent, orderType])
 
     // Load analysis data when tab switches
     useEffect(() => {
@@ -723,7 +723,7 @@ export default function InventoryOrdersPage() {
                 storeId, selectedOrderDate, items,
                 newBases, counts, activeMonday,
                 parIdeal, overrideDayField, parBoostPercent,
-                orderType
+                orderType, nextWeekBases
             )
             setOrderLines(lines)
         } catch (err) {
@@ -784,7 +784,7 @@ export default function InventoryOrdersPage() {
                 storeId, selectedOrderDate, items,
                 bases, counts, activeMonday,
                 parIdeal, overrideDayField, parBoostPercent,
-                orderType
+                orderType, nextWeekBases
             )
             setOrderLines(prev => {
                 const prevExtraordinary = prev.filter(l => l.is_extraordinary)
