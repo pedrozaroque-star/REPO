@@ -482,6 +482,7 @@ export default function AsignacionDiariaTab() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [shifts, setShifts] = useState<ShiftRecord[]>([]);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
+  const [weekShiftEmpIds, setWeekShiftEmpIds] = useState<Set<string>>(new Set());
   const [positionActivities, setPositionActivities] = useState<PositionActivity[]>([]);
   const [driveThruCollapsed, setDriveThruCollapsed] = useState(false);
 
@@ -657,6 +658,16 @@ export default function AsignacionDiariaTab() {
     return roster.filter((r) => r.isAbsent && r.employee);
   }, [roster]);
 
+  // Employees assigned to this store but NOT scheduled for today (day off / vacation)
+  // Only show employees who have at least one shift this week at this store,
+  // so admins with global store_ids don't pollute the list.
+  const offDutyEmployees = useMemo(() => {
+    const todayScheduledIds = new Set(shifts.filter(s => s.shift_date === selectedDateStr).map(s => String(s.employee_id)));
+    return employees
+      .filter((e) => !e.deleted && !todayScheduledIds.has(String(e.id)) && weekShiftEmpIds.has(String(e.id)))
+      .sort((a, b) => getDisplayName(a).localeCompare(getDisplayName(b)));
+  }, [employees, shifts, selectedDateStr, weekShiftEmpIds]);
+
   // Build assignment map: sub_position -> Assignment
   const assignmentMap = useMemo(() => {
     const map: Record<string, Assignment> = {};
@@ -810,6 +821,23 @@ export default function AsignacionDiariaTab() {
     }
   }, []);
 
+  // Fetch unique employee IDs that have ANY shift this week at this store
+  // Used to populate the "off-duty today" list without including global admins
+  const fetchWeekShiftEmpIds = useCallback(async () => {
+    if (!selectedStoreGuid || !currentWeekStart) return;
+    const weekStart = formatDateISO(currentWeekStart);
+    const weekEnd = formatDateISO(addDays(currentWeekStart, 6));
+    const { data } = await supabase
+      .from('shifts')
+      .select('employee_id')
+      .eq('store_id', selectedStoreGuid)
+      .gte('shift_date', weekStart)
+      .lte('shift_date', weekEnd);
+    if (data) {
+      setWeekShiftEmpIds(new Set(data.map((s: { employee_id: string }) => String(s.employee_id))));
+    }
+  }, [selectedStoreGuid, currentWeekStart]);
+
   // ── Initial load ──
   useEffect(() => {
     fetchStores();
@@ -821,11 +849,11 @@ export default function AsignacionDiariaTab() {
     if (!selectedStoreGuid) return;
     const loadData = async () => {
       setLoading(true);
-      await Promise.all([fetchShifts(), fetchAssignments()]);
+      await Promise.all([fetchShifts(), fetchAssignments(), fetchWeekShiftEmpIds()]);
       setLoading(false);
     };
     loadData();
-  }, [selectedStoreGuid, selectedDateStr, fetchShifts, fetchAssignments]);
+  }, [selectedStoreGuid, selectedDateStr, fetchShifts, fetchAssignments, fetchWeekShiftEmpIds]);
 
   // ── Load employees when shifts change ──
   useEffect(() => {
@@ -1580,6 +1608,15 @@ export default function AsignacionDiariaTab() {
                                       </option>
                                     );
                                   })}
+                                  {offDutyEmployees.length > 0 && (
+                                    <optgroup label={`── ${t('actividades.daily.off_duty')} ──`}>
+                                      {offDutyEmployees.map((emp) => (
+                                        <option key={`off-${emp.id}`} value={String(emp.id)}>
+                                          {getDisplayName(emp)} 🌙
+                                        </option>
+                                      ))}
+                                    </optgroup>
+                                  )}
                                 </select>
 
                                 {/* Activity checklist */}
@@ -2262,8 +2299,8 @@ export default function AsignacionDiariaTab() {
                               // Deduplicate (cross-shift employees may appear twice)
                               .filter((e, idx, arr) => arr.findIndex(x => String(x.id) === String(e.id)) === idx);
 
-                            return rosterEmployees.map((e) => {
                             const shiftSuffix = `_${activeShift}`;
+                            const scheduledButtons = rosterEmployees.map((e) => {
                             const isBusy = assignments.some(
                               (a) =>
                                 a.assignment_date === formatDateISO(selectedDay) &&
@@ -2299,6 +2336,60 @@ export default function AsignacionDiariaTab() {
                               </button>
                             );
                           });
+
+                            // Off-duty employees (day off / vacation)
+                            const offDutyButtons = offDutyEmployees.length > 0 ? (
+                              <>
+                                <div className="w-full flex items-center gap-3 py-2 mt-1">
+                                  <div className="flex-1 border-t border-dashed border-slate-200 dark:border-slate-700" />
+                                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest whitespace-nowrap">
+                                    🌙 {t('actividades.daily.off_duty')}
+                                  </span>
+                                  <div className="flex-1 border-t border-dashed border-slate-200 dark:border-slate-700" />
+                                </div>
+                                {offDutyEmployees.map((e) => {
+                                  const isBusy = assignments.some(
+                                    (a) =>
+                                      a.assignment_date === formatDateISO(selectedDay) &&
+                                      a.sub_position.endsWith(shiftSuffix) &&
+                                      String(a.employee_id) === String(e.id)
+                                  );
+                                  if (isBusy && String(e.id) !== String(currentEmp?.id)) return null;
+                                  return (
+                                    <button
+                                      key={`off-${e.id}`}
+                                      onClick={() => {
+                                        updateAssignment(
+                                          formatDateISO(selectedDay),
+                                          selectedSlotForCard.stationKey || selectedSlotForCard.label,
+                                          String(e.id),
+                                          currentAssignee?.station_group || 'front'
+                                        );
+                                        setSelectedSlotForCard(null);
+                                      }}
+                                      className="w-full p-4 rounded-xl sm:rounded-2xl bg-amber-50/50 dark:bg-amber-950/10 border border-dashed border-amber-200 dark:border-amber-800/40 shadow-sm hover:border-indigo-500 dark:hover:border-indigo-500 hover:bg-indigo-50/30 dark:hover:bg-indigo-950/10 transition-all text-left flex items-center gap-5 group"
+                                    >
+                                      <div className="w-12 h-12 bg-amber-50 dark:bg-amber-900/20 rounded-xl flex items-center justify-center text-lg font-black text-amber-400 group-hover:text-indigo-600 shadow-inner">
+                                        {(e.chosen_name || e.first_name)?.[0]?.toUpperCase()}
+                                      </div>
+                                      <div className="flex-1">
+                                        <p className="text-base font-black text-slate-900 dark:text-white uppercase leading-none mb-1">
+                                          {e.chosen_name || e.first_name}
+                                        </p>
+                                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                                          {e.last_name}
+                                        </p>
+                                      </div>
+                                      <span className="text-[9px] font-bold text-amber-500 bg-amber-100 dark:bg-amber-900/30 px-2 py-1 rounded-lg uppercase">
+                                        {t('actividades.daily.day_off_badge')}
+                                      </span>
+                                    </button>
+                                  );
+                                })}
+                              </>
+                            ) : null;
+
+                            return <>{scheduledButtons}{offDutyButtons}</>;
                           })()}
                         </div>
                       </div>

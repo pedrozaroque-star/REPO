@@ -1782,6 +1782,8 @@ const dictionaries: Record<Language, Dictionary> = {
                 reassign_position: 'Reasignar Posición',
                 back_to_profile: 'Volver al perfil',
                 leave_vacant: 'Dejar Vacante (Libre)',
+                off_duty: 'Descansa Hoy',
+                day_off_badge: 'Descansa',
             },
             checklist: {
                 btn: 'Checklist',
@@ -4107,6 +4109,8 @@ const dictionaries: Record<Language, Dictionary> = {
                 reassign_position: 'Reassign Position',
                 back_to_profile: 'Back to profile',
                 leave_vacant: 'Leave Vacant (Free)',
+                off_duty: 'Off Today',
+                day_off_badge: 'Day Off',
             },
             checklist: {
                 btn: 'Checklist',

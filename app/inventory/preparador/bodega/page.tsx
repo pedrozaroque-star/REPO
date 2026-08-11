@@ -52,6 +52,25 @@ export default function BodegaPWA() {
 
     const todayLAStr = getLAEffectiveBusinessDate()
     const [selectedDate, setSelectedDate] = useState<string>(todayLAStr)
+    const effectiveDateRef = useRef<string>(todayLAStr)
+
+    // Automatic Date Rollover Effect (Checks every 30 seconds for 6:00 AM shift start)
+    useEffect(() => {
+        const checkDateRollover = () => {
+            const currentEffectiveDate = getLAEffectiveBusinessDate()
+            setSelectedDate(prevDate => {
+                if (!prevDate || prevDate === effectiveDateRef.current) {
+                    return currentEffectiveDate
+                }
+                return prevDate
+            })
+            effectiveDateRef.current = currentEffectiveDate
+        }
+
+        checkDateRollover()
+        const interval = setInterval(checkDateRollover, 30000)
+        return () => clearInterval(interval)
+    }, [])
 
     const getDowFromDate = (dateStr: string) => {
         const [y, m, d] = dateStr.split('-').map(Number)
