@@ -1153,6 +1153,16 @@ export default function DescansosPage() {
                         </button>
                     )}
                     <button
+                        onClick={() => triggerAiRecalculation(absentEmpIds, null, true, true)}
+                        disabled={calculating}
+                        className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-xl text-base font-black shadow-md transition-all flex items-center gap-2 border border-indigo-700 disabled:opacity-50"
+                        title="Recalcular descansos con la IA para todo el día"
+                    >
+                        <Zap size={20} className={calculating ? 'animate-spin' : ''} />
+                        <span>RECALCULAR IA</span>
+                    </button>
+
+                    <button
                         onClick={() => setShowRealPunches(!showRealPunches)}
                         className={`px-6 py-2.5 rounded-xl text-base tracking-wider font-black shadow-md transition-all flex items-center gap-2 border ${showRealPunches ? 'bg-cyan-600 text-white border-cyan-700 hover:bg-cyan-700 ring-2 ring-cyan-600/30 ring-offset-1' : 'bg-slate-100 text-slate-600 hover:bg-slate-200 border-slate-200'}`}
                         title="Comparar vs el histórico real de Toast"
