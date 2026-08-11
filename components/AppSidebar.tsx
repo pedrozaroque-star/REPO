@@ -540,7 +540,7 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
     const renderNavItem = (item: MenuItem, groupId: string, isMobile: boolean = false) => {
         const isActive = pathname === item.path || (item.path !== '/dashboard' && pathname.startsWith(item.path + '/'))
         const colors = GROUP_COLORS[groupId] || GROUP_COLORS.operaciones
-        const isBasecamp = item.plainName === 'Basecamp'
+        const hasNewBadge = item.path === '/inventory/orders' || item.path === '/inventory/uniforms' || item.path === '/caja-fuerte'
 
         return (
             <Link
@@ -562,14 +562,14 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                 {(!isCollapsed || isMobile) ? (
                     <div className="flex items-center justify-between w-full min-w-0">
                         <span className="truncate">{item.name}</span>
-                        {(isBasecamp || item.path === '/inventory/orders' || item.path === '/caja-fuerte') && (
+                        {hasNewBadge && (
                             <span className="new-badge-animated bg-red-500 dark:bg-red-600 text-white text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded shadow-sm ml-1.5 shrink-0 flex items-center justify-center border border-red-400/20 leading-none">
                                 new
                             </span>
                         )}
                     </div>
                 ) : (
-                    (isBasecamp || item.path === '/inventory/orders' || item.path === '/caja-fuerte') && (
+                    hasNewBadge && (
                         <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full shadow-sm animate-ping new-badge-animated" />
                     )
                 )}
