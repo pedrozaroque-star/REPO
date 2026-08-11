@@ -124,7 +124,6 @@ export default function PreparadorPage() {
     const [manualWeeklySchedule, setManualWeeklySchedule] = useState<Record<string, number>>({})
     const [editingMeatItem, setEditingMeatItem] = useState<{ key: string, meatType: string, bucketLabel: string, intervalStart?: string, currentVal: number, isManualMode?: boolean } | null>(null)
     const [tempEditValue, setTempEditValue] = useState<number>(1)
-    const [applyToAllDay, setApplyToAllDay] = useState<boolean>(true)
 
     // Load Manual Overrides from localStorage
     useEffect(() => {
@@ -1553,28 +1552,6 @@ export default function PreparadorPage() {
                                 </div>
                             </div>
 
-                            {/* Scope Selector for Manual Mode */}
-                            {editingMeatItem.isManualMode && (
-                                <label className="flex items-center gap-3 my-1 cursor-pointer bg-purple-50 dark:bg-purple-950/50 p-3.5 rounded-2xl border border-purple-200 dark:border-purple-800/60 w-full text-left transition-all hover:bg-purple-100/60">
-                                    <input 
-                                        type="checkbox" 
-                                        checked={applyToAllDay} 
-                                        onChange={e => setApplyToAllDay(e.target.checked)}
-                                        className="w-5 h-5 accent-purple-600 rounded cursor-pointer shrink-0"
-                                    />
-                                    <div className="flex flex-col">
-                                        <span className="text-xs font-black uppercase text-purple-900 dark:text-purple-200">
-                                            Aplicar a todo el día ({['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'][businessDow - 1]})
-                                        </span>
-                                        <span className="text-[11px] text-slate-600 dark:text-slate-400 font-medium">
-                                            {applyToAllDay 
-                                                ? `Fijará ${tempEditValue} lbs para TODOS los bloques de 30 min del día de hoy y de cada ${['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'][businessDow - 1]}`
-                                                : `Solo modificará el bloque individual de las ${editingMeatItem.bucketLabel}`}
-                                        </span>
-                                    </div>
-                                </label>
-                            )}
-
                             {/* Actions */}
                             <div className="flex flex-col sm:flex-row gap-3 w-full pt-2">
                                 {!editingMeatItem.isManualMode && manualOverrides[editingMeatItem.key] !== undefined && (
@@ -1600,18 +1577,10 @@ export default function PreparadorPage() {
                                     onClick={async () => {
                                         lastSaveTimeRef.current = Date.now()
                                         if (editingMeatItem.isManualMode && editingMeatItem.intervalStart) {
-                                            const updatedMap = { ...manualWeeklySchedule }
-                                            if (applyToAllDay) {
-                                                for (let h = 0; h < 24; h++) {
-                                                    for (let m of [0, 30]) {
-                                                        const timeStr = `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:00`
-                                                        const k = `${timeStr}_${editingMeatItem.meatType}`
-                                                        updatedMap[k] = tempEditValue
-                                                    }
-                                                }
-                                            } else {
-                                                const key = `${editingMeatItem.intervalStart}_${editingMeatItem.meatType}`
-                                                updatedMap[key] = tempEditValue
+                                            const key = `${editingMeatItem.intervalStart}_${editingMeatItem.meatType}`
+                                            const updatedMap = {
+                                                ...manualWeeklySchedule,
+                                                [key]: tempEditValue
                                             }
 
                                             setManualWeeklySchedule(updatedMap)
@@ -1628,8 +1597,7 @@ export default function PreparadorPage() {
                                                         dow: businessDow,
                                                         intervalStart: editingMeatItem.intervalStart,
                                                         meatType: editingMeatItem.meatType,
-                                                        maxLbs: tempEditValue,
-                                                        applyToAllDay: applyToAllDay
+                                                        maxLbs: tempEditValue
                                                     })
                                                 })
                                             } catch (e) {
