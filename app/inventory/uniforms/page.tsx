@@ -1,5 +1,6 @@
 'use client';
 import React, { useState, useEffect, useMemo } from 'react';
+import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Shirt, Package, ShoppingCart, ClipboardList, Truck, AlertTriangle, 
@@ -20,7 +21,8 @@ import {
   UniformCategory, UniformSize, SIZES_BY_CATEGORY, NEW_HIRE_PACKAGE,
   CATEGORY_GROUPS, PricingRecord, StockItem, UniformTransaction,
   ExecutiveDashboardData, getBusinessDate, formatCurrency, getCategoryDisplayName,
-  getTransactionTypeLabel, ALL_CATEGORIES, ExecutiveStoreData, TransactionType
+  getTransactionTypeLabel, ALL_CATEGORIES, ExecutiveStoreData, TransactionType,
+  getDefaultMinStock, DEFAULT_MIN_STOCK
 } from './utils';
 
 /**
@@ -396,6 +398,7 @@ function TabStockAndAudit({ storeId, stockData, setStockData, pricingData, setPr
   const [auditReason, setAuditReason] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [showPricingModal, setShowPricingModal] = useState(false);
+  const [showReorderModal, setShowReorderModal] = useState(false);
 
   const fullStockData = useMemo(() => {
     const existingMap = new Map<string, any>();
@@ -409,15 +412,21 @@ function TabStockAndAudit({ storeId, stockData, setStockData, pricingData, setPr
       sizes.forEach(size => {
         const key = `${cat}:${size}`;
         if (existingMap.has(key)) {
-          fullList.push(existingMap.get(key));
+          const item = existingMap.get(key);
+          const defaultMin = getDefaultMinStock(cat, size);
+          fullList.push({
+            ...item,
+            min_stock: item.min_stock && item.min_stock > 0 ? item.min_stock : defaultMin
+          });
         } else {
+          const defaultMin = getDefaultMinStock(cat, size);
           fullList.push({
             id: `virtual-${cat}-${size}`,
             store_id: storeId,
             item_category: cat,
             size,
             quantity_on_hand: 0,
-            min_stock: 0,
+            min_stock: defaultMin,
             updated_at: new Date().toISOString(),
             display_name_es: getCategoryDisplayName(cat, 'es'),
             display_name_en: getCategoryDisplayName(cat, 'en')
@@ -428,6 +437,13 @@ function TabStockAndAudit({ storeId, stockData, setStockData, pricingData, setPr
 
     return fullList;
   }, [stockData, storeId]);
+
+  const lowStockItems = useMemo(() => {
+    return fullStockData.filter((item: any) => {
+      const min = item.min_stock > 0 ? item.min_stock : getDefaultMinStock(item.item_category, item.size);
+      return min > 0 && item.quantity_on_hand <= min;
+    });
+  }, [fullStockData]);
 
   const handleSaveAudit = async () => {
     if (!auditReason.trim()) {
@@ -505,11 +521,18 @@ function TabStockAndAudit({ storeId, stockData, setStockData, pricingData, setPr
           <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
             {items.map(item => {
               const qty = auditMode && editedStock[item.id] !== undefined ? editedStock[item.id] : item.quantity_on_hand;
-              const isLow = qty <= (item.min_stock || 5);
-              const isOut = qty <= 0;
+              const min = item.min_stock > 0 ? item.min_stock : getDefaultMinStock(item.item_category, item.size);
+              const isLow = min > 0 && qty <= min && qty > 0;
+              const isOut = min > 0 ? qty <= 0 : false;
+
+              const rowBgClass = isOut
+                ? 'bg-red-50/70 dark:bg-red-950/20 hover:bg-red-100/70'
+                : isLow
+                ? 'bg-amber-50/70 dark:bg-amber-950/20 hover:bg-amber-100/70'
+                : 'hover:bg-gray-50 dark:hover:bg-gray-700/50';
 
               return (
-                <tr key={item.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors">
+                <tr key={item.id} className={`${rowBgClass} transition-colors`}>
                   <td className="p-4 font-medium flex items-center gap-2">
                     <span>{getCategoryDisplayName(item.item_category, language as 'es' | 'en')}</span>
                   </td>
@@ -531,20 +554,26 @@ function TabStockAndAudit({ storeId, stockData, setStockData, pricingData, setPr
                         })}
                       />
                     ) : (
-                      <span className={isOut ? 'text-red-500' : isLow ? 'text-yellow-500' : ''}>
+                      <span className={isOut ? 'text-red-600 dark:text-red-400 font-black' : isLow ? 'text-amber-600 dark:text-amber-400 font-black' : ''}>
                         {qty}
                       </span>
                     )}
                   </td>
-                  <td className="p-4 text-gray-500">{item.min_stock || 0}</td>
+                  <td className="p-4 font-semibold text-gray-600 dark:text-gray-400">
+                    <span className="px-2 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-xs font-bold">
+                      {min}
+                    </span>
+                  </td>
                   <td className="p-4">
                     {isOut ? (
-                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400">
-                        <span className="w-1.5 h-1.5 rounded-full bg-red-500"></span> {t('uniforms.stock.out')}
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-extrabold bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300 border border-red-200 dark:border-red-800">
+                        <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-ping"></span>
+                        {language === 'en' ? '🔴 Out of Stock' : '🔴 Agotado'}
                       </span>
                     ) : isLow ? (
-                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400">
-                        <span className="w-1.5 h-1.5 rounded-full bg-yellow-500"></span> {t('uniforms.stock.low')}
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-extrabold bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
+                        {language === 'en' ? `⚠️ Low Stock (Min: ${min})` : `⚠️ Stock Bajo (Mín: ${min})`}
                       </span>
                     ) : (
                       <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">
@@ -564,6 +593,42 @@ function TabStockAndAudit({ storeId, stockData, setStockData, pricingData, setPr
 
   return (
     <div>
+      {/* ⚠️ REORDER ALERT BANNER FOR BODEGA REPLENISHMENT */}
+      {lowStockItems.length > 0 && (
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mb-6 p-4 md:p-5 bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-transparent border-2 border-amber-400/80 dark:border-amber-600/80 rounded-2xl shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4"
+        >
+          <div className="flex items-start gap-3.5">
+            <div className="p-2.5 bg-amber-500 text-white rounded-xl shadow-md mt-0.5">
+              <AlertTriangle className="w-6 h-6 animate-pulse" />
+            </div>
+            <div>
+              <h3 className="font-extrabold text-amber-900 dark:text-amber-100 text-base md:text-lg flex items-center gap-2">
+                <span>{t('uniforms.stock.replenishment_alert')}</span>
+                <span className="px-2.5 py-0.5 rounded-full text-xs font-black bg-amber-200 text-amber-900 dark:bg-amber-900 dark:text-amber-100 border border-amber-300 dark:border-amber-700">
+                  {lowStockItems.length} {lowStockItems.length === 1 ? 'prenda en mínimo' : 'prendas en mínimo'}
+                </span>
+              </h3>
+              <p className="text-sm text-amber-800 dark:text-amber-200/90 mt-0.5 font-medium">
+                {t('uniforms.stock.replenishment_desc')}
+              </p>
+            </div>
+          </div>
+          
+          <div className="flex items-center gap-2.5 w-full md:w-auto justify-end">
+            <button
+              onClick={() => setShowReorderModal(true)}
+              className="px-5 py-2.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-bold text-sm shadow-md hover:shadow-lg transition-all flex items-center gap-2 whitespace-nowrap"
+            >
+              <Package className="w-4 h-4" />
+              <span>{t('uniforms.stock.request_replenishment')}</span>
+            </button>
+          </div>
+        </motion.div>
+      )}
+
       <div className="flex flex-wrap items-center justify-between mb-6 gap-4">
         <h2 className="text-xl font-bold">{t('uniforms.stock.title')}</h2>
         {isAdmin && (
@@ -636,6 +701,13 @@ function TabStockAndAudit({ storeId, stockData, setStockData, pricingData, setPr
           pricingData={pricingData}
           setPricingData={setPricingData}
           showToast={showToast}
+        />
+      )}
+
+      {showReorderModal && (
+        <ReorderModal
+          onClose={() => setShowReorderModal(false)}
+          lowStockItems={lowStockItems}
         />
       )}
     </div>
@@ -728,6 +800,121 @@ function PricingModal({ onClose, pricingData, setPricingData, showToast }: any) 
             {submitting ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
             {t('common.save')}
           </button>
+        </div>
+      </motion.div>
+    </div>
+  );
+}
+
+function ReorderModal({ onClose, lowStockItems }: { onClose: () => void, lowStockItems: StockItem[] }) {
+  const router = useRouter();
+  const { t, language } = useLanguage();
+
+  return (
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <motion.div 
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        exit={{ opacity: 0, scale: 0.95 }}
+        className="bg-white dark:bg-gray-800 rounded-2xl max-w-3xl w-full p-6 shadow-2xl border border-gray-200 dark:border-gray-700 max-h-[90vh] flex flex-col"
+      >
+        <div className="flex items-center justify-between border-b border-gray-200 dark:border-gray-700 pb-4 mb-4">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 bg-amber-500/10 text-amber-600 dark:text-amber-400 rounded-xl">
+              <Package className="w-6 h-6" />
+            </div>
+            <div>
+              <h3 className="text-xl font-bold text-gray-900 dark:text-white">
+                {t('uniforms.stock.reorder_modal_title')}
+              </h3>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                {language === 'en' 
+                  ? 'The following items are at or below their configured minimum stock level.' 
+                  : 'Las siguientes prendas están en o por debajo de su stock mínimo configurado.'}
+              </p>
+            </div>
+          </div>
+          <button 
+            onClick={onClose}
+            className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="overflow-y-auto flex-1 mb-6 pr-1">
+          <table className="w-full text-left text-sm">
+            <thead className="bg-gray-50 dark:bg-gray-700/50 sticky top-0">
+              <tr>
+                <th className="p-3 font-semibold">{t('uniforms.stock.item')}</th>
+                <th className="p-3 font-semibold">{t('uniforms.stock.size')}</th>
+                <th className="p-3 font-semibold text-center">{t('uniforms.stock.qty_on_hand')}</th>
+                <th className="p-3 font-semibold text-center">{t('uniforms.stock.min_stock')}</th>
+                <th className="p-3 font-semibold text-center text-amber-600 dark:text-amber-400">
+                  {t('uniforms.stock.suggested_order')}
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+              {lowStockItems.map(item => {
+                const min = item.min_stock > 0 ? item.min_stock : getDefaultMinStock(item.item_category, item.size);
+                const suggested = Math.max(1, (min * 2) - item.quantity_on_hand);
+                const isOut = item.quantity_on_hand <= 0;
+
+                return (
+                  <tr key={item.id} className={isOut ? 'bg-red-50/50 dark:bg-red-950/20' : 'bg-amber-50/50 dark:bg-amber-950/20'}>
+                    <td className="p-3 font-medium">
+                      {getCategoryDisplayName(item.item_category, language as 'es' | 'en')}
+                    </td>
+                    <td className="p-3">
+                      <span className="px-2 py-0.5 bg-gray-100 dark:bg-gray-700 rounded text-xs font-semibold">
+                        {item.size}
+                      </span>
+                    </td>
+                    <td className="p-3 text-center font-bold">
+                      <span className={isOut ? 'text-red-600 dark:text-red-400 font-extrabold' : 'text-amber-600 dark:text-amber-400 font-extrabold'}>
+                        {item.quantity_on_hand}
+                      </span>
+                    </td>
+                    <td className="p-3 text-center text-gray-500 font-medium">
+                      {min}
+                    </td>
+                    <td className="p-3 text-center">
+                      <span className="px-2.5 py-1 bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-200 rounded-full font-bold text-xs">
+                        +{suggested} pza
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="flex items-center justify-between pt-4 border-t border-gray-200 dark:border-gray-700">
+          <div className="text-xs text-gray-500 dark:text-gray-400">
+            {language === 'en'
+              ? 'Replenishment orders are processed via La Bodega.'
+              : 'Las solicitudes de reposición se procesan desde el módulo de Órdenes a Bodega.'}
+          </div>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={onClose}
+              className="px-4 py-2 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-xl font-medium text-sm transition-colors"
+            >
+              {t('common.cancel')}
+            </button>
+            <button
+              onClick={() => {
+                onClose();
+                router.push('/inventory/orders?type=uniforms');
+              }}
+              className="px-5 py-2.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-bold text-sm transition-all shadow-md flex items-center gap-2"
+            >
+              <Truck className="w-4 h-4" />
+              <span>{t('uniforms.stock.go_to_bodega_orders')}</span>
+            </button>
+          </div>
         </div>
       </motion.div>
     </div>

@@ -100,6 +100,25 @@ export const SIZES_BY_CATEGORY: Record<string, UniformSize[]> = {
     jacket_black: ['XS', 'S', 'M', 'L', 'XL', '2XL', '3XL'],
 }
 
+/**
+ * Default minimum stock levels by category and size.
+ * Triggers reorder alerts to La Bodega when quantity_on_hand <= min_stock.
+ */
+export const DEFAULT_MIN_STOCK: Record<UniformCategory, Record<UniformSize, number>> = {
+    shirt_red: { XS: 10, S: 10, M: 20, L: 15, XL: 15, '2XL': 5, '3XL': 5, ONE_SIZE: 0 },
+    cap_red: { XS: 0, S: 0, M: 0, L: 0, XL: 0, '2XL': 0, '3XL': 0, ONE_SIZE: 12 },
+    jacket_red: { XS: 3, S: 3, M: 3, L: 3, XL: 3, '2XL': 2, '3XL': 2, ONE_SIZE: 0 },
+    shirt_shift_leader: { XS: 10, S: 10, M: 20, L: 15, XL: 15, '2XL': 5, '3XL': 5, ONE_SIZE: 0 },
+    shirt_assistant: { XS: 3, S: 3, M: 3, L: 3, XL: 3, '2XL': 3, '3XL': 3, ONE_SIZE: 0 },
+    shirt_manager: { XS: 0, S: 0, M: 0, L: 0, XL: 0, '2XL': 0, '3XL': 0, ONE_SIZE: 0 },
+    cap_black: { XS: 0, S: 0, M: 0, L: 0, XL: 0, '2XL': 0, '3XL': 0, ONE_SIZE: 12 },
+    jacket_black: { XS: 3, S: 3, M: 3, L: 3, XL: 3, '2XL': 2, '3XL': 2, ONE_SIZE: 0 },
+}
+
+export function getDefaultMinStock(category: UniformCategory, size: UniformSize): number {
+    return DEFAULT_MIN_STOCK[category]?.[size] ?? 0;
+}
+
 export const NEW_HIRE_PACKAGE: Array<{ item_category: UniformCategory, quantity: number }> = [
     { item_category: 'shirt_red', quantity: 6 },
     { item_category: 'cap_red', quantity: 1 },

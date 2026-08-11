@@ -14,7 +14,7 @@
  */
 
 import { getSupabaseAdminClient } from '@/lib/supabase';
-import { getBusinessDate, type UniformCategory, type UniformSize } from './utils';
+import { getBusinessDate, getDefaultMinStock, type UniformCategory, type UniformSize } from './utils';
 
 export async function fetchStoresForUser(userRole: string, userStoreIds: string[]): Promise<{id: number, name: string}[]> {
   const supabase = await getSupabaseAdminClient();
@@ -82,8 +82,10 @@ export async function fetchUniformsStock(storeId: number): Promise<any[]> {
 
   return (stock || []).map((item: any) => {
     const p = pricingMap.get(item.item_category);
+    const defaultMin = getDefaultMinStock(item.item_category, item.size);
     return {
       ...item,
+      min_stock: item.min_stock && item.min_stock > 0 ? item.min_stock : defaultMin,
       display_name_es: p?.display_name_es || item.item_category,
       display_name_en: p?.display_name_en || item.item_category,
       sale_price: p?.sale_price || 0

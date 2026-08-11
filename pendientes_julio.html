@@ -2044,6 +2044,18 @@
                                          </div>
                                      </td>
                                  </tr>
+                                 <tr>
+                                     <td><strong>10-Ago-2026</strong></td>
+                                     <td>5:00 PM - 5:10 PM</td>
+                                     <td style="text-align: center; font-weight: 700;">0.20</td>
+                                     <td><span class="table-badge-module">Inventario</span> <span class="table-badge-module">Uniformes</span> <span class="table-badge-module">Alertas Bodega</span></td>
+                                     <td>
+                                         <div class="lang-split">
+                                              <div class="es-desc">- **Stock Mínimo Estándar y Alerta de Reposición a Bodega**: Configuración del diccionario de stock mínimo por categoría y talla (`DEFAULT_MIN_STOCK`) en `utils.ts` (Team Members Red: 10-20, Shift Leader: 10-20, Assistant: 3, Manager: 0, Gorras: 12, Chamarras: 2-3). Integración de banner dinámico de alerta en `page.tsx` al caer el inventario por debajo del mínimo, resaltado de filas en tabla de stock (rojo agotado, amarillo stock bajo) y modal de solicitud directa de pedido a La Bodega (`ReorderModal`).</div>
+                                              <div class="en-desc">- **Standard Minimum Stock & Warehouse Replenishment Alert**: Configured category and size minimum stock dictionary (`DEFAULT_MIN_STOCK`) in `utils.ts` (Team Members Red: 10-20, Shift Leader: 10-20, Assistant: 3, Manager: 0, Caps: 12, Jackets: 2-3). Integrated dynamic warning alert banner in `page.tsx` when stock falls below target, row highlighting (red out of stock, yellow low stock), and interactive replenishment modal (`ReorderModal`) connecting to La Bodega orders.</div>
+                                         </div>
+                                     </td>
+                                 </tr>
                             </tbody>
                        </table>
                 </div>

@@ -2238,7 +2238,13 @@ const dictionaries: Record<Language, Dictionary> = {
                 black_team: 'Liderazgo Negro (Shift Leaders/Managers)',
                 edit_pricing: 'Editar Precios',
                 reset_initial: 'Reiniciar Conteo Inicial',
-                reset_confirm: '¿Estás seguro de reiniciar el conteo inicial de esta tienda? Esto borrará el inventario actual para permitir ingresar un nuevo conteo físico.'
+                reset_confirm: '¿Estás seguro de reiniciar el conteo inicial de esta tienda? Esto borrará el inventario actual para permitir ingresar un nuevo conteo físico.',
+                replenishment_alert: 'Alerta de Reposición a Bodega',
+                replenishment_desc: 'El stock de algunas prendas ha alcanzado o caído por debajo del mínimo requerido. Solicita una reposición a La Bodega.',
+                request_replenishment: 'Pedir Reposición a Bodega',
+                reorder_modal_title: 'Solicitud de Reposición a La Bodega',
+                suggested_order: 'Pedido Sugerido',
+                go_to_bodega_orders: 'Ir a Orden de Bodega'
             },
             sales: {
                 title: 'Nueva Venta / Entrega',
@@ -4557,7 +4563,13 @@ const dictionaries: Record<Language, Dictionary> = {
                 black_team: 'Black Leadership (Shift Leaders/Managers)',
                 edit_pricing: 'Edit Pricing',
                 reset_initial: 'Reset Initial Count',
-                reset_confirm: 'Are you sure you want to reset the initial count for this store? This will delete current inventory to allow entering a new count.'
+                reset_confirm: 'Are you sure you want to reset the initial count for this store? This will delete current inventory to allow entering a new count.',
+                replenishment_alert: 'Warehouse Replenishment Alert',
+                replenishment_desc: 'Stock for some uniform garments has reached or fallen below the configured minimum target. Request a replenishment order from La Bodega.',
+                request_replenishment: 'Request Replenishment',
+                reorder_modal_title: 'Warehouse Replenishment Order Request',
+                suggested_order: 'Suggested Order',
+                go_to_bodega_orders: 'Go to Bodega Orders'
             },
             sales: {
                 title: 'New Sale / Issue',
