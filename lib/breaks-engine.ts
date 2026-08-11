@@ -481,20 +481,22 @@ export function scheduleBreaksWithDemand(shifts: Shift[], operatingHours: Operat
             const startDiff = Math.abs(sMs - slot.startMs)
             const isGroup = slot.roleKey === rk || (cat === 'leader' && slot.category === 'leader')
 
-            // Penalizar cercanía excesiva entre lunches (aunque no se solapen)
+            const sameCat = slot.category === cat
+
+            // Penalizar cercanía excesiva entre lunches SOLO para la misma categoría (FOH con FOH, BOH con BOH, Leader con Leader)
             if (isMeal && slot.type === 'meal_30') {
-                if (startDiff < MIN_GAP_LUNCHES_MS) {
+                if (sameCat && startDiff < MIN_GAP_LUNCHES_MS) {
                     const ratio = startDiff === 0 ? 1 : (1 - startDiff / MIN_GAP_LUNCHES_MS)
                     wavePenalty += ratio * 1e20
-                    if (startDiff === 0) wavePenalty += 1e21 // Maximo castigo a colisiones exactas cruzadas
+                    if (isGroup && startDiff === 0) wavePenalty += 1e21 // Maximo castigo a colisiones exactas cruzadas
                 }
             }
-            // Penalizar cercanía excesiva entre breaks
+            // Penalizar cercanía excesiva entre breaks SOLO para la misma categoría
             if (!isMeal && slot.type === 'rest_10') {
-                if (startDiff < MIN_GAP_BREAKS_MS) {
+                if (sameCat && startDiff < MIN_GAP_BREAKS_MS) {
                     const ratio = startDiff === 0 ? 1 : (1 - startDiff / MIN_GAP_BREAKS_MS)
                     wavePenalty += ratio * 1e19
-                    if (startDiff === 0) wavePenalty += 1e20
+                    if (isGroup && startDiff === 0) wavePenalty += 1e20
                 }
             }
 
@@ -602,10 +604,10 @@ export function scheduleBreaksWithDemand(shifts: Shift[], operatingHours: Operat
         }
 
         // ── Elegir la ventana con MENOR heat ──────────────────────────────
-        // Si ambas caben y tienen heat similar (±20%), preferir PRE-PEAK
-        // porque el empleado come temprano y está disponible para el rush.
+        // Empleados que salen más temprano (frac < 0.5) priorizan PRE-PEAK para comer primero
         if (preFits && postFits) {
-            const preferPre = preAvgHeat <= postAvgHeat * 1.2 // pre gana si es igual o hasta 20% peor
+            const preferPreByCohort = frac < 0.5
+            const preferPre = preferPreByCohort || (preAvgHeat <= postAvgHeat * 1.2)
             const chosen = preferPre
                 ? { start: safeBeforeStart, end: safeBeforeEnd, label: 'PRE-PEAK' }
                 : { start: safeAfterStart, end: safeAfterEnd, label: 'POST-PEAK' }

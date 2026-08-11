@@ -821,22 +821,23 @@ export default function AsignacionDiariaTab() {
     }
   }, []);
 
-  // Fetch unique employee IDs that have ANY shift this week at this store
-  // Used to populate the "off-duty today" list without including global admins
+  // Fetch unique employee IDs that have ANY shift in the last 60 days at this store
+  // Used to populate the "off-duty today" list without including global admins.
+  // 60-day window ensures employees on vacation (even multi-week) still appear.
   const fetchWeekShiftEmpIds = useCallback(async () => {
-    if (!selectedStoreGuid || !currentWeekStart) return;
-    const weekStart = formatDateISO(currentWeekStart);
-    const weekEnd = formatDateISO(addDays(currentWeekStart, 6));
+    if (!selectedStoreGuid) return;
+    const lookbackStart = formatDateISO(subDays(new Date(), 60));
+    const lookbackEnd = formatDateISO(addDays(new Date(), 14)); // also include future scheduled shifts
     const { data } = await supabase
       .from('shifts')
       .select('employee_id')
       .eq('store_id', selectedStoreGuid)
-      .gte('shift_date', weekStart)
-      .lte('shift_date', weekEnd);
+      .gte('shift_date', lookbackStart)
+      .lte('shift_date', lookbackEnd);
     if (data) {
       setWeekShiftEmpIds(new Set(data.map((s: { employee_id: string }) => String(s.employee_id))));
     }
-  }, [selectedStoreGuid, currentWeekStart]);
+  }, [selectedStoreGuid]);
 
   // ── Initial load ──
   useEffect(() => {
