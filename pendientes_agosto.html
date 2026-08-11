@@ -813,7 +813,7 @@
                 </svg>
             </div>
             <div>
-                <div class="stat-number">19</div>
+                <div class="stat-number">20</div>
                 <div class="stat-desc">Tareas registradas</div>
             </div>
         </div>
@@ -839,7 +839,7 @@
                 </svg>
             </div>
             <div>
-                <div class="stat-number">6</div>
+                <div class="stat-number">7</div>
                 <div class="stat-desc">Por iniciar / Por evaluar</div>
             </div>
         </div>
@@ -864,7 +864,7 @@
                 </svg>
             </div>
             <div>
-                <div class="stat-number" style="color: #e05638;">29.0</div>
+                <div class="stat-number" style="color: #e05638;">31.0</div>
                 <div class="stat-desc">Horas trabajadas</div>
             </div>
         </div>
@@ -1469,7 +1469,7 @@
             <!-- ────────── PENDIENTES (7) ────────── -->
             <div class="section-header">
                 <h2>Pendientes</h2>
-                <span class="section-badge pendiente">6 Tareas</span>
+                <span class="section-badge pendiente">7 Tareas</span>
             </div>
             
             <div class="cards-grid">
@@ -1750,6 +1750,53 @@
                     </div>
                 </div>
  
+                <!-- TAREA 21: B2B RETAIL -->
+                <div class="task-card">
+                    <div>
+                        <div class="card-tags">
+                            <span class="badge badge-inv">📦 Inventario</span>
+                            <span class="badge badge-hi">🔴 Alta</span>
+                            <span class="badge badge-pending">⏳ Pendiente</span>
+                        </div>
+                        <h3 class="task-title">21. Módulo B2B Retail — Comercialización de Insumos al Menudeo</h3>
+                        
+                        <div class="card-section">
+                            <span class="card-section-title">
+                                <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><path d="M12 2C6.48 2 2 4.02 2 6.5s4.48 4.5 10 4.5 10-2.02 10-4.5S17.52 2 12 2zM2 17c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5M2 12c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5"/></svg>
+                                Estatus del código / BD
+                            </span>
+                            <div class="audit-box">
+                                <strong>No Iniciado.</strong> Nuevo módulo de venta al menudeo (Retail / B2B — Business to Business) para comercializar los insumos y productos de La Bodega de Tacos El Gavilan a otros negocios y clientes externos. Incluirá catálogo de productos disponibles para reventa, gestión de clientes B2B, cotizaciones, órdenes de venta, facturación, y control de inventario de salida diferenciado del consumo interno de las sucursales.
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="card-section" style="margin-top: 14px;">
+                        <span class="card-section-title">
+                            <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><polyline points="9 11 12 14 17 9"></polyline></svg>
+                            Pasos recomendados
+                        </span>
+                        <div class="steps-list">
+                            <div class="step-item">
+                                <span class="step-number">1</span>
+                                <span class="step-text">Diseñar el catálogo de productos de La Bodega disponibles para venta externa con precios diferenciados (retail vs costo interno).</span>
+                            </div>
+                            <div class="step-item">
+                                <span class="step-number">2</span>
+                                <span class="step-text">Crear el módulo de gestión de clientes B2B (registro, historial de compras, crédito y condiciones de pago).</span>
+                            </div>
+                            <div class="step-item">
+                                <span class="step-number">3</span>
+                                <span class="step-text">Desarrollar el flujo de órdenes de venta, cotizaciones y facturación con integración a QuickBooks para registro contable automático.</span>
+                            </div>
+                            <div class="step-item">
+                                <span class="step-number">4</span>
+                                <span class="step-text">Implementar control de inventario de salida separado del consumo interno, con reportes de rentabilidad por cliente y producto.</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+ 
             </div> <!-- /grid -->
  
         </div> <!-- /tasks-container -->
@@ -1888,6 +1935,30 @@
                                     <div class="lang-split">
                                          <div class="es-desc">- **Descansos AI (Prioridad de Salida Antecipada)**: Implementación de la regla de prioridad para el Manager Jesús. La IA ahora prioriza en Pass 1 (Meals) y en asignación de cohorts a los empleados que terminan su turno más temprano, otorgándoles turnos de comida antes que a quienes salen más tarde.<br>- **Descansos AI (Lunches Opcionales &lt;= 6h)**: Adición de botones interactivos `+ Agregar Lunch (30 min)` y `+ Agregar Break (10 min)` en el modal del empleado para turnos de 6 horas o menos (donde el lunch es legalmente opcional). Habilitación de eliminación directa mediante doble clic en la barra o botón 🗑️ Eliminar en el modal.<br>- **Auditoría y Tipos**: Verificación TypeScript (`npx tsc --noEmit`) sin errores y actualización del prompt del Asistente IA.</div>
                                          <div class="en-desc">- **Breaks AI (Early Exit Priority)**: Implemented priority rule requested by Manager Jesus. The AI engine now prioritizes employees whose shift ends earlier in Pass 1 (Meals) and cohort distribution, assigning them earlier meal slots before those ending later.<br>- **Breaks AI (Optional Lunches &lt;= 6h)**: Added interactive `+ Add Lunch (30 min)` and `+ Add Break (10 min)` buttons in employee management modal for shifts &lt;= 6h (where lunch is legally optional). Enabled direct deletion via timeline double-click or 🗑️ Delete button in modal.<br>- **Audit &amp; Types**: TypeScript verification (`npx tsc --noEmit`) with zero errors and updated support AI Assistant system prompt.</div>
+                                    </div>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td><strong>08-Aug-2026</strong></td>
+                                <td>7:50 PM - 8:00 PM</td>
+                                <td style="text-align: center; font-weight: 700;">0.15</td>
+                                <td><span class="table-badge-module">Inventario</span> <span class="table-badge-module">Uniformes</span></td>
+                                <td>
+                                    <div class="lang-split">
+                                         <div class="es-desc">- **Uniformes (Cantidad de Reemplazos en Daño)**: Selector numérico en el formulario de Cambio por Daño (`txType === 'damage'`) en `app/inventory/uniforms/page.tsx` para deducir N prendas dañadas de una sola vez con actualización en la server action `recordDamageExchange`.<br>- **Uniformes (Seguridad de Acceso Admin)**: Encapsulamiento de los botones de administración (`Editar Precios`, `Reiniciar Conteo Inicial` y `Modo Auditoría`) bajo la condición estricta de `user.role === 'admin'`, ocultándolos a usuarios no administrativos.</div>
+                                         <div class="en-desc">- **Uniforms (Replacement Quantity on Damage)**: Added quantity selector for Damage Exchange transactions (`txType === 'damage'`) in `app/inventory/uniforms/page.tsx` allowing deducting N damaged items in one transaction via updated `recordDamageExchange` server action.<br>- **Uniforms (Admin Control Security)**: Encapsulated administrative control buttons (`Edit Prices`, `Reset Initial Count`, and `Audit Mode`) under strict `user.role === 'admin'` condition, hiding them from non-admin users.</div>
+                                    </div>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td><strong>10-Aug-2026</strong></td>
+                                <td>5:00 PM - 5:20 PM</td>
+                                <td style="text-align: center; font-weight: 700;">0.30</td>
+                                <td><span class="table-badge-module">Inventario</span> <span class="table-badge-module">Uniformes</span> <span class="table-badge-module">Alertas Bodega</span></td>
+                                <td>
+                                    <div class="lang-split">
+                                         <div class="es-desc">- **Uniformes (Stock Mínimo Estándar y Alerta a Bodega)**: Configuración del diccionario de stock mínimo por categoría y talla (`DEFAULT_MIN_STOCK`) en `utils.ts` (Team Members Red: 10-20, Shift Leader: 10-20, Assistant: 3, Manager: 0, Gorras: 12, Chamarras: 2-3). Banner dinámico de aviso al caer el inventario por debajo del mínimo, resaltado de filas en tabla de stock (rojo agotado, amarillo stock bajo) y modal interactivo de orden de reposición a La Bodega (`ReorderModal`).</div>
+                                         <div class="en-desc">- **Uniforms (Standard Minimum Stock & Warehouse Alert)**: Configured category and size minimum stock dictionary (`DEFAULT_MIN_STOCK`) in `utils.ts` (Team Members Red: 10-20, Shift Leader: 10-20, Assistant: 3, Manager: 0, Caps: 12, Jackets: 2-3). Integrated dynamic warning alert banner when stock falls below target, row highlighting (red out of stock, yellow low stock), and interactive replenishment order modal (`ReorderModal`) to La Bodega.</div>
                                     </div>
                                 </td>
                             </tr>
