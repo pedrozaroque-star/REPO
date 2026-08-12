@@ -15,7 +15,8 @@ import {
   recordDamageExchange, fetchTransactionHistory, fetchEmployeeKardex,
   fetchExecutiveDashboard, updateUniformPricing, fetchDailySalesTotal,
   confirmOrderReception, resetInitialCount, fetchQBEstimateForReception,
-  fetchRecentStoreEstimates, fetchEmployeesForStore
+  fetchRecentStoreEstimates, fetchEmployeesForStore,
+  updateUniformTransactionDetails, voidUniformTransaction
 } from './actions';
 import {
   UniformCategory, UniformSize, SIZES_BY_CATEGORY, NEW_HIRE_PACKAGE,
@@ -266,7 +267,13 @@ function UniformsContent() {
                     />
                   )}
                   {activeTab === 'history' && (
-                    <TabHistoryAndKardex storeId={selectedStoreId} showToast={showToast} />
+                    <TabHistoryAndKardex 
+                      storeId={selectedStoreId} 
+                      showToast={showToast} 
+                      onTransactionComplete={() => {
+                        fetchUniformsStock(selectedStoreId).then(setStockData);
+                      }} 
+                    />
                   )}
                 </motion.div>
               </AnimatePresence>
@@ -929,7 +936,8 @@ function TabSalesAndIssues({ storeId, stockData, pricingData, showToast, onTrans
   const [employeeList, setEmployeeList] = useState<Array<{id: string, name: string, toast_guid: string, job_title?: string}>>([]);
   const [selectedEmpId, setSelectedEmpId] = useState<string>('');
   const [isCustomNameMode, setIsCustomNameMode] = useState(false);
-  const [txType, setTxType] = useState<'sale' | 'new_hire' | 'damage'>('sale');
+  const [txType, setTxType] = useState<'sale' | 'customer_sale' | 'new_hire' | 'damage'>('sale');
+  const [saleNotes, setSaleNotes] = useState('');
 
   // Flexible Package State (Entrega / Asignación / Nuevo Ingreso)
   const [pkgShirtCategory, setPkgShirtCategory] = useState<UniformCategory>('shirt_red');
@@ -992,6 +1000,25 @@ function TabSalesAndIssues({ storeId, stockData, pricingData, showToast, onTrans
     }
   };
 
+  const handleTxTypeChange = (newType: 'sale' | 'customer_sale' | 'new_hire' | 'damage') => {
+    setTxType(newType);
+    if (newType === 'customer_sale') {
+      setIsCustomNameMode(true);
+      if (!empName || empName.trim() === '' || employeeList.some(e => e.name === empName)) {
+        setEmpName('Cliente Mostrador');
+      }
+      setEmpGuid('');
+    } else if (newType === 'sale' || newType === 'new_hire') {
+      if (employeeList.length > 0 && isCustomNameMode && empName === 'Cliente Mostrador') {
+        setIsCustomNameMode(false);
+        setSelectedEmpId(employeeList[0].id);
+        setEmpName(employeeList[0].name);
+        setEmpGuid(employeeList[0].toast_guid);
+        applyRoleDefaults(employeeList[0]);
+      }
+    }
+  };
+
   const handlePkgShirtCategoryChange = (newCat: UniformCategory) => {
     setPkgShirtCategory(newCat);
     if (newCat === 'shirt_assistant' || newCat === 'shirt_manager' || newCat === 'shirt_shift_leader') {
@@ -1014,7 +1041,7 @@ function TabSalesAndIssues({ storeId, stockData, pricingData, showToast, onTrans
   const [submitting, setSubmitting] = useState(false);
 
   const currentPrice = useMemo(() => {
-    if (txType === 'sale') {
+    if (txType === 'sale' || txType === 'customer_sale') {
       const p = pricingData.find((x: any) => x.item_category === saleCategory)?.sale_price || 0;
       return p * saleQty;
     }
@@ -1022,7 +1049,7 @@ function TabSalesAndIssues({ storeId, stockData, pricingData, showToast, onTrans
   }, [txType, saleCategory, saleQty, pricingData]);
 
   const availableStock = useMemo(() => {
-    if (txType === 'sale' || txType === 'damage') {
+    if (txType === 'sale' || txType === 'customer_sale' || txType === 'damage') {
       return stockData.find((s: any) => s.item_category === saleCategory && s.size === saleSize)?.quantity_on_hand || 0;
     }
     return null;
@@ -1081,7 +1108,7 @@ function TabSalesAndIssues({ storeId, stockData, pricingData, showToast, onTrans
 
     try {
       setSubmitting(true);
-      if (txType === 'sale') {
+      if (txType === 'sale' || txType === 'customer_sale') {
         if (availableStock !== null && availableStock < saleQty) {
            showToast(t('uniforms.toast.no_stock'), 'error');
            setSubmitting(false);
@@ -1092,6 +1119,8 @@ function TabSalesAndIssues({ storeId, stockData, pricingData, showToast, onTrans
           userEmail: user?.email || '',
           employeeName: empName,
           employeeToastGuid: empGuid || undefined,
+          transactionType: txType === 'customer_sale' ? 'customer_sale' : 'employee_sale',
+          notes: saleNotes.trim() || undefined,
           item_category: saleCategory,
           size: saleSize,
           quantity: saleQty,
@@ -1181,7 +1210,7 @@ function TabSalesAndIssues({ storeId, stockData, pricingData, showToast, onTrans
           item_category: saleCategory,
           size: saleSize,
           quantity: saleQty,
-          reason: damageReason,
+          reason: damageReason + (saleNotes.trim() ? ` (${saleNotes.trim()})` : ''),
           businessDate: getBusinessDate()
         });
         if (res.warning) {
@@ -1193,16 +1222,20 @@ function TabSalesAndIssues({ storeId, stockData, pricingData, showToast, onTrans
       
       showToast(t('uniforms.toast.sale_success'), 'success');
       // Reset form
-      if (employeeList.length > 0 && !isCustomNameMode) {
+      if (employeeList.length > 0 && !isCustomNameMode && txType !== 'customer_sale') {
         setSelectedEmpId(employeeList[0].id);
         setEmpName(employeeList[0].name);
         setEmpGuid(employeeList[0].toast_guid);
         applyRoleDefaults(employeeList[0]);
+      } else if (txType === 'customer_sale') {
+        setEmpName('Cliente Mostrador');
+        setEmpGuid('');
       } else {
         setEmpName('');
         setEmpGuid('');
       }
       setDamageReason('');
+      setSaleNotes('');
       setSaleQty(1);
       onTransactionComplete();
     } catch (err) {
@@ -1220,28 +1253,32 @@ function TabSalesAndIssues({ storeId, stockData, pricingData, showToast, onTrans
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 flex items-center justify-between">
-                  <span>{t('uniforms.sales.employee_name')} *</span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsCustomNameMode(!isCustomNameMode);
-                      if (!isCustomNameMode) {
-                        setEmpName('');
-                        setEmpGuid('');
-                      } else if (employeeList.length > 0) {
-                        setSelectedEmpId(employeeList[0].id);
-                        setEmpName(employeeList[0].name);
-                        setEmpGuid(employeeList[0].toast_guid);
-                        applyRoleDefaults(employeeList[0]);
-                      }
-                    }}
-                    className="text-xs text-blue-600 dark:text-blue-400 hover:underline font-normal"
-                  >
-                    {isCustomNameMode ? '← Seleccionar de la lista de empleados' : '+ Ingresar nombre no registrado'}
-                  </button>
+                  <span>
+                    {txType === 'customer_sale' ? t('uniforms.sales.customer_name') : t('uniforms.sales.employee_name')} *
+                  </span>
+                  {txType !== 'customer_sale' && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsCustomNameMode(!isCustomNameMode);
+                        if (!isCustomNameMode) {
+                          setEmpName('');
+                          setEmpGuid('');
+                        } else if (employeeList.length > 0) {
+                          setSelectedEmpId(employeeList[0].id);
+                          setEmpName(employeeList[0].name);
+                          setEmpGuid(employeeList[0].toast_guid);
+                          applyRoleDefaults(employeeList[0]);
+                        }
+                      }}
+                      className="text-xs text-blue-600 dark:text-blue-400 hover:underline font-normal"
+                    >
+                      {isCustomNameMode ? '← Seleccionar de la lista de empleados' : '+ Ingresar nombre no registrado'}
+                    </button>
+                  )}
                 </label>
 
-                {!isCustomNameMode ? (
+                {(!isCustomNameMode && txType !== 'customer_sale') ? (
                   <select
                     className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-blue-500 outline-none font-medium text-sm"
                     value={selectedEmpId}
@@ -1257,7 +1294,7 @@ function TabSalesAndIssues({ storeId, stockData, pricingData, showToast, onTrans
                   <input
                     type="text"
                     required
-                    placeholder="Escribe el nombre completo del empleado..."
+                    placeholder={txType === 'customer_sale' ? 'Ej. Cliente Mostrador, Juan Pérez, Empresa X...' : 'Escribe el nombre completo del empleado...'}
                     className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium"
                     value={empName}
                     onChange={e => {
@@ -1274,27 +1311,27 @@ function TabSalesAndIssues({ storeId, stockData, pricingData, showToast, onTrans
                 {t('uniforms.sales.transaction_type')}
               </label>
               <div className="flex flex-wrap gap-3">
-                {(['sale', 'new_hire', 'damage'] as const).map(type => (
+                {(['sale', 'customer_sale', 'new_hire', 'damage'] as const).map(type => (
                   <label 
                     key={type}
                     className={`flex items-center gap-2 px-4 py-3 rounded-xl border cursor-pointer transition-all
                       ${txType === type 
-                        ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300' 
-                        : 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
+                        ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 font-semibold shadow-xs' 
+                        : 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 font-medium'}`}
                   >
                     <input
                       type="radio"
                       name="txType"
                       className="hidden"
                       checked={txType === type}
-                      onChange={() => setTxType(type)}
+                      onChange={() => handleTxTypeChange(type)}
                     />
                     <div className={`w-4 h-4 rounded-full border flex items-center justify-center
                       ${txType === type ? 'border-blue-500' : 'border-gray-400'}`}
                     >
                       {txType === type && <div className="w-2 h-2 rounded-full bg-blue-500" />}
                     </div>
-                    <span className="font-medium">{t(`uniforms.sales.type_${type}` as any)}</span>
+                    <span className="text-sm">{t(`uniforms.sales.type_${type}` as any)}</span>
                   </label>
                 ))}
               </div>
@@ -1556,7 +1593,7 @@ function TabSalesAndIssues({ storeId, stockData, pricingData, showToast, onTrans
                         {(SIZES_BY_CATEGORY[saleCategory] || []).map(s => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
                       </select>
                     </div>
-                    {(txType === 'sale' || txType === 'damage') && (
+                    {(txType === 'sale' || txType === 'customer_sale' || txType === 'damage') && (
                       <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                           {txType === 'damage' ? t('uniforms.sales.replacement_quantity') : t('uniforms.sales.quantity')}
@@ -1566,7 +1603,7 @@ function TabSalesAndIssues({ storeId, stockData, pricingData, showToast, onTrans
                           min={availableStock && availableStock > 0 ? 1 : 0}
                           max={availableStock !== null ? availableStock : 999}
                           disabled={availableStock === 0}
-                          className="w-full bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 outline-none disabled:opacity-50"
+                          className="w-full bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 outline-none disabled:opacity-50 font-medium"
                           value={saleQty}
                           onChange={e => {
                             const raw = parseInt(e.target.value) || 0;
@@ -1600,19 +1637,33 @@ function TabSalesAndIssues({ storeId, stockData, pricingData, showToast, onTrans
                       <input
                         type="text"
                         required
-                        className="w-full bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 outline-none"
+                        className="w-full bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 outline-none text-sm font-medium"
                         value={damageReason}
                         onChange={e => setDamageReason(e.target.value)}
                       />
                     </div>
                   )}
+
+                  {/* OBSERVACIONES / NOTAS */}
+                  <div className="mt-4">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      {t('uniforms.sales.observations')}
+                    </label>
+                    <input
+                      type="text"
+                      placeholder={t('uniforms.sales.observations_placeholder')}
+                      className="w-full bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 outline-none text-sm font-medium"
+                      value={saleNotes}
+                      onChange={e => setSaleNotes(e.target.value)}
+                    />
+                  </div>
                 </div>
               )}
             </div>
 
             <div className="flex items-center justify-between pt-4 border-t border-gray-200 dark:border-gray-700">
               <div className="text-2xl font-bold">
-                {txType === 'sale' ? (
+                {(txType === 'sale' || txType === 'customer_sale') ? (
                   <span className="text-blue-600 dark:text-blue-400">{formatCurrency(currentPrice)}</span>
                 ) : (
                   <span className="text-green-600 dark:text-green-400">$0.00</span>
@@ -2146,28 +2197,45 @@ function TabOrderReception({ storeId, showToast, onComplete }: any) {
   );
 }
 
-function TabHistoryAndKardex({ storeId, showToast }: { storeId: number, showToast: any }) {
+function TabHistoryAndKardex({ storeId, showToast, onTransactionComplete }: any) {
+  const { user } = useAuth();
   const { t, language } = useLanguage();
-  const [history, setHistory] = useState<UniformTransaction[]>([]);
+  const [history, setHistory] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchGuid, setSearchGuid] = useState('');
   const [kardexMode, setKardexMode] = useState(false);
 
-  useEffect(() => {
-    const loadHistory = async () => {
-      try {
-        setLoading(true);
+  // Edit / Void Modals State (Supervisors and Admins)
+  const canEditOrVoid = user?.role === 'admin' || user?.role === 'supervisor';
+  const [editingTx, setEditingTx] = useState<any | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editReason, setEditReason] = useState('');
+  const [editSubmitting, setEditSubmitting] = useState(false);
+
+  const [voidingTx, setVoidingTx] = useState<any | null>(null);
+  const [voidReason, setVoidReason] = useState('');
+  const [voidSubmitting, setVoidSubmitting] = useState(false);
+
+  const refreshHistory = async () => {
+    try {
+      setLoading(true);
+      if (kardexMode && searchGuid.trim()) {
+        const data = await fetchEmployeeKardex(searchGuid.trim());
+        setHistory(data);
+      } else {
         const data = await fetchTransactionHistory(storeId);
         setHistory(data);
-        setKardexMode(false);
-      } catch (err) {
-        showToast(t('uniforms.toast.error'), 'error');
-      } finally {
-        setLoading(false);
       }
-    };
-    loadHistory();
-  }, [storeId, t]);
+    } catch (err) {
+      showToast(t('uniforms.toast.error'), 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    refreshHistory();
+  }, [storeId]);
 
   const handleSearchKardex = async () => {
     if (!searchGuid.trim()) return;
@@ -2186,10 +2254,65 @@ function TabHistoryAndKardex({ storeId, showToast }: { storeId: number, showToas
   const handleClearKardex = async () => {
     setSearchGuid('');
     setKardexMode(false);
-    setLoading(true);
-    const data = await fetchTransactionHistory(storeId);
-    setHistory(data);
-    setLoading(false);
+    await refreshHistory();
+  };
+
+  const handleOpenEdit = (tx: any) => {
+    setEditingTx(tx);
+    setEditName(tx.employee_name || '');
+    setEditReason(tx.reason || '');
+  };
+
+  const handleSaveEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingTx) return;
+    try {
+      setEditSubmitting(true);
+      await updateUniformTransactionDetails({
+        transactionId: editingTx.id,
+        employeeName: editName,
+        reason: editReason,
+        userEmail: user?.email || ''
+      });
+      showToast(t('uniforms.history.edit_success'), 'success');
+      setEditingTx(null);
+      await refreshHistory();
+    } catch (err) {
+      showToast(t('uniforms.toast.error'), 'error');
+    } finally {
+      setEditSubmitting(false);
+    }
+  };
+
+  const handleConfirmVoid = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!voidingTx || !voidReason.trim()) {
+      showToast('Ingresa el motivo de la anulación.', 'warning');
+      return;
+    }
+    try {
+      setVoidSubmitting(true);
+      const res = await voidUniformTransaction({
+        transactionId: voidingTx.id,
+        reason: voidReason,
+        userEmail: user?.email || ''
+      });
+
+      if (res.warning) {
+        showToast(res.warning, 'warning');
+        return;
+      }
+
+      showToast(t('uniforms.history.void_success'), 'success');
+      setVoidingTx(null);
+      setVoidReason('');
+      await refreshHistory();
+      if (onTransactionComplete) onTransactionComplete();
+    } catch (err) {
+      showToast(t('uniforms.toast.error'), 'error');
+    } finally {
+      setVoidSubmitting(false);
+    }
   };
 
   return (
@@ -2245,49 +2368,221 @@ function TabHistoryAndKardex({ storeId, showToast }: { storeId: number, showToas
                   <th className="p-4 font-semibold">{t('uniforms.history.employee')}</th>
                   <th className="p-4 font-semibold">{t('uniforms.history.amount')}</th>
                   <th className="p-4 font-semibold">{t('uniforms.history.created_by')}</th>
+                  {canEditOrVoid && (
+                    <th className="p-4 font-semibold text-center">{t('uniforms.history.actions')}</th>
+                  )}
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
                 {history.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="p-8 text-center text-gray-500">
+                    <td colSpan={canEditOrVoid ? 8 : 7} className="p-8 text-center text-gray-500">
                       {t('uniforms.history.no_results')}
                     </td>
                   </tr>
                 ) : (
-                  history.map(tx => (
-                    <tr key={tx.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors">
-                      <td className="p-4 text-sm text-gray-500">
-                        {new Date(tx.created_at).toLocaleDateString()} {new Date(tx.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                      </td>
-                      <td className="p-4">
-                        <span className="px-2.5 py-1 bg-gray-100 dark:bg-gray-700 rounded-md text-xs font-semibold">
-                          {getTransactionTypeLabel(tx.transaction_type, language as 'es' | 'en')}
-                        </span>
-                      </td>
-                      <td className="p-4 font-medium">
-                        {getCategoryDisplayName(tx.item_category, language as 'es' | 'en')} ({tx.size})
-                      </td>
-                      <td className={`p-4 font-bold ${tx.quantity > 0 ? 'text-green-600' : 'text-gray-700 dark:text-gray-300'}`}>
-                        {tx.quantity > 0 ? `+${tx.quantity}` : tx.quantity}
-                      </td>
-                      <td className="p-4 text-sm">
-                        {tx.employee_name || '-'}
-                      </td>
-                      <td className="p-4 font-medium">
-                        {tx.total_amount ? formatCurrency(tx.total_amount) : '$0.00'}
-                      </td>
-                      <td className="p-4 text-sm text-gray-500">
-                        {tx.created_by || '-'}
-                      </td>
-                    </tr>
-                  ))
+                  history.map(tx => {
+                    const isVoided = tx.reason && tx.reason.includes('[ANULADO]');
+                    return (
+                      <tr key={tx.id} className={`hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors ${isVoided ? 'opacity-60 bg-red-50/30 dark:bg-red-950/10' : ''}`}>
+                        <td className="p-4 text-sm text-gray-500">
+                          {new Date(tx.created_at).toLocaleDateString()} {new Date(tx.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </td>
+                        <td className="p-4">
+                          <span className={`px-2.5 py-1 rounded-md text-xs font-semibold ${isVoided ? 'bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300' : 'bg-gray-100 dark:bg-gray-700'}`}>
+                            {isVoided ? '🚫 Anulado' : getTransactionTypeLabel(tx.transaction_type, language as 'es' | 'en')}
+                          </span>
+                        </td>
+                        <td className="p-4 font-medium">
+                          {getCategoryDisplayName(tx.item_category, language as 'es' | 'en')} ({tx.size})
+                        </td>
+                        <td className={`p-4 font-bold ${isVoided ? 'line-through text-gray-400' : tx.quantity > 0 ? 'text-green-600' : 'text-gray-700 dark:text-gray-300'}`}>
+                          {tx.quantity > 0 ? `+${tx.quantity}` : tx.quantity}
+                        </td>
+                        <td className="p-4 text-sm">
+                          <div className="font-medium text-gray-900 dark:text-gray-100">{tx.employee_name || '-'}</div>
+                          {tx.reason && (
+                            <div className="text-xs text-gray-500 dark:text-gray-400 italic mt-0.5 font-normal">
+                              📝 {tx.reason}
+                            </div>
+                          )}
+                        </td>
+                        <td className="p-4 font-medium">
+                          {isVoided ? (
+                            <span className="line-through text-gray-400">$0.00</span>
+                          ) : (
+                            tx.total_amount ? formatCurrency(tx.total_amount) : '$0.00'
+                          )}
+                        </td>
+                        <td className="p-4 text-sm text-gray-500">
+                          {tx.created_by || '-'}
+                        </td>
+                        {canEditOrVoid && (
+                          <td className="p-4 text-center">
+                            {isVoided ? (
+                              <span className="text-xs font-bold text-red-500 uppercase tracking-wider">Anulado</span>
+                            ) : (
+                              <div className="flex items-center justify-center gap-2">
+                                <button
+                                  onClick={() => handleOpenEdit(tx)}
+                                  className="p-1.5 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg transition-colors"
+                                  title={t('uniforms.history.edit_btn')}
+                                >
+                                  <Edit2 className="w-4 h-4" />
+                                </button>
+                                <button
+                                  onClick={() => setVoidingTx(tx)}
+                                  className="p-1.5 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors"
+                                  title={t('uniforms.history.void_btn')}
+                                >
+                                  <RotateCcw className="w-4 h-4" />
+                                </button>
+                              </div>
+                            )}
+                          </td>
+                        )}
+                      </tr>
+                    );
+                  })
                 )}
               </tbody>
             </table>
           </div>
         )}
       </div>
+
+      {/* MODAL EDITAR DETALLES DE TRANSACCIÓN */}
+      {editingTx && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            className="bg-white dark:bg-gray-800 rounded-2xl max-w-md w-full p-6 shadow-2xl border border-gray-200 dark:border-gray-700"
+          >
+            <div className="flex items-center justify-between border-b border-gray-200 dark:border-gray-700 pb-3 mb-4">
+              <h3 className="text-lg font-bold flex items-center gap-2">
+                <Edit2 className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+                {t('uniforms.history.edit_modal_title')}
+              </h3>
+              <button 
+                onClick={() => setEditingTx(null)}
+                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveEdit} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Nombre Empleado / Cliente
+                </label>
+                <input 
+                  type="text"
+                  required
+                  className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 text-sm font-medium outline-none focus:ring-2 focus:ring-blue-500"
+                  value={editName}
+                  onChange={e => setEditName(e.target.value)}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Observaciones / Notas / Motivo
+                </label>
+                <input 
+                  type="text"
+                  className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 text-sm font-medium outline-none focus:ring-2 focus:ring-blue-500"
+                  value={editReason}
+                  onChange={e => setEditReason(e.target.value)}
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
+                <button
+                  type="button"
+                  onClick={() => setEditingTx(null)}
+                  className="px-4 py-2 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-xl font-medium text-sm transition-colors"
+                >
+                  {t('common.cancel')}
+                </button>
+                <button
+                  type="submit"
+                  disabled={editSubmitting}
+                  className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm transition-all shadow-md flex items-center gap-2 disabled:opacity-50"
+                >
+                  {editSubmitting ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                  <span>{t('pricing.save')}</span>
+                </button>
+              </div>
+            </form>
+          </motion.div>
+        </div>
+      )}
+
+      {/* MODAL ANULAR TRANSACCIÓN Y REVERTIR INVENTARIO */}
+      {voidingTx && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            className="bg-white dark:bg-gray-800 rounded-2xl max-w-md w-full p-6 shadow-2xl border border-gray-200 dark:border-gray-700"
+          >
+            <div className="flex items-center justify-between border-b border-gray-200 dark:border-gray-700 pb-3 mb-4">
+              <h3 className="text-lg font-bold text-red-600 dark:text-red-400 flex items-center gap-2">
+                <AlertTriangle className="w-5 h-5" />
+                {t('uniforms.history.void_modal_title')}
+              </h3>
+              <button 
+                onClick={() => setVoidingTx(null)}
+                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className="text-xs text-gray-600 dark:text-gray-300 mb-4">
+              {t('uniforms.history.void_modal_desc')}
+            </p>
+
+            <form onSubmit={handleConfirmVoid} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  {t('uniforms.history.void_reason_prompt')}
+                </label>
+                <input 
+                  type="text"
+                  required
+                  placeholder={t('uniforms.history.void_reason_placeholder')}
+                  className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 text-sm font-medium outline-none focus:ring-2 focus:ring-red-500"
+                  value={voidReason}
+                  onChange={e => setVoidReason(e.target.value)}
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
+                <button
+                  type="button"
+                  onClick={() => setVoidingTx(null)}
+                  className="px-4 py-2 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-xl font-medium text-sm transition-colors"
+                >
+                  {t('common.cancel')}
+                </button>
+                <button
+                  type="submit"
+                  disabled={voidSubmitting}
+                  className="px-5 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold text-sm transition-all shadow-md flex items-center gap-2 disabled:opacity-50"
+                >
+                  {voidSubmitting ? <RefreshCw className="w-4 h-4 animate-spin" /> : <RotateCcw className="w-4 h-4" />}
+                  <span>{t('uniforms.history.void_btn')}</span>
+                </button>
+              </div>
+            </form>
+          </motion.div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1974,6 +1974,42 @@
                                     </div>
                                 </td>
                             </tr>
+                            <tr>
+                                <td><strong>11-Aug-2026</strong></td>
+                                <td>11:05 AM - 11:20 AM</td>
+                                <td style="text-align: center; font-weight: 700;">0.25</td>
+                                <td><span class="table-badge-module">Inventario</span> <span class="table-badge-module">Venta a Clientes</span> <span class="table-badge-module">Caja Fuerte</span></td>
+                                <td>
+                                    <div class="lang-split">
+                                         <div class="es-desc">- **Control de Uniformes (Venta a Clientes y Observaciones)**: Integración del tipo de transacción `Venta a Cliente` (`customer_sale`) en la interfaz y servidor, soporte para nombres personalizados de cliente/cliente mostrador, campo interactivo de `Observaciones / Notas` para adjuntar contexto o folio de recibo a cualquier transacción, visualización de observaciones en el historial/Kardex y reconciliación automática del total de ventas a clientes con la Caja Fuerte.</div>
+                                         <div class="en-desc">- **Uniforms Control (Customer Sales & Transaction Notes)**: Integrated `Customer Sale` (`customer_sale`) transaction type across client and server, custom customer name support, interactive `Notes & Observations` input field for transaction details or receipt numbers, Kardex history notes display, and automatic customer sale revenue reconciliation with store safe vault.</div>
+                                    </div>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td><strong>11-Aug-2026</strong></td>
+                                <td>6:45 PM - 7:05 PM</td>
+                                <td style="text-align: center; font-weight: 700;">0.33</td>
+                                <td><span class="table-badge-module">Inventario</span> <span class="table-badge-module">Edición & Anulación</span> <span class="table-badge-module">Auditoría RBAC</span></td>
+                                <td>
+                                    <div class="lang-split">
+                                         <div class="es-desc">- **Control de Uniformes (Edición de Transacciones y Anulación con Reversión de Stock)**: Restricción de controles de modificación a roles Admin y Supervisor (`user.role === 'admin' || user.role === 'supervisor'`). Implementación de Server Actions `updateUniformTransactionDetails` para corrección de nombres y notas, y `voidUniformTransaction` para anular capturas erróneas con reversión automática de prendas en `uniforms_inventory_stock` y ajuste financiero en el cuadre de Caja Fuerte (`total_amount: 0`), manteniendo el registro original etiquetado como `[ANULADO]` para auditoría completa.</div>
+                                         <div class="en-desc">- **Uniforms Control (Transaction Editing & Voiding with Stock Reversal)**: Restricted modification controls to Admin and Supervisor roles (`user.role === 'admin' || user.role === 'supervisor'`). Implemented Server Actions `updateUniformTransactionDetails` for updating names/notes and `voidUniformTransaction` for voiding miscaptured records with automatic inventory stock reversal in `uniforms_inventory_stock` and safe vault revenue reconciliation (`total_amount: 0`), retaining original records tagged `[ANULADO]` for full audit trail.</div>
+                                    </div>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td><strong>11-Aug-2026</strong></td>
+                                <td>7:10 PM - 7:25 PM</td>
+                                <td style="text-align: center; font-weight: 700;">0.25</td>
+                                <td><span class="table-badge-module">Caja Fuerte</span> <span class="table-badge-module">Edición Historial</span> <span class="table-badge-module">Supervisores</span></td>
+                                <td>
+                                    <div class="lang-split">
+                                         <div class="es-desc">- **Caja Fuerte (Edición de Conteos para Supervisores y Admins)**: Implementación de edición de registros del historial de caja fuerte para corregir errores de captura. Habilitado para roles Supervisor y Admin con modal interactivo responsivo, actualización de billetes, cambio BOA, cajas y uniformes con recálculo dinámico de totales en `PUT /api/safe-counts/[id]`, y sincronización del prompt del Asistente IA.</div>
+                                         <div class="en-desc">- **Safe Management (Count Editing for Supervisors & Admins)**: Implemented editing for historical safe count records to allow correcting capture errors. Enabled for Supervisor and Admin roles with an interactive responsive modal, live breakdown recalculations for bills, coin rolls, registers, and uniforms via `PUT /api/safe-counts/[id]`, and TEG Assistant prompt synchronization.</div>
+                                    </div>
+                                </td>
+                            </tr>
                         </tbody>
                        </table>
                 </div>

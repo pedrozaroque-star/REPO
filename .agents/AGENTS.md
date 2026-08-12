@@ -27,9 +27,11 @@ Cada vez que se cree, modifique, elimine o actualice una característica, lógic
 Cada vez que se realice un commit a GitHub y se haga push, **el desarrollador/agente DEBE actualizar de manera obligatoria**:
 1. El documento de seguimiento de tareas y actividades del mes correspondiente (`pendientes_julio.html` o similar), registrando el desglose de horas y descripción bilingüe de actividades.
 2. El prompt y herramientas de chat de soporte del Asistente IA para reflejar los cambios realizados en el sistema.
-No se debe realizar ningún push sin haber completado previamente esta sincronización de documentación.
+### 📌 REGLA OBLIGATORIA: Nombre Oficial de la Marca
+El nombre oficial de la empresa y marca es estrictamente **Tacos Gavilan** (NUNCA "Tacos El Gavilan"). Todos los correos electrónicos, comunicaciones corporativas, títulos, documentación, prompts de IA y respuestas deben usar exclusivamente **Tacos Gavilan**.
 
 ---
+
 
 
 ## 📅 PROTOCOLO DE SEGUIMIENTO Y REGISTRO DE TRABAJO MENSUAL

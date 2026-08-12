@@ -20,7 +20,7 @@ export type UniformCategory =
 
 export type UniformSize = 'XS' | 'S' | 'M' | 'L' | 'XL' | '2XL' | '3XL' | 'ONE_SIZE'
 
-export type TransactionType = 'reception' | 'employee_sale' | 'new_hire_package' | 'damage_exchange' | 'manager_free' | 'manual_audit' | 'initial_count' | 'initial_count_reset'
+export type TransactionType = 'reception' | 'employee_sale' | 'customer_sale' | 'new_hire_package' | 'damage_exchange' | 'manager_free' | 'manual_audit' | 'initial_count' | 'initial_count_reset'
 
 export interface PricingRecord {
     id: string
@@ -155,6 +155,7 @@ export function getTransactionTypeLabel(type: TransactionType, lang: 'es' | 'en'
     const map: Record<TransactionType, { es: string, en: string }> = {
         reception: { es: 'Recepción', en: 'Reception' },
         employee_sale: { es: 'Venta a Empleado', en: 'Employee Sale' },
+        customer_sale: { es: 'Venta a Cliente', en: 'Customer Sale' },
         new_hire_package: { es: 'Paquete de Entrega / Ingreso', en: 'Delivery Package' },
         damage_exchange: { es: 'Cambio por Daño', en: 'Damage Exchange' },
         manager_free: { es: 'Regalía Gerente', en: 'Manager Free' },

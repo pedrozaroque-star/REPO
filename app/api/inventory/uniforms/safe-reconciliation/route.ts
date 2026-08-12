@@ -40,7 +40,7 @@ export async function GET(request: Request) {
       .select('total_amount')
       .eq('store_id', storeId)
       .eq('business_date', businessDate)
-      .eq('transaction_type', 'employee_sale');
+      .in('transaction_type', ['employee_sale', 'customer_sale']);
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });

@@ -8,12 +8,15 @@
  * - La diferencia entre conteos consecutivos se calcula automáticamente en el API.
  * - Día de negocio: 6:00 AM a 5:59 AM del siguiente día.
  * - Cada caja registradora tiene $250 de stock fijo.
+ * - Administradores y supervisores pueden editar registros del historial para corregir errores de captura.
  * @dataFlow
  * - Frontend calcula totales live → POST a /api/safe-counts → Supabase GENERATED columns validan.
  * - GET /api/safe-counts calcula diferencias entre conteos consecutivos de la misma tienda.
+ * - PUT /api/safe-counts/[id] actualiza el conteo y recalcula los totales automáticamente.
  * @notes
  * - uniforms_amount es placeholder hasta módulo dedicado.
  * - El campo loose_change es para monedas fuera de rollo (centavos sueltos).
+ * - Modal de edición permite corregir sucursal, fecha de negocio, billetes, cambio BOA, cajas y uniformes.
  */
 
 'use client'
@@ -291,6 +294,11 @@ function CajaFuerteContent() {
   const [historyLoading, setHistoryLoading] = useState(false)
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
 
+  // Edit state
+  const [editingRecord, setEditingRecord] = useState<SafeCountWithDiff | null>(null)
+  const [editForm, setEditForm] = useState<SafeCountFormData>({ ...defaultForm })
+  const [savingEdit, setSavingEdit] = useState(false)
+
   // ─── Computed ───
   const isAdmin = user?.role?.toLowerCase() === 'admin' || user?.role?.toLowerCase() === 'supervisor'
   const isManager = user?.role?.toLowerCase() === 'manager' || user?.role?.toLowerCase() === 'asistente'
@@ -309,6 +317,12 @@ function CajaFuerteContent() {
   const coinsTotal = useMemo(() => calcCoinsTotal(form), [form.packs_ones, form.rolls_quarter, form.rolls_dime, form.rolls_nickel, form.rolls_penny, form.loose_change])
   const drawersTotal = useMemo(() => calcDrawersTotal(form), [form.num_drawers, form.drawer_stock])
   const grandTotal = useMemo(() => calcGrandTotal(form), [billsTotal, coinsTotal, drawersTotal, form.uniforms_amount])
+
+  // Live totals for edit modal
+  const editBillsTotal = useMemo(() => calcBillsTotal(editForm), [editForm.bills_100, editForm.bills_50, editForm.bills_20, editForm.bills_10, editForm.bills_5, editForm.bills_1])
+  const editCoinsTotal = useMemo(() => calcCoinsTotal(editForm), [editForm.packs_ones, editForm.rolls_quarter, editForm.rolls_dime, editForm.rolls_nickel, editForm.rolls_penny, editForm.loose_change])
+  const editDrawersTotal = useMemo(() => calcDrawersTotal(editForm), [editForm.num_drawers, editForm.drawer_stock])
+  const editGrandTotal = useMemo(() => calcGrandTotal(editForm), [editBillsTotal, editCoinsTotal, editDrawersTotal, editForm.uniforms_amount])
 
   // ─── Effects ───
 
@@ -461,6 +475,61 @@ function CajaFuerteContent() {
       setToast({ message: `${t('safe.error')}: ${err.message}`, type: 'error' })
     }
   }, [t, fetchHistory])
+
+  // ─── Edit Handlers ───
+  const startEditing = useCallback((record: SafeCountWithDiff) => {
+    setEditingRecord(record)
+    setEditForm({
+      store_id: record.store_id.toString(),
+      business_date: record.business_date,
+      bills_100: record.bills_100 || 0,
+      bills_50: record.bills_50 || 0,
+      bills_20: record.bills_20 || 0,
+      bills_10: record.bills_10 || 0,
+      bills_5: record.bills_5 || 0,
+      bills_1: record.bills_1 || 0,
+      packs_ones: record.packs_ones || 0,
+      rolls_quarter: record.rolls_quarter || 0,
+      rolls_dime: record.rolls_dime || 0,
+      rolls_nickel: record.rolls_nickel || 0,
+      rolls_penny: record.rolls_penny || 0,
+      loose_change: record.loose_change || 0,
+      num_drawers: record.num_drawers || 1,
+      drawer_stock: record.drawer_stock || DEFAULT_DRAWER_STOCK,
+      uniforms_amount: record.uniforms_amount || 0,
+      notes: record.notes || '',
+    })
+  }, [])
+
+  const handleSaveEdit = useCallback(async () => {
+    if (!editingRecord) return
+    setSavingEdit(true)
+    try {
+      const token = localStorage.getItem('teg_token')
+      const res = await fetch(`/api/safe-counts/${editingRecord.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify(editForm),
+      })
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}))
+        throw new Error(errData.error || t('safe.error'))
+      }
+
+      setToast({ message: t('safe.updated'), type: 'success' })
+      setEditingRecord(null)
+      fetchHistory()
+    } catch (err: any) {
+      console.error('[CajaFuerte] Edit error:', err)
+      setToast({ message: `${t('safe.error')}: ${err.message}`, type: 'error' })
+    } finally {
+      setSavingEdit(false)
+    }
+  }, [editingRecord, editForm, t, fetchHistory])
 
   // ─── CSV Export ───
   const exportCSV = useCallback(() => {
@@ -1052,7 +1121,7 @@ function CajaFuerteContent() {
                           <th className="text-right py-3 px-4 font-semibold text-gray-600 dark:text-gray-400">{t('safe.total')}</th>
                           <th className="text-right py-3 px-4 font-semibold text-gray-600 dark:text-gray-400">{t('safe.difference')}</th>
                           {isAdmin && (
-                            <th className="text-center py-3 px-4 font-semibold text-gray-600 dark:text-gray-400" />
+                            <th className="text-center py-3 px-4 font-semibold text-gray-600 dark:text-gray-400">{t('safe.actions')}</th>
                           )}
                         </tr>
                       </thead>
@@ -1112,13 +1181,22 @@ function CajaFuerteContent() {
                               </td>
                               {isAdmin && (
                                 <td className="py-3 px-4 text-center">
-                                  <button
-                                    onClick={() => setDeleteConfirm(row.id)}
-                                    className="p-2 rounded-lg text-red-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-all"
-                                    title="Delete"
-                                  >
-                                    <Trash2 className="w-4 h-4" />
-                                  </button>
+                                  <div className="flex items-center justify-center gap-1">
+                                    <button
+                                      onClick={() => startEditing(row)}
+                                      className="p-1.5 rounded-lg text-amber-500 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/30 transition-all"
+                                      title={t('safe.edit_count')}
+                                    >
+                                      <Edit3 className="w-4 h-4" />
+                                    </button>
+                                    <button
+                                      onClick={() => setDeleteConfirm(row.id)}
+                                      className="p-1.5 rounded-lg text-red-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 transition-all"
+                                      title="Delete"
+                                    >
+                                      <Trash2 className="w-4 h-4" />
+                                    </button>
+                                  </div>
                                 </td>
                               )}
                             </motion.tr>
@@ -1143,6 +1221,218 @@ function CajaFuerteContent() {
                     onCancel={() => setDeleteConfirm(null)}
                     variant="danger"
                   />
+                )}
+              </AnimatePresence>
+
+              {/* Edit Modal */}
+              <AnimatePresence>
+                {editingRecord && (
+                  <motion.div
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm overflow-y-auto"
+                    onClick={() => setEditingRecord(null)}
+                  >
+                    <motion.div
+                      initial={{ scale: 0.95, opacity: 0 }}
+                      animate={{ scale: 1, opacity: 1 }}
+                      exit={{ scale: 0.95, opacity: 0 }}
+                      onClick={(e) => e.stopPropagation()}
+                      className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-700 w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden my-auto"
+                    >
+                      {/* Modal Header */}
+                      <div className="flex items-center justify-between p-5 border-b border-gray-200 dark:border-gray-700 bg-gray-50/80 dark:bg-gray-900/50">
+                        <div className="flex items-center gap-3">
+                          <div className="p-2.5 rounded-xl bg-amber-500/10 text-amber-500 border border-amber-500/20">
+                            <Edit3 className="w-5 h-5" />
+                          </div>
+                          <div>
+                            <h3 className="text-lg font-bold text-gray-900 dark:text-white">
+                              {t('safe.edit_title')}
+                            </h3>
+                            <p className="text-xs text-gray-500 dark:text-gray-400">
+                              {editingRecord.counted_by_name || editingRecord.user?.full_name || '-'} • {new Date(editingRecord.counted_at).toLocaleString()}
+                            </p>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => setEditingRecord(null)}
+                          className="p-2 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 transition-all"
+                        >
+                          <X className="w-5 h-5" />
+                        </button>
+                      </div>
+
+                      {/* Modal Body */}
+                      <div className="p-6 overflow-y-auto space-y-6 flex-1">
+                        {/* Selectors */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-4 rounded-xl bg-gray-50 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-700">
+                          <div>
+                            <label className="flex items-center gap-2 text-sm font-semibold text-gray-600 dark:text-gray-400 mb-1.5">
+                              <Store className="w-4 h-4" />
+                              {t('safe.store')}
+                            </label>
+                            <select
+                              value={editForm.store_id}
+                              onChange={(e) => setEditForm(prev => ({ ...prev, store_id: e.target.value }))}
+                              className="w-full h-11 px-3 rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white font-medium text-sm focus:ring-2 focus:ring-amber-500"
+                            >
+                              {accessibleStores.map(s => (
+                                <option key={s.id} value={s.id.toString()}>{formatStoreName(s.name)}</option>
+                              ))}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="flex items-center gap-2 text-sm font-semibold text-gray-600 dark:text-gray-400 mb-1.5">
+                              <Calendar className="w-4 h-4" />
+                              {t('safe.business_date')}
+                            </label>
+                            <input
+                              type="date"
+                              value={editForm.business_date}
+                              onChange={(e) => setEditForm(prev => ({ ...prev, business_date: e.target.value }))}
+                              className="w-full h-11 px-3 rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white font-medium text-sm focus:ring-2 focus:ring-amber-500"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                          {/* Billetes */}
+                          <div className="p-4 rounded-xl border border-emerald-500/20 bg-emerald-500/5 dark:bg-emerald-950/10">
+                            <div className="flex items-center justify-between mb-3">
+                              <h4 className="font-bold text-emerald-700 dark:text-emerald-400 flex items-center gap-2 text-sm">
+                                <DollarSign className="w-4 h-4" /> {t('safe.bills_section')}
+                              </h4>
+                              <span className="font-bold text-emerald-600 dark:text-emerald-400 text-sm">
+                                {formatCurrency(editBillsTotal)}
+                              </span>
+                            </div>
+                            <div className="space-y-1">
+                              <DenominationRow label="$100" value={editForm.bills_100} unitValue={100} onChange={(v) => setEditForm(p => ({ ...p, bills_100: v }))} accentColor="focus:border-emerald-500 focus:ring-emerald-500/20" />
+                              <DenominationRow label="$50" value={editForm.bills_50} unitValue={50} onChange={(v) => setEditForm(p => ({ ...p, bills_50: v }))} accentColor="focus:border-emerald-500 focus:ring-emerald-500/20" />
+                              <DenominationRow label="$20" value={editForm.bills_20} unitValue={20} onChange={(v) => setEditForm(p => ({ ...p, bills_20: v }))} accentColor="focus:border-emerald-500 focus:ring-emerald-500/20" />
+                              <DenominationRow label="$10" value={editForm.bills_10} unitValue={10} onChange={(v) => setEditForm(p => ({ ...p, bills_10: v }))} accentColor="focus:border-emerald-500 focus:ring-emerald-500/20" />
+                              <DenominationRow label="$5" value={editForm.bills_5} unitValue={5} onChange={(v) => setEditForm(p => ({ ...p, bills_5: v }))} accentColor="focus:border-emerald-500 focus:ring-emerald-500/20" />
+                              <DenominationRow label="$1" value={editForm.bills_1} unitValue={1} onChange={(v) => setEditForm(p => ({ ...p, bills_1: v }))} accentColor="focus:border-emerald-500 focus:ring-emerald-500/20" />
+                            </div>
+                          </div>
+
+                          {/* Cambio BOA */}
+                          <div className="p-4 rounded-xl border border-blue-500/20 bg-blue-500/5 dark:bg-blue-950/10">
+                            <div className="flex items-center justify-between mb-3">
+                              <h4 className="font-bold text-blue-700 dark:text-blue-400 flex items-center gap-2 text-sm">
+                                <Coins className="w-4 h-4" /> {t('safe.change_section')}
+                              </h4>
+                              <span className="font-bold text-blue-600 dark:text-blue-400 text-sm">
+                                {formatCurrency(editCoinsTotal)}
+                              </span>
+                            </div>
+                            <div className="space-y-1">
+                              <DenominationRow label={t('safe.packs_ones')} value={editForm.packs_ones} unitValue={ROLL_VALUES.packs_ones} onChange={(v) => setEditForm(p => ({ ...p, packs_ones: v }))} accentColor="focus:border-blue-500 focus:ring-blue-500/20" />
+                              <DenominationRow label={t('safe.rolls_quarter')} value={editForm.rolls_quarter} unitValue={ROLL_VALUES.rolls_quarter} onChange={(v) => setEditForm(p => ({ ...p, rolls_quarter: v }))} accentColor="focus:border-blue-500 focus:ring-blue-500/20" />
+                              <DenominationRow label={t('safe.rolls_dime')} value={editForm.rolls_dime} unitValue={ROLL_VALUES.rolls_dime} onChange={(v) => setEditForm(p => ({ ...p, rolls_dime: v }))} accentColor="focus:border-blue-500 focus:ring-blue-500/20" />
+                              <DenominationRow label={t('safe.rolls_nickel')} value={editForm.rolls_nickel} unitValue={ROLL_VALUES.rolls_nickel} onChange={(v) => setEditForm(p => ({ ...p, rolls_nickel: v }))} accentColor="focus:border-blue-500 focus:ring-blue-500/20" />
+                              <DenominationRow label={t('safe.rolls_penny')} value={editForm.rolls_penny} unitValue={ROLL_VALUES.rolls_penny} onChange={(v) => setEditForm(p => ({ ...p, rolls_penny: v }))} accentColor="focus:border-blue-500 focus:ring-blue-500/20" />
+                              <LooseChangeRow label={t('safe.loose_change')} value={editForm.loose_change} onChange={(v) => setEditForm(p => ({ ...p, loose_change: v }))} accentColor="focus:border-blue-500 focus:ring-blue-500/20" />
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                          {/* Cajas Registradoras */}
+                          <div className="p-4 rounded-xl border border-amber-500/20 bg-amber-500/5 dark:bg-amber-950/10">
+                            <div className="flex items-center justify-between mb-3">
+                              <h4 className="font-bold text-amber-700 dark:text-amber-400 flex items-center gap-2 text-sm">
+                                <CreditCard className="w-4 h-4" /> {t('safe.drawers_section')}
+                              </h4>
+                              <span className="font-bold text-amber-600 dark:text-amber-400 text-sm">
+                                {formatCurrency(editDrawersTotal)}
+                              </span>
+                            </div>
+                            <div className="flex items-center justify-between gap-4 py-2">
+                              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                                {t('safe.num_drawers')} ($250 c/u)
+                              </span>
+                              <input
+                                type="number"
+                                min={1}
+                                max={10}
+                                value={editForm.num_drawers}
+                                onChange={(e) => setEditForm(p => ({ ...p, num_drawers: Math.max(1, parseInt(e.target.value) || 1) }))}
+                                className="w-20 h-11 text-center font-bold border-2 border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 rounded-xl text-gray-900 dark:text-white"
+                              />
+                            </div>
+                          </div>
+
+                          {/* Uniformes */}
+                          <div className="p-4 rounded-xl border border-purple-500/20 bg-purple-500/5 dark:bg-purple-950/10">
+                            <div className="flex items-center justify-between mb-3">
+                              <h4 className="font-bold text-purple-700 dark:text-purple-400 flex items-center gap-2 text-sm">
+                                <Shirt className="w-4 h-4" /> {t('safe.uniforms_section')}
+                              </h4>
+                              <span className="font-bold text-purple-600 dark:text-purple-400 text-sm">
+                                {formatCurrency(editForm.uniforms_amount)}
+                              </span>
+                            </div>
+                            <div className="relative py-2">
+                              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500 font-semibold">$</span>
+                              <input
+                                type="number"
+                                min={0}
+                                step={0.01}
+                                value={editForm.uniforms_amount || ''}
+                                onChange={(e) => setEditForm(p => ({ ...p, uniforms_amount: Math.max(0, parseFloat(e.target.value) || 0) }))}
+                                className="w-full h-11 pl-8 pr-3 font-semibold rounded-xl border-2 border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                              />
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Notas */}
+                        <div>
+                          <label className="text-sm font-semibold text-gray-600 dark:text-gray-400 mb-1.5 block">
+                            {t('safe.notes')}
+                          </label>
+                          <textarea
+                            rows={2}
+                            value={editForm.notes}
+                            onChange={(e) => setEditForm(p => ({ ...p, notes: e.target.value }))}
+                            placeholder={t('safe.notes_placeholder')}
+                            className="w-full p-3 rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-amber-500"
+                          />
+                        </div>
+
+                        {/* Grand Total Summary in Modal */}
+                        <div className="p-4 rounded-xl bg-gradient-to-r from-amber-500 via-emerald-600 to-teal-600 text-white shadow-lg flex items-center justify-between">
+                          <span className="font-bold text-base">{t('safe.grand_total')}</span>
+                          <span className="text-2xl font-extrabold">{formatCurrency(editGrandTotal)}</span>
+                        </div>
+                      </div>
+
+                      {/* Modal Footer */}
+                      <div className="p-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50 flex items-center justify-end gap-3">
+                        <button
+                          onClick={() => setEditingRecord(null)}
+                          className="px-5 py-2.5 rounded-xl border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 font-semibold text-sm hover:bg-gray-100 dark:hover:bg-gray-800 transition-all"
+                        >
+                          {t('safe.confirm_cancel')}
+                        </button>
+                        <button
+                          onClick={handleSaveEdit}
+                          disabled={savingEdit}
+                          className="px-6 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold text-sm shadow-md hover:shadow-lg transition-all flex items-center gap-2 disabled:opacity-50"
+                        >
+                          {savingEdit ? (
+                            <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                          ) : (
+                            <Check className="w-4 h-4" />
+                          )}
+                          {savingEdit ? t('safe.saving') : t('safe.save_changes')}
+                        </button>
+                      </div>
+                    </motion.div>
+                  </motion.div>
                 )}
               </AnimatePresence>
             </motion.div>

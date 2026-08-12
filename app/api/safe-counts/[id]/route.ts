@@ -45,6 +45,9 @@ export async function PUT(
   // Build update object (only include fields that are provided)
   const updateData: Record<string, any> = {}
 
+  if (body.store_id !== undefined) updateData.store_id = body.store_id
+  if (body.business_date !== undefined) updateData.business_date = body.business_date
+
   // Bills
   if (body.bills_100 !== undefined) updateData.bills_100 = parseInt(body.bills_100) || 0
   if (body.bills_50 !== undefined) updateData.bills_50 = parseInt(body.bills_50) || 0

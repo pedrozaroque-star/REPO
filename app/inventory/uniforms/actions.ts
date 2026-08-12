@@ -232,11 +232,14 @@ export async function recordUniformSale(payload: {
   quantity: number, 
   employeeToastGuid?: string, 
   employeeName: string, 
+  transactionType?: 'employee_sale' | 'customer_sale',
+  notes?: string,
   businessDate?: string, 
   userEmail: string 
 }): Promise<{success: boolean, processedQty: number, warning?: string}> {
   const supabase = await getSupabaseAdminClient();
   const bDate = payload.businessDate || getBusinessDate();
+  const txType = payload.transactionType || 'employee_sale';
 
   const { data: pricing } = await supabase
     .from('uniforms_pricing')
@@ -284,7 +287,7 @@ export async function recordUniformSale(payload: {
       store_id: payload.storeId,
       item_category: payload.item_category,
       size: payload.size,
-      transaction_type: 'employee_sale',
+      transaction_type: txType,
       quantity: -processedQty,
       previous_stock: prevQty,
       new_stock: newQty,
@@ -292,6 +295,7 @@ export async function recordUniformSale(payload: {
       total_amount: totalAmount,
       employee_toast_guid: payload.employeeToastGuid,
       employee_name: payload.employeeName,
+      reason: payload.notes || null,
       business_date: bDate,
       created_by: payload.userEmail,
       created_at: new Date().toISOString()
@@ -567,7 +571,7 @@ export async function fetchExecutiveDashboard(): Promise<{
 
     globalTotalStock += totalItems;
     globalTotalSalesAmount += storeTx
-      .filter((tx: any) => tx.transaction_type === 'employee_sale')
+      .filter((tx: any) => tx.transaction_type === 'employee_sale' || tx.transaction_type === 'customer_sale')
       .reduce((sum: number, tx: any) => sum + (tx.total_amount || 0), 0);
     globalDamageExchanges += storeTx.filter((tx: any) => tx.transaction_type === 'damage_exchange').length;
 
@@ -599,7 +603,7 @@ export async function fetchDailySalesTotal(storeId: number, businessDate: string
     .select('total_amount')
     .eq('store_id', storeId)
     .eq('business_date', businessDate)
-    .eq('transaction_type', 'employee_sale');
+    .in('transaction_type', ['employee_sale', 'customer_sale']);
     
   if (error) throw new Error(error.message);
   
@@ -841,4 +845,86 @@ export async function fetchEmployeesForStore(storeId?: number): Promise<Array<{
   });
 
   return Array.from(uniqueMap.values()).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export async function updateUniformTransactionDetails(payload: {
+  transactionId: string,
+  employeeName?: string,
+  reason?: string,
+  userEmail: string
+}): Promise<{ success: boolean }> {
+  const supabase = await getSupabaseAdminClient();
+  
+  const updateData: Record<string, any> = {};
+  if (payload.employeeName !== undefined) updateData.employee_name = payload.employeeName.trim();
+  if (payload.reason !== undefined) updateData.reason = payload.reason.trim();
+
+  if (Object.keys(updateData).length === 0) {
+    return { success: true };
+  }
+
+  const { error } = await supabase
+    .from('uniforms_transactions')
+    .update(updateData)
+    .eq('id', payload.transactionId);
+
+  if (error) throw new Error(error.message);
+  return { success: true };
+}
+
+export async function voidUniformTransaction(payload: {
+  transactionId: string,
+  reason: string,
+  userEmail: string
+}): Promise<{ success: boolean, warning?: string }> {
+  const supabase = await getSupabaseAdminClient();
+
+  const { data: tx, error: fetchErr } = await supabase
+    .from('uniforms_transactions')
+    .select('*')
+    .eq('id', payload.transactionId)
+    .single();
+
+  if (fetchErr || !tx) {
+    throw new Error('Transaction not found');
+  }
+
+  if (tx.reason && tx.reason.includes('[ANULADO]')) {
+    return { success: false, warning: 'La transacción ya está anulada' };
+  }
+
+  const { data: stock } = await supabase
+    .from('uniforms_inventory_stock')
+    .select('quantity_on_hand')
+    .eq('store_id', tx.store_id)
+    .eq('item_category', tx.item_category)
+    .eq('size', tx.size)
+    .single();
+
+  const prevStock = stock ? stock.quantity_on_hand : 0;
+  const reverseDelta = -tx.quantity;
+  const newStock = Math.max(0, prevStock + reverseDelta);
+
+  await supabase
+    .from('uniforms_inventory_stock')
+    .upsert({
+      store_id: tx.store_id,
+      item_category: tx.item_category,
+      size: tx.size,
+      quantity_on_hand: newStock,
+      updated_at: new Date().toISOString()
+    }, { onConflict: 'store_id, item_category, size' });
+
+  const voidTag = `[ANULADO por ${payload.userEmail}]: ${payload.reason.trim()}`;
+  const updatedReason = tx.reason ? `${voidTag} (Original: ${tx.reason})` : voidTag;
+
+  await supabase
+    .from('uniforms_transactions')
+    .update({
+      reason: updatedReason,
+      total_amount: 0,
+    })
+    .eq('id', payload.transactionId);
+
+  return { success: true };
 }
