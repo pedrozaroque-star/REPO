@@ -1969,6 +1969,7 @@ const dictionaries: Record<Language, Dictionary> = {
             orderToday: 'Pedido de Hoy',
             liquidsTitle: 'Orden Líquidos',
             uniformsTitle: 'Orden Uniformes',
+            inStock: 'En Existencia',
             printSheet: 'Imprimir Hoja',
         },
         // DRIVE-THRU LEADERBOARD MODULE
@@ -4315,6 +4316,7 @@ const dictionaries: Record<Language, Dictionary> = {
             orderToday: 'Today\'s Order',
             liquidsTitle: 'Liquids Order',
             uniformsTitle: 'Uniforms Order',
+            inStock: 'In Stock',
             printSheet: 'Print Sheet',
         },
         // DRIVE-THRU LEADERBOARD MODULE
