@@ -29,6 +29,7 @@ import { createClient } from '@supabase/supabase-js'
 import { revalidatePath } from 'next/cache'
 import { addDays, getMonday } from './utils'
 import type { OrderableItem, WeeklyBaseRecord, ParIdealRecord, CalculatedOrderLine } from './utils'
+import { parseUniformCategoryAndSize, getDefaultMinStock } from '../uniforms/utils'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -356,6 +357,64 @@ export async function fetchWeeklyData(storeId: string | number, mondayStr: strin
         if (!countsMap[c.inventory_item_id]) countsMap[c.inventory_item_id] = {}
         countsMap[c.inventory_item_id][c.count_date] = c.quantity_on_hand
     })
+
+    // Auto-sincronizar módulo de uniformes: PAR = Stock Mínimo, Sobrante = En Existencia Real
+    if (orderType === 'uniforms') {
+        const numericStoreId = typeof storeId === 'string' ? parseInt(storeId, 10) : storeId
+        if (!isNaN(numericStoreId)) {
+            const { data: uniformStock } = await supabase
+                .from('uniforms_inventory_stock')
+                .select('*')
+                .eq('store_id', numericStoreId)
+
+            const { data: templateItems } = await supabase
+                .from('store_order_template')
+                .select('inventory_item_id, inventory_items(name, excel_reference)')
+                .eq('order_type', 'uniforms')
+
+            const stockMap = new Map<string, any>()
+            uniformStock?.forEach(s => stockMap.set(`${s.item_category}_${s.size}`, s))
+
+            templateItems?.forEach(t => {
+                const itemId = t.inventory_item_id
+                if (!itemId) return
+
+                const itemObj = t.inventory_items as any
+                const name = itemObj?.excel_reference || itemObj?.name || ''
+                const { category, size } = parseUniformCategoryAndSize(name)
+                if (!category) return
+
+                const stockRow = stockMap.get(`${category}_${size}`)
+                const defaultMin = getDefaultMinStock(category, size)
+                const minStock = (stockRow?.min_stock && stockRow.min_stock > 0) ? stockRow.min_stock : defaultMin
+                const quantityOnHand = stockRow ? Number(stockRow.quantity_on_hand) || 0 : 0
+
+                // Si no hay base manual de esta semana, pre-cargar el Stock Mínimo como PAR
+                if (!basesMap[itemId]) {
+                    basesMap[itemId] = {
+                        inventory_item_id: itemId,
+                        mon_par: minStock,
+                        tue_par: minStock,
+                        wed_par: minStock,
+                        thu_par: minStock,
+                        fri_par: minStock,
+                        sat_par: minStock,
+                        sun_par: minStock
+                    }
+                } else {
+                    // Asegurar que si mon_par es 0 o vacio, tome el Stock Mínimo por defecto
+                    if (!basesMap[itemId].mon_par) basesMap[itemId].mon_par = minStock
+                }
+
+                // Sincronizar automáticamente el Sobrante con la existencia física del módulo de uniformes
+                if (!countsMap[itemId]) countsMap[itemId] = {}
+                for (let d = 0; d < 7; d++) {
+                    const dateStr = addDays(mondayStr, d)
+                    countsMap[itemId][dateStr] = quantityOnHand
+                }
+            })
+        }
+    }
 
     return {
         bases: basesMap,

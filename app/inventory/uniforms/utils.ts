@@ -119,6 +119,56 @@ export function getDefaultMinStock(category: UniformCategory, size: UniformSize)
     return DEFAULT_MIN_STOCK[category]?.[size] ?? 0;
 }
 
+/**
+ * Mapea el nombre de un item de inventario de uniformes (ej: "Team Members Red Small")
+ * a su categoría y talla dentro del módulo de Control de Uniformes.
+ */
+export function parseUniformCategoryAndSize(name: string): { category: UniformCategory | null; size: UniformSize } {
+    const cleanName = (name || '').trim().toLowerCase()
+
+    let category: UniformCategory | null = null
+    if (cleanName.includes('team member') || cleanName.includes('shirt red') || cleanName.includes('camisa roja')) {
+        if (cleanName.includes('chamarra')) category = 'jacket_red'
+        else if (cleanName.includes('gorra')) category = 'cap_red'
+        else category = 'shirt_red'
+    } else if (cleanName.includes('shift leader')) {
+        category = 'shirt_shift_leader'
+    } else if (cleanName.includes('assistant manager')) {
+        category = 'shirt_assistant'
+    } else if (cleanName.includes('store manager')) {
+        category = 'shirt_manager'
+    } else if (cleanName.includes('chamarra negra')) {
+        category = 'jacket_black'
+    } else if (cleanName.includes('chamarra roja')) {
+        category = 'jacket_red'
+    } else if (cleanName.includes('gorra') && cleanName.includes('roja')) {
+        category = 'cap_red'
+    } else if (cleanName.includes('gorra') && cleanName.includes('negra')) {
+        category = 'cap_black'
+    }
+
+    let size: UniformSize = 'ONE_SIZE'
+    if (category === 'cap_red' || category === 'cap_black') {
+        size = 'ONE_SIZE'
+    } else if (cleanName.includes('xxx-large') || cleanName.includes('3xl') || cleanName.includes('xxx-l')) {
+        size = '3XL'
+    } else if (cleanName.includes('xx-large') || cleanName.includes('2xl') || cleanName.includes('xx-l')) {
+        size = '2XL'
+    } else if (cleanName.includes('x-large') || cleanName.includes(' xl') || cleanName.includes('xl') || cleanName.includes('x-l')) {
+        size = 'XL'
+    } else if (cleanName.includes('x-small') || cleanName.includes('xs')) {
+        size = 'XS'
+    } else if (cleanName.includes('small')) {
+        size = 'S'
+    } else if (cleanName.includes('medium')) {
+        size = 'M'
+    } else if (cleanName.includes('large')) {
+        size = 'L'
+    }
+
+    return { category, size }
+}
+
 export const NEW_HIRE_PACKAGE: Array<{ item_category: UniformCategory, quantity: number }> = [
     { item_category: 'shirt_red', quantity: 6 },
     { item_category: 'cap_red', quantity: 1 },

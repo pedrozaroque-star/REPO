@@ -1889,23 +1889,40 @@ export default function InventoryOrdersPage() {
                                         </div>
                                     </div>
 
-                                    {/* ---- Banner Explicativo del Cálculo Teórico ---- */}
-                                    <div className="mx-5 mb-3 p-3 bg-cyan-50/80 border border-cyan-200 rounded-xl flex items-center justify-between gap-3 text-xs text-cyan-900 shadow-2xs">
-                                        <div className="flex items-center gap-2">
-                                            <span className="text-base">🤖</span>
-                                            <div>
-                                                <span className="font-bold text-cyan-950">Fórmula de Sobrante Teórico Sugerido: </span>
-                                                <span className="font-mono font-semibold bg-white px-2 py-0.5 rounded border border-cyan-200 text-cyan-900">
-                                                    Sobrante Ayer + Llegó Hoy AM − Ventas Toast ({selectedOrderDate})
-                                                </span>
+                                    {/* ---- Banner Explicativo de Cálculo ---- */}
+                                    {orderType === 'uniforms' ? (
+                                        <div className="mx-5 mb-3 p-3 bg-emerald-50/90 border border-emerald-200 rounded-xl flex items-center justify-between gap-3 text-xs text-emerald-900 shadow-2xs">
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-base">🎽</span>
+                                                <div>
+                                                    <span className="font-bold text-emerald-950">Sincronización en Vivo con Módulo de Uniformes: </span>
+                                                    <span className="font-medium bg-white px-2 py-0.5 rounded border border-emerald-200 text-emerald-900">
+                                                        PAR = Stock Mínimo | Sobrante = En Existencia Real | Pedir = PAR − Sobrante
+                                                    </span>
+                                                </div>
                                             </div>
-                                        </div>
-                                        {selectedOrderDate === todayStr && (
-                                            <span className="text-[11px] font-semibold text-cyan-800 bg-cyan-100 px-2 py-1 rounded-lg border border-cyan-300">
-                                                💡 Consejo: Cambia a una fecha pasada (ej. <b>◀ Ayer</b>) para auditar ventas cerradas.
+                                            <span className="text-[11px] font-semibold text-emerald-800 bg-emerald-100 px-2 py-1 rounded-lg border border-emerald-300">
+                                                ✨ Captura automática activa. No requiere ingresar sobrantes manualmente.
                                             </span>
-                                        )}
-                                    </div>
+                                        </div>
+                                    ) : (
+                                        <div className="mx-5 mb-3 p-3 bg-cyan-50/80 border border-cyan-200 rounded-xl flex items-center justify-between gap-3 text-xs text-cyan-900 shadow-2xs">
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-base">🤖</span>
+                                                <div>
+                                                    <span className="font-bold text-cyan-950">Fórmula de Sobrante Teórico Sugerido: </span>
+                                                    <span className="font-mono font-semibold bg-white px-2 py-0.5 rounded border border-cyan-200 text-cyan-900">
+                                                        Sobrante Ayer + Llegó Hoy AM − Ventas Toast ({selectedOrderDate})
+                                                    </span>
+                                                </div>
+                                            </div>
+                                            {selectedOrderDate === todayStr && (
+                                                <span className="text-[11px] font-semibold text-cyan-800 bg-cyan-100 px-2 py-1 rounded-lg border border-cyan-300">
+                                                    💡 Consejo: Cambia a una fecha pasada (ej. <b>◀ Ayer</b>) para auditar ventas cerradas.
+                                                </span>
+                                            )}
+                                        </div>
+                                    )}
 
                                     {/* ---- Success banner if already sent to QB ---- */}
                                     {existingOrder?.qb_estimate_number && (
@@ -2139,31 +2156,38 @@ export default function InventoryOrdersPage() {
                                                                     )}
                                                                 </td>
                                                             )}
-                                                            {/* Sobrante (EDITABLE) */}
+                                                            {/* Sobrante (AUTO-FILLED FOR UNIFORMS, EDITABLE FOR OTHERS) */}
                                                             <td className="p-0 border-b border-orange-200 bg-orange-50/30">
-                                                                <div className="relative flex items-center">
-                                                                    <input
-                                                                        id={`input_${rowIndex}_0`}
-                                                                        type="number"
-                                                                        placeholder={t('bodegaOrders.enterLeftover')}
-                                                                        className="w-full p-2.5 text-center outline-none bg-transparent focus:bg-white focus:ring-2 focus:ring-orange-400 font-bold text-orange-800 text-sm placeholder:text-orange-300 placeholder:text-xs placeholder:font-normal border-l-[3px] border-l-orange-400"
-                                                                        value={currentLeftover !== undefined ? currentLeftover : ''}
-                                                                        onChange={e => handleInlineLeftoverChange(line.inventory_item_id, e.target.value)}
-                                                                        onKeyDown={e => handleGridKeyDown(e, rowIndex, 0)}
-                                                                        onFocus={e => e.target.select()}
-                                                                    />
-                                                                    {line.variance !== null && line.variance !== undefined && currentLeftover !== undefined && (
-                                                                        <span className={`absolute right-1 text-[9px] px-1 py-0.5 rounded font-black ${
-                                                                            line.variance === 0
-                                                                                ? 'bg-emerald-100 text-emerald-800'
-                                                                                : line.variance < 0
-                                                                                ? 'bg-amber-100 text-amber-800'
-                                                                                : 'bg-red-100 text-red-800'
-                                                                        }`} title={`Varianza: ${line.variance > 0 ? '+' : ''}${line.variance}`}>
-                                                                            {line.variance > 0 ? `+${line.variance}` : line.variance}
-                                                                        </span>
-                                                                    )}
-                                                                </div>
+                                                                {orderType === 'uniforms' ? (
+                                                                    <div className="px-3 py-2 text-center font-extrabold text-xs text-emerald-800 bg-emerald-50/70 border-l-[3px] border-l-emerald-500 flex items-center justify-center gap-1 shadow-2xs" title="Sincronizado automáticamente desde En Existencia del Módulo de Uniformes">
+                                                                        <span>🎽 {currentLeftover !== undefined ? currentLeftover : 0}</span>
+                                                                        <span className="text-[10px] text-emerald-600 font-medium">({t('bodegaOrders.inStock') || 'En Existencia'})</span>
+                                                                    </div>
+                                                                ) : (
+                                                                    <div className="relative flex items-center">
+                                                                        <input
+                                                                            id={`input_${rowIndex}_0`}
+                                                                            type="number"
+                                                                            placeholder={t('bodegaOrders.enterLeftover')}
+                                                                            className="w-full p-2.5 text-center outline-none bg-transparent focus:bg-white focus:ring-2 focus:ring-orange-400 font-bold text-orange-800 text-sm placeholder:text-orange-300 placeholder:text-xs placeholder:font-normal border-l-[3px] border-l-orange-400"
+                                                                            value={currentLeftover !== undefined ? currentLeftover : ''}
+                                                                            onChange={e => handleInlineLeftoverChange(line.inventory_item_id, e.target.value)}
+                                                                            onKeyDown={e => handleGridKeyDown(e, rowIndex, 0)}
+                                                                            onFocus={e => e.target.select()}
+                                                                        />
+                                                                        {line.variance !== null && line.variance !== undefined && currentLeftover !== undefined && (
+                                                                            <span className={`absolute right-1 text-[9px] px-1 py-0.5 rounded font-black ${
+                                                                                line.variance === 0
+                                                                                    ? 'bg-emerald-100 text-emerald-800'
+                                                                                    : line.variance < 0
+                                                                                    ? 'bg-amber-100 text-amber-800'
+                                                                                    : 'bg-red-100 text-red-800'
+                                                                            }`} title={`Varianza: ${line.variance > 0 ? '+' : ''}${line.variance}`}>
+                                                                                {line.variance > 0 ? `+${line.variance}` : line.variance}
+                                                                            </span>
+                                                                        )}
+                                                                    </div>
+                                                                )}
                                                             </td>
                                                             {/* Pedir (calculated) */}
                                                             <td className={`p-2 text-center font-bold border-b ${
