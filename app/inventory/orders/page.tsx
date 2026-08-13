@@ -189,22 +189,31 @@ export default function InventoryOrdersPage() {
         const gallons = champurradoForecast.suggested_daily_gallons ?? 0
         const years = champurradoForecast.historical_years_count ?? 0
         const confidence = champurradoForecast.confidence ?? 'NONE'
-        const confColor = confidence === 'HIGH' ? 'text-emerald-400' : confidence === 'MEDIUM' ? 'text-amber-400' : 'text-red-400'
+
+        // No mostrar tooltip si no hay datos útiles
+        if (confidence === 'NONE' || gallons <= 0) return <span className={className}>{name}</span>;
+
+        const confLabel = confidence === 'HIGH' ? (language === 'es' ? 'Alta' : 'High') : confidence === 'MEDIUM' ? (language === 'es' ? 'Media' : 'Medium') : (language === 'es' ? 'Baja' : 'Low')
+        const confColor = confidence === 'HIGH' ? 'bg-emerald-500' : confidence === 'MEDIUM' ? 'bg-amber-500' : 'bg-red-500'
 
         return (
             <div className="flex items-center gap-1.5">
                 <span className={className}>{name}</span>
                 <div className="group relative flex items-center">
-                    <span className="cursor-help bg-amber-500/20 border border-amber-500/50 text-amber-700 rounded-full w-5 h-5 flex items-center justify-center text-[10px] shrink-0" title={`IA: ~${gallons} gal/día`}>☕</span>
-                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-72 p-3 bg-slate-900 text-white text-xs rounded-lg shadow-xl opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-[100] border border-slate-700">
-                        <div className="font-bold text-amber-300 mb-1.5 text-[13px]">
-                            {t('bodegaOrders.champurradoSuggestion').replace('{gallons}', String(gallons))}
+                    <span className="cursor-help bg-amber-500/20 border border-amber-500/50 text-amber-700 rounded-full w-5 h-5 flex items-center justify-center text-[10px] shrink-0" title={`~${gallons} gal/día`}>☕</span>
+                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-64 p-3 bg-slate-900 text-white text-xs rounded-lg shadow-xl opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-[100] border border-slate-700">
+                        <div className="font-bold text-amber-300 mb-2 text-sm">
+                            ☕ ~{gallons} {language === 'es' ? 'galones/día' : 'gallons/day'}
                         </div>
-                        <div className="text-slate-300 mb-1">
-                            {t('bodegaOrders.champurradoHistory').replace('{years}', String(years))}
+                        <div className="text-slate-300 mb-2 leading-relaxed">
+                            {language === 'es'
+                                ? `En años anteriores, esta misma semana del año se vendieron ~${gallons} galones por día en promedio.`
+                                : `In previous years, this same week of the year sold ~${gallons} gallons per day on average.`
+                            }
                         </div>
-                        <div className={`${confColor} font-semibold`}>
-                            {t('bodegaOrders.champurradoConfidence').replace('{level}', confidence)}
+                        <div className="flex items-center gap-2">
+                            <span className={`${confColor} text-white text-[10px] font-bold px-2 py-0.5 rounded-full`}>{confLabel}</span>
+                            <span className="text-slate-400">{years} {language === 'es' ? (years === 1 ? 'año de datos' : 'años de datos') : (years === 1 ? 'year of data' : 'years of data')}</span>
                         </div>
                         <div className="absolute top-full left-1/2 -translate-x-1/2 w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-t-[6px] border-t-slate-900"></div>
                     </div>
