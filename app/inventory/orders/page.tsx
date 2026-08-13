@@ -166,6 +166,47 @@ export default function InventoryOrdersPage() {
     const [copyTgtDay, setCopyTgtDay] = useState<string>('all')
     const [parBoostPercent, setParBoostPercent] = useState<number>(0)
 
+    const [champurradoForecast, setChampurradoForecast] = useState<any>(null)
+
+    useEffect(() => {
+        if (!storeId) return
+        fetch(`/api/inventory/champurrado-forecast?storeId=${storeId}`)
+            .then(res => res.json())
+            .then(data => {
+                if (!data.error) {
+                    setChampurradoForecast(data)
+                }
+            })
+            .catch(console.error)
+    }, [storeId])
+
+    const renderItemName = (name: string, className: string = "font-semibold") => {
+        if (!name) return name;
+        const isChampurrado = name.toLowerCase().includes('champurrado')
+        
+        if (!isChampurrado || !champurradoForecast) return <span className={className}>{name}</span>;
+
+        return (
+            <div className="flex items-center gap-2">
+                <span className={className}>{name}</span>
+                <div className="group relative flex items-center">
+                    <span className="cursor-help bg-amber-500/20 border border-amber-500/50 text-amber-600 rounded-full w-5 h-5 flex items-center justify-center text-xs">☕</span>
+                    <div className="absolute left-full ml-2 w-64 p-2 bg-slate-800 text-white text-xs rounded shadow-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
+                        <div className="font-semibold text-amber-300 mb-1">
+                            {t('bodegaOrders.champurradoSuggestion').replace('{gallons}', String(champurradoForecast.suggested_daily_gallons))}
+                        </div>
+                        <div className="text-slate-300">
+                            {t('bodegaOrders.champurradoHistory').replace('{years}', String(champurradoForecast.historical_years_count))}
+                        </div>
+                        <div className="text-slate-400 mt-1">
+                            {t('bodegaOrders.champurradoConfidence').replace('{level}', champurradoForecast.confidence)}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        )
+    }
+
     // Computed
     const todayStr = getLocalBusinessDate(new Date())
     const isCurrentWeek = activeMonday === getMonday(new Date(todayStr + 'T12:00:00'))
@@ -1430,7 +1471,7 @@ export default function InventoryOrdersPage() {
                                                     <tr key={line.id || index} className="border-b border-slate-100 hover:bg-slate-50/50 transition-colors">
                                                         {/* Producto */}
                                                         <td className="p-2 sm:p-3">
-                                                            <span className="font-semibold text-slate-800 leading-tight text-[11px] sm:text-[13px]">{line.item_name}</span>
+                                                            {renderItemName(line.item_name, "font-semibold text-slate-800 leading-tight text-[11px] sm:text-[13px]")}
                                                         </td>
                                                         {/* Empaque (QB) */}
                                                         <td className="p-2 text-center text-slate-600 font-medium text-xs">
@@ -1552,7 +1593,7 @@ export default function InventoryOrdersPage() {
                                                             }}
                                                             className="w-full px-4 py-2.5 text-left text-sm hover:bg-slate-50 transition-colors flex items-center justify-between border-b border-slate-100 last:border-0"
                                                         >
-                                                            <span className="font-semibold text-slate-800">{item.name}</span>
+                                                            {renderItemName(item.name, "font-semibold text-slate-800")}
                                                             <span className="text-xs text-slate-400 font-medium">({item.unit_type})</span>
                                                         </button>
                                                     ))
@@ -2111,7 +2152,7 @@ export default function InventoryOrdersPage() {
                                                             className={`transition-colors border-b border-slate-100 ${isNegative ? 'bg-red-50/30' : finalQty > 0 ? 'hover:bg-blue-50/20' : 'hover:bg-slate-50/50'}`}>
                                                             {/* Producto */}
                                                             <td className="sticky left-0 bg-white border-b border-slate-100 p-2.5 z-10 shadow-[2px_0_5px_rgba(0,0,0,0.03)] w-72 min-w-[220px] max-w-[300px]">
-                                                                <span className="font-semibold text-slate-800">{line.item_name}</span>
+                                                                {renderItemName(line.item_name, "font-semibold text-slate-800")}
                                                             </td>
                                                             {/* Empaque (QB) */}
                                                             <td className="p-2.5 text-left text-slate-600 border-b border-slate-100 font-medium text-xs w-52 min-w-[160px]">
@@ -2267,7 +2308,7 @@ export default function InventoryOrdersPage() {
                                                                         {line.unit_description && (
                                                                             <span className="text-[10px] text-slate-400 font-medium leading-tight">{line.unit_description}</span>
                                                                         )}
-                                                                        <span className="font-semibold text-indigo-900">{line.item_name}</span>
+                                                                        {renderItemName(line.item_name, "font-semibold text-indigo-900")}
                                                                     </div>
                                                                 </div>
                                                             </td>
@@ -2345,7 +2386,7 @@ export default function InventoryOrdersPage() {
                                                                     {line.unit_description && (
                                                                         <span className="text-[10px] text-slate-400 font-medium leading-tight">{line.unit_description}</span>
                                                                     )}
-                                                                    <span className="font-semibold text-slate-500">{line.item_name}</span>
+                                                                    {renderItemName(line.item_name, "font-semibold text-slate-500")}
                                                                 </div>
                                                             </td>
                                                             {/* Empaque (QB) */}
@@ -2444,7 +2485,7 @@ export default function InventoryOrdersPage() {
                                                                 }}
                                                                 className="w-full px-4 py-2.5 text-left text-sm hover:bg-slate-50 transition-colors flex items-center justify-between border-b border-slate-100 last:border-0"
                                                             >
-                                                                <span className="font-semibold text-slate-800">{item.name}</span>
+                                                                {renderItemName(item.name, "font-semibold text-slate-800")}
                                                                 <span className="text-xs text-slate-400 font-medium">({item.unit_type})</span>
                                                             </button>
                                                         ))
@@ -2712,7 +2753,7 @@ export default function InventoryOrdersPage() {
                                                         <td className="sticky left-0 bg-white border-b border-slate-100 p-2.5 font-semibold text-slate-800 shadow-[2px_0_5px_rgba(0,0,0,0.03)] z-10">
                                                             <div className="flex flex-col">
                                                                 <span className="text-[10px] text-slate-400 font-medium leading-tight">{item.order_unit_description || ''}</span>
-                                                                <span>{item.excel_reference || item.name}</span>
+                                                                {renderItemName(item.excel_reference || item.name, "")}
                                                             </div>
                                                         </td>
                                                         {orderType === 'daily' ? (
@@ -3099,7 +3140,7 @@ export default function InventoryOrdersPage() {
                                                                         {item.order_unit_description && (
                                                                             <span className="text-[10px] text-slate-400 font-medium leading-tight">{item.order_unit_description}</span>
                                                                         )}
-                                                                        <span className="font-semibold text-slate-800 text-xs">{item.excel_reference || item.name}</span>
+                                                                        {renderItemName(item.excel_reference || item.name, "font-semibold text-slate-800 text-xs")}
                                                                     </div>
                                                                 </td>
                                                                 {historyWeekDays.map(d => {

@@ -1971,6 +1971,9 @@ const dictionaries: Record<Language, Dictionary> = {
             uniformsTitle: 'Orden Uniformes',
             inStock: 'En Existencia',
             printSheet: 'Imprimir Hoja',
+            champurradoSuggestion: '☕ Sugerencia IA: ~{gallons} galones/día esta semana',
+            champurradoHistory: 'Basado en {years} años de historial (misma semana)',
+            champurradoConfidence: 'Confianza: {level}',
         },
         // DRIVE-THRU LEADERBOARD MODULE
         drive_thru: {
@@ -2252,7 +2255,13 @@ const dictionaries: Record<Language, Dictionary> = {
                 request_replenishment: 'Pedir Reposición a Bodega',
                 reorder_modal_title: 'Solicitud de Reposición a La Bodega',
                 suggested_order: 'Pedido Sugerido',
-                go_to_bodega_orders: 'Ir a Orden de Bodega'
+                go_to_bodega_orders: 'Ir a Orden de Bodega',
+                edit_min_stock: 'Editar Stock Mínimo',
+                min_stock_modal_title: 'Configuración Global de Stock Mínimo',
+                min_stock_desc: 'Establece el stock mínimo requerido por prenda y talla para TODAS las sucursales de Tacos Gavilan (15 tiendas). Cuando las existencias caigan a esta cantidad o menos en cualquier restaurante, el sistema alertará automáticamente la reposición a La Bodega.',
+                global_scope_badge: '🌐 Configuración Global (Aplica a las 15 Tiendas)',
+                save_min_stock: 'Guardar Metas Globales',
+                reset_defaults: 'Restablecer Valores Defecto'
             },
             sales: {
                 title: 'Nueva Venta / Entrega',
@@ -4318,6 +4327,9 @@ const dictionaries: Record<Language, Dictionary> = {
             uniformsTitle: 'Uniforms Order',
             inStock: 'In Stock',
             printSheet: 'Print Sheet',
+            champurradoSuggestion: '☕ AI Suggestion: ~{gallons} gallons/day this week',
+            champurradoHistory: 'Based on {years} years of history (same week)',
+            champurradoConfidence: 'Confidence: {level}',
         },
         // DRIVE-THRU LEADERBOARD MODULE
         drive_thru: {
@@ -4599,7 +4611,13 @@ const dictionaries: Record<Language, Dictionary> = {
                 request_replenishment: 'Request Replenishment',
                 reorder_modal_title: 'Warehouse Replenishment Order Request',
                 suggested_order: 'Suggested Order',
-                go_to_bodega_orders: 'Go to Bodega Orders'
+                go_to_bodega_orders: 'Go to Bodega Orders',
+                edit_min_stock: 'Edit Minimum Stock',
+                min_stock_modal_title: 'Global Minimum Stock Configuration',
+                min_stock_desc: 'Set target minimum inventory thresholds by garment and size for ALL Tacos Gavilan store locations (15 stores). When stock reaches or falls below this count in any store, the system will alert for replenishment from La Bodega.',
+                global_scope_badge: '🌐 Global Settings (Applies to all 15 Stores)',
+                save_min_stock: 'Save Global Targets',
+                reset_defaults: 'Reset to Defaults'
             },
             sales: {
                 title: 'New Sale / Issue',

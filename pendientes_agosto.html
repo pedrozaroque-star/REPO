@@ -1999,6 +1999,18 @@
                                 </td>
                             </tr>
                             <tr>
+                                <td><strong>12-Aug-2026</strong></td>
+                                <td>1:15 PM - 1:35 PM</td>
+                                <td style="text-align: center; font-weight: 700;">0.33</td>
+                                <td><span class="table-badge-module">Inventario</span> <span class="table-badge-module">Stock Mínimo</span> <span class="table-badge-module">Configuración</span></td>
+                                <td>
+                                    <div class="lang-split">
+                                         <div class="es-desc">- **Control de Uniformes (Editor de Stock Mínimo por Prenda y Talla)**: Desarrollo del editor interactivo de metas de stock mínimo (`MinStockModal`) accesible para Admins y Supervisores. Permite personalizar los umbrales mínimos por prenda/talla para cada sucursal en `uniforms_inventory_stock`, con opción para restablecer a los valores predeterminados de la marca, actualizar las alertas de reposición a La Bodega en tiempo real y persistir los cambios mediante la Server Action `updateUniformMinStock`.</div>
+                                         <div class="en-desc">- **Uniforms Control (Minimum Stock Target Editor by Garment & Size)**: Developed interactive minimum stock target editor (`MinStockModal`) accessible for Admins and Supervisors. Allows customizing min stock thresholds per garment/size for each store in `uniforms_inventory_stock`, featuring a one-click reset to brand defaults, real-time alert calculation for warehouse replenishment orders, and persistent saving via `updateUniformMinStock` Server Action.</div>
+                                    </div>
+                                </td>
+                            </tr>
+                            <tr>
                                 <td><strong>11-Aug-2026</strong></td>
                                 <td>7:10 PM - 7:25 PM</td>
                                 <td style="text-align: center; font-weight: 700;">0.25</td>
@@ -2007,6 +2019,18 @@
                                     <div class="lang-split">
                                          <div class="es-desc">- **Caja Fuerte (Edición de Conteos para Supervisores y Admins)**: Implementación de edición de registros del historial de caja fuerte para corregir errores de captura. Habilitado para roles Supervisor y Admin con modal interactivo responsivo, actualización de billetes, cambio BOA, cajas y uniformes con recálculo dinámico de totales en `PUT /api/safe-counts/[id]`, y sincronización del prompt del Asistente IA.</div>
                                          <div class="en-desc">- **Safe Management (Count Editing for Supervisors & Admins)**: Implemented editing for historical safe count records to allow correcting capture errors. Enabled for Supervisor and Admin roles with an interactive responsive modal, live breakdown recalculations for bills, coin rolls, registers, and uniforms via `PUT /api/safe-counts/[id]`, and TEG Assistant prompt synchronization.</div>
+                                    </div>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td><strong>13-Aug-2026</strong></td>
+                                <td>8:40 AM - 9:05 AM</td>
+                                <td style="text-align: center; font-weight: 700;">2.50</td>
+                                <td><span class="table-badge-module">Preparador</span> <span class="table-badge-module">Champurrado</span> <span class="table-badge-module">Orden Bodega</span> <span class="table-badge-module">IA Estacional</span></td>
+                                <td>
+                                    <div class="lang-split">
+                                         <div class="es-desc">- **Preparador (Champurrado en Cocina Trasera)**: Integración de tarjeta ☕ CHAMPURRADO al carrusel de Cocina Trasera en grid 3×2 con estilizado ámbar distintivo. Unidad cambiada de porciones a galones (1 galón = 20 vasos). Panel izquierdo ensanchado de 50% a 60%.<br>- **Corrección de Bug (Acelerador Intraday)**: Fix de cálculos de CHAMPURRADO y AGUACATE que perdían el multiplicador intelligenceAcelerador al sobreescribir la variable val.<br>- **API Pronóstico Estacional**: Nuevo endpoint `/api/inventory/champurrado-forecast` que consulta 5 años de historial usando comparación de semana ISO. Retorna galones sugeridos/día con nivel de confianza (HIGH/MEDIUM/LOW/NONE). Incluye fallback JavaScript sin necesidad de funciones SQL.<br>- **Migración SQL**: Creación de RPCs `get_champurrado_seasonal_forecast` y `get_seasonal_avg_gallons` en Supabase para cálculos optimizados por semana ISO.<br>- **Tooltip IA en Pedidos a Bodega**: Productos con 'champurrado' muestran icono ☕ con tooltip mostrando sugerencia IA de galones/día basada en historial estacional (solo informativo, no modifica PAR).<br>- **i18n**: Claves bilingües para sugerencias de champurrado agregadas en ambos diccionarios (ES/EN).</div>
+                                         <div class="en-desc">- **Preparador (Champurrado in Back Kitchen Carousel)**: Added ☕ CHAMPURRADO card to the Back Kitchen carousel in 3×2 grid with distinctive amber accent styling. Unit changed from portions to gallons (1 gallon = 20 cups). Left panel widened from 50% to 60%.<br>- **Bug Fix (Intraday Accelerator)**: Fixed CHAMPURRADO and AGUACATE calculations that lost the intelligenceAcelerador multiplier when overwriting the val variable.<br>- **Seasonal Forecast API**: New endpoint `/api/inventory/champurrado-forecast` querying 5 years of historical data using ISO week comparison. Returns suggested daily gallons with confidence level (HIGH/MEDIUM/LOW/NONE). Includes JavaScript fallback without SQL functions.<br>- **SQL Migration**: Created RPCs `get_champurrado_seasonal_forecast` and `get_seasonal_avg_gallons` in Supabase for optimized ISO week calculations.<br>- **AI Tooltip in Bodega Orders**: Items containing 'champurrado' display a ☕ icon with hover tooltip showing AI-suggested gallons/day based on seasonal history (informational only, does NOT modify PAR values).<br>- **i18n**: Bilingual keys for champurrado suggestions added to both dictionaries (ES/EN).</div>
                                     </div>
                                 </td>
                             </tr>

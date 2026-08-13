@@ -770,7 +770,7 @@ export default function BodegaPWA() {
                 {!hasAlert ? (
                     <div className="w-full h-full flex flex-col lg:flex-row gap-8 items-stretch justify-center max-w-[1600px] mx-auto animate-in fade-in duration-500 py-4">
                         {/* LADO IZQUIERDO: RITMO DE COCCIÓN (Cabeza y Lengua) */}
-                        <div className="w-full lg:w-1/2 bg-slate-900 border border-slate-800 rounded-3xl p-6 md:p-10 flex flex-col shadow-2xl relative overflow-hidden shrink-0 lg:shrink">
+                        <div className="w-full lg:w-3/5 bg-slate-900 border border-slate-800 rounded-3xl p-6 md:p-10 flex flex-col shadow-2xl relative overflow-hidden shrink-0 lg:shrink">
                             {/* Decorative glow */}
                             <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 to-indigo-500" />
                             
@@ -868,10 +868,11 @@ export default function BodegaPWA() {
                                                             let typeLab = m.meat_type;
                                                             
                                                             if (m.meat_type === 'CHAMPURRADO') {
-                                                                val = m.avg_lbs / 20;
-                                                                unitLab = 'porciones';
+                                                                val = (m.avg_lbs * intelligenceAcelerador) / 20;
+                                                                unitLab = 'galones';
+                                                                typeLab = '☕ CHAMPURRADO';
                                                             } else if (m.meat_type === 'AGUACATE') {
-                                                                val = m.avg_lbs / 2;
+                                                                val = (m.avg_lbs * intelligenceAcelerador) / 2;
                                                                 unitLab = 'bolsas';
                                                                 typeLab = 'GUACAMOLE';
                                                             } else if (m.meat_type === 'FRIJOL MOLIDO') {
@@ -888,24 +889,34 @@ export default function BodegaPWA() {
                                                             const manualKey = `${intervalStart}_${m.meat_type}`
                                                             const manualScheduledLbs = manualWeeklySchedule[manualKey] !== undefined ? manualWeeklySchedule[manualKey] : maxVal
 
+                                                            const isChampurrado = m.meat_type === 'CHAMPURRADO';
+
                                                             return (
-                                                                <div key={m.meat_type} className={`rounded-xl md:rounded-2xl flex flex-col items-center justify-center border shadow-md ${isTop ? 'bg-slate-950/50 p-3 md:p-5 border-slate-700/50' : 'bg-slate-950/30 p-2 md:p-4 border-slate-800'}`}>
-                                                                    <span className={`font-black uppercase tracking-widest mb-1 md:mb-2 text-center leading-none ${isTop ? 'text-lg xl:text-2xl text-slate-200' : 'text-sm md:text-lg text-slate-400'}`}>{typeLab}</span>
+                                                                <div key={m.meat_type} className={`rounded-xl md:rounded-2xl flex flex-col items-center justify-center border shadow-md ${
+                                                                    isChampurrado 
+                                                                        ? (isTop ? 'bg-amber-950/30 p-3 md:p-5 border-amber-600/50 shadow-amber-500/10' : 'bg-amber-950/20 p-2 md:p-4 border-amber-800/30')
+                                                                        : (isTop ? 'bg-slate-950/50 p-3 md:p-5 border-slate-700/50' : 'bg-slate-950/30 p-2 md:p-4 border-slate-800')
+                                                                }`}>
+                                                                    <span className={`font-black uppercase tracking-widest mb-1 md:mb-2 text-center leading-none ${
+                                                                        isChampurrado
+                                                                            ? (isTop ? 'text-base xl:text-xl text-amber-300' : 'text-sm md:text-base text-amber-400/60')
+                                                                            : (isTop ? 'text-lg xl:text-2xl text-slate-200' : 'text-sm md:text-lg text-slate-400')
+                                                                    }`}>{typeLab}</span>
                                                                     {cardDisplayMode === 'manual' ? (
                                                                         <div className="flex flex-col items-center justify-center">
-                                                                            <span className={`font-black tracking-tighter flex items-baseline gap-1.5 ${isTop ? 'text-6xl xl:text-8xl text-purple-400' : 'text-4xl md:text-5xl text-purple-300'}`}>
-                                                                                {manualScheduledLbs} <span className={`font-black opacity-60 ${isTop ? 'text-xl xl:text-3xl text-slate-300' : 'text-sm md:text-lg text-slate-400'}`}>{unitLab}</span>
+                                                                            <span className={`font-black tracking-tighter flex items-baseline gap-1.5 ${isTop ? `text-5xl xl:text-7xl ${isChampurrado ? 'text-amber-400' : 'text-purple-400'}` : `text-3xl md:text-4xl ${isChampurrado ? 'text-amber-300' : 'text-purple-300'}`}`}>
+                                                                                {manualScheduledLbs} <span className={`font-black opacity-60 ${isTop ? 'text-xl xl:text-2xl text-slate-300' : 'text-sm md:text-lg text-slate-400'}`}>{unitLab}</span>
                                                                             </span>
                                                                         </div>
                                                                     ) : cardDisplayMode === 'basic' ? (
                                                                         <div className="flex flex-col items-center justify-center">
-                                                                            <span className={`font-black tracking-tighter flex items-baseline gap-1.5 ${isTop ? 'text-6xl xl:text-8xl text-white' : 'text-4xl md:text-5xl text-slate-300'}`}>
-                                                                                {maxVal} <span className={`font-black opacity-60 ${isTop ? 'text-xl xl:text-3xl text-slate-300' : 'text-sm md:text-lg text-slate-400'}`}>{unitLab}</span>
+                                                                            <span className={`font-black tracking-tighter flex items-baseline gap-1.5 ${isTop ? `text-5xl xl:text-7xl ${isChampurrado ? 'text-amber-200' : 'text-white'}` : `text-3xl md:text-4xl ${isChampurrado ? 'text-amber-300/70' : 'text-slate-300'}`}`}>
+                                                                                {maxVal} <span className={`font-black opacity-60 ${isTop ? 'text-xl xl:text-2xl text-slate-300' : 'text-sm md:text-lg text-slate-400'}`}>{unitLab}</span>
                                                                             </span>
                                                                         </div>
                                                                     ) : (
-                                                                        <span className={`font-black tracking-tighter flex items-baseline gap-1.5 ${isTop ? 'text-5xl xl:text-7xl text-white' : 'text-3xl md:text-4xl text-slate-300'}`}>
-                                                                            {val.toFixed(1)} <span className={`font-black opacity-60 ${isTop ? 'text-lg xl:text-2xl text-slate-400' : 'text-xs md:text-base text-slate-500'}`}>{unitLab}</span>
+                                                                        <span className={`font-black tracking-tighter flex items-baseline gap-1.5 ${isTop ? `text-4xl xl:text-6xl ${isChampurrado ? 'text-amber-200' : 'text-white'}` : `text-2xl md:text-3xl ${isChampurrado ? 'text-amber-300/70' : 'text-slate-300'}`}`}>
+                                                                            {val.toFixed(1)} <span className={`font-black opacity-60 ${isTop ? 'text-lg xl:text-xl text-slate-400' : 'text-xs md:text-base text-slate-500'}`}>{unitLab}</span>
                                                                         </span>
                                                                     )}
                                                                 </div>
@@ -913,10 +924,10 @@ export default function BodegaPWA() {
 
                                                         return (
                                                             <div className="flex flex-col gap-3 lg:gap-4">
-                                                                <div className="grid grid-cols-2 lg:grid-cols-2 gap-3 lg:gap-4">
-                                                                    {['CABEZA', 'LENGUA'].map(renderMeatCard)}
+                                                                <div className="grid grid-cols-3 gap-3 lg:gap-4">
+                                                                    {['CABEZA', 'LENGUA', 'CHAMPURRADO'].map(renderMeatCard)}
                                                                 </div>
-                                                                <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 lg:gap-4">
+                                                                <div className="grid grid-cols-3 gap-3 lg:gap-4">
                                                                     {['AGUACATE', 'FRIJOL MOLIDO', 'ARROZ'].map(renderMeatCard)}
                                                                 </div>
                                                             </div>
@@ -939,7 +950,7 @@ export default function BodegaPWA() {
                         </div>
 
                         {/* LADO DERECHO: ESTADO SISTEMA (ESPERA) */}
-                        <div className="w-full lg:w-1/2 flex flex-col items-center justify-center opacity-30 animate-pulse py-10 lg:py-0 shrink-0 lg:shrink">
+                        <div className="w-full lg:w-2/5 flex flex-col items-center justify-center opacity-30 animate-pulse py-10 lg:py-0 shrink-0 lg:shrink">
                             <CheckCircle2 size={160} className="text-white mb-6 md:mb-10 w-32 h-32 md:w-40 md:h-40 shrink-0" />
                             <h2 className="text-3xl md:text-5xl font-black text-white tracking-widest text-center">SYSTEM ON STANDBY</h2>
                             <p className="text-xl md:text-2xl text-white/70 mt-4 md:mt-6 text-center">No pending line orders.</p>
