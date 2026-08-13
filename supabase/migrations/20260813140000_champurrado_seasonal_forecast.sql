@@ -1,6 +1,7 @@
 -- Función RPC para Pronóstico Estacional de Champurrado (5 años)
 -- Compara la misma semana del calendario de años anteriores para predecir demanda
--- Esto resuelve la limitación de get_meat_history_avg que solo mira 3 meses atrás
+-- CORRECCIÓN: raw_lbs son libras reales (convertidas de oz en el CRON sync)
+-- 1 Galón = 8 libras de líquido (128 oz / 16 oz per lb), NO 20
 
 CREATE OR REPLACE FUNCTION get_champurrado_seasonal_forecast(
     p_store_id BIGINT,
@@ -24,9 +25,9 @@ BEGIN
     SELECT 
         EXTRACT(YEAR FROM m.business_date)::INT AS year_label,
         v_target_week AS iso_week,
-        -- 1 Galón = 20 vasos/porciones de Champurrado
-        ROUND((SUM(m.raw_lbs) / NULLIF(COUNT(DISTINCT m.business_date), 0) / 20.0)::NUMERIC, 1) AS avg_daily_gallons,
-        ROUND((MAX(daily_totals.day_total) / 20.0)::NUMERIC, 1) AS max_daily_gallons,
+        -- 1 Galón = 8 libras de líquido (128 oz / 16 oz per lb)
+        ROUND((SUM(m.raw_lbs) / NULLIF(COUNT(DISTINCT m.business_date), 0) / 8.0)::NUMERIC, 1) AS avg_daily_gallons,
+        ROUND((MAX(daily_totals.day_total) / 8.0)::NUMERIC, 1) AS max_daily_gallons,
         COUNT(DISTINCT m.business_date)::INT AS total_days_with_data,
         ROUND((SUM(m.raw_lbs) / NULLIF(COUNT(DISTINCT m.business_date), 0))::NUMERIC, 1) AS avg_daily_raw_units
     FROM public.meat_consumption_history m
@@ -68,7 +69,8 @@ BEGIN
     v_target_week := EXTRACT(WEEK FROM p_target_date)::INT;
     
     SELECT 
-        ROUND((SUM(raw_lbs) / NULLIF(COUNT(DISTINCT business_date), 0) / 20.0)::NUMERIC, 1),
+        -- 1 Galón = 8 libras de líquido (128 oz / 16 oz per lb)
+        ROUND((SUM(raw_lbs) / NULLIF(COUNT(DISTINCT business_date), 0) / 8.0)::NUMERIC, 1),
         COUNT(DISTINCT EXTRACT(YEAR FROM business_date))::INT
     INTO v_avg, v_years
     FROM public.meat_consumption_history

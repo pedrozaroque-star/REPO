@@ -3,7 +3,8 @@
  * @description API endpoint que retorna el pronóstico estacional de Champurrado
  *   basado en datos históricos de 5 años (misma semana ISO del calendario).
  * @businessRules
- *   - 1 Galón = 20 vasos/porciones
+ *   - raw_lbs en meat_consumption_history son libras reales (convertidas de oz en el CRON)
+ *   - 1 Galón = 8 libras de líquido (128 oz / 16 oz per lb)
  *   - Consulta la misma semana del calendario en años anteriores (no solo 3 meses)
  *   - Confidence: HIGH (3+ años), MEDIUM (2 años), LOW (1 año), NONE (sin datos)
  * @dataFlow meat_consumption_history → RPC get_seasonal_avg_gallons → JSON response
@@ -81,8 +82,8 @@ export async function GET(request: Request) {
     const numYears = distinctYears.size;
     let avgGallons = 0;
     if (numDays > 0) {
-      // 1 gallon = 20 lbs/portions
-      avgGallons = totalLbs / numDays / 20;
+      // 1 galón = 8 libras de líquido (128 oz / 16 oz per lb)
+      avgGallons = totalLbs / numDays / 8;
     }
 
     let confidence = 'NONE';
