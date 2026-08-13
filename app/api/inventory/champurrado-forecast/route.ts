@@ -38,11 +38,14 @@ export async function GET(request: Request) {
     });
 
     if (!rpcError && rpcData) {
-      return NextResponse.json({
-        suggested_daily_gallons: rpcData.suggested_daily_gallons,
-        historical_years_count: rpcData.historical_years_count,
-        confidence: rpcData.confidence
-      });
+      const row = Array.isArray(rpcData) ? rpcData[0] : rpcData;
+      if (row) {
+        return NextResponse.json({
+          suggested_daily_gallons: row.suggested_daily_gallons,
+          historical_years_count: row.historical_years_count,
+          confidence: row.confidence
+        });
+      }
     }
 
     // Fallback if RPC fails or does not exist

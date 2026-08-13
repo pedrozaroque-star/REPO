@@ -186,21 +186,27 @@ export default function InventoryOrdersPage() {
         
         if (!isChampurrado || !champurradoForecast) return <span className={className}>{name}</span>;
 
+        const gallons = champurradoForecast.suggested_daily_gallons ?? 0
+        const years = champurradoForecast.historical_years_count ?? 0
+        const confidence = champurradoForecast.confidence ?? 'NONE'
+        const confColor = confidence === 'HIGH' ? 'text-emerald-400' : confidence === 'MEDIUM' ? 'text-amber-400' : 'text-red-400'
+
         return (
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5">
                 <span className={className}>{name}</span>
                 <div className="group relative flex items-center">
-                    <span className="cursor-help bg-amber-500/20 border border-amber-500/50 text-amber-600 rounded-full w-5 h-5 flex items-center justify-center text-xs">☕</span>
-                    <div className="absolute left-full ml-2 w-64 p-2 bg-slate-800 text-white text-xs rounded shadow-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
-                        <div className="font-semibold text-amber-300 mb-1">
-                            {t('bodegaOrders.champurradoSuggestion').replace('{gallons}', String(champurradoForecast.suggested_daily_gallons))}
+                    <span className="cursor-help bg-amber-500/20 border border-amber-500/50 text-amber-700 rounded-full w-5 h-5 flex items-center justify-center text-[10px] shrink-0" title={`IA: ~${gallons} gal/día`}>☕</span>
+                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-72 p-3 bg-slate-900 text-white text-xs rounded-lg shadow-xl opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-[100] border border-slate-700">
+                        <div className="font-bold text-amber-300 mb-1.5 text-[13px]">
+                            {t('bodegaOrders.champurradoSuggestion').replace('{gallons}', String(gallons))}
                         </div>
-                        <div className="text-slate-300">
-                            {t('bodegaOrders.champurradoHistory').replace('{years}', String(champurradoForecast.historical_years_count))}
+                        <div className="text-slate-300 mb-1">
+                            {t('bodegaOrders.champurradoHistory').replace('{years}', String(years))}
                         </div>
-                        <div className="text-slate-400 mt-1">
-                            {t('bodegaOrders.champurradoConfidence').replace('{level}', champurradoForecast.confidence)}
+                        <div className={`${confColor} font-semibold`}>
+                            {t('bodegaOrders.champurradoConfidence').replace('{level}', confidence)}
                         </div>
+                        <div className="absolute top-full left-1/2 -translate-x-1/2 w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-t-[6px] border-t-slate-900"></div>
                     </div>
                 </div>
             </div>
