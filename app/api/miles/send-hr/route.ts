@@ -138,7 +138,7 @@ export async function POST(req: NextRequest) {
 
     const supervisorCount = Object.keys(summaryBySupervisor).length
 
-    // 4. Construct HTML email body
+    // 4. Summary rows for executive table (accumulated total per supervisor)
     const rowsHtml = Object.values(summaryBySupervisor).map(s => `
       <tr style="border-bottom: 1px solid #e2e8f0;">
         <td style="padding: 12px; font-weight: bold; color: #1e293b;">${s.name}</td>
@@ -150,8 +150,56 @@ export async function POST(req: NextRequest) {
       </tr>
     `).join('')
 
+    // 4b. Build detailed trip rows per supervisor (grouped and sorted by date)
+    const detailedRowsHtml = Object.values(summaryBySupervisor).map(s => {
+      // Get all trips for this supervisor, sorted by date
+      const supTrips = targetTrips
+        .filter(t => (t.supervisor_name || 'Supervisor') === s.name)
+        .sort((a, b) => (a.trip_date || '').localeCompare(b.trip_date || ''))
+
+      const tripRows = supTrips.map(t => {
+        const miles = Number(t.distance_miles) || 0
+        const rate = Number(t.rate_per_mile) || 0.725
+        const parking = Number(t.parking_amount) || 0
+        const tolls = Number(t.tolls_amount) || 0
+        const total = (miles * rate) + parking + tolls
+        const route = `${(t.origin_name || '').replace('Tacos Gavilan ', '')} → ${(t.destination_name || '').replace('Tacos Gavilan ', '')}`
+        const roundTrip = t.is_round_trip ? ' 🔄' : ''
+
+        return `
+          <tr style="border-bottom: 1px solid #f1f5f9;">
+            <td style="padding: 8px 10px; color: #475569; font-size: 13px;">${t.trip_date || '—'}</td>
+            <td style="padding: 8px 10px; color: #334155; font-size: 13px;">${route}${roundTrip}</td>
+            <td style="padding: 8px 10px; text-align: right; color: #2563eb; font-weight: 600; font-size: 13px;">${miles.toFixed(2)}</td>
+            <td style="padding: 8px 10px; text-align: right; color: #64748b; font-size: 13px;">$${rate.toFixed(3)}</td>
+            <td style="padding: 8px 10px; text-align: right; color: #64748b; font-size: 13px;">$${(parking + tolls).toFixed(2)}</td>
+            <td style="padding: 8px 10px; text-align: right; color: #059669; font-weight: 700; font-size: 13px;">$${total.toFixed(2)}</td>
+          </tr>
+        `
+      }).join('')
+
+      return `
+        <tr>
+          <td colspan="6" style="padding: 14px 10px 6px 10px; background: #f8fafc; border-top: 2px solid #cbd5e1;">
+            <strong style="font-size: 14px; color: #0f172a;">👤 ${s.name}</strong>
+            <span style="font-size: 12px; color: #94a3b8; margin-left: 8px;">${s.email}</span>
+          </td>
+        </tr>
+        ${tripRows}
+        <tr style="border-bottom: 2px solid #cbd5e1;">
+          <td colspan="2" style="padding: 10px; text-align: right; font-weight: bold; font-size: 13px; color: #334155;">
+            Subtotal ${s.name}: ${s.trip_count} viaje(s)
+          </td>
+          <td style="padding: 10px; text-align: right; font-weight: bold; color: #2563eb; font-size: 13px;">${s.total_miles.toFixed(2)} mi</td>
+          <td style="padding: 10px; text-align: right; color: #64748b; font-size: 13px;">—</td>
+          <td style="padding: 10px; text-align: right; color: #64748b; font-size: 13px;">$${(s.total_parking + s.total_tolls).toFixed(2)}</td>
+          <td style="padding: 10px; text-align: right; font-weight: bold; color: #059669; font-size: 14px;">$${s.total_reimbursement.toFixed(2)}</td>
+        </tr>
+      `
+    }).join('')
+
     const emailHtml = `
-      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 700px; margin: 0 auto; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
+      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 750px; margin: 0 auto; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
         <div style="background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); color: #ffffff; padding: 24px; text-align: center;">
           <h1 style="margin: 0; font-size: 24px; letter-spacing: -0.5px;">🚗 MilesIQ — Reporte de Millas y Nómina</h1>
           <p style="margin: 6px 0 0 0; opacity: 0.85; font-size: 14px;">Tacos Gavilan • Control Operativo de Supervisores</p>
@@ -180,7 +228,9 @@ export async function POST(req: NextRequest) {
             </div>
           </div>
 
-          <table style="width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 14px;">
+          <!-- Resumen Ejecutivo por Supervisor -->
+          <h3 style="font-size: 14px; color: #1e293b; margin: 24px 0 8px 0; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 2px solid #e2e8f0; padding-bottom: 8px;">📊 Resumen Ejecutivo por Supervisor</h3>
+          <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
             <thead>
               <tr style="background: #f1f5f9; text-align: left; color: #475569; font-size: 12px; text-transform: uppercase;">
                 <th style="padding: 10px;">Supervisor</th>
@@ -193,6 +243,39 @@ export async function POST(req: NextRequest) {
             </thead>
             <tbody>
               ${rowsHtml}
+              <tr style="background: #0f172a; color: #ffffff;">
+                <td style="padding: 12px; font-weight: bold; font-size: 13px;">GRAN TOTAL</td>
+                <td style="padding: 12px; text-align: center; font-weight: bold;">${targetTrips.length}</td>
+                <td style="padding: 12px; text-align: right; font-weight: bold;">${globalMiles.toFixed(2)} mi</td>
+                <td style="padding: 12px; text-align: right;">${Object.values(summaryBySupervisor).reduce((s, v) => s + v.total_parking, 0).toFixed(2)}</td>
+                <td style="padding: 12px; text-align: right;">${Object.values(summaryBySupervisor).reduce((s, v) => s + v.total_tolls, 0).toFixed(2)}</td>
+                <td style="padding: 12px; text-align: right; font-weight: bold; font-size: 16px;">$${globalReimbursement.toFixed(2)} USD</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <!-- Desglose Detallado de Viajes -->
+          <h3 style="font-size: 14px; color: #1e293b; margin: 28px 0 8px 0; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 2px solid #e2e8f0; padding-bottom: 8px;">📋 Desglose Detallado de Viajes por Fecha</h3>
+          <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+            <thead>
+              <tr style="background: #f1f5f9; color: #475569; font-size: 11px; text-transform: uppercase;">
+                <th style="padding: 8px 10px; text-align: left;">Fecha</th>
+                <th style="padding: 8px 10px; text-align: left;">Ruta</th>
+                <th style="padding: 8px 10px; text-align: right;">Millas</th>
+                <th style="padding: 8px 10px; text-align: right;">Tarifa</th>
+                <th style="padding: 8px 10px; text-align: right;">Extras</th>
+                <th style="padding: 8px 10px; text-align: right;">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${detailedRowsHtml}
+              <tr style="background: #059669; color: #ffffff;">
+                <td colspan="2" style="padding: 12px; font-weight: bold; font-size: 14px;">GRAN TOTAL ACUMULADO</td>
+                <td style="padding: 12px; text-align: right; font-weight: bold;">${globalMiles.toFixed(2)} mi</td>
+                <td style="padding: 12px; text-align: right;">—</td>
+                <td style="padding: 12px; text-align: right;">${Object.values(summaryBySupervisor).reduce((s, v) => s + v.total_parking + v.total_tolls, 0).toFixed(2)}</td>
+                <td style="padding: 12px; text-align: right; font-weight: bold; font-size: 16px;">$${globalReimbursement.toFixed(2)} USD</td>
+              </tr>
             </tbody>
           </table>
 

@@ -125,6 +125,16 @@ function MilesIQContent() {
   const [storesList, setStoresList] = useState<{ id: string; name: string }[]>([])
   const [supervisorsList, setSupervisorsList] = useState<{ id: string; name: string; email: string }[]>([])
 
+  // Submissions Log state
+  const [submissions, setSubmissions] = useState<any[]>([])
+
+  // Safety: non-admins are restricted to the Drive Log tab
+  useEffect(() => {
+    if (!isAdmin && activeTab !== 'trips') {
+      setActiveTab('trips')
+    }
+  }, [isAdmin, activeTab])
+
   // Load initial data
   useEffect(() => {
     fetchInitialData()
@@ -182,6 +192,17 @@ function MilesIQContent() {
         setCurrentRate(jsonSettings.rate_per_mile || 0.725)
         setEditingRate(String(jsonSettings.rate_per_mile || 0.725))
         setDistances(jsonSettings.distances || [])
+      }
+
+      // 6. Fetch Submissions Log
+      try {
+        const resSubs = await fetch('/api/miles/submissions')
+        const jsonSubs = await resSubs.json()
+        if (jsonSubs.success) {
+          setSubmissions(jsonSubs.submissions || [])
+        }
+      } catch (errSubs) {
+        console.warn('Error fetching submissions:', errSubs)
       }
     } catch (err) {
       console.error('Error loading MilesIQ data:', err)
@@ -377,27 +398,35 @@ function MilesIQContent() {
     window.open(url, '_blank')
   }
 
+  // Helper to check if a trip belongs to the current user
+  const isOwnTrip = (t: TripRecord) => {
+    if (t.supervisor_id === currentUser.id) return true
+    if (t.supervisor_email && currentUser.email && t.supervisor_email.toLowerCase() === currentUser.email.toLowerCase()) return true
+    if (t.supervisor_name && currentUser.name && t.supervisor_name.toLowerCase() === currentUser.name.toLowerCase()) return true
+    return false
+  }
+
   // Filtered trips list
   const filteredTrips = useMemo(() => {
     return trips.filter(t => {
-      if (!isAdmin && t.supervisor_id !== currentUser.id) return false
+      if (!isAdmin && !isOwnTrip(t)) return false
       if (supervisorFilter !== 'all' && t.supervisor_id !== supervisorFilter && t.supervisor_name !== supervisorFilter) return false
       if (statusFilter !== 'all' && t.status !== statusFilter) return false
       if (searchTerm) {
         const term = searchTerm.toLowerCase()
-        const matchName = t.supervisor_name.toLowerCase().includes(term)
-        const matchOrig = t.origin_name.toLowerCase().includes(term)
-        const matchDest = t.destination_name.toLowerCase().includes(term)
+        const matchName = (t.supervisor_name || '').toLowerCase().includes(term)
+        const matchOrig = (t.origin_name || '').toLowerCase().includes(term)
+        const matchDest = (t.destination_name || '').toLowerCase().includes(term)
         const matchNotes = (t.purpose_notes || '').toLowerCase().includes(term)
         if (!matchName && !matchOrig && !matchDest && !matchNotes) return false
       }
       return true
     })
-  }, [trips, statusFilter, supervisorFilter, searchTerm, isAdmin, currentUser.id])
+  }, [trips, statusFilter, supervisorFilter, searchTerm, isAdmin, currentUser])
 
   // Summary Metrics
   const metrics = useMemo(() => {
-    const userTrips = isAdmin ? trips : trips.filter(t => t.supervisor_id === currentUser.id)
+    const userTrips = isAdmin ? trips : trips.filter(isOwnTrip)
     const totalMiles = userTrips.reduce((s, t) => s + (Number(t.distance_miles) || 0), 0)
     const totalReimbursement = userTrips.reduce((s, t) => {
       const m = Number(t.distance_miles) || 0
@@ -416,7 +445,7 @@ function MilesIQContent() {
       pendingCount,
       hrCount
     }
-  }, [trips, isAdmin, currentUser.id])
+  }, [trips, isAdmin, currentUser])
 
   // Summaries per supervisor for HR dispatch tab
   const supervisorSummaries = useMemo(() => {
@@ -592,41 +621,45 @@ function MilesIQContent() {
             {t('miles.tab_drive_log')}
           </button>
 
-          <button
-            onClick={() => setActiveTab('hr_dispatch')}
-            className={`px-4 py-3 text-sm font-bold border-b-2 flex items-center gap-2 transition-colors whitespace-nowrap ${
-              activeTab === 'hr_dispatch'
-                ? 'border-blue-600 text-blue-600 dark:text-blue-400'
-                : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
-            }`}
-          >
-            <Mail size={18} />
-            {t('miles.tab_hr_dispatch')}
-          </button>
+          {isAdmin && (
+            <>
+              <button
+                onClick={() => setActiveTab('hr_dispatch')}
+                className={`px-4 py-3 text-sm font-bold border-b-2 flex items-center gap-2 transition-colors whitespace-nowrap ${
+                  activeTab === 'hr_dispatch'
+                    ? 'border-blue-600 text-blue-600 dark:text-blue-400'
+                    : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+                }`}
+              >
+                <Mail size={18} />
+                {t('miles.tab_hr_dispatch')}
+              </button>
 
-          <button
-            onClick={() => setActiveTab('history')}
-            className={`px-4 py-3 text-sm font-bold border-b-2 flex items-center gap-2 transition-colors whitespace-nowrap ${
-              activeTab === 'history'
-                ? 'border-blue-600 text-blue-600 dark:text-blue-400'
-                : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
-            }`}
-          >
-            <FileSpreadsheet size={18} />
-            {t('miles.tab_history')}
-          </button>
+              <button
+                onClick={() => setActiveTab('history')}
+                className={`px-4 py-3 text-sm font-bold border-b-2 flex items-center gap-2 transition-colors whitespace-nowrap ${
+                  activeTab === 'history'
+                    ? 'border-blue-600 text-blue-600 dark:text-blue-400'
+                    : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+                }`}
+              >
+                <FileSpreadsheet size={18} />
+                {t('miles.tab_history')}
+              </button>
 
-          <button
-            onClick={() => setActiveTab('settings')}
-            className={`px-4 py-3 text-sm font-bold border-b-2 flex items-center gap-2 transition-colors whitespace-nowrap ${
-              activeTab === 'settings'
-                ? 'border-blue-600 text-blue-600 dark:text-blue-400'
-                : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
-            }`}
-          >
-            <Settings size={18} />
-            {t('miles.tab_settings')}
-          </button>
+              <button
+                onClick={() => setActiveTab('settings')}
+                className={`px-4 py-3 text-sm font-bold border-b-2 flex items-center gap-2 transition-colors whitespace-nowrap ${
+                  activeTab === 'settings'
+                    ? 'border-blue-600 text-blue-600 dark:text-blue-400'
+                    : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+                }`}
+              >
+                <Settings size={18} />
+                {t('miles.tab_settings')}
+              </button>
+            </>
+          )}
         </div>
 
         {/* TAB 1: DRIVE LOG */}
@@ -658,8 +691,8 @@ function MilesIQContent() {
                   <option value="paid">{t('miles.status_paid')}</option>
                 </select>
 
-                {/* Supervisor Filter Dropdown */}
-                {supervisorsList.length > 0 && (
+                {/* Supervisor Filter Dropdown (Admins only) */}
+                {isAdmin && supervisorsList.length > 0 && (
                   <select
                     value={supervisorFilter}
                     onChange={e => setSupervisorFilter(e.target.value)}
@@ -1068,14 +1101,172 @@ function MilesIQContent() {
 
         {/* TAB 3: SUBMISSIONS LOG */}
         {activeTab === 'history' && (
-          <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
-            <h3 className="text-lg font-bold">{t('miles.history_title')}</h3>
-            <p className="text-xs text-slate-500">{t('miles.history_subtitle')}</p>
-
-            <div className="p-8 text-center text-slate-400 text-xs border border-dashed border-slate-300 dark:border-slate-800 rounded-xl">
-              <FileSpreadsheet size={32} className="mx-auto mb-2 text-slate-400" />
-              {t('miles.history_empty')}
+          <div className="space-y-4">
+            <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-lg font-bold">{t('miles.history_title')}</h3>
+                  <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:text-blue-400">
+                    {submissions.length}
+                  </span>
+                </div>
+                <p className="text-xs text-slate-500 mt-0.5">{t('miles.history_subtitle')}</p>
+              </div>
             </div>
+
+            {submissions.length === 0 ? (
+              <div className="bg-white dark:bg-slate-900 p-12 text-center text-slate-400 text-xs border border-dashed border-slate-300 dark:border-slate-800 rounded-2xl">
+                <FileSpreadsheet size={36} className="mx-auto mb-3 text-slate-400" />
+                <p className="max-w-md mx-auto leading-relaxed">{t('miles.history_empty')}</p>
+              </div>
+            ) : (
+              <>
+                {/* Desktop Table */}
+                <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm hidden md:block">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-slate-50 dark:bg-slate-800/60 text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider border-b border-slate-200 dark:border-slate-800">
+                        <tr>
+                          <th className="py-3.5 px-4">{t('miles.th_sent_at')}</th>
+                          <th className="py-3.5 px-4">{t('miles.th_period_covered')}</th>
+                          <th className="py-3.5 px-4">{t('miles.th_sender')}</th>
+                          <th className="py-3.5 px-4">{t('miles.th_recipient')}</th>
+                          <th className="py-3.5 px-4 text-center">{t('miles.th_supervisors_count')}</th>
+                          <th className="py-3.5 px-4 text-right">{t('miles.th_total_miles')}</th>
+                          <th className="py-3.5 px-4 text-right">{t('miles.th_total_reimbursed')}</th>
+                          <th className="py-3.5 px-4 text-center">{t('miles.th_delivery_status')}</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
+                        {submissions.map((sub: any) => {
+                          const isSent = sub.email_status === 'sent'
+                          const dateFormatted = sub.created_at
+                            ? new Date(sub.created_at).toLocaleString('es-MX', {
+                                dateStyle: 'medium',
+                                timeStyle: 'short',
+                                timeZone: 'America/Los_Angeles'
+                              })
+                            : '—'
+
+                          return (
+                            <tr key={sub.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
+                              <td className="py-3.5 px-4 font-semibold text-slate-900 dark:text-white whitespace-nowrap">
+                                <div className="flex items-center gap-1.5">
+                                  <Clock size={13} className="text-slate-400" />
+                                  <span>{dateFormatted}</span>
+                                </div>
+                              </td>
+                              <td className="py-3.5 px-4">
+                                <span className="px-2 py-0.5 rounded-md text-[11px] font-semibold bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300">
+                                  {sub.period_start} → {sub.period_end}
+                                </span>
+                              </td>
+                              <td className="py-3.5 px-4">
+                                <div className="font-medium text-slate-800 dark:text-slate-200">{sub.sender_name}</div>
+                                <div className="text-[10px] text-slate-400 truncate max-w-xs">{sub.sender_email}</div>
+                              </td>
+                              <td className="py-3.5 px-4">
+                                <div className="flex items-center gap-1.5 text-slate-700 dark:text-slate-300">
+                                  <Mail size={12} className="text-blue-500 shrink-0" />
+                                  <span className="font-semibold truncate max-w-xs">{sub.recipient_email}</span>
+                                </div>
+                              </td>
+                              <td className="py-3.5 px-4 text-center">
+                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:text-blue-400">
+                                  {sub.total_supervisors}
+                                </span>
+                              </td>
+                              <td className="py-3.5 px-4 text-right font-bold text-blue-600 dark:text-blue-400">
+                                {Number(sub.total_miles || 0).toFixed(2)} mi
+                              </td>
+                              <td className="py-3.5 px-4 text-right font-black text-emerald-600 dark:text-emerald-400 text-sm">
+                                ${Number(sub.total_reimbursement || 0).toFixed(2)} USD
+                              </td>
+                              <td className="py-3.5 px-4 text-center">
+                                {isSent ? (
+                                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-bold bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800">
+                                    <CheckCircle2 size={11} />
+                                    {t('miles.status_sent')}
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-bold bg-red-100 text-red-700 dark:bg-red-950/60 dark:text-red-400 border border-red-200 dark:border-red-800" title={sub.email_status}>
+                                    <AlertCircle size={11} />
+                                    {t('miles.status_failed')}
+                                  </span>
+                                )}
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* Mobile Cards */}
+                <div className="md:hidden space-y-3">
+                  {submissions.map((sub: any) => {
+                    const isSent = sub.email_status === 'sent'
+                    const dateFormatted = sub.created_at
+                      ? new Date(sub.created_at).toLocaleDateString('es-MX', {
+                          month: 'short',
+                          day: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit'
+                        })
+                      : '—'
+
+                    return (
+                      <div key={sub.id} className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-4 shadow-sm space-y-2.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                            <Clock size={12} className="text-slate-400" />
+                            {dateFormatted}
+                          </span>
+                          {isSent ? (
+                            <span className="px-2 py-0.5 rounded-md text-[9px] font-bold bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-400">
+                              {t('miles.status_sent')}
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 rounded-md text-[9px] font-bold bg-red-100 text-red-700 dark:bg-red-950/60 dark:text-red-400">
+                              {t('miles.status_failed')}
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="text-xs text-slate-600 dark:text-slate-300">
+                          <div className="font-semibold text-[11px] text-slate-400 uppercase tracking-wider mb-0.5">
+                            {t('miles.th_period_covered')}
+                          </div>
+                          <div className="font-medium bg-slate-50 dark:bg-slate-800 p-1.5 rounded-md">
+                            {sub.period_start} → {sub.period_end}
+                          </div>
+                        </div>
+
+                        <div className="flex items-center justify-between text-xs pt-1">
+                          <span className="text-slate-500 truncate max-w-[55%] flex items-center gap-1">
+                            <Mail size={11} className="text-blue-500 shrink-0" />
+                            {sub.recipient_email}
+                          </span>
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:text-blue-400">
+                            {sub.total_supervisors} {t('miles.supervisors_unit')}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center justify-between pt-2 border-t border-slate-100 dark:border-slate-800 text-xs">
+                          <span className="font-bold text-blue-600 dark:text-blue-400">
+                            {Number(sub.total_miles || 0).toFixed(2)} mi
+                          </span>
+                          <span className="font-black text-emerald-600 dark:text-emerald-400 text-sm">
+                            ${Number(sub.total_reimbursement || 0).toFixed(2)} USD
+                          </span>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </>
+            )}
           </div>
         )}
 
@@ -1218,6 +1409,7 @@ function MilesIQContent() {
         supervisors={supervisorsList}
         currentRate={currentRate}
         currentUser={currentUser}
+        isAdmin={isAdmin}
       />
     </div>
   )

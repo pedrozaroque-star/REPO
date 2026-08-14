@@ -55,6 +55,7 @@ interface TripModalProps {
     name: string
     email: string
   }
+  isAdmin?: boolean
 }
 
 export default function TripModal({
@@ -65,7 +66,8 @@ export default function TripModal({
   distances = [],
   supervisors = [],
   currentRate = 0.725,
-  currentUser
+  currentUser,
+  isAdmin = false
 }: TripModalProps) {
   const { t, language } = useLanguage()
 
@@ -252,8 +254,8 @@ export default function TripModal({
 
           {/* Form */}
           <form onSubmit={handleSubmit} className="p-6 space-y-5 max-h-[80vh] overflow-y-auto">
-            {/* Supervisor Selector (if supervisors list provided) */}
-            {supervisors.length > 0 && (
+            {/* Supervisor Selector (Admins can select any supervisor; supervisors are fixed to themselves) */}
+            {isAdmin && supervisors.length > 0 ? (
               <div>
                 <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1 flex items-center gap-1.5">
                   <User size={14} className="text-blue-500" />
@@ -270,6 +272,21 @@ export default function TripModal({
                     </option>
                   ))}
                 </select>
+              </div>
+            ) : (
+              <div className="bg-slate-50 dark:bg-slate-800/60 p-3 rounded-xl border border-slate-200 dark:border-slate-700/60 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="p-1.5 bg-blue-500/10 text-blue-600 dark:text-blue-400 rounded-lg">
+                    <User size={15} />
+                  </div>
+                  <div>
+                    <div className="text-xs font-bold text-slate-800 dark:text-slate-200">{currentUser.name}</div>
+                    <div className="text-[11px] text-slate-400">{currentUser.email}</div>
+                  </div>
+                </div>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300">
+                  {t('miles.supervisor_driver')}
+                </span>
               </div>
             )}
 
