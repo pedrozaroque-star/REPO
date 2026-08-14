@@ -1,11 +1,23 @@
 /**
- * @module GetMapKey
- * @description Securely fetches and provides the Google Maps API key to the authorized frontend client.
+ * @module api/admin/stores/map-key
+ * @description Endpoint seguro que sirve la API key de Google Maps para componentes del frontend.
+ * @businessRules
+ * - La key se lee de la variable de entorno GOOGLE_MAPS_API_KEY.
+ * - Solo se expone la key de Maps JavaScript API, no service keys.
+ * @dataFlow ENV → API response → Frontend map components
  */
 
 import { NextResponse } from 'next/server'
 
 export async function GET() {
-  const key = process.env.GOOGLE_MAPS_API_KEY || process.env.GOOGLE_MAPS_KEY || ''
-  return NextResponse.json({ apiKey: key })
+  const apiKey = process.env.GOOGLE_MAPS_API_KEY || ''
+  
+  if (!apiKey) {
+    return NextResponse.json(
+      { apiKey: null, error: 'GOOGLE_MAPS_API_KEY not configured' },
+      { status: 200 }
+    )
+  }
+
+  return NextResponse.json({ apiKey })
 }
