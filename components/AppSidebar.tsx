@@ -13,7 +13,7 @@ import {
     DollarSign, TrendingUp, Calendar, MessageSquare, CalendarCheck, UserCog,
     Monitor, ChefHat, Zap, X, PanelLeftClose, PanelLeft, RefreshCw,
     Settings, Keyboard, HelpCircle, ExternalLink, Moon, Sun, Globe, Shield,
-    CalendarDays, Sparkles, Info, UserCircle, Menu, Folder, Truck, Timer, Shirt
+    CalendarDays, Sparkles, Info, UserCircle, Menu, Folder, Truck, Timer, Shirt, Car
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useLanguage } from '@/lib/i18n'
@@ -280,6 +280,16 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                     tooltip: language === 'en'
                         ? 'Safe audit of bills, coins, and uniform sales cash reconciliation (Arqueo semanal de bóveda)'
                         : 'Arqueo de billetes, monedas y conciliación de efectivo de uniformes en bóveda'
+                },
+                {
+                    name: t('items.miles') || 'MilesIQ',
+                    plainName: 'MilesIQ',
+                    path: '/miles',
+                    icon: <Car size={20} />,
+                    roles: ['admin', 'supervisor'],
+                    tooltip: language === 'en'
+                        ? 'Supervisor mileage tracking, drive log, reimbursement calculation, and HR payroll dispatch'
+                        : 'Control y cálculo de millas manejadas por supervisores, registro de viajes y despacho a RRHH'
                 },
             ]
         },

@@ -300,6 +300,19 @@ export const TOOL_DECLARATIONS = [
       },
       required: ['start_date', 'end_date']
     }
+  },
+  {
+    name: 'query_supervisor_mileage',
+    description: 'Query supervisor mileage tracking logs (MilesIQ), total miles, rates, reimbursement dollar amounts, and HR submission statuses.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        start_date: { type: 'STRING', description: 'Start date YYYY-MM-DD' },
+        end_date: { type: 'STRING', description: 'End date YYYY-MM-DD' },
+        supervisor_name: { type: 'STRING', description: 'Optional supervisor name filter' }
+      },
+      required: ['start_date', 'end_date']
+    }
   }
 ]
 
@@ -307,6 +320,7 @@ export const TOOL_DECLARATIONS = [
 export async function executeTool(name: string, args: any): Promise<string> {
   try {
     switch (name) {
+      case 'query_supervisor_mileage': return await querySupervisorMileage(args)
       case 'query_sales': return await querySales(args)
       case 'query_food_cost': return await queryFoodCost(args)
       case 'query_labor': return await queryLabor(args)
@@ -1597,3 +1611,39 @@ async function queryInventoryOrders(args: any): Promise<string> {
 
   return `Inventory Orders:\n${summary}${lineDetails}`
 }
+
+async function querySupervisorMileage(args: { start_date: string; end_date: string; supervisor_name?: string }): Promise<string> {
+  let query = supabaseAdmin
+    .from('supervisor_mileage_trips')
+    .select('*')
+    .gte('trip_date', args.start_date)
+    .lte('trip_date', args.end_date)
+    .order('trip_date', { ascending: false })
+
+  if (args.supervisor_name) {
+    query = query.ilike('supervisor_name', `%${args.supervisor_name}%`)
+  }
+
+  const { data, error } = await query.limit(100)
+  if (error) return `Error querying supervisor mileage: ${error.message}`
+  if (!data?.length) return `No supervisor mileage trips found from ${args.start_date} to ${args.end_date}.`
+
+  const totalMiles = data.reduce((s, r) => s + (Number(r.distance_miles) || 0), 0)
+  const totalAmount = data.reduce((s, r) => {
+    const m = Number(r.distance_miles) || 0
+    const rate = Number(r.rate_per_mile) || 0.725
+    const p = Number(r.parking_amount) || 0
+    const t = Number(r.tolls_amount) || 0
+    return s + (m * rate) + p + t
+  }, 0)
+
+  const summary = data.map(r => {
+    const m = Number(r.distance_miles) || 0
+    const rate = Number(r.rate_per_mile) || 0.725
+    const tot = (m * rate) + (Number(r.parking_amount) || 0) + (Number(r.tolls_amount) || 0)
+    return `${r.trip_date} | ${r.supervisor_name} | ${r.origin_name} -> ${r.destination_name} | ${m.toFixed(2)} mi @ $${rate.toFixed(3)} | $${tot.toFixed(2)} USD | Status: ${r.status}`
+  }).join('\n')
+
+  return `🚗 Supervisor Mileage Summary (MilesIQ):\nTotal Trips: ${data.length}\nTotal Miles: ${totalMiles.toFixed(2)} mi\nTotal Reimbursement: $${totalAmount.toFixed(2)} USD\n\nDetail:\n${summary}`
+}
+
