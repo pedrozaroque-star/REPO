@@ -2238,10 +2238,16 @@ const dictionaries: Record<Language, Dictionary> = {
             badge_round_trip: 'IDA/VUELTA',
             // Actions
             approve_trip: 'Aprobar Viaje',
+            edit_trip: 'Editar Viaje',
             delete_trip: 'Eliminar Viaje',
             confirm_delete: '¿Confirmas eliminar este viaje?',
-            // Toasts
+            cannot_edit_submitted: 'No se puede editar un viaje que ya fue enviado a nómina o aprobado',
+            // Modal & Toasts
+            modal_edit_title: 'Editar Viaje (MilesIQ)',
+            modal_edit_subtitle: 'Modifica la información de ruta, odómetro o gastos del viaje',
+            btn_update_trip: 'Actualizar Viaje',
             trip_saved: '¡Viaje registrado con éxito en MilesIQ!',
+            trip_updated: '¡Viaje actualizado con éxito en MilesIQ!',
             trip_deleted: 'Viaje eliminado',
             status_updated: 'Estado actualizado',
             error_save: 'Error al guardar viaje',
@@ -4745,10 +4751,16 @@ const dictionaries: Record<Language, Dictionary> = {
             badge_round_trip: 'ROUND TRIP',
             // Actions
             approve_trip: 'Approve Trip',
+            edit_trip: 'Edit Trip',
             delete_trip: 'Delete Trip',
             confirm_delete: 'Are you sure you want to delete this trip?',
-            // Toasts
+            cannot_edit_submitted: 'Cannot edit a trip that has already been submitted to payroll or approved',
+            // Modal & Toasts
+            modal_edit_title: 'Edit Trip (MilesIQ)',
+            modal_edit_subtitle: 'Modify route information, odometer, or trip expenses',
+            btn_update_trip: 'Update Trip',
             trip_saved: 'Trip logged successfully!',
+            trip_updated: 'Trip updated successfully in MilesIQ!',
             trip_deleted: 'Trip deleted',
             status_updated: 'Status updated',
             error_save: 'Error saving trip',

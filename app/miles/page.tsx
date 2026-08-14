@@ -110,6 +110,7 @@ function MilesIQContent() {
 
   // Modal state
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false)
+  const [editingTrip, setEditingTrip] = useState<TripRecord | null>(null)
 
   // Distance matrix edit state
   const [newOrigin, setNewOrigin] = useState<string>('')
@@ -119,6 +120,22 @@ function MilesIQContent() {
   const showToast = (message: string, type: 'success' | 'error' | 'warning') => {
     setToast({ message, type })
     setTimeout(() => setToast(null), 4500)
+  }
+
+  // Open modal in create mode
+  const handleOpenNewTripModal = () => {
+    setEditingTrip(null)
+    setIsModalOpen(true)
+  }
+
+  // Open modal in edit mode
+  const handleOpenEditModal = (trip: TripRecord) => {
+    if (trip.status !== 'pending' && !isAdmin) {
+      showToast(t('miles.cannot_edit_submitted'), 'warning')
+      return
+    }
+    setEditingTrip(trip)
+    setIsModalOpen(true)
   }
 
   // Dynamic Lists from Database
@@ -211,20 +228,25 @@ function MilesIQContent() {
     }
   }
 
-  // Handle trip creation from modal
+  // Handle trip creation or update from modal
   const handleSaveTrip = async (tripData: any) => {
     try {
-      const res = await fetch('/api/miles', {
-        method: 'POST',
+      const isEdit = Boolean(tripData.id)
+      const url = isEdit ? `/api/miles/${tripData.id}` : '/api/miles'
+      const method = isEdit ? 'PUT' : 'POST'
+
+      const res = await fetch(url, {
+        method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(tripData)
       })
       const json = await res.json()
       if (json.success) {
         showToast(
-          t('miles.trip_saved'),
+          isEdit ? t('miles.trip_updated') : t('miles.trip_saved'),
           'success'
         )
+        setEditingTrip(null)
         fetchInitialData()
       } else {
         showToast(json.error || t('miles.error_save'), 'error')
@@ -547,7 +569,7 @@ function MilesIQContent() {
             </button>
 
             <button
-              onClick={() => setIsModalOpen(true)}
+              onClick={handleOpenNewTripModal}
               className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-lg shadow-blue-600/30 transition-all"
             >
               <Plus size={18} />
@@ -804,6 +826,15 @@ function MilesIQContent() {
                             </td>
                             <td className="py-3.5 px-4 text-right whitespace-nowrap">
                               <div className="flex items-center justify-end gap-1">
+                                {(trip.status === 'pending' || isAdmin) && (
+                                  <button
+                                    onClick={() => handleOpenEditModal(trip)}
+                                    title={t('miles.edit_trip')}
+                                    className="p-1.5 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 rounded-lg transition-colors"
+                                  >
+                                    <Edit3 size={16} />
+                                  </button>
+                                )}
                                 {isAdmin && trip.status === 'pending' && (
                                   <button
                                     onClick={() => handleUpdateStatus(trip.id, 'approved')}
@@ -867,6 +898,15 @@ function MilesIQContent() {
                           )}
                           {trip.status === 'paid' && (
                             <span className="px-2 py-0.5 rounded-md text-[9px] font-bold bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:text-blue-400">{t('miles.badge_paid')}</span>
+                          )}
+                          {(trip.status === 'pending' || isAdmin) && (
+                            <button
+                              onClick={() => handleOpenEditModal(trip)}
+                              title={t('miles.edit_trip')}
+                              className="p-1 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 rounded transition-colors"
+                            >
+                              <Edit3 size={14} />
+                            </button>
                           )}
                           {isAdmin && trip.status === 'pending' && (
                             <button onClick={() => handleUpdateStatus(trip.id, 'approved')} className="p-1 text-emerald-600 rounded">
@@ -1399,10 +1439,13 @@ function MilesIQContent() {
         )}
       </div>
 
-      {/* Modal for Logging Trip */}
+      {/* Modal for Logging / Editing Trip */}
       <TripModal
         isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
+        onClose={() => {
+          setIsModalOpen(false)
+          setEditingTrip(null)
+        }}
         onSave={handleSaveTrip}
         stores={storesList}
         distances={distances}
@@ -1410,6 +1453,7 @@ function MilesIQContent() {
         currentRate={currentRate}
         currentUser={currentUser}
         isAdmin={isAdmin}
+        editingTrip={editingTrip}
       />
     </div>
   )

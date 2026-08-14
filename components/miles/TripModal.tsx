@@ -56,6 +56,7 @@ interface TripModalProps {
     email: string
   }
   isAdmin?: boolean
+  editingTrip?: any | null
 }
 
 export default function TripModal({
@@ -67,7 +68,8 @@ export default function TripModal({
   supervisors = [],
   currentRate = 0.725,
   currentUser,
-  isAdmin = false
+  isAdmin = false,
+  editingTrip = null
 }: TripModalProps) {
   const { t, language } = useLanguage()
 
@@ -111,12 +113,44 @@ export default function TripModal({
 
   const availableLocations = stores.length > 0 ? stores.map(s => s.name) : storePresets
 
-  // Synchronize selectedSupervisorId with currentUser when modal opens
+  // Synchronize state when modal opens or editingTrip changes
   useEffect(() => {
-    if (currentUser?.id) {
+    if (!isOpen) return
+
+    if (editingTrip) {
+      setSelectedSupervisorId(editingTrip.supervisor_id || currentUser.id)
+      setTripDate(editingTrip.trip_date || new Date().toISOString().slice(0, 10))
+      setStartTime(editingTrip.start_time || '')
+      setOriginType(editingTrip.origin_type || 'store')
+      setOriginName(editingTrip.origin_name || 'Tacos Gavilan LA Central')
+      setDestinationType(editingTrip.destination_type || 'store')
+      setDestinationName(editingTrip.destination_name || 'Tacos Gavilan LA Broadway')
+      setIsRoundTrip(Boolean(editingTrip.is_round_trip))
+      setPurpose(editingTrip.purpose || 'Business')
+      setPurposeNotes(editingTrip.purpose_notes || '')
+      setOdometerStart(editingTrip.odometer_start !== null && editingTrip.odometer_start !== undefined ? String(editingTrip.odometer_start) : '')
+      setOdometerEnd(editingTrip.odometer_end !== null && editingTrip.odometer_end !== undefined ? String(editingTrip.odometer_end) : '')
+      setDistanceMiles(Number(editingTrip.distance_miles) || 0)
+      setParkingAmount(Number(editingTrip.parking_amount) || 0)
+      setTollsAmount(Number(editingTrip.tolls_amount) || 0)
+    } else {
       setSelectedSupervisorId(currentUser.id)
+      setTripDate(new Date().toISOString().slice(0, 10))
+      setStartTime('')
+      setOriginType('store')
+      setOriginName('Tacos Gavilan LA Central')
+      setDestinationType('store')
+      setDestinationName('Tacos Gavilan LA Broadway')
+      setIsRoundTrip(false)
+      setPurpose('Business')
+      setPurposeNotes('')
+      setOdometerStart('')
+      setOdometerEnd('')
+      setDistanceMiles(2.9)
+      setParkingAmount(0)
+      setTollsAmount(0)
     }
-  }, [currentUser, isOpen])
+  }, [isOpen, editingTrip, currentUser])
 
   const [isCalculatingMap, setIsCalculatingMap] = useState<boolean>(false)
   const [mapRouteNote, setMapRouteNote] = useState<string>('')
@@ -190,7 +224,7 @@ export default function TripModal({
 
     try {
       setSaving(true)
-      await onSave({
+      const payload: any = {
         supervisor_id: targetSupervisor.id,
         supervisor_name: targetSupervisor.name,
         supervisor_email: targetSupervisor.email,
@@ -209,7 +243,13 @@ export default function TripModal({
         rate_per_mile: currentRate,
         parking_amount: parkingAmount,
         tolls_amount: tollsAmount
-      })
+      }
+
+      if (editingTrip?.id) {
+        payload.id = editingTrip.id
+      }
+
+      await onSave(payload)
       onClose()
     } catch (err) {
       console.error('Error saving trip modal:', err)
@@ -237,10 +277,10 @@ export default function TripModal({
               </div>
               <div>
                 <h3 className="text-lg font-bold">
-                  {t('miles.modal_title')}
+                  {editingTrip ? t('miles.modal_edit_title') : t('miles.modal_title')}
                 </h3>
                 <p className="text-xs text-slate-400">
-                  {t('miles.modal_subtitle')}
+                  {editingTrip ? t('miles.modal_edit_subtitle') : t('miles.modal_subtitle')}
                 </p>
               </div>
             </div>
@@ -546,7 +586,7 @@ export default function TripModal({
                 ) : (
                   <CheckCircle size={16} />
                 )}
-                {t('miles.save_trip')}
+                {editingTrip ? t('miles.btn_update_trip') : t('miles.save_trip')}
               </button>
             </div>
           </form>
