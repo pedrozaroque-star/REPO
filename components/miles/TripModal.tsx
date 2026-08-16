@@ -14,7 +14,10 @@
 
 import React, { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { X, Car, MapPin, ArrowRight, RotateCw, DollarSign, Gauge, FileText, CheckCircle, User } from 'lucide-react'
+import {
+  X, Car, MapPin, ArrowRight, RotateCw, DollarSign, Gauge,
+  FileText, CheckCircle, User, Navigation, LocateFixed, ExternalLink, Compass
+} from 'lucide-react'
 import { useLanguage } from '@/lib/i18n'
 import dynamic from 'next/dynamic'
 
@@ -59,6 +62,37 @@ interface TripModalProps {
   editingTrip?: any | null
 }
 
+const FALLBACK_STORE_COORDS: Record<string, { lat: number; lng: number; address: string }> = {
+  'Tacos Gavilan LA Central': { lat: 33.9947, lng: -118.2784, address: '4801 S Central Ave, Los Angeles, CA 90011' },
+  'Tacos Gavilan LA Broadway': { lat: 34.0152, lng: -118.2736, address: '4363 S Broadway, Los Angeles, CA 90037' },
+  'Tacos Gavilan Slauson': { lat: 33.9892, lng: -118.2560, address: '200 W Slauson Ave, Los Angeles, CA 90003' },
+  'Tacos Gavilan Hollywood': { lat: 34.0983, lng: -118.3267, address: '7083 Sunset Blvd, Los Angeles, CA 90028' },
+  'Tacos Gavilan Lynwood': { lat: 33.9248, lng: -118.2045, address: '3740 E Imperial Hwy, Lynwood, CA 90262' },
+  'Tacos Gavilan Huntington Park': { lat: 33.9818, lng: -118.2251, address: '2652 Florence Ave, Huntington Park, CA 90255' },
+  'Tacos Gavilan Bell': { lat: 33.9806, lng: -118.1867, address: '4406 E Florence Ave, Bell, CA 90201' },
+  'Tacos Gavilan Downey': { lat: 33.9312, lng: -118.1251, address: '12051 Paramount Blvd, Downey, CA 90242' },
+  'Tacos Gavilan Norwalk': { lat: 33.9015, lng: -118.0818, address: '12539 Rosecrans Ave, Norwalk, CA 90650' },
+  'Tacos Gavilan Santa Ana': { lat: 33.7456, lng: -117.8678, address: '801 W 17th St, Santa Ana, CA 92706' },
+  'Tacos Gavilan La Puente': { lat: 34.0321, lng: -117.9421, address: '13009 Valley Blvd, La Puente, CA 91746' },
+  'Tacos Gavilan Azusa': { lat: 34.1336, lng: -117.9076, address: '122 N Azusa Ave, Azusa, CA 91702' },
+  'Tacos Gavilan West Covina': { lat: 34.0412, lng: -117.9011, address: '2330 S Azusa Ave, West Covina, CA 91792' },
+  'Tacos Gavilan South Gate': { lat: 33.9452, lng: -118.1812, address: '8940 Garfield Ave, South Gate, CA 90280' },
+  'Tacos Gavilan Rialto': { lat: 34.1065, lng: -117.3701, address: '240 W Baseline Rd, Rialto, CA 92376' },
+  'Bodega Central': { lat: 34.00445, lng: -118.20436, address: '5182 Malabar St, Vernon, CA 90058' },
+  'Oficina Corporativa': { lat: 33.9947, lng: -118.2784, address: '5304 S Broadway, Los Angeles, CA 90037' }
+}
+
+function haversineMiles(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 3958.8
+  const dLat = ((lat2 - lat1) * Math.PI) / 180
+  const dLon = ((lon2 - lon1) * Math.PI) / 180
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLon / 2) * Math.sin(dLon / 2)
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+  return R * c
+}
+
 export default function TripModal({
   isOpen,
   onClose,
@@ -89,6 +123,22 @@ export default function TripModal({
   const [parkingAmount, setParkingAmount] = useState<number>(0)
   const [tollsAmount, setTollsAmount] = useState<number>(0)
   const [saving, setSaving] = useState<boolean>(false)
+
+  // GPS & Navigation state
+  const [detectingGps, setDetectingGps] = useState<'origin' | 'dest' | null>(null)
+  const [gpsFeedback, setGpsFeedback] = useState<string>('')
+  const [storeCoordsMap, setStoreCoordsMap] = useState<Record<string, { lat: number; lng: number; address: string }>>(FALLBACK_STORE_COORDS)
+
+  useEffect(() => {
+    fetch('/api/miles/store-coordinates')
+      .then(res => res.json())
+      .then(data => {
+        if (data.coordinates && Object.keys(data.coordinates).length > 0) {
+          setStoreCoordsMap(prev => ({ ...prev, ...data.coordinates }))
+        }
+      })
+      .catch(() => {})
+  }, [])
 
   // Default preset store options if stores prop is empty
   const storePresets = [
@@ -206,10 +256,87 @@ export default function TripModal({
     }
   }
 
+  // GPS Auto-detection Handler
+  const detectClosestStore = (target: 'origin' | 'dest') => {
+    if (typeof window === 'undefined' || !navigator.geolocation) {
+      alert(t('miles.gps_not_supported'))
+      return
+    }
+
+    setDetectingGps(target)
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const { latitude, longitude } = pos.coords
+        let closestName = ''
+        let minDistance = Infinity
+
+        Object.entries(storeCoordsMap).forEach(([name, c]) => {
+          if (c.lat && c.lng) {
+            const d = haversineMiles(latitude, longitude, c.lat, c.lng)
+            if (d < minDistance) {
+              minDistance = d
+              closestName = name
+            }
+          }
+        })
+
+        if (closestName) {
+          if (target === 'origin') {
+            setOriginName(closestName)
+          } else {
+            setDestinationName(closestName)
+          }
+          setGpsFeedback(`📍 ${closestName} (${minDistance.toFixed(2)} mi)`)
+          setTimeout(() => setGpsFeedback(''), 6000)
+        }
+        setDetectingGps(null)
+      },
+      (err) => {
+        console.warn('GPS error:', err)
+        alert(t('miles.gps_permission_denied'))
+        setDetectingGps(null)
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    )
+  }
+
+  // External Navigation Launchers
+  const getOrigAddress = () => storeCoordsMap[originName]?.address || originName
+  const getDestAddress = () => storeCoordsMap[destinationName]?.address || destinationName
+
+  const handleLaunchGoogleMaps = () => {
+    const url = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(getOrigAddress())}&destination=${encodeURIComponent(getDestAddress())}&travelmode=driving`
+    window.open(url, '_blank')
+  }
+
+  const handleLaunchAppleMaps = () => {
+    const url = `http://maps.apple.com/?saddr=${encodeURIComponent(getOrigAddress())}&daddr=${encodeURIComponent(getDestAddress())}&dirflg=d`
+    window.open(url, '_blank')
+  }
+
+  const handleLaunchWaze = () => {
+    const destCoord = storeCoordsMap[destinationName]
+    const url = destCoord?.lat && destCoord?.lng
+      ? `https://waze.com/ul?ll=${destCoord.lat},${destCoord.lng}&navigate=yes`
+      : `https://waze.com/ul?q=${encodeURIComponent(getDestAddress())}`
+    window.open(url, '_blank')
+  }
+
   // Total Reimbursement calculation
   const totalMilesCalculated = isRoundTrip ? distanceMiles * 2 : distanceMiles
   const mileageValue = totalMilesCalculated * currentRate
   const totalReimbursement = mileageValue + (Number(parkingAmount) || 0) + (Number(tollsAmount) || 0)
+
+  const handleSaveAndNavigate = async (e: React.FormEvent) => {
+    e.preventDefault()
+    await handleSubmit(e)
+    const isIOS = typeof navigator !== 'undefined' && /iPad|iPhone|iPod/.test(navigator.userAgent)
+    if (isIOS) {
+      handleLaunchAppleMaps()
+    } else {
+      handleLaunchGoogleMaps()
+    }
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -330,6 +457,14 @@ export default function TripModal({
               </div>
             )}
 
+            {/* GPS Feedback Alert */}
+            {gpsFeedback && (
+              <div className="text-xs font-semibold text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/60 p-2.5 rounded-xl border border-blue-200 dark:border-blue-800 flex items-center gap-2">
+                <LocateFixed size={14} className="text-blue-500 shrink-0" />
+                <span>{t('miles.gps_detected')} <strong>{gpsFeedback}</strong></span>
+              </div>
+            )}
+
             {/* Date & Time */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
@@ -387,9 +522,25 @@ export default function TripModal({
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 {/* Origin */}
                 <div>
-                  <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
-                    {t('miles.origin_start')}
-                  </label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-medium text-slate-600 dark:text-slate-400">
+                      {t('miles.origin_start')}
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => detectClosestStore('origin')}
+                      disabled={detectingGps !== null}
+                      title={t('miles.detect_gps_origin')}
+                      className="text-[10px] font-bold text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 bg-blue-50 dark:bg-blue-950/60 px-2 py-0.5 rounded border border-blue-200 dark:border-blue-800"
+                    >
+                      {detectingGps === 'origin' ? (
+                        <RotateCw size={10} className="animate-spin" />
+                      ) : (
+                        <LocateFixed size={10} />
+                      )}
+                      {t('miles.detect_gps_origin')}
+                    </button>
+                  </div>
                   <select
                     value={originName}
                     onChange={e => setOriginName(e.target.value)}
@@ -405,9 +556,25 @@ export default function TripModal({
 
                 {/* Destination */}
                 <div>
-                  <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
-                    {t('miles.destination_end')}
-                  </label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-medium text-slate-600 dark:text-slate-400">
+                      {t('miles.destination_end')}
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => detectClosestStore('dest')}
+                      disabled={detectingGps !== null}
+                      title={t('miles.detect_gps_dest')}
+                      className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 hover:underline flex items-center gap-1 bg-emerald-50 dark:bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-200 dark:border-emerald-800"
+                    >
+                      {detectingGps === 'dest' ? (
+                        <RotateCw size={10} className="animate-spin" />
+                      ) : (
+                        <LocateFixed size={10} />
+                      )}
+                      {t('miles.detect_gps_dest')}
+                    </button>
+                  </div>
                   <select
                     value={destinationName}
                     onChange={e => setDestinationName(e.target.value)}
@@ -429,6 +596,46 @@ export default function TripModal({
               destinationName={destinationName}
               distanceMiles={isRoundTrip ? distanceMiles * 2 : distanceMiles}
             />
+
+            {/* External Navigation Shortcuts */}
+            <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 text-white p-3 rounded-xl border border-slate-700 space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5 text-xs font-bold">
+                  <Navigation size={13} className="text-blue-400" />
+                  <span>{t('miles.launch_navigation')}</span>
+                </div>
+                <span className="text-[10px] text-slate-400 hidden sm:inline">{t('miles.navigation_desc')}</span>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2 pt-0.5">
+                <button
+                  type="button"
+                  onClick={handleLaunchGoogleMaps}
+                  className="flex items-center justify-center gap-1.5 py-2 px-2 bg-slate-800/90 hover:bg-slate-700 text-white rounded-lg text-xs font-bold border border-slate-600 transition-all active:scale-95 shadow-sm"
+                >
+                  <span>🚗</span>
+                  <span className="truncate">Google Maps</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleLaunchAppleMaps}
+                  className="flex items-center justify-center gap-1.5 py-2 px-2 bg-slate-800/90 hover:bg-slate-700 text-white rounded-lg text-xs font-bold border border-slate-600 transition-all active:scale-95 shadow-sm"
+                >
+                  <span>🗺️</span>
+                  <span className="truncate">Apple Maps</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleLaunchWaze}
+                  className="flex items-center justify-center gap-1.5 py-2 px-2 bg-slate-800/90 hover:bg-slate-700 text-white rounded-lg text-xs font-bold border border-slate-600 transition-all active:scale-95 shadow-sm"
+                >
+                  <span>🚙</span>
+                  <span className="truncate">Waze</span>
+                </button>
+              </div>
+            </div>
 
             {/* Distance & Odometer */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -518,14 +725,14 @@ export default function TripModal({
 
             {/* Classification & Purpose Notes */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div className="col-span-1">
+              <div>
                 <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
                   {t('miles.classification')}
                 </label>
                 <select
                   value={purpose}
                   onChange={e => setPurpose(e.target.value as any)}
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-sm font-semibold text-emerald-600 dark:text-emerald-400 focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="Business">{t('miles.purpose_business')}</option>
                   <option value="Personal">{t('miles.purpose_personal')}</option>
@@ -533,9 +740,9 @@ export default function TripModal({
                 </select>
               </div>
 
-              <div className="col-span-2">
+              <div className="sm:col-span-2">
                 <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
-                  {t('miles.notes_label')}
+                  {t('miles.notes_details')}
                 </label>
                 <input
                   type="text"
@@ -568,18 +775,29 @@ export default function TripModal({
             </div>
 
             {/* Buttons */}
-            <div className="flex items-center justify-end gap-3 pt-2">
+            <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-2.5 pt-2">
               <button
                 type="button"
                 onClick={onClose}
-                className="px-4 py-2 text-sm font-semibold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors"
+                className="px-4 py-2 text-sm font-semibold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors text-center"
               >
                 {t('common.cancel')}
               </button>
+
+              <button
+                type="button"
+                disabled={saving}
+                onClick={handleSaveAndNavigate}
+                className="px-4 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-xl text-sm font-bold shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-1.5 transition-all disabled:opacity-50"
+              >
+                {saving ? <RotateCw size={16} className="animate-spin" /> : <Navigation size={16} />}
+                {t('miles.save_and_navigate')}
+              </button>
+
               <button
                 type="submit"
                 disabled={saving}
-                className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-bold shadow-lg shadow-blue-600/30 flex items-center gap-2 transition-all disabled:opacity-50"
+                className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-bold shadow-lg shadow-blue-600/30 flex items-center justify-center gap-2 transition-all disabled:opacity-50"
               >
                 {saving ? (
                   <RotateCw size={16} className="animate-spin" />
