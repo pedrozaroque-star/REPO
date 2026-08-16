@@ -2418,7 +2418,24 @@ const dictionaries: Record<Language, Dictionary> = {
                 min_stock_desc: 'Establece el stock mínimo requerido por prenda y talla para TODAS las sucursales de Tacos Gavilan (15 tiendas). Cuando las existencias caigan a esta cantidad o menos en cualquier restaurante, el sistema alertará automáticamente la reposición a La Bodega.',
                 global_scope_badge: '🌐 Configuración Global (Aplica a las 15 Tiendas)',
                 save_min_stock: 'Guardar Metas Globales',
-                reset_defaults: 'Restablecer Valores Defecto'
+                reset_defaults: 'Restablecer Valores Defecto',
+                edit_item: 'Editar Stock de Prenda',
+                edit_item_modal_title: 'Ajuste de Stock Individual',
+                edit_item_desc: 'Modifica la cantidad física en existencia de esta prenda. El cambio quedará registrado en el historial de auditoría y Kardex.',
+                new_qty_label: 'Nueva Cantidad Física en Existencia',
+                current_stock_label: 'Stock Actual en Sistema',
+                stock_diff_label: 'Diferencia / Ajuste',
+                reason_required: 'Motivo del Ajuste (Obligatorio)',
+                reason_placeholder: 'Ej: Conteo físico de supervisor, ajuste por merma, corrección de captura...',
+                quick_reasons: 'Motivos frecuentes:',
+                reason_physical_count: 'Conteo Físico / Auditoría',
+                reason_correction: 'Corrección de Captura',
+                reason_damage: 'Merma / Prenda Dañada',
+                reason_supervisor_adj: 'Ajuste de Supervisor',
+                save_adjustment: 'Guardar Ajuste',
+                item_stock_updated: 'Stock de la prenda actualizado correctamente',
+                edit_btn: 'Editar',
+                actions: 'Acciones'
             },
             sales: {
                 title: 'Nueva Venta / Entrega',
@@ -2474,7 +2491,11 @@ const dictionaries: Record<Language, Dictionary> = {
                 discrepancy_notes: 'Observaciones de Faltantes / Daños',
                 discrepancy_placeholder: 'Ej: Faltaron 2 camisas L de las 6 pedidas',
                 summary_received: 'Total Artículos Recibidos',
-                summary_incomplete: 'Artículos con Faltantes'
+                summary_incomplete: 'Artículos con Faltantes',
+                order_already_received: 'Esta orden ya fue confirmada y recibida en inventario',
+                order_already_received_desc: 'La orden seleccionada (Estimate #{number}) ya fue ingresada al inventario. No se permiten confirmaciones duplicadas.',
+                status_received: 'Recibido',
+                status_pending: 'Pendiente'
             },
             history: {
                 title: 'Historial de Movimientos',
@@ -4931,7 +4952,24 @@ const dictionaries: Record<Language, Dictionary> = {
                 min_stock_desc: 'Set target minimum inventory thresholds by garment and size for ALL Tacos Gavilan store locations (15 stores). When stock reaches or falls below this count in any store, the system will alert for replenishment from La Bodega.',
                 global_scope_badge: '🌐 Global Settings (Applies to all 15 Stores)',
                 save_min_stock: 'Save Global Targets',
-                reset_defaults: 'Reset to Defaults'
+                reset_defaults: 'Reset to Defaults',
+                edit_item: 'Edit Item Stock',
+                edit_item_modal_title: 'Single Item Stock Adjustment',
+                edit_item_desc: 'Modify the on-hand physical count for this garment. The adjustment will be recorded in the audit history and Kardex.',
+                new_qty_label: 'New Physical Quantity on Hand',
+                current_stock_label: 'Current System Stock',
+                stock_diff_label: 'Difference / Adjustment',
+                reason_required: 'Adjustment Reason (Required)',
+                reason_placeholder: 'E.g. Supervisor physical count, damaged item write-off, count correction...',
+                quick_reasons: 'Frequent reasons:',
+                reason_physical_count: 'Physical Count / Audit',
+                reason_correction: 'Entry Correction',
+                reason_damage: 'Damaged / Scrap Write-off',
+                reason_supervisor_adj: 'Supervisor Adjustment',
+                save_adjustment: 'Save Adjustment',
+                item_stock_updated: 'Garment stock updated successfully',
+                edit_btn: 'Edit',
+                actions: 'Actions'
             },
             sales: {
                 title: 'New Sale / Issue',
@@ -4987,7 +5025,11 @@ const dictionaries: Record<Language, Dictionary> = {
                 discrepancy_notes: 'Missing / Damage Notes',
                 discrepancy_placeholder: 'E.g. Missing 2 L shirts out of 6 ordered',
                 summary_received: 'Total Items Received',
-                summary_incomplete: 'Items with Discrepancies'
+                summary_incomplete: 'Items with Discrepancies',
+                order_already_received: 'This order has already been confirmed and received into inventory',
+                order_already_received_desc: 'The selected order (Estimate #{number}) was already checked into inventory. Duplicate confirmations are prevented.',
+                status_received: 'Received',
+                status_pending: 'Pending'
             },
             history: {
                 title: 'Transaction History',

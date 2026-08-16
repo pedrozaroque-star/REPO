@@ -16,7 +16,8 @@ import {
   fetchExecutiveDashboard, updateUniformPricing, fetchDailySalesTotal,
   confirmOrderReception, resetInitialCount, fetchQBEstimateForReception,
   fetchRecentStoreEstimates, fetchEmployeesForStore,
-  updateUniformTransactionDetails, voidUniformTransaction
+  updateUniformTransactionDetails, voidUniformTransaction,
+  updateUniformMinStock, updateSingleUniformStock
 } from './actions';
 import {
   UniformCategory, UniformSize, SIZES_BY_CATEGORY, NEW_HIRE_PACKAGE,
@@ -406,6 +407,10 @@ function TabStockAndAudit({ storeId, stockData, setStockData, pricingData, setPr
   const [submitting, setSubmitting] = useState(false);
   const [showPricingModal, setShowPricingModal] = useState(false);
   const [showReorderModal, setShowReorderModal] = useState(false);
+  const [showMinStockModal, setShowMinStockModal] = useState(false);
+  const [editingItem, setEditingItem] = useState<StockItem | null>(null);
+
+  const isSupervisorOrAdmin = isAdmin || user?.role === 'supervisor';
 
   const fullStockData = useMemo(() => {
     const existingMap = new Map<string, any>();
@@ -523,6 +528,9 @@ function TabStockAndAudit({ storeId, stockData, setStockData, pricingData, setPr
               <th className="p-4 font-semibold">{t('uniforms.stock.qty_on_hand')}</th>
               <th className="p-4 font-semibold">{t('uniforms.stock.min_stock')}</th>
               <th className="p-4 font-semibold">{t('uniforms.stock.status')}</th>
+              {isSupervisorOrAdmin && (
+                <th className="p-4 font-semibold text-right">{t('uniforms.stock.actions')}</th>
+              )}
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
@@ -588,6 +596,18 @@ function TabStockAndAudit({ storeId, stockData, setStockData, pricingData, setPr
                       </span>
                     )}
                   </td>
+                  {isSupervisorOrAdmin && (
+                    <td className="p-4 text-right">
+                      <button
+                        onClick={() => setEditingItem(item)}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 dark:bg-blue-900/30 dark:hover:bg-blue-900/50 text-blue-700 dark:text-blue-300 rounded-lg text-xs font-bold transition-all shadow-sm"
+                        title={t('uniforms.stock.edit_item')}
+                      >
+                        <Edit2 className="w-3.5 h-3.5" />
+                        <span>{t('uniforms.stock.edit_btn')}</span>
+                      </button>
+                    </td>
+                  )}
                 </tr>
               );
             })}
@@ -638,24 +658,36 @@ function TabStockAndAudit({ storeId, stockData, setStockData, pricingData, setPr
 
       <div className="flex flex-wrap items-center justify-between mb-6 gap-4">
         <h2 className="text-xl font-bold">{t('uniforms.stock.title')}</h2>
-        {isAdmin && (
+        {(isAdmin || user?.role === 'supervisor') && (
           <div className="flex items-center gap-3">
             <button
-              onClick={() => setShowPricingModal(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 rounded-lg font-medium transition-colors"
+              onClick={() => setShowMinStockModal(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-amber-50 hover:bg-amber-100 text-amber-800 dark:bg-amber-900/20 dark:hover:bg-amber-900/40 dark:text-amber-300 rounded-lg font-medium transition-colors border border-amber-200 dark:border-amber-800"
             >
-              <DollarSign className="w-4 h-4" />
-              {t('uniforms.stock.edit_pricing')}
+              <Settings className="w-4 h-4" />
+              <span>{t('uniforms.stock.edit_min_stock')}</span>
             </button>
 
-            <button
-              onClick={handleResetInitial}
-              disabled={submitting}
-              className="flex items-center gap-2 px-4 py-2 bg-red-50 hover:bg-red-100 text-red-700 dark:bg-red-900/20 dark:hover:bg-red-900/40 dark:text-red-300 rounded-lg font-medium transition-colors border border-red-200 dark:border-red-800"
-            >
-              <RotateCcw className="w-4 h-4" />
-              {t('uniforms.stock.reset_initial')}
-            </button>
+            {isAdmin && (
+              <>
+                <button
+                  onClick={() => setShowPricingModal(true)}
+                  className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 rounded-lg font-medium transition-colors"
+                >
+                  <DollarSign className="w-4 h-4" />
+                  {t('uniforms.stock.edit_pricing')}
+                </button>
+
+                <button
+                  onClick={handleResetInitial}
+                  disabled={submitting}
+                  className="flex items-center gap-2 px-4 py-2 bg-red-50 hover:bg-red-100 text-red-700 dark:bg-red-900/20 dark:hover:bg-red-900/40 dark:text-red-300 rounded-lg font-medium transition-colors border border-red-200 dark:border-red-800"
+                >
+                  <RotateCcw className="w-4 h-4" />
+                  {t('uniforms.stock.reset_initial')}
+                </button>
+              </>
+            )}
             
             {auditMode ? (
               <div className="flex items-center gap-3 bg-blue-50 dark:bg-blue-900/20 p-2 rounded-lg border border-blue-100 dark:border-blue-800">
@@ -717,6 +749,376 @@ function TabStockAndAudit({ storeId, stockData, setStockData, pricingData, setPr
           lowStockItems={lowStockItems}
         />
       )}
+
+      {showMinStockModal && (
+        <MinStockModal
+          storeId={storeId}
+          fullStockData={fullStockData}
+          onClose={() => setShowMinStockModal(false)}
+          onSaveSuccess={async () => {
+            const updated = await fetchUniformsStock(storeId);
+            setStockData(updated);
+          }}
+          showToast={showToast}
+        />
+      )}
+
+      {editingItem && (
+        <EditItemStockModal
+          item={editingItem}
+          storeId={storeId}
+          onClose={() => setEditingItem(null)}
+          onSaveSuccess={async () => {
+            const updated = await fetchUniformsStock(storeId);
+            setStockData(updated);
+          }}
+          showToast={showToast}
+        />
+      )}
+    </div>
+  );
+}
+
+function EditItemStockModal({ 
+  item, 
+  storeId, 
+  onClose, 
+  onSaveSuccess, 
+  showToast 
+}: { 
+  item: StockItem, 
+  storeId: number, 
+  onClose: () => void, 
+  onSaveSuccess: () => Promise<void> | void, 
+  showToast: (msg: string, type?: string) => void 
+}) {
+  const { user } = useAuth();
+  const { t, language } = useLanguage();
+  const [newQty, setNewQty] = useState<number>(item.quantity_on_hand || 0);
+  const [reason, setReason] = useState<string>('');
+  const [submitting, setSubmitting] = useState(false);
+
+  const prevQty = item.quantity_on_hand || 0;
+  const diff = newQty - prevQty;
+
+  const quickReasons = [
+    t('uniforms.stock.reason_physical_count'),
+    t('uniforms.stock.reason_correction'),
+    t('uniforms.stock.reason_damage'),
+    t('uniforms.stock.reason_supervisor_adj')
+  ];
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!reason.trim()) {
+      showToast(t('uniforms.toast.error'), 'warning');
+      return;
+    }
+
+    try {
+      setSubmitting(true);
+      await updateSingleUniformStock({
+        storeId,
+        item_category: item.item_category,
+        size: item.size,
+        newQty,
+        reason: reason.trim(),
+        userEmail: user?.email || ''
+      });
+
+      showToast(t('uniforms.stock.item_stock_updated'), 'success');
+      await onSaveSuccess();
+      onClose();
+    } catch (err) {
+      showToast(t('uniforms.toast.error'), 'error');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <motion.div 
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        exit={{ opacity: 0, scale: 0.95 }}
+        className="bg-white dark:bg-gray-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-gray-200 dark:border-gray-700 flex flex-col space-y-5"
+      >
+        <div className="flex items-center justify-between border-b border-gray-200 dark:border-gray-700 pb-4">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 bg-blue-500/10 text-blue-600 dark:text-blue-400 rounded-xl">
+              <Edit2 className="w-6 h-6" />
+            </div>
+            <div>
+              <h3 className="text-xl font-bold text-gray-900 dark:text-white">
+                {t('uniforms.stock.edit_item_modal_title')}
+              </h3>
+              <div className="flex items-center gap-2 mt-1">
+                <span className="font-semibold text-sm text-gray-700 dark:text-gray-300">
+                  {getCategoryDisplayName(item.item_category, language as 'es'|'en')}
+                </span>
+                <span className="px-2 py-0.5 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded text-xs font-bold font-mono">
+                  {item.size}
+                </span>
+              </div>
+            </div>
+          </div>
+          <button 
+            onClick={onClose} 
+            className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg text-gray-500 hover:text-gray-900 dark:hover:text-white transition-colors"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <form onSubmit={handleSave} className="space-y-4">
+          <div className="grid grid-cols-2 gap-3 p-3 bg-gray-50 dark:bg-gray-900/50 rounded-xl border border-gray-100 dark:border-gray-700 text-sm">
+            <div>
+              <span className="text-xs text-gray-500 font-medium block">{t('uniforms.stock.current_stock_label')}</span>
+              <span className="text-lg font-bold text-gray-900 dark:text-white">{prevQty} pzas</span>
+            </div>
+            <div>
+              <span className="text-xs text-gray-500 font-medium block">{t('uniforms.stock.min_stock')}</span>
+              <span className="text-lg font-bold text-amber-600 dark:text-amber-400">{item.min_stock} pzas</span>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">
+              {t('uniforms.stock.new_qty_label')} *
+            </label>
+            <div className="flex items-center gap-3">
+              <input
+                type="number"
+                min="0"
+                required
+                className="w-full bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-blue-500 font-bold text-lg"
+                value={newQty}
+                onChange={e => setNewQty(Math.max(0, parseInt(e.target.value) || 0))}
+              />
+              <div className={`px-3 py-2 rounded-xl text-xs font-black whitespace-nowrap border flex items-center gap-1
+                ${diff > 0 
+                  ? 'bg-green-50 text-green-700 border-green-200 dark:bg-green-950/30 dark:text-green-300 dark:border-green-800' 
+                  : diff < 0 
+                  ? 'bg-red-50 text-red-700 border-red-200 dark:bg-red-950/30 dark:text-red-300 dark:border-red-800' 
+                  : 'bg-gray-100 text-gray-600 border-gray-200 dark:bg-gray-700 dark:text-gray-300'}`}
+              >
+                <span>{diff > 0 ? `+${diff}` : diff} pzas</span>
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">
+              {t('uniforms.stock.reason_required')} *
+            </label>
+            <input
+              type="text"
+              required
+              placeholder={t('uniforms.stock.reason_placeholder')}
+              className="w-full bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-xl px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500 font-medium"
+              value={reason}
+              onChange={e => setReason(e.target.value)}
+            />
+            <div className="mt-2">
+              <span className="text-[11px] text-gray-400 font-semibold block mb-1">{t('uniforms.stock.quick_reasons')}</span>
+              <div className="flex flex-wrap gap-1.5">
+                {quickReasons.map(r => (
+                  <button
+                    key={r}
+                    type="button"
+                    onClick={() => setReason(r)}
+                    className="px-2.5 py-1 bg-gray-100 dark:bg-gray-700 hover:bg-blue-100 dark:hover:bg-blue-900/50 hover:text-blue-600 dark:hover:text-blue-300 rounded-lg text-xs font-medium transition-colors"
+                  >
+                    {r}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-end gap-3 pt-3 border-t border-gray-200 dark:border-gray-700">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2.5 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-xl font-medium text-sm transition-colors"
+            >
+              {t('common.cancel')}
+            </button>
+            <button
+              type="submit"
+              disabled={submitting}
+              className="flex items-center gap-2 px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm shadow-md transition-colors disabled:opacity-50"
+            >
+              {submitting ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              {t('uniforms.stock.save_adjustment')}
+            </button>
+          </div>
+        </form>
+      </motion.div>
+    </div>
+  );
+}
+
+function MinStockModal({ storeId, fullStockData, onClose, onSaveSuccess, showToast }: any) {
+  const { user } = useAuth();
+  const { t, language } = useLanguage();
+  const [editedMinStock, setEditedMinStock] = useState<Record<string, number>>({});
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    const initialMap: Record<string, number> = {};
+    (fullStockData || []).forEach((item: any) => {
+      const key = `${item.item_category}:${item.size}`;
+      const val = (item.min_stock !== undefined && item.min_stock !== null) ? item.min_stock : getDefaultMinStock(item.item_category, item.size);
+      initialMap[key] = val;
+    });
+    setEditedMinStock(initialMap);
+  }, [fullStockData]);
+
+  const handleResetDefaults = () => {
+    const resetMap: Record<string, number> = {};
+    ALL_CATEGORIES.forEach(cat => {
+      (SIZES_BY_CATEGORY[cat] || []).forEach(size => {
+        resetMap[`${cat}:${size}`] = getDefaultMinStock(cat, size);
+      });
+    });
+    setEditedMinStock(resetMap);
+  };
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      setSubmitting(true);
+      const updates = Object.entries(editedMinStock).map(([key, min_stock]) => {
+        const [item_category, size] = key.split(':');
+        return {
+          item_category: item_category as UniformCategory,
+          size: size as UniformSize,
+          min_stock
+        };
+      });
+
+      await updateUniformMinStock(storeId, updates, user?.email || '');
+      showToast(t('uniforms.stock.min_stock_saved') || 'Metas de stock mínimo actualizadas exitosamente', 'success');
+      await onSaveSuccess();
+      onClose();
+    } catch (err) {
+      showToast(t('uniforms.toast.error'), 'error');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <motion.div 
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        exit={{ opacity: 0, scale: 0.95 }}
+        className="bg-white dark:bg-gray-800 rounded-2xl max-w-4xl w-full p-6 shadow-2xl border border-gray-200 dark:border-gray-700 max-h-[90vh] flex flex-col"
+      >
+        <div className="flex items-center justify-between border-b border-gray-200 dark:border-gray-700 pb-4 mb-4">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 bg-amber-500/10 text-amber-600 dark:text-amber-400 rounded-xl">
+              <Settings className="w-6 h-6" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-xl font-bold text-gray-900 dark:text-white">
+                  {t('uniforms.stock.min_stock_modal_title')}
+                </h3>
+                <span className="px-2.5 py-0.5 rounded-full text-xs font-extrabold bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                  {t('uniforms.stock.global_scope_badge')}
+                </span>
+              </div>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                {t('uniforms.stock.min_stock_desc')}
+              </p>
+            </div>
+          </div>
+          <button 
+            onClick={onClose}
+            className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <form onSubmit={handleSave} className="flex-1 flex flex-col min-h-0">
+          <div className="overflow-y-auto flex-1 mb-6 pr-2 space-y-6">
+            {ALL_CATEGORIES.map(cat => {
+              const sizes = SIZES_BY_CATEGORY[cat] || [];
+              return (
+                <div key={cat} className="bg-gray-50 dark:bg-gray-900/50 p-4 rounded-xl border border-gray-100 dark:border-gray-700">
+                  <h4 className="font-bold text-gray-900 dark:text-gray-100 text-sm mb-3 flex items-center justify-between">
+                    <span>{getCategoryDisplayName(cat, language as 'es' | 'en')}</span>
+                    <span className="text-xs text-gray-400 font-normal">({sizes.length} tallas)</span>
+                  </h4>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7 gap-3">
+                    {sizes.map(size => {
+                      const key = `${cat}:${size}`;
+                      const currentVal = editedMinStock[key] !== undefined ? editedMinStock[key] : getDefaultMinStock(cat, size);
+                      const defaultVal = getDefaultMinStock(cat, size);
+                      const isCustom = currentVal !== defaultVal;
+
+                      return (
+                        <div key={size} className="bg-white dark:bg-gray-800 p-2.5 rounded-lg border border-gray-200 dark:border-gray-700">
+                          <div className="flex items-center justify-between text-xs mb-1">
+                            <span className="font-bold text-gray-700 dark:text-gray-300">{size}</span>
+                            <span className="text-[10px] text-gray-400" title="Estándar predeterminado">
+                              def: {defaultVal}
+                            </span>
+                          </div>
+                          <input 
+                            type="number"
+                            min={0}
+                            max={999}
+                            className={`w-full bg-gray-50 dark:bg-gray-900 border rounded px-2 py-1 text-sm text-center font-extrabold outline-none focus:ring-2 focus:ring-amber-500 ${isCustom ? 'border-amber-500 text-amber-600 dark:text-amber-400' : 'border-gray-300 dark:border-gray-600'}`}
+                            value={currentVal}
+                            onChange={e => {
+                              const val = Math.max(0, parseInt(e.target.value) || 0);
+                              setEditedMinStock(prev => ({ ...prev, [key]: val }));
+                            }}
+                          />
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="flex items-center justify-between pt-4 border-t border-gray-200 dark:border-gray-700">
+            <button
+              type="button"
+              onClick={handleResetDefaults}
+              className="text-xs text-gray-500 hover:text-gray-800 dark:hover:text-gray-200 underline font-medium flex items-center gap-1"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span>{t('uniforms.stock.reset_defaults')}</span>
+            </button>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-4 py-2 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-xl font-medium text-sm transition-colors"
+              >
+                {t('common.cancel')}
+              </button>
+              <button
+                type="submit"
+                disabled={submitting}
+                className="px-5 py-2.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-bold text-sm transition-all shadow-md flex items-center gap-2 disabled:opacity-50"
+              >
+                {submitting ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                <span>{t('uniforms.stock.save_min_stock')}</span>
+              </button>
+            </div>
+          </div>
+        </form>
+      </motion.div>
     </div>
   );
 }
@@ -1215,8 +1617,6 @@ function TabSalesAndIssues({ storeId, stockData, pricingData, showToast, onTrans
         });
         if (res.warning) {
           showToast(res.warning, 'warning');
-          setSubmitting(false);
-          return;
         }
       }
       
@@ -1600,19 +2000,19 @@ function TabSalesAndIssues({ storeId, stockData, pricingData, showToast, onTrans
                         </label>
                         <input
                           type="number"
-                          min={availableStock && availableStock > 0 ? 1 : 0}
-                          max={availableStock !== null ? availableStock : 999}
-                          disabled={availableStock === 0}
+                          min={1}
+                          max={txType === 'damage' ? 999 : (availableStock !== null && availableStock > 0 ? availableStock : 999)}
+                          disabled={txType !== 'damage' && availableStock === 0}
                           className="w-full bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 outline-none disabled:opacity-50 font-medium"
                           value={saleQty}
                           onChange={e => {
                             const raw = parseInt(e.target.value) || 0;
-                            const max = availableStock !== null ? availableStock : 999;
-                            if (raw > max) {
+                            const max = txType === 'damage' ? 999 : (availableStock !== null && availableStock > 0 ? availableStock : 999);
+                            if (txType !== 'damage' && raw > max) {
                               showToast(`El stock máximo disponible es de ${max} piezas.`, 'warning');
                               setSaleQty(max);
                             } else {
-                              setSaleQty(Math.max(0, raw));
+                              setSaleQty(Math.max(1, raw));
                             }
                           }}
                         />
@@ -1621,11 +2021,16 @@ function TabSalesAndIssues({ storeId, stockData, pricingData, showToast, onTrans
                   </div>
 
                   {availableStock !== null && (
-                    <div className="flex items-center gap-2 text-sm mt-2">
+                    <div className="flex items-center gap-2 text-sm mt-2 flex-wrap">
                       <span className="text-gray-500">{t('uniforms.sales.available_stock')}:</span>
                       <span className={`font-bold ${availableStock > 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
                         {availableStock}
                       </span>
+                      {txType === 'damage' && availableStock < saleQty && (
+                        <span className="text-xs font-semibold px-2 py-0.5 bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-300 rounded-md">
+                          ⚠️ Existencia en sistema baja (se registrará la salida)
+                        </span>
+                      )}
                     </div>
                   )}
 
@@ -1727,7 +2132,9 @@ function TabOrderReception({ storeId, showToast, onComplete }: any) {
 
   const [submitting, setSubmitting] = useState(false);
   const [searching, setSearching] = useState(false);
-  const [recentEstimates, setRecentEstimates] = useState<Array<{id: string, qb_estimate_number: string, qb_estimate_id: string, created_at: string}>>([]);
+  const [loadedOrderId, setLoadedOrderId] = useState<string | null>(null);
+  const [isOrderReceived, setIsOrderReceived] = useState(false);
+  const [recentEstimates, setRecentEstimates] = useState<Array<{id: string, qb_estimate_number: string, qb_estimate_id: string, created_at: string, status?: string}>>([]);
 
   useEffect(() => {
     if (receptionMode === 'estimate') {
@@ -1737,10 +2144,14 @@ function TabOrderReception({ storeId, showToast, onComplete }: any) {
 
   const loadEstimateByNum = async (num: string) => {
     setEstimateNum(num);
+    setLoadedOrderId(null);
+    setIsOrderReceived(false);
     try {
       setSearching(true);
       const res = await fetchQBEstimateForReception(storeId, num);
       if (res.found && res.items.length > 0) {
+        setLoadedOrderId(res.orderId || null);
+        setIsOrderReceived(!!res.isAlreadyReceived);
         setOrderItems(res.items.map(i => ({
           id: i.id,
           category: i.category as UniformCategory,
@@ -1750,7 +2161,11 @@ function TabOrderReception({ storeId, showToast, onComplete }: any) {
           isMissing: i.isMissing,
           notes: i.notes
         })));
-        showToast(`Orden #${res.orderNumber || num} cargada exitosamente`, 'success');
+        if (res.isAlreadyReceived) {
+          showToast(t('uniforms.reception.order_already_received'), 'warning');
+        } else {
+          showToast(`Orden #${res.orderNumber || num} cargada exitosamente`, 'success');
+        }
       } else {
         showToast(res.message || 'No se encontró la orden. Puedes agregar los artículos manualmente.', 'warning');
       }
@@ -1837,8 +2252,8 @@ function TabOrderReception({ storeId, showToast, onComplete }: any) {
       setSubmitting(true);
       await confirmOrderReception({ 
         storeId, 
-        orderId: '00000000-0000-0000-0000-000000000000', 
         items: validItems, 
+        notes: 'Entrada Manual de Uniformes',
         userEmail: user?.email || '' 
       });
       showToast(t('uniforms.toast.reception_success'), 'success');
@@ -1852,6 +2267,11 @@ function TabOrderReception({ storeId, showToast, onComplete }: any) {
   };
 
   const handleSubmitEstimate = async () => {
+    if (isOrderReceived) {
+      showToast(t('uniforms.reception.order_already_received'), 'warning');
+      return;
+    }
+
     const validItems = orderItems.filter(i => i.receivedQty > 0).map(i => {
       let notes = i.notes.trim();
       if (i.receivedQty < i.orderedQty && !notes) {
@@ -1884,13 +2304,19 @@ function TabOrderReception({ storeId, showToast, onComplete }: any) {
       setSubmitting(true);
       await confirmOrderReception({
         storeId,
-        orderId: '00000000-0000-0000-0000-000000000000',
+        orderId: loadedOrderId || undefined,
+        estimateNum: estimateNum.trim() || undefined,
         items: validItems.map(v => ({ item_category: v.item_category, size: v.size, receivedQty: v.receivedQty })),
         notes: orderNotes,
         userEmail: user?.email || ''
       });
 
       showToast(t('uniforms.toast.reception_success'), 'success');
+      setOrderItems([]);
+      setEstimateNum('');
+      setLoadedOrderId(null);
+      setIsOrderReceived(false);
+      fetchRecentStoreEstimates(storeId).then(setRecentEstimates).catch(console.error);
       onComplete();
     } catch (err) {
       showToast(t('uniforms.toast.error'), 'error');
@@ -1965,15 +2391,28 @@ function TabOrderReception({ storeId, showToast, onComplete }: any) {
               {recentEstimates.length > 0 && (
                 <div className="mt-2 flex items-center gap-2 flex-wrap">
                   <span className="text-xs text-gray-400 font-medium">Órdenes / Estimates Recientes:</span>
-                  {recentEstimates.slice(0, 5).map(est => (
-                    <button
-                      key={est.id}
-                      onClick={() => loadEstimateByNum(est.qb_estimate_number)}
-                      className="px-2.5 py-1 bg-gray-100 dark:bg-gray-700 hover:bg-blue-100 dark:hover:bg-blue-900/50 hover:text-blue-600 dark:hover:text-blue-300 rounded-md text-xs font-mono font-semibold transition-colors"
-                    >
-                      #{est.qb_estimate_number}
-                    </button>
-                  ))}
+                  {recentEstimates.slice(0, 6).map(est => {
+                    const isRec = est.status === 'received';
+                    return (
+                      <button
+                        key={est.id}
+                        onClick={() => loadEstimateByNum(est.qb_estimate_number)}
+                        className={`px-2.5 py-1 rounded-md text-xs font-mono font-semibold transition-colors flex items-center gap-1.5 border
+                          ${isRec 
+                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-300 dark:border-emerald-800/50' 
+                            : 'bg-gray-100 dark:bg-gray-700 hover:bg-blue-100 dark:hover:bg-blue-900/50 hover:text-blue-600 dark:hover:text-blue-300 border-transparent'}`}
+                      >
+                        <span>#{est.qb_estimate_number}</span>
+                        <span className={`text-[10px] px-1 py-0.2 rounded font-sans font-bold
+                          ${isRec 
+                            ? 'bg-emerald-200/60 dark:bg-emerald-800 text-emerald-800 dark:text-emerald-100' 
+                            : 'bg-amber-200/60 dark:bg-amber-800 text-amber-800 dark:text-amber-100'}`}
+                        >
+                          {isRec ? t('uniforms.reception.status_received') : t('uniforms.reception.status_pending')}
+                        </span>
+                      </button>
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -1994,6 +2433,17 @@ function TabOrderReception({ storeId, showToast, onComplete }: any) {
               </button>
             </div>
           </div>
+
+          {/* Banner if Order was already received */}
+          {isOrderReceived && (
+            <div className="p-4 bg-amber-50 dark:bg-amber-950/30 border border-amber-300 dark:border-amber-700 rounded-xl flex items-center gap-3 text-amber-800 dark:text-amber-300 text-sm">
+              <AlertTriangle className="w-5 h-5 flex-shrink-0 text-amber-600 dark:text-amber-400" />
+              <div>
+                <span className="font-bold">{t('uniforms.reception.order_already_received')}.</span>{' '}
+                <span>{t('uniforms.reception.order_already_received_desc').replace('{number}', estimateNum)}</span>
+              </div>
+            </div>
+          )}
 
           {/* Items Checklist with Discrepancies */}
           <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 overflow-hidden shadow-sm">
@@ -2113,11 +2563,20 @@ function TabOrderReception({ storeId, showToast, onComplete }: any) {
 
               <button
                 onClick={handleSubmitEstimate}
-                disabled={submitting}
-                className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-8 py-3 rounded-xl font-medium transition-colors disabled:opacity-50 shadow-md"
+                disabled={submitting || isOrderReceived || orderItems.length === 0}
+                className={`flex items-center gap-2 px-8 py-3 rounded-xl font-medium transition-colors shadow-md
+                  ${isOrderReceived 
+                    ? 'bg-gray-400 dark:bg-gray-600 text-white cursor-not-allowed opacity-80' 
+                    : 'bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-50'}`}
               >
-                {submitting ? <RefreshCw className="w-5 h-5 animate-spin" /> : <Truck className="w-5 h-5" />}
-                {t('uniforms.reception.confirm')}
+                {submitting ? (
+                  <RefreshCw className="w-5 h-5 animate-spin" />
+                ) : isOrderReceived ? (
+                  <CheckCircle className="w-5 h-5" />
+                ) : (
+                  <Truck className="w-5 h-5" />
+                )}
+                {isOrderReceived ? t('uniforms.reception.status_received') : t('uniforms.reception.confirm')}
               </button>
             </div>
           </div>

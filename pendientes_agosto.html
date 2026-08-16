@@ -864,7 +864,7 @@
                 </svg>
             </div>
             <div>
-                <div class="stat-number" style="color: #e05638;">31.0</div>
+                <div class="stat-number" style="color: #e05638;">35.2</div>
                 <div class="stat-desc">Horas trabajadas</div>
             </div>
         </div>
@@ -2033,6 +2033,17 @@
                                          <div class="en-desc">- **Preparador (Champurrado in Back Kitchen Carousel)**: Added ☕ CHAMPURRADO card to the Back Kitchen carousel in 3×2 grid with distinctive amber accent styling. Unit changed from portions to gallons (1 gallon = 20 cups). Left panel widened from 50% to 60%.<br>- **Bug Fix (Intraday Accelerator)**: Fixed CHAMPURRADO and AGUACATE calculations that lost the intelligenceAcelerador multiplier when overwriting the val variable.<br>- **Seasonal Forecast API**: New endpoint `/api/inventory/champurrado-forecast` querying 5 years of historical data using ISO week comparison. Returns suggested daily gallons with confidence level (HIGH/MEDIUM/LOW/NONE). Includes JavaScript fallback without SQL functions.<br>- **SQL Migration**: Created RPCs `get_champurrado_seasonal_forecast` and `get_seasonal_avg_gallons` in Supabase for optimized ISO week calculations.<br>- **AI Tooltip in Bodega Orders**: Items containing 'champurrado' display a ☕ icon with hover tooltip showing AI-suggested gallons/day based on seasonal history (informational only, does NOT modify PAR values).<br>- **i18n**: Bilingual keys for champurrado suggestions added to both dictionaries (ES/EN).</div>
                                     </div>
                                 </td>
+                            <tr>
+                                <td><strong>15-Aug-2026</strong></td>
+                                <td>8:00 PM - 8:45 PM</td>
+                                <td style="text-align: center; font-weight: 700;">0.75</td>
+                                <td><span class="table-badge-module">Inventario</span> <span class="table-badge-module">Uniformes</span> <span class="table-badge-module">Edición Supervisor</span> <span class="table-badge-module">Recepción Órdenes</span></td>
+                                <td>
+                                    <div class="lang-split">
+                                         <div class="es-desc">- **Control de Uniformes (Editor Individual de Stock para Supervisores y Admins)**: Incorporación de botón y modal interactivo de edición individual (`EditItemStockModal`) en la tabla de inventario físico para cuentas de Supervisor y Administrador. Permite ajustar directamente la existencia física de cualquier prenda/talla con cálculo dinámico de diferencia (+/-), selector de motivos frecuentes de auditoría y persistencia inmediata mediante la Server Action `updateSingleUniformStock`.<br>- **Control de Uniformes (Deducción Robusta en Cambio por Daño)**: Corrección de la Server Action `recordDamageExchange` y del formulario `TabSalesAndIssues` para permitir procesar reemplazos por daño aún con stock bajo o cero en sistema sin bloquear la entrega física del manager. Actualización automática de `uniforms_inventory_stock` mediante upsert, registro en el Kardex/historial y notificación informativa en caso de inventario negativo.<br>- **Control de Uniformes (Bloqueo de Recepciones Duplicadas y Limpieza de Formulario)**: En la pestaña de Recepción de Órdenes/Estimates (`TabOrderReception`), integración de bloqueo estricto para Estimates previamente confirmados con actualización automática de `inventory_orders.status = 'received'`, badges visuales de estado (`Recibido` vs `Pendiente`), desactivación del botón de confirmación para órdenes ya ingresadas y restablecimiento completo del formulario tras la recepción exitosa para prevenir duplicación accidental de stock.</div>
+                                         <div class="en-desc">- **Uniforms Control (Single Item Stock Editor for Supervisors & Admins)**: Added dedicated edit button and interactive modal (`EditItemStockModal`) on the physical inventory table for Supervisor and Administrator roles. Allows directly adjusting on-hand counts for any garment/size with live difference calculation (+/-), quick audit reason tags, and instant persistence via `updateSingleUniformStock` Server Action.<br>- **Uniforms Control (Resilient Stock Deduction on Damage Exchanges)**: Fixed `recordDamageExchange` Server Action and `TabSalesAndIssues` form to process damage replacements even under low or zero system stock without blocking store manager physical delivery. Automatic stock update via upsert in `uniforms_inventory_stock`, Kardex/history recording, and clear warning feedback when stock goes below target.<br>- **Uniforms Control (Duplicate Reception Prevention & Form State Reset)**: In Order/Estimate Reception tab (`TabOrderReception`), integrated strict lock for already confirmed QB estimates with automatic status update `inventory_orders.status = 'received'`, visual status badges (`Received` vs `Pending`), disabled confirmation button on previously received orders, and complete form state reset upon successful confirmation to prevent duplicate stock entries.</div>
+                                    </div>
+                                </td>
                             </tr>
                         </tbody>
                        </table>
@@ -2049,8 +2060,8 @@
                             <span class="hours">3.0 hrs</span>
                         </h4>
                         <p>
-                            Pruebas en sitio del modo kiosko de tableta del preparador en sucursales, validando la sincronización del modo manual entre la PC del gerente y la tableta de cocina.
-                            <span class="en-text">Testing preparador tablet kiosk mode at stores, validating manual mode sync between manager PC and kitchen tablet.</span>
+                            Pruebas en sitio del modo kiosko de tableta del preparador, validación de sincronización manual, pruebas del módulo de uniformes con gerentes, y verificación de conteo de caja fuerte editado por supervisores.
+                            <span class="en-text">On-site testing of preparador tablet kiosk mode, manual sync validation, uniforms module testing with managers, and safe count editing verification by supervisors.</span>
                         </p>
                     </div>
                     <div class="parallel-card">
@@ -2059,8 +2070,8 @@
                             <span class="hours">2.0 hrs</span>
                         </h4>
                         <p>
-                            Monitoreo de la tabla prep_manual_schedule en Supabase, sincronización de Estimates de QuickBooks, y verificación de envío de correos de violaciones de horarios.
-                            <span class="en-text">Monitoring Supabase prep_manual_schedule table, QuickBooks Estimate sync, and violation email delivery.</span>
+                            Monitoreo de tablas en Supabase (prep_manual_schedule, uniforms_inventory_stock, safe_counts), sincronización de Estimates de QuickBooks, verificación de correos de violaciones, y pruebas de RPCs de pronóstico estacional de champurrado.
+                            <span class="en-text">Monitoring Supabase tables (prep_manual_schedule, uniforms_inventory_stock, safe_counts), QuickBooks Estimate sync, violation email delivery, and champurrado seasonal forecast RPC testing.</span>
                         </p>
                     </div>
                     <div class="parallel-card">
@@ -2069,8 +2080,8 @@
                             <span class="hours">1.0 hrs</span>
                         </h4>
                         <p>
-                            Planificación del sistema de capacidad máxima de charola y arquitectura del toggle de 3 modos (Manual/Básica/Avanzada).
-                            <span class="en-text">Planning the max tray holding capacity system and 3-mode toggle architecture (Manual/Basic/Advanced).</span>
+                            Planificación del sistema de capacidad máxima de charola, arquitectura del toggle de 3 modos, diseño del módulo B2B Retail, y arquitectura del pronóstico estacional de champurrado.
+                            <span class="en-text">Planning max tray holding capacity system, 3-mode toggle architecture, B2B Retail module design, and champurrado seasonal forecast architecture.</span>
                         </p>
                     </div>
                 </div>
@@ -2081,8 +2092,8 @@
                 </h3>
                 <div class="modules-summary">
                     <div class="module-summary-item">
-                        <span>Actividades, Planificador y Horarios / Activities & Scheduling</span>
-                        <span class="hours">0.5 hrs</span>
+                        <span>Actividades, Planificador, Horarios y Descansos / Scheduling & Breaks</span>
+                        <span class="hours">4.5 hrs</span>
                     </div>
                     <div class="module-summary-item">
                         <span>Clon y Sincronizador de Basecamp / Basecamp Integration</span>
@@ -2093,16 +2104,20 @@
                         <span class="hours">0.0 hrs</span>
                     </div>
                     <div class="module-summary-item">
-                        <span>Preparador de Carne y Cocina KDS / Prep Line & Kitchen KDS</span>
-                        <span class="hours">12.5 hrs</span>
+                        <span>Preparador de Carne, Cocina KDS y Champurrado / Prep Line & Kitchen</span>
+                        <span class="hours">14.0 hrs</span>
                     </div>
                     <div class="module-summary-item">
-                        <span>Inventario, Pedidos y Sincronización QuickBooks / Inventory & QuickBooks</span>
-                        <span class="hours">9.0 hrs</span>
+                        <span>Inventario, Uniformes, Pedidos y QuickBooks / Inventory & QuickBooks</span>
+                        <span class="hours">10.9 hrs</span>
                     </div>
                     <div class="module-summary-item">
-                        <span>Mantenimiento General y Soporte Técnico / General Maintenance & Support</span>
-                        <span class="hours">2.0 hrs</span>
+                        <span>Caja Fuerte y Reportes / Safe Counts & Reports</span>
+                        <span class="hours">4.3 hrs</span>
+                    </div>
+                    <div class="module-summary-item">
+                        <span>Navegación, UI/UX y Mantenimiento / Navigation & Maintenance</span>
+                        <span class="hours">1.5 hrs</span>
                     </div>
                 </div>
  
