@@ -300,47 +300,12 @@ export default function TripModal({
     )
   }
 
-  // External Navigation Launchers
+  // External Navigation Launchers (Save trip first, then launch navigation)
   const getOrigAddress = () => storeCoordsMap[originName]?.address || originName
   const getDestAddress = () => storeCoordsMap[destinationName]?.address || destinationName
 
-  const handleLaunchGoogleMaps = () => {
-    const url = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(getOrigAddress())}&destination=${encodeURIComponent(getDestAddress())}&travelmode=driving`
-    window.open(url, '_blank')
-  }
-
-  const handleLaunchAppleMaps = () => {
-    const url = `http://maps.apple.com/?saddr=${encodeURIComponent(getOrigAddress())}&daddr=${encodeURIComponent(getDestAddress())}&dirflg=d`
-    window.open(url, '_blank')
-  }
-
-  const handleLaunchWaze = () => {
-    const destCoord = storeCoordsMap[destinationName]
-    const url = destCoord?.lat && destCoord?.lng
-      ? `https://waze.com/ul?ll=${destCoord.lat},${destCoord.lng}&navigate=yes`
-      : `https://waze.com/ul?q=${encodeURIComponent(getDestAddress())}`
-    window.open(url, '_blank')
-  }
-
-  // Total Reimbursement calculation
-  const totalMilesCalculated = isRoundTrip ? distanceMiles * 2 : distanceMiles
-  const mileageValue = totalMilesCalculated * currentRate
-  const totalReimbursement = mileageValue + (Number(parkingAmount) || 0) + (Number(tollsAmount) || 0)
-
-  const handleSaveAndNavigate = async (e: React.FormEvent) => {
-    e.preventDefault()
-    await handleSubmit(e)
-    const isIOS = typeof navigator !== 'undefined' && /iPad|iPhone|iPod/.test(navigator.userAgent)
-    if (isIOS) {
-      handleLaunchAppleMaps()
-    } else {
-      handleLaunchGoogleMaps()
-    }
-  }
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!distanceMiles || distanceMiles <= 0) return
+  const executeSaveTrip = async (): Promise<boolean> => {
+    if (!distanceMiles || distanceMiles <= 0) return false
 
     // Find targeted supervisor profile if selected
     const targetSupervisor = supervisors.find(s => s.id === selectedSupervisorId) || {
@@ -378,11 +343,60 @@ export default function TripModal({
 
       await onSave(payload)
       onClose()
+      return true
     } catch (err) {
       console.error('Error saving trip modal:', err)
+      return false
     } finally {
       setSaving(false)
     }
+  }
+
+  const handleLaunchGoogleMaps = async () => {
+    const url = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(getOrigAddress())}&destination=${encodeURIComponent(getDestAddress())}&travelmode=driving`
+    const saved = await executeSaveTrip()
+    if (saved) {
+      window.open(url, '_blank')
+    }
+  }
+
+  const handleLaunchAppleMaps = async () => {
+    const url = `http://maps.apple.com/?saddr=${encodeURIComponent(getOrigAddress())}&daddr=${encodeURIComponent(getDestAddress())}&dirflg=d`
+    const saved = await executeSaveTrip()
+    if (saved) {
+      window.open(url, '_blank')
+    }
+  }
+
+  const handleLaunchWaze = async () => {
+    const destCoord = storeCoordsMap[destinationName]
+    const url = destCoord?.lat && destCoord?.lng
+      ? `https://waze.com/ul?ll=${destCoord.lat},${destCoord.lng}&navigate=yes`
+      : `https://waze.com/ul?q=${encodeURIComponent(getDestAddress())}`
+    const saved = await executeSaveTrip()
+    if (saved) {
+      window.open(url, '_blank')
+    }
+  }
+
+  // Total Reimbursement calculation
+  const totalMilesCalculated = isRoundTrip ? distanceMiles * 2 : distanceMiles
+  const mileageValue = totalMilesCalculated * currentRate
+  const totalReimbursement = mileageValue + (Number(parkingAmount) || 0) + (Number(tollsAmount) || 0)
+
+  const handleSaveAndNavigate = async (e: React.FormEvent) => {
+    e.preventDefault()
+    const isIOS = typeof navigator !== 'undefined' && /iPad|iPhone|iPod/.test(navigator.userAgent)
+    if (isIOS) {
+      await handleLaunchAppleMaps()
+    } else {
+      await handleLaunchGoogleMaps()
+    }
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    await executeSaveTrip()
   }
 
   if (!isOpen) return null
@@ -610,28 +624,34 @@ export default function TripModal({
               <div className="grid grid-cols-3 gap-2 pt-0.5">
                 <button
                   type="button"
+                  disabled={saving}
                   onClick={handleLaunchGoogleMaps}
-                  className="flex items-center justify-center gap-1.5 py-2 px-2 bg-slate-800/90 hover:bg-slate-700 text-white rounded-lg text-xs font-bold border border-slate-600 transition-all active:scale-95 shadow-sm"
+                  title={t('miles.open_google_maps')}
+                  className="flex items-center justify-center gap-1.5 py-2 px-2 bg-slate-800/90 hover:bg-slate-700 text-white rounded-lg text-xs font-bold border border-slate-600 transition-all active:scale-95 shadow-sm disabled:opacity-50"
                 >
-                  <span>🚗</span>
+                  {saving ? <RotateCw size={12} className="animate-spin text-blue-400" /> : <span>🚗</span>}
                   <span className="truncate">Google Maps</span>
                 </button>
 
                 <button
                   type="button"
+                  disabled={saving}
                   onClick={handleLaunchAppleMaps}
-                  className="flex items-center justify-center gap-1.5 py-2 px-2 bg-slate-800/90 hover:bg-slate-700 text-white rounded-lg text-xs font-bold border border-slate-600 transition-all active:scale-95 shadow-sm"
+                  title={t('miles.open_apple_maps')}
+                  className="flex items-center justify-center gap-1.5 py-2 px-2 bg-slate-800/90 hover:bg-slate-700 text-white rounded-lg text-xs font-bold border border-slate-600 transition-all active:scale-95 shadow-sm disabled:opacity-50"
                 >
-                  <span>🗺️</span>
+                  {saving ? <RotateCw size={12} className="animate-spin text-blue-400" /> : <span>🗺️</span>}
                   <span className="truncate">Apple Maps</span>
                 </button>
 
                 <button
                   type="button"
+                  disabled={saving}
                   onClick={handleLaunchWaze}
-                  className="flex items-center justify-center gap-1.5 py-2 px-2 bg-slate-800/90 hover:bg-slate-700 text-white rounded-lg text-xs font-bold border border-slate-600 transition-all active:scale-95 shadow-sm"
+                  title={t('miles.open_waze')}
+                  className="flex items-center justify-center gap-1.5 py-2 px-2 bg-slate-800/90 hover:bg-slate-700 text-white rounded-lg text-xs font-bold border border-slate-600 transition-all active:scale-95 shadow-sm disabled:opacity-50"
                 >
-                  <span>🚙</span>
+                  {saving ? <RotateCw size={12} className="animate-spin text-blue-400" /> : <span>🚙</span>}
                   <span className="truncate">Waze</span>
                 </button>
               </div>
