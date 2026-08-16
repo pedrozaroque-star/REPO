@@ -860,6 +860,37 @@ function MilesIQContent() {
                       })
                     )}
                   </tbody>
+                  {filteredTrips.length > 0 && (
+                    <tfoot className="bg-slate-100 dark:bg-slate-800/80 font-bold border-t-2 border-slate-300 dark:border-slate-700">
+                      <tr>
+                        <td colSpan={4} className="py-3.5 px-4 text-slate-800 dark:text-slate-200 uppercase tracking-wider text-xs font-black">
+                          {t('miles.table_subtotal')} ({filteredTrips.length} {filteredTrips.length === 1 ? t('miles.trip_singular') : t('miles.trips_plural')})
+                        </td>
+                        <td className="py-3.5 px-4 text-right text-blue-600 dark:text-blue-400 font-black text-sm">
+                          {filteredTrips.reduce((s, t) => s + (Number(t.distance_miles) || 0), 0).toFixed(2)} mi
+                        </td>
+                        <td className="py-3.5 px-4 text-right text-slate-400 text-[11px]">
+                          —
+                        </td>
+                        <td className="py-3.5 px-4 text-right font-black text-emerald-600 dark:text-emerald-400 text-sm">
+                          ${filteredTrips.reduce((s, t) => {
+                            const m = Number(t.distance_miles) || 0
+                            const r = Number(t.rate_per_mile) || 0.76
+                            const p = Number(t.parking_amount) || 0
+                            const to = Number(t.tolls_amount) || 0
+                            return s + (m * r) + p + to
+                          }, 0).toFixed(2)} USD
+                        </td>
+                        <td colSpan={2} className="py-3.5 px-4 text-slate-400 text-center text-[10px]">
+                          {filteredTrips.some(t => Number(t.parking_amount) > 0 || Number(t.tolls_amount) > 0) && (
+                            <span>
+                              Incl. ${filteredTrips.reduce((s, t) => s + (Number(t.parking_amount) || 0) + (Number(t.tolls_amount) || 0), 0).toFixed(2)} gastos
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  )}
                 </table>
               </div>
             </div>
@@ -956,6 +987,31 @@ function MilesIQContent() {
                     </div>
                   )
                 })
+              )}
+
+              {/* Mobile Subtotal Card */}
+              {filteredTrips.length > 0 && (
+                <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 text-white p-4 rounded-xl border border-slate-700 shadow-md flex items-center justify-between">
+                  <div>
+                    <span className="text-[10px] uppercase tracking-wider font-bold text-slate-400">
+                      {t('miles.table_subtotal')} ({filteredTrips.length} {filteredTrips.length === 1 ? t('miles.trip_singular') : t('miles.trips_plural')})
+                    </span>
+                    <div className="text-xs font-semibold text-blue-400 mt-0.5">
+                      {filteredTrips.reduce((s, t) => s + (Number(t.distance_miles) || 0), 0).toFixed(2)} mi totales
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-base font-black text-emerald-400">
+                      ${filteredTrips.reduce((s, t) => {
+                        const m = Number(t.distance_miles) || 0
+                        const r = Number(t.rate_per_mile) || 0.76
+                        const p = Number(t.parking_amount) || 0
+                        const to = Number(t.tolls_amount) || 0
+                        return s + (m * r) + p + to
+                      }, 0).toFixed(2)} USD
+                    </div>
+                  </div>
+                </div>
               )}
             </div>
           </div>

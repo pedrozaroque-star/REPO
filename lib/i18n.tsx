@@ -2230,6 +2230,9 @@ const dictionaries: Record<Language, Dictionary> = {
             th_reimbursement: 'Total $ USD',
             th_status: 'Estado',
             th_actions: 'Acciones',
+            table_subtotal: 'Subtotal Filtrado',
+            trip_singular: 'viaje',
+            trips_plural: 'viajes',
             // Status Badges
             badge_submitted_hr: 'ENVIADO A RRHH',
             badge_pending: 'PENDIENTE',
@@ -4778,6 +4781,9 @@ const dictionaries: Record<Language, Dictionary> = {
             th_reimbursement: 'Reimbursement',
             th_status: 'Status',
             th_actions: 'Actions',
+            table_subtotal: 'Filtered Subtotal',
+            trip_singular: 'trip',
+            trips_plural: 'trips',
             // Status Badges
             badge_submitted_hr: 'SUBMITTED TO HR',
             badge_pending: 'PENDING',
