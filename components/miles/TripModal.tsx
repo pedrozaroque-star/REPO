@@ -189,17 +189,24 @@ export default function TripModal({
       setTripDate(getCaliforniaBusinessDate())
       setStartTime(getCaliforniaTime())
       setOriginType('store')
-      setOriginName('Tacos Gavilan LA Central')
+      setOriginName('Tacos Gavilan Lynwood')
       setDestinationType('store')
-      setDestinationName('Tacos Gavilan LA Broadway')
+      setDestinationName('Tacos Gavilan South Gate')
       setIsRoundTrip(false)
       setPurpose('Business')
       setPurposeNotes('')
       setOdometerStart('')
       setOdometerEnd('')
-      setDistanceMiles(2.9)
+      setDistanceMiles(3.0)
       setParkingAmount(0)
       setTollsAmount(0)
+
+      // Auto-detect current physical location on modal open
+      if (typeof window !== 'undefined' && navigator.geolocation) {
+        setTimeout(() => {
+          detectClosestStore('origin', true)
+        }, 150)
+      }
     }
   }, [isOpen, editingTrip, currentUser])
 
@@ -258,9 +265,9 @@ export default function TripModal({
   }
 
   // GPS Auto-detection Handler
-  const detectClosestStore = (target: 'origin' | 'dest') => {
+  const detectClosestStore = (target: 'origin' | 'dest', silent = false) => {
     if (typeof window === 'undefined' || !navigator.geolocation) {
-      alert(t('miles.gps_not_supported'))
+      if (!silent) alert(t('miles.gps_not_supported'))
       return
     }
 
@@ -294,10 +301,10 @@ export default function TripModal({
       },
       (err) => {
         console.warn('GPS error:', err)
-        alert(t('miles.gps_permission_denied'))
+        if (!silent) alert(t('miles.gps_permission_denied'))
         setDetectingGps(null)
       },
-      { enableHighAccuracy: true, timeout: 10000 }
+      { enableHighAccuracy: true, timeout: 8000, maximumAge: 30000 }
     )
   }
 
@@ -354,18 +361,22 @@ export default function TripModal({
   }
 
   const handleLaunchGoogleMaps = async () => {
-    const url = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(getOrigAddress())}&destination=${encodeURIComponent(getDestAddress())}&travelmode=driving`
+    const dest = encodeURIComponent(getDestAddress())
+    // Omitting origin and adding dir_action=navigate forces Google Maps to start LIVE turn-by-turn navigation from the phone's GPS position
+    const url = `https://www.google.com/maps/dir/?api=1&destination=${dest}&travelmode=driving&dir_action=navigate`
     const saved = await executeSaveTrip()
     if (saved) {
-      window.open(url, '_blank')
+      window.location.href = url
     }
   }
 
   const handleLaunchAppleMaps = async () => {
-    const url = `http://maps.apple.com/?saddr=${encodeURIComponent(getOrigAddress())}&daddr=${encodeURIComponent(getDestAddress())}&dirflg=d`
+    const dest = encodeURIComponent(getDestAddress())
+    // Omitting saddr forces Apple Maps to navigate live from the phone's GPS position
+    const url = `http://maps.apple.com/?daddr=${dest}&dirflg=d`
     const saved = await executeSaveTrip()
     if (saved) {
-      window.open(url, '_blank')
+      window.location.href = url
     }
   }
 
@@ -373,10 +384,10 @@ export default function TripModal({
     const destCoord = storeCoordsMap[destinationName]
     const url = destCoord?.lat && destCoord?.lng
       ? `https://waze.com/ul?ll=${destCoord.lat},${destCoord.lng}&navigate=yes`
-      : `https://waze.com/ul?q=${encodeURIComponent(getDestAddress())}`
+      : `https://waze.com/ul?q=${encodeURIComponent(getDestAddress())}&navigate=yes`
     const saved = await executeSaveTrip()
     if (saved) {
-      window.open(url, '_blank')
+      window.location.href = url
     }
   }
 
