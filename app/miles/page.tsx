@@ -25,6 +25,7 @@ import ProtectedRoute, { useAuth } from '@/components/ProtectedRoute'
 import SurpriseLoader from '@/components/SurpriseLoader'
 import { useLanguage } from '@/lib/i18n'
 import TripModal from '@/components/miles/TripModal'
+import { getCaliforniaBusinessDate, getCaliforniaDate } from '@/lib/business-date'
 
 interface TripRecord {
   id: string
@@ -97,15 +98,17 @@ function MilesIQContent() {
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [supervisorFilter, setSupervisorFilter] = useState<string>('all')
   const [searchTerm, setSearchTerm] = useState<string>('')
-  const [dateRange, setDateRange] = useState<{ start: string; end: string }>({
-    start: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10),
-    end: new Date().toISOString().slice(0, 10)
+  const [dateRange, setDateRange] = useState<{ start: string; end: string }>(() => {
+    const today = getCaliforniaBusinessDate()
+    const firstDay = `${today.slice(0, 7)}-01`
+    return { start: firstDay, end: today }
   })
 
   // HR Dispatch state
   const [selectedRecipientEmail, setSelectedRecipientEmail] = useState<string>('roque@tacosgavilan.com')
   const [customEmailInput, setCustomEmailInput] = useState<string>('')
   const [sendingHr, setSendingHr] = useState<boolean>(false)
+  const [syncingInspections, setSyncingInspections] = useState<boolean>(false)
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'warning' } | null>(null)
 
   // Modal state
@@ -120,6 +123,33 @@ function MilesIQContent() {
   const showToast = (message: string, type: 'success' | 'error' | 'warning') => {
     setToast({ message, type })
     setTimeout(() => setToast(null), 4500)
+  }
+
+  // Sync trips from supervisor's quality inspections of the day
+  const handleSyncInspections = async () => {
+    setSyncingInspections(true)
+    try {
+      const res = await fetch('/api/miles/sync-inspections', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          date: dateRange.end || getCaliforniaBusinessDate(),
+          supervisor_name: !isAdmin ? currentUser.name : (supervisorFilter !== 'all' ? supervisorFilter : undefined),
+          supervisor_id: !isAdmin ? currentUser.id : undefined
+        })
+      })
+      const data = await res.json()
+      if (data.success) {
+        showToast(data.message || 'Inspecciones sincronizadas con éxito', 'success')
+        fetchInitialData()
+      } else {
+        showToast(data.error || 'Error al sincronizar inspecciones', 'error')
+      }
+    } catch (err: any) {
+      showToast(err.message || 'Error de conexión al sincronizar inspecciones', 'error')
+    } finally {
+      setSyncingInspections(false)
+    }
   }
 
   // Open modal in create mode
@@ -559,7 +589,17 @@ function MilesIQContent() {
           </div>
 
           {/* Action buttons */}
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2.5 flex-wrap">
+            <button
+              onClick={handleSyncInspections}
+              disabled={syncingInspections}
+              className="px-3.5 py-2.5 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 rounded-xl text-xs font-bold flex items-center gap-2 transition-colors border border-emerald-300 dark:border-emerald-700"
+              title={t('miles.sync_inspections_desc')}
+            >
+              <ShieldCheck size={16} className={syncingInspections ? 'animate-spin' : ''} />
+              {syncingInspections ? t('miles.syncing_inspections') : t('miles.sync_inspections')}
+            </button>
+
             <button
               onClick={handleExportCsv}
               className="px-3.5 py-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold flex items-center gap-2 transition-colors border border-slate-300 dark:border-slate-700"

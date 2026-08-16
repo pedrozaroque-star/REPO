@@ -108,8 +108,8 @@ export default function TripModal({
   const { t, language } = useLanguage()
 
   const [selectedSupervisorId, setSelectedSupervisorId] = useState<string>(currentUser.id)
-  const [tripDate, setTripDate] = useState<string>(new Date().toISOString().slice(0, 10))
-  const [startTime, setStartTime] = useState<string>('')
+  const [tripDate, setTripDate] = useState<string>(getCaliforniaBusinessDate())
+  const [startTime, setStartTime] = useState<string>(getCaliforniaTime())
   const [originType, setOriginType] = useState<'store' | 'bodega' | 'office' | 'home' | 'custom'>('store')
   const [originName, setOriginName] = useState<string>('Tacos Gavilan LA Central')
   const [destinationType, setDestinationType] = useState<'store' | 'bodega' | 'office' | 'home' | 'custom'>('store')
@@ -169,7 +169,7 @@ export default function TripModal({
 
     if (editingTrip) {
       setSelectedSupervisorId(editingTrip.supervisor_id || currentUser.id)
-      setTripDate(editingTrip.trip_date || new Date().toISOString().slice(0, 10))
+      setTripDate(editingTrip.trip_date || getCaliforniaBusinessDate())
       setStartTime(editingTrip.start_time || '')
       setOriginType(editingTrip.origin_type || 'store')
       setOriginName(editingTrip.origin_name || 'Tacos Gavilan LA Central')
@@ -185,8 +185,8 @@ export default function TripModal({
       setTollsAmount(Number(editingTrip.tolls_amount) || 0)
     } else {
       setSelectedSupervisorId(currentUser.id)
-      setTripDate(new Date().toISOString().slice(0, 10))
-      setStartTime('')
+      setTripDate(getCaliforniaBusinessDate())
+      setStartTime(getCaliforniaTime())
       setOriginType('store')
       setOriginName('Tacos Gavilan LA Central')
       setDestinationType('store')

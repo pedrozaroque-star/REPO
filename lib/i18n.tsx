@@ -2196,6 +2196,9 @@ const dictionaries: Record<Language, Dictionary> = {
             subtitle: 'Control de Millas Manejadas por Supervisores y Envío a RRHH',
             log_trip: 'Registrar Viaje',
             export_csv: 'Exportar CSV',
+            sync_inspections: 'Sincronizar Inspecciones',
+            sync_inspections_desc: 'Auto-generar rutas desde las inspecciones de calidad del día',
+            syncing_inspections: 'Sincronizando...',
             // KPI Cards
             total_drives: 'Viajes Registrados',
             total_miles: 'Millas Totales',
@@ -4747,6 +4750,9 @@ const dictionaries: Record<Language, Dictionary> = {
             subtitle: 'Supervisor Mileage Calculation & HR Payroll Dispatch',
             log_trip: 'Log New Trip',
             export_csv: 'Export CSV',
+            sync_inspections: 'Sync Inspections',
+            sync_inspections_desc: 'Auto-generate routes from today\'s quality inspections',
+            syncing_inspections: 'Syncing...',
             // KPI Cards
             total_drives: 'Total Drives',
             total_miles: 'Total Miles',
