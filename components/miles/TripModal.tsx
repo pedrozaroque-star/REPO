@@ -16,7 +16,7 @@ import React, { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   X, Car, MapPin, ArrowRight, RotateCw, DollarSign, Gauge,
-  FileText, CheckCircle, User, Navigation, LocateFixed, ExternalLink, Compass
+  FileText, CheckCircle, User, Navigation, LocateFixed, ExternalLink, Compass, Clock
 } from 'lucide-react'
 import { useLanguage } from '@/lib/i18n'
 import dynamic from 'next/dynamic'
@@ -322,7 +322,7 @@ export default function TripModal({
         supervisor_name: targetSupervisor.name,
         supervisor_email: targetSupervisor.email,
         trip_date: tripDate,
-        start_time: startTime || null,
+        start_time: (startTime && startTime.trim() !== '') ? startTime.trim() : getCaliforniaTime(),
         origin_type: originType,
         origin_name: originName,
         destination_type: destinationType,
@@ -495,16 +495,29 @@ export default function TripModal({
                 />
               </div>
               <div>
-                <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">
-                  {t('miles.time_optional')}
-                </label>
-                <input
-                  type="text"
-                  placeholder="02:30 PM"
-                  value={startTime}
-                  onChange={e => setStartTime(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
-                />
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400">
+                    {t('miles.time_label')}
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setStartTime(getCaliforniaTime())}
+                    className="text-[11px] font-bold text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 flex items-center gap-1 transition-colors"
+                  >
+                    <Clock size={11} />
+                    {t('miles.time_now')}
+                  </button>
+                </div>
+                <div className="relative">
+                  <input
+                    type="text"
+                    placeholder="02:30 PM"
+                    value={startTime}
+                    onChange={e => setStartTime(e.target.value)}
+                    className="w-full pl-8 pr-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-sm font-semibold text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-blue-500"
+                  />
+                  <Clock size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                </div>
               </div>
             </div>
 

@@ -12,6 +12,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseAdminClient } from '@/lib/supabase'
+import { getCaliforniaBusinessDate, getCaliforniaTime } from '@/lib/business-date'
 
 export async function GET(req: NextRequest) {
   try {
@@ -105,8 +106,8 @@ export async function POST(req: NextRequest) {
         supervisor_id,
         supervisor_name: supervisor_name || 'Supervisor',
         supervisor_email: supervisor_email || 'supervisor@tacosgavilan.com',
-        trip_date: trip_date || new Date().toISOString().split('T')[0],
-        start_time,
+        trip_date: trip_date || getCaliforniaBusinessDate(),
+        start_time: (start_time && start_time.trim() !== '') ? start_time.trim() : getCaliforniaTime(),
         end_time,
         origin_type,
         origin_store_id,
