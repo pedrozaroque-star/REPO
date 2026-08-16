@@ -90,8 +90,8 @@ function MilesIQContent() {
   const [trips, setTrips] = useState<TripRecord[]>([])
   const [recurrentEmails, setRecurrentEmails] = useState<RecurrentEmail[]>([])
   const [distances, setDistances] = useState<StoreDistance[]>([])
-  const [currentRate, setCurrentRate] = useState<number>(0.725)
-  const [editingRate, setEditingRate] = useState<string>('0.725')
+  const [currentRate, setCurrentRate] = useState<number>(0.76)
+  const [editingRate, setEditingRate] = useState<string>('0.76')
 
   // Filters
   const [statusFilter, setStatusFilter] = useState<string>('all')
@@ -206,8 +206,8 @@ function MilesIQContent() {
       const resSettings = await fetch('/api/miles/settings')
       const jsonSettings = await resSettings.json()
       if (jsonSettings.success) {
-        setCurrentRate(jsonSettings.rate_per_mile || 0.725)
-        setEditingRate(String(jsonSettings.rate_per_mile || 0.725))
+        setCurrentRate(jsonSettings.rate_per_mile || 0.76)
+        setEditingRate(String(jsonSettings.rate_per_mile || 0.76))
         setDistances(jsonSettings.distances || [])
       }
 
@@ -452,7 +452,7 @@ function MilesIQContent() {
     const totalMiles = userTrips.reduce((s, t) => s + (Number(t.distance_miles) || 0), 0)
     const totalReimbursement = userTrips.reduce((s, t) => {
       const m = Number(t.distance_miles) || 0
-      const r = Number(t.rate_per_mile) || 0.725
+      const r = Number(t.rate_per_mile) || 0.76
       const p = Number(t.parking_amount) || 0
       const to = Number(t.tolls_amount) || 0
       return s + (m * r) + p + to
@@ -498,7 +498,7 @@ function MilesIQContent() {
       }
 
       const m = Number(t.distance_miles) || 0
-      const r = Number(t.rate_per_mile) || 0.725
+      const r = Number(t.rate_per_mile) || 0.76
       const p = Number(t.parking_amount) || 0
       const to = Number(t.tolls_amount) || 0
       const tot = (m * r) + p + to
@@ -762,7 +762,7 @@ function MilesIQContent() {
                     ) : (
                       filteredTrips.map(trip => {
                         const m = Number(trip.distance_miles) || 0
-                        const r = Number(trip.rate_per_mile) || 0.725
+                        const r = Number(trip.rate_per_mile) || 0.76
                         const p = Number(trip.parking_amount) || 0
                         const to = Number(trip.tolls_amount) || 0
                         const tot = (m * r) + p + to
@@ -873,7 +873,7 @@ function MilesIQContent() {
               ) : (
                 filteredTrips.map(trip => {
                   const m = Number(trip.distance_miles) || 0
-                  const r = Number(trip.rate_per_mile) || 0.725
+                  const r = Number(trip.rate_per_mile) || 0.76
                   const p = Number(trip.parking_amount) || 0
                   const to = Number(trip.tolls_amount) || 0
                   const tot = (m * r) + p + to

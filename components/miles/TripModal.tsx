@@ -100,7 +100,7 @@ export default function TripModal({
   stores = [],
   distances = [],
   supervisors = [],
-  currentRate = 0.725,
+  currentRate = 0.76,
   currentUser,
   isAdmin = false,
   editingTrip = null

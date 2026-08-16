@@ -123,7 +123,7 @@ export async function POST(req: NextRequest) {
       const miles = Number(t.distance_miles) || 0
       const parking = Number(t.parking_amount) || 0
       const tolls = Number(t.tolls_amount) || 0
-      const rate = Number(t.rate_per_mile) || 0.725
+      const rate = Number(t.rate_per_mile) || 0.76
       const reim = (miles * rate) + parking + tolls
 
       summaryBySupervisor[supKey].trip_count += 1
@@ -159,7 +159,7 @@ export async function POST(req: NextRequest) {
 
       const tripRows = supTrips.map(t => {
         const miles = Number(t.distance_miles) || 0
-        const rate = Number(t.rate_per_mile) || 0.725
+        const rate = Number(t.rate_per_mile) || 0.76
         const parking = Number(t.parking_amount) || 0
         const tolls = Number(t.tolls_amount) || 0
         const total = (miles * rate) + parking + tolls

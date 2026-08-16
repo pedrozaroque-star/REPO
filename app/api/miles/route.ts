@@ -78,7 +78,7 @@ export async function POST(req: NextRequest) {
       odometer_start = null,
       odometer_end = null,
       distance_miles,
-      rate_per_mile = 0.725,
+      rate_per_mile = 0.76,
       parking_amount = 0,
       tolls_amount = 0
     } = body
@@ -91,7 +91,7 @@ export async function POST(req: NextRequest) {
     }
 
     const effectiveMiles = is_round_trip ? Number(distance_miles) * 2 : Number(distance_miles)
-    const rate = Number(rate_per_mile) || 0.725
+    const rate = Number(rate_per_mile) || 0.76
     const parking = Number(parking_amount) || 0
     const tolls = Number(tolls_amount) || 0
     const mileageVal = effectiveMiles * rate

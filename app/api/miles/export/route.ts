@@ -42,7 +42,7 @@ export async function GET(req: NextRequest) {
 
     const rows = (trips || []).map(t => {
       const miles = Number(t.distance_miles) || 0
-      const rate = Number(t.rate_per_mile) || 0.725
+      const rate = Number(t.rate_per_mile) || 0.76
       const val = miles * rate
       const parking = Number(t.parking_amount) || 0
       const tolls = Number(t.tolls_amount) || 0

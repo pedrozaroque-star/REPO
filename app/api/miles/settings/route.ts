@@ -69,7 +69,7 @@ export async function GET() {
       .select('*')
       .limit(1)
 
-    const currentRate = settings && settings.length > 0 ? Number(settings[0].current_rate_per_mile) : 0.725
+    const currentRate = settings && settings.length > 0 ? Number(settings[0].current_rate_per_mile) : 0.76
 
     // 2. Fetch distance matrix
     const { data: distances } = await supabase

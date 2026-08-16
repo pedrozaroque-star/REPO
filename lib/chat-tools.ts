@@ -1631,7 +1631,7 @@ async function querySupervisorMileage(args: { start_date: string; end_date: stri
   const totalMiles = data.reduce((s, r) => s + (Number(r.distance_miles) || 0), 0)
   const totalAmount = data.reduce((s, r) => {
     const m = Number(r.distance_miles) || 0
-    const rate = Number(r.rate_per_mile) || 0.725
+    const rate = Number(r.rate_per_mile) || 0.76
     const p = Number(r.parking_amount) || 0
     const t = Number(r.tolls_amount) || 0
     return s + (m * rate) + p + t
@@ -1639,7 +1639,7 @@ async function querySupervisorMileage(args: { start_date: string; end_date: stri
 
   const summary = data.map(r => {
     const m = Number(r.distance_miles) || 0
-    const rate = Number(r.rate_per_mile) || 0.725
+    const rate = Number(r.rate_per_mile) || 0.76
     const tot = (m * rate) + (Number(r.parking_amount) || 0) + (Number(r.tolls_amount) || 0)
     return `${r.trip_date} | ${r.supervisor_name} | ${r.origin_name} -> ${r.destination_name} | ${m.toFixed(2)} mi @ $${rate.toFixed(3)} | $${tot.toFixed(2)} USD | Status: ${r.status}`
   }).join('\n')
