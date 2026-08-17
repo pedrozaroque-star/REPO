@@ -37,6 +37,14 @@
             "schedule": "0 12 * * 1"
         },
         {
+            "path": "/api/cron/sync-violations",
+            "schedule": "59 18 * * *"
+        },
+        {
+            "path": "/api/cron/sync-violations",
+            "schedule": "59 19 * * *"
+        },
+        {
             "path": "/api/inventory/sync-quickbooks",
             "schedule": "0 14 * * *"
         },

@@ -864,7 +864,7 @@
                 </svg>
             </div>
             <div>
-                <div class="stat-number" style="color: #e05638;">40.2</div>
+                <div class="stat-number" style="color: #e05638;">40.9</div>
                 <div class="stat-desc">Horas trabajadas</div>
             </div>
         </div>
@@ -1811,7 +1811,7 @@
             <div class="report-section">
                 <div class="report-title-row">
                     <h2>Reporte de Horas Trabajadas y Actualizaciones</h2>
-                    <span class="hours-badge-large">Total de Horas: 40.2 hrs</span>
+                    <span class="hours-badge-large">Total de Horas: 40.9 hrs</span>
                 </div>
                 
                 <p class="report-subtitle-text">
@@ -2102,6 +2102,18 @@
                                     <div class="lang-split">
                                          <div class="es-desc">- **Sincronización de Horarios a Calendario Móvil (iOS / Android)**: Creación de la librería `lib/calendar-helper.ts` con generador de eventos estándar RFC 5545 `.ics` (alarmas de 1h y 2h antes, dirección de sucursal, posición y breaks) y generador de enlaces de Google Calendar. Implementación del endpoint dinámico `/api/schedule/calendar` para importación en 1 toque en iPhone y Android. Inserción de tarjeta destacada con botón "📲 Agregar a mi Calendario (iPhone / Android)" y enlaces directos a Google Calendar por turno en el correo de publicación de horarios (`/api/notifications/publish-schedule`), con adjunto `.ics` nativo. Integración de botón de exportación `.ics` en `app/mis-horarios/page.tsx` y soporte bilingüe completo en `lib/i18n.tsx`.</div>
                                          <div class="en-desc">- **Mobile Calendar Sync Integration for Shifts (iOS / Android)**: Created `lib/calendar-helper.ts` with standard RFC 5545 `.ics` file generator (1-hour and 2-hour prior alerts, store address, position, and meal/rest breaks) and single-shift Google Calendar link generator. Implemented public dynamic endpoint `/api/schedule/calendar` for 1-tap import on iPhone and Android devices. Added prominent CTA box "📲 Add to My Calendar (iPhone / Android)" and per-shift Google Calendar buttons in schedule notification emails (`/api/notifications/publish-schedule`), including native `.ics` calendar attachment. Added `.ics` export button in `app/mis-horarios/page.tsx` and full bilingual dictionary in `lib/i18n.tsx`.</div>
+                                    </div>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td><strong>17-Aug-2026</strong></td>
+                                <td>5:05 AM - 5:45 AM</td>
+                                <td style="text-align: center; font-weight: 700;">0.70</td>
+                                <td><span class="table-badge-module">Planificador</span> <span class="table-badge-module">Auditoría Laboral</span> <span class="table-badge-module">Cron Jobs</span></td>
+                                <td>
+                                    <div class="lang-split">
+                                         <div class="es-desc">- **Detector de Anomalías en Ponchadas y Despacho Automático Diario (11:59 AM)**: Reconfiguración del flujo de infracciones de descanso en el Planificador (`app/planificador/page.tsx`). El modal ahora funciona como detector proactivo de anomalías y errores de ponchada, otorgando al gerente una ventana matutina (6:00 AM - 11:59 AM) para auditar y corregir inconsistencias directamente en TOAST POS antes del envío oficial. Creación del endpoint de cron job diario `app/api/cron/sync-violations/route.ts` programado en `vercel.json` a las 11:59 AM PST para auditar el día de negocio anterior, registrar violaciones en `punch_violations`, notificar por correo a los empleados desde la cuenta OAuth de su gerente y enviar un reporte consolidado al Gerente y Supervisor. Soporte bilingüe en `lib/i18n.tsx`.</div>
+                                         <div class="en-desc">- **Punch Anomalies Detector & Automated Daily Violation Sync (11:59 AM)**: Reconfigured break violation flow in Planner (`app/planificador/page.tsx`). The modal now serves as a proactive punch anomaly detector, granting store managers a morning review window (6:00 AM - 11:59 AM) to audit and fix punch mistakes in TOAST POS before official dispatch. Created daily automated cron job endpoint `app/api/cron/sync-violations/route.ts` scheduled in `vercel.json` for 11:59 AM PST to audit yesterday's business date, insert violations into `punch_violations`, dispatch emails to employees from the store manager's Gmail OAuth account, and email consolidated summaries to Store Managers and Supervisors. Full bilingual dictionary in `lib/i18n.tsx`.</div>
                                     </div>
                                 </td>
                             </tr>

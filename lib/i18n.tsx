@@ -1008,6 +1008,18 @@ const dictionaries: Record<Language, Dictionary> = {
                 download_ics: 'Descargar Calendario (.ics)',
                 calendar_synced: 'Turnos preparados para tu calendario'
             },
+            anomalies: {
+                title: 'Detector de Anomalías en Ponchadas',
+                subtitle: 'Revisión de Ponchadas y Tiempos de Descanso del Día Anterior',
+                notice_title: 'Aviso a Gerencia: Ventana de Corrección en TOAST',
+                notice_desc: 'El sistema detectó las siguientes anomalías y tiempos excedidos en las ponchadas de ayer. Tienes hasta las 11:59 AM para revisar y corregir cualquier error de ponchada en TOAST POS. A las 11:59 AM, el sistema enviará automáticamente los avisos oficiales a los empleados.',
+                possible_error: 'Posible error de ponchada (>60m) - Verificar en Toast POS',
+                auto_send_badge: 'Envío Auto: 11:59 AM',
+                sent_badge: 'Enviado',
+                understood_btn: 'Entendido / Revisar en Toast',
+                force_send_btn: 'Forzar Envío',
+                auto_sync_footer: 'Sincronización automática diaria a las 11:59 AM'
+            },
             employees_scheduled: 'Empleados Programados',
             // TODO: DELETE THIS BLOCK AFTER JUNE 9, 2026 (Expired Clone Modal announcement)
             welcome_modal: {
@@ -3574,6 +3586,18 @@ const dictionaries: Record<Language, Dictionary> = {
                 ics_tip: '💡 You can also open the attached .ics file to import all shifts directly.',
                 download_ics: 'Download Calendar (.ics)',
                 calendar_synced: 'Shifts prepared for your calendar'
+            },
+            anomalies: {
+                title: 'Punch Anomalies & Violations Detector',
+                subtitle: 'Review of Yesterday\'s Break & Meal Punches',
+                notice_title: 'Manager Notice: Toast Correction Window',
+                notice_desc: 'The system detected the following punch anomalies and exceeded break times. You have until 11:59 AM to review and correct any punch mistakes in TOAST POS. At 11:59 AM, the system will automatically dispatch official notification emails to employees.',
+                possible_error: 'Possible punch error (>60m) - Verify in Toast POS',
+                auto_send_badge: 'Auto-send at 11:59 AM',
+                sent_badge: 'Sent',
+                understood_btn: 'Understood / Review in Toast',
+                force_send_btn: 'Force Send',
+                auto_sync_footer: 'Auto-sync runs daily at 11:59 AM'
             },
             employees_scheduled: 'Employees Scheduled',
             // TODO: DELETE THIS BLOCK AFTER JUNE 9, 2026 (Expired Clone Modal announcement)

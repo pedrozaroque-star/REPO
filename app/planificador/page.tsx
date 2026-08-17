@@ -227,11 +227,29 @@ export default function SchedulePlanner() {
 
                     if (b.paid) {
                         if (diffMins >= 13) {
-                            violations.push({ employeeRef: p.employee_toast_guid, type: 'BRK', allowed: 10, actual: diffMins, date: p.business_date, inDate: b.inDate, outDate: b.outDate });
+                            violations.push({
+                                employeeRef: p.employee_toast_guid,
+                                type: 'BRK',
+                                allowed: 10,
+                                actual: diffMins,
+                                date: p.business_date,
+                                inDate: b.inDate,
+                                outDate: b.outDate,
+                                isAnomaly: diffMins >= 60
+                            });
                         }
                     } else {
                         if (diffMins >= 33) {
-                            violations.push({ employeeRef: p.employee_toast_guid, type: 'LUN', allowed: 30, actual: diffMins, date: p.business_date, inDate: b.inDate, outDate: b.outDate });
+                            violations.push({
+                                employeeRef: p.employee_toast_guid,
+                                type: 'LUN',
+                                allowed: 30,
+                                actual: diffMins,
+                                date: p.business_date,
+                                inDate: b.inDate,
+                                outDate: b.outDate,
+                                isAnomaly: diffMins >= 60
+                            });
                         }
                     }
                 });
@@ -265,10 +283,14 @@ export default function SchedulePlanner() {
                                     new Date(dbV.in_time).getTime() === new Date(v.inDate).getTime()
                             })
                         }
-                        return { ...v, isNotified: isAlreadyNotified };
+                        return {
+                            ...v,
+                            isNotified: isAlreadyNotified,
+                            isAnomaly: v.actual >= 60
+                        };
                     })
 
-                    // We now show all violations even if notified, so the manager can see the "Enviado" badge.
+                    // Mostrar anomalías/violaciones para que el manager las audite en Toast antes de las 11:59 AM
                     if (mapped.length > 0) {
                         setViolationModal({ isOpen: true, violations: mapped });
                     }
@@ -285,7 +307,18 @@ export default function SchedulePlanner() {
 
     const [isSendingViolations, setIsSendingViolations] = useState(false);
 
-    const handleAcknowledgeViolations = async () => {
+    // Cierre estándar para el Manager: Reconoce el aviso para corregir en Toast antes de las 11:59 AM
+    const handleCloseViolationModal = () => {
+        setViolationModal(prev => ({ ...prev, isOpen: false }));
+        toast.info(
+            language === 'en'
+                ? 'ℹ️ Notice acknowledged. Remember to fix any punch errors in Toast POS before 11:59 AM.'
+                : 'ℹ️ Aviso recibido. Recuerda corregir las ponchadas erróneas en Toast POS antes de las 11:59 AM.'
+        );
+    };
+
+    // Forzar envío manual inmediato (Supervisor / Admin)
+    const handleForceSendViolations = async () => {
         const toSend = violationModal.violations.filter(v => !v.isNotified);
 
         if (toSend.length === 0) {
@@ -293,8 +326,7 @@ export default function SchedulePlanner() {
             return;
         }
 
-        // 🔒 Pre-check: Si Gmail no está conectado, no llamar a la API.
-        // Cerrar modal de violaciones y abrir modal de conexión de Gmail.
+        // 🔒 Pre-check: Si Gmail no está conectado, abrir modal de conexión
         if (!googleConnected) {
             setViolationModal(prev => ({ ...prev, isOpen: false }))
             setIsGmailModalOpen(true)
@@ -323,7 +355,6 @@ export default function SchedulePlanner() {
             const resData = await res.json()
 
             if (!res.ok) {
-                // Interceptar error de Gmail y abrir modal de conexión en lugar de solo lanzar el error
                 if (resData.error && (resData.error.includes('GMAIL_AUTH_FAILED') || resData.error.includes('Gmail'))) {
                    setViolationModal(prev => ({ ...prev, isOpen: false }))
                    setGoogleConnected(false)
@@ -1716,7 +1747,7 @@ export default function SchedulePlanner() {
                 url={`/planificador/imprimir?storeId=${storeGuid}&startDate=${formatDateISO(weekStart)}`}
             />
 
-            {/* 🚨 VIOLATION MODAL */}
+            {/* 🚨 DETECTOR DE ANOMALÍAS EN PONCHADAS Y AVISO AUTOMÁTICO 11:59 AM */}
             <AnimatePresence>
                 {violationModal.isOpen && (
                     <motion.div
@@ -1729,19 +1760,38 @@ export default function SchedulePlanner() {
                             initial={{ scale: 0.9, y: 50, opacity: 0 }}
                             animate={{ scale: 1, y: 0, opacity: 1 }}
                             exit={{ scale: 0.9, y: 50, opacity: 0 }}
-                            className="bg-white dark:bg-slate-900 rounded-3xl w-full max-w-lg shadow-2xl border-4 border-red-500 overflow-hidden"
+                            className="bg-white dark:bg-slate-900 rounded-3xl w-full max-w-xl shadow-2xl border-2 border-amber-500/80 overflow-hidden"
                         >
-                            <div className="bg-red-500 p-6 text-center">
-                                <AlertTriangle size={48} className="mx-auto text-white mb-2 animate-pulse" />
-                                <h2 className="text-2xl font-black text-white uppercase tracking-widest">
-                                    {language === 'en' ? 'Urgent Alert' : 'Alerta Urgente'}
+                            {/* Modal Header */}
+                            <div className="bg-gradient-to-r from-amber-600 via-orange-600 to-red-600 p-6 text-center text-white relative">
+                                <div className="w-14 h-14 bg-white/20 backdrop-blur-md rounded-2xl flex items-center justify-center mx-auto mb-3 shadow-inner">
+                                    <Clock size={32} className="text-white animate-pulse" />
+                                </div>
+                                <h2 className="text-xl font-black uppercase tracking-wider">
+                                    {language === 'en' ? 'Punch Anomalies & Violations Detector' : 'Detector de Anomalías en Ponchadas'}
                                 </h2>
-                                <p className="text-red-100 font-medium">
-                                    {language === 'en' ? 'Time Exceeded on Breaks/Lunches' : 'Tiempo Excedido en Breaks/Lunches'}
+                                <p className="text-amber-100 text-xs font-medium mt-1">
+                                    {language === 'en'
+                                        ? 'Review of Yesterday\'s Break & Meal Punches'
+                                        : 'Revisión de Ponchadas y Tiempos de Descanso del Día Anterior'}
                                 </p>
                             </div>
 
-                            <div className="p-6 max-h-[50vh] overflow-y-auto custom-scrollbar">
+                            <div className="p-6 max-h-[55vh] overflow-y-auto custom-scrollbar">
+                                {/* ⏰ AVISO CLAVE PARA EL MANAGER: CORRECCIÓN EN TOAST ANTES DE LAS 11:59 AM */}
+                                <div className="bg-amber-50 dark:bg-amber-950/40 border-2 border-amber-300 dark:border-amber-700/60 rounded-2xl p-4 mb-5 shadow-sm">
+                                    <div className="flex items-center gap-2 text-amber-900 dark:text-amber-200 font-extrabold text-xs uppercase tracking-wide">
+                                        <AlertTriangle size={16} className="text-amber-600 dark:text-amber-400" />
+                                        {language === 'en' ? 'Manager Notice: Toast Correction Window' : 'Aviso a Gerencia: Ventana de Corrección en TOAST'}
+                                    </div>
+                                    <p className="text-xs text-amber-800 dark:text-amber-300 mt-1.5 leading-relaxed font-medium">
+                                        {language === 'en'
+                                            ? 'The system detected the following punch anomalies and exceeded break times. You have until 11:59 AM to review and correct any punch mistakes in TOAST POS. At 11:59 AM, the system will automatically dispatch official notification emails to employees.'
+                                            : 'El sistema detectó las siguientes anomalías y tiempos excedidos en las ponchadas de ayer. Tienes hasta las 11:59 AM para revisar y corregir cualquier error de ponchada en TOAST POS. A las 11:59 AM, el sistema enviará automáticamente los avisos oficiales a los empleados.'}
+                                    </p>
+                                </div>
+
+                                {/* List of Employees and Punches */}
                                 <ul className="space-y-3">
                                     {(() => {
                                         const grouped: Record<string, any[]> = {};
@@ -1756,37 +1806,59 @@ export default function SchedulePlanner() {
                                                 const sorted = [...vList].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime() || new Date(a.inDate).getTime() - new Date(b.inDate).getTime());
 
                                                 return (
-                                                    <li key={idx} className="flex flex-col bg-red-50 dark:bg-red-900/10 border border-red-200 dark:border-red-900/50 rounded-xl p-4 shadow-sm">
-                                                        <div className="flex justify-between items-start mb-3">
-                                                            <span className="font-bold text-red-900 dark:text-red-200 text-lg">{name}</span>
+                                                    <li key={idx} className="flex flex-col bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60 rounded-2xl p-4 shadow-sm">
+                                                        <div className="flex justify-between items-center mb-3">
+                                                            <span className="font-extrabold text-slate-900 dark:text-slate-100 text-base flex items-center gap-2">
+                                                                👤 {name}
+                                                            </span>
+                                                            <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 bg-white dark:bg-slate-900 px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700">
+                                                                {vList.length} {vList.length === 1 ? (language === 'en' ? 'record' : 'registro') : (language === 'en' ? 'records' : 'registros')}
+                                                            </span>
                                                         </div>
-                                                        <div className="space-y-3">
+                                                        <div className="space-y-2.5">
                                                             {sorted.map((v, i) => {
                                                                 const formatTime = (isoString?: string) => {
                                                                     if (!isoString) return '--';
                                                                     return new Date(isoString).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
                                                                 };
+
+                                                                const isSevereAnomaly = v.actual >= 60;
+
                                                                 return (
-                                                                    <div key={i} className="flex flex-col bg-white dark:bg-slate-800 rounded-lg p-3 border border-red-100 dark:border-red-900/30">
-                                                                        <div className="flex justify-between items-center mb-1">
-                                                                            <span className="text-xs font-black px-2 py-0.5 rounded-full bg-red-200 dark:bg-red-800 text-red-800 dark:text-red-200">
-                                                                                {formatDateNice(v.date)}
+                                                                    <div key={i} className={`flex flex-col bg-white dark:bg-slate-900 rounded-xl p-3 border ${isSevereAnomaly ? 'border-amber-400 dark:border-amber-600/80 bg-amber-50/30' : 'border-slate-200 dark:border-slate-800'}`}>
+                                                                        <div className="flex flex-wrap justify-between items-center gap-1.5 mb-1.5">
+                                                                            <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                                                                                📅 {formatDateNice(v.date)}
                                                                             </span>
-                                                                            {v.isNotified && (
-                                                                                <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 border border-green-200 dark:border-green-800 flex items-center gap-1">
+
+                                                                            {v.isNotified ? (
+                                                                                <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300 border border-green-200 dark:border-green-800 flex items-center gap-1">
                                                                                     <span>✓</span> {language === 'en' ? 'Sent' : 'Enviado'}
+                                                                                </span>
+                                                                            ) : (
+                                                                                <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-200 border border-amber-300 dark:border-amber-700 flex items-center gap-1">
+                                                                                    <span>⏰</span> {language === 'en' ? 'Auto-send at 11:59 AM' : 'Envío Auto: 11:59 AM'}
                                                                                 </span>
                                                                             )}
                                                                         </div>
-                                                                        <div className="text-[11px] text-red-700/80 dark:text-red-300/80 font-bold tracking-tight mb-2">
+
+                                                                        {/* Anomaly notice if > 60m */}
+                                                                        {isSevereAnomaly && (
+                                                                            <div className="text-[11px] font-bold text-amber-700 dark:text-amber-300 bg-amber-100/60 dark:bg-amber-950/60 px-2 py-1 rounded-md mb-2 flex items-center gap-1 border border-amber-300 dark:border-amber-800">
+                                                                                <span>⚠️</span> {language === 'en' ? 'Possible punch error (>60m) - Verify in Toast POS' : 'Posible error de ponchada (>60m) - Verificar en Toast POS'}
+                                                                            </div>
+                                                                        )}
+
+                                                                        <div className="text-[11px] text-slate-600 dark:text-slate-400 font-semibold tracking-tight mb-2">
                                                                             ⏱ {formatTime(v.inDate)} ➔ {formatTime(v.outDate)}
                                                                         </div>
-                                                                        <div className="flex justify-between items-center font-medium text-sm text-red-800 dark:text-red-300">
-                                                                            <span>
-                                                                                {v.type === 'BRK' ? 'Break' : 'Lunch'}: {language === 'en' ? 'Allowed' : 'Permitido'} {v.allowed} min
+
+                                                                        <div className="flex justify-between items-center text-xs">
+                                                                            <span className="font-semibold text-slate-700 dark:text-slate-300">
+                                                                                {v.type === 'BRK' ? (language === 'en' ? 'Break (10m)' : 'Break (10 min)') : (language === 'en' ? 'Lunch (30m)' : 'Lunch (30 min)')}
                                                                             </span>
                                                                             <span className="font-black text-red-600 dark:text-red-400">
-                                                                                {language === 'en' ? 'Actual' : 'Real'} {Math.round(v.actual)} min
+                                                                                {language === 'en' ? 'Actual' : 'Real'}: {Math.round(v.actual)} min ({language === 'en' ? 'Allowed' : 'Permitido'}: {v.allowed}m)
                                                                             </span>
                                                                         </div>
                                                                     </div>
@@ -1800,79 +1872,45 @@ export default function SchedulePlanner() {
                                 </ul>
                             </div>
 
-                            <div className="p-4 bg-gray-50 dark:bg-slate-800 border-t border-gray-100 dark:border-slate-800 flex justify-end gap-3">
-                                {user?.role?.toLowerCase().includes('admin') ? (
-                                    <button
-                                        onClick={() => setViolationModal(prev => ({ ...prev, isOpen: false }))}
-                                        className="bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 dark:text-gray-100 text-gray-800 font-bold py-2 px-6 rounded-xl uppercase tracking-wider transition-colors"
-                                    >
-                                        {language === 'en' ? 'Close' : 'Cerrar'}
-                                    </button>
-                                ) : user?.role?.toLowerCase().includes('supervisor') ? (
-                                    <>
-                                        <button
-                                            onClick={() => setViolationModal(prev => ({ ...prev, isOpen: false }))}
-                                            disabled={isSendingViolations}
-                                            className="bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 dark:text-gray-100 text-gray-800 font-bold py-2 px-6 rounded-xl uppercase tracking-wider transition-colors"
-                                        >
-                                            {language === 'en' ? 'Cancel' : 'Cancelar'}
-                                        </button>
+                            {/* Modal Footer Actions */}
+                            <div className="p-4 bg-slate-50 dark:bg-slate-800/80 border-t border-slate-200 dark:border-slate-700 flex flex-wrap items-center justify-between gap-3">
+                                <div className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
+                                    💡 {language === 'en' ? 'Auto-sync runs daily at 11:59 AM' : 'Sincronización automática diaria a las 11:59 AM'}
+                                </div>
+
+                                <div className="flex items-center gap-2">
+                                    {/* Optional Force Send for Supervisor / Admin */}
+                                    {(user?.role?.toLowerCase().includes('admin') || user?.role?.toLowerCase().includes('supervisor')) && (
                                         <button
                                             onClick={() => {
                                                 const msg = language === 'en'
-                                                    ? 'WARNING: You are about to send an alert message using your SUPERVISOR account to all involved employees of this store. Do you want to continue?'
-                                                    : 'ATENCIÓN: Cuidado, se enviará un mensaje de alerta usando tu cuenta de SUPERVISOR a todos los empleados involucrados de esta tienda. ¿Deseas continuar?';
+                                                    ? 'WARNING: You are about to manually dispatch violation notices immediately. Do you want to continue?'
+                                                    : 'ATENCIÓN: Se enviarán las notificaciones de infracción de inmediato por correo. ¿Deseas continuar?';
                                                 if (window.confirm(msg)) {
-                                                    handleAcknowledgeViolations();
+                                                    handleForceSendViolations();
                                                 }
                                             }}
                                             disabled={isSendingViolations}
-                                            className="bg-red-600 hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold py-2 px-6 rounded-xl uppercase tracking-wider transition-colors flex items-center gap-2"
+                                            className="text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 px-3 py-2 rounded-xl transition-colors border border-slate-300 dark:border-slate-600"
+                                            title={language === 'en' ? 'Force immediate send' : 'Forzar envío inmediato'}
                                         >
                                             {isSendingViolations ? (
-                                                <>
-                                                    <Loader2 size={16} className="animate-spin" />
-                                                    {language === 'en' ? 'Processing...' : 'Procesando...'}
-                                                </>
+                                                <Loader2 size={14} className="animate-spin inline mr-1" />
                                             ) : (
-                                                language === 'en' ? 'Notify Employees' : 'Avisar a los Empleados'
+                                                '⚡ '
                                             )}
+                                            {language === 'en' ? 'Force Send' : 'Forzar Envío'}
                                         </button>
-                                    </>
-                                ) : (
-                                    <>
-                                        <button
-                                            onClick={() => setViolationModal(prev => ({ ...prev, isOpen: false }))}
-                                            disabled={isSendingViolations}
-                                            className="bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 dark:text-gray-100 text-gray-800 font-bold py-2 px-6 rounded-xl uppercase tracking-wider transition-colors"
-                                        >
-                                            {language === 'en' ? 'Close' : 'Cerrar'}
-                                        </button>
-                                        {!googleConnected && (
-                                            <a
-                                                href="/api/auth/google/start?returnUrl=/planificador"
-                                                className="bg-gradient-to-r from-blue-600 to-red-500 hover:from-blue-500 hover:to-red-400 text-white font-bold py-2 px-6 rounded-xl uppercase tracking-wider transition-colors flex items-center gap-2 shadow-lg"
-                                            >
-                                                <Mail size={16} />
-                                                {language === 'en' ? 'Connect Gmail' : 'Vincular Gmail'}
-                                            </a>
-                                        )}
-                                        <button
-                                            onClick={handleAcknowledgeViolations}
-                                            disabled={isSendingViolations}
-                                            className="bg-red-600 hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold py-2 px-6 rounded-xl uppercase tracking-wider transition-colors flex items-center gap-2"
-                                        >
-                                            {isSendingViolations ? (
-                                                <>
-                                                    <Loader2 size={16} className="animate-spin" />
-                                                    {language === 'en' ? 'Processing...' : 'Procesando...'}
-                                                </>
-                                            ) : (
-                                                language === 'en' ? 'Acknowledge' : 'Entendido'
-                                            )}
-                                        </button>
-                                    </>
-                                )}
+                                    )}
+
+                                    {/* Primary Button for Manager */}
+                                    <button
+                                        onClick={handleCloseViolationModal}
+                                        className="bg-amber-600 hover:bg-amber-700 active:scale-95 text-white font-bold py-2.5 px-6 rounded-xl uppercase tracking-wider text-xs transition-all shadow-md flex items-center gap-1.5"
+                                    >
+                                        ✓ {language === 'en' ? 'Understood / Review in Toast' : 'Entendido / Revisar en Toast'}
+                                    </button>
+                                </div>
                             </div>
                         </motion.div>
                     </motion.div>
