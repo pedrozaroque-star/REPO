@@ -998,6 +998,16 @@ const dictionaries: Record<Language, Dictionary> = {
                 publish_notify_error: 'Publicado, pero error al notificar',
                 budget_error: 'Error guardando presupuesto'
             },
+            calendar: {
+                sync_phone_title: 'Sincroniza tus Turnos con tu Teléfono',
+                sync_phone_desc: 'Agrega todos tus turnos de la semana al calendario de tu iPhone o Android con alarmas automáticas 1 hora antes de cada turno.',
+                add_to_calendar_btn: '📲 Agregar a mi Calendario (iPhone / Android)',
+                google_calendar_btn: '📅 Google Calendar',
+                apple_calendar_btn: '🍎 Apple Calendar',
+                ics_tip: '💡 También puedes abrir el archivo adjunto .ics para importar todos los turnos directamente.',
+                download_ics: 'Descargar Calendario (.ics)',
+                calendar_synced: 'Turnos preparados para tu calendario'
+            },
             employees_scheduled: 'Empleados Programados',
             // TODO: DELETE THIS BLOCK AFTER JUNE 9, 2026 (Expired Clone Modal announcement)
             welcome_modal: {
@@ -3554,6 +3564,16 @@ const dictionaries: Record<Language, Dictionary> = {
                 publish_no_notify: 'Published (No one to notify)',
                 publish_notify_error: 'Published, but notification error',
                 budget_error: 'Error saving budget'
+            },
+            calendar: {
+                sync_phone_title: 'Sync Your Shifts with Your Phone',
+                sync_phone_desc: 'Add all your weekly shifts to your iPhone or Android calendar with automatic reminders 1 hour before each shift.',
+                add_to_calendar_btn: '📲 Add to My Calendar (iPhone / Android)',
+                google_calendar_btn: '📅 Google Calendar',
+                apple_calendar_btn: '🍎 Apple Calendar',
+                ics_tip: '💡 You can also open the attached .ics file to import all shifts directly.',
+                download_ics: 'Download Calendar (.ics)',
+                calendar_synced: 'Shifts prepared for your calendar'
             },
             employees_scheduled: 'Employees Scheduled',
             // TODO: DELETE THIS BLOCK AFTER JUNE 9, 2026 (Expired Clone Modal announcement)

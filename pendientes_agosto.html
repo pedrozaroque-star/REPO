@@ -864,7 +864,7 @@
                 </svg>
             </div>
             <div>
-                <div class="stat-number" style="color: #e05638;">39.2</div>
+                <div class="stat-number" style="color: #e05638;">40.2</div>
                 <div class="stat-desc">Horas trabajadas</div>
             </div>
         </div>
@@ -1811,7 +1811,7 @@
             <div class="report-section">
                 <div class="report-title-row">
                     <h2>Reporte de Horas Trabajadas y Actualizaciones</h2>
-                    <span class="hours-badge-large">Total de Horas: 16.5 hrs</span>
+                    <span class="hours-badge-large">Total de Horas: 40.2 hrs</span>
                 </div>
                 
                 <p class="report-subtitle-text">
@@ -2068,6 +2068,7 @@
                                          <div class="en-desc">- **MilesIQ (GPS & Mobile Navigation)**: GPS autodetection of nearest store on departure/arrival (1-tap). Direct navigation launchers for Google Maps, Apple Maps, and Waze for real-time routing. Auto-save trip before opening maps app.<br>- **MilesIQ (Auto-Sync from Inspections)**: When a supervisor completes a quality inspection, the system auto-generates a MilesIQ trip with the inspected store as destination, assigning current California time and correct business date (6AM rule).<br>- **MilesIQ (Subtotals & Rate)**: Filtered subtotal row in DriveLog table and mobile cards summing only visible trips. Updated official reimbursement rate to $0.760/mi.<br>- **Prep Line (Trackpad Throttle)**: Throttled carousel wheel scroll to max 1 tab change per 400ms to prevent accidental rapid changes on laptop trackpads.<br>- **AI Support**: Synced assistant prompt with all new MilesIQ, Preparador and Uniforms features.</div>
                                     </div>
                                 </td>
+                            </tr>
                             <tr>
                                 <td><strong>16-Aug-2026</strong></td>
                                 <td>7:00 PM - 7:30 PM</td>
@@ -2077,6 +2078,30 @@
                                     <div class="lang-split">
                                          <div class="es-desc">- **Control de Uniformes (Bloqueo de Sucursal Asignada para Managers y Asistentes)**: Restricción estricta de visualización de tiendas en el encabezado del módulo de uniformes. Las cuentas de Manager y Asistente quedan bloqueadas exclusivamente a su tienda asignada (`accessibleStores`), ocultando el selector de otras sucursales y mostrando una tarjeta fija con el nombre de su restaurante. Los roles ejecutivos (Admin y Supervisor) conservan el menú desplegable para alternar entre las 15 tiendas de Tacos Gavilan.</div>
                                          <div class="en-desc">- **Uniforms Control (Assigned Store Lock for Managers & Assistants)**: Strict store visibility scoping in the uniforms module header. Manager and Assistant accounts are locked exclusively to their assigned store session (`accessibleStores`), hiding the multi-store dropdown and displaying a fixed badge with their assigned restaurant name. Executive roles (Admin and Supervisor) retain the multi-store selector to manage all 15 Tacos Gavilan store locations.</div>
+                                    </div>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td><strong>16-Aug-2026</strong></td>
+                                <td>7:35 PM - 7:55 PM</td>
+                                <td style="text-align: center; font-weight: 700;">0.30</td>
+                                <td><span class="table-badge-module">Planificador</span> <span class="table-badge-module">Notificaciones</span> <span class="table-badge-module">Auditoría Laboral</span></td>
+                                <td>
+                                    <div class="lang-split">
+                                         <div class="es-desc">- **Notificaciones de Violación de Lunch (30 min)**: Activación del despacho de correo a empleados cuando se detecta violación de Lunch (30 min) en `app/api/scheduler/violations/notify/route.ts` (habilitado `alert_employee` para tipo `LUN`). Unificación de visualización de insignias de advertencia en `app/planificador/page.tsx`.</div>
+                                         <div class="en-desc">- **Meal Break Violation Notifications (30 min)**: Enabled email dispatch to employees upon 30-min meal break violations in `app/api/scheduler/violations/notify/route.ts` (`alert_employee` enabled for `LUN` violation type). Unified warning badge styling in `app/planificador/page.tsx`.</div>
+                                    </div>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td><strong>16-Aug-2026</strong></td>
+                                <td>8:00 PM - 8:45 PM</td>
+                                <td style="text-align: center; font-weight: 700;">0.70</td>
+                                <td><span class="table-badge-module">Planificador</span> <span class="table-badge-module">Notificaciones</span> <span class="table-badge-module">Calendario Móvil</span></td>
+                                <td>
+                                    <div class="lang-split">
+                                         <div class="es-desc">- **Sincronización de Horarios a Calendario Móvil (iOS / Android)**: Creación de la librería `lib/calendar-helper.ts` con generador de eventos estándar RFC 5545 `.ics` (alarmas de 1h y 2h antes, dirección de sucursal, posición y breaks) y generador de enlaces de Google Calendar. Implementación del endpoint dinámico `/api/schedule/calendar` para importación en 1 toque en iPhone y Android. Inserción de tarjeta destacada con botón "📲 Agregar a mi Calendario (iPhone / Android)" y enlaces directos a Google Calendar por turno en el correo de publicación de horarios (`/api/notifications/publish-schedule`), con adjunto `.ics` nativo. Integración de botón de exportación `.ics` en `app/mis-horarios/page.tsx` y soporte bilingüe completo en `lib/i18n.tsx`.</div>
+                                         <div class="en-desc">- **Mobile Calendar Sync Integration for Shifts (iOS / Android)**: Created `lib/calendar-helper.ts` with standard RFC 5545 `.ics` file generator (1-hour and 2-hour prior alerts, store address, position, and meal/rest breaks) and single-shift Google Calendar link generator. Implemented public dynamic endpoint `/api/schedule/calendar` for 1-tap import on iPhone and Android devices. Added prominent CTA box "📲 Add to My Calendar (iPhone / Android)" and per-shift Google Calendar buttons in schedule notification emails (`/api/notifications/publish-schedule`), including native `.ics` calendar attachment. Added `.ics` export button in `app/mis-horarios/page.tsx` and full bilingual dictionary in `lib/i18n.tsx`.</div>
                                     </div>
                                 </td>
                             </tr>

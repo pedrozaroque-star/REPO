@@ -24,6 +24,13 @@ import path from 'path'
 import fs from 'fs'
 import { generateSmartForecast } from '@/lib/intelligence'
 import { scheduleBreaksWithDemand } from '@/lib/breaks-engine'
+import {
+    generateScheduleICS,
+    buildGoogleCalendarUrl,
+    buildCalendarApiUrl,
+    CalendarStoreInfo,
+    CalendarShiftItem
+} from '@/lib/calendar-helper'
 
 // Helper to translate employee job + station group to the 6 standard roles
 function resolvePositionKey(jobTitle: string, stationName?: string, stationGroup?: string): string {
@@ -384,8 +391,12 @@ export async function POST(req: Request) {
         // 6. Send Email Notifications (VIA GMAIL API REST - NO SMTP)
         const results = { email: 0, errors: 0 }
 
-        // Get store info for branding
-        const { data: store } = await supabase.from('stores').select('name').eq('external_id', store_id).single()
+        // Get store info for branding and calendar events
+        const { data: store } = await supabase
+            .from('stores')
+            .select('name, address, city, state, zip_code, phone')
+            .eq('external_id', store_id)
+            .single()
         const storeName = store?.name || 'Tu Equipo'
 
         // --- ACTIVITIES PILOT: Solo tiendas habilitadas reciben actividades en el correo ---
@@ -403,6 +414,61 @@ export async function POST(req: Request) {
                     .sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime()) // SORT BY DATE
 
                 if (empShifts.length === 0) return
+
+                // Prepare structured shifts for iCalendar generation
+                const calendarShifts: CalendarShiftItem[] = empShifts.map((s: any) => {
+                    const dayStr = s.shift_date;
+                    let empShiftType = 'AM';
+                    const startDate = new Date(s.start_time);
+                    if (startDate.getHours() >= 17) empShiftType = 'PM';
+                    const shiftSuffix = `_${empShiftType}`;
+                    const myPositions = (stationAssignments || []).filter(a => 
+                        a.employee_id === emp.id && 
+                        a.assignment_date === dayStr &&
+                        (a.sub_position?.endsWith(shiftSuffix) || (!a.sub_position?.includes('_AM') && !a.sub_position?.includes('_PM')))
+                    );
+                    const myPos = myPositions.length > 0 ? myPositions[0] : null;
+                    let posTitle = s.job_title || s.role || '';
+                    if (myPos?.position_name) {
+                        posTitle = myPos.sub_position ? `${myPos.position_name} (${myPos.sub_position.replace(/_AM|_PM/g, '')})` : myPos.position_name;
+                    }
+
+                    return {
+                        id: s.id,
+                        shift_date: s.shift_date,
+                        start_time: s.start_time,
+                        end_time: s.end_time,
+                        position_title: posTitle,
+                        breaks: s.breaks_schedule && Array.isArray(s.breaks_schedule) ? s.breaks_schedule : []
+                    };
+                });
+
+                const storeInfo: CalendarStoreInfo = {
+                    name: storeName,
+                    address: store?.address || '',
+                    city: store?.city || '',
+                    state: store?.state || 'CA',
+                    zip_code: store?.zip_code || '',
+                    phone: store?.phone || ''
+                };
+
+                const empFullName = `${emp.chosen_name || emp.first_name || ''} ${emp.last_name || ''}`.trim() || 'Empleado';
+
+                const icsContent = generateScheduleICS({
+                    store: storeInfo,
+                    employeeName: empFullName,
+                    shifts: calendarShifts,
+                    calendarName: `Horario ${storeName}`
+                });
+
+                const appBaseUrl = process.env.NEXT_PUBLIC_APP_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://tacosgavilan.vercel.app');
+                const calendarDownloadUrl = buildCalendarApiUrl({
+                    baseUrl: appBaseUrl,
+                    employeeId: emp.id,
+                    storeId: store_id,
+                    startDate: start_date,
+                    endDate: end_date
+                });
 
                 // Build shift rows for email table
                 const shiftRows = empShifts.map((s: any) => {
@@ -678,6 +744,14 @@ export async function POST(req: Request) {
                         `;
                     }
 
+                    const singleGoogleCalUrl = buildGoogleCalendarUrl({
+                        title: `🌮 Turno Tacos Gavilan - ${storeName}${myPosition?.position_name ? ` (${myPosition.position_name})` : ''}`,
+                        details: `Turno de trabajo en Tacos Gavilan ${storeName}.\nHorario: ${start} - ${end}${myPosition?.position_name ? `\nPosición: ${myPosition.position_name}` : ''}`,
+                        location: `${storeName}, ${store?.address || ''}, ${store?.city || ''}, CA ${store?.zip_code || ''}`.replace(/,\s*,/g, ',').trim(),
+                        startTime: s.start_time,
+                        endTime: s.end_time
+                    });
+
                     return `
                         <tr>
                             <td style="padding: 16px; border-bottom: 1px solid #e5e7eb; font-weight: 600; color: #4f46e5; text-transform: capitalize;">
@@ -690,12 +764,17 @@ export async function POST(req: Request) {
                                 ${positionBadge}
                                 ${tasksHtml}
                                 ${breaksHtml}
+                                <div style="margin-top: 10px;">
+                                    <a href="${singleGoogleCalUrl}" target="_blank" style="display: inline-block; font-size: 11px; font-weight: 700; color: #4338ca; background: #e0e7ff; padding: 4px 10px; border-radius: 6px; text-decoration: none; border: 1px solid #c7d2fe;">
+                                        📅 Google Calendar
+                                    </a>
+                                </div>
                             </td>
                         </tr>
                     `
                 }).join('')
 
-                // FULL HTML TEMPLATE (With Logo Re-added)
+                // FULL HTML TEMPLATE (With Phone Calendar Sync Button & Logo)
                 const fullHtml = `
                     <!DOCTYPE html>
                     <html>
@@ -720,7 +799,34 @@ export async function POST(req: Request) {
                                     <p style="margin: 0; color: #6b7280; font-size: 16px; line-height: 1.6;">El Gerente (${fromEmail}) ha publicado tus turnos:</p>
                                 </td>
                             </tr>
-                             <tr>
+
+                            <!-- 📲 PHONE CALENDAR SYNC CTA BUTTON (iOS & Android) -->
+                            <tr>
+                                <td style="padding: 0 30px 20px 30px;">
+                                    <div style="background: linear-gradient(135deg, #eff6ff 0%, #e0e7ff 100%); border: 2px solid #bfdbfe; border-radius: 16px; padding: 22px 20px; text-align: center;">
+                                        <div style="font-size: 17px; font-weight: 800; color: #1e3a8a; margin-bottom: 6px;">
+                                            📲 Sincroniza tus Turnos con tu Teléfono
+                                        </div>
+                                        <p style="margin: 0 0 16px 0; color: #2563eb; font-size: 13px; font-weight: 600; line-height: 1.4;">
+                                            Agrega todos tus turnos de la semana al calendario de tu <strong>iPhone</strong> o <strong>Android</strong> con alarmas automáticas 1 hora antes de cada turno.
+                                        </p>
+                                        <table role="presentation" style="margin: 0 auto; border-collapse: collapse;">
+                                            <tr>
+                                                <td style="border-radius: 12px; background: #2563eb; text-align: center; box-shadow: 0 4px 12px rgba(37,99,235,0.35);">
+                                                    <a href="${calendarDownloadUrl}" target="_blank" style="display: inline-block; padding: 13px 26px; font-size: 14px; font-weight: 800; color: #ffffff; text-decoration: none; border-radius: 12px; letter-spacing: 0.3px;">
+                                                        📲 Agregar a mi Calendario (iPhone / Android)
+                                                    </a>
+                                                </td>
+                                            </tr>
+                                        </table>
+                                        <div style="margin-top: 12px; font-size: 11px; color: #64748b; font-weight: 500;">
+                                            💡 También puedes abrir el archivo adjunto <strong>.ics</strong> para importar todos los turnos directamente.
+                                        </div>
+                                    </div>
+                                </td>
+                            </tr>
+
+                            <tr>
                                 <td style="padding: 0 30px 20px 30px;">
                                     <table role="presentation" style="width: 100%; border-collapse: collapse; background: #f9fafb; border-radius: 16px; overflow: hidden; border: 2px solid #e5e7eb;">
                                         <thead>
@@ -753,7 +859,7 @@ export async function POST(req: Request) {
                     </html>
                 `
 
-                // Prepare Attachments Safely
+                // Prepare Attachments Safely (Logo + Native .ics Calendar File)
                 const attachments: any[] = []
                 const logoPath = path.join(process.cwd(), 'public', 'logo.png')
 
@@ -765,6 +871,14 @@ export async function POST(req: Request) {
                         cid: 'logo'
                     })
                 }
+
+                // Attach Native .ics Calendar File for Instant Phone Recognition
+                const safeStoreName = (storeName || 'Tacos_Gavilan').replace(/\s+/g, '_').replace(/[^a-zA-Z0-9_-]/g, '')
+                attachments.push({
+                    filename: `Horario_${safeStoreName}_${start_date}.ics`,
+                    content: icsContent,
+                    contentType: 'text/calendar; charset=utf-8; method=PUBLISH'
+                })
 
                 const mailOptions = {
                     from: `"${storeName} Schedule" <${fromEmail}>`,

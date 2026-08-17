@@ -272,7 +272,7 @@ Food Cost % = (Total Ingredient Cost ÷ Net Sales) × 100
 
 ## TEAM MANAGEMENT
 - **User Roles**: Admin (full access), Supervisor (inspections + oversight), Manager (store-level management), Assistant (checklists + basic access), Employee (view-only + self-service).
-- **Horarios (Schedules)**: Created in the Planner module (/admin → Planificador). Weekly schedules per store, with shifts, days off, and availability. The 'Copy Previous Week' feature auto-detects stores with incomplete schedules (less than 50% of previous week's shifts) and offers to replicate them. Uses upsert to preserve any existing shifts while filling gaps.
+- **Horarios (Schedules)**: Created in the Planner module (/planificador). Weekly schedules per store, with shifts, days off, and availability. The 'Copy Previous Week' feature auto-detects stores with incomplete schedules and offers to replicate them. When published, notifications send email summaries to employees with dynamic '📲 Agregar a mi Calendario (iPhone / Android)' sync buttons, individual Google Calendar links, and attached RFC 5545 .ics files for 1-tap calendar import with 1-hour prior shift alarms. Endpoints: \`/api/notifications/publish-schedule\`, \`/api/schedule/calendar\`.
 - **Smart-Hybrid Forecasting**: Uses historical sales data + day-of-week patterns + seasonality to predict staffing needs. Combines statistical models with manager intuition.
 - **Auto-Scheduling**: Employees can set their availability preferences, and the system suggests optimal schedules that balance labor targets with employee preferences.
 - **New Employee Registration**: Admin → Usuarios → "Add User". Enter name, email, role, assigned store, and position type.

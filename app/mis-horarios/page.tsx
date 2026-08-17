@@ -8,6 +8,7 @@ import { ClaimModal } from '@/components/self-schedule/ClaimModal'
 import { supabase } from '@/lib/supabase'
 import { startOfWeek, addWeeks, format } from 'date-fns'
 import { es, enUS } from 'date-fns/locale'
+import { generateScheduleICS, CalendarShiftItem } from '@/lib/calendar-helper'
 
 // Helper to check if JWT is expired
 function isTokenExpired(token: string): boolean {
@@ -433,6 +434,46 @@ export default function MisHorariosPage() {
                                     {totalHoursThisWeek}h
                                 </p>
                             </div>
+
+                            {myClaims.length > 0 && (
+                                <button
+                                    onClick={() => {
+                                        const shiftItems: CalendarShiftItem[] = myClaims.map(c => {
+                                            const shift = c.open_shifts
+                                            const sDate = shift.shift_date
+                                            const sHour = String(shift.start_hour).padStart(2, '0')
+                                            const eHour = String(shift.end_hour >= 24 ? shift.end_hour - 24 : shift.end_hour).padStart(2, '0')
+                                            const startIso = `${sDate}T${sHour}:00:00.000Z`
+                                            const endIso = `${sDate}T${eHour}:00:00.000Z`
+                                            return {
+                                                id: shift.id,
+                                                shift_date: shift.shift_date,
+                                                start_time: startIso,
+                                                end_time: endIso,
+                                                position_title: shift.position_type === 'kitchen' ? 'Cocina' : 'Cajero'
+                                            }
+                                        })
+                                        const firstStoreName = myClaims[0]?.store_name || 'Tacos Gavilan'
+                                        const icsContent = generateScheduleICS({
+                                            store: { name: firstStoreName },
+                                            employeeName: userName || 'Empleado',
+                                            shifts: shiftItems,
+                                            calendarName: `Mis Turnos - ${firstStoreName}`
+                                        })
+                                        const blob = new Blob([icsContent], { type: 'text/calendar;charset=utf-8' })
+                                        const link = document.createElement('a')
+                                        link.href = window.URL.createObjectURL(blob)
+                                        link.setAttribute('download', `Mis_Turnos_${format(currentWeekStart, 'yyyy-MM-dd')}.ics`)
+                                        document.body.appendChild(link)
+                                        link.click()
+                                        document.body.removeChild(link)
+                                    }}
+                                    className="px-3 py-2 text-xs font-bold bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300 dark:hover:bg-indigo-900/50 rounded-xl transition-all flex items-center gap-1.5 border border-indigo-200 dark:border-indigo-800 shadow-sm"
+                                    title={language === 'es' ? 'Agregar turnos a mi calendario' : 'Add shifts to my calendar'}
+                                >
+                                    📲 <span className="hidden sm:inline">{language === 'es' ? 'Calendario (.ics)' : 'Calendar (.ics)'}</span>
+                                </button>
+                            )}
 
                             {/* Logout button */}
                             <button
