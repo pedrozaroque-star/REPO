@@ -1,4 +1,13 @@
-// lib/checklistPermissions.ts
+/**
+ * @module lib/checklistPermissions
+ * @description Utilidades de permisos, cálculo de jornada laboral y formateo de fechas para checklists de Tacos Gavilan.
+ * @businessRules
+ * - La jornada laboral inicia a las 6:00 AM y finaliza a las 5:59 AM del día siguiente.
+ * - El turno PM comprende desde las 5:00 PM (17:00) hasta las 5:59 AM.
+ * - El turno AM comprende desde las 6:00 AM hasta las 4:59 PM (16:59).
+ * - Registros realizados antes de las 6:00 AM corresponden a la jornada del día natural anterior.
+ * @notes Corrección de cálculo de fecha de negocio en creación de checklists de madrugada.
+ */
 
 // --- 1. CONFIGURACIÓN ---
 const TIMEZONE = 'America/Los_Angeles';
@@ -11,15 +20,15 @@ const isValidDate = (d: any) => {
 export const getSafeLADateISO = (dateInput: any) => {
   try {
     // FECHA DE HOY (AJUSTADA A JORNADA LABORAL)
-    // Si la fecha input es HOY, necesitamos ver si son las 3 AM para contar como "ayer"
+    // Si la fecha input es HOY, si es antes de las 6:00 AM cuenta como "ayer"
     if (!dateInput) {
       const now = new Date();
       // Convertir a hora LA
       const laDateString = now.toLocaleString("en-US", { timeZone: TIMEZONE });
       const laDate = new Date(laDateString);
 
-      // REGLA DE ORO: Si es antes de las 5am, restamos un día
-      if (laDate.getHours() < 5) {
+      // REGLA DE ORO: Si es antes de las 6am, restamos un día (jornada laboral 6:00 AM a 5:59 AM)
+      if (laDate.getHours() < 6) {
         laDate.setDate(laDate.getDate() - 1);
       }
 
@@ -46,6 +55,31 @@ export const getSafeLADateISO = (dateInput: any) => {
   } catch (e) {
     console.error('Error calculando fecha:', e);
     return 'Error';
+  }
+};
+
+/**
+ * Devuelve la fecha de la jornada laboral actual en formato ISO (YYYY-MM-DD) respetando la zona horaria de Los Angeles
+ * y el corte de las 6:00 AM.
+ */
+export const getBusinessDateISO = (dateInput?: any): string => {
+  return getSafeLADateISO(dateInput || null);
+};
+
+/**
+ * Devuelve el turno actual ('AM' o 'PM') según la hora en Los Angeles.
+ * PM = 5:00 PM (17:00) a 5:59 AM
+ * AM = 6:00 AM a 4:59 PM (16:59)
+ */
+export const getCurrentShift = (dateInput?: any): 'AM' | 'PM' => {
+  try {
+    const now = dateInput ? new Date(dateInput) : new Date();
+    const laDateString = now.toLocaleString("en-US", { timeZone: TIMEZONE });
+    const laDate = new Date(laDateString);
+    const hours = laDate.getHours();
+    return (hours >= 17 || hours < 6) ? 'PM' : 'AM';
+  } catch {
+    return 'AM';
   }
 };
 

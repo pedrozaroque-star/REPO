@@ -1100,7 +1100,7 @@ export default function PreparadorPage() {
                             className="flex-1 flex flex-col items-center gap-6 xl:gap-8 overflow-hidden touch-none py-4 px-2 [perspective:1200px]"
                             onWheel={(e) => {
                                 const now = Date.now()
-                                if (now - wheelThrottleRef.current < 150) return
+                                if (now - wheelThrottleRef.current < 400) return
                                 wheelThrottleRef.current = now
                                 if (e.deltaY > 0 && activeIndex < carouselBuckets.length - 2) setActiveIndex(prev => prev + 1)
                                 if (e.deltaY < 0 && activeIndex > 0) setActiveIndex(prev => prev - 1)

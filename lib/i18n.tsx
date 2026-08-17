@@ -2372,6 +2372,7 @@ const dictionaries: Record<Language, Dictionary> = {
         uniforms: {
             title: 'Control de Uniformes',
             subtitle: 'Gestión de inventario y entregas de uniformes',
+            assigned_store: 'Sucursal Asignada',
             executive_dashboard: 'Tablero Ejecutivo',
             store_dashboard: 'Panel de Tienda',
             select_store: 'Seleccionar Tienda',
@@ -4927,6 +4928,7 @@ const dictionaries: Record<Language, Dictionary> = {
         uniforms: {
             title: 'Uniforms Control',
             subtitle: 'Uniform inventory and distribution management',
+            assigned_store: 'Assigned Store',
             executive_dashboard: 'Executive Dashboard',
             store_dashboard: 'Store Dashboard',
             select_store: 'Select Store',

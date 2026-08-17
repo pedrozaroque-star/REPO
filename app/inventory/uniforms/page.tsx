@@ -69,6 +69,20 @@ function UniformsContent() {
     setTimeout(() => setToast(null), 4000);
   };
 
+  // Accessible stores: Supervisors/Admins see all stores, Managers/Asistentes see ONLY their assigned store
+  const accessibleStores = useMemo(() => {
+    if (isExecutive) return stores;
+    if (!user) return [];
+    const userStoreIds = [
+      ...(user.store_ids || []),
+      ...(user.store_id ? [user.store_id] : []),
+      ...(user.store_scope || [])
+    ].map(id => String(id));
+
+    const filtered = stores.filter(s => userStoreIds.includes(String(s.id)));
+    return filtered.length > 0 ? filtered : (user?.store_id ? stores.filter(s => String(s.id) === String(user.store_id)) : stores);
+  }, [stores, user, isExecutive]);
+
   // Fetch stores and pricing on mount
   useEffect(() => {
     const initData = async () => {
@@ -83,9 +97,18 @@ function UniformsContent() {
           const storeList = data.map((s: any) => ({ id: s.id, name: s.name }));
           setStores(storeList);
           
-          if (!isExecutive && user?.store_id) {
-            const userStore = storeList.find(s => String(s.id) === String(user.store_id));
-            if (userStore) setSelectedStoreId(userStore.id);
+          if (!isExecutive && user) {
+            const userStoreIds = [
+              ...(user.store_ids || []),
+              ...(user.store_id ? [user.store_id] : []),
+              ...(user.store_scope || [])
+            ].map(id => String(id));
+            const userStore = storeList.find(s => userStoreIds.includes(String(s.id)));
+            if (userStore) {
+              setSelectedStoreId(userStore.id);
+            } else if (storeList.length > 0) {
+              setSelectedStoreId(storeList[0].id);
+            }
           } else if (storeList.length > 0) {
             setSelectedStoreId(storeList[0].id);
           }
@@ -100,7 +123,16 @@ function UniformsContent() {
       }
     };
     initData();
-  }, [isExecutive, t, user?.store_id]);
+  }, [isExecutive, t, user]);
+
+  // Keep selectedStoreId strictly synchronized to manager's assigned store
+  useEffect(() => {
+    if (!isExecutive && accessibleStores.length > 0) {
+      if (!selectedStoreId || !accessibleStores.some(s => s.id === selectedStoreId)) {
+        setSelectedStoreId(accessibleStores[0].id);
+      }
+    }
+  }, [isExecutive, accessibleStores, selectedStoreId]);
 
   // Load stock when selectedStoreId changes
   useEffect(() => {
@@ -167,20 +199,36 @@ function UniformsContent() {
             </p>
           </div>
 
-          {/* Store Selector */}
+          {/* Store Display (Single store for Managers / Asistentes) or Selector (for Admins / Supervisors) */}
           <div className="flex items-center gap-3">
-            <Building className="w-5 h-5 text-gray-400" />
-            <select
-              className="bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white rounded-xl px-4 py-2 font-medium focus:ring-2 focus:ring-blue-500 outline-none"
-              value={selectedStoreId || ''}
-              onChange={(e) => setSelectedStoreId(Number(e.target.value))}
-            >
-              {stores.map(s => (
-                <option key={s.id} value={s.id}>
-                  {s.name}
-                </option>
-              ))}
-            </select>
+            {isExecutive || accessibleStores.length > 1 ? (
+              <div className="flex items-center gap-2">
+                <Building className="w-5 h-5 text-gray-400" />
+                <select
+                  className="bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white rounded-xl px-4 py-2 font-medium focus:ring-2 focus:ring-blue-500 outline-none"
+                  value={selectedStoreId || ''}
+                  onChange={(e) => setSelectedStoreId(Number(e.target.value))}
+                >
+                  {accessibleStores.map(s => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : accessibleStores.length === 1 ? (
+              <div className="flex items-center gap-2.5 px-4 py-2 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-xl shadow-sm">
+                <Building className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+                <div className="flex flex-col text-left">
+                  <span className="text-[10px] uppercase tracking-wider font-extrabold text-blue-600 dark:text-blue-400">
+                    {t('uniforms.assigned_store')}
+                  </span>
+                  <span className="font-bold text-sm text-blue-950 dark:text-blue-100">
+                    {accessibleStores[0].name}
+                  </span>
+                </div>
+              </div>
+            ) : null}
           </div>
         </div>
 

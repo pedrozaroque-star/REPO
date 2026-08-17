@@ -11,6 +11,7 @@ import { useDynamicChecklist } from '@/hooks/useDynamicChecklist'
 import DynamicQuestion from '@/components/checklists/DynamicQuestion'
 import SurpriseLoader from '@/components/SurpriseLoader'
 import { useLanguage } from '@/lib/i18n'
+import { getBusinessDateISO, getCurrentShift } from '@/lib/checklistPermissions'
 
 interface Store {
   id: string
@@ -29,15 +30,9 @@ function ManagerChecklistContent() {
 
   const [formData, setFormData] = useState({
     store_id: '',
-    checklist_date: (() => {
-      const d = new Date()
-      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-    })(),
-    checklist_time: new Date().toTimeString().slice(0, 5),
-    shift: (() => {
-      const h = new Date().getHours()
-      return (h >= 7 && h < 17) ? 'AM' : 'PM'
-    })(),
+    checklist_date: getBusinessDateISO(),
+    checklist_time: new Date().toLocaleTimeString('en-US', { timeZone: 'America/Los_Angeles', hour12: false, hour: '2-digit', minute: '2-digit' }),
+    shift: getCurrentShift(),
     comments: ''
   })
 

@@ -8,6 +8,7 @@ import { getSupabaseClient } from '@/lib/supabase'
 import { useDynamicChecklist } from '@/hooks/useDynamicChecklist'
 import DynamicQuestion from '@/components/checklists/DynamicQuestion'
 import SurpriseLoader from '@/components/SurpriseLoader'
+import { getBusinessDateISO, getCurrentShift } from '@/lib/checklistPermissions'
 
 const TEMPLATE_MAP: { [key: string]: string } = {
   daily: 'daily_checklist_v1',
@@ -88,8 +89,8 @@ export default function ChecklistForm({ user, initialData, type = 'daily' }: { u
   const allQuestions = useMemo(() => sections.flatMap((s: any) => s.questions), [sections])
 
   const [formData, setFormData] = useState({
-    checklist_date: initialData?.checklist_date || new Date().toISOString().split('T')[0],
-    shift: initialData?.shift || (new Date().getHours() >= 17 || new Date().getHours() < 7 ? 'PM' : 'AM'),
+    checklist_date: initialData?.checklist_date || getBusinessDateISO(),
+    shift: initialData?.shift || getCurrentShift(),
     comments: initialData?.comments || ''
   })
 

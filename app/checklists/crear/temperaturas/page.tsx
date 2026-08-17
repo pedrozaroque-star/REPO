@@ -9,6 +9,7 @@ import ProtectedRoute, { useAuth } from '@/components/ProtectedRoute'
 import '@/app/checklists/checklists.css'
 import { getSupabaseClient } from '@/lib/supabase'
 import { useDynamicChecklist } from '@/hooks/useDynamicChecklist'
+import { getBusinessDateISO, getCurrentShift } from '@/lib/checklistPermissions'
 
 interface Store {
   id: string
@@ -25,11 +26,8 @@ function TemperaturasContent() {
 
   const [formData, setFormData] = useState({
     store_id: '',
-    checklist_date: (() => {
-      const d = new Date()
-      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-    })(),
-    shift: (new Date().getHours() >= 17 || new Date().getHours() < 7 ? 'PM' : 'AM') as 'AM' | 'PM',
+    checklist_date: getBusinessDateISO(),
+    shift: getCurrentShift(),
     comments: ''
   })
 

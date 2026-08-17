@@ -10,6 +10,7 @@ import '@/app/checklists/checklists.css'
 import { getSupabaseClient } from '@/lib/supabase'
 import { useDynamicChecklist } from '@/hooks/useDynamicChecklist'
 import DynamicQuestion from '@/components/checklists/DynamicQuestion'
+import { getBusinessDateISO } from '@/lib/checklistPermissions'
 
 interface Store {
   id: string
@@ -26,10 +27,7 @@ function CierreContent() {
 
   const [formData, setFormData] = useState({
     store_id: '',
-    checklist_date: (() => {
-      const d = new Date()
-      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-    })(),
+    checklist_date: getBusinessDateISO(),
     shift: 'PM' as 'AM' | 'PM',
     comments: ''
   })

@@ -271,18 +271,28 @@ export default function InventoryOrdersPage() {
     }))
 
     // --- Load stores ---
+    const isSuper = ['admin', 'supervisor'].includes(user?.role?.toLowerCase() || '')
     useEffect(() => {
         const fetchStores = async () => {
             const { data } = await supabase.from('stores').select('id, name').eq('is_active', true).order('name')
             if (data) {
-                setStores(data)
-                const isSuper = ['admin', 'supervisor'].includes(user?.role?.toLowerCase() || '')
-                if (user && !isSuper && user.store_id) {
+                // Admins/Supervisors ven todas las tiendas; managers/assistants solo ven su(s) tienda(s) asignada(s)
+                let filteredStores = data
+                if (!isSuper && user) {
+                    const userStoreIds: string[] = []
+                    if (user.store_id) userStoreIds.push(String(user.store_id))
+                    if (user.store_ids?.length) user.store_ids.forEach(sid => { if (!userStoreIds.includes(String(sid))) userStoreIds.push(String(sid)) })
+                    if (userStoreIds.length > 0) {
+                        filteredStores = data.filter(s => userStoreIds.includes(String(s.id)))
+                    }
+                }
+                setStores(filteredStores)
+                if (!isSuper && user?.store_id) {
                     setStoreId(user.store_id)
                 } else {
                     const saved = localStorage.getItem('teg_preparador_store')
-                    if (saved && data.find(s => s.id == saved)) setStoreId(saved)
-                    else if (data.length > 0) setStoreId(data[0].id)
+                    if (saved && filteredStores.find(s => s.id == saved)) setStoreId(saved)
+                    else if (filteredStores.length > 0) setStoreId(filteredStores[0].id)
                 }
             }
         }
@@ -1701,17 +1711,24 @@ export default function InventoryOrdersPage() {
                         </button>
                     </div>
 
-                    {/* Store selector */}
-                    <select
-                        value={storeId}
-                        onChange={e => {
-                            setStoreId(e.target.value)
-                            localStorage.setItem('teg_preparador_store', e.target.value)
-                        }}
-                        className="bg-white border border-slate-200 text-slate-700 rounded-xl px-4 py-2.5 font-bold focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none shadow-sm text-sm"
-                    >
-                        {stores.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                    </select>
+                    {/* Store selector — hidden for single-store managers, visible for admins/supervisors */}
+                    {stores.length <= 1 ? (
+                        <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl px-4 py-2.5 font-bold text-sm shadow-sm flex items-center gap-2">
+                            <span className="text-base">📍</span>
+                            {stores[0]?.name || '...'}
+                        </div>
+                    ) : (
+                        <select
+                            value={storeId}
+                            onChange={e => {
+                                setStoreId(e.target.value)
+                                localStorage.setItem('teg_preparador_store', e.target.value)
+                            }}
+                            className="bg-white border border-slate-200 text-slate-700 rounded-xl px-4 py-2.5 font-bold focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none shadow-sm text-sm"
+                        >
+                            {stores.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                        </select>
+                    )}
 
                     {/* Week navigator — only visible on weekly_config tab */}
                     {activeTab === 'weekly_config' && (
