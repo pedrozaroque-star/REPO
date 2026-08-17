@@ -38,12 +38,14 @@ yarn-error.log*
 # vercel
 .vercel
 
+# logs & scratch
+*.log
+scratch/
+~$*
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts
 
 # local quickbooks sandbox tokens
 .sandbox_tokens.json
-
-.vercel
-.env*

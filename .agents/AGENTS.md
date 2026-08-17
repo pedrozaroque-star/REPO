@@ -46,6 +46,37 @@ El nombre oficial de la empresa y marca es estrictamente **Tacos Gavilan** (NUNC
 
 ---
 
+## 📊 REGLA OBLIGATORIA: Registro Exhaustivo de TODAS las Actividades en el Reporte Mensual
+**Ninguna actividad realizada en cualquier conversación puede quedar fuera del reporte mensual** (`pendientes_[mes].html`). El reporte es el documento oficial de horas trabajadas y DEBE reflejar el 100% del esfuerzo real invertido.
+
+### Qué se DEBE registrar (sin excepción):
+1. **Código y commits** — Desarrollo de módulos, bug fixes, features, refactors, migraciones SQL
+2. **Tech Packs y fichas técnicas** — Documentos PDF de especificaciones para fabricantes o proveedores (uniformes, desechables, carnes, lácteos, etc.)
+3. **RFQ y documentos de licitación** — Bidding volumes, solicitudes de cotización, portfolios de negociación
+4. **Correos profesionales** — Redacción y envío de correos a proveedores, fabricantes, socios comerciales
+5. **Análisis de datos** — Análisis de CSV, Excel, auditorías de inventario, análisis laboral, reportes financieros
+6. **Generación de imágenes y assets** — Imágenes de productos, referencias para fabricantes, mockups de UI
+7. **Investigación y planificación** — Diseño de arquitectura, evaluación de proveedores, research técnico
+8. **Pruebas y validación** — Testing en sitio, verificación con gerentes, QA de módulos
+9. **Presentaciones y documentación operativa** — Guías, manuales, presentaciones HTML para directivos
+10. **Soporte y debugging** — Resolución de incidentes reportados por usuarios, diagnóstico de errores en producción
+
+### Protocolo de registro:
+- **Al finalizar CADA sesión de trabajo**, el agente DEBE verificar que la actividad ya tenga una fila correspondiente en la tabla de horas del reporte del mes vigente.
+- **Al hacer commit/push**, el agente DEBE escanear TODAS las conversaciones activas del mes para detectar actividades no registradas.
+- **Cada fila** debe incluir: fecha, rango horario, horas, módulos involucrados (badges), y descripción bilingüe (ES/EN) detallada.
+- **Las actividades que NO generan commits** (tech packs, correos, análisis) son IGUAL de importantes que el código y DEBEN tener su propia fila con horas asignadas.
+- **El resumen de esfuerzo por módulo** al final del reporte debe reflejar TODAS las categorías de trabajo, incluyendo "Tech Packs, RFQ y Negociación con Proveedores" cuando aplique.
+
+### Verificación cruzada:
+Al actualizar el reporte, el agente DEBE cruzar estas fuentes para detectar trabajo faltante:
+- `git log` — Commits del mes
+- Directorios de conversaciones (`~/.gemini/antigravity/brain/*/`) — PDFs, imágenes, spec sheets generados
+- Transcripts de conversaciones — Solicitudes del usuario que resultaron en entregables
+- Archivos del proyecto modificados fuera de git — Reportes HTML, documentos operativos
+
+---
+
 ## 🏗️ ARQUITECTURA DEL SISTEMA — Tacos El Gavilan (TEG)
 
 ### Inventario y Costos

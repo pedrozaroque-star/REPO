@@ -313,6 +313,18 @@ export const TOOL_DECLARATIONS = [
       },
       required: ['start_date', 'end_date']
     }
+  },
+  {
+    name: 'query_supplier_prices',
+    description: 'Query supplier items, prices, mappings, and price change history from suppliers, supplier_item_mappings, and supplier_price_history. Use for vendor cost questions, Viele & Sons SKUs, price inflation audits, or COGS packaging prices.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        supplier_name: { type: 'STRING', description: 'Optional supplier name filter (e.g. "Viele & Sons", "Sysco")' },
+        sku: { type: 'STRING', description: 'Optional SKU filter (e.g. "BCLCO", "EP9PR", "ELDP22")' },
+        search_text: { type: 'STRING', description: 'Optional keyword to search in descriptions or item names' }
+      }
+    }
   }
 ]
 
@@ -320,6 +332,7 @@ export const TOOL_DECLARATIONS = [
 export async function executeTool(name: string, args: any): Promise<string> {
   try {
     switch (name) {
+      case 'query_supplier_prices': return await querySupplierPrices(args)
       case 'query_supervisor_mileage': return await querySupervisorMileage(args)
       case 'query_sales': return await querySales(args)
       case 'query_food_cost': return await queryFoodCost(args)
@@ -1646,4 +1659,48 @@ async function querySupervisorMileage(args: { start_date: string; end_date: stri
 
   return `🚗 Supervisor Mileage Summary (MilesIQ):\nTotal Trips: ${data.length}\nTotal Miles: ${totalMiles.toFixed(2)} mi\nTotal Reimbursement: $${totalAmount.toFixed(2)} USD\n\nDetail:\n${summary}`
 }
+
+async function querySupplierPrices(args: { supplier_name?: string; sku?: string; search_text?: string }): Promise<string> {
+  let query = supabaseAdmin
+    .from('supplier_item_mappings')
+    .select(`
+      id,
+      supplier_sku,
+      supplier_description,
+      pack_quantity,
+      pack_unit,
+      base_unit,
+      suppliers (name, supplier_code),
+      inventory_items (id, name, sku, purchase_unit_cost, quantity_per_unit, unit_measure)
+    `)
+
+  if (args.sku) {
+    query = query.ilike('supplier_sku', `%${args.sku}%`)
+  }
+  if (args.search_text) {
+    query = query.or(`supplier_description.ilike.%${args.search_text}%,supplier_sku.ilike.%${args.search_text}%`)
+  }
+
+  const { data, error } = await query.limit(50)
+  if (error) return `Error querying supplier prices: ${error.message}`
+  if (!data?.length) return `No supplier item mappings found for criteria (SKU: ${args.sku || 'any'}, Search: ${args.search_text || 'any'}).`
+
+  let filtered = data
+  if (args.supplier_name) {
+    const sName = args.supplier_name.toLowerCase()
+    filtered = filtered.filter((r: any) => (r.suppliers?.name || '').toLowerCase().includes(sName))
+  }
+
+  const summary = filtered.map((r: any) => {
+    const item = r.inventory_items
+    const cost = item ? Number(item.purchase_unit_cost) || 0 : 0
+    const pack = r.pack_quantity || 1
+    const unitCost = Number((cost / pack).toFixed(4))
+    const supName = r.suppliers?.name || 'Viele & Sons'
+    return `| **${r.supplier_sku}** | ${r.supplier_description} | ${pack} ${r.pack_unit} | ${item?.name || 'N/A'} | $${cost.toFixed(2)}/case ($${unitCost.toFixed(4)}/unit) | ${supName} |`
+  }).join('\n')
+
+  return `📊 **Supplier Item Catalog & Prices (Radar de Precios):**\nTotal Matches: ${filtered.length}\n\n| SKU | Description | Pack | Master Item | Price / Unit Cost | Supplier |\n|---|---|---|---|---|---|\n${summary}`
+}
+
 

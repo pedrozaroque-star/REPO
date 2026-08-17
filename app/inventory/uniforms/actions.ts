@@ -812,22 +812,26 @@ export async function fetchQBEstimateForReception(storeId: number, searchEstimat
 
   const invItemMap = new Map((invItems || []).map((i: any) => [i.id, i.name]));
 
-  const mappedItems = lines.map((l: any, idx: number) => {
-    const itemName = invItemMap.get(l.inventory_item_id) || `Item #${idx + 1}`;
-    const qty = l.final_qty || l.calculated_qty || 1;
-    
-    const parsed = parseUniformCategoryAndSize(itemName);
+  const mappedItems = lines
+    .map((l: any, idx: number) => {
+      const itemName = invItemMap.get(l.inventory_item_id) || `Item #${idx + 1}`;
+      const qty = l.final_qty !== null && l.final_qty !== undefined
+        ? l.final_qty
+        : (l.adjusted_qty !== null && l.adjusted_qty !== undefined ? l.adjusted_qty : (l.calculated_qty ?? 0));
+      
+      const parsed = parseUniformCategoryAndSize(itemName);
 
-    return {
-      id: String(l.id || idx + 1),
-      category: parsed.category as any,
-      size: parsed.size as any,
-      orderedQty: qty,
-      receivedQty: qty,
-      isMissing: false,
-      notes: ''
-    };
-  });
+      return {
+        id: String(l.id || idx + 1),
+        category: parsed.category as any,
+        size: parsed.size as any,
+        orderedQty: qty,
+        receivedQty: qty,
+        isMissing: false,
+        notes: ''
+      };
+    })
+    .filter((item: any) => item.orderedQty > 0);
 
   const isAlreadyReceived = order.status === 'received';
 

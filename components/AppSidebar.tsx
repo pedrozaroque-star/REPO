@@ -13,7 +13,7 @@ import {
     DollarSign, TrendingUp, Calendar, MessageSquare, CalendarCheck, UserCog,
     Monitor, ChefHat, Zap, X, PanelLeftClose, PanelLeft, RefreshCw,
     Settings, Keyboard, HelpCircle, ExternalLink, Moon, Sun, Globe, Shield,
-    CalendarDays, Sparkles, Info, UserCircle, Menu, Folder, Truck, Timer, Shirt, Car
+    CalendarDays, Sparkles, Info, UserCircle, Menu, Folder, Truck, Timer, Shirt, Car, Calculator
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useLanguage } from '@/lib/i18n'
@@ -326,6 +326,21 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                     tooltip: language === 'en'
                         ? 'Comprehensive food cost analysis, meat yields, and menu margins (Análisis general, carnes y márgenes)'
                         : 'Análisis integral de Food Cost por sucursal, rendimiento de carnes y margen por platillo'
+                },
+                {
+                    name: (
+                        <div className="flex items-center gap-2">
+                            <span>{t('items.supplier_prices') || 'Radar de Precios'}</span>
+                            <span className="text-[10px] bg-red-100 dark:bg-red-950/60 text-red-600 dark:text-red-400 border border-red-300 dark:border-red-700 px-1.5 py-0.5 rounded font-black tracking-widest">NUEVO</span>
+                        </div>
+                    ),
+                    plainName: 'Radar de Precios',
+                    path: '/admin/precios-proveedores',
+                    icon: <Calculator size={20} />,
+                    roles: ['admin', 'manager', 'supervisor'],
+                    tooltip: language === 'en'
+                        ? 'Smart supplier price intake, inflation detection, and 15-store COGS audit (Radar de precios e impacto en recetas)'
+                        : 'Ingesta inteligente de precios de proveedores, detección de aumentos y auditoría de COGS'
                 },
                 {
                     name: t('items.ingredients'),
