@@ -2649,7 +2649,12 @@ const dictionaries: Record<Language, Dictionary> = {
             history_title: 'Historial de Modificaciones de Precios',
             mappings_title: 'Mapeo Desacoplado: Códigos de Proveedor vs. Insumos Maestros',
             empty_history: 'No hay registros históricos de cambio de precios aún.',
-            empty_table: 'Pega una tabla de precios arriba para comenzar el análisis comparativo.'
+            empty_table: 'Pega una tabla de precios arriba o presiona Sincronizar Ahora para comenzar el análisis comparativo.',
+            btn_sync_now: 'Sincronizar Ahora (API)',
+            syncing_portal: 'Conectando con portal del proveedor y extrayendo precios en tiempo real...',
+            auto_sync_badge: 'Sincronización Automática',
+            sync_success_desc: 'Catálogo sincronizado exitosamente vía API directa.',
+            tab_sync_auto: 'Sincronización Automática (1 Clic)'
         },
     },
     en: {
@@ -5278,7 +5283,12 @@ const dictionaries: Record<Language, Dictionary> = {
             history_title: 'Historical Price Modification Log',
             mappings_title: 'Decoupled Mapping: Supplier SKUs vs. Master Inventory Items',
             empty_history: 'No historical price changes recorded yet.',
-            empty_table: 'Paste a price table above to start the comparison analysis.'
+            empty_table: 'Paste a price table above or click Sync Now to start the comparison analysis.',
+            btn_sync_now: 'Sync Now (Direct API)',
+            syncing_portal: 'Connecting to supplier portal and fetching live catalog in real time...',
+            auto_sync_badge: 'Automatic Live Sync',
+            sync_success_desc: 'Catalog synchronized successfully via direct API.',
+            tab_sync_auto: 'Direct Auto-Sync (1 Click)'
         }
     }
 };

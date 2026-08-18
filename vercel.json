@@ -79,6 +79,10 @@
         {
             "path": "/api/basecamp/sync",
             "schedule": "0 * * * *"
+        },
+        {
+            "path": "/api/cron/sync-supplier-prices",
+            "schedule": "0 14 * * 1"
         }
     ]
 }
