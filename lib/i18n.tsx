@@ -2654,7 +2654,14 @@ const dictionaries: Record<Language, Dictionary> = {
             syncing_portal: 'Conectando con portal del proveedor y extrayendo precios en tiempo real...',
             auto_sync_badge: 'Sincronización Automática',
             sync_success_desc: 'Catálogo sincronizado exitosamente vía API directa.',
-            tab_sync_auto: 'Sincronización Automática (1 Clic)'
+            tab_sync_auto: 'Sincronización Automática (1 Clic)',
+            btn_add_supplier: 'Nuevo Proveedor',
+            new_supplier_modal_title: 'Registrar Nuevo Proveedor',
+            supplier_name_label: 'Nombre Comercial del Proveedor',
+            supplier_code_label: 'Código / Identificador (ej. SYSCO, US_FOODS)',
+            supplier_category_label: 'Categoría Principal',
+            supplier_portal_url_label: 'URL del Portal Web / Tienda (Opcional)',
+            supplier_created_success: '¡Proveedor registrado exitosamente!'
         },
     },
     en: {
@@ -5288,7 +5295,14 @@ const dictionaries: Record<Language, Dictionary> = {
             syncing_portal: 'Connecting to supplier portal and fetching live catalog in real time...',
             auto_sync_badge: 'Automatic Live Sync',
             sync_success_desc: 'Catalog synchronized successfully via direct API.',
-            tab_sync_auto: 'Direct Auto-Sync (1 Click)'
+            tab_sync_auto: 'Direct Auto-Sync (1 Click)',
+            btn_add_supplier: 'New Supplier',
+            new_supplier_modal_title: 'Register New Supplier',
+            supplier_name_label: 'Supplier Business Name',
+            supplier_code_label: 'Supplier Code / ID (e.g. SYSCO, US_FOODS)',
+            supplier_category_label: 'Primary Category',
+            supplier_portal_url_label: 'Web Portal / Store URL (Optional)',
+            supplier_created_success: 'Supplier successfully registered!'
         }
     }
 };

@@ -26,7 +26,7 @@ import {
   TrendingUp, AlertTriangle, CheckCircle2, ArrowUpRight, ArrowDownRight,
   ClipboardPaste, UploadCloud, RefreshCw, Layers, ShieldCheck,
   Search, Filter, Calculator, Sparkles, Building2, HelpCircle,
-  FileSpreadsheet, Check, X, AlertCircle, ArrowRight
+  FileSpreadsheet, Check, X, AlertCircle, ArrowRight, Plus
 } from 'lucide-react'
 import { useLanguage } from '@/lib/i18n'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -119,6 +119,14 @@ export default function SupplierPricesPage() {
   const [filterStatus, setFilterStatus] = useState<'all' | 'increased' | 'new'>('all')
   const [searchQuery, setSearchQuery] = useState<string>('')
 
+  // Modal Nuevo Proveedor
+  const [showNewSupplierModal, setShowNewSupplierModal] = useState<boolean>(false)
+  const [newSupplierName, setNewSupplierName] = useState<string>('')
+  const [newSupplierCode, setNewSupplierCode] = useState<string>('')
+  const [newSupplierCategory, setNewSupplierCategory] = useState<string>('general')
+  const [newSupplierUrl, setNewSupplierUrl] = useState<string>('')
+  const [isSavingSupplier, setIsSavingSupplier] = useState<boolean>(false)
+
   // Historial y Mappings
   const [historyList, setHistoryList] = useState<PriceHistoryRecord[]>([])
   const [mappingsList, setMappingsList] = useState<MappingRecord[]>([])
@@ -187,6 +195,50 @@ export default function SupplierPricesPage() {
       setErrorMessage(err.message)
     } finally {
       setIsSyncingLive(false)
+    }
+  }
+
+  // Crear nuevo proveedor
+  const handleCreateSupplier = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!newSupplierName.trim()) return
+
+    try {
+      setIsSavingSupplier(true)
+      const res = await fetch('/api/inventory/supplier-prices/suppliers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: newSupplierName,
+          supplier_code: newSupplierCode,
+          category: newSupplierCategory,
+          portal_url: newSupplierUrl
+        })
+      })
+
+      const json = await res.json()
+      if (!json.success) {
+        throw new Error(json.error || 'Error al registrar el proveedor')
+      }
+
+      await loadInitialData()
+      if (json.supplier?.id) {
+        setSelectedSupplierId(json.supplier.id)
+      }
+      setShowNewSupplierModal(false)
+      setNewSupplierName('')
+      setNewSupplierCode('')
+      setNewSupplierCategory('general')
+      setNewSupplierUrl('')
+      setSuccessMessage(
+        language === 'en'
+          ? `Supplier "${json.supplier.name}" registered successfully!`
+          : `¡Proveedor "${json.supplier.name}" registrado exitosamente!`
+      )
+    } catch (err: any) {
+      setErrorMessage(err.message)
+    } finally {
+      setIsSavingSupplier(false)
     }
   }
 
@@ -442,8 +494,8 @@ export default function SupplierPricesPage() {
             </button>
 
             {/* Selector de Proveedor Activo */}
-            <div className="flex items-center gap-3 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 px-4 py-2 rounded-xl">
-              <Building2 size={18} className="text-slate-400" />
+            <div className="flex items-center gap-2 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 px-3 py-1.5 rounded-xl">
+              <Building2 size={18} className="text-slate-400 shrink-0" />
               <div className="flex flex-col">
                 <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
                   {t('supplier_prices.select_supplier') || 'Proveedor Activo'}
@@ -451,7 +503,7 @@ export default function SupplierPricesPage() {
                 <select
                   value={selectedSupplierId}
                   onChange={(e) => setSelectedSupplierId(e.target.value)}
-                  className="bg-transparent text-xs sm:text-sm font-semibold text-slate-900 dark:text-white focus:outline-none cursor-pointer"
+                  className="bg-transparent text-xs sm:text-sm font-semibold text-slate-900 dark:text-white focus:outline-none cursor-pointer pr-1"
                 >
                   {suppliers.map(s => (
                     <option key={s.id} value={s.id} className="dark:bg-slate-900">
@@ -460,6 +512,14 @@ export default function SupplierPricesPage() {
                   ))}
                 </select>
               </div>
+              <button
+                type="button"
+                onClick={() => setShowNewSupplierModal(true)}
+                title={t('supplier_prices.btn_add_supplier') || 'Agregar Nuevo Proveedor'}
+                className="ml-1 p-1.5 bg-white dark:bg-slate-700 hover:bg-red-50 hover:text-red-600 dark:hover:bg-slate-600 text-slate-600 dark:text-slate-200 border border-slate-200 dark:border-slate-600 rounded-lg transition-all shadow-xs cursor-pointer"
+              >
+                <Plus size={14} className="stroke-[2.5]" />
+              </button>
             </div>
           </div>
         </div>
@@ -1167,6 +1227,120 @@ export default function SupplierPricesPage() {
           )}
         </AnimatePresence>
       </div>
+
+      {/* MODAL: REGISTRAR NUEVO PROVEEDOR */}
+      {showNewSupplierModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl max-w-md w-full p-6 space-y-5"
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-red-50 dark:bg-red-950/60 text-red-600 dark:text-red-400 rounded-xl">
+                  <Building2 size={20} />
+                </div>
+                <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                  {t('supplier_prices.new_supplier_modal_title') || 'Registrar Nuevo Proveedor'}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowNewSupplierModal(false)}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateSupplier} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
+                  {t('supplier_prices.supplier_name_label') || 'Nombre Comercial del Proveedor'} *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={newSupplierName}
+                  onChange={(e) => {
+                    setNewSupplierName(e.target.value)
+                    if (!newSupplierCode) {
+                      setNewSupplierCode(e.target.value.replace(/[^a-zA-Z0-9]/g, '_').toUpperCase().substring(0, 20))
+                    }
+                  }}
+                  placeholder="ej. Sysco, US Foods, Shamrock, Carnes El Rey..."
+                  className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-sm font-medium text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-red-500/20 focus:border-red-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
+                  {t('supplier_prices.supplier_code_label') || 'Código / Identificador Único'} *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={newSupplierCode}
+                  onChange={(e) => setNewSupplierCode(e.target.value.toUpperCase())}
+                  placeholder="ej. SYSCO, US_FOODS, SHAMROCK..."
+                  className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-sm font-mono font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-red-500/20 focus:border-red-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
+                  {t('supplier_prices.supplier_category_label') || 'Categoría Principal'}
+                </label>
+                <select
+                  value={newSupplierCategory}
+                  onChange={(e) => setNewSupplierCategory(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-sm font-medium text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-red-500/20 focus:border-red-500"
+                >
+                  <option value="general">General / Varios</option>
+                  <option value="packaging_janitorial_beverages">Desechables, Bebidas y Limpieza</option>
+                  <option value="broadline">Distribuidor Broadline (Abarrotes y Alimentos)</option>
+                  <option value="meats">Carnes y Proteínas</option>
+                  <option value="produce">Frutas, Verduras y Perecederos</option>
+                  <option value="chemicals">Químicos y Sanitización</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
+                  {t('supplier_prices.supplier_portal_url_label') || 'URL del Portal Web / Tienda (Opcional)'}
+                </label>
+                <input
+                  type="url"
+                  value={newSupplierUrl}
+                  onChange={(e) => setNewSupplierUrl(e.target.value)}
+                  placeholder="https://shop.sysco.com..."
+                  className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-red-500/20 focus:border-red-500"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-100 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setShowNewSupplierModal(false)}
+                  className="px-4 py-2 text-xs font-bold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white rounded-xl"
+                >
+                  {language === 'en' ? 'Cancel' : 'Cancelar'}
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingSupplier || !newSupplierName.trim()}
+                  className="flex items-center gap-2 px-5 py-2.5 bg-red-600 hover:bg-red-700 active:bg-red-800 disabled:opacity-60 text-white rounded-xl text-xs font-bold shadow-sm shadow-red-600/20 transition-all cursor-pointer"
+                >
+                  <Check size={16} />
+                  <span>{isSavingSupplier ? (language === 'en' ? 'Saving...' : 'Guardando...') : (language === 'en' ? 'Register Supplier' : 'Registrar Proveedor')}</span>
+                </button>
+              </div>
+            </form>
+          </motion.div>
+        </div>
+      )}
     </div>
   )
 }
