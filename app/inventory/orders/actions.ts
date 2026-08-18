@@ -262,11 +262,60 @@ export async function fetchWeeklyData(storeId: string | number, mondayStr: strin
     }
 
     // Bases de esta semana
-    const { data: bases } = await supabase
+    let { data: bases } = await supabase
         .from('inventory_weekly_bases')
         .select('*')
         .eq('store_id', storeId)
         .eq('week_start_date', mondayStr)
+
+    // Fix #3: Si la semana actual no tiene bases, auto-clonar de la semana anterior o PAR Ideal
+    let basesAreFallback = false
+    if (!bases || bases.length === 0) {
+        const lastWeekMonday = addDays(mondayStr, -7)
+        const { data: prevBases } = await supabase
+            .from('inventory_weekly_bases')
+            .select('*')
+            .eq('store_id', storeId)
+            .eq('week_start_date', lastWeekMonday)
+
+        if (prevBases && prevBases.length > 0) {
+            // Auto-clonar de semana anterior a semana actual para que no se pierdan
+            const clonedBases = prevBases.map((b: any) => ({
+                store_id: storeId,
+                inventory_item_id: b.inventory_item_id,
+                week_start_date: mondayStr,
+                mon_par: b.mon_par, tue_par: b.tue_par, wed_par: b.wed_par,
+                thu_par: b.thu_par, fri_par: b.fri_par, sat_par: b.sat_par, sun_par: b.sun_par
+            }))
+            await supabase
+                .from('inventory_weekly_bases')
+                .upsert(clonedBases, { onConflict: 'store_id, inventory_item_id, week_start_date' })
+            bases = prevBases
+            basesAreFallback = true
+            console.log(`[fetchWeeklyData] Store ${storeId}: Auto-cloned ${prevBases.length} bases from ${lastWeekMonday} → ${mondayStr}`)
+        } else {
+            // Intentar con PAR Ideal
+            const { data: idealFallback } = await supabase
+                .from('inventory_par_ideal')
+                .select('*')
+                .eq('store_id', storeId)
+            if (idealFallback && idealFallback.length > 0) {
+                const idealBases = idealFallback.map((p: any) => ({
+                    store_id: storeId,
+                    inventory_item_id: p.inventory_item_id,
+                    week_start_date: mondayStr,
+                    mon_par: p.mon_par, tue_par: p.tue_par, wed_par: p.wed_par,
+                    thu_par: p.thu_par, fri_par: p.fri_par, sat_par: p.sat_par, sun_par: p.sun_par
+                }))
+                await supabase
+                    .from('inventory_weekly_bases')
+                    .upsert(idealBases, { onConflict: 'store_id, inventory_item_id, week_start_date' })
+                bases = idealFallback
+                basesAreFallback = true
+                console.log(`[fetchWeeklyData] Store ${storeId}: Auto-populated ${idealFallback.length} bases from PAR Ideal → ${mondayStr}`)
+            }
+        }
+    }
 
     // PAR Ideal (Baseline PAR)
     const { data: parIdealRaw } = await supabase
@@ -287,14 +336,14 @@ export async function fetchWeeklyData(storeId: string | number, mondayStr: strin
     })) || []
 
     // Sobrantes de esta semana + domingo de semana pasada (para cálculo del lunes)
-    const lastWeekMonday = addDays(mondayStr, -7)
+    const lastWeekMondayForCounts = addDays(mondayStr, -7)
     const thisSunday = addDays(mondayStr, 6)
 
     const { data: counts } = await supabase
         .from('inventory_counts')
         .select('*')
         .eq('store_id', storeId.toString())
-        .gte('count_date', addDays(lastWeekMonday, 6)) // Solo domingo anterior
+        .gte('count_date', addDays(lastWeekMondayForCounts, 6)) // Solo domingo anterior
         .lte('count_date', thisSunday)
 
     // Bases de la próxima semana (para previsualizar cambios guardados para próxima semana)
@@ -423,7 +472,8 @@ export async function fetchWeeklyData(storeId: string | number, mondayStr: strin
         counts: countsMap,
         orders: orders || [],
         currentMonday: mondayStr,
-        lastSundayDate: addDays(lastWeekMonday, 6)
+        lastSundayDate: addDays(lastWeekMondayForCounts, 6),
+        basesAreFallback
     }
 }
 
@@ -778,31 +828,78 @@ export async function updateDailyLeftover(
 export async function clonePreviousWeekBases(storeId: string | number, targetMonday: string) {
     const lastWeekMonday = addDays(targetMonday, -7)
 
+    // 1. Obtener bases de la semana anterior
     const { data: oldBases } = await supabase
         .from('inventory_weekly_bases')
         .select('*')
         .eq('store_id', storeId)
         .eq('week_start_date', lastWeekMonday)
 
-    if (!oldBases || oldBases.length === 0) {
-        return { error: 'No se encontraron bases de la semana anterior.' }
+    // 2. Obtener PAR Ideal como respaldo para items faltantes
+    const { data: parIdealData } = await supabase
+        .from('inventory_par_ideal')
+        .select('*')
+        .eq('store_id', storeId)
+
+    // 3. Obtener todos los items del template de la tienda (daily + liquids)
+    const { data: templateItems } = await supabase
+        .from('store_order_template')
+        .select('inventory_item_id')
+        .eq('store_id', storeId)
+
+    if ((!oldBases || oldBases.length === 0) && (!parIdealData || parIdealData.length === 0)) {
+        return { error: 'No se encontraron bases de la semana anterior ni PAR Ideal.' }
     }
 
-    const newBases = oldBases.map((b) => ({
-        store_id: storeId,
-        inventory_item_id: b.inventory_item_id,
-        week_start_date: targetMonday,
-        mon_par: b.mon_par, tue_par: b.tue_par, wed_par: b.wed_par,
-        thu_par: b.thu_par, fri_par: b.fri_par, sat_par: b.sat_par, sun_par: b.sun_par
-    }))
+    // Mapear bases anteriores por item_id
+    const oldBasesMap = new Map<string, any>()
+    oldBases?.forEach(b => oldBasesMap.set(b.inventory_item_id, b))
+
+    // Mapear PAR Ideal por item_id
+    const parIdealMap = new Map<string, any>()
+    parIdealData?.forEach(p => parIdealMap.set(p.inventory_item_id, p))
+
+    // 4. Construir set de TODOS los item_ids que deberían tener bases
+    const allItemIds = new Set<string>()
+    oldBases?.forEach(b => allItemIds.add(b.inventory_item_id))
+    parIdealData?.forEach(p => allItemIds.add(p.inventory_item_id))
+    templateItems?.forEach(t => { if (t.inventory_item_id) allItemIds.add(t.inventory_item_id) })
+
+    // 5. Merge inteligente: prioridad = bases semana anterior > PAR Ideal > skip
+    const newBases: any[] = []
+    let fromPrev = 0, fromIdeal = 0
+
+    allItemIds.forEach(itemId => {
+        const prev = oldBasesMap.get(itemId)
+        const ideal = parIdealMap.get(itemId)
+        const source = prev || ideal
+
+        if (source) {
+            newBases.push({
+                store_id: storeId,
+                inventory_item_id: itemId,
+                week_start_date: targetMonday,
+                mon_par: source.mon_par || 0, tue_par: source.tue_par || 0, wed_par: source.wed_par || 0,
+                thu_par: source.thu_par || 0, fri_par: source.fri_par || 0, sat_par: source.sat_par || 0,
+                sun_par: source.sun_par || 0
+            })
+            if (prev) fromPrev++
+            else fromIdeal++
+        }
+    })
+
+    if (newBases.length === 0) {
+        return { error: 'No hay datos suficientes para crear bases para la nueva semana.' }
+    }
 
     const { error } = await supabase
         .from('inventory_weekly_bases')
         .upsert(newBases, { onConflict: 'store_id, inventory_item_id, week_start_date' })
 
     if (error) return { error: error.message }
+    console.log(`[Rollover] Store ${storeId}: ${newBases.length} items clonados (${fromPrev} de semana anterior, ${fromIdeal} de PAR Ideal)`)
     revalidatePath('/inventory/orders')
-    return { success: true }
+    return { success: true, total: newBases.length, fromPrev, fromIdeal }
 }
 
 /** Copia los valores del PAR Ideal a la semana objetivo */

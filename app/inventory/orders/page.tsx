@@ -671,8 +671,9 @@ export default function InventoryOrdersPage() {
         mon_par: 0, tue_par: 1, wed_par: 2, thu_par: 3, fri_par: 4, sat_par: 5, sun_par: 6
     }
 
-    // --- Handlers ---
-    async function handleBaseChange(itemId: string, field: string, value: string) {
+    /** onChange: Solo actualiza el estado local de React. NO guarda en la BD.
+     *  Esto evita race conditions por múltiples teclas rápidas. */
+    function handleBaseChange(itemId: string, field: string, value: string) {
         if (!storeId) return
         let numVal = value === '' ? 0 : (parseFloat(value) || 0)
         const item = items.find(i => i.id === itemId)
@@ -681,6 +682,22 @@ export default function InventoryOrdersPage() {
             else if (item.order_rounding_rule === 'ceiling_30') numVal = Math.ceil(numVal / 30) * 30
             else if (item.order_rounding_rule === 'ceiling_4') numVal = Math.ceil(numVal / 4) * 4
         }
+
+        const b = bases[itemId] || { inventory_item_id: itemId, mon_par: 0, tue_par: 0, wed_par: 0, thu_par: 0, fri_par: 0, sat_par: 0, sun_par: 0 }
+        const updatedItemBase = { ...b, inventory_item_id: itemId, [field]: numVal }
+        setBases(prev => ({ ...prev, [itemId]: updatedItemBase as any }))
+        setHasBaseChanges(true)
+
+        // También actualizar en el estado local de nextWeekBases
+        const nextBaseObj = nextWeekBases[itemId] || b
+        const updatedNextWeekBase = { ...nextBaseObj, inventory_item_id: itemId, [field]: numVal }
+        setNextWeekBases(prev => ({ ...prev, [itemId]: updatedNextWeekBase as any }))
+    }
+
+    /** onBlur: Guarda en Supabase cuando el usuario sale de la celda.
+     *  Envía el objeto base COMPLETO para evitar read-modify-write. */
+    async function handleBaseBlur(itemId: string, field: string) {
+        if (!storeId) return
 
         const dayOffset = fieldIndexMap[field] ?? 0
         const fieldDateStr = addDays(activeMonday, dayOffset)
@@ -691,46 +708,32 @@ export default function InventoryOrdersPage() {
         const isLockedForCurrentWeek = hasLeftover || isPastDay
 
         const nextWeekMonday = addDays(activeMonday, 7)
-        const b = bases[itemId] || { inventory_item_id: itemId, mon_par: 0, tue_par: 0, wed_par: 0, thu_par: 0, fri_par: 0, sat_par: 0, sun_par: 0 }
-
-        // Siempre actualizar en el estado local `bases` para que el campo de texto muestre lo que el usuario escribió
-        const updatedItemBase = { ...b, inventory_item_id: itemId, [field]: numVal }
-        setBases(prev => ({ ...prev, [itemId]: updatedItemBase as any }))
-        setHasBaseChanges(true)
-
-        // También actualizar en el estado local `nextWeekBases`
-        const nextBaseObj = nextWeekBases[itemId] || b
-        const updatedNextWeekBase = { ...nextBaseObj, inventory_item_id: itemId, [field]: numVal }
-        setNextWeekBases(prev => ({ ...prev, [itemId]: updatedNextWeekBase as any }))
+        // Leer del estado local actual (ya tiene el valor final editado por el usuario)
+        const currentBase = bases[itemId] || { inventory_item_id: itemId, mon_par: 0, tue_par: 0, wed_par: 0, thu_par: 0, fri_par: 0, sat_par: 0, sun_par: 0 }
+        const nextBase = nextWeekBases[itemId] || currentBase
 
         setIsLiveSaving(true)
 
-        if (isLockedForCurrentWeek) {
-            // Regla de negocio: Si el día YA tiene sobrante capturado o ya pasó,
-            // Guardamos el nuevo PAR exclusivamente para la PRÓXIMA semana en Supabase.
-            // El histórico de esta semana y el cálculo del % de sobrante usan originalBases.
-            saveSingleItemWeeklyBase(storeId, nextWeekMonday, updatedNextWeekBase as any)
-                .then(() => setIsLiveSaving(false))
-                .catch(err => {
-                    console.error('Error auto-saving PAR base for next week:', err)
-                    setIsLiveSaving(false)
-                })
-        } else {
-            // Si AÚN NO tiene sobrante capturado y es hoy/futuro:
-            // Actualizamos en la semana actual (activeMonday) Y en la próxima semana (nextWeekMonday).
-            Promise.all([
-                saveSingleItemWeeklyBase(storeId, activeMonday, updatedItemBase as any),
-                saveSingleItemWeeklyBase(storeId, nextWeekMonday, updatedItemBase as any)
-            ])
-                .then(() => setIsLiveSaving(false))
-                .catch(err => {
-                    console.error('Error auto-saving PAR base:', err)
-                    setIsLiveSaving(false)
-                })
+        try {
+            if (isLockedForCurrentWeek) {
+                // Día bloqueado: guardar solo para la PRÓXIMA semana
+                await saveSingleItemWeeklyBase(storeId, nextWeekMonday, nextBase as any)
+            } else {
+                // Día abierto: guardar en semana actual Y próxima
+                await Promise.all([
+                    saveSingleItemWeeklyBase(storeId, activeMonday, currentBase as any),
+                    saveSingleItemWeeklyBase(storeId, nextWeekMonday, currentBase as any)
+                ])
+            }
+        } catch (err) {
+            console.error('Error auto-saving PAR base on blur:', err)
+        } finally {
+            setIsLiveSaving(false)
         }
     }
 
-    async function handleLiquidsParChange(itemId: string, value: string) {
+    /** onChange para líquidos: Solo actualiza estado local. NO guarda en BD. */
+    function handleLiquidsParChange(itemId: string, value: string) {
         if (!storeId) return
         let numVal = value === '' ? 0 : (parseFloat(value) || 0)
         const item = items.find(i => i.id === itemId)
@@ -740,37 +743,36 @@ export default function InventoryOrdersPage() {
             else if (item.order_rounding_rule === 'ceiling_4') numVal = Math.ceil(numVal / 4) * 4
         }
 
-        const nextWeekMonday = addDays(activeMonday, 7)
-
         const b = bases[itemId] || { inventory_item_id: itemId, mon_par: 0, tue_par: 0, wed_par: 0, thu_par: 0, fri_par: 0, sat_par: 0, sun_par: 0 }
         const updatedItemBase = {
             ...b,
             inventory_item_id: itemId,
-            mon_par: numVal,
-            tue_par: numVal,
-            wed_par: numVal,
-            thu_par: numVal,
-            fri_par: numVal,
-            sat_par: numVal,
-            sun_par: numVal
+            mon_par: numVal, tue_par: numVal, wed_par: numVal,
+            thu_par: numVal, fri_par: numVal, sat_par: numVal, sun_par: numVal
         }
 
-        const newBases = { ...bases, [itemId]: updatedItemBase as any }
-        setBases(newBases)
+        setBases(prev => ({ ...prev, [itemId]: updatedItemBase as any }))
         setNextWeekBases(prev => ({ ...prev, [itemId]: updatedItemBase as any }))
         setHasBaseChanges(true)
+    }
+
+    /** onBlur para líquidos: Guarda en Supabase + recalcula orden. */
+    async function handleLiquidsParBlur(itemId: string) {
+        if (!storeId) return
+        const nextWeekMonday = addDays(activeMonday, 7)
+        const currentBase = bases[itemId]
+        if (!currentBase) return
 
         setIsLiveSaving(true)
-
         try {
             await Promise.all([
-                saveSingleItemWeeklyBase(storeId, activeMonday, updatedItemBase as any),
-                saveSingleItemWeeklyBase(storeId, nextWeekMonday, updatedItemBase as any)
+                saveSingleItemWeeklyBase(storeId, activeMonday, currentBase as any),
+                saveSingleItemWeeklyBase(storeId, nextWeekMonday, currentBase as any)
             ])
 
             const lines = await calculateDailyOrder(
                 storeId, selectedOrderDate, items,
-                newBases, counts, activeMonday,
+                bases, counts, activeMonday,
                 parIdeal, overrideDayField, parBoostPercent,
                 orderType, nextWeekBases
             )
@@ -2801,6 +2803,7 @@ export default function InventoryOrdersPage() {
                                                                             }`}
                                                                             value={val !== undefined && val !== null ? val : ''}
                                                                             onChange={e => handleBaseChange(item.id, d.baseField, e.target.value)}
+                                                                            onBlur={() => handleBaseBlur(item.id, d.baseField)}
                                                                             onKeyDown={e => handleGridKeyDown(e, rowIndex, colIndex)}
                                                                             onFocus={e => e.target.select()}
                                                                         />
@@ -2894,6 +2897,7 @@ export default function InventoryOrdersPage() {
                                                                             }`}
                                                                             value={val !== undefined && val !== null ? val : ''}
                                                                             onChange={e => handleLiquidsParChange(item.id, e.target.value)}
+                                                                            onBlur={() => handleLiquidsParBlur(item.id)}
                                                                             onKeyDown={e => handleGridKeyDown(e, rowIndex, 0)}
                                                                             onFocus={e => e.target.select()}
                                                                         />
