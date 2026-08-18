@@ -1858,7 +1858,7 @@
             <div class="report-section">
                 <div class="report-title-row">
                     <h2>Reporte de Horas Trabajadas y Actualizaciones</h2>
-                    <span class="hours-badge-large">Total de Horas: 56.9 hrs</span>
+                    <span class="hours-badge-large">Total de Horas: 57.4 hrs</span>
                 </div>
                 
                 <p class="report-subtitle-text">
@@ -2293,8 +2293,15 @@
                                 <td><span class="table-badge-module">Inventario</span> <span class="table-badge-module">Scraper API</span> <span class="table-badge-module">Radar de Precios</span> <span class="table-badge-module">Cron Jobs</span> <span class="table-badge-module">Automatización</span></td>
                                 <td>
                                     <div class="lang-split">
-                                         <div class="es-desc">- **Radar de Precios de Proveedores (Scraper Automático HTTP y Conector API REST Directo)**: Descubrimiento e ingeniería inversa de la API interna REST v3 de Viele & Sons (`/api/v3/order_entry`). Desarrollo del motor universal `lib/vendor-scraper.ts` con autenticación segura por sesión de cookies (`POST /login/` form-encoded) y extracción estructurada de los 86 artículos vigentes en formato JSON en menos de 1.3 segundos, eliminando por completo la necesidad de copiar o pegar manualmente.<br>- **Endpoint de Sincronización en Vivo (`/api/inventory/supplier-prices/sync`) y Botón 1-Clic**: Implementación del endpoint bajo demanda y botón "Sincronizar Ahora (API)" en el encabezado y banner del Tablero del Radar (`app/admin/precios-proveedores/page.tsx`), permitiendo a directivos actualizar el semáforo de inflación y el impacto financiero anual en dólares ($ USD) con un solo clic en tiempo real.<br>- **Automatización Desatendida con Vercel Cron (`/api/cron/sync-supplier-prices`)**: Creación del cron job semanal (lunes 6:00 AM Pacific) registrado en `vercel.json` para monitoreo continuo de inflación en compras, con inserción automática en `supplier_price_history` y purga de caché de Food Cost al detectar variaciones de precios.<br>- **i18n y Sincronización Asistente IA**: Incorporación de claves bilingües de sincronización en `lib/i18n.tsx` y actualización del prompt del Asistente IA (`app/api/support-chat/route.ts`).</div>
-                                         <div class="en-desc">- **Supplier Price Radar (Automated HTTP Scraper & Direct REST API Connector)**: Reverse-engineered Viele & Sons internal REST API v3 (`/api/v3/order_entry`). Developed universal scraper engine `lib/vendor-scraper.ts` featuring secure cookie session authentication (`POST /login/` form-encoded) and clean structured JSON extraction for all 86 active catalog items in under 1.3 seconds, completely eliminating manual copy-paste workflows.<br>- **Live Sync Endpoint (`/api/inventory/supplier-prices/sync`) & 1-Click UI Button**: Created on-demand sync route and "Sync Now (API)" action button in the Radar Dashboard header and hero card (`app/admin/precios-proveedores/page.tsx`), enabling leadership to refresh inflation color-coding and 15-store projected annual impact in $ USD in real time.<br>- **Unattended Automation via Vercel Cron (`/api/cron/sync-supplier-prices`)**: Registered weekly cron job (Mondays 6:00 AM Pacific) in `vercel.json` for continuous purchasing cost monitoring, automatic logging to `supplier_price_history`, and Food Cost cache invalidation upon price changes.<br>- **i18n & AI Assistant Knowledge Sync**: Added bilingual sync keys in `lib/i18n.tsx` and updated AI Support Assistant prompt (`app/api/support-chat/route.ts`).</div>
+                            <tr>
+                                <td><strong>18-Aug-2026</strong></td>
+                                <td>4:45 PM - 5:15 PM</td>
+                                <td style="text-align: center; font-weight: 700;">0.50</td>
+                                <td><span class="table-badge-module">Inventario</span> <span class="table-badge-module">Tech Pack 2025</span> <span class="table-badge-module">Historial de Precios</span> <span class="table-badge-module">Base de Datos</span></td>
+                                <td>
+                                    <div class="lang-split">
+                                         <div class="es-desc">- **Calibración de Precios Base Diciembre 2025 (Tech Pack Oficial Viele & Sons)**: Extracción e ingesta directa de los precios unitarios auditados del libro de especificaciones técnicas y Tech Pack de Diciembre 2025 para los 87 artículos activos.<br>- **Establecimiento de Línea Base Histórica en Supabase**: Actualización de costos unitarios de compra (`purchase_unit_cost`) en `inventory_items` y registro de los 87 precios de referencia en `supplier_price_history` con fecha fija `2025-12-31` y origen `tech_pack_2025`. Esto permite que el Radar de Precios en vivo compare la inflación real acumulada entre los precios vigentes de la API de Viele (Agosto 2026) y el cierre oficial de 2025.<br>- **Sincronización de Catálogo Semilla (`lib/seeds/viele-catalog-87.ts`)**: Actualización del archivo de catálogo con los precios de referencia de Diciembre 2025.</div>
+                                         <div class="en-desc">- **December 2025 Baseline Price Calibration (Official Viele & Sons Tech Pack)**: Extracted and ingested audited unit prices from the official December 2025 Tech Pack and technical specification book across all 87 active items.<br>- **Historical Baseline Setup in Supabase**: Updated purchase unit costs (`purchase_unit_cost`) in `inventory_items` and populated all 87 reference prices in `supplier_price_history` dated `2025-12-31` with source `tech_pack_2025`. This allows the Live Price Radar to measure true cumulative inflation between current Viele API prices (August 2026) and the December 2025 baseline.<br>- **Seed Catalog Synchronization (`lib/seeds/viele-catalog-87.ts`)**: Synchronized seed catalog dataset with December 2025 baseline prices.</div>
                                     </div>
                                 </td>
                             </tr>
@@ -2354,7 +2361,7 @@
                     </div>
                     <div class="module-summary-item">
                         <span>Inventario, Uniformes, Pedidos y QuickBooks / Inventory & QuickBooks</span>
-                        <span class="hours">16.4 hrs</span>
+                        <span class="hours">16.9 hrs</span>
                     </div>
                     <div class="module-summary-item">
                         <span>Tech Packs, RFQ y Negociación con Proveedores / Supplier Tech Packs & RFQs</span>
