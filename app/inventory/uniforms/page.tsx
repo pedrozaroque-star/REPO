@@ -501,7 +501,7 @@ function TabStockAndAudit({ storeId, stockData, setStockData, pricingData, setPr
   const lowStockItems = useMemo(() => {
     return fullStockData.filter((item: any) => {
       const min = item.min_stock > 0 ? item.min_stock : getDefaultMinStock(item.item_category, item.size);
-      return min > 0 && item.quantity_on_hand <= min;
+      return min > 0 && item.quantity_on_hand < min;
     });
   }, [fullStockData]);
 
@@ -585,7 +585,7 @@ function TabStockAndAudit({ storeId, stockData, setStockData, pricingData, setPr
             {items.map(item => {
               const qty = auditMode && editedStock[item.id] !== undefined ? editedStock[item.id] : item.quantity_on_hand;
               const min = item.min_stock > 0 ? item.min_stock : getDefaultMinStock(item.item_category, item.size);
-              const isLow = min > 0 && qty <= min && qty > 0;
+              const isLow = min > 0 && qty < min && qty > 0;
               const isOut = min > 0 ? qty <= 0 : false;
 
               const rowBgClass = isOut
@@ -2260,12 +2260,15 @@ function TabOrderReception({ storeId, showToast, onComplete }: any) {
   const updateOrderItem = (id: string, field: string, value: any) => {
     setOrderItems(orderItems.map(item => {
       if (item.id === id) {
-        const updated = { ...item, [field]: value };
+        let parsedVal = value;
         if (field === 'receivedQty') {
-          const rQty = parseInt(value) || 0;
-          updated.isMissing = rQty < item.orderedQty;
+          parsedVal = isNaN(parseInt(value, 10)) ? 0 : parseInt(value, 10);
+        }
+        const updated = { ...item, [field]: parsedVal };
+        if (field === 'receivedQty') {
+          updated.isMissing = Number(parsedVal) < Number(item.orderedQty);
         } else if (field === 'isMissing' && !value) {
-          updated.receivedQty = item.orderedQty;
+          updated.receivedQty = Number(item.orderedQty);
         }
         return updated;
       }
@@ -2286,10 +2289,10 @@ function TabOrderReception({ storeId, showToast, onComplete }: any) {
   };
 
   const handleSubmitManual = async () => {
-    const validItems = manualItems.filter(i => i.qty > 0).map(i => ({
+    const validItems = manualItems.filter(i => Number(i.qty) > 0).map(i => ({
       item_category: i.category,
       size: i.size,
-      receivedQty: i.qty
+      receivedQty: Number(i.qty)
     }));
     if (validItems.length === 0) {
       showToast(t('uniforms.toast.error'), 'warning');
@@ -2320,15 +2323,17 @@ function TabOrderReception({ storeId, showToast, onComplete }: any) {
       return;
     }
 
-    const validItems = orderItems.filter(i => i.receivedQty > 0).map(i => {
+    const validItems = orderItems.filter(i => Number(i.receivedQty) > 0).map(i => {
+      const rQty = Number(i.receivedQty);
+      const oQty = Number(i.orderedQty);
       let notes = i.notes.trim();
-      if (i.receivedQty < i.orderedQty && !notes) {
-        notes = `Faltaron ${i.orderedQty - i.receivedQty} unidades (Pedidas: ${i.orderedQty}, Recibidas: ${i.receivedQty})`;
+      if (rQty < oQty && !notes) {
+        notes = `Faltaron ${oQty - rQty} unidades (Pedidas: ${oQty}, Recibidas: ${rQty})`;
       }
       return {
         item_category: i.category,
         size: i.size,
-        receivedQty: i.receivedQty,
+        receivedQty: rQty,
         notes
       };
     });
@@ -2339,7 +2344,7 @@ function TabOrderReception({ storeId, showToast, onComplete }: any) {
     }
 
     // Build consolidated notes
-    const discrepancies = orderItems.filter(i => i.isMissing || i.receivedQty < i.orderedQty || i.notes.trim());
+    const discrepancies = orderItems.filter(i => i.isMissing || Number(i.receivedQty) < Number(i.orderedQty) || i.notes.trim());
     let orderNotes = estimateNum ? `QB Estimate: ${estimateNum}` : 'Recepcion de Orden QB';
     if (discrepancies.length > 0) {
       const details = discrepancies.map(d => 
@@ -2354,7 +2359,7 @@ function TabOrderReception({ storeId, showToast, onComplete }: any) {
         storeId,
         orderId: loadedOrderId || undefined,
         estimateNum: estimateNum.trim() || undefined,
-        items: validItems.map(v => ({ item_category: v.item_category, size: v.size, receivedQty: v.receivedQty })),
+        items: validItems.map(v => ({ item_category: v.item_category, size: v.size, receivedQty: Number(v.receivedQty) })),
         notes: orderNotes,
         userEmail: user?.email || ''
       });

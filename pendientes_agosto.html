@@ -864,7 +864,7 @@
                 </svg>
             </div>
             <div>
-                <div class="stat-number" style="color: #e05638;">54.3</div>
+                <div class="stat-number" style="color: #e05638;">56.1</div>
                 <div class="stat-desc">Horas trabajadas</div>
             </div>
         </div>
@@ -1858,7 +1858,7 @@
             <div class="report-section">
                 <div class="report-title-row">
                     <h2>Reporte de Horas Trabajadas y Actualizaciones</h2>
-                    <span class="hours-badge-large">Total de Horas: 55.6 hrs</span>
+                    <span class="hours-badge-large">Total de Horas: 56.1 hrs</span>
                 </div>
                 
                 <p class="report-subtitle-text">
@@ -2274,6 +2274,18 @@
                                     </div>
                                 </td>
                             </tr>
+                            <tr>
+                                <td><strong>18-Aug-2026</strong></td>
+                                <td>3:20 PM - 3:50 PM</td>
+                                <td style="text-align: center; font-weight: 700;">0.50</td>
+                                <td><span class="table-badge-module">Uniformes</span> <span class="table-badge-module">Inventario</span> <span class="table-badge-module">Recepción Órdenes</span> <span class="table-badge-module">Base de Datos</span></td>
+                                <td>
+                                    <div class="lang-split">
+                                         <div class="es-desc">- **Control de Uniformes (Corrección de Concatenación Numérica en Recepción y Normalización de Estados de Stock)**: Identificación y resolución del error de concatenación de cadenas de texto (`string concatenation`) en la acción `confirmOrderReception` de `app/inventory/uniforms/actions.ts` y en `TabOrderReception` (`page.tsx`), donde valores recibidos en inputs generaban sumas anómalas (ej. `5 + "11" = 511`). Se forzó el casteo numérico estricto con `Number()` y `parseInt()` en todas las mutaciones de recepción y handlers.<br>- **Normalización de Semáforo de Stock Mínimo**: Corrección de la condición lógica de Stock Bajo en `page.tsx` (`qty < min` en lugar de `qty <= min`). Se corrigió el falso positivo que marcaba en amarillo ("Stock Bajo") prendas que se encontraban exactamente en su meta de stock mínimo (10/10, 5/5), restableciendo el estado **🟢 OK**.<br>- **Auditoría y Reparación de Base de Datos**: Reparación en vivo en Supabase de las existencias corruptas en Lynwood (Store 14) para Team Members Red L (511 ➔ 16) y Shift Leader S (73 ➔ 10), verificando la consistencia matemática de los registros en `uniforms_inventory_stock` y `uniforms_transactions`.</div>
+                                         <div class="en-desc">- **Uniforms Control (Numeric Concatenation Fix on Reception & Stock Status Normalization)**: Diagnosed and resolved string concatenation bug in `confirmOrderReception` (`app/inventory/uniforms/actions.ts`) and `TabOrderReception` (`page.tsx`), where string inputs from form fields caused anomalous string additions (e.g., `5 + "11" = 511`). Enforced strict numeric casting with `Number()` and `parseInt()` across all reception handlers and database mutations.<br>- **Minimum Stock Target Status Normalization**: Fixed Low Stock threshold condition in `page.tsx` (`qty < min` instead of `qty <= min`). Eliminated false positives that flagged items exactly at their target minimum (10/10, 5/5) as "Low Stock", properly restoring the **🟢 OK** status.<br>- **Database Audit & Live Data Repair**: Repaired corrupted on-hand stock records in Supabase for Lynwood (Store 14) for Team Members Red L (511 ➔ 16) and Shift Leader S (73 ➔ 10), verifying math consistency across all `uniforms_inventory_stock` and `uniforms_transactions` records.</div>
+                                    </div>
+                                </td>
+                            </tr>
                         </tbody>
                        </table>
                 </div>
@@ -2330,7 +2342,7 @@
                     </div>
                     <div class="module-summary-item">
                         <span>Inventario, Uniformes, Pedidos y QuickBooks / Inventory & QuickBooks</span>
-                        <span class="hours">15.1 hrs</span>
+                        <span class="hours">15.6 hrs</span>
                     </div>
                     <div class="module-summary-item">
                         <span>Tech Packs, RFQ y Negociación con Proveedores / Supplier Tech Packs & RFQs</span>

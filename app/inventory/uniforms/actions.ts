@@ -522,8 +522,9 @@ export async function confirmOrderReception(payload: {
       .eq('size', item.size)
       .maybeSingle();
 
-    const prevQty = stock ? stock.quantity_on_hand : 0;
-    const newQty = prevQty + item.receivedQty;
+    const prevQty = Number(stock?.quantity_on_hand ?? 0);
+    const receivedQty = Number(item.receivedQty) || 0;
+    const newQty = prevQty + receivedQty;
 
     await supabase
       .from('uniforms_inventory_stock')
@@ -544,7 +545,7 @@ export async function confirmOrderReception(payload: {
         item_category: item.item_category,
         size: item.size,
         transaction_type: 'reception',
-        quantity: item.receivedQty,
+        quantity: receivedQty,
         previous_stock: prevQty,
         new_stock: newQty,
         unit_price: 0,
