@@ -22,42 +22,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseAdminClient } from '@/lib/supabase'
 import { syncVielePortalDirect } from '@/lib/vendor-scraper'
 import { ItemComparisonResult } from '../route'
+import { ESTIMATED_ANNUAL_VOLUMES, DEFAULT_ANNUAL_VOLUME } from '@/lib/constants/supplier-volumes'
 
 export const dynamic = 'force-dynamic'
-
-// Mapa de volúmenes anuales estimados (cajas/año) para la cadena de 15 sucursales
-const ESTIMATED_ANNUAL_VOLUMES: Record<string, number> = {
-  'EP9PR': 8776,
-  'EL4OZ': 4025,
-  'ELDP22': 1450,
-  'EL4LID': 2701,
-  '721PR': 757,
-  'ELDP32': 1139,
-  'ELSDR16': 800,
-  'BCLCO': 1200,
-  'BDICO': 400,
-  'BSPRI': 600,
-  'BMMLE': 500,
-  'BMMOR': 450,
-  'BSTRA': 450,
-  'BRATE': 300,
-  'BZECO': 350,
-  'EL1254': 1800,
-  '501GE': 1600,
-  'DX900GE': 1200,
-  'GR800': 1500,
-  '2BT1000': 1400,
-  'IC5GLIDI': 240,
-  'IC5SANI': 240,
-  '3BLEA': 300,
-  'IC4FLCL': 360,
-  'IC4DEGR': 360,
-  'ELLAS2G': 900,
-  'ELMES2G': 1200,
-  'ELTSBALA': 2500,
-  'HEFO': 1100,
-  'HESP': 800
-}
 
 export async function POST(request: NextRequest) {
   try {
@@ -174,7 +141,7 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      const annualEstimatedCases = ESTIMATED_ANNUAL_VOLUMES[parsed.supplierSku] || 200
+      const annualEstimatedCases = ESTIMATED_ANNUAL_VOLUMES[parsed.supplierSku] || DEFAULT_ANNUAL_VOLUME
       const annualImpactUsd = Number((diffAmount * annualEstimatedCases).toFixed(2))
 
       netAnnualImpactUsd += annualImpactUsd

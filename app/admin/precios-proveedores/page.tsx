@@ -21,12 +21,12 @@
  *   - Protocolo bilingüe 100% (useLanguage) y reglas estrictas de marca (Tacos Gavilan).
  */
 
-import React, { useState, useEffect, useTransition } from 'react'
+import React, { useState, useEffect } from 'react'
 import {
   TrendingUp, AlertTriangle, CheckCircle2, ArrowUpRight, ArrowDownRight,
-  ClipboardPaste, UploadCloud, RefreshCw, Layers, ShieldCheck,
-  Search, Filter, Calculator, Sparkles, Building2, HelpCircle,
-  FileSpreadsheet, Check, X, AlertCircle, ArrowRight, Plus
+  ClipboardPaste, UploadCloud, RefreshCw, Layers,
+  Search, Calculator, Sparkles, Building2,
+  FileSpreadsheet, Check, X, AlertCircle, Plus
 } from 'lucide-react'
 import { useLanguage } from '@/lib/i18n'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -131,6 +131,8 @@ export default function SupplierPricesPage() {
   const [historyList, setHistoryList] = useState<PriceHistoryRecord[]>([])
   const [mappingsList, setMappingsList] = useState<MappingRecord[]>([])
   const [isLoadingInitial, setIsLoadingInitial] = useState<boolean>(true)
+  const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set())
+  const [showApproveConfirm, setShowApproveConfirm] = useState(false)
 
   // Cargar datos iniciales
   const loadInitialData = async () => {
@@ -149,8 +151,9 @@ export default function SupplierPricesPage() {
           setSelectedSupplierId(viele ? viele.id : json.suppliers[0].id)
         }
       }
-    } catch (e: any) {
-      console.error('Error loading initial data:', e)
+    } catch (err: any) {
+      console.error('Error loading initial data:', err)
+      setErrorMessage(language === 'en' ? 'Error loading initial data. Please refresh the page.' : 'Error al cargar datos iniciales. Por favor recarga la página.')
     } finally {
       setIsLoadingInitial(false)
     }
@@ -182,6 +185,7 @@ export default function SupplierPricesPage() {
       }
 
       setRadarItems(json.items || [])
+      setSelectedItems(new Set())
       setRadarSummary(json.summary || null)
       setErrorMessage(null)
       const durationSec = json.durationMs ? (json.durationMs / 1000).toFixed(1) : '1.3'
@@ -250,6 +254,11 @@ export default function SupplierPricesPage() {
       return
     }
 
+    if (!selectedSupplierId) {
+      setErrorMessage(language === 'en' ? 'Please select a supplier first' : 'Por favor selecciona un proveedor primero')
+      return
+    }
+
     try {
       setIsAnalyzing(true)
       setErrorMessage(null)
@@ -270,6 +279,7 @@ export default function SupplierPricesPage() {
       }
 
       setRadarItems(json.items || [])
+      setSelectedItems(new Set())
       setRadarSummary(json.summary || null)
       setErrorMessage(null)
       setSuccessMessage(
@@ -407,11 +417,16 @@ export default function SupplierPricesPage() {
       }
     }
     reader.readAsText(file)
+    e.target.value = ''
   }
 
   // Aprobar precios y actualizar en cascada
   const handleApproveAll = async () => {
-    if (radarItems.length === 0) return
+    const itemsToApprove = selectedItems.size > 0
+      ? radarItems.filter(i => selectedItems.has(i.supplierSku) && i.masterItemId)
+      : radarItems.filter(i => i.masterItemId)
+    if (itemsToApprove.length === 0) return
+    setShowApproveConfirm(false)
 
     try {
       setIsApproving(true)
@@ -421,7 +436,7 @@ export default function SupplierPricesPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          approvedItems: radarItems,
+          approvedItems: itemsToApprove,
           supplierId: selectedSupplierId,
           sourceType: activeTab === 'upload' ? 'csv' : 'clipboard'
         })
@@ -438,12 +453,16 @@ export default function SupplierPricesPage() {
           : `¡Se actualizaron exitosamente ${json.updatedInventoryItems} insumos en inventario y se registraron ${json.historyRecordsCreated} cambios en el historial!`
       )
 
-      // Recargar datos actualizados
+      // Recargar datos actualizados y limpiar radar
       await loadInitialData()
+      setRadarItems([])
+      setRadarSummary(null)
+      setActiveTab('history')
     } catch (err: any) {
       setErrorMessage(err.message)
     } finally {
       setIsApproving(false)
+      setSelectedItems(new Set())
     }
   }
 
@@ -460,6 +479,26 @@ export default function SupplierPricesPage() {
     if (filterStatus === 'new') return item.status === 'new_sku' || item.status === 'unmapped'
     return true
   })
+
+  // Selección individual y masiva para aprobación
+  const toggleItemSelection = (sku: string) => {
+    setSelectedItems(prev => {
+      const next = new Set(prev)
+      if (next.has(sku)) next.delete(sku)
+      else next.add(sku)
+      return next
+    })
+  }
+
+  const toggleSelectAll = () => {
+    const selectableVisible = filteredRadarItems.filter(i => i.masterItemId)
+    const allVisibleSelected = selectableVisible.length > 0 && selectableVisible.every(i => selectedItems.has(i.supplierSku))
+    if (allVisibleSelected) {
+      setSelectedItems(new Set())
+    } else {
+      setSelectedItems(new Set(selectableVisible.map(i => i.supplierSku)))
+    }
+  }
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 p-4 sm:p-6 lg:p-8">
@@ -486,7 +525,7 @@ export default function SupplierPricesPage() {
             {/* Botón Sincronizar en Vivo vía API */}
             <button
               onClick={handleSyncLive}
-              disabled={isSyncingLive}
+              disabled={isSyncingLive || isAnalyzing}
               className="flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 disabled:opacity-60 text-white rounded-xl text-xs sm:text-sm font-bold shadow-sm shadow-emerald-600/20 transition-all cursor-pointer"
             >
               <RefreshCw size={17} className={isSyncingLive ? 'animate-spin' : ''} />
@@ -502,7 +541,12 @@ export default function SupplierPricesPage() {
                 </span>
                 <select
                   value={selectedSupplierId}
-                  onChange={(e) => setSelectedSupplierId(e.target.value)}
+                  onChange={(e) => {
+                  setSelectedSupplierId(e.target.value)
+                  setSelectedItems(new Set())
+                  setRadarItems([])
+                  setRadarSummary(null)
+                }}
                   className="bg-transparent text-xs sm:text-sm font-semibold text-slate-900 dark:text-white focus:outline-none cursor-pointer pr-1"
                 >
                   {suppliers.map(s => (
@@ -655,7 +699,7 @@ export default function SupplierPricesPage() {
 
                 <button
                   onClick={handleSyncLive}
-                  disabled={isSyncingLive}
+                  disabled={isSyncingLive || isAnalyzing}
                   className="flex items-center justify-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 disabled:opacity-60 text-white rounded-xl text-xs sm:text-sm font-bold shadow-md shadow-emerald-600/20 transition-all shrink-0 cursor-pointer"
                 >
                   <RefreshCw size={17} className={isSyncingLive ? 'animate-spin' : ''} />
@@ -724,7 +768,7 @@ export default function SupplierPricesPage() {
 
                 <button
                   onClick={() => handleAnalyze()}
-                  disabled={isAnalyzing || !rawText.trim()}
+                  disabled={isAnalyzing || isSyncingLive || !rawText.trim()}
                   className="flex items-center gap-2 px-6 py-3 bg-red-600 hover:bg-red-700 disabled:bg-slate-300 dark:disabled:bg-slate-800 text-white rounded-xl text-sm font-bold shadow-lg shadow-red-600/20 transition-all"
                 >
                   {isAnalyzing ? (
@@ -900,8 +944,8 @@ export default function SupplierPricesPage() {
                       </div>
 
                       <button
-                        onClick={handleApproveAll}
-                        disabled={isApproving || radarItems.length === 0}
+                        onClick={() => setShowApproveConfirm(true)}
+                        disabled={isApproving || radarItems.filter(i => i.masterItemId).length === 0}
                         className="flex items-center gap-2 px-5 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 dark:disabled:bg-slate-800 text-white rounded-xl text-xs font-bold shadow-md shadow-emerald-600/20 transition-all shrink-0"
                       >
                         {isApproving ? (
@@ -925,6 +969,14 @@ export default function SupplierPricesPage() {
                       <table className="w-full text-left text-xs">
                         <thead className="bg-slate-50 dark:bg-slate-950 text-slate-500 dark:text-slate-400 uppercase tracking-wider font-bold border-b border-slate-200 dark:border-slate-800">
                           <tr>
+                            <th className="py-3 px-2 w-8">
+                              <input
+                                type="checkbox"
+                                checked={filteredRadarItems.filter(i => i.masterItemId).length > 0 && filteredRadarItems.filter(i => i.masterItemId).every(i => selectedItems.has(i.supplierSku))}
+                                onChange={toggleSelectAll}
+                                className="w-4 h-4 rounded border-slate-300 dark:border-slate-600 text-emerald-600 focus:ring-emerald-500"
+                              />
+                            </th>
                             <th className="py-3 px-4">{t('supplier_prices.col_sku') || 'SKU'}</th>
                             <th className="py-3 px-4">{t('supplier_prices.col_description') || 'Descripción'}</th>
                             <th className="py-3 px-4 text-center">{t('supplier_prices.col_pack') || 'Empaque'}</th>
@@ -937,9 +989,9 @@ export default function SupplierPricesPage() {
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-medium">
-                          {filteredRadarItems.map((item, idx) => (
+                          {filteredRadarItems.map((item) => (
                             <tr
-                              key={idx}
+                              key={item.supplierSku}
                               className={`hover:bg-slate-50/80 dark:hover:bg-slate-800/50 transition-colors ${
                                 item.status === 'increased'
                                   ? 'bg-red-50/10 dark:bg-red-950/10'
@@ -948,6 +1000,15 @@ export default function SupplierPricesPage() {
                                   : ''
                               }`}
                             >
+                              <td className="py-3 px-2 w-8">
+                                <input
+                                  type="checkbox"
+                                  checked={selectedItems.has(item.supplierSku)}
+                                  onChange={() => toggleItemSelection(item.supplierSku)}
+                                  disabled={!item.masterItemId}
+                                  className="w-4 h-4 rounded border-slate-300 dark:border-slate-600 text-emerald-600 focus:ring-emerald-500 disabled:opacity-30"
+                                />
+                              </td>
                               {/* SKU */}
                               <td className="py-3 px-4 font-mono font-bold text-slate-900 dark:text-white">
                                 {item.supplierSku}
@@ -1227,6 +1288,49 @@ export default function SupplierPricesPage() {
           )}
         </AnimatePresence>
       </div>
+
+      {/* Modal de Confirmación de Aprobación */}
+      {showApproveConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 p-6 max-w-md w-full mx-4">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-2 bg-amber-100 dark:bg-amber-900/50 rounded-xl">
+                <AlertTriangle size={24} className="text-amber-600" />
+              </div>
+              <h3 className="text-lg font-bold text-slate-900 dark:text-white">
+                {language === 'en' ? 'Confirm Price Approval' : 'Confirmar Aprobación de Precios'}
+              </h3>
+            </div>
+            <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
+              {language === 'en'
+                ? `You are about to update ${selectedItems.size > 0 ? selectedItems.size : radarItems.filter(i => i.masterItemId).length} inventory items. This will update purchase costs, recalculate Food Cost, and create audit records.`
+                : `Estás a punto de actualizar ${selectedItems.size > 0 ? selectedItems.size : radarItems.filter(i => i.masterItemId).length} insumos de inventario. Esto actualizará costos de compra, recalculará Food Cost y creará registros de auditoría.`}
+            </p>
+            {radarSummary && radarSummary.netAnnualImpactUsd !== 0 && (
+              <div className={`p-3 rounded-xl mb-4 ${radarSummary.netAnnualImpactUsd > 0 ? 'bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900/50' : 'bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/50'}`}>
+                <p className={`text-xs font-bold ${radarSummary.netAnnualImpactUsd > 0 ? 'text-red-700 dark:text-red-300' : 'text-emerald-700 dark:text-emerald-300'}`}>
+                  {language === 'en' ? 'Estimated Annual Impact:' : 'Impacto Anual Estimado:'} ${radarSummary.netAnnualImpactUsd > 0 ? '+' : ''}${radarSummary.netAnnualImpactUsd.toLocaleString('en-US', { style: 'currency', currency: 'USD' })}
+                </p>
+              </div>
+            )}
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => setShowApproveConfirm(false)}
+                className="px-4 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 rounded-xl hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+              >
+                {language === 'en' ? 'Cancel' : 'Cancelar'}
+              </button>
+              <button
+                onClick={handleApproveAll}
+                disabled={isApproving}
+                className="px-4 py-2 text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 rounded-xl shadow-md transition-colors"
+              >
+                {isApproving ? (language === 'en' ? 'Processing...' : 'Procesando...') : (language === 'en' ? 'Yes, Apply Prices' : 'Sí, Aplicar Precios')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* MODAL: REGISTRAR NUEVO PROVEEDOR */}
       {showNewSupplierModal && (

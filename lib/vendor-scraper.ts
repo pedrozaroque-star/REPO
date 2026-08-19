@@ -197,8 +197,16 @@ export async function syncVielePortalDirect(
   password?: string
 ): Promise<VendorSyncResult> {
   const startTime = Date.now()
-  const user = username || process.env.VIELE_PORTAL_USER || 'lynwood@tacosgavilan.com'
-  const pass = password || process.env.VIELE_PORTAL_PASS || 'teg562'
+  const user = username || process.env.VIELE_PORTAL_USER
+  const pass = password || process.env.VIELE_PORTAL_PASS
+  if (!user || !pass) {
+    return {
+      success: false, items: [], totalItems: 0,
+      supplierCode: 'VIELE',
+      durationMs: Date.now() - startTime,
+      errorMessage: 'Credenciales de Viele & Sons no configuradas. Set VIELE_PORTAL_USER y VIELE_PORTAL_PASS en variables de entorno.'
+    }
+  }
 
   let jsonData: VieleApiResponse | null = null
   let lastError: string | null = null

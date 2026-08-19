@@ -10,7 +10,16 @@
  *   - Al aprobar, se invalida el caché de Food Cost de los últimos 7 días para reflejar el nuevo costo unitario.
  *
  * @dataFlow
- *   Frontend (Aprobar en Radar) -> POST /approve -> Update inventory_items -> Insert supplier_price_history -> Purge food_cost_daily_cache.
+ *   Frontend (Aprobar en Radar) -> POST /approve -> Update inventory_items
+ *   -> Insert inventory_price_history ("Máquina del Tiempo" de Food Cost)
+ *   -> Insert supplier_price_history (auditoría de proveedores)
+ *   -> Purge food_cost_daily_cache.
+ *
+ * @notes
+ *   - BUG FIX (2026-08-18): Se agrega inserción en `inventory_price_history` para que
+ *     "La Máquina del Tiempo" de Food Cost use el precio recién aprobado y no el viejo de QB.
+ *   - previous_unit_cost siempre almacena el costo por CAJA (case_price), no el unitario,
+ *     para mantener consistencia con el cron semanal.
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseAdminClient } from '@/lib/supabase'
@@ -27,7 +36,8 @@ export async function POST(request: NextRequest) {
     }
 
     const supabase = await getSupabaseAdminClient()
-    const todayStr = new Date().toISOString().split('T')[0]
+    const now = new Date()
+    const todayStr = now.toISOString().split('T')[0]
 
     let updatedCount = 0
     let historyCount = 0
@@ -50,12 +60,32 @@ export async function POST(request: NextRequest) {
 
       const casePriceNum = Number(newCasePrice)
       const packQtyNum = Number(packQuantity) || 1
+
+      // Bug 10 fix: validar que el precio no sea NaN ni negativo
+      if (isNaN(casePriceNum) || casePriceNum <= 0) {
+        errors.push(`SKU ${supplierSku}: precio inválido (${newCasePrice})`)
+        continue
+      }
+
       const unitCostNum = Number((casePriceNum / packQtyNum).toFixed(4))
-      const prevCostNum = Number((Number(currentCasePrice) / packQtyNum).toFixed(4))
-      const diffAmount = casePriceNum - Number(currentCasePrice)
-      const changePct = Number(currentCasePrice) > 0 ? Number(((diffAmount / Number(currentCasePrice)) * 100).toFixed(2)) : 0
 
       let targetMasterId = masterItemId
+
+      // Bug 9 fix: leer el precio ACTUAL de la DB en vez de confiar en el frontend (puede ser stale)
+      let realCurrentCasePrice = Number(currentCasePrice)
+      if (targetMasterId) {
+        const { data: currentItem } = await supabase
+          .from('inventory_items')
+          .select('purchase_unit_cost')
+          .eq('id', targetMasterId)
+          .single()
+        if (currentItem) {
+          realCurrentCasePrice = Number(currentItem.purchase_unit_cost) || 0
+        }
+      }
+
+      const diffAmount = casePriceNum - realCurrentCasePrice
+      const changePct = realCurrentCasePrice > 0 ? Number(((diffAmount / realCurrentCasePrice) * 100).toFixed(2)) : 0
 
       // 1. Si tiene masterItemId, actualizar inventory_items
       if (targetMasterId) {
@@ -65,7 +95,7 @@ export async function POST(request: NextRequest) {
             purchase_unit_cost: casePriceNum,
             quantity_per_unit: packQtyNum,
             unit_type: packUnit,
-            updated_at: new Date().toISOString()
+            updated_at: now.toISOString()
           })
           .eq('id', targetMasterId)
 
@@ -73,6 +103,17 @@ export async function POST(request: NextRequest) {
           errors.push(`Error al actualizar inventario para SKU ${supplierSku}: ${invErr.message}`)
         } else {
           updatedCount++
+
+          // 1.5 CRITICAL: Insertar en inventory_price_history para "La Máquina del Tiempo" de Food Cost.
+          // Sin esto, food-cost/route.ts usa precios viejos de QB en lugar de los recién aprobados.
+          await supabase
+            .from('inventory_price_history')
+            .insert({
+              inventory_item_id: targetMasterId,
+              purchase_unit_cost: casePriceNum,
+              quantity_per_unit: packQtyNum,
+              effective_date: now.toISOString()
+            })
         }
       }
 
@@ -87,11 +128,11 @@ export async function POST(request: NextRequest) {
             master_item_id: targetMasterId,
             pack_quantity: packQtyNum,
             pack_unit: packUnit,
-            updated_at: new Date().toISOString()
+            updated_at: now.toISOString()
           }, { onConflict: 'supplier_id,supplier_sku' })
       }
 
-      // 3. Registrar en supplier_price_history
+      // 3. Registrar en supplier_price_history (auditoría de proveedor)
       if (supplierId) {
         const { error: histErr } = await supabase
           .from('supplier_price_history')
@@ -101,7 +142,7 @@ export async function POST(request: NextRequest) {
             master_item_id: targetMasterId || null,
             case_price: casePriceNum,
             unit_cost: unitCostNum,
-            previous_unit_cost: prevCostNum,
+            previous_unit_cost: realCurrentCasePrice,
             change_percent: changePct,
             effective_date: todayStr,
             source_type: sourceType,

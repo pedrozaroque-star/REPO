@@ -35,11 +35,19 @@ export async function POST(request: NextRequest) {
     const supabase = await getSupabaseAdminClient()
 
     // 1. Verificar si ya existe
-    const { data: existing } = await supabase
+    const { data: existingByName } = await supabase
       .from('suppliers')
       .select('id, name')
-      .or(`name.ilike.${cleanName},supplier_code.eq.${cleanCode}`)
+      .ilike('name', cleanName)
       .limit(1)
+
+    const { data: existingByCode } = await supabase
+      .from('suppliers')
+      .select('id, name')
+      .eq('supplier_code', cleanCode)
+      .limit(1)
+
+    const existing = [...(existingByName || []), ...(existingByCode || [])]
 
     if (existing && existing.length > 0) {
       return NextResponse.json({
