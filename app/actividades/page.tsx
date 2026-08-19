@@ -198,7 +198,7 @@ export default function ActividadesPage() {
                   <div className="bg-slate-50 dark:bg-slate-800/40 p-5 rounded-2xl border border-slate-100/80 dark:border-slate-800">
                     <h4 className="font-bold text-orange-600 dark:text-orange-400 text-sm mb-2 flex items-center gap-2">
                       <span className="w-6 h-6 rounded-full bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300 flex items-center justify-center font-bold text-xs">1</span>
-                      {t('actividades.tabs.daily_assignment')}
+                      {t('actividades.tabs.catalog')}
                     </h4>
                     <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
                       {t('actividades.help.step1_desc')}
@@ -220,7 +220,7 @@ export default function ActividadesPage() {
                   <div className="bg-slate-50 dark:bg-slate-800/40 p-5 rounded-2xl border border-slate-100/80 dark:border-slate-800">
                     <h4 className="font-bold text-orange-600 dark:text-orange-400 text-sm mb-2 flex items-center gap-2">
                       <span className="w-6 h-6 rounded-full bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300 flex items-center justify-center font-bold text-xs">3</span>
-                      {t('actividades.tabs.catalog')}
+                      {t('actividades.tabs.daily_assignment')}
                     </h4>
                     <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
                       {t('actividades.help.step3_desc')}

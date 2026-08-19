@@ -52,7 +52,7 @@ export async function PATCH(request: Request) {
 
     const updateData: any = { updated_at: new Date().toISOString() };
     if (start_time !== undefined) updateData.start_time = start_time;
-    if (duration_minutes !== undefined) updateData.duration_minutes = duration_minutes ? Number(duration_minutes) : null;
+    if (duration_minutes !== undefined) updateData.duration_minutes = duration_minutes !== null && duration_minutes !== '' ? Number(duration_minutes) : null;
     if (activity !== undefined) updateData.activity = activity;
     if (shift_type !== undefined) updateData.shift_type = shift_type;
     if (frequency !== undefined) updateData.frequency = frequency;
@@ -102,7 +102,7 @@ export async function POST(request: Request) {
 
     const insertData: any = {
       start_time: start_time || null, 
-      duration_minutes: duration_minutes ? Number(duration_minutes) : null, 
+      duration_minutes: duration_minutes !== null && duration_minutes !== undefined && duration_minutes !== '' ? Number(duration_minutes) : null, 
       activity, 
       shift_type,
       frequency: frequency || 'Diario', 
@@ -142,15 +142,14 @@ export async function POST(request: Request) {
 // ═══════════════════════════════════════
 export async function DELETE(request: Request) {
   try {
-    const { searchParams } = new URL(request.url);
-    const id = searchParams.get('id');
-    const userRole = searchParams.get('role');
+    const body = await request.json();
+    const { id, role: userRole } = body;
 
     if (!id) {
       return NextResponse.json({ success: false, error: 'ID is required' }, { status: 400 });
     }
 
-    // Verificar que sea admin
+    // Verificar que sea admin — ahora desde el body en vez de query params
     if (userRole?.toLowerCase() !== 'admin') {
       return NextResponse.json({
         success: false,

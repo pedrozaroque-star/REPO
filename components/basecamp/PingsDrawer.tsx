@@ -123,7 +123,8 @@ export default function PingsDrawer({ activeUser, navigateTo, currentUserName }:
                 {
                     event: 'INSERT',
                     schema: 'public',
-                    table: 'bc_pings'
+                    table: 'bc_pings',
+                    filter: `recipient_person_id=eq.${currentPerson.id}`,
                 },
                 (payload) => {
                     const line = payload.new

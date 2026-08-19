@@ -113,14 +113,14 @@ const POSITION_GROUPS: PositionGroup[] = [
     labelKey: 'actividades.config.group_kitchen',
     icon: <Utensils className="w-4 h-4" />,
     color: 'from-orange-500 to-red-500',
-    positions: ['TACOS', 'CARNES', 'BURRITOS', 'TORTILLAS', 'TORTAS/QUESADILLAS', 'PREPARACION', 'ACTIVIDADES EXTRA 1', 'ACTIVIDADES EXTRA 2', 'ACTIVIDADES EXTRA 3', 'ACTIVIDADES EXTRA 4', 'ACTIVIDADES EXTRA 5', 'ACTIVIDADES EXTRA 6'],
+    positions: ['TACOS', 'CARNES', 'BURRITOS', 'TORTILLAS', 'TORTAS/QUESADILLAS', 'TORTAS/MULITAS', 'CUBRIR DESCANSOS (COCINA)', 'PREPARACION', 'ACTIVIDADES EXTRA 1', 'ACTIVIDADES EXTRA 2', 'ACTIVIDADES EXTRA 3', 'ACTIVIDADES EXTRA 4', 'ACTIVIDADES EXTRA 5', 'ACTIVIDADES EXTRA 6'],
   },
   {
     key: 'drive_thru',
     labelKey: 'actividades.config.group_drive_thru',
     icon: <Car className="w-4 h-4" />,
     color: 'from-emerald-500 to-teal-500',
-    positions: ['Ventana 1', 'Ventana 2'],
+    positions: ['Ventana 1', 'Ventana 2', 'Ventana 2 (B)', 'TORTAS/QUESADILLAS (DT)', 'TACOS/BURRITOS (DT)', 'CUBRIR DESCANSOS (DT)'],
   },
 ];
 

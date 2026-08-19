@@ -81,6 +81,25 @@ function getDayNameForDate(dateStr: string): string {
   return days[d.getDay()]
 }
 
+function isFreqMatch(paFrequency: string, dayName: string): boolean {
+  if (!paFrequency) return false
+  const freqLower = paFrequency.toLowerCase()
+  if (freqLower === 'diario') return true
+  const dayNameLower = dayName.toLowerCase()
+  if (freqLower === dayNameLower) return true
+  const dayVariants: Record<string, string[]> = {
+    'lunes': ['lunes'],
+    'martes': ['martes'],
+    'miercoles': ['miercoles', 'miércoles'],
+    'jueves': ['jueves'],
+    'viernes': ['viernes'],
+    'sabado': ['sabado', 'sábado'],
+    'domingo': ['domingo'],
+  }
+  const variants = dayVariants[dayNameLower] || [dayNameLower]
+  return variants.some(v => freqLower.includes(v))
+}
+
 function formatDateDisplay(dateStr: string): string {
   const d = new Date(dateStr + 'T12:00:00')
   const months = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
@@ -211,7 +230,7 @@ export default function ReportesChecklistTab() {
     const shiftStats: ShiftStats[] = shifts.map(shift => {
       const shiftProcs = procedures.filter(p => {
         if (p.shift_type !== shift) return false
-        if (p.frequency !== 'Diario' && p.frequency !== dayName) return false
+        if (!isFreqMatch(p.frequency, dayName)) return false
         return true
       })
       const completed = shiftProcs.filter(p => completedIds.has(p.id)).length
@@ -590,7 +609,7 @@ export default function ReportesChecklistTab() {
                   }}>
                     <td style={{ padding: '10px 16px', fontWeight: 600, color: '#1e293b' }}>
                       {getDayNameForDate(wr.date).substring(0, 3)} {new Date(wr.date + 'T12:00:00').getDate()}
-                      {wr.date === todayBizDate && <span style={{ marginLeft: '6px', fontSize: '10px', color: '#ea580c', fontWeight: 700 }}>HOY</span>}
+                      {wr.date === todayBizDate && <span style={{ marginLeft: '6px', fontSize: '10px', color: '#ea580c', fontWeight: 700 }}>{t('actividades.reports.today')}</span>}
                     </td>
                     {wr.shifts.map(s => (
                       <td key={s.shift} style={{ padding: '10px 16px', textAlign: 'center' }}>

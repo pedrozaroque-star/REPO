@@ -108,13 +108,13 @@ export default function HeyMenu({ navigateTo, clearCount }: HeyMenuProps) {
 
     const getToolName = (recordingType: string | null) => {
         if (!recordingType) return undefined
-        const t = recordingType.toLowerCase()
-        if (t.includes('todo') || t.includes('list')) return 'todos'
-        if (t.includes('message') || t.includes('board')) return 'messages'
-        if (t.includes('chat') || t.includes('campfire')) return 'campfire'
-        if (t.includes('document') || t.includes('doc') || t.includes('file') || t.includes('upload')) return 'docs'
-        if (t.includes('schedule') || t.includes('event') || t.includes('calendar')) return 'schedule'
-        if (t.includes('checkin') || t.includes('question') || t.includes('answer')) return 'checkins'
+        const rt = recordingType.toLowerCase()
+        if (rt.includes('todo') || rt.includes('list')) return 'todos'
+        if (rt.includes('message') || rt.includes('board')) return 'messages'
+        if (rt.includes('chat') || rt.includes('campfire')) return 'campfire'
+        if (rt.includes('document') || rt.includes('doc') || rt.includes('file') || rt.includes('upload')) return 'docs'
+        if (rt.includes('schedule') || rt.includes('event') || rt.includes('calendar')) return 'schedule'
+        if (rt.includes('checkin') || rt.includes('question') || rt.includes('answer')) return 'checkins'
         return undefined
     }
 

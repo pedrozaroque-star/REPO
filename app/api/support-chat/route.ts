@@ -138,12 +138,12 @@ DATABASE SCHEMA CATALOG (CORE TABLES):
     *   Columns: \`id\` (UUID PRIMARY KEY), \`order_id\` (UUID), \`inventory_item_id\` (UUID), \`calculated_qty\` (NUMERIC), \`adjusted_qty\` (NUMERIC), \`final_qty\` (NUMERIC), \`par_value\` (NUMERIC), \`leftover_value\` (NUMERIC)
 18. **inventory_usage_log**: Daily theoretical ingredient usage pre-calculated from Toast PMIX + Recipes.
     *   Columns: \`id\` (UUID PRIMARY KEY), \`store_id\` (TEXT), \`business_date\` (DATE), \`inventory_item_id\` (UUID), \`theoretical_usage\` (NUMERIC), \`waste_usage\` (NUMERIC), \`total_usage\` (NUMERIC), \`created_at\` (TIMESTAMPTZ)
-19. **uniforms_pricing**: Catalog of available uniforms and prices.
-    *   Columns: \`id\` (UUID), \`item_type\` (TEXT), \`size\` (TEXT), \`color\` (TEXT), \`price\` (NUMERIC)
-20. **uniforms_inventory_stock**: Real-time stock counts of uniforms by store.
-    *   Columns: \`id\` (UUID), \`store_id\` (BIGINT), \`uniform_id\` (UUID), \`quantity\` (INT), \`last_updated\` (TIMESTAMPTZ)
-21. **uniforms_transactions**: Ledger of uniform sales, deliveries, and stock adjustments.
-    *   Columns: \`id\` (UUID), \`store_id\` (BIGINT), \`uniform_id\` (UUID), \`transaction_type\` (TEXT - 'sale', 'free', 'adjustment'), \`quantity\` (INT), \`total_price\` (NUMERIC), \`employee_name\` (TEXT), \`payment_method\` (TEXT - 'cash', 'payroll', 'free'), \`business_date\` (DATE)
+19. **uniforms_pricing**: Catalog of available uniform categories, pricing, and role exemptions.
+    *   Columns: \`id\` (UUID PRIMARY KEY), \`item_category\` (TEXT), \`name_es\` (TEXT), \`name_en\` (TEXT), \`sale_price\` (NUMERIC), \`provider_name\` (TEXT), \`provider_cost\` (NUMERIC), \`is_free_for_roles\` (TEXT[] - array of exempt roles), \`created_at\` (TIMESTAMPTZ), \`updated_at\` (TIMESTAMPTZ)
+20. **uniforms_inventory_stock**: Real-time stock counts and minimum target levels of uniforms per store and size.
+    *   Columns: \`id\` (UUID PRIMARY KEY), \`store_id\` (BIGINT), \`item_category\` (TEXT), \`size\` (TEXT), \`quantity_on_hand\` (INT), \`min_stock\` (INT), \`updated_at\` (TIMESTAMPTZ)
+21. **uniforms_transactions**: Ledger of all uniform movements, sales, package distributions, damage swaps, and stock audits.
+    *   Columns: \`id\` (UUID PRIMARY KEY), \`store_id\` (BIGINT), \`item_category\` (TEXT), \`size\` (TEXT), \`transaction_type\` (TEXT - 'employee_sale', 'customer_sale', 'new_hire_package', 'damage_exchange', 'manager_free', 'manual_audit', 'initial_count', 'initial_count_reset', 'reception'), \`quantity\` (INT), \`previous_stock\` (INT), \`new_stock\` (INT), \`unit_price\` (NUMERIC), \`total_amount\` (NUMERIC), \`employee_toast_guid\` (TEXT), \`employee_name\` (TEXT), \`reason\` (TEXT), \`reference_order_id\` (UUID), \`business_date\` (DATE), \`created_by\` (TEXT), \`created_at\` (TIMESTAMPTZ)
 22. **supervisor_mileage_trips**: Log of driven miles by supervisors for reimbursement (MilesIQ).
     *   Columns: \`id\` (UUID PRIMARY KEY), \`supervisor_id\` (UUID), \`supervisor_name\` (TEXT), \`supervisor_email\` (TEXT), \`trip_date\` (DATE), \`start_time\` (TEXT), \`origin_name\` (TEXT), \`destination_name\` (TEXT), \`is_round_trip\` (BOOLEAN), \`purpose\` (TEXT - 'Business', 'Personal', 'Commute'), \`distance_miles\` (NUMERIC), \`rate_per_mile\` (NUMERIC - default 0.76), \`parking_amount\` (NUMERIC), \`tolls_amount\` (NUMERIC), \`total_reimbursement\` (NUMERIC), \`status\` (TEXT - 'pending', 'approved', 'submitted_hr', 'paid', 'rejected'), \`created_at\` (TIMESTAMPTZ)
 23. **suppliers**: Master list of suppliers and vendors.

@@ -145,8 +145,18 @@ export async function POST(request: Request) {
   // =========================================================================
 
   try {
+    // Helper to validate required args
+    const requireArgs = (names: string[]) => {
+      for (const name of names) {
+        if (args[name] === undefined || args[name] === null) {
+          throw new Error(`Missing required parameter: ${name}`)
+        }
+      }
+    }
+
     switch (action) {
       case 'complete_todo': {
+        requireArgs(['todoDbId'])
         const { todoDbId } = args
         // 1. Update locally
         await supabase
@@ -164,6 +174,7 @@ export async function POST(request: Request) {
       }
 
       case 'uncomplete_todo': {
+        requireArgs(['todoDbId'])
         const { todoDbId } = args
         // 1. Update locally
         await supabase
@@ -181,6 +192,7 @@ export async function POST(request: Request) {
       }
 
       case 'create_todolist': {
+        requireArgs(['name'])
         const { name, description } = args
         const bcListId = Math.floor(Date.now() / 1000)
 
@@ -226,13 +238,15 @@ export async function POST(request: Request) {
 
         if (listErr) throw listErr
 
-        // Note: Basecamp API doesn't have a direct "create todolist" endpoint in the same way.
-        // Lists are created via the todoset, but the sync cron will pick it up.
+        // TODO: Implement upward sync for todolist creation.
+        // Basecamp API supports: POST /buckets/{projectId}/todosets/{todosetId}/todolists.json
+        // Currently, locally-created lists only exist in Supabase until a manual full sync runs.
 
         return NextResponse.json({ success: true, id: dbList?.id, bc_id: bcListId })
       }
 
       case 'create_todo': {
+        requireArgs(['todolistDbId', 'title'])
         const { todolistDbId, title, description, due_date, assigneeUuids } = args
         const bcTodoId = Math.floor(Date.now() / 1000)
 
@@ -299,6 +313,7 @@ export async function POST(request: Request) {
       }
 
       case 'create_message': {
+        requireArgs(['boardDbId', 'title'])
         const { boardDbId, title, content, category } = args
         const bcMsgId = Math.floor(Date.now() / 1000)
 
@@ -340,6 +355,7 @@ export async function POST(request: Request) {
       }
 
       case 'create_campfire_line': {
+        requireArgs(['campfireDbId', 'content'])
         const { campfireDbId, content } = args
         const bcLineId = Math.floor(Date.now() / 1000)
 
@@ -374,6 +390,7 @@ export async function POST(request: Request) {
       }
 
       case 'create_comment': {
+        requireArgs(['parentType', 'parentDbId', 'content'])
         const { parentType, parentDbId, content } = args
         const bcCommentId = Math.floor(Date.now() / 1000)
 
@@ -426,6 +443,7 @@ export async function POST(request: Request) {
       }
 
       case 'create_answer': {
+        requireArgs(['questionDbId', 'content'])
         const { questionDbId, content } = args
         const bcAnswerId = Math.floor(Date.now() / 1000)
 
@@ -460,6 +478,7 @@ export async function POST(request: Request) {
       }
 
       case 'create_schedule_entry': {
+        requireArgs(['scheduleDbId', 'title', 'starts_at', 'ends_at'])
         const { scheduleDbId, title, description, starts_at, ends_at, all_day } = args
         const bcEventId = Math.floor(Date.now() / 1000)
 
@@ -505,6 +524,7 @@ export async function POST(request: Request) {
       }
 
       case 'create_vault': {
+        requireArgs(['name'])
         const { parentVaultDbId, name } = args
         const bcVaultId = Math.floor(Date.now() / 1000)
 
@@ -523,13 +543,15 @@ export async function POST(request: Request) {
 
         if (vaultErr) throw vaultErr
 
-        // Note: Basecamp vault creation via API would require knowing the parent vault bc_id.
-        // The sync cron will reconcile this.
+        // TODO: Implement upward sync for vault creation.
+        // Basecamp API supports: POST /buckets/{projectId}/vaults/{parentVaultId}/vaults.json
+        // Currently, locally-created vaults only exist in Supabase until a manual full sync runs.
 
         return NextResponse.json({ success: true, id: dbVault?.id, bc_id: bcVaultId })
       }
 
       case 'create_document': {
+        requireArgs(['vaultDbId', 'title'])
         const { vaultDbId, title, content } = args
         const bcDocId = Math.floor(Date.now() / 1000)
 
@@ -575,6 +597,27 @@ export async function POST(request: Request) {
         const allowedTables = ['bc_todos', 'bc_messages', 'bc_comments', 'bc_documents', 'bc_schedule_entries', 'bc_vaults']
         if (!allowedTables.includes(tableName)) {
           return NextResponse.json({ error: 'Invalid tableName' }, { status: 400 })
+        }
+
+        // If deleting a comment, decrement the parent's comments_count first
+        if (tableName === 'bc_comments') {
+          const { data: commentRow } = await supabase
+            .from('bc_comments')
+            .select('parent_type, parent_id')
+            .eq('id', recordingDbId)
+            .single()
+
+          if (commentRow?.parent_type === 'message' && commentRow?.parent_id) {
+            const { data: msg } = await supabase.from('bc_messages').select('comments_count').eq('id', commentRow.parent_id).single()
+            if (msg && (msg.comments_count || 0) > 0) {
+              await supabase.from('bc_messages').update({ comments_count: (msg.comments_count || 0) - 1 }).eq('id', commentRow.parent_id)
+            }
+          }
+        }
+
+        // If deleting a todo, also clean up its assignee records
+        if (tableName === 'bc_todos') {
+          await supabase.from('bc_todo_assignees').delete().eq('todo_id', recordingDbId)
         }
 
         // LOCAL delete — Basecamp API trash is not supported via our sync

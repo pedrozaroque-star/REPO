@@ -864,7 +864,7 @@
                 </svg>
             </div>
             <div>
-                <div class="stat-number" style="color: #e05638;">58.9</div>
+                <div class="stat-number" style="color: #e05638;">60.9</div>
                 <div class="stat-desc">Horas trabajadas</div>
             </div>
         </div>
@@ -1858,7 +1858,7 @@
             <div class="report-section">
                 <div class="report-title-row">
                     <h2>Reporte de Horas Trabajadas y Actualizaciones</h2>
-                    <span class="hours-badge-large">Total de Horas: 58.9 hrs</span>
+                    <span class="hours-badge-large">Total de Horas: 60.9 hrs</span>
                 </div>
                 
                 <p class="report-subtitle-text">
@@ -2322,6 +2322,18 @@
                                     </div>
                                 </td>
                             </tr>
+                            <tr>
+                                <td><strong>19-Aug-2026</strong></td>
+                                <td>11:00 AM - 1:00 PM</td>
+                                <td style="text-align: center; font-weight: 700;">2.00</td>
+                                <td><span class="table-badge-module">Uniformes</span> <span class="table-badge-module">Auditoría Forense</span> <span class="table-badge-module">Caja Fuerte</span> <span class="table-badge-module">Seguridad</span> <span class="table-badge-module">i18n</span> <span class="table-badge-module">Soporte IA</span></td>
+                                <td>
+                                    <div class="lang-split">
+                                         <div class="es-desc">- **Auditoría Forense Integral y Corrección de 17 Incidencias en Control de Uniformes**: Revisión exhaustiva línea por línea de 23 server actions (`actions.ts`), componentes de interfaz (`page.tsx`), helpers (`utils.ts`), conciliación con caja fuerte (`safe-reconciliation/route.ts`) y herramientas de IA (`chat-tools.ts`).<br>- **Corrección Crítica de IA Assistant (`chat-tools.ts`)**: Actualización de tipos de transacción (`employee_sale`, `customer_sale`, `new_hire_package`, `manager_free`) y campo de monto (`total_amount`) para que las consultas del asistente no devuelvan $0.<br>- **Regalías y Exenciones de Liderazgo (`is_free_for_roles`)**: Validación de roles exentos en `recordUniformSale` asignando precio $0.00 y registrando la transacción como `manager_free` para gerencia.<br>- **Corrección de KPI en Sidebar de Entregas**: Visualización dual del Total de la Transacción Actual y el total real acumulado del día en Caja Fuerte (`fetchDailySalesTotal`).<br>- **Blindaje Numérico (`Number()`) y Eliminación de Duplicados**: Eliminación de analizador duplicado `parseUniformCategoryAndSize`, casteo estricto contra concatenación de cadenas, y regla de fecha 6 AM en conteos iniciales.<br>- **Sanitización de Consultas PostgREST y UX de Anulación**: Filtrado de caracteres especiales en búsqueda de Estimates QB y cierre automático del modal de anulación ante advertencias.<br>- **Cobertura i18n Bilingüe Completa (ES/EN)**: Adición de ~30 claves en `lib/i18n.tsx` y verificación de TypeScript con 0 errores (`npx tsc --noEmit`).</div>
+                                         <div class="en-desc">- **Comprehensive Forensic Audit & 17-Bug Resolution in Uniforms Control**: Methodical line-by-line review across 23 server actions (`actions.ts`), UI components (`page.tsx`), utilities (`utils.ts`), safe reconciliation (`safe-reconciliation/route.ts`), and AI assistant tools (`chat-tools.ts`).<br>- **Critical AI Assistant Fix (`chat-tools.ts`)**: Updated transaction types (`employee_sale`, `customer_sale`, `new_hire_package`, `manager_free`) and revenue field (`total_amount`) eliminating zero-dollar query results.<br>- **Leadership Role Exemption Logic (`is_free_for_roles`)**: Implemented exempt role verification in `recordUniformSale` enforcing $0.00 pricing and logging `manager_free` transaction ledger records.<br>- **Dual KPI Display in Sales Sidebar**: Rendered active transaction amount alongside real-time daily safe reconciliation total (`fetchDailySalesTotal`).<br>- **Numeric Safety (`Number()`) & Code Deduplication**: Removed redundant category/size parser, enforced strict numeric casting against string concatenation, and applied 6 AM business date rule to initial counts.<br>- **PostgREST Query Sanitization & Void UX**: Stripped special characters in QB estimate searches and ensured void modal auto-closes on warning branches.<br>- **Full Bilingual i18n Support (ES/EN)**: Added ~30 new keys in `lib/i18n.tsx` and compiled TypeScript with 0 errors (`npx tsc --noEmit`).</div>
+                                    </div>
+                                </td>
+                            </tr>
                         </tbody>
                        </table>
                 </div>
@@ -2378,7 +2390,7 @@
                     </div>
                     <div class="module-summary-item">
                         <span>Inventario, Uniformes, Pedidos y QuickBooks / Inventory & QuickBooks</span>
-                        <span class="hours">18.4 hrs</span>
+                        <span class="hours">20.4 hrs</span>
                     </div>
                     <div class="module-summary-item">
                         <span>Tech Packs, RFQ y Negociación con Proveedores / Supplier Tech Packs & RFQs</span>

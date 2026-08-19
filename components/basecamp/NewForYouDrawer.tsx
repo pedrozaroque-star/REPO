@@ -75,28 +75,23 @@ export default function NewForYouDrawer({ isOpen, onClose, navigateTo }: NewForY
             const feedItems: any[] = []
 
             if (personId) {
-                // 2. Get projects where user is a member
-                const { data: memberships } = await supabase
-                    .from('bc_memberships')
-                    .select('project_id')
-                    .eq('person_id', personId)
-
-                const myProjectIds = memberships?.map(m => m.project_id) || []
-
-                // 3. Tasks assigned to me (recent 30 days)
+                // Parallelize independent queries: memberships, myTasks, and people
                 const thirtyDaysAgo = new Date()
                 thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
-                const since = thirtyDaysAgo.toISOString()
 
-                const { data: myTasks } = await supabase
-                    .from('bc_todo_assignees')
-                    .select(`
+                const [membershipsRes, myTasksRes, peopleRes] = await Promise.all([
+                    supabase.from('bc_memberships').select('project_id').eq('person_id', personId),
+                    supabase.from('bc_todo_assignees').select(`
                         todo:bc_todos(id, title, is_completed, updated_at, project_id,
                             project:bc_projects(bc_id, name)
                         )
-                    `)
-                    .eq('person_id', personId)
-                    .limit(20)
+                    `).eq('person_id', personId).limit(20),
+                    supabase.from('bc_people').select('*').eq('is_active', true).order('name', { ascending: true })
+                ])
+
+                const myProjectIds = membershipsRes.data?.map(m => m.project_id) || []
+                const myTasks = myTasksRes.data
+                setCollaborators(peopleRes.data || [])
 
                 if (myTasks) {
                     for (const row of myTasks) {
@@ -116,27 +111,27 @@ export default function NewForYouDrawer({ isOpen, onClose, navigateTo }: NewForY
                     }
                 }
 
-                // 4. Recent comments on tasks in my projects (last 7 days)
                 if (myProjectIds.length > 0) {
                     const sevenDaysAgo = new Date()
                     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
 
-                    const { data: recentComments } = await supabase
-                        .from('bc_comments')
-                        .select(`
+                    // Parallelize recentComments and recentMessages
+                    const [recentCommentsRes, recentMessagesRes] = await Promise.all([
+                        supabase.from('bc_comments').select(`
                             id, content, created_at, parent_type,
                             author:bc_people(name),
                             project:bc_projects(bc_id, name)
-                        `)
-                        .in('project_id', myProjectIds)
-                        .gte('created_at', sevenDaysAgo.toISOString())
-                        .order('created_at', { ascending: false })
-                        .limit(15)
+                        `).in('project_id', myProjectIds).gte('created_at', sevenDaysAgo.toISOString()).order('created_at', { ascending: false }).limit(15),
+                        supabase.from('bc_messages').select(`
+                            id, title, created_at, comments_count,
+                            author:bc_people(name),
+                            project:bc_projects(bc_id, name)
+                        `).in('project_id', myProjectIds).gte('created_at', sevenDaysAgo.toISOString()).order('created_at', { ascending: false }).limit(10)
+                    ])
 
-                    if (recentComments) {
-                        for (const c of recentComments) {
+                    if (recentCommentsRes.data) {
+                        for (const c of recentCommentsRes.data) {
                             const authorName = (Array.isArray(c.author) ? (c.author as any)[0]?.name : (c.author as any)?.name) || '?'
-                            // Strip HTML tags for preview
                             const plainText = (c.content || '').replace(/<[^>]*>/g, '').slice(0, 80)
                             feedItems.push({
                                 id: `comment-${c.id}`,
@@ -150,21 +145,8 @@ export default function NewForYouDrawer({ isOpen, onClose, navigateTo }: NewForY
                         }
                     }
 
-                    // 5. Recent messages in my projects (last 7 days)
-                    const { data: recentMessages } = await supabase
-                        .from('bc_messages')
-                        .select(`
-                            id, title, created_at, comments_count,
-                            author:bc_people(name),
-                            project:bc_projects(bc_id, name)
-                        `)
-                        .in('project_id', myProjectIds)
-                        .gte('created_at', sevenDaysAgo.toISOString())
-                        .order('created_at', { ascending: false })
-                        .limit(10)
-
-                    if (recentMessages) {
-                        for (const m of recentMessages) {
+                    if (recentMessagesRes.data) {
+                        for (const m of recentMessagesRes.data) {
                             const authorName = (Array.isArray(m.author) ? (m.author as any)[0]?.name : (m.author as any)?.name) || '?'
                             feedItems.push({
                                 id: `msg-${m.id}`,
@@ -178,21 +160,16 @@ export default function NewForYouDrawer({ isOpen, onClose, navigateTo }: NewForY
                         }
                     }
                 }
+            } else {
+                // If no personId, still fetch people
+                const { data: people } = await supabase.from('bc_people').select('*').eq('is_active', true).order('name', { ascending: true })
+                setCollaborators(people || [])
             }
 
             // Sort all feed items by date descending, dedupe, and limit to 40
             feedItems.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
             const uniqueItems = feedItems.filter((item, idx, arr) => arr.findIndex(i => i.id === item.id) === idx).slice(0, 40)
             setNotifications(uniqueItems)
-
-            // Fetch collaborators for Ping button
-            const { data: people } = await supabase
-                .from('bc_people')
-                .select('*')
-                .eq('is_active', true)
-                .order('name', { ascending: true })
-
-            setCollaborators(people || [])
         } catch (err: any) {
             console.error('Error loading drawer data:', err.message)
         } finally {

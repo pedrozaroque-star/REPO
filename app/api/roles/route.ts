@@ -39,12 +39,16 @@ export async function POST(req: Request) {
     }
 
     try {
-        // 1. ELIMINACIÓN SEGURA POR TURNO: Solo borrar el turno que se está guardando
-        // Esto evita que el save del turno AM borre los datos del turno PM (y viceversa)
-        // cuando hay 2 usuarios editando simultáneamente.
+        // ═══ ESTRATEGIA ATÓMICA SEGURA (Safe Atomic Strategy) ═══
+        // 1. Identificar registros antiguos a eliminar
+        // 2. Insertar registros nuevos PRIMERO
+        // 3. Eliminar registros antiguos DESPUÉS
+        // Si la inserción falla, los datos originales se preservan.
+
+        let idsToDelete: string[] = [];
+
         if (active_shift) {
             const shiftSuffix = `_${active_shift}`;
-            // Obtener todos los assignments de la semana para filtrar por turno
             const { data: existing } = await supabaseAdmin
                 .from('station_assignments')
                 .select('id, sub_position')
@@ -53,49 +57,68 @@ export async function POST(req: Request) {
                 .lte('assignment_date', end_date);
 
             if (existing && existing.length > 0) {
-                const idsToDelete = existing
+                idsToDelete = existing
                     .filter(a => a.sub_position?.endsWith(shiftSuffix))
                     .map(a => a.id);
-                
-                if (idsToDelete.length > 0) {
-                    const { error: deleteError } = await supabaseAdmin
-                        .from('station_assignments')
-                        .delete()
-                        .in('id', idsToDelete);
-                    if (deleteError) throw deleteError;
-                }
             }
         } else {
-            // Fallback: borrar toda la semana (comportamiento legacy)
-            const { error: deleteError } = await supabaseAdmin
+            const { data: existing } = await supabaseAdmin
                 .from('station_assignments')
-                .delete()
+                .select('id')
                 .eq('store_id', store_id)
                 .gte('assignment_date', start_date)
                 .lte('assignment_date', end_date);
-            if (deleteError) throw deleteError;
+
+            if (existing && existing.length > 0) {
+                idsToDelete = existing.map(a => a.id);
+            }
         }
 
-        if (assignments.length === 0) {
+        if (assignments.length === 0 && idsToDelete.length === 0) {
             return NextResponse.json({ success: true, message: 'Semana limpiada (sin asignaciones)' });
         }
 
-        // 2. INSERCIÓN DE NUEVO ESTADO
-        const processedAssignments = assignments.map((a: any) => ({
-            store_id: a.store_id || store_id,
-            employee_id: a.employee_id,
-            assignment_date: a.assignment_date,
-            main_station: a.main_station || a.sub_position,
-            sub_position: a.sub_position || a.main_station,
-            station_group: a.station_group || 'Front',
-            tasks: a.tasks || []
-        }));
+        // Paso 1: INSERTAR registros nuevos PRIMERO (si hay)
+        let insertedIds: string[] = [];
+        if (assignments.length > 0) {
+            const processedAssignments = assignments.map((a: any) => ({
+                store_id: a.store_id || store_id,
+                employee_id: a.employee_id,
+                assignment_date: a.assignment_date,
+                main_station: a.main_station || a.sub_position,
+                sub_position: a.sub_position || a.main_station,
+                station_group: a.station_group || 'Front',
+                tasks: a.tasks || []
+            }));
 
-        const { error: insertError } = await supabaseAdmin
-            .from('station_assignments')
-            .insert(processedAssignments);
+            const { data: inserted, error: insertError } = await supabaseAdmin
+                .from('station_assignments')
+                .insert(processedAssignments)
+                .select('id');
 
-        if (insertError) throw insertError;
+            if (insertError) throw insertError;
+            insertedIds = (inserted || []).map(r => r.id);
+        }
+
+        // Paso 2: ELIMINAR registros antiguos DESPUÉS (solo si insert fue exitoso)
+        if (idsToDelete.length > 0) {
+            const { error: deleteError } = await supabaseAdmin
+                .from('station_assignments')
+                .delete()
+                .in('id', idsToDelete);
+
+            if (deleteError) {
+                // Rollback: si el delete falla, eliminar los recién insertados
+                console.error('DELETE failed, rolling back inserted records:', deleteError);
+                if (insertedIds.length > 0) {
+                    await supabaseAdmin
+                        .from('station_assignments')
+                        .delete()
+                        .in('id', insertedIds);
+                }
+                throw deleteError;
+            }
+        }
 
         return NextResponse.json({ success: true })
     } catch (error: any) {

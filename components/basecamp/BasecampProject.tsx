@@ -477,7 +477,11 @@ export default function BasecampProject({ project, navigateTo, saveProjects, pro
                                 </div>
                             )}
                         </div>
-                        <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors text-slate-600 dark:text-slate-300 text-xs font-bold">
+                        <button 
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors text-slate-600 dark:text-slate-300 text-xs font-bold opacity-50 cursor-not-allowed"
+                            title={t('basecamp.invite_coming_soon')}
+                            disabled
+                        >
                             <Users size={14} />
                             {t('basecamp.invite')}
                         </button>
@@ -564,9 +568,12 @@ export default function BasecampProject({ project, navigateTo, saveProjects, pro
                             <span className="text-xs font-bold text-slate-500 dark:text-slate-400">
                                 {activePeopleCount} {t('basecamp.people_active_last_7_days')}
                             </span>
-                            <span className="text-xs font-bold text-blue-600 dark:text-blue-400 hover:underline cursor-pointer ml-1">
+                            <button
+                                onClick={() => navigateTo({ project: project.id, tool: 'todos' })}
+                                className="text-xs font-black text-[#1D7DB5] hover:underline cursor-pointer uppercase tracking-wider ml-1"
+                            >
                                 — {t('basecamp.view_all_activity')}
-                            </span>
+                            </button>
                         </div>
                     )}
                 </div>
@@ -758,6 +765,91 @@ export default function BasecampProject({ project, navigateTo, saveProjects, pro
                         )}
                     </div>
                     <span className="text-xs font-black text-[#1D7DB5] mt-3 uppercase tracking-wider">{t('basecamp.explore_docs')} →</span>
+                </div>
+
+                {/* ─────── Card 4: CAMPFIRE (Chat) ─────── */}
+                <div
+                    onClick={() => navigateTo({ project: project.id, tool: 'campfire' })}
+                    className="bg-white dark:bg-slate-900 border-2 border-slate-300/80 dark:border-slate-800/80 rounded-2xl p-4 sm:p-6 shadow-md hover:shadow-xl hover:border-slate-400 dark:hover:border-slate-600 hover:-translate-y-0.5 transition-all duration-200 cursor-pointer flex flex-col"
+                >
+                    <div className="border-b border-slate-100 dark:border-slate-800/85 pb-2 mb-3">
+                        <h2 className="text-base font-extrabold text-red-600 flex items-center gap-2">
+                            <MessageSquare size={18} />
+                            {t('basecamp.campfire')}
+                        </h2>
+                    </div>
+                    <div className="flex-1 space-y-2">
+                        {lastChat && lastChat.length > 0 ? (
+                            lastChat.slice(0, 4).map((line: any) => (
+                                <div key={line.id} className="flex items-start gap-2 text-sm">
+                                    <div
+                                        className="w-6 h-6 rounded-full flex items-center justify-center text-[8px] font-black text-white flex-shrink-0 mt-0.5"
+                                        style={{ backgroundColor: getAvatarColor(line.author || 'U') }}
+                                    >
+                                        {getInitials(line.author || 'U')}
+                                    </div>
+                                    <p className="text-slate-600 dark:text-slate-400 line-clamp-1 flex-1">
+                                        {(line.content || '').replace(/<[^>]*>/g, '').slice(0, 80)}
+                                    </p>
+                                </div>
+                            ))
+                        ) : (
+                            <p className="text-sm text-slate-400 dark:text-slate-500 italic mt-4 text-center">
+                                {t('basecamp.no_chat')}
+                            </p>
+                        )}
+                    </div>
+                    <span className="text-xs font-black text-[#1D7DB5] mt-3 uppercase tracking-wider">{t('basecamp.open_campfire')} →</span>
+                </div>
+
+                {/* ─────── Card 5: SCHEDULE (Calendar) ─────── */}
+                <div
+                    onClick={() => navigateTo({ project: project.id, tool: 'schedule' })}
+                    className="bg-white dark:bg-slate-900 border-2 border-slate-300/80 dark:border-slate-800/80 rounded-2xl p-4 sm:p-6 shadow-md hover:shadow-xl hover:border-slate-400 dark:hover:border-slate-600 hover:-translate-y-0.5 transition-all duration-200 cursor-pointer flex flex-col"
+                >
+                    <div className="border-b border-slate-100 dark:border-slate-800/85 pb-2 mb-3">
+                        <h2 className="text-base font-extrabold text-red-600 flex items-center gap-2">
+                            <Calendar size={18} />
+                            {t('basecamp.schedule')}
+                        </h2>
+                    </div>
+                    <div className="flex-1 space-y-2">
+                        {calendarEvents && calendarEvents.length > 0 ? (
+                            calendarEvents.slice(0, 4).map((evt: any) => (
+                                <div key={evt.id} className="flex items-center gap-2 text-sm">
+                                    <span className="w-2 h-2 rounded-full bg-blue-500 flex-shrink-0" />
+                                    <span className="text-slate-600 dark:text-slate-400 truncate flex-1 font-medium">{evt.title}</span>
+                                    <span className="text-[10px] text-slate-400 flex-shrink-0">
+                                        {new Date(evt.starts_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                                    </span>
+                                </div>
+                            ))
+                        ) : (
+                            <p className="text-sm text-slate-400 dark:text-slate-500 italic mt-4 text-center">
+                                {t('basecamp.no_events')}
+                            </p>
+                        )}
+                    </div>
+                    <span className="text-xs font-black text-[#1D7DB5] mt-3 uppercase tracking-wider">{t('basecamp.view_schedule')} →</span>
+                </div>
+
+                {/* ─────── Card 6: CHECK-INS ─────── */}
+                <div
+                    onClick={() => navigateTo({ project: project.id, tool: 'checkins' })}
+                    className="bg-white dark:bg-slate-900 border-2 border-slate-300/80 dark:border-slate-800/80 rounded-2xl p-4 sm:p-6 shadow-md hover:shadow-xl hover:border-slate-400 dark:hover:border-slate-600 hover:-translate-y-0.5 transition-all duration-200 cursor-pointer flex flex-col"
+                >
+                    <div className="border-b border-slate-100 dark:border-slate-800/85 pb-2 mb-3">
+                        <h2 className="text-base font-extrabold text-red-600 flex items-center gap-2">
+                            <HelpCircle size={18} />
+                            {t('basecamp.checkins')}
+                        </h2>
+                    </div>
+                    <div className="flex-1 flex items-center justify-center">
+                        <p className="text-sm text-slate-500 dark:text-slate-400 text-center">
+                            {t('basecamp.checkins_desc')}
+                        </p>
+                    </div>
+                    <span className="text-xs font-black text-[#1D7DB5] mt-3 uppercase tracking-wider">{t('basecamp.view_checkins')} →</span>
                 </div>
 
             </div>

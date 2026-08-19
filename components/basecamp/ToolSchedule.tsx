@@ -109,9 +109,9 @@ export default function ToolSchedule({ project, currentUserName }: ToolScheduleP
         if (!newTitle.trim() || !newDate || !schedule) return
         setActionLoading(true)
         try {
-            // Assume 1-hour event duration starting at date
-            const startsAt = new Date(`${newDate}T09:00:00`).toISOString()
-            const endsAt = new Date(`${newDate}T10:00:00`).toISOString()
+            // all_day events should have 00:00:00 to 23:59:59
+            const startsAt = `${newDate}T00:00:00`
+            const endsAt = `${newDate}T23:59:59`
 
             const res = await fetch('/api/basecamp/action', {
                 method: 'POST',

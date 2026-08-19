@@ -326,7 +326,11 @@ export default function ProceduresTimeline() {
 
     try {
       setSaving(true);
-      const res = await fetch(`/api/procedimientos?id=${id}&role=${encodeURIComponent(user?.role || '')}`, { method: 'DELETE' });
+      const res = await fetch('/api/procedimientos', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, role: user?.role })
+      });
       const json = await res.json();
       if (!res.ok) {
         if (json.error === 'ADMIN_ONLY') {

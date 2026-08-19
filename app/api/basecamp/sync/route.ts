@@ -340,7 +340,17 @@ async function resolveOrCreatePerson(
       peopleMap[creatorId] = newPerson.id
       return newPerson.id
     } else if (pErr) {
-      console.warn(`      ⚠️ Failed to insert missing person ${creator.name}:`, pErr.message)
+      // Conflict: another async loop just inserted this person — look it up
+      console.warn(`      ⚠️ Insert conflict for person ${creator.name}, looking up existing...`)
+      const { data: conflictPerson } = await supabase
+        .from('bc_people')
+        .select('id')
+        .eq('bc_id', creatorId)
+        .maybeSingle()
+      if (conflictPerson) {
+        peopleMap[creatorId] = conflictPerson.id
+        return conflictPerson.id
+      }
     }
   } catch (err: any) {
     console.warn(`      ⚠️ Exception inserting missing person ${creator.name}:`, err.message)
@@ -445,6 +455,23 @@ export async function POST(request: Request) {
 
   const syncLogId = logEntry?.id
 
+  // Double-check: if multiple running syncs now exist, this one loses the race
+  const { data: runningSyncs } = await supabase
+    .from('bc_sync_log')
+    .select('id')
+    .eq('status', 'running')
+    .order('started_at', { ascending: true })
+
+  if (runningSyncs && runningSyncs.length > 1 && runningSyncs[0].id !== syncLogId) {
+    // We lost the race — mark our entry as cancelled and bail
+    await supabase.from('bc_sync_log').update({ status: 'cancelled', completed_at: new Date().toISOString() }).eq('id', syncLogId)
+    console.log('⏳ [Basecamp Sync] Lost race for sync lock. Cancelling.')
+    return NextResponse.json(
+      { error: 'Another sync just started. Try again in a few minutes.' },
+      { status: 409 }
+    )
+  }
+
   try {
     const token = await getValidToken()
     const urlCache = new Map<string, string>()
@@ -501,7 +528,7 @@ export async function POST(request: Request) {
       }
 
       // Populate memory map for people UUIDs
-      const { data: dbPeople } = await supabase.from('bc_people').select('id, bc_id')
+      const { data: dbPeople } = await supabase.from('bc_people').select('id, bc_id').limit(10000)
       if (dbPeople) {
         dbPeople.forEach((p) => {
           peopleMap[Number(p.bc_id)] = p.id
@@ -575,7 +602,7 @@ export async function POST(request: Request) {
       }
 
       // Populate memory map for projects UUIDs
-      const { data: dbProjects } = await supabase.from('bc_projects').select('id, bc_id')
+      const { data: dbProjects } = await supabase.from('bc_projects').select('id, bc_id').limit(10000)
       if (dbProjects) {
         dbProjects.forEach((p) => {
           projectsMap[Number(p.bc_id)] = p.id
@@ -989,24 +1016,27 @@ export async function POST(request: Request) {
                 }
               }
 
-              // Self-healing: Mark active tasks in DB that are no longer active in Basecamp as completed
-              const { data: dbActiveTodos } = await supabase
-                .from('bc_todos')
-                .select('bc_id')
-                .eq('todolist_id', todolistUuid)
-                .eq('is_completed', false)
+              // Self-healing: ONLY run during full sync to avoid false completions
+              // During incremental sync, activeBcIds may be incomplete
+              if (forceFullSync) {
+                const { data: dbActiveTodos } = await supabase
+                  .from('bc_todos')
+                  .select('bc_id')
+                  .eq('todolist_id', todolistUuid)
+                  .eq('is_completed', false)
 
-              if (dbActiveTodos && dbActiveTodos.length > 0) {
-                const dbActiveBcIds = dbActiveTodos.map(t => Number(t.bc_id))
-                const completedBcIds = dbActiveBcIds.filter(bcId => !activeBcIds.includes(bcId))
+                if (dbActiveTodos && dbActiveTodos.length > 0) {
+                  const dbActiveBcIds = dbActiveTodos.map(t => Number(t.bc_id))
+                  const completedBcIds = dbActiveBcIds.filter(bcId => !activeBcIds.includes(bcId))
 
-                if (completedBcIds.length > 0) {
-                  console.log(`🧹 [Basecamp Sync] Self-healing: Marking ${completedBcIds.length} tasks as completed for list ${list.name}:`, completedBcIds)
-                  await supabase
-                    .from('bc_todos')
-                    .update({ is_completed: true, completed_at: new Date().toISOString() })
-                    .eq('todolist_id', todolistUuid)
-                    .in('bc_id', completedBcIds)
+                  if (completedBcIds.length > 0) {
+                    console.log(`🧹 [Basecamp Sync] Self-healing: Marking ${completedBcIds.length} tasks as completed for list ${list.name}:`, completedBcIds)
+                    await supabase
+                      .from('bc_todos')
+                      .update({ is_completed: true, completed_at: new Date().toISOString() })
+                      .eq('todolist_id', todolistUuid)
+                      .in('bc_id', completedBcIds)
+                  }
                 }
               }
             } catch (todosErr: any) {

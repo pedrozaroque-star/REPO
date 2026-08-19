@@ -29,7 +29,7 @@ import {
 
 /**
  * @module UniformsPage
- * @description Módulo de Control de Inventario y Entrega de Uniformes para Tacos El Gavilan.
+ * @description Módulo de Control de Inventario y Entrega de Uniformes para Tacos Gavilan.
  * @businessRules
  * - Gerentes y Asistentes operan su tienda asignada. Admins y Supervisores ven tablero global (15 tiendas).
  * - Primera vez en una tienda muestra el Asistente de Conteo Inicial (Setup Wizard).
@@ -1490,13 +1490,42 @@ function TabSalesAndIssues({ storeId, stockData, pricingData, showToast, onTrans
 
   const [submitting, setSubmitting] = useState(false);
 
+  const selectedEmp = employeeList.find(x => x.id === selectedEmpId);
+  const selectedJobTitle = selectedEmp?.job_title || '';
+
+  const [todaySalesTotal, setTodaySalesTotal] = useState<number>(0);
+
+  const loadTodaySales = () => {
+    if (storeId) {
+      fetchDailySalesTotal(storeId, getBusinessDate())
+        .then(setTodaySalesTotal)
+        .catch(() => setTodaySalesTotal(0));
+    }
+  };
+
+  useEffect(() => {
+    loadTodaySales();
+  }, [storeId]);
+
+  const isExempt = useMemo(() => {
+    if (txType === 'customer_sale') return false;
+    const p = pricingData.find((x: any) => x.item_category === saleCategory);
+    if (!p || !p.is_free_for_roles || !Array.isArray(p.is_free_for_roles) || p.is_free_for_roles.length === 0) return false;
+    const jobLower = (selectedJobTitle || '').toLowerCase().trim();
+    return p.is_free_for_roles.some((role: string) => {
+      const rLower = role.toLowerCase().trim();
+      return rLower.length > 0 && jobLower.includes(rLower);
+    });
+  }, [txType, pricingData, saleCategory, selectedJobTitle]);
+
   const currentPrice = useMemo(() => {
     if (txType === 'sale' || txType === 'customer_sale') {
+      if (isExempt) return 0;
       const p = pricingData.find((x: any) => x.item_category === saleCategory)?.sale_price || 0;
       return p * saleQty;
     }
     return 0;
-  }, [txType, saleCategory, saleQty, pricingData]);
+  }, [txType, saleCategory, saleQty, pricingData, isExempt]);
 
   const availableStock = useMemo(() => {
     if (txType === 'sale' || txType === 'customer_sale' || txType === 'damage') {
@@ -1569,6 +1598,7 @@ function TabSalesAndIssues({ storeId, stockData, pricingData, showToast, onTrans
           userEmail: user?.email || '',
           employeeName: empName,
           employeeToastGuid: empGuid || undefined,
+          employeeJobTitle: isCustomNameMode ? undefined : selectedJobTitle,
           transactionType: txType === 'customer_sale' ? 'customer_sale' : 'employee_sale',
           notes: saleNotes.trim() || undefined,
           item_category: saleCategory,
@@ -1623,7 +1653,7 @@ function TabSalesAndIssues({ storeId, stockData, pricingData, showToast, onTrans
         }
 
         if (itemsToDeliver.length === 0) {
-          showToast('Selecciona al menos un artículo disponible para entregar', 'warning');
+          showToast(t('uniforms.sales.error_min_items'), 'warning');
           setSubmitting(false);
           return;
         }
@@ -1639,7 +1669,7 @@ function TabSalesAndIssues({ storeId, stockData, pricingData, showToast, onTrans
 
         const hasWarning = res.results.some(r => r.warning);
         if (hasWarning) {
-          showToast('Entrega procesada (algunas prendas tenían stock insuficiente)', 'warning');
+          showToast(t('uniforms.sales.partial_delivery_warning'), 'warning');
         }
       } else if (txType === 'damage') {
         if (!damageReason.trim()) {
@@ -1648,7 +1678,7 @@ function TabSalesAndIssues({ storeId, stockData, pricingData, showToast, onTrans
           return;
         }
         if (saleQty <= 0) {
-          showToast('Ingresa una cantidad de reemplazos válida (mínimo 1 pieza).', 'warning');
+          showToast(t('uniforms.sales.error_valid_replacements'), 'warning');
           setSubmitting(false);
           return;
         }
@@ -1669,6 +1699,8 @@ function TabSalesAndIssues({ storeId, stockData, pricingData, showToast, onTrans
       }
       
       showToast(t('uniforms.toast.sale_success'), 'success');
+      loadTodaySales();
+
       // Reset form
       if (employeeList.length > 0 && !isCustomNameMode && txType !== 'customer_sale') {
         setSelectedEmpId(employeeList[0].id);
@@ -1676,7 +1708,7 @@ function TabSalesAndIssues({ storeId, stockData, pricingData, showToast, onTrans
         setEmpGuid(employeeList[0].toast_guid);
         applyRoleDefaults(employeeList[0]);
       } else if (txType === 'customer_sale') {
-        setEmpName('Cliente Mostrador');
+        setEmpName(t('uniforms.sales.counter_customer'));
         setEmpGuid('');
       } else {
         setEmpName('');
@@ -1721,7 +1753,7 @@ function TabSalesAndIssues({ storeId, stockData, pricingData, showToast, onTrans
                       }}
                       className="text-xs text-blue-600 dark:text-blue-400 hover:underline font-normal"
                     >
-                      {isCustomNameMode ? '← Seleccionar de la lista de empleados' : '+ Ingresar nombre no registrado'}
+                      {isCustomNameMode ? t('uniforms.sales.select_from_list') : t('uniforms.sales.enter_unregistered')}
                     </button>
                   )}
                 </label>
@@ -1742,7 +1774,7 @@ function TabSalesAndIssues({ storeId, stockData, pricingData, showToast, onTrans
                   <input
                     type="text"
                     required
-                    placeholder={txType === 'customer_sale' ? 'Ej. Cliente Mostrador, Juan Pérez, Empresa X...' : 'Escribe el nombre completo del empleado...'}
+                    placeholder={txType === 'customer_sale' ? t('uniforms.sales.counter_customer') : t('uniforms.sales.placeholder_custom_name')}
                     className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium"
                     value={empName}
                     onChange={e => {
@@ -1794,7 +1826,7 @@ function TabSalesAndIssues({ storeId, stockData, pricingData, showToast, onTrans
                       {t('uniforms.sales.new_hire_auto')}
                     </h4>
                     <span className="text-xs font-semibold px-2.5 py-1 bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300 rounded-full">
-                      $0.00 (Gratuito)
+                      {t('uniforms.sales.free_badge')}
                     </span>
                   </div>
 
@@ -1855,9 +1887,9 @@ function TabSalesAndIssues({ storeId, stockData, pricingData, showToast, onTrans
                       </div>
                     </div>
                     <div className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1 pt-1">
-                      <span>Stock disponible:</span>
+                      <span>{t('uniforms.sales.available_stock')}:</span>
                       <span className={`font-bold ${pkgShirtStock >= pkgShirtQty && pkgShirtStock > 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                        {pkgShirtStock} piezas
+                        {pkgShirtStock} {t('uniforms.stock.pieces_long')}
                       </span>
                     </div>
                   </div>
@@ -1919,9 +1951,9 @@ function TabSalesAndIssues({ storeId, stockData, pricingData, showToast, onTrans
                     )}
                     {pkgIncludeCap && (
                       <div className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1 pt-1">
-                        <span>Stock disponible:</span>
+                        <span>{t('uniforms.sales.available_stock')}:</span>
                         <span className={`font-bold ${pkgCapStock >= pkgCapQty && pkgCapStock > 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                          {pkgCapStock} piezas
+                          {pkgCapStock} {t('uniforms.stock.pieces_long')}
                         </span>
                       </div>
                     )}
@@ -2002,9 +2034,9 @@ function TabSalesAndIssues({ storeId, stockData, pricingData, showToast, onTrans
                     )}
                     {pkgIncludeJacket && (
                       <div className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1 pt-1">
-                        <span>Stock disponible:</span>
+                        <span>{t('uniforms.sales.available_stock')}:</span>
                         <span className={`font-bold ${pkgJacketStock >= pkgJacketQty && pkgJacketStock > 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                          {pkgJacketStock} piezas
+                          {pkgJacketStock} {t('uniforms.stock.pieces_long')}
                         </span>
                       </div>
                     )}
@@ -2074,9 +2106,14 @@ function TabSalesAndIssues({ storeId, stockData, pricingData, showToast, onTrans
                       <span className={`font-bold ${availableStock > 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
                         {availableStock}
                       </span>
+                      {isExempt && txType === 'sale' && (
+                        <span className="text-xs font-semibold px-2 py-0.5 bg-purple-100 dark:bg-purple-900/40 text-purple-800 dark:text-purple-300 rounded-md">
+                          {t('uniforms.sales.manager_free_badge')}
+                        </span>
+                      )}
                       {txType === 'damage' && availableStock < saleQty && (
                         <span className="text-xs font-semibold px-2 py-0.5 bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-300 rounded-md">
-                          ⚠️ Existencia en sistema baja (se registrará la salida)
+                          {t('uniforms.sales.low_stock_warning_damage')}
                         </span>
                       )}
                     </div>
@@ -2117,7 +2154,11 @@ function TabSalesAndIssues({ storeId, stockData, pricingData, showToast, onTrans
             <div className="flex items-center justify-between pt-4 border-t border-gray-200 dark:border-gray-700">
               <div className="text-2xl font-bold">
                 {(txType === 'sale' || txType === 'customer_sale') ? (
-                  <span className="text-blue-600 dark:text-blue-400">{formatCurrency(currentPrice)}</span>
+                  isExempt ? (
+                    <span className="text-purple-600 dark:text-purple-400">$0.00 ({t('uniforms.sales.manager_free_badge')})</span>
+                  ) : (
+                    <span className="text-blue-600 dark:text-blue-400">{formatCurrency(currentPrice)}</span>
+                  )
                 ) : (
                   <span className="text-green-600 dark:text-green-400">$0.00</span>
                 )}
@@ -2136,9 +2177,19 @@ function TabSalesAndIssues({ storeId, stockData, pricingData, showToast, onTrans
       </div>
       
       <div className="space-y-6">
-        <div className="bg-gradient-to-br from-blue-600 to-indigo-700 rounded-2xl p-6 text-white shadow-md">
-          <h3 className="text-lg font-bold mb-2 opacity-90">{t('uniforms.kpi.monthly_sales')}</h3>
-          <p className="text-4xl font-bold mb-1">{formatCurrency(currentPrice)}</p>
+        <div className="bg-gradient-to-br from-blue-600 to-indigo-700 rounded-2xl p-6 text-white shadow-md space-y-4">
+          <div>
+            <h3 className="text-xs uppercase tracking-wider font-semibold opacity-80 mb-1">{t('uniforms.kpi.current_transaction')}</h3>
+            <p className="text-3xl font-bold">
+              {(txType === 'sale' || txType === 'customer_sale') ? (
+                isExempt ? '$0.00' : formatCurrency(currentPrice)
+              ) : '$0.00'}
+            </p>
+          </div>
+          <div className="pt-3 border-t border-white/20">
+            <h3 className="text-xs uppercase tracking-wider font-semibold opacity-80 mb-1">{t('uniforms.kpi.today_safe_sales')}</h3>
+            <p className="text-2xl font-bold text-emerald-200">{formatCurrency(todaySalesTotal)}</p>
+          </div>
         </div>
       </div>
     </div>
@@ -2799,7 +2850,7 @@ function TabHistoryAndKardex({ storeId, showToast, onTransactionComplete }: any)
   const handleConfirmVoid = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!voidingTx || !voidReason.trim()) {
-      showToast('Ingresa el motivo de la anulación.', 'warning');
+      showToast(t('uniforms.history.void_reason_required'), 'warning');
       return;
     }
     try {
@@ -2812,6 +2863,8 @@ function TabHistoryAndKardex({ storeId, showToast, onTransactionComplete }: any)
 
       if (res.warning) {
         showToast(res.warning, 'warning');
+        setVoidingTx(null);
+        setVoidReason('');
         return;
       }
 
@@ -2902,7 +2955,7 @@ function TabHistoryAndKardex({ storeId, showToast, onTransactionComplete }: any)
                         </td>
                         <td className="p-4">
                           <span className={`px-2.5 py-1 rounded-md text-xs font-semibold ${isVoided ? 'bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300' : 'bg-gray-100 dark:bg-gray-700'}`}>
-                            {isVoided ? '🚫 Anulado' : getTransactionTypeLabel(tx.transaction_type, language as 'es' | 'en')}
+                            {isVoided ? `🚫 ${t('uniforms.history.void_badge')}` : getTransactionTypeLabel(tx.transaction_type, language as 'es' | 'en')}
                           </span>
                         </td>
                         <td className="p-4 font-medium">
@@ -2932,7 +2985,7 @@ function TabHistoryAndKardex({ storeId, showToast, onTransactionComplete }: any)
                         {canEditOrVoid && (
                           <td className="p-4 text-center">
                             {isVoided ? (
-                              <span className="text-xs font-bold text-red-500 uppercase tracking-wider">Anulado</span>
+                              <span className="text-xs font-bold text-red-500 uppercase tracking-wider">{t('uniforms.history.void_badge')}</span>
                             ) : (
                               <div className="flex items-center justify-center gap-2">
                                 <button
@@ -2988,7 +3041,7 @@ function TabHistoryAndKardex({ storeId, showToast, onTransactionComplete }: any)
             <form onSubmit={handleSaveEdit} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Nombre Empleado / Cliente
+                  {t('uniforms.history.employee_or_customer')}
                 </label>
                 <input 
                   type="text"
@@ -3001,7 +3054,7 @@ function TabHistoryAndKardex({ storeId, showToast, onTransactionComplete }: any)
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Observaciones / Notas / Motivo
+                  {t('uniforms.sales.observations')}
                 </label>
                 <input 
                   type="text"

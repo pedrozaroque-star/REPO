@@ -192,7 +192,7 @@ export function getCategoryDisplayName(category: UniformCategory, lang: 'es' | '
         shirt_red: { es: 'Team Members Red', en: 'Team Members Red' },
         shirt_shift_leader: { es: 'Shift Leader Black', en: 'Shift Leader Black' },
         shirt_assistant: { es: 'Assistant Manager Polo Black', en: 'Assistant Manager Polo Black' },
-        shirt_manager: { es: 'Camisa Store Manager Negra', en: 'Camisa Store Manager Negra' },
+        shirt_manager: { es: 'Camisa Store Manager Negra', en: 'Store Manager Shirt Black' },
         cap_red: { es: 'Gorra Roja', en: 'Red Cap' },
         cap_black: { es: 'Gorra Negra', en: 'Black Cap' },
         jacket_red: { es: 'Chamarra Roja', en: 'Red Jacket' },

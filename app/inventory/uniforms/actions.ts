@@ -14,7 +14,7 @@
  */
 
 import { getSupabaseAdminClient } from '@/lib/supabase';
-import { getBusinessDate, getDefaultMinStock, type UniformCategory, type UniformSize } from './utils';
+import { getBusinessDate, getDefaultMinStock, parseUniformCategoryAndSize, type UniformCategory, type UniformSize } from './utils';
 
 export async function fetchStoresForUser(userRole: string, userStoreIds: string[]): Promise<{id: number, name: string}[]> {
   const supabase = await getSupabaseAdminClient();
@@ -99,7 +99,7 @@ export async function saveInitialCount(
   userEmail: string
 ): Promise<{success: boolean}> {
   const supabase = await getSupabaseAdminClient();
-  const businessDate = new Date().toISOString().split('T')[0];
+  const businessDate = getBusinessDate();
   
   for (const count of counts) {
     const { data: existingStock } = await supabase
@@ -110,7 +110,7 @@ export async function saveInitialCount(
       .eq('size', count.size)
       .single();
 
-    const prevQty = existingStock ? existingStock.quantity_on_hand : 0;
+    const prevQty = Number(existingStock?.quantity_on_hand ?? 0);
 
     await supabase
       .from('uniforms_inventory_stock')
@@ -191,7 +191,7 @@ export async function saveManualAudit(
       .eq('size', adj.size)
       .maybeSingle();
 
-    const prevQty = existingStock ? existingStock.quantity_on_hand : 0;
+    const prevQty = Number(existingStock?.quantity_on_hand ?? 0);
     const qtyDiff = adj.newQty - prevQty;
 
     await supabase
@@ -244,7 +244,7 @@ export async function updateSingleUniformStock(payload: {
     .eq('size', payload.size)
     .maybeSingle();
 
-  const prevQty = existingStock ? existingStock.quantity_on_hand : 0;
+  const prevQty = Number(existingStock?.quantity_on_hand ?? 0);
   const qtyDiff = payload.newQty - prevQty;
 
   await supabase
@@ -285,14 +285,15 @@ export async function recordUniformSale(payload: {
   quantity: number, 
   employeeToastGuid?: string, 
   employeeName: string, 
-  transactionType?: 'employee_sale' | 'customer_sale',
+  employeeJobTitle?: string,
+  transactionType?: 'employee_sale' | 'customer_sale' | 'manager_free',
   notes?: string,
   businessDate?: string, 
   userEmail: string 
 }): Promise<{success: boolean, processedQty: number, warning?: string}> {
   const supabase = await getSupabaseAdminClient();
   const bDate = payload.businessDate || getBusinessDate();
-  const txType = payload.transactionType || 'employee_sale';
+  let txType = payload.transactionType || 'employee_sale';
 
   const { data: pricing } = await supabase
     .from('uniforms_pricing')
@@ -302,7 +303,21 @@ export async function recordUniformSale(payload: {
 
   if (!pricing) throw new Error('Pricing not found');
   
-  const unitPrice = pricing.sale_price || 0;
+  let unitPrice = Number(pricing.sale_price) || 0;
+
+  // Verify is_free_for_roles: if employee has an exempt role, make it $0 and record as manager_free
+  if (txType !== 'customer_sale' && pricing.is_free_for_roles && Array.isArray(pricing.is_free_for_roles) && pricing.is_free_for_roles.length > 0) {
+    const jobLower = (payload.employeeJobTitle || '').toLowerCase().trim();
+    const isFree = pricing.is_free_for_roles.some((role: string) => {
+      const rLower = role.toLowerCase().trim();
+      return rLower.length > 0 && jobLower.includes(rLower);
+    });
+
+    if (isFree) {
+      unitPrice = 0;
+      txType = 'manager_free';
+    }
+  }
 
   const { data: stock } = await supabase
     .from('uniforms_inventory_stock')
@@ -312,14 +327,14 @@ export async function recordUniformSale(payload: {
     .eq('size', payload.size)
     .single();
 
-  const prevQty = stock ? stock.quantity_on_hand : 0;
+  const prevQty = Number(stock?.quantity_on_hand ?? 0);
   if (prevQty <= 0) {
     return { success: false, processedQty: 0, warning: 'No stock available' };
   }
 
-  let processedQty = payload.quantity;
+  let processedQty = Number(payload.quantity) || 1;
   let warning = undefined;
-  if (prevQty < payload.quantity) {
+  if (prevQty < processedQty) {
     processedQty = prevQty;
     warning = 'Partial delivery due to insufficient stock';
   }
@@ -327,14 +342,16 @@ export async function recordUniformSale(payload: {
   const newQty = prevQty - processedQty;
   const totalAmount = unitPrice * processedQty;
 
-  await supabase
+  const { error: stockErr } = await supabase
     .from('uniforms_inventory_stock')
     .update({ quantity_on_hand: newQty, updated_at: new Date().toISOString() })
     .eq('store_id', payload.storeId)
     .eq('item_category', payload.item_category)
     .eq('size', payload.size);
 
-  await supabase
+  if (stockErr) throw new Error(stockErr.message);
+
+  const { error: txErr } = await supabase
     .from('uniforms_transactions')
     .insert({
       store_id: payload.storeId,
@@ -353,6 +370,8 @@ export async function recordUniformSale(payload: {
       created_by: payload.userEmail,
       created_at: new Date().toISOString()
     });
+
+  if (txErr) throw new Error(txErr.message);
 
   return { success: true, processedQty, warning };
 }
@@ -389,14 +408,14 @@ export async function recordNewHirePackage(payload: {
       .eq('size', packItem.size)
       .single();
     
-    const prevQty = stock ? stock.quantity_on_hand : 0;
-    let delivered = packItem.requested;
+    const prevQty = Number(stock?.quantity_on_hand ?? 0);
+    let delivered = Number(packItem.requested) || 0;
     let warning = undefined;
     
     if (prevQty <= 0) {
       delivered = 0;
       warning = 'No stock available';
-    } else if (prevQty < packItem.requested) {
+    } else if (prevQty < delivered) {
       delivered = prevQty;
       warning = 'Partial delivery due to insufficient stock';
     }
@@ -404,14 +423,16 @@ export async function recordNewHirePackage(payload: {
     if (delivered > 0) {
       const newQty = prevQty - delivered;
       
-      await supabase
+      const { error: stockErr } = await supabase
         .from('uniforms_inventory_stock')
         .update({ quantity_on_hand: newQty, updated_at: new Date().toISOString() })
         .eq('store_id', payload.storeId)
         .eq('item_category', packItem.item)
         .eq('size', packItem.size);
 
-      await supabase
+      if (stockErr) throw new Error(stockErr.message);
+
+      const { error: txErr } = await supabase
         .from('uniforms_transactions')
         .insert({
           store_id: payload.storeId,
@@ -429,6 +450,8 @@ export async function recordNewHirePackage(payload: {
           created_by: payload.userEmail,
           created_at: new Date().toISOString()
         });
+
+      if (txErr) throw new Error(txErr.message);
     }
 
     results.push({ item: packItem.item, requested: packItem.requested, delivered, warning });
@@ -450,7 +473,7 @@ export async function recordDamageExchange(payload: {
 }): Promise<{success: boolean, warning?: string}> {
   const supabase = await getSupabaseAdminClient();
   const bDate = payload.businessDate || getBusinessDate();
-  const qtyToDeduct = Math.max(1, payload.quantity || 1);
+  const qtyToDeduct = Math.max(1, Number(payload.quantity) || 1);
 
   const { data: stock } = await supabase
     .from('uniforms_inventory_stock')
@@ -460,11 +483,11 @@ export async function recordDamageExchange(payload: {
     .eq('size', payload.size)
     .maybeSingle();
 
-  const prevQty = stock ? stock.quantity_on_hand : 0;
+  const prevQty = Number(stock?.quantity_on_hand ?? 0);
   const newQty = prevQty - qtyToDeduct;
 
   // Upsert to uniforms_inventory_stock to ensure the record exists and updates stock
-  await supabase
+  const { error: stockErr } = await supabase
     .from('uniforms_inventory_stock')
     .upsert({
       store_id: payload.storeId,
@@ -474,7 +497,9 @@ export async function recordDamageExchange(payload: {
       updated_at: new Date().toISOString()
     }, { onConflict: 'store_id, item_category, size' });
 
-  await supabase
+  if (stockErr) throw new Error(stockErr.message);
+
+  const { error: txErr } = await supabase
     .from('uniforms_transactions')
     .insert({
       store_id: payload.storeId,
@@ -493,6 +518,8 @@ export async function recordDamageExchange(payload: {
       created_by: payload.userEmail,
       created_at: new Date().toISOString()
     });
+
+  if (txErr) throw new Error(txErr.message);
 
   let warning: string | undefined = undefined;
   if (prevQty < qtyToDeduct) {
@@ -565,12 +592,13 @@ export async function confirmOrderReception(payload: {
       .update({ status: 'received', updated_at: new Date().toISOString() })
       .eq('id', payload.orderId);
   } else if (payload.estimateNum && payload.estimateNum.trim()) {
+    const safeEst = payload.estimateNum.trim().replace(/[%'(),]/g, '');
     await supabase
       .from('inventory_orders')
       .update({ status: 'received', updated_at: new Date().toISOString() })
       .eq('store_id', payload.storeId)
       .eq('order_type', 'uniforms')
-      .or(`qb_estimate_number.ilike.%${payload.estimateNum.trim()}%,qb_estimate_id.ilike.%${payload.estimateNum.trim()}%`);
+      .or(`qb_estimate_number.ilike.%${safeEst}%,qb_estimate_id.ilike.%${safeEst}%`);
   }
 
   return { success: true };
@@ -687,50 +715,6 @@ export async function fetchDailySalesTotal(storeId: number, businessDate: string
   return (data || []).reduce((sum: number, tx: any) => sum + (tx.total_amount || 0), 0);
 }
 
-function parseUniformCategoryAndSize(itemName: string): { category: string, size: string } {
-  const lower = itemName.toLowerCase().trim();
-  
-  let category = 'shirt_red';
-  if (lower.includes('assistant') || lower.includes('asistente')) {
-    category = 'shirt_assistant';
-  } else if (lower.includes('shift leader') || lower.includes('lider') || lower.includes('líder')) {
-    category = 'shirt_shift_leader';
-  } else if (lower.includes('store manager') || lower.includes('camisa store manager') || lower.includes('manager')) {
-    category = 'shirt_manager';
-  } else if (lower.includes('team member') || lower.includes('team members') || lower.includes('red shirt') || lower.includes('playera roja')) {
-    category = 'shirt_red';
-  } else if (lower.includes('gorra negra') || (lower.includes('cap') && lower.includes('black'))) {
-    category = 'cap_black';
-  } else if (lower.includes('gorra') || lower.includes('cap')) {
-    category = 'cap_red';
-  } else if (lower.includes('chamarra negra') || (lower.includes('jacket') && lower.includes('black'))) {
-    category = 'jacket_black';
-  } else if (lower.includes('chamarra') || lower.includes('jacket')) {
-    category = 'jacket_red';
-  }
-
-  let size = 'M';
-  if (category === 'cap_red' || category === 'cap_black') {
-    size = 'ONE_SIZE';
-  } else if (lower.includes('xxx-large') || lower.includes('3xl') || lower.includes('xxx-l')) {
-    size = '3XL';
-  } else if (lower.includes('xx-large') || lower.includes('2xl') || lower.includes('xx-l')) {
-    size = '2XL';
-  } else if (lower.includes('x-large') || lower.includes('xlarge') || lower.includes(' x-l') || lower.endsWith(' xl')) {
-    size = 'XL';
-  } else if (lower.includes('x-small') || lower.includes('xsmall') || lower.includes('extra small') || lower.includes(' xs') || lower.endsWith(' xs')) {
-    size = 'XS';
-  } else if (lower.includes('large') || lower.endsWith(' l') || lower.includes(' l ')) {
-    size = 'L';
-  } else if (lower.includes('medium') || lower.endsWith(' m') || lower.includes(' m ')) {
-    size = 'M';
-  } else if (lower.includes('small') || lower.endsWith(' s') || lower.includes(' s ')) {
-    size = 'S';
-  }
-
-  return { category, size };
-}
-
 export async function fetchQBEstimateForReception(storeId: number, searchEstimate: string): Promise<{
   found: boolean,
   orderId?: string,
@@ -757,6 +741,7 @@ export async function fetchQBEstimateForReception(storeId: number, searchEstimat
   }
 
   const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(trimmed);
+  const safeEst = trimmed.replace(/[%'(),]/g, '');
 
   // Strictly filter by storeId AND order_type = 'uniforms'
   let orderQuery = supabase
@@ -768,7 +753,7 @@ export async function fetchQBEstimateForReception(storeId: number, searchEstimat
   if (isUuid) {
     orderQuery = orderQuery.eq('id', trimmed);
   } else {
-    orderQuery = orderQuery.or(`qb_estimate_number.ilike.%${trimmed}%,qb_estimate_id.ilike.%${trimmed}%`);
+    orderQuery = orderQuery.or(`qb_estimate_number.ilike.%${safeEst}%,qb_estimate_id.ilike.%${safeEst}%`);
   }
 
   const { data: orders } = await orderQuery.limit(1);
@@ -782,7 +767,7 @@ export async function fetchQBEstimateForReception(storeId: number, searchEstimat
     if (isUuid) {
       otherQuery = otherQuery.eq('id', trimmed);
     } else {
-      otherQuery = otherQuery.or(`qb_estimate_number.ilike.%${trimmed}%,qb_estimate_id.ilike.%${trimmed}%`);
+      otherQuery = otherQuery.or(`qb_estimate_number.ilike.%${safeEst}%,qb_estimate_id.ilike.%${safeEst}%`);
     }
     const { data: otherOrders } = await otherQuery.limit(1);
     if (otherOrders && otherOrders.length > 0) {
@@ -824,8 +809,8 @@ export async function fetchQBEstimateForReception(storeId: number, searchEstimat
 
       return {
         id: String(l.id || idx + 1),
-        category: parsed.category as any,
-        size: parsed.size as any,
+        category: (parsed.category || 'shirt_red') as string,
+        size: parsed.size as string,
         orderedQty: qty,
         receivedQty: qty,
         isMissing: false,
@@ -876,7 +861,8 @@ export async function fetchRecentStoreEstimates(storeId: number): Promise<Array<
 export async function fetchEmployeesForStore(storeId?: number): Promise<Array<{
   id: string,
   name: string,
-  toast_guid: string
+  toast_guid: string,
+  job_title?: string
 }>> {
   const supabase = await getSupabaseAdminClient();
 
@@ -950,8 +936,9 @@ export async function fetchEmployeesForStore(storeId?: number): Promise<Array<{
 
   const uniqueMap = new Map<string, typeof formatted[0]>();
   formatted.forEach(emp => {
-    if (!uniqueMap.has(emp.name)) {
-      uniqueMap.set(emp.name, emp);
+    const key = emp.toast_guid || emp.id || emp.name;
+    if (!uniqueMap.has(key)) {
+      uniqueMap.set(key, emp);
     }
   });
 
@@ -1012,11 +999,11 @@ export async function voidUniformTransaction(payload: {
     .eq('size', tx.size)
     .single();
 
-  const prevStock = stock ? stock.quantity_on_hand : 0;
-  const reverseDelta = -tx.quantity;
+  const prevStock = Number(stock?.quantity_on_hand ?? 0);
+  const reverseDelta = -Number(tx.quantity);
   const newStock = Math.max(0, prevStock + reverseDelta);
 
-  await supabase
+  const { error: stockErr } = await supabase
     .from('uniforms_inventory_stock')
     .upsert({
       store_id: tx.store_id,
@@ -1026,16 +1013,20 @@ export async function voidUniformTransaction(payload: {
       updated_at: new Date().toISOString()
     }, { onConflict: 'store_id, item_category, size' });
 
+  if (stockErr) throw new Error(stockErr.message);
+
   const voidTag = `[ANULADO por ${payload.userEmail}]: ${payload.reason.trim()}`;
   const updatedReason = tx.reason ? `${voidTag} (Original: ${tx.reason})` : voidTag;
 
-  await supabase
+  const { error: txErr } = await supabase
     .from('uniforms_transactions')
     .update({
       reason: updatedReason,
       total_amount: 0,
     })
     .eq('id', payload.transactionId);
+
+  if (txErr) throw new Error(txErr.message);
 
   return { success: true };
 }
@@ -1066,18 +1057,20 @@ export async function updateUniformMinStock(
         .eq('size', item.size)
         .maybeSingle();
 
-      const currentQty = existing ? existing.quantity_on_hand : 0;
+      const currentQty = Number(existing?.quantity_on_hand ?? 0);
 
-      await supabase
+      const { error: stockErr } = await supabase
         .from('uniforms_inventory_stock')
         .upsert({
           store_id: sId,
           item_category: item.item_category,
           size: item.size,
           quantity_on_hand: currentQty,
-          min_stock: Math.max(0, item.min_stock),
+          min_stock: Math.max(0, Number(item.min_stock) || 0),
           updated_at: new Date().toISOString()
         }, { onConflict: 'store_id, item_category, size' });
+
+      if (stockErr) throw new Error(stockErr.message);
     }
   }
 

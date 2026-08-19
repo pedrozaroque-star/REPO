@@ -620,7 +620,7 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
         } finally {
             setLoading(false)
         }
-    }, [project.db_id, project.id, selectedTodoId])
+    }, [project.db_id, project.id, selectedTodoId, selectedTask?.id])
 
     useEffect(() => {
         fetchLists()

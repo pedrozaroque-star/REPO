@@ -159,6 +159,8 @@ const SECTIONS = [
       'BURRITOS',
       'TORTILLAS',
       'TORTAS/QUESADILLAS',
+      'TORTAS/MULITAS',
+      'CUBRIR DESCANSOS (COCINA)',
       'PREPARACION',
       'ACTIVIDADES EXTRA 1',
       'ACTIVIDADES EXTRA 2',
@@ -185,7 +187,7 @@ const SECTIONS = [
     titleKey: 'actividades.daily.section_drivethru',
     color: 'emerald',
     Icon: Car,
-    stations: ['Ventana 1', 'Ventana 2'],
+    stations: ['Ventana 1', 'Ventana 2', 'Ventana 2 (B)', 'TORTAS/QUESADILLAS (DT)', 'TACOS/BURRITOS (DT)', 'CUBRIR DESCANSOS (DT)'],
     collapsible: true,
   },
 ];
@@ -2305,7 +2307,7 @@ export default function AsignacionDiariaTab() {
                             const isBusy = assignments.some(
                               (a) =>
                                 a.assignment_date === formatDateISO(selectedDay) &&
-                                a.sub_position.endsWith(shiftSuffix) &&
+                                a.sub_position?.endsWith(shiftSuffix) &&
                                 String(a.employee_id) === String(e.id)
                             );
                             if (isBusy && String(e.id) !== String(currentEmp?.id)) return null;
@@ -2352,7 +2354,7 @@ export default function AsignacionDiariaTab() {
                                   const isBusy = assignments.some(
                                     (a) =>
                                       a.assignment_date === formatDateISO(selectedDay) &&
-                                      a.sub_position.endsWith(shiftSuffix) &&
+                                      a.sub_position?.endsWith(shiftSuffix) &&
                                       String(a.employee_id) === String(e.id)
                                   );
                                   if (isBusy && String(e.id) !== String(currentEmp?.id)) return null;

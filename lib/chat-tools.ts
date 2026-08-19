@@ -1498,12 +1498,12 @@ async function queryExecutiveUniformsDashboard(args: any): Promise<string> {
   let itemsFree = 0
   
   ;(tx || []).forEach(t => {
-    if (t.transaction_type === 'sale') {
-      totalSales += Number(t.total_price) || 0
-      itemsSold += Number(t.quantity) || 0
-    } else if (t.transaction_type === 'free') {
-      totalFree += Number(t.total_price) || 0
-      itemsFree += Number(t.quantity) || 0
+    if (t.transaction_type === 'employee_sale' || t.transaction_type === 'customer_sale') {
+      totalSales += Number(t.total_amount) || 0
+      itemsSold += Math.abs(Number(t.quantity)) || 0
+    } else if (t.transaction_type === 'new_hire_package' || t.transaction_type === 'manager_free') {
+      totalFree += Number(t.total_amount) || 0
+      itemsFree += Math.abs(Number(t.quantity)) || 0
     }
   })
   

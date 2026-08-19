@@ -90,6 +90,26 @@ function getDayName(): string {
   return days[la.getDay()]
 }
 
+function isFreqMatch(paFrequency: string, dayName: string): boolean {
+  if (!paFrequency) return false
+  const freqLower = paFrequency.toLowerCase()
+  if (freqLower === 'diario') return true
+  const dayNameLower = dayName.toLowerCase()
+  if (freqLower === dayNameLower) return true
+  // Handle multi-day frequencies like 'Jueves y Domingo'
+  const dayVariants: Record<string, string[]> = {
+    'lunes': ['lunes'],
+    'martes': ['martes'],
+    'miercoles': ['miercoles', 'miércoles'],
+    'jueves': ['jueves'],
+    'viernes': ['viernes'],
+    'sabado': ['sabado', 'sábado'],
+    'domingo': ['domingo'],
+  }
+  const variants = dayVariants[dayNameLower] || [dayNameLower]
+  return variants.some(v => freqLower.includes(v))
+}
+
 function formatTime12(timeStr: string): string {
   if (!timeStr) return ''
   const [h, m] = timeStr.split(':').map(Number)
@@ -257,7 +277,7 @@ export default function ChecklistMode({ onClose }: ChecklistModeProps) {
     return procedures
       .filter(p => {
         if (shiftFilter !== 'Todos' && p.shift_type !== shiftFilter) return false
-        if (p.frequency !== 'Diario' && p.frequency !== dayName) return false
+        if (!isFreqMatch(p.frequency, dayName)) return false
         return true
       })
       .sort((a, b) => {
@@ -298,7 +318,7 @@ export default function ChecklistMode({ onClose }: ChecklistModeProps) {
       await supabase.from('checklist_completions').upsert({
         store_id: selectedStore.external_id,
         checklist_date: businessDate,
-        shift_type: shiftFilter === 'Todos' ? 'Todos' : shiftFilter,
+        shift_type: procedures.find(p => p.id === activityId)?.shift_type || shiftFilter,
         activity_id: activityId,
         completed_at: new Date().toISOString(),
         completed_by: String(user?.id || ''),
@@ -598,7 +618,7 @@ export default function ChecklistMode({ onClose }: ChecklistModeProps) {
                 background: '#fff7ed', border: '1px solid #fed7aa',
                 borderRadius: '6px', padding: '2px 8px', textTransform: 'uppercase',
               }}>
-                AHORA
+                {t('actividades.checklist.now')}
               </span>
             )}
             <div style={{ flex: 1, height: '1px', background: isCurrentGroup ? '#fdba74' : '#e2e8f0' }} />

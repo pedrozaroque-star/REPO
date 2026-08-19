@@ -1,12 +1,12 @@
 /**
  * @module safeReconciliationRoute
- * @description API endpoint para obtener el total recolectado de ventas de uniformes por tienda y fecha para cuadrar con la caja.
+ * @description API endpoint para obtener el total recolectado de ventas de uniformes por tienda y fecha para cuadrar con la caja fuerte.
  * @businessRules 
- * - Sólo suma las transacciones de tipo 'employee_sale'.
+ * - Suma las transacciones de tipo 'employee_sale' y 'customer_sale'.
  * - Calcula el total en base a 'total_amount'.
  * - Requiere parámetros query: storeId (número) y businessDate (YYYY-MM-DD).
- * @dataFlow Cliente -> GET API -> Supabase Admin Client -> JSON Response
- * @notes Todas las funciones callback de arrays están tipadas explícitamente.
+ * @dataFlow Cliente / Caja Fuerte -> GET API -> Supabase Admin Client -> JSON Response
+ * @notes Transacciones anuladas tienen total_amount = 0 por lo que no afectan el monto reconciliado.
  */
 
 import { NextResponse } from 'next/server';
