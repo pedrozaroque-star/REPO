@@ -31,29 +31,29 @@ export const CANONICAL_STORE_COORDINATES: Record<string, StoreLocation> = {
     id: 6,
     name: 'Tacos Gavilan LA Central',
     shortName: 'LA Central',
-    address: '4801 S Central Ave',
+    address: '1900 S. Central Ave.',
     city: 'Los Angeles',
     state: 'CA',
     zip_code: '90011',
-    lat: 34.000150,
-    lng: -118.256705
+    lat: 34.023884,
+    lng: -118.250561
   },
   'Tacos Gavilan LA Broadway': {
     id: 5,
     name: 'Tacos Gavilan LA Broadway',
     shortName: 'LA Broadway',
-    address: '4363 S Broadway',
+    address: '4380 S. Broadway',
     city: 'Los Angeles',
     state: 'CA',
     zip_code: '90037',
-    lat: 34.004274,
-    lng: -118.278645
+    lat: 34.004005,
+    lng: -118.278106
   },
   'Tacos Gavilan Slauson': {
     id: 7,
     name: 'Tacos Gavilan Slauson',
     shortName: 'Slauson',
-    address: '200 W Slauson Ave',
+    address: '200 W. Slauson Ave.',
     city: 'Los Angeles',
     state: 'CA',
     zip_code: '90003',
@@ -64,133 +64,133 @@ export const CANONICAL_STORE_COORDINATES: Record<string, StoreLocation> = {
     id: 8,
     name: 'Tacos Gavilan Hollywood',
     shortName: 'Hollywood',
-    address: '7083 Sunset Blvd',
+    address: '7070 Sunset Blvd.',
     city: 'Los Angeles',
     state: 'CA',
     zip_code: '90028',
-    lat: 34.098453,
-    lng: -118.343943
+    lat: 34.097757,
+    lng: -118.343890
   },
   'Tacos Gavilan Huntington Park': {
     id: 11,
     name: 'Tacos Gavilan Huntington Park',
     shortName: 'Huntington Park',
-    address: '2652 Florence Ave',
+    address: '2425 E. Florence Ave.',
     city: 'Huntington Park',
     state: 'CA',
     zip_code: '90255',
-    lat: 33.973780,
-    lng: -118.223654
+    lat: 33.975055,
+    lng: -118.229235
   },
   'Tacos Gavilan Bell': {
     id: 13,
     name: 'Tacos Gavilan Bell',
     shortName: 'Bell',
-    address: '4406 E Florence Ave',
+    address: '4406 E. Florence Ave.',
     city: 'Bell',
     state: 'CA',
     zip_code: '90201',
-    lat: 33.970111,
-    lng: -118.188911
+    lat: 33.970395,
+    lng: -118.188871
   },
   'Tacos Gavilan South Gate': {
     id: 15,
     name: 'Tacos Gavilan South Gate',
     shortName: 'South Gate',
-    address: '8940 Garfield Ave',
+    address: '5800 Firestone Blvd.',
     city: 'South Gate',
     state: 'CA',
     zip_code: '90280',
-    lat: 33.949877,
-    lng: -118.164547
+    lat: 33.948795,
+    lng: -118.164767
   },
   'Tacos Gavilan Downey': {
     id: 16,
     name: 'Tacos Gavilan Downey',
     shortName: 'Downey',
-    address: '12051 Paramount Blvd',
+    address: '7947 E. Florence Ave.',
     city: 'Downey',
     state: 'CA',
     zip_code: '90240',
-    lat: 33.932377,
-    lng: -118.145903
+    lat: 33.953703,
+    lng: -118.130299
   },
   'Tacos Gavilan Lynwood': {
     id: 14,
     name: 'Tacos Gavilan Lynwood',
     shortName: 'Lynwood',
-    address: '3740 E Imperial Hwy',
+    address: '3220 E. Imperial Hwy.',
     city: 'Lynwood',
     state: 'CA',
     zip_code: '90262',
-    lat: 33.931789,
-    lng: -118.197964
+    lat: 33.930001,
+    lng: -118.212320
   },
   'Tacos Gavilan Norwalk': {
     id: 12,
     name: 'Tacos Gavilan Norwalk',
     shortName: 'Norwalk',
-    address: '12539 Rosecrans Ave',
+    address: '10968 Rosecrans Ave.',
     city: 'Norwalk',
     state: 'CA',
     zip_code: '90650',
-    lat: 33.902375,
-    lng: -118.065294
+    lat: 33.901810,
+    lng: -118.100403
   },
   'Tacos Gavilan Santa Ana': {
     id: 9,
     name: 'Tacos Gavilan Santa Ana',
     shortName: 'Santa Ana',
-    address: '801 W 17th St',
+    address: '1258 E. 17th St.',
     city: 'Santa Ana',
     state: 'CA',
     zip_code: '92701',
-    lat: 33.760303,
-    lng: -117.875791
+    lat: 33.759621,
+    lng: -117.852252
   },
   'Tacos Gavilan La Puente': {
     id: 10,
     name: 'Tacos Gavilan La Puente',
     shortName: 'La Puente',
-    address: '13009 Valley Blvd',
+    address: '13009 Valley Blvd.',
     city: 'La Puente',
     state: 'CA',
     zip_code: '91746',
-    lat: 34.053204,
-    lng: -118.001794
+    lat: 34.053251,
+    lng: -118.001777
   },
   'Tacos Gavilan West Covina': {
     id: 3,
     name: 'Tacos Gavilan West Covina',
     shortName: 'West Covina',
-    address: '2330 S Azusa Ave',
+    address: '101 S. Azusa Ave.',
     city: 'West Covina',
     state: 'CA',
     zip_code: '91791',
-    lat: 34.035433,
-    lng: -117.910469
+    lat: 34.070966,
+    lng: -117.908150
   },
   'Tacos Gavilan Azusa': {
     id: 4,
     name: 'Tacos Gavilan Azusa',
     shortName: 'Azusa',
-    address: '122 N Azusa Ave',
+    address: '887 S. Azusa Ave.',
     city: 'Azusa',
     state: 'CA',
     zip_code: '91702',
-    lat: 34.122386,
-    lng: -117.907348
+    lat: 34.107074,
+    lng: -117.908194
   },
   'Tacos Gavilan Rialto': {
     id: 1,
     name: 'Tacos Gavilan Rialto',
     shortName: 'Rialto',
-    address: '240 W Baseline Rd',
+    address: '115 E. Baseline Rd.',
     city: 'Rialto',
     state: 'CA',
     zip_code: '92376',
-    lat: 34.121809,
-    lng: -117.373453
+    lat: 34.121100,
+    lng: -117.370048
   },
   'Bodega Central': {
     name: 'Bodega Central',
