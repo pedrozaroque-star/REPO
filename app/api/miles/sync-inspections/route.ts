@@ -11,24 +11,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseAdminClient } from '@/lib/supabase'
 import { getCaliforniaBusinessDate } from '@/lib/business-date'
-
-const FALLBACK_DISTANCES: Record<string, number> = {
-  'Tacos Gavilan Bell-Tacos Gavilan Downey': 4.70,
-  'Tacos Gavilan Downey-Tacos Gavilan Lynwood': 6.64,
-  'Tacos Gavilan Lynwood-Tacos Gavilan South Gate': 4.00,
-  'Tacos Gavilan Bell-Tacos Gavilan Lynwood': 4.10,
-  'Tacos Gavilan South Gate-Tacos Gavilan Downey': 2.70,
-  'Tacos Gavilan Bell-Tacos Gavilan South Gate': 2.70,
-  'Tacos Gavilan Huntington Park-Tacos Gavilan Bell': 2.90,
-  'Tacos Gavilan LA Central-Tacos Gavilan LA Broadway': 2.90,
-  'Tacos Gavilan LA Central-Tacos Gavilan Slauson': 4.30,
-  'Tacos Gavilan Hollywood-Tacos Gavilan LA Central': 8.50,
-  'Tacos Gavilan Downey-Tacos Gavilan Norwalk': 3.80,
-  'Tacos Gavilan Norwalk-Tacos Gavilan Santa Ana': 14.20,
-  'Tacos Gavilan West Covina-Tacos Gavilan Azusa': 5.20,
-  'Tacos Gavilan West Covina-Tacos Gavilan La Puente': 4.60,
-  'Tacos Gavilan Azusa-Tacos Gavilan Rialto': 34.50,
-}
+import { CANONICAL_STORE_COORDINATES, haversineDistanceMiles } from '@/lib/store-coordinates'
 
 export async function POST(req: NextRequest) {
   try {
@@ -127,7 +110,16 @@ export async function POST(req: NextRequest) {
       // Look up distance
       const key1 = `${originName}-${destName}`
       const key2 = `${destName}-${originName}`
-      const distance = distanceLookup[key1] || distanceLookup[key2] || FALLBACK_DISTANCES[key1] || FALLBACK_DISTANCES[key2] || 4.5
+      let distance = distanceLookup[key1] || distanceLookup[key2]
+      if (!distance || distance <= 0) {
+        const oLoc = CANONICAL_STORE_COORDINATES[originName]
+        const dLoc = CANONICAL_STORE_COORDINATES[destName]
+        if (oLoc && dLoc) {
+          distance = parseFloat((haversineDistanceMiles(oLoc.lat, oLoc.lng, dLoc.lat, dLoc.lng) * 1.33).toFixed(2))
+        } else {
+          distance = 4.5
+        }
+      }
 
       const startTime = new Date(current.created_at).toLocaleTimeString('en-US', {
         timeZone: 'America/Los_Angeles',

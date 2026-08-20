@@ -20,6 +20,7 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { useLanguage } from '@/lib/i18n'
+import { CANONICAL_STORE_COORDINATES } from '@/lib/store-coordinates'
 
 interface RouteMapProps {
   originName: string
@@ -33,11 +34,22 @@ interface StoreCoord {
   address: string
 }
 
+const INITIAL_COORDS: Record<string, StoreCoord> = (() => {
+  const map: Record<string, StoreCoord> = {}
+  Object.entries(CANONICAL_STORE_COORDINATES).forEach(([k, v]) => {
+    map[k] = { lat: v.lat, lng: v.lng, address: `${v.address}, ${v.city}, ${v.state} ${v.zip_code}`.trim() }
+    if (v.shortName && v.shortName !== k) {
+      map[v.shortName] = map[k]
+    }
+  })
+  return map
+})()
+
 export default function RouteMap({ originName, destinationName, distanceMiles }: RouteMapProps) {
   const mapRef = useRef<HTMLDivElement>(null)
   const { t } = useLanguage()
   const [apiKey, setApiKey] = useState<string>('')
-  const [coordinates, setCoordinates] = useState<Record<string, StoreCoord>>({})
+  const [coordinates, setCoordinates] = useState<Record<string, StoreCoord>>(INITIAL_COORDS)
   const [loadingKey, setLoadingKey] = useState(true)
   const [hasError, setHasError] = useState(false)
   const mapInstanceRef = useRef<any>(null)

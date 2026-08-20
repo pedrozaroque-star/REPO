@@ -9,6 +9,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseAdminClient } from '@/lib/supabase'
+import { getCaliforniaDate } from '@/lib/business-date'
 
 export async function GET(req: NextRequest) {
   try {
@@ -91,7 +92,7 @@ export async function GET(req: NextRequest) {
       status: 200,
       headers: {
         'Content-Type': 'text/csv; charset=utf-8',
-        'Content-Disposition': `attachment; filename="MilesIQ_Reporte_Millas_${new Date().toISOString().slice(0, 10)}.csv"`
+        'Content-Disposition': `attachment; filename="MilesIQ_Reporte_Millas_${getCaliforniaDate()}.csv"`
       }
     })
   } catch (err: any) {

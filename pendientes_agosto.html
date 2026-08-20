@@ -864,7 +864,7 @@
                 </svg>
             </div>
             <div>
-                <div class="stat-number" style="color: #e05638;">60.9</div>
+                <div class="stat-number" style="color: #e05638;">63.90</div>
                 <div class="stat-desc">Horas trabajadas</div>
             </div>
         </div>
@@ -2334,6 +2334,33 @@
                                     </div>
                                 </td>
                             </tr>
+                            <tr>
+                                <td><strong>19-Aug-2026</strong></td>
+                                <td>3:00 PM - 5:15 PM</td>
+                            <tr>
+                                <td><strong>20-Aug-2026</strong></td>
+                                <td>6:15 AM - 7:25 AM</td>
+                                <td style="text-align: center; font-weight: 700;">1.15</td>
+                                <td><span class="table-badge-module">Basecamp</span> <span class="table-badge-module">View As (Cards / List)</span> <span class="table-badge-module">Auto-Reconciliación</span> <span class="table-badge-module">Globo Comentarios</span> <span class="table-badge-module">UX</span></td>
+                                <td>
+                                    <div class="lang-split">
+                                         <div class="es-desc">- **Implementación del Menú y Modos de Visualización "View as" (`ToolTodos.tsx`)**: Activación del menú desplegable interactivo contextual con selector entre "Como tarjetas" (*As cards* - por defecto) y "En una lista" (*In a list*). Modo tarjetas estructurado en cuadrícula responsiva con bordes acentuados por color, sombra y padding independientes para cada lista.<br>- **Corrección y Auto-Reconciliación de Tareas Completadas (`/api/basecamp/sync`)**: Diagnóstico y resolución de discrepancia donde tareas completadas en Basecamp seguían activas en el sistema debido a que el self-healing estaba restringido a full syncs. Se habilitó reconciliación automática continua en cada sincronización y se ejecutó script global que corrigió 31 tareas completadas.<br>- **Ampliación de Márgenes y Ancho de Contenedor (`ToolTodos.tsx`, `ToolDocs.tsx`)**: Expansión del ancho máximo de 780px a 1280px (`width: 100%`), permitiendo que las listas de tareas y documentos aprovechen toda la pantalla sin verse comprimidas al centro.<br>- **Escalado Tipográfico y Elementos Visuales (`ToolTodos.tsx`)**: Aumento de tamaño de fuente a 17px/24px para tareas, 25px para encabezados de lista, checkboxes de 20px, avatares de 20px y globos de comentarios de 20px para máxima legibilidad.<br>- **Implementación del Globo Contador de Comentarios en Tareas (`ToolTodos.tsx`)**: Adaptación fiel de la interfaz de Basecamp 3 original con badge circular/píldora azul (`#2D9CDB`) que muestra el conteo exacto de comentarios después del título de la tarea.<br>- **Esquema de Base de Datos y Sincronización de Comentarios (`bc_todos`)**: Adición y migración de la columna `comments_count` en `bc_todos` en Supabase con backfill de conteos existentes cruzando con `bc_comments`, y actualización automática en `create_comment`, `delete_recording` y `/api/basecamp/sync`.</div>
+                                         <div class="en-desc">- **Implementation of "View as" Menu & Card/List Views (`ToolTodos.tsx`)**: Activated the interactive dropdown popover with toggle between "As cards" (default) and "In a list". Cards mode renders a responsive multi-column grid with color-accented top borders, independent card shadows, and spacing for each list.<br>- **Completed Tasks Reconciliation & Self-Healing Fix (`/api/basecamp/sync`)**: Diagnosed and resolved discrepancy where tasks completed in external Basecamp remained active in the portal due to self-healing being gated to full syncs. Enabled continuous automatic reconciliation across all sync passes and executed a global database script fixing 31 completed tasks.<br>- **Container Width & Wide Margin Expansion (`ToolTodos.tsx`, `ToolDocs.tsx`)**: Expanded maximum width constraint from 780px to 1280px (`width: 100%`), unlocking full screen canvas for todo lists and docs without horizontal cramping.<br>- **Typography & Visual Element Scaling (`ToolTodos.tsx`)**: Increased task font size to 17px/24px, list headers to 25px, 20px checkboxes, 20px avatars, and 20px comment badges for superior readability.<br>- **Implementation of Native Comment Count Badge on Todos (`ToolTodos.tsx`)**: Faithful replica of the original Basecamp 3 interface featuring a blue pill/circle badge (`#2D9CDB`) displaying the exact comment count directly after the task title.<br>- **Database Schema & Comment Count Synchronization (`bc_todos`)**: Added and migrated `comments_count` column in Supabase `bc_todos` with backfill across existing `bc_comments`, plus automatic updates on actions and sync.</div>
+                                    </div>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td><strong>20-Aug-2026</strong></td>
+                                <td>2:45 PM - 3:40 PM</td>
+                                <td style="text-align: center; font-weight: 700;">0.90</td>
+                                <td><span class="table-badge-module">MilesIQ</span> <span class="table-badge-module">Tiendas</span> <span class="table-badge-module">GPS & Mapas</span> <span class="table-badge-module">Supabase Coordenadas</span> <span class="table-badge-module">Simulación 50/50</span></td>
+                                <td>
+                                    <div class="lang-split">
+                                         <div class="es-desc">- **Auditoría Exhaustiva de Coordenadas de Tiendas y Sincronización Canónica**: Corrección y geocodificación de alta precisión para las 15 sucursales activas en la tabla `stores` de Supabase, eliminando desvíos históricos de 1 a 4 km en West Covina, LA Central, Downey, Santa Ana y Norwalk.<br>- **Creación de Librería Canónica Centralizada (`lib/store-coordinates.ts`)**: Establecimiento de la fuente única de verdad para coordenadas geográficas, cálculo de distancias Haversine, detección GPS de tienda más cercana y normalización oficial de nombres bajo la marca Tacos Gavilan.<br>- **Población Total de la Matriz de Distancias (`store_distances`)**: Generación y guardado de las 272 rutas punto a punto entre todas las tiendas, Bodega Central y Oficina Corporativa en Supabase calculadas con Google Distance Matrix API y factor de desvío de tráfico de Los Ángeles.<br>- **Unificación de Endpoints y Componentes**: Vinculación de `/api/miles/store-coordinates`, `/api/miles/calculate-distance`, `/api/miles/settings`, `/api/miles/sync-inspections`, `/api/stores`, `TripModal.tsx` y `RouteMap.tsx` a las coordenadas oficiales de la base de datos.<br>- **Simulación y Pruebas Automatizadas (50 de 50 superadas - 100%)**: Creación y ejecución de suite de pruebas (`test_miles_iq_simulation.ts`) validando cruce de coordenadas en DB (< 80m), detección GPS móvil en tiempo real, matriz de distancias, regla 6 AM y cálculos matemáticos al centavo.</div>
+                                         <div class="en-desc">- **Exhaustive Store Coordinates Audit & Canonical Synchronization**: High-precision geocoding and update for all 15 active store branches in Supabase `stores` table, eliminating legacy 1-4 km discrepancies in West Covina, LA Central, Downey, Santa Ana, and Norwalk.<br>- **Centralized Canonical Store Library (`lib/store-coordinates.ts`)**: Established the single source of truth for geographical coordinates, Haversine distance calculations, live GPS closest-store detection, and brand normalization under Tacos Gavilan.<br>- **Full Distance Matrix Population (`store_distances`)**: Generated and upserted all 272 pairwise routes between all stores, Bodega Central, and Corporate Office into Supabase using Google Distance Matrix API with Los Angeles traffic buffer.<br>- **API Endpoints & UI Components Alignment**: Connected `/api/miles/store-coordinates`, `/api/miles/calculate-distance`, `/api/miles/settings`, `/api/miles/sync-inspections`, `/api/stores`, `TripModal.tsx`, and `RouteMap.tsx` directly to database coordinates.<br>- **Automated Simulation Suite (50 of 50 passed - 100%)**: Built and executed automated test script (`test_miles_iq_simulation.ts`) validating DB coordinate accuracy (< 80m), mobile GPS live detection, distance matrix, 6 AM business day rule, and penny-perfect reimbursement math.</div>
+                                    </div>
+                                </td>
+                            </tr>
                         </tbody>
                        </table>
                 </div>
@@ -2398,7 +2425,7 @@
                     </div>
                     <div class="module-summary-item">
                         <span>MilesIQ — Control de Millas Supervisores / Supervisor Mileage</span>
-                        <span class="hours">5.5 hrs</span>
+                        <span class="hours">6.4 hrs</span>
                     </div>
                     <div class="module-summary-item">
                         <span>Caja Fuerte y Reportes / Safe Counts & Reports</span>
