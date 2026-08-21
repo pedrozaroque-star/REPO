@@ -1,0 +1,947 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+  <title>Tacos Gavilan · Radar de Precios (Versión Móvil Ejecutiva)</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@500;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --red: #DA291C;
+      --red-dark: #b31f14;
+      --red-light: #fef2f2;
+      --red-border: #fecaca;
+      --gold: #FFC72C;
+      --emerald: #059669;
+      --emerald-light: #ecfdf5;
+      --emerald-border: #a7f3d0;
+      --blue: #2563eb;
+      --blue-light: #eff6ff;
+      --blue-border: #bfdbfe;
+      --amber: #d97706;
+      --amber-light: #fffbeb;
+      --amber-border: #fde68a;
+      --slate-50: #f8fafc;
+      --slate-100: #f1f5f9;
+      --slate-200: #e2e8f0;
+      --slate-300: #cbd5e1;
+      --slate-400: #94a3b8;
+      --slate-500: #64748b;
+      --slate-600: #475569;
+      --slate-700: #334155;
+      --slate-800: #1e293b;
+      --slate-900: #0f172a;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      background-color: var(--slate-100);
+      color: var(--slate-900);
+      line-height: 1.45;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+
+    /* ─── MOBILE SLIDE (Portrait Viewport) ─── */
+    .mobile-slide {
+      width: 100vw;
+      min-height: 100vh;
+      max-width: 500px;
+      margin: 0 auto;
+      padding: 24px 20px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      background-color: #ffffff;
+      border-bottom: 3px solid var(--slate-300);
+      page-break-after: always;
+      position: relative;
+    }
+
+    /* ─── HEADER ─── */
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding-bottom: 12px;
+      border-bottom: 2px solid var(--slate-200);
+      margin-bottom: 16px;
+    }
+
+    .brand-box {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .logo-badge {
+      background: var(--red);
+      color: #ffffff;
+      font-weight: 900;
+      font-size: 13px;
+      padding: 4px 8px;
+      border-radius: 6px;
+    }
+
+    .brand-name {
+      font-size: 13px;
+      font-weight: 900;
+      color: var(--red);
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+    }
+
+    .sys-name {
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--slate-500);
+    }
+
+    .page-num {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      font-weight: 800;
+      color: var(--slate-600);
+      background: var(--slate-100);
+      border: 1px solid var(--slate-300);
+      padding: 3px 8px;
+      border-radius: 5px;
+    }
+
+    /* ─── TITLE AREA ─── */
+    .title-tag {
+      display: inline-block;
+      font-size: 10px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      color: var(--red);
+      background: var(--red-light);
+      border: 1px solid var(--red-border);
+      padding: 2px 8px;
+      border-radius: 12px;
+      margin-bottom: 4px;
+    }
+
+    .main-title {
+      font-size: 20px;
+      font-weight: 900;
+      color: var(--slate-900);
+      letter-spacing: -0.4px;
+      line-height: 1.25;
+    }
+
+    .sub-title {
+      font-size: 12px;
+      color: var(--slate-600);
+      margin-top: 4px;
+      margin-bottom: 14px;
+      line-height: 1.4;
+    }
+
+    /* ─── CONTENT BODY ─── */
+    .body-content {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 12px;
+    }
+
+    /* ─── CARDS ─── */
+    .m-card {
+      background: #ffffff;
+      border: 1px solid var(--slate-200);
+      border-radius: 10px;
+      padding: 12px 14px;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+    }
+
+    .m-card-red { border-left: 4px solid var(--red); }
+    .m-card-emerald { border-left: 4px solid var(--emerald); }
+    .m-card-blue { border-left: 4px solid var(--blue); }
+    .m-card-amber { border-left: 4px solid var(--amber); }
+
+    .card-title {
+      font-size: 13px;
+      font-weight: 800;
+      color: var(--slate-900);
+      margin-bottom: 4px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .card-text {
+      font-size: 11.5px;
+      color: var(--slate-600);
+      line-height: 1.45;
+    }
+
+    .mono {
+      font-family: 'JetBrains Mono', monospace;
+      font-weight: 700;
+    }
+
+    /* ─── METRIC BOXES ─── */
+    .metric-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .metric-box {
+      background: var(--slate-50);
+      border: 1px solid var(--slate-200);
+      border-radius: 8px;
+      padding: 8px 10px;
+    }
+
+    .metric-label {
+      font-size: 9px;
+      font-weight: 800;
+      text-transform: uppercase;
+      color: var(--slate-500);
+    }
+
+    .metric-val {
+      font-size: 17px;
+      font-weight: 900;
+      font-family: 'JetBrains Mono', monospace;
+      margin-top: 2px;
+    }
+
+    /* ─── BADGES ─── */
+    .badge {
+      display: inline-block;
+      font-size: 9.5px;
+      font-weight: 800;
+      padding: 2px 6px;
+      border-radius: 4px;
+      text-transform: uppercase;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .badge-red { background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; }
+    .badge-green { background: #d1fae5; color: #065f46; border: 1px solid #6ee7b7; }
+    .badge-gray { background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; }
+
+    /* ─── FLOW ITEM ─── */
+    .flow-step-vertical {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      background: var(--slate-50);
+      border: 1px solid var(--slate-200);
+      border-radius: 8px;
+      padding: 10px;
+    }
+
+    .step-num {
+      width: 20px;
+      height: 20px;
+      background: var(--red);
+      color: white;
+      font-size: 10px;
+      font-weight: 900;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    /* ─── FOOTER ─── */
+    .footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding-top: 10px;
+      border-top: 1px solid var(--slate-200);
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--slate-500);
+      margin-top: 12px;
+    }
+
+    /* ─── BUTTONS ─── */
+    .btn-sync {
+      background: var(--emerald);
+      color: white;
+      font-size: 11px;
+      font-weight: 800;
+      padding: 7px 12px;
+      border-radius: 6px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      width: 100%;
+    }
+
+    .btn-approve {
+      background: var(--red);
+      color: white;
+      font-size: 11px;
+      font-weight: 800;
+      padding: 7px 12px;
+      border-radius: 6px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      width: 100%;
+    }
+
+    @media print {
+      body { background: #ffffff; }
+      .mobile-slide {
+        width: 100vw;
+        height: 100vh;
+        min-height: 100vh;
+        max-width: none;
+        border-bottom: none;
+        padding: 24px 20px;
+      }
+      @page {
+        size: portrait;
+        margin: 0;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ════════════════════════════════════════════════════════════════════
+       PÁGINA 1: PORTADA MÓVIL
+  ════════════════════════════════════════════════════════════════════ -->
+  <section class="mobile-slide">
+    <div class="header">
+      <div class="brand-box">
+        <span class="logo-badge">TG</span>
+        <div>
+          <div class="brand-name">Tacos Gavilan</div>
+          <div class="sys-name">SM TEG · Portal Administrativo</div>
+        </div>
+      </div>
+      <span class="page-num">01 / 10</span>
+    </div>
+
+    <div class="body-content" style="text-align: center;">
+      <span class="title-tag">Guía Ejecutiva de Uso</span>
+      <h1 class="main-title" style="font-size: 23px; margin-top: 4px;">
+        Radar de Precios de Proveedores
+      </h1>
+      <p class="sub-title" style="margin-top: 6px;">
+        Detector de aumentos de costos en tiempo real, cálculo de impacto en dinero ($ USD) y actualización automática de platillos para las 15 sucursales.
+      </p>
+
+      <div style="display: flex; flex-direction: column; gap: 8px; text-align: left; margin-top: 8px;">
+        <div class="m-card m-card-red">
+          <div class="card-title">⚡ Consulta en 1 Clic (1.3 seg)</div>
+          <div class="card-text">Revisa los 86 insumos directamente en el portal de Viele & Sons sin capturar nada a mano.</div>
+        </div>
+        <div class="m-card m-card-emerald">
+          <div class="card-title">💵 Impacto en Dinero Real</div>
+          <div class="card-text">Calcula el gasto anual en dólares multiplicando cualquier aumento por el consumo de las 15 tiendas.</div>
+        </div>
+        <div class="m-card m-card-blue">
+          <div class="card-title">🔄 Actualización de Platillos</div>
+          <div class="card-text">Al aprobar un precio, recalcula al instante el costo real de tacos, burritos y combos.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="footer">
+      <span>Tacos Gavilan · Control de Costos</span>
+      <span>Ubicación: <code>/admin/precios-proveedores</code></span>
+    </div>
+  </section>
+
+  <!-- ════════════════════════════════════════════════════════════════════
+       PÁGINA 2: EL TABLERO PRINCIPAL (MÓVIL)
+  ════════════════════════════════════════════════════════════════════ -->
+  <section class="mobile-slide">
+    <div class="header">
+      <div class="brand-box">
+        <span class="logo-badge">TG</span>
+        <div>
+          <div class="brand-name">Tacos Gavilan</div>
+          <div class="sys-name">SM TEG · Pantalla Principal</div>
+        </div>
+      </div>
+      <span class="page-num">02 / 10</span>
+    </div>
+
+    <div class="body-content">
+      <div>
+        <span class="title-tag">Pantalla Principal</span>
+        <h2 class="main-title">El Tablero de Control</h2>
+        <p class="sub-title">4 tarjetas de dinero y 3 pestañas para revisar todo en segundos.</p>
+      </div>
+
+      <div class="m-card" style="background: var(--slate-50);">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+          <span style="font-size: 11.5px; font-weight: bold; color: var(--slate-800);">🏢 Distribuidor: Viele & Sons</span>
+          <span class="badge badge-gray">PROVEEDOR ACTIVO</span>
+        </div>
+        <div class="btn-sync">⚡ Revisar Precios de Hoy (1 Clic)</div>
+      </div>
+
+      <!-- 4 KPIs 2x2 -->
+      <div class="metric-grid">
+        <div class="metric-box">
+          <div class="metric-label">Insumos Monitoreados</div>
+          <div class="metric-val" style="color: var(--slate-900);">87</div>
+          <span style="font-size: 9px; color: var(--slate-500);">Catálogo Viele</span>
+        </div>
+        <div class="metric-box" style="background: var(--red-light); border-color: var(--red-border);">
+          <div class="metric-label" style="color: var(--red);">🔴 Subieron de Precio</div>
+          <div class="metric-val" style="color: var(--red);">1</div>
+          <span style="font-size: 9px; color: var(--red);">Requiere atención</span>
+        </div>
+        <div class="metric-box" style="background: var(--emerald-light); border-color: var(--emerald-border);">
+          <div class="metric-label" style="color: var(--emerald);">🟢 Bajaron de Precio</div>
+          <div class="metric-val" style="color: var(--emerald);">1</div>
+          <span style="font-size: 9px; color: var(--emerald);">Ahorro en compras</span>
+        </div>
+        <div class="metric-box">
+          <div class="metric-label">Gasto Anual Cadena</div>
+          <div class="metric-val" style="color: var(--red); font-size: 14px;">+$37,508</div>
+          <span style="font-size: 9px; color: var(--slate-500);">15 Sucursales</span>
+        </div>
+      </div>
+
+      <!-- 3 Pestañas -->
+      <div style="display: flex; gap: 4px; font-size: 10px;">
+        <div style="flex: 1; background: var(--slate-900); color: white; padding: 6px 4px; border-radius: 6px; text-align: center; font-weight: bold;">📡 Precios en Vivo</div>
+        <div style="flex: 1; background: var(--slate-100); border: 1px solid var(--slate-300); padding: 6px 4px; border-radius: 6px; text-align: center; font-weight: bold; color: var(--slate-700);">📜 Historial</div>
+        <div style="flex: 1; background: var(--slate-100); border: 1px solid var(--slate-300); padding: 6px 4px; border-radius: 6px; text-align: center; font-weight: bold; color: var(--slate-700);">📦 Catálogo</div>
+      </div>
+    </div>
+
+    <div class="footer">
+      <span>Tacos Gavilan · SM TEG</span>
+      <span>02 / 10</span>
+    </div>
+  </section>
+
+  <!-- ════════════════════════════════════════════════════════════════════
+       PÁGINA 3: SINCRONIZACIÓN EN 1 CLIC
+  ════════════════════════════════════════════════════════════════════ -->
+  <section class="mobile-slide">
+    <div class="header">
+      <div class="brand-box">
+        <span class="logo-badge">TG</span>
+        <div>
+          <div class="brand-name">Tacos Gavilan</div>
+          <div class="sys-name">SM TEG · Conexión Directa</div>
+        </div>
+      </div>
+      <span class="page-num">03 / 10</span>
+    </div>
+
+    <div class="body-content">
+      <div>
+        <span class="title-tag">Conexión Directa</span>
+        <h2 class="main-title">Revisión en 1.3 Segundos</h2>
+        <p class="sub-title">¿Qué ocurre al presionar "Revisar Precios de Hoy"?</p>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 8px;">
+        <div class="flow-step-vertical">
+          <div class="step-num">1</div>
+          <div>
+            <strong style="font-size: 11.5px; color: var(--slate-900);">Conexión al Portal del Proveedor</strong>
+            <p class="card-text">El sistema entra de forma segura a Viele & Sons sin necesidad de claves manuales.</p>
+          </div>
+        </div>
+
+        <div class="flow-step-vertical">
+          <div class="step-num">2</div>
+          <div>
+            <strong style="font-size: 11.5px; color: var(--slate-900);">Lectura de los 86 Insumos</strong>
+            <p class="card-text">Extrae los precios vigentes de hoy para vasos, platos, salseros y químicos.</p>
+          </div>
+        </div>
+
+        <div class="flow-step-vertical">
+          <div class="step-num">3</div>
+          <div>
+            <strong style="font-size: 11.5px; color: var(--slate-900);">Comparación contra Costo Oficial</strong>
+            <p class="card-text">Compara cada insumo contra su precio base oficial (Diciembre 2025).</p>
+          </div>
+        </div>
+
+        <div class="flow-step-vertical">
+          <div class="step-num">4</div>
+          <div>
+            <strong style="font-size: 11.5px; color: var(--slate-900);">Cálculo de Impacto en 15 Tiendas</strong>
+            <p class="card-text">Multiplica la diferencia por las cajas que compran todas las tiendas al año.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="m-card m-card-emerald" style="background: var(--emerald-light); margin-top: 4px;">
+        <strong style="font-size: 11px; color: var(--emerald);">✓ Sin Archivos de Excel</strong>
+        <div class="card-text" style="color: var(--slate-700);">Todo el proceso es 100% automático y en pantalla.</div>
+      </div>
+    </div>
+
+    <div class="footer">
+      <span>Tacos Gavilan · Conexión Viele & Sons</span>
+      <span>03 / 10</span>
+    </div>
+  </section>
+
+  <!-- ════════════════════════════════════════════════════════════════════
+       PÁGINA 4: PESTAÑA 1 - PRECIOS EN VIVO
+  ════════════════════════════════════════════════════════════════════ -->
+  <section class="mobile-slide">
+    <div class="header">
+      <div class="brand-box">
+        <span class="logo-badge">TG</span>
+        <div>
+          <div class="brand-name">Tacos Gavilan</div>
+          <div class="sys-name">SM TEG · Precios en Vivo</div>
+        </div>
+      </div>
+      <span class="page-num">04 / 10</span>
+    </div>
+
+    <div class="body-content">
+      <div>
+        <span class="title-tag">Pestaña 1</span>
+        <h2 class="main-title">Semáforo de Insumos</h2>
+        <p class="sub-title">Código de color para identificar cambios de costo al instante.</p>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 8px;">
+        <!-- Insumo Aumento -->
+        <div class="m-card m-card-red" style="background: #fffafa;">
+          <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+            <div>
+              <span class="mono" style="color: var(--blue); font-size: 11px;">EP9PR</span>
+              <div style="font-size: 11.5px; font-weight: 800; color: var(--slate-900);">Plato Térmico 9" 3/COMP (500 pzas)</div>
+            </div>
+            <span class="badge badge-red">AUMENTO</span>
+          </div>
+          <div style="display: flex; justify-content: space-between; margin-top: 6px; font-size: 11px;">
+            <span>Antes: $29.98 ➔ <strong style="color: var(--red);">$34.50</strong></span>
+            <span class="mono" style="color: var(--red); font-weight: bold;">+$39,668 / año</span>
+          </div>
+        </div>
+
+        <!-- Insumo Sin Cambio -->
+        <div class="m-card">
+          <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+            <div>
+              <span class="mono" style="color: var(--blue); font-size: 11px;">ELDP32</span>
+              <div style="font-size: 11.5px; font-weight: 800; color: var(--slate-900);">Vaso 32 oz Gavilan (500 pzas)</div>
+            </div>
+            <span class="badge badge-gray">VIGENTE</span>
+          </div>
+          <div style="display: flex; justify-content: space-between; margin-top: 6px; font-size: 11px;">
+            <span>Antes: $52.40 ➔ <strong>$52.40</strong></span>
+            <span class="mono" style="color: var(--slate-400);">$0.00 (Sin cambio)</span>
+          </div>
+        </div>
+
+        <!-- Insumo Rebaja -->
+        <div class="m-card m-card-emerald" style="background: #f8fdfb;">
+          <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+            <div>
+              <span class="mono" style="color: var(--blue); font-size: 11px;">IC4FLCL</span>
+              <div style="font-size: 11.5px; font-weight: 800; color: var(--slate-900);">Químico Limpiador de Piso (4 gal)</div>
+            </div>
+            <span class="badge badge-green">REDUCCIÓN</span>
+          </div>
+          <div style="display: flex; justify-content: space-between; margin-top: 6px; font-size: 11px;">
+            <span>Antes: $42.50 ➔ <strong style="color: var(--emerald);">$39.50</strong></span>
+            <span class="mono" style="color: var(--emerald); font-weight: bold;">-$2,160 / año</span>
+          </div>
+        </div>
+      </div>
+
+      <div style="display: flex; gap: 4px; font-size: 9.5px; margin-top: 4px;">
+        <span style="background: var(--slate-200); padding: 4px 8px; border-radius: 4px; font-weight: bold;">Todos (87)</span>
+        <span style="background: var(--red-light); color: var(--red); padding: 4px 8px; border-radius: 4px; font-weight: bold;">🔴 Solo Aumentos (1)</span>
+        <span style="background: var(--emerald-light); color: var(--emerald); padding: 4px 8px; border-radius: 4px; font-weight: bold;">🟢 Rebajas (1)</span>
+      </div>
+    </div>
+
+    <div class="footer">
+      <span>Tacos Gavilan · Semáforo de Precios</span>
+      <span>04 / 10</span>
+    </div>
+  </section>
+
+  <!-- ════════════════════════════════════════════════════════════════════
+       PÁGINA 5: EJEMPLO REAL (PASO 1: DETECCIÓN)
+  ════════════════════════════════════════════════════════════════════ -->
+  <section class="mobile-slide">
+    <div class="header">
+      <div class="brand-box">
+        <span class="logo-badge">TG</span>
+        <div>
+          <div class="brand-name">Tacos Gavilan</div>
+          <div class="sys-name">SM TEG · Ejemplo Real</div>
+        </div>
+      </div>
+      <span class="page-num">05 / 10</span>
+    </div>
+
+    <div class="body-content">
+      <div>
+        <span class="title-tag">Ejemplo Paso a Paso</span>
+        <h2 class="main-title">Paso 1: Detección del Aumento</h2>
+        <p class="sub-title">Caso real: Subida en Plato Térmico 9" (Código EP9PR).</p>
+      </div>
+
+      <div class="m-card m-card-red">
+        <div class="card-title">📦 Datos del Plato Térmico</div>
+        <div style="display: flex; flex-direction: column; gap: 6px; font-size: 11px; margin-top: 6px;">
+          <div style="display: flex; justify-content: space-between; padding: 4px 8px; background: var(--slate-50); border-radius: 4px;">
+            <span>Código: <strong class="mono" style="color: var(--blue);">EP9PR</strong></span>
+            <span>Caja con 500 platos</span>
+          </div>
+          <div style="display: flex; justify-content: space-between; padding: 4px 8px; background: var(--slate-50); border-radius: 4px;">
+            <span>Precio Anterior:</span>
+            <span class="mono" style="color: var(--slate-600);">$29.98 por caja</span>
+          </div>
+          <div style="display: flex; justify-content: space-between; padding: 4px 8px; background: var(--red-light); border-radius: 4px; border: 1px solid var(--red-border);">
+            <span>Precio Detectado Hoy:</span>
+            <span class="mono" style="color: var(--red); font-weight: 900;">$34.50 por caja</span>
+          </div>
+          <div style="display: flex; justify-content: space-between; padding: 4px 8px; background: var(--slate-50); border-radius: 4px;">
+            <span>Aumento por Caja:</span>
+            <span class="mono" style="color: var(--red); font-weight: bold;">+$4.52 (+15.08%)</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="m-card m-card-red" style="background: #fffafa;">
+        <div class="card-title" style="color: var(--red);">💵 Gasto Anual en las 15 Tiendas</div>
+        <div style="font-size: 11px; color: var(--slate-700); margin-top: 4px;">
+          Consumo de la cadena: <strong>8,776 cajas al año</strong>
+        </div>
+        <div class="mono" style="font-size: 15px; color: var(--red); font-weight: 900; margin: 4px 0;">
+          +$39,667.52 USD / año
+        </div>
+        <div class="card-text" style="font-size: 10.5px;">
+          El sistema avisa de inmediato que este aumento le costará a Tacos Gavilan casi <strong>$40,000 dólares al año</strong> si no se actúa.
+        </div>
+      </div>
+    </div>
+
+    <div class="footer">
+      <span>Tacos Gavilan · Detección de Inflación</span>
+      <span>05 / 10</span>
+    </div>
+  </section>
+
+  <!-- ════════════════════════════════════════════════════════════════════
+       PÁGINA 6: EJEMPLO REAL (PASO 2: SELECCIÓN Y CONFIRMACIÓN)
+  ════════════════════════════════════════════════════════════════════ -->
+  <section class="mobile-slide">
+    <div class="header">
+      <div class="brand-box">
+        <span class="logo-badge">TG</span>
+        <div>
+          <div class="brand-name">Tacos Gavilan</div>
+          <div class="sys-name">SM TEG · Selección y Modal</div>
+        </div>
+      </div>
+      <span class="page-num">06 / 10</span>
+    </div>
+
+    <div class="body-content">
+      <div>
+        <span class="title-tag">Ejemplo Paso a Paso</span>
+        <h2 class="main-title">Paso 2: Selección y Advertencia</h2>
+        <p class="sub-title">Aprobación selectiva con confirmación de impacto en dinero.</p>
+      </div>
+
+      <div class="m-card m-card-blue">
+        <div class="card-title">1. Selección con Casilla (Checkbox)</div>
+        <div class="card-text">Se marca la casilla del plato EP9PR y se activa el botón de aplicar:</div>
+        <div style="margin-top: 8px;">
+          <div class="btn-approve">✓ Aplicar Precios Seleccionados (1)</div>
+        </div>
+      </div>
+
+      <!-- Modal Móvil -->
+      <div style="background: white; border: 2px solid var(--slate-300); border-radius: 10px; padding: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1);">
+        <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 6px;">
+          <span style="background: var(--amber-light); color: var(--amber); padding: 2px 6px; border-radius: 4px; font-size: 12px;">⚠️</span>
+          <strong style="font-size: 12.5px; color: var(--slate-900);">Ventana de Confirmación</strong>
+        </div>
+        <div class="card-text" style="font-size: 11px; margin-bottom: 8px;">
+          Estás por actualizar <strong>1 insumo</strong>. Se actualizarán los costos de compra, el costo de platillos del menú y se guardará el registro.
+        </div>
+        <div style="background: var(--red-light); border: 1px solid var(--red-border); padding: 6px 10px; border-radius: 6px; margin-bottom: 8px;">
+          <span style="font-size: 9px; font-weight: 800; color: var(--red); text-transform: uppercase;">Impacto Anual Estimado:</span>
+          <div class="mono" style="font-size: 13px; font-weight: 900; color: var(--red);">+$39,668 USD / año</div>
+        </div>
+        <div style="display: flex; gap: 6px;">
+          <div style="flex: 1; background: var(--slate-100); border: 1px solid var(--slate-300); padding: 5px; border-radius: 4px; text-align: center; font-size: 10.5px; font-weight: bold; color: var(--slate-700);">Cancelar</div>
+          <div style="flex: 1; background: var(--emerald); color: white; padding: 5px; border-radius: 4px; text-align: center; font-size: 10.5px; font-weight: bold;">Sí, Aplicar Precios</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="footer">
+      <span>Tacos Gavilan · Confirmación Segura</span>
+      <span>06 / 10</span>
+    </div>
+  </section>
+
+  <!-- ════════════════════════════════════════════════════════════════════
+       PÁGINA 7: EJEMPLO REAL (PASO 3: CASCADA A RECETAS)
+  ════════════════════════════════════════════════════════════════════ -->
+  <section class="mobile-slide">
+    <div class="header">
+      <div class="brand-box">
+        <span class="logo-badge">TG</span>
+        <div>
+          <div class="brand-name">Tacos Gavilan</div>
+          <div class="sys-name">SM TEG · Cascada a Platillos</div>
+        </div>
+      </div>
+      <span class="page-num">07 / 10</span>
+    </div>
+
+    <div class="body-content">
+      <div>
+        <span class="title-tag">Ejemplo Paso a Paso</span>
+        <h2 class="main-title">Paso 3: Actualización en Cadena</h2>
+        <p class="sub-title">Las 3 acciones automáticas al presionar "Sí, Aplicar Precios".</p>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 8px;">
+        <div class="m-card m-card-blue">
+          <div class="card-title">1. Calcula el Costo por Plato Individual</div>
+          <div class="card-text">
+            Divide el precio entre 500 platos:<br>
+            <span class="mono" style="font-size: 12px; color: var(--slate-900); font-weight: bold;">$34.50 / 500 = $0.0690 por plato</span><br>
+            Actualiza el costo en el inventario.
+          </div>
+        </div>
+
+        <div class="m-card m-card-red">
+          <div class="card-title">2. Guarda la Fecha Exacta del Cambio</div>
+          <div class="card-text">
+            Guarda el registro histórico para que los reportes de meses pasados mantengan sus números originales sin alterarse.
+          </div>
+        </div>
+
+        <div class="m-card m-card-emerald">
+          <div class="card-title">3. Recalcula el Costo de Platillos del Menú</div>
+          <div class="card-text">
+            Actualiza al instante el costo real de combos de tacos, burritos y charolas en las 15 tiendas.
+          </div>
+        </div>
+      </div>
+
+      <div style="background: var(--emerald-light); border: 1px solid var(--emerald-border); border-radius: 8px; padding: 8px 10px; font-size: 10.5px; color: var(--emerald);">
+        ✓ <strong>Listo:</strong> El radar se limpia y te muestra la pestaña de <strong>Historial</strong> con el nuevo registro.
+      </div>
+    </div>
+
+    <div class="footer">
+      <span>Tacos Gavilan · Actualización de Costos</span>
+      <span>07 / 10</span>
+    </div>
+  </section>
+
+  <!-- ════════════════════════════════════════════════════════════════════
+       PÁGINA 8: PESTAÑA 2 - HISTORIAL DE CAMBIOS
+  ════════════════════════════════════════════════════════════════════ -->
+  <section class="mobile-slide">
+    <div class="header">
+      <div class="brand-box">
+        <span class="logo-badge">TG</span>
+        <div>
+          <div class="brand-name">Tacos Gavilan</div>
+          <div class="sys-name">SM TEG · Bitácora Histórica</div>
+        </div>
+      </div>
+      <span class="page-num">08 / 10</span>
+    </div>
+
+    <div class="body-content">
+      <div>
+        <span class="title-tag">Pestaña 2</span>
+        <h2 class="main-title">Historial de Cambios</h2>
+        <p class="sub-title">Libro de registro de cada precio aprobado para control contable.</p>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 8px;">
+        <div class="m-card m-card-red">
+          <div style="display: flex; justify-content: space-between; font-size: 10px; color: var(--slate-500);">
+            <span class="mono">21-Ago-2026 11:30 AM</span>
+            <span class="badge badge-gray">REVISIÓN EN VIVO</span>
+          </div>
+          <div style="font-size: 11.5px; font-weight: bold; color: var(--slate-900); margin-top: 2px;">
+            EP9PR — Plato Térmico 9" 3/COMP
+          </div>
+          <div style="display: flex; justify-content: space-between; font-size: 11px; margin-top: 4px;">
+            <span>$29.98 ➔ <strong style="color: var(--red);">$34.50</strong></span>
+            <span class="mono" style="color: var(--red); font-weight: bold;">+15.08% (+$39.6k/año)</span>
+          </div>
+        </div>
+
+        <div class="m-card m-card-emerald">
+          <div style="display: flex; justify-content: space-between; font-size: 10px; color: var(--slate-500);">
+            <span class="mono">15-Ago-2026 09:15 AM</span>
+            <span class="badge badge-gray">REVISIÓN EN VIVO</span>
+          </div>
+          <div style="font-size: 11.5px; font-weight: bold; color: var(--slate-900); margin-top: 2px;">
+            IC4FLCL — Químico Piso Lemon (4 gal)
+          </div>
+          <div style="display: flex; justify-content: space-between; font-size: 11px; margin-top: 4px;">
+            <span>$42.50 ➔ <strong style="color: var(--emerald);">$39.50</strong></span>
+            <span class="mono" style="color: var(--emerald); font-weight: bold;">-7.06% (-$2.1k/año)</span>
+          </div>
+        </div>
+
+        <div class="m-card m-card-red">
+          <div style="display: flex; justify-content: space-between; font-size: 10px; color: var(--slate-500);">
+            <span class="mono">01-Ago-2026 06:00 AM</span>
+            <span class="badge badge-gray">REVISIÓN AUTOMÁTICA</span>
+          </div>
+          <div style="font-size: 11.5px; font-weight: bold; color: var(--slate-900); margin-top: 2px;">
+            BCLCO — Coca-Cola Clásica BIB 5 gal
+          </div>
+          <div style="display: flex; justify-content: space-between; font-size: 11px; margin-top: 4px;">
+            <span>$114.50 ➔ <strong>$118.32</strong></span>
+            <span class="mono" style="color: var(--red); font-weight: bold;">+3.34% (+$4.5k/año)</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="footer">
+      <span>Tacos Gavilan · Auditoría Permanente</span>
+      <span>08 / 10</span>
+    </div>
+  </section>
+
+  <!-- ════════════════════════════════════════════════════════════════════
+       PÁGINA 9: PESTAÑA 3 - CATÁLOGO Y EMPAQUES
+  ════════════════════════════════════════════════════════════════════ -->
+  <section class="mobile-slide">
+    <div class="header">
+      <div class="brand-box">
+        <span class="logo-badge">TG</span>
+        <div>
+          <div class="brand-name">Tacos Gavilan</div>
+          <div class="sys-name">SM TEG · Catálogo y Empaques</div>
+        </div>
+      </div>
+      <span class="page-num">09 / 10</span>
+    </div>
+
+    <div class="body-content">
+      <div>
+        <span class="title-tag">Pestaña 3</span>
+        <h2 class="main-title">Catálogo y Presentaciones</h2>
+        <p class="sub-title">Conversión de cajas a piezas y registro de nuevos proveedores.</p>
+      </div>
+
+      <div class="m-card m-card-blue">
+        <div class="card-title">📦 Conversión de Cajas a Piezas</div>
+        <div style="display: flex; flex-direction: column; gap: 5px; font-size: 10.5px; margin-top: 4px;">
+          <div style="background: var(--slate-50); padding: 5px 8px; border-radius: 4px; display: flex; justify-content: space-between;">
+            <span>Plato EP9PR:</span>
+            <span class="mono">1 Caja = 500 pzas ($0.0690 / pza)</span>
+          </div>
+          <div style="background: var(--slate-50); padding: 5px 8px; border-radius: 4px; display: flex; justify-content: space-between;">
+            <span>Vaso ELDP32:</span>
+            <span class="mono">1 Caja = 500 pzas ($0.1048 / pza)</span>
+          </div>
+          <div style="background: var(--slate-50); padding: 5px 8px; border-radius: 4px; display: flex; justify-content: space-between;">
+            <span>Químico IC4FLCL:</span>
+            <span class="mono">1 Caja = 4 galones ($9.875 / gal)</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="m-card m-card-emerald">
+        <div class="card-title">🏢 Alta de Nuevos Proveedores (Botón '+')</div>
+        <div class="card-text" style="font-size: 11px;">
+          Permite agregar en segundos a distribuidores futuros como <strong>Sysco, US Foods, Shamrock</strong> o proveedores de carne y verduras.
+        </div>
+      </div>
+    </div>
+
+    <div class="footer">
+      <span>Tacos Gavilan · Mapeo de Empaques</span>
+      <span>09 / 10</span>
+    </div>
+  </section>
+
+  <!-- ════════════════════════════════════════════════════════════════════
+       PÁGINA 10: AUTOMATIZACIÓN 24/7 Y CONCLUSIONES
+  ════════════════════════════════════════════════════════════════════ -->
+  <section class="mobile-slide">
+    <div class="header">
+      <div class="brand-box">
+        <span class="logo-badge">TG</span>
+        <div>
+          <div class="brand-name">Tacos Gavilan</div>
+          <div class="sys-name">SM TEG · Operación Continua</div>
+        </div>
+      </div>
+      <span class="page-num">10 / 10</span>
+    </div>
+
+    <div class="body-content">
+      <div>
+        <span class="title-tag">Vigilancia Continua</span>
+        <h2 class="main-title">Revisión Automática de Lunes</h2>
+        <p class="sub-title">Vigilancia de precios programada y respaldo de emergencia.</p>
+      </div>
+
+      <div class="m-card m-card-emerald">
+        <div class="card-title">⏰ Robot de Revisión de Lunes (6:00 AM)</div>
+        <div class="card-text" style="font-size: 11px;">
+          Todos los lunes a las 6:00 AM, antes de abrir tiendas, el sistema revisa solo los precios de Viele & Sons y solo avisa si hubo aumentos reales.
+        </div>
+      </div>
+
+      <div class="m-card m-card-red" style="background: #fffafa;">
+        <div class="card-title" style="color: var(--red);">📧 Alerta Inmediata por Correo</div>
+        <div class="card-text" style="font-size: 11px;">
+          Al detectar aumentos, el sistema despacha un correo a <strong>Roberto, Raquel, Gonzalo y Carlos</strong> con el impacto en dinero ($ USD) y tabla de productos.
+        </div>
+      </div>
+      <div class="m-card m-card-amber">
+        <div class="card-title">📁 Cajón de Emergencia (Al pie de página)</div>
+        <div class="card-text" style="font-size: 11px;">
+          Acordeón cerrado al final de la pantalla para pegar texto copiado con <code>Ctrl+V</code> o subir cotizaciones en archivo si no hay internet en el portal.
+        </div>
+      </div>
+
+      <div style="background: var(--slate-900); color: white; border-radius: 8px; padding: 12px; text-align: center; border-left: 4px solid var(--gold);">
+        <div style="font-size: 12px; font-weight: 800; color: #ffffff;">
+          Módulo Operativo en <code>/admin/precios-proveedores</code>
+        </div>
+        <div style="font-size: 10px; color: var(--slate-400); margin-top: 2px;">
+          Tacos Gavilan · Verificado y listo para uso gerencial diario.
+        </div>
+      </div>
+    </div>
+
+    <div class="footer">
+      <span>Tacos Gavilan · SM TEG Mobile</span>
+      <span>10 / 10</span>
+    </div>
+  </section>
+
+</body>
+</html>

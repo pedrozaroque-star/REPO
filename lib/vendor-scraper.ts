@@ -197,8 +197,8 @@ export async function syncVielePortalDirect(
   password?: string
 ): Promise<VendorSyncResult> {
   const startTime = Date.now()
-  const user = username || process.env.VIELE_PORTAL_USER
-  const pass = password || process.env.VIELE_PORTAL_PASS
+  const user = username || process.env.VIELE_PORTAL_USER || 'lynwood@tacosgavilan.com'
+  const pass = password || process.env.VIELE_PORTAL_PASS || 'teg562'
   if (!user || !pass) {
     return {
       success: false, items: [], totalItems: 0,

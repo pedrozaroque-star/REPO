@@ -30,7 +30,7 @@ import {
   TrendingUp, AlertTriangle, CheckCircle2, ArrowUpRight, ArrowDownRight,
   ClipboardPaste, UploadCloud, RefreshCw, Layers,
   Search, Calculator, Sparkles, Building2,
-  FileSpreadsheet, Check, AlertCircle, Plus, ChevronDown, ChevronUp
+  FileSpreadsheet, Check, AlertCircle, Plus, ChevronDown, ChevronUp, Mail
 } from 'lucide-react'
 import { useLanguage } from '@/lib/i18n'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -133,6 +133,7 @@ export default function SupplierPricesPage() {
   // Selección para aprobación
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set())
   const [showApproveConfirm, setShowApproveConfirm] = useState(false)
+  const [isSendingEmail, setIsSendingEmail] = useState<boolean>(false)
 
   // Cajón colapsable para métodos manuales (Pegar / Subir archivo)
   const [showManualIngestion, setShowManualIngestion] = useState(false)
@@ -483,6 +484,62 @@ export default function SupplierPricesPage() {
 
   const activeSupplier = suppliers.find(s => s.id === selectedSupplierId)
 
+  // Disparo manual de alerta por correo a directivos
+  const handleSendEmailAlert = async () => {
+    const increases = radarItems.filter(i => i.status === 'increased')
+    if (increases.length === 0) {
+      setErrorMessage(language === 'en' ? 'No price increases detected to notify.' : 'No se detectaron aumentos de precio para notificar.')
+      return
+    }
+
+    try {
+      setIsSendingEmail(true)
+      setErrorMessage(null)
+
+      const payloadIncreases = increases.map(i => ({
+        supplierSku: i.supplierSku,
+        description: i.masterItemName || i.description,
+        packUnit: i.packUnit,
+        packQuantity: i.packQuantity,
+        previousCasePrice: i.currentCasePrice,
+        newCasePrice: i.newCasePrice,
+        diffAmount: i.diffAmount,
+        changePercent: i.changePercent,
+        annualVolume: i.annualEstimatedCases || ESTIMATED_ANNUAL_VOLUMES[i.supplierSku] || DEFAULT_ANNUAL_VOLUME,
+        annualImpactUsd: i.annualImpactUsd
+      }))
+
+      const netAnnual = payloadIncreases.reduce((sum, item) => sum + item.annualImpactUsd, 0)
+
+      const res = await fetch('/api/inventory/supplier-prices/notify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          supplierName: activeSupplier?.name || 'Viele & Sons',
+          supplierCode: activeSupplier?.supplier_code || 'VIELE',
+          increases: payloadIncreases,
+          netAnnualImpactUsd: netAnnual
+        })
+      })
+
+      const json = await res.json()
+      if (!res.ok || !json.success) {
+        throw new Error(json.error || 'Error al enviar correo de alerta')
+      }
+
+      setSuccessMessage(
+        language === 'en'
+          ? `Price alert email sent successfully to ${json.recipients?.join(', ')}`
+          : `Alerta por correo enviada con éxito a Roberto, Raquel, Gonzalo y Carlos.`
+      )
+    } catch (err: any) {
+      console.error('Error sending price alert email:', err)
+      setErrorMessage(err?.message || (language === 'en' ? 'Failed to send alert email' : 'Error al enviar alerta por correo'))
+    } finally {
+      setIsSendingEmail(false)
+    }
+  }
+
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 p-4 sm:p-6 lg:p-8">
       <div className="max-w-7xl mx-auto space-y-6">
@@ -802,6 +859,28 @@ export default function SupplierPricesPage() {
                       className="w-full pl-9 pr-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-900 dark:text-white focus:outline-none focus:border-red-500 font-medium"
                     />
                   </div>
+
+                  {/* Botón de Enviar Alerta por Correo a Directivos */}
+                  {radarItems.some(i => i.status === 'increased') && (
+                    <button
+                      onClick={handleSendEmailAlert}
+                      disabled={isSendingEmail}
+                      className="flex items-center gap-2 px-4 py-2 bg-red-50 hover:bg-red-100 dark:bg-red-950/40 dark:hover:bg-red-900/60 border border-red-200 dark:border-red-800/60 text-red-700 dark:text-red-300 rounded-xl text-xs font-bold shadow-xs transition-all shrink-0 cursor-pointer disabled:opacity-50"
+                      title={language === 'en' ? 'Send email alert to Roberto, Raquel, Gonzalo & Carlos' : 'Enviar alerta por correo a Roberto, Raquel, Gonzalo y Carlos'}
+                    >
+                      {isSendingEmail ? (
+                        <>
+                          <RefreshCw size={14} className="animate-spin text-red-600 dark:text-red-400" />
+                          <span>{language === 'en' ? 'Sending...' : 'Enviando Alerta...'}</span>
+                        </>
+                      ) : (
+                        <>
+                          <Mail size={15} className="text-red-600 dark:text-red-400" />
+                          <span>{language === 'en' ? 'Email Executives (4)' : '📧 Notificar a Directivos (4)'}</span>
+                        </>
+                      )}
+                    </button>
+                  )}
 
                   {/* Botón de Aprobar Precios */}
                   <button

@@ -21,6 +21,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseAdminClient } from '@/lib/supabase'
 import { syncVielePortalDirect } from '@/lib/vendor-scraper'
 import { ESTIMATED_ANNUAL_VOLUMES, DEFAULT_ANNUAL_VOLUME } from '@/lib/constants/supplier-volumes'
+import { sendSupplierPriceAlertEmail, PriceIncreaseItem } from '@/lib/supplier-price-email'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -112,6 +113,7 @@ async function handleSync(request: NextRequest) {
     let totalSkippedDuplicates = 0
     let netAnnualImpactUsd = 0
     const historyInserts: any[] = []
+    const increasesForEmail: PriceIncreaseItem[] = []
     const todayStr = new Date().toISOString().split('T')[0]
 
     for (const parsed of scrapeResult.items) {
@@ -138,7 +140,21 @@ async function handleSync(request: NextRequest) {
       } else if (diffAmount > 0.009) {
         totalIncreases++
         const annualVol = ESTIMATED_ANNUAL_VOLUMES[parsed.supplierSku] || DEFAULT_ANNUAL_VOLUME
-        netAnnualImpactUsd += diffAmount * annualVol
+        const annualImpact = diffAmount * annualVol
+        netAnnualImpactUsd += annualImpact
+
+        increasesForEmail.push({
+          supplierSku: parsed.supplierSku,
+          description: mapping?.supplier_description || parsed.description || masterItem.name,
+          packUnit: mapping?.pack_unit || parsed.packUnit,
+          packQuantity: packQty,
+          previousCasePrice: currentCasePrice,
+          newCasePrice: newCasePrice,
+          diffAmount,
+          changePercent,
+          annualVolume: annualVol,
+          annualImpactUsd: Number(annualImpact.toFixed(2))
+        })
 
         // Idempotencia: no insertar si ya existe un registro cron reciente con el mismo SKU y precio
         const dedupeKey = `${parsed.supplierSku}|${newCasePrice.toFixed(2)}`
@@ -195,8 +211,25 @@ async function handleSync(request: NextRequest) {
       console.log(`[Cron:SyncSupplierPrices] ℹ️ ${totalSkippedDuplicates} variaciones ya registradas previamente, sin duplicados insertados.`)
     }
 
+    // 7. Enviar Alerta por Correo a Directivos si se detectaron aumentos
+    let emailAlertSent = false
+    let emailMessageId: string | undefined
+    if (increasesForEmail.length > 0) {
+      console.log(`[Cron:SyncSupplierPrices] 📧 Enviando alerta de aumentos (${increasesForEmail.length} items) a la directiva...`)
+      const emailResult = await sendSupplierPriceAlertEmail({
+        supplierName: 'Viele & Sons',
+        supplierCode: 'VIELE',
+        detectedAt: new Date(),
+        sourceType: 'cron_auto',
+        increases: increasesForEmail,
+        netAnnualImpactUsd
+      })
+      emailAlertSent = emailResult.success
+      emailMessageId = emailResult.messageId
+    }
+
     const durationMs = Date.now() - startTime
-    console.log(`[Cron:SyncSupplierPrices] ✅ Sincronización completada en ${durationMs}ms: ${scrapeResult.totalItems} items (${totalIncreases} aumentos, ${totalDecreases} reducciones, ${totalUnchanged} sin cambio).`)
+    console.log(`[Cron:SyncSupplierPrices] ✅ Sincronización completada en ${durationMs}ms: ${scrapeResult.totalItems} items (${totalIncreases} aumentos, ${totalDecreases} reducciones, ${totalUnchanged} sin cambio). Email enviado: ${emailAlertSent}`)
 
     return NextResponse.json({
       success: true,
@@ -208,6 +241,8 @@ async function handleSync(request: NextRequest) {
       totalNew,
       netAnnualImpactUsd: Number(netAnnualImpactUsd.toFixed(2)),
       historyRecordsCreated: historyInserts.length,
+      emailAlertSent,
+      emailMessageId,
       durationMs
     })
   } catch (error: any) {
