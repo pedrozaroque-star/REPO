@@ -76,7 +76,14 @@ export async function POST(req: Request) {
                 .eq('id', activity_id)
                 .single()
 
-            const sortOrder = proc?.start_time ? parseInt(proc.start_time.split(':')[0]) * 60 + parseInt(proc.start_time.split(':')[1]) : 0
+            let sortOrder = 0;
+            if (proc?.start_time) {
+                const parts = proc.start_time.split(':');
+                const h = parseInt(parts[0], 10) || 0;
+                const m = parseInt(parts[1], 10) || 0;
+                const effectiveH = h < 6 ? h + 24 : h;
+                sortOrder = effectiveH * 60 + m;
+            }
 
             const { error } = await supabaseAdmin
                 .from('position_activities')

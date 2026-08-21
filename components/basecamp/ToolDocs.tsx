@@ -21,7 +21,7 @@
 
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { useLanguage } from '@/lib/i18n'
 import { FolderOpen, FileText, Plus, FileSpreadsheet, FileDown, Trash2, Upload, Loader2, FileUp, FolderPlus } from 'lucide-react'
 import { getSupabaseWithAuth } from '@/lib/supabase'
@@ -65,6 +65,14 @@ export default function ToolDocs({ project, currentUserName }: ToolDocsProps) {
     const [isUploading, setIsUploading] = useState(false)
     const [uploadProgress, setUploadProgress] = useState(0)
 
+    const isMountedRef = useRef(true)
+    useEffect(() => {
+        isMountedRef.current = true
+        return () => {
+            isMountedRef.current = false
+        }
+    }, [])
+
     // Cargar persona actual de la sesión
     useEffect(() => {
         if (authLoading || !authUser) return
@@ -75,7 +83,9 @@ export default function ToolDocs({ project, currentUserName }: ToolDocsProps) {
                 .eq('email', authUser.email || '')
                 .limit(1)
                 .single()
-            setCurrentPerson(data)
+            if (isMountedRef.current) {
+                setCurrentPerson(data)
+            }
         }
         getPerson()
     }, [authUser, authLoading])
@@ -315,7 +325,7 @@ export default function ToolDocs({ project, currentUserName }: ToolDocsProps) {
                 if (dfVault) targetVaultDbId = dfVault.id
             }
 
-            const tempBcId = Math.floor(Date.now() / 1000)
+            const tempBcId = Date.now() * 1000 + Math.floor(Math.random() * 1000)
             const { error: insertErr } = await supabase
                 .from('bc_uploads')
                 .insert({
@@ -330,16 +340,22 @@ export default function ToolDocs({ project, currentUserName }: ToolDocsProps) {
                 })
 
             if (insertErr) throw insertErr
-            setUploadProgress(100)
+            if (isMountedRef.current) {
+                setUploadProgress(100)
+            }
 
             setTimeout(() => {
-                setIsUploading(false)
-                fetchAllProjectDocsData()
+                if (isMountedRef.current) {
+                    setIsUploading(false)
+                    fetchAllProjectDocsData()
+                }
             }, 500)
         } catch (err: any) {
             console.error('❌ [ToolDocs Upload] Error:', err.message)
-            alert(t('basecamp.file_upload_error') + ': ' + err.message)
-            setIsUploading(false)
+            if (isMountedRef.current) {
+                alert(t('basecamp.file_upload_error') + ': ' + err.message)
+                setIsUploading(false)
+            }
         }
     }
 
@@ -490,7 +506,7 @@ export default function ToolDocs({ project, currentUserName }: ToolDocsProps) {
     }
 
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', flex: 1, maxWidth: '780px', margin: '0 auto', width: '100%', gap: '20px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', flex: 1, maxWidth: '1280px', margin: '0 auto', width: '100%', gap: '20px' }}>
             
             {/* 1. CABECERA CON BREADCRUMBS Y ACCIONES */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3" style={{ borderBottom: '1px solid #E8E6E1', paddingBottom: '12px' }}>

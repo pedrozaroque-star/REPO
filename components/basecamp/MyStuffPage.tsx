@@ -57,31 +57,50 @@ export default function MyStuffPage({ navigateTo, currentUserName }: MyStuffPage
 
                 const personId = person.id
 
-                // 3. Fetch Tasks assigned to this user
-                const { data: tasks, error: tasksErr } = await supabase
-                    .from('bc_todos')
-                    .select(`
-                        id, title, is_completed, updated_at,
-                        project:bc_projects(bc_id, name),
-                        todolist:bc_todolists(name),
-                        bc_todo_assignees!inner(person_id)
-                    `)
-                    .eq('bc_todo_assignees.person_id', personId)
-                    .order('updated_at', { ascending: false })
+                // 3. Parallelize independent queries
+                const [tasksRes, membershipsRes, docsRes, commsRes] = await Promise.all([
+                    supabase
+                        .from('bc_todos')
+                        .select(`
+                            id, title, is_completed, updated_at,
+                            project:bc_projects(bc_id, name),
+                            todolist:bc_todolists(name),
+                            bc_todo_assignees!inner(person_id)
+                        `)
+                        .eq('bc_todo_assignees.person_id', personId)
+                        .order('updated_at', { ascending: false }),
+                    supabase
+                        .from('bc_memberships')
+                        .select('project_id')
+                        .eq('person_id', personId),
+                    supabase
+                        .from('bc_documents')
+                        .select(`
+                            id, title, updated_at,
+                            project:bc_projects(bc_id, name)
+                        `)
+                        .eq('author_person_id', personId)
+                        .order('updated_at', { ascending: false })
+                        .limit(5),
+                    supabase
+                        .from('bc_comments')
+                        .select(`
+                            id, content, created_at, parent_type, parent_id,
+                            project:bc_projects(bc_id, name)
+                        `)
+                        .eq('author_person_id', personId)
+                        .order('created_at', { ascending: false })
+                        .limit(5),
+                ])
 
-                if (tasksErr) throw tasksErr
-                setMyTasks(tasks || [])
+                setMyTasks(tasksRes.data || [])
+                setMyDocs(docsRes.data || [])
+                setMyActivity(commsRes.data || [])
 
                 // 4. Fetch Events in projects the user is a member of
-                const { data: memberships } = await supabase
-                    .from('bc_memberships')
-                    .select('project_id')
-                    .eq('person_id', personId)
-
-                const userProjectIds = memberships?.map(m => m.project_id) || []
-
+                const userProjectIds = membershipsRes.data?.map(m => m.project_id) || []
                 if (userProjectIds.length > 0) {
-                    const { data: events, error: eventsErr } = await supabase
+                    const { data: events } = await supabase
                         .from('bc_schedule_entries')
                         .select(`
                             id, title, starts_at,
@@ -92,37 +111,10 @@ export default function MyStuffPage({ navigateTo, currentUserName }: MyStuffPage
                         .order('starts_at', { ascending: true })
                         .limit(10)
 
-                    if (eventsErr) throw eventsErr
                     setMyEvents(events || [])
+                } else {
+                    setMyEvents([])
                 }
-
-                // 5. Fetch Documents created by this user
-                const { data: docs, error: docsErr } = await supabase
-                    .from('bc_documents')
-                    .select(`
-                        id, title, updated_at,
-                        project:bc_projects(bc_id, name)
-                    `)
-                    .eq('author_person_id', personId)
-                    .order('updated_at', { ascending: false })
-                    .limit(5)
-
-                if (docsErr) throw docsErr
-                setMyDocs(docs || [])
-
-                // 6. Fetch Recent Comments/Activity by this user
-                const { data: comments, error: commsErr } = await supabase
-                    .from('bc_comments')
-                    .select(`
-                        id, content, created_at, parent_type, parent_id,
-                        project:bc_projects(bc_id, name)
-                    `)
-                    .eq('author_person_id', personId)
-                    .order('created_at', { ascending: false })
-                    .limit(5)
-
-                if (commsErr) throw commsErr
-                setMyActivity(comments || [])
 
             } catch (err: any) {
                 console.error('❌ [MyStuffPage Fetch] Error:', err.message)

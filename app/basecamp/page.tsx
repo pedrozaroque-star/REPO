@@ -195,14 +195,26 @@ function BasecampWorkspace() {
     const handleSync = async () => {
         setSyncing(true)
         try {
-            console.log('🔄 Triggering full sync...')
+            console.log('🔄 Triggering sync...')
             const res = await fetch('/api/basecamp/sync', { method: 'POST' })
-            if (!res.ok) throw new Error('Sync endpoint returned error')
+            const data = await res.json().catch(() => ({}))
+            
+            if (res.status === 409) {
+                // A sync was already running in the background — not a failure, just wait and refresh data
+                console.log('⏳ Sync is already running in background, refreshing local data...')
+                await new Promise(r => setTimeout(r, 2000))
+                await checkAuthAndLoadProjects()
+                return
+            }
+
+            if (!res.ok || data.status === 'failed') {
+                throw new Error(data.error || 'Sync endpoint returned error')
+            }
             console.log('✅ Sync completed!')
             await checkAuthAndLoadProjects()
         } catch (err: any) {
             console.error('Sync failed:', err.message)
-            alert('Failed to sync Basecamp data: ' + err.message)
+            alert('Error al sincronizar: ' + err.message)
         } finally {
             setSyncing(false)
         }
@@ -395,6 +407,13 @@ function BasecampWorkspace() {
         }, 250)
     }, [executeSearch])
 
+    // Cleanup search debounce timer on unmount
+    useEffect(() => {
+        return () => {
+            if (searchTimerRef.current) clearTimeout(searchTimerRef.current)
+        }
+    }, [])
+
     // Keyboard shortcut Shift + J / Escape
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
@@ -474,7 +493,8 @@ function BasecampWorkspace() {
         )
     }
 
-    if (syncing) {
+    // Render full-screen sync overlay ONLY on first-time initial download when no projects exist yet
+    if (syncing && projects.length === 0) {
         return (
             <div className="w-full min-h-[70vh] bg-[#f4f1ea] dark:bg-slate-950 p-6 rounded-2xl flex items-center justify-center font-sans">
                 <div className="max-w-md w-full bg-[#fffdf9] dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-8 text-center shadow-xl">
@@ -527,11 +547,15 @@ function BasecampWorkspace() {
                     <button
                         onClick={handleSync}
                         disabled={syncing}
-                        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all border border-dashed border-blue-300 dark:border-slate-700 shrink-0"
-                        title={t('basecamp.sync_btn')}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition-all border shrink-0 ${
+                            syncing
+                                ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-300 border-blue-200 dark:border-blue-800 cursor-not-allowed opacity-80'
+                                : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border-dashed border-blue-300 dark:border-slate-700 hover:border-blue-400'
+                        }`}
+                        title={syncing ? t('basecamp.syncing_in_progress') : t('basecamp.sync_btn')}
                     >
-                        <RefreshCw size={13} className={syncing ? 'animate-spin' : ''} />
-                        <span>{t('basecamp.sync_btn')}</span>
+                        <RefreshCw size={13} className={syncing ? 'animate-spin text-blue-500' : ''} />
+                        <span>{syncing ? t('basecamp.syncing_in_progress') : t('basecamp.sync_btn')}</span>
                     </button>
                 </div>
 

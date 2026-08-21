@@ -281,22 +281,23 @@ const getShiftFromTime = (startTimeStr: string): 'AM' | 'PM' => {
 const formatTimeTo12h = (isoTime: string): string => {
   if (!isoTime) return '';
   try {
+    // If it's a simple HH:MM or HH:MM:SS string (without T)
+    if (isoTime.includes(':') && !isoTime.includes('T')) {
+      const parts = isoTime.split(':');
+      let h = parseInt(parts[0], 10);
+      const m = parts[1] || '00';
+      const ampm = h >= 12 ? 'PM' : 'AM';
+      h = h % 12 || 12;
+      return `${h}:${m.padStart(2, '0')} ${ampm}`;
+    }
     const d = new Date(isoTime);
+    if (isNaN(d.getTime())) return isoTime;
     let h = d.getHours();
     const m = d.getMinutes();
     const ampm = h >= 12 ? 'PM' : 'AM';
     h = h % 12 || 12;
     return `${h}:${String(m).padStart(2, '0')} ${ampm}`;
   } catch {
-    // fallback for raw HH:MM:SS
-    const parts = isoTime.split(':');
-    if (parts.length >= 2) {
-      let h = parseInt(parts[0], 10);
-      const m = parts[1];
-      const ampm = h >= 12 ? 'PM' : 'AM';
-      h = h % 12 || 12;
-      return `${h}:${m} ${ampm}`;
-    }
     return isoTime;
   }
 };
@@ -611,9 +612,10 @@ export default function AsignacionDiariaTab() {
 
       if (activeShift === 'AM') {
         // AM window: 6:00 - 16:59
-        // Show if: starts in AM window, OR ends during AM window (after 6:00)
+        // Show if: starts in AM window, OR starts early before 6AM but works into AM (apertura temprana)
         const startsInAM = startH >= 6 && startH < 17;
-        return startsInAM;
+        const earlyOpenIntoAM = startH < 6 && endH > 6;
+        return startsInAM || earlyOpenIntoAM;
       } else {
         // PM window: 17:00 - 5:59
         // Show if: starts in PM window, OR starts before PM but ends in/after PM (crosses 5PM boundary)

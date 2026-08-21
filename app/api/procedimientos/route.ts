@@ -51,7 +51,7 @@ export async function PATCH(request: Request) {
     }
 
     const updateData: any = { updated_at: new Date().toISOString() };
-    if (start_time !== undefined) updateData.start_time = start_time;
+    if (start_time !== undefined) updateData.start_time = start_time || null;
     if (duration_minutes !== undefined) updateData.duration_minutes = duration_minutes !== null && duration_minutes !== '' ? Number(duration_minutes) : null;
     if (activity !== undefined) updateData.activity = activity;
     if (shift_type !== undefined) updateData.shift_type = shift_type;

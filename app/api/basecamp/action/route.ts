@@ -145,6 +145,9 @@ export async function POST(request: Request) {
   // =========================================================================
 
   try {
+    // Helper to generate high-entropy unique fake bc_id to avoid second-level collisions
+    const generateUniqueBcId = () => Date.now() * 1000 + Math.floor(Math.random() * 1000)
+
     // Helper to validate required args
     const requireArgs = (names: string[]) => {
       for (const name of names) {
@@ -194,7 +197,7 @@ export async function POST(request: Request) {
       case 'create_todolist': {
         requireArgs(['name'])
         const { name, description } = args
-        const bcListId = Math.floor(Date.now() / 1000)
+        const bcListId = generateUniqueBcId()
 
         // Find or create todoset for the project
         const { data: dbTodoset } = await supabase
@@ -207,15 +210,17 @@ export async function POST(request: Request) {
         let todosetUuid = dbTodoset?.id
 
         if (!todosetUuid) {
-          const { data: newTodoset } = await supabase
+          const { data: newTodoset, error: setErr } = await supabase
             .from('bc_todosets')
             .insert({
               project_id: projectUuid,
               name: 'Todoset',
-              bc_id: Math.floor(Date.now() / 1000)
+              bc_id: generateUniqueBcId()
             })
             .select('id')
             .single()
+
+          if (setErr) throw setErr
           todosetUuid = newTodoset?.id
         }
 
@@ -248,7 +253,7 @@ export async function POST(request: Request) {
       case 'create_todo': {
         requireArgs(['todolistDbId', 'title'])
         const { todolistDbId, title, description, due_date, assigneeUuids } = args
-        const bcTodoId = Math.floor(Date.now() / 1000)
+        const bcTodoId = generateUniqueBcId()
 
         // 1. Save to Supabase
         const { data: dbTodo, error: todoErr } = await supabase
@@ -315,7 +320,7 @@ export async function POST(request: Request) {
       case 'create_message': {
         requireArgs(['boardDbId', 'title'])
         const { boardDbId, title, content, category } = args
-        const bcMsgId = Math.floor(Date.now() / 1000)
+        const bcMsgId = generateUniqueBcId()
 
         // 1. Save to Supabase
         const { data: dbMsg, error: msgErr } = await supabase
@@ -357,7 +362,7 @@ export async function POST(request: Request) {
       case 'create_campfire_line': {
         requireArgs(['campfireDbId', 'content'])
         const { campfireDbId, content } = args
-        const bcLineId = Math.floor(Date.now() / 1000)
+        const bcLineId = generateUniqueBcId()
 
         // 1. Save to Supabase
         const { data: dbLine, error: lineErr } = await supabase
@@ -392,7 +397,7 @@ export async function POST(request: Request) {
       case 'create_comment': {
         requireArgs(['parentType', 'parentDbId', 'content'])
         const { parentType, parentDbId, content } = args
-        const bcCommentId = Math.floor(Date.now() / 1000)
+        const bcCommentId = generateUniqueBcId()
 
         // 1. Save to Supabase
         const { data: dbComment, error: comErr } = await supabase
@@ -415,6 +420,11 @@ export async function POST(request: Request) {
           const { data: msg } = await supabase.from('bc_messages').select('comments_count').eq('id', parentDbId).single()
           if (msg) {
             await supabase.from('bc_messages').update({ comments_count: (msg.comments_count || 0) + 1 }).eq('id', parentDbId)
+          }
+        } else if (parentType === 'todo') {
+          const { data: todo } = await supabase.from('bc_todos').select('comments_count').eq('id', parentDbId).single()
+          if (todo) {
+            await supabase.from('bc_todos').update({ comments_count: (todo.comments_count || 0) + 1 }).eq('id', parentDbId)
           }
         }
 
@@ -445,7 +455,7 @@ export async function POST(request: Request) {
       case 'create_answer': {
         requireArgs(['questionDbId', 'content'])
         const { questionDbId, content } = args
-        const bcAnswerId = Math.floor(Date.now() / 1000)
+        const bcAnswerId = generateUniqueBcId()
 
         // 1. Save to Supabase
         const { data: dbAnswer, error: ansErr } = await supabase
@@ -480,7 +490,7 @@ export async function POST(request: Request) {
       case 'create_schedule_entry': {
         requireArgs(['scheduleDbId', 'title', 'starts_at', 'ends_at'])
         const { scheduleDbId, title, description, starts_at, ends_at, all_day } = args
-        const bcEventId = Math.floor(Date.now() / 1000)
+        const bcEventId = generateUniqueBcId()
 
         // 1. Save to Supabase
         const { data: dbEvent, error: evtErr } = await supabase
@@ -526,7 +536,7 @@ export async function POST(request: Request) {
       case 'create_vault': {
         requireArgs(['name'])
         const { parentVaultDbId, name } = args
-        const bcVaultId = Math.floor(Date.now() / 1000)
+        const bcVaultId = generateUniqueBcId()
 
         // 1. Save to Supabase
         const { data: dbVault, error: vaultErr } = await supabase
@@ -553,7 +563,7 @@ export async function POST(request: Request) {
       case 'create_document': {
         requireArgs(['vaultDbId', 'title'])
         const { vaultDbId, title, content } = args
-        const bcDocId = Math.floor(Date.now() / 1000)
+        const bcDocId = generateUniqueBcId()
 
         // 1. Save to Supabase
         const { data: dbDoc, error: docErr } = await supabase
@@ -611,6 +621,11 @@ export async function POST(request: Request) {
             const { data: msg } = await supabase.from('bc_messages').select('comments_count').eq('id', commentRow.parent_id).single()
             if (msg && (msg.comments_count || 0) > 0) {
               await supabase.from('bc_messages').update({ comments_count: (msg.comments_count || 0) - 1 }).eq('id', commentRow.parent_id)
+            }
+          } else if (commentRow?.parent_type === 'todo' && commentRow?.parent_id) {
+            const { data: todo } = await supabase.from('bc_todos').select('comments_count').eq('id', commentRow.parent_id).single()
+            if (todo && (todo.comments_count || 0) > 0) {
+              await supabase.from('bc_todos').update({ comments_count: (todo.comments_count || 0) - 1 }).eq('id', commentRow.parent_id)
             }
           }
         }

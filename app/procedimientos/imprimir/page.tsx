@@ -162,7 +162,7 @@ function PrintProceduresContent() {
         <div className="flex justify-between items-start">
           <div>
             <h1 className="text-2xl font-black uppercase tracking-tight">
-              Tacos El Gavilán
+              Tacos Gavilan
             </h1>
             <p className="text-md font-bold text-slate-700 uppercase tracking-widest mt-0.5">
               Manual de Operaciones — Procedimientos

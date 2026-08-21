@@ -102,8 +102,8 @@ export default function NewForYouDrawer({ isOpen, onClose, navigateTo }: NewForY
                             type: 'todo',
                             title: todo.title,
                             description: todo.is_completed
-                                ? (t('language') === 'es' ? '✅ Tarea completada' : '✅ Task completed')
-                                : (t('language') === 'es' ? '📋 Tarea asignada a ti' : '📋 Task assigned to you'),
+                                ? t('basecamp.task_completed_notif')
+                                : t('basecamp.task_assigned_notif'),
                             project: todo.project,
                             created_at: todo.updated_at,
                             is_read: todo.is_completed ? true : false,
@@ -137,7 +137,7 @@ export default function NewForYouDrawer({ isOpen, onClose, navigateTo }: NewForY
                                 id: `comment-${c.id}`,
                                 type: c.parent_type === 'message' ? 'message' : 'todo',
                                 title: `💬 ${authorName}`,
-                                description: plainText || (t('language') === 'es' ? 'Nuevo comentario' : 'New comment'),
+                                description: plainText || t('basecamp.new_comment_notif'),
                                 project: c.project,
                                 created_at: c.created_at,
                                 is_read: false,
@@ -151,7 +151,7 @@ export default function NewForYouDrawer({ isOpen, onClose, navigateTo }: NewForY
                             feedItems.push({
                                 id: `msg-${m.id}`,
                                 type: 'message',
-                                title: m.title || (t('language') === 'es' ? 'Nuevo mensaje' : 'New message'),
+                                title: m.title || t('basecamp.new_msg_notif'),
                                 description: `📢 ${authorName}${m.comments_count ? ` · ${m.comments_count} 💬` : ''}`,
                                 project: m.project,
                                 created_at: m.created_at,
@@ -266,11 +266,7 @@ export default function NewForYouDrawer({ isOpen, onClose, navigateTo }: NewForY
 
                             {/* Yellow helper sticky-note box */}
                             <div className="bg-[#fffccf] border border-[#f0ea99] text-slate-700 p-3 rounded-lg text-[10px] leading-relaxed mb-4 shadow-sm text-left">
-                                {t('language') === 'es' ? (
-                                    'Los pings son mensajes directos. Simplemente haz clic en +, escribe el nombre de alguien y envíale un mensaje privado.'
-                                ) : (
-                                    'Pings are direct messages - just click +, type someone\'s name, and send them a private message.'
-                                )}
+                                {t('basecamp.pings_helper_note')}
                             </div>
 
                             {/* Horizontal actions list */}
@@ -307,7 +303,7 @@ export default function NewForYouDrawer({ isOpen, onClose, navigateTo }: NewForY
                             {showPingSelect && (
                                 <div className="mt-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-2 max-h-[160px] overflow-y-auto shadow-lg text-left no-scrollbar">
                                     <p className="text-[9px] font-black text-slate-400 uppercase mb-2 px-2">
-                                        {t('language') === 'es' ? 'Iniciar Chat Con...' : 'Start Chat With...'}
+                                        {t('basecamp.start_chat_with')}
                                     </p>
                                     {collaborators.filter(c => c.email !== authUser?.email).map(c => (
                                         <button
@@ -330,13 +326,13 @@ export default function NewForYouDrawer({ isOpen, onClose, navigateTo }: NewForY
                         <div className="flex-1 overflow-y-auto p-4 flex flex-col no-scrollbar">
                             <div className="flex items-center justify-between mb-4">
                                 <h3 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">
-                                    {t('language') === 'es' ? 'Novedades' : 'New for you'}
+                                    {t('basecamp.new_for_you_title')}
                                 </h3>
                                 <button
                                     onClick={handleMarkAllRead}
                                     className="text-[10px] font-bold text-[#1D7DB5] hover:underline"
                                 >
-                                    {t('language') === 'es' ? 'Marcar todo leído' : 'Mark all read'}
+                                    {t('basecamp.mark_all_read')}
                                 </button>
                             </div>
 
@@ -347,7 +343,7 @@ export default function NewForYouDrawer({ isOpen, onClose, navigateTo }: NewForY
                             ) : filteredNotifications.length === 0 ? (
                                 <div className="flex-1 flex flex-col items-center justify-center text-slate-400 dark:text-slate-500 text-center py-12">
                                     <BellOff size={32} className="mb-2 opacity-50" />
-                                    <p className="text-xs italic">{t('language') === 'es' ? 'Sin novedades pendientes' : 'Nothing new for you'}</p>
+                                    <p className="text-xs italic">{t('basecamp.no_new_activity')}</p>
                                 </div>
                             ) : (
                                 <div className="space-y-3">
@@ -413,7 +409,7 @@ export default function NewForYouDrawer({ isOpen, onClose, navigateTo }: NewForY
                                     type="text"
                                     value={filterQuery}
                                     onChange={(e) => setFilterQuery(e.target.value)}
-                                    placeholder={t('language') === 'es' ? 'Filtrar...' : 'Filter...'}
+                                    placeholder={t('basecamp.filter_placeholder')}
                                     className="w-full pl-8 pr-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-xs focus:outline-none focus:ring-1 focus:ring-[#1D7DB5]"
                                 />
                             </div>
@@ -426,7 +422,7 @@ export default function NewForYouDrawer({ isOpen, onClose, navigateTo }: NewForY
                                         ? 'bg-orange-500 border-orange-600 text-white shadow-inner'
                                         : 'bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50'
                                 }`}
-                                title={t('language') === 'es' ? 'Silenciar Notificaciones' : 'Snooze Notifications'}
+                                title={isSnoozed ? t('basecamp.snooze_active') : t('basecamp.snooze')}
                             >
                                 <VolumeX size={13} />
                                 <span className="hidden sm:inline">Shhhh...</span>

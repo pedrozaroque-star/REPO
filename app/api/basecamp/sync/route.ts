@@ -461,6 +461,7 @@ export async function POST(request: Request) {
     .select('id')
     .eq('status', 'running')
     .order('started_at', { ascending: true })
+    .order('id', { ascending: true })
 
   if (runningSyncs && runningSyncs.length > 1 && runningSyncs[0].id !== syncLogId) {
     // We lost the race — mark our entry as cancelled and bail
@@ -644,6 +645,14 @@ export async function POST(request: Request) {
       try {
         const docs = await fetchDocuments(projectId, vaultId)
         for (const d of docs) {
+          const docUpdatedAt = d.updated_at || d.created_at
+          const isUnchanged = !forceFullSync && lastSyncAt && docUpdatedAt && docUpdatedAt <= lastSyncAt
+
+          if (isUnchanged) {
+            counters.documents++
+            continue
+          }
+
           const authorUuid = await resolveOrCreatePerson(d.creator, supabase, peopleMap)
           const processedContent = await processHtmlContent(d.content || '', token, 'documents', d.id, supabase, urlCache)
 
@@ -920,7 +929,7 @@ export async function POST(request: Request) {
 
               for (const t of todos) {
                 const todoUpdatedAt = t.updated_at || t.created_at
-                const isUnchanged = t.completed && lastSyncAt && todoUpdatedAt && todoUpdatedAt <= lastSyncAt
+                const isUnchanged = !forceFullSync && lastSyncAt && todoUpdatedAt && todoUpdatedAt <= lastSyncAt
 
                 if (isUnchanged) {
                   counters.todos++
@@ -941,6 +950,7 @@ export async function POST(request: Request) {
                     completed_at: t.completed ? (t.updated_at || new Date().toISOString()) : null,
                     due_date: t.due_on || null,
                     position: t.position,
+                    comments_count: t.comments_count || 0,
                     created_by_person_id: authorUuid,
                     created_at: t.created_at || new Date().toISOString(),
                     updated_at: new Date().toISOString(),
@@ -1016,9 +1026,10 @@ export async function POST(request: Request) {
                 }
               }
 
-              // Self-healing: ONLY run during full sync to avoid false completions
-              // During incremental sync, activeBcIds may be incomplete
-              if (forceFullSync) {
+              // Self-healing: Reconcile active vs completed tasks
+              // Since fetchTodos(project.id, list.id) returns all currently active todos from Basecamp API,
+              // any task in Supabase for this list that is marked active but not present in activeBcIds has been completed.
+              if (activeBcIds.length > 0 || todos.length > 0) {
                 const { data: dbActiveTodos } = await supabase
                   .from('bc_todos')
                   .select('bc_id')
@@ -1030,7 +1041,7 @@ export async function POST(request: Request) {
                   const completedBcIds = dbActiveBcIds.filter(bcId => !activeBcIds.includes(bcId))
 
                   if (completedBcIds.length > 0) {
-                    console.log(`🧹 [Basecamp Sync] Self-healing: Marking ${completedBcIds.length} tasks as completed for list ${list.name}:`, completedBcIds)
+                    console.log(`🧹 [Basecamp Sync] Self-healing: Marking ${completedBcIds.length} tasks as completed for list ${list.name || list.title}:`, completedBcIds)
                     await supabase
                       .from('bc_todos')
                       .update({ is_completed: true, completed_at: new Date().toISOString() })
@@ -1076,6 +1087,14 @@ export async function POST(request: Request) {
           console.log(`   📬 Found ${messages.length} messages`)
 
           for (const m of messages) {
+            const msgUpdatedAt = m.updated_at || m.created_at
+            const isUnchanged = !forceFullSync && lastSyncAt && msgUpdatedAt && msgUpdatedAt <= lastSyncAt
+
+            if (isUnchanged) {
+              counters.messages++
+              continue
+            }
+
             const authorUuid = await resolveOrCreatePerson(m.creator, supabase, peopleMap)
             const processedMsgContent = await processHtmlContent(m.content || '', token, 'messages', m.id, supabase, urlCache)
             const { data: dbMsg, error: msgErr } = await supabase

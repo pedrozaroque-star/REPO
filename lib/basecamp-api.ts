@@ -388,23 +388,27 @@ function getServiceClient() {
 const requestTimestamps: number[] = []
 
 async function waitForRateLimit(): Promise<void> {
-  const now = Date.now()
+  while (true) {
+    const now = Date.now()
 
-  // Purge timestamps older than the window
-  while (requestTimestamps.length > 0 && requestTimestamps[0] < now - RATE_LIMIT_WINDOW_MS) {
-    requestTimestamps.shift()
-  }
+    // Purge timestamps older than the window
+    while (requestTimestamps.length > 0 && requestTimestamps[0] < now - RATE_LIMIT_WINDOW_MS) {
+      requestTimestamps.shift()
+    }
 
-  // If at limit, wait until the oldest request exits the window
-  if (requestTimestamps.length >= RATE_LIMIT_MAX_REQUESTS) {
-    const waitTime = requestTimestamps[0] + RATE_LIMIT_WINDOW_MS - now + 50 // +50ms buffer
+    // If below limit, we can proceed
+    if (requestTimestamps.length < RATE_LIMIT_MAX_REQUESTS) {
+      requestTimestamps.push(Date.now())
+      return
+    }
+
+    // Otherwise, wait until the oldest request exits the window + 50ms buffer and check again
+    const waitTime = requestTimestamps[0] + RATE_LIMIT_WINDOW_MS - now + 50
     if (waitTime > 0) {
       console.log(`⏳ [Basecamp] Rate limit reached, waiting ${waitTime}ms...`)
       await new Promise((resolve) => setTimeout(resolve, waitTime))
     }
   }
-
-  requestTimestamps.push(Date.now())
 }
 
 // ============================================================================
@@ -436,13 +440,11 @@ export async function exchangeCodeForToken(code: string): Promise<TokenResponse>
     code,
   })
 
-  const res = await fetch(`${BASECAMP_AUTH_BASE}/authorization/token`, {
+  const res = await fetch(`${BASECAMP_AUTH_BASE}/authorization/token?${params.toString()}`, {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
       'User-Agent': BASECAMP_USER_AGENT,
     },
-    body: params.toString(),
   })
 
   if (!res.ok) {
@@ -466,13 +468,11 @@ export async function refreshAccessToken(refreshToken: string): Promise<TokenRes
     refresh_token: refreshToken,
   })
 
-  const res = await fetch(`${BASECAMP_AUTH_BASE}/authorization/token`, {
+  const res = await fetch(`${BASECAMP_AUTH_BASE}/authorization/token?${params.toString()}`, {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
       'User-Agent': BASECAMP_USER_AGENT,
     },
-    body: params.toString(),
   })
 
   if (!res.ok) {
@@ -494,6 +494,9 @@ export async function refreshAccessToken(refreshToken: string): Promise<TokenRes
  * @returns access_token válido listo para usar en peticiones API
  * @throws Error si no hay tokens almacenados o si la renovación falla
  */
+// In-flight refresh promise singleton to prevent duplicate concurrent refresh calls
+let inFlightRefreshPromise: Promise<string> | null = null
+
 export async function getValidToken(): Promise<string> {
   const supabase = getServiceClient()
 
@@ -521,40 +524,51 @@ export async function getValidToken(): Promise<string> {
     return tokenRow.access_token
   }
 
-  // Token expired or about to expire — refresh it
+  // If another concurrent request is already refreshing, wait for it
+  if (inFlightRefreshPromise) {
+    return inFlightRefreshPromise
+  }
+
+  // Token expired or about to expire — refresh it with singleton lock
   console.log('🔄 [Basecamp] Token expired, refreshing...')
 
-  try {
-    const newTokens = await refreshAccessToken(tokenRow.refresh_token)
+  inFlightRefreshPromise = (async () => {
+    try {
+      const newTokens = await refreshAccessToken(tokenRow.refresh_token)
 
-    // Calculate new expiry (Basecamp typically returns expires_in in seconds)
-    const newExpiresAt = new Date(Date.now() + newTokens.expires_in * 1000).toISOString()
+      // Calculate new expiry (Basecamp typically returns expires_in in seconds)
+      const newExpiresAt = new Date(Date.now() + newTokens.expires_in * 1000).toISOString()
 
-    // Update the token in DB
-    const { error: updateError } = await supabase
-      .from('bc_oauth_tokens')
-      .update({
-        access_token: newTokens.access_token,
-        // Basecamp may or may not return a new refresh_token
-        ...(newTokens.refresh_token ? { refresh_token: newTokens.refresh_token } : {}),
-        expires_at: newExpiresAt,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', tokenRow.id)
+      // Update the token in DB
+      const { error: updateError } = await supabase
+        .from('bc_oauth_tokens')
+        .update({
+          access_token: newTokens.access_token,
+          // Basecamp may or may not return a new refresh_token
+          ...(newTokens.refresh_token ? { refresh_token: newTokens.refresh_token } : {}),
+          expires_at: newExpiresAt,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', tokenRow.id)
 
-    if (updateError) {
-      console.error('❌ [Basecamp] Failed to update refreshed token in DB:', updateError)
-      throw new Error(`Failed to save refreshed token: ${updateError.message}`)
+      if (updateError) {
+        console.error('❌ [Basecamp] Failed to update refreshed token in DB:', updateError)
+        throw new Error(`Failed to save refreshed token: ${updateError.message}`)
+      }
+
+      console.log('✅ [Basecamp] Token refreshed successfully, new expiry:', newExpiresAt)
+      return newTokens.access_token
+    } catch (refreshErr: any) {
+      console.error('❌ [Basecamp] Token refresh failed:', refreshErr.message)
+      throw new Error(
+        `Basecamp token refresh failed. Re-authenticate at /api/basecamp/auth. Error: ${refreshErr.message}`
+      )
+    } finally {
+      inFlightRefreshPromise = null
     }
+  })()
 
-    console.log('✅ [Basecamp] Token refreshed successfully, new expiry:', newExpiresAt)
-    return newTokens.access_token
-  } catch (refreshErr: any) {
-    console.error('❌ [Basecamp] Token refresh failed:', refreshErr.message)
-    throw new Error(
-      `Basecamp token refresh failed. Re-authenticate at /api/basecamp/auth. Error: ${refreshErr.message}`
-    )
-  }
+  return inFlightRefreshPromise
 }
 
 // ============================================================================

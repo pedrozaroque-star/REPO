@@ -118,26 +118,20 @@ export default function BasecampHome({ projects, saveProjects, navigateTo, userN
                 const count = data.records_synced || 0
                 setSyncStatus({
                     type: 'success',
-                    message: t('language') === 'es'
-                        ? `✅ Sincronización completa — ${count} registros actualizados`
-                        : `✅ Sync complete — ${count} records updated`
+                    message: `${t('basecamp.sync_complete_prefix')}${count}${t('basecamp.sync_records_updated')}`
                 })
                 // Reload page after 2 seconds to show fresh data
                 setTimeout(() => window.location.reload(), 2000)
             } else {
                 setSyncStatus({
                     type: 'error',
-                    message: t('language') === 'es'
-                        ? `❌ Error: ${data.error || 'Falló la sincronización'}`
-                        : `❌ Error: ${data.error || 'Sync failed'}`
+                    message: `${t('basecamp.sync_error_prefix')}${data.error || t('basecamp.sync_error_fallback')}`
                 })
             }
         } catch (err: any) {
             setSyncStatus({
                 type: 'error',
-                message: t('language') === 'es'
-                    ? `❌ Error de conexión: ${err.message}`
-                    : `❌ Connection error: ${err.message}`
+                message: `${t('basecamp.sync_conn_error_prefix')}${err.message}`
             })
         } finally {
             setIsSyncing(false)
@@ -282,11 +276,11 @@ export default function BasecampHome({ projects, saveProjects, navigateTo, userN
                 onClick={onOpenSearch}
                 className="border border-slate-200/60 dark:border-slate-850 bg-[#fffdf9] dark:bg-slate-900 px-4 py-1.5 rounded-lg text-xs font-semibold text-slate-455 dark:text-slate-400 mb-8 shadow-inner cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-850 transition-all"
             >
-                {t('language') === 'es' ? (
-                    <span>Presione <kbd className="bg-slate-100 dark:bg-slate-850 px-1 py-0.5 rounded border text-[10px] mx-0.5 font-bold">Shift</kbd> + <kbd className="bg-slate-100 dark:bg-slate-850 px-1 py-0.5 rounded border text-[10px] mx-0.5 font-bold">J</kbd> en cualquier momento para buscar o saltar</span>
-                ) : (
-                    <span>Press <kbd className="bg-slate-100 dark:bg-slate-850 px-1 py-0.5 rounded border text-[10px] mx-0.5 font-bold">Shift</kbd> + <kbd className="bg-slate-100 dark:bg-slate-850 px-1 py-0.5 rounded border text-[10px] mx-0.5 font-bold">J</kbd> anytime to search or jump</span>
-                )}
+                <span>
+                    {t('basecamp.search_jump_hint').split('Shift + J')[0]}
+                    <kbd className="bg-slate-100 dark:bg-slate-850 px-1 py-0.5 rounded border text-[10px] mx-0.5 font-bold">Shift</kbd> + <kbd className="bg-slate-100 dark:bg-slate-850 px-1 py-0.5 rounded border text-[10px] mx-0.5 font-bold">J</kbd>
+                    {t('basecamp.search_jump_hint').split('Shift + J')[1]}
+                </span>
             </div>
 
             {/* Action Buttons Row */}
@@ -313,10 +307,7 @@ export default function BasecampHome({ projects, saveProjects, navigateTo, userN
                     ) : (
                         <RefreshCw size={14} className="text-blue-500" />
                     )}
-                    <span>{isSyncing
-                        ? (t('language') === 'es' ? 'Sincronizando...' : 'Syncing...')
-                        : (t('language') === 'es' ? 'Sincronizar con Basecamp' : 'Sync with Basecamp')
-                    }</span>
+                    <span>{isSyncing ? t('basecamp.syncing_in_progress') : t('basecamp.sync_with_basecamp')}</span>
                 </button>
             </div>
 

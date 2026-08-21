@@ -396,10 +396,11 @@ export default function ProceduresTimeline() {
     // 'Diario' = Todos → muestra TODAS las actividades sin importar frecuencia
     if (filterDay === 'Diario') return true;
     
-    // Día específico → muestra las de frecuencia 'Diario' + las de ese día
-    const freq = (p.frequency || '').toUpperCase();
-    if (freq === 'DIARIO') return true;
-    return freq.includes(filterDay.toUpperCase());
+    // Día específico → muestra las de frecuencia 'Diario' + las de ese día (insensible a acentos)
+    const normalize = (str: string) => str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase();
+    const freqNorm = normalize(p.frequency || '');
+    if (freqNorm === 'DIARIO') return true;
+    return freqNorm.includes(normalize(filterDay));
   });
 
   const groupedProcedures = filteredProcedures.reduce((acc, proc) => {
@@ -1266,7 +1267,7 @@ export default function ProceduresTimeline() {
               <div className="flex-1 bg-slate-100 dark:bg-slate-950 overflow-hidden relative">
                 <iframe
                   id="procedures-print-frame"
-                  src={`/procedimientos/imprimir?shift=${filterShift}&day=${filterDay}&model=${filterModel}`}
+                  src={`/procedimientos/imprimir?shift=${encodeURIComponent(filterShift)}&day=${encodeURIComponent(filterDay)}&model=${encodeURIComponent(filterModel)}`}
                   className="w-full h-full border-0 block"
                   title="Print Preview"
                 />

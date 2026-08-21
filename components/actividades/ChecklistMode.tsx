@@ -183,8 +183,9 @@ export default function ChecklistMode({ onClose }: ChecklistModeProps) {
   const bodyRef = useRef<HTMLDivElement>(null)
   const timeGroupRefs = useRef<Map<string, HTMLDivElement>>(new Map())
 
-  const businessDate = useMemo(() => getBusinessDate(), [])
-  const dayName = useMemo(() => getDayName(), [])
+  // Reactive to date changes across live shifts (e.g. 6:00 AM cutoff)
+  const businessDate = useMemo(() => getBusinessDate(), [clock.getHours() === 6 && clock.getMinutes() === 0 ? clock : null])
+  const dayName = useMemo(() => getDayName(), [clock.getHours() === 6 && clock.getMinutes() === 0 ? clock : null])
 
   // ─── Live clock ──────────────────────────────────────────────────────────
   useEffect(() => {
@@ -328,7 +329,7 @@ export default function ChecklistMode({ onClose }: ChecklistModeProps) {
 
     await fetchCompletions()
     setSaving(null)
-  }, [selectedStore, saving, completionMap, businessDate, shiftFilter, user, fetchCompletions])
+  }, [selectedStore, saving, completionMap, businessDate, shiftFilter, user, fetchCompletions, procedures])
 
   // ─── Group by time ───────────────────────────────────────────────────────
   const groupedByTime = useMemo(() => {

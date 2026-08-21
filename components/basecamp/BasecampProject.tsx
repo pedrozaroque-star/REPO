@@ -396,8 +396,7 @@ export default function BasecampProject({ project, navigateTo, saveProjects, pro
     // Format date for card previews
     const formatShortDate = (dateStr: string) => {
         const d = new Date(dateStr)
-        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-        return `${months[d.getMonth()]} ${d.getDate()}`
+        return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
     }
 
     // Strip HTML tags from content previews
@@ -420,8 +419,8 @@ export default function BasecampProject({ project, navigateTo, saveProjects, pro
             case 'google_doc': return { color: '#34A853', label: t('basecamp.google_doc') }
             case 'pdf': return { color: '#EA4335', label: t('basecamp.pdf_file') }
             case 'screenshot': return { color: '#4285F4', label: t('basecamp.screenshot_file') }
-            case 'doc': return { color: '#4285F4', label: 'Doc' }
-            default: return { color: '#6B7B8D', label: 'File' }
+            case 'doc': return { color: '#4285F4', label: t('basecamp.doc_file_label') }
+            default: return { color: '#6B7B8D', label: t('basecamp.generic_file_label') }
         }
     }
 
@@ -491,11 +490,11 @@ export default function BasecampProject({ project, navigateTo, saveProjects, pro
                             onClick={onOpenSearch}
                             className="border border-slate-200/60 dark:border-slate-800 bg-[#fffdf9] dark:bg-slate-900 px-3 py-1 rounded-lg text-[11px] font-semibold text-slate-500 dark:text-slate-400 shadow-inner cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/80 transition-all flex items-center gap-1.5"
                         >
-                            {t('language') === 'es' ? (
-                                <span>Presione <kbd className="bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded border text-[9px] mx-0.5 font-bold">Shift</kbd> + <kbd className="bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded border text-[9px] mx-0.5 font-bold">J</kbd> para buscar</span>
-                            ) : (
-                                <span>Press <kbd className="bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded border text-[9px] mx-0.5 font-bold">Shift</kbd> + <kbd className="bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded border text-[9px] mx-0.5 font-bold">J</kbd> to search</span>
-                            )}
+                            <span>
+                                {t('basecamp.search_jump_hint_short').split('Shift + J')[0]}
+                                <kbd className="bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded border text-[9px] mx-0.5 font-bold">Shift</kbd> + <kbd className="bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded border text-[9px] mx-0.5 font-bold">J</kbd>
+                                {t('basecamp.search_jump_hint_short').split('Shift + J')[1]}
+                            </span>
                         </div>
                     )}
                 </div>

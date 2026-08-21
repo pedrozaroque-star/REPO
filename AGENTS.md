@@ -20,6 +20,32 @@ Antes de modificar, analizar o trabajar con cualquier módulo del sistema, **el 
 
 ---
 
+## 🔬 REGLA OBLIGATORIA: Protocolo de Auditoría y Revisión Exhaustiva Línea por Línea
+**Queda estrictamente prohibido realizar revisiones panorámicas, superficiales, resumidas o asumir que el código funciona solo porque compila.** Cuando el usuario o una tarea solicite analizar, auditar, revisar o verificar cualquier módulo o archivo:
+
+1. **Lectura Completa y Línea por Línea (Sin Omitir Nada)**:
+   - El agente DEBE leer el archivo **completo**, función por función, validando cada condicional, operador ternario, llamada asíncrona, desestructuración y acceso a propiedades.
+2. **Uso de Subagentes Especializados en Paralelo**:
+   - En módulos grandes o que superen varios cientos de líneas, el agente DEBE delegar la auditoría a múltiples subagentes especializados en paralelo, dividiendo los archivos o rangos de líneas para garantizar máxima profundidad y cobertura sin atajos.
+3. **Validación de Cruces Relacionales y Coherencia de Datos**:
+   - Comparar exhaustivamente constantes estáticas (ej. listas de estaciones, arrays de opciones, catálogos) contra los valores renderizados en UI y los esquemas/consultas de base de datos.
+   - Validar casos borde en tiempo de ejecución: valores `null`/`undefined`, coerción falsy (ej. `0` o `""`), diferencias por mayúsculas/minúsculas o tildes (ej. `"Miércoles"` vs `"Miercoles"`), desajustes de zona horaria (`America/Los_Angeles`) y saltos de medianoche / 6:00 AM.
+4. **Verificación de Seguridad y Transacciones**:
+   - Auditar la autenticación/autorización en el backend (no confiar en query params de cliente), sanitizar entradas a endpoints y asegurar que operaciones múltiples de DB no provoquen pérdida de datos ante fallos.
+5. **Simulaciones del Sistema y Pruebas Automatizadas Obligatorias (Mandatory Runtime Simulations)**:
+   - **En CADA revisión profunda, análisis o auditoría de un módulo**, el agente TIENE LA OBLIGACIÓN de crear y ejecutar scripts de prueba/simulación en tiempo real (vía `tsx` / `node`).
+   - El script de simulación DEBE probar activamente los flujos completos con datos reales del negocio:
+     * Comportamiento en horas límite (ej. 5:59 AM vs 6:00 AM, 4:59 PM vs 5:00 PM).
+     * Manipulación de zonas horarias (`America/Los_Angeles`) y cambios de medianoche.
+     * Cruces de cadenas de texto con y sin acentos (`Miércoles` vs `Miercoles`, `Sábado` vs `Sabado`), mayúsculas y minúsculas.
+     * Operaciones matemáticas (prevención de divisiones por cero `0/0`, `NaN`, `Infinity`).
+     * Integridad de listas y catálogos estáticos contra la base de datos.
+   - Ninguna revisión se considerará finalizada ni aprobada sin la salida exitosa en terminal de dicha simulación.
+6. **Cero Mocks y Cero Pruebas a Medias**:
+   - Todo análisis debe ser real, ejecutado contra la lógica del sistema, identificando los números de línea exactos del problema y su impacto operativo concreto.
+
+---
+
 ## 🤖 REGLA OBLIGATORIA: Sincronización de Conocimiento del Asistente (TEG Assistant Sync)
 Cada vez que se cree, modifique, elimine o actualice una característica, lógica de negocio, endpoint de API, o tabla de base de datos en el sistema, **el desarrollador/agente DEBE de inmediato actualizar el prompt del asistente** en `app/api/support-chat/route.ts` y sus herramientas de chat en `lib/chat-tools.ts`. Esto garantiza que el TEG Assistant AI aprenda de cada actualización del sistema y mantenga un dominio preciso del 100% del ecosistema en tiempo real.
 

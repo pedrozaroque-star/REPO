@@ -27,9 +27,9 @@
 
 'use client'
 
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { useLanguage } from '@/lib/i18n'
-import { ClipboardList, Plus, Trash2, Calendar, User, MessageSquare, CheckSquare, Loader2, ChevronDown, ChevronRight, FileText, Paperclip, Bold, Italic, Strikethrough, Highlighter, Link, Quote, Code, List, ListOrdered, Table, AlignLeft, Mic, Image, Type, Undo2, Redo2 } from 'lucide-react'
+import { ClipboardList, Plus, Trash2, Calendar, User, MessageSquare, CheckSquare, Loader2, ChevronDown, ChevronRight, FileText, Paperclip, Bold, Italic, Strikethrough, Highlighter, Link, Quote, Code, List, ListOrdered, Table, AlignLeft, Mic, Image, Type, Undo2, Redo2, Check } from 'lucide-react'
 import { getSupabaseWithAuth } from '@/lib/supabase'
 
 interface ToolTodosProps {
@@ -146,6 +146,26 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
     const [loading, setLoading] = useState(true)
     const [actionLoading, setActionLoading] = useState<string | null>(null)
 
+    // Estados para modo de visualización (cards por defecto o lista)
+    const [viewMode, setViewMode] = useState<'cards' | 'list'>('cards')
+    const [showViewAsMenu, setShowViewAsMenu] = useState(false)
+    const viewAsMenuRef = useRef<HTMLDivElement>(null)
+
+    // Listener para cerrar menú View as al hacer clic fuera
+    useEffect(() => {
+        const handleClickOutside = (e: MouseEvent) => {
+            if (viewAsMenuRef.current && !viewAsMenuRef.current.contains(e.target as Node)) {
+                setShowViewAsMenu(false)
+            }
+        }
+        if (showViewAsMenu) {
+            document.addEventListener('mousedown', handleClickOutside)
+        }
+        return () => {
+            document.removeEventListener('mousedown', handleClickOutside)
+        }
+    }, [showViewAsMenu])
+
     // Estados para crear lista
     const [showAddList, setShowAddList] = useState(false)
     const [newListName, setNewListName] = useState('')
@@ -176,11 +196,15 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
     const [showTextSizeMenu, setShowTextSizeMenu] = useState(false)
     const [showColorMenu, setShowColorMenu] = useState(false)
 
-    // Estados de detalle de tarea
+    // Estados de detalle de tarea y lista seleccionada
+    const [selectedListId, setSelectedListId] = useState<string | null>(null)
     const [selectedTask, setSelectedTask] = useState<any | null>(null)
     const [selectedTaskListId, setSelectedTaskListId] = useState<string | null>(null)
+    const [taskComments, setTaskComments] = useState<any[]>([])
+    const [commentsLoading, setCommentsLoading] = useState(false)
     const [newComment, setNewComment] = useState('')
     const [lightboxUrl, setLightboxUrl] = useState<string | null>(null)
+    const [todoFilterQuery, setTodoFilterQuery] = useState('')
 
     // ── Rich text editor helpers (contentEditable + execCommand) ──
     const notesEditorRef = React.useRef<HTMLDivElement>(null)
@@ -475,12 +499,13 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
     }
 
     // 1. Fetch todo lists and tasks from Supabase (optimized with parallel queries)
+    // 1. Fetch todo lists and tasks from Supabase (optimized with parallel queries)
     const fetchLists = useCallback(async () => {
         if (!project.db_id) return
         setLoading(true)
         try {
             // Run parallel queries including an explicit selected todo query to bypass database pagination limits
-            const [listsResult, activeTodosResult, completedTodosResult, commentsResult, selectedTodoResult] = await Promise.all([
+            const [listsResult, activeTodosResult, completedTodosResult, selectedTodoResult] = await Promise.all([
                 // Query 1: Todolists
                 supabase
                     .from('bc_todolists')
@@ -493,7 +518,7 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                     .from('bc_todos')
                     .select(`
                         id, bc_id, todolist_id, title, is_completed, completed_at, due_date, position,
-                        created_by_person_id, description,
+                        comments_count, created_by_person_id, description,
                         bc_todo_assignees(
                             person:bc_people(id, name, email, avatar_url)
                         )
@@ -507,7 +532,7 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                     .from('bc_todos')
                     .select(`
                         id, bc_id, todolist_id, title, is_completed, completed_at, due_date, position,
-                        created_by_person_id, description,
+                        comments_count, created_by_person_id, description,
                         bc_todo_assignees(
                             person:bc_people(id, name, email, avatar_url)
                         )
@@ -517,21 +542,13 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                     .order('completed_at', { ascending: false })
                     .limit(100),
 
-                // Query 3: Comments (by project_id to avoid URL length limit)
-                supabase
-                    .from('bc_comments')
-                    .select('id, bc_id, parent_id, content, created_at, author:bc_people(name)')
-                    .eq('project_id', project.db_id)
-                    .eq('parent_type', 'todo')
-                    .order('created_at', { ascending: true }),
-
-                // Query 4: Explicit selected todo to bypass pagination limit
+                // Query 3: Explicit selected todo to bypass pagination limit
                 selectedTodoId
                     ? supabase
                         .from('bc_todos')
                         .select(`
                             id, bc_id, todolist_id, title, is_completed, completed_at, due_date, position,
-                            created_by_person_id, description,
+                            comments_count, created_by_person_id, description,
                             bc_todo_assignees(
                                 person:bc_people(id, name, email, avatar_url)
                             )
@@ -544,12 +561,10 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
             if (listsResult.error) throw listsResult.error
             if (activeTodosResult.error) throw activeTodosResult.error
             if (completedTodosResult.error) throw completedTodosResult.error
-            if (commentsResult.error) throw commentsResult.error
             if (selectedTodoResult && selectedTodoResult.error) throw selectedTodoResult.error
 
             const dbLists = listsResult.data || []
             let dbTodos = [...(activeTodosResult.data || []), ...(completedTodosResult.data || [])]
-            const dbComments = commentsResult.data || []
             const selectedTodo = selectedTodoResult?.data
 
             // Append selected todo if it's not already in the paginated tasks list
@@ -558,20 +573,10 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                 dbTodos = [...dbTodos, selectedTodo]
             }
 
-            // Map and combine lists with todos and comments
+            // Map and combine lists with todos
             const mappedLists = dbLists.map(list => {
                 const listTodos = dbTodos.filter(t => t.todolist_id === list.id)
                 const tasks = listTodos.map(t => {
-                    const taskComments = dbComments
-                        .filter(c => c.parent_id === t.id)
-                        .map(c => ({
-                            id: c.id,
-                            bc_id: c.bc_id,
-                            author: (Array.isArray(c.author) ? (c.author as any)[0]?.name : (c.author as any)?.name) || 'Unknown',
-                            text: c.content,
-                            timestamp: c.created_at
-                        }))
-
                     const assignees = t.bc_todo_assignees?.map((a: any) => ({
                         id: a.person?.id,
                         name: a.person?.name || 'Unknown',
@@ -587,7 +592,7 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                         due_date: t.due_date,
                         assignee: assignees.map((a: any) => a.name).join(', ') || null,
                         assigneeList: assignees,
-                        comments: taskComments,
+                        comments_count: t.comments_count || 0,
                         created_by: null
                     }
                 })
@@ -606,57 +611,76 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
             setLists(mappedLists)
             console.log("📦 [ToolTodos] Lists loaded:", mappedLists.length, "Total tasks:", mappedLists.flatMap(l => l.tasks).length)
 
-            // Update active selected task details if modal is open
-            if (selectedTask) {
+            // Update active selected task details if modal is open using functional state update
+            setSelectedTask((prev: any) => {
+                if (!prev) return null
                 const foundTask = mappedLists
                     .flatMap(l => l.tasks)
-                    .find(t => t.id === selectedTask.id)
-                if (foundTask) {
-                    setSelectedTask(foundTask)
-                }
-            }
+                    .find(t => t.id === prev.id)
+                return foundTask || prev
+            })
         } catch (err: any) {
             console.error('❌ [ToolTodos Fetch] Error loading todo lists:', err?.message || err?.details || err?.code || JSON.stringify(err) || err)
         } finally {
             setLoading(false)
         }
-    }, [project.db_id, project.id, selectedTodoId, selectedTask?.id])
+    }, [project.db_id, project.id, selectedTodoId])
+
+    // Fetch comments specifically for the active selected task
+    const fetchTaskComments = useCallback(async (taskId: string) => {
+        if (!taskId) return
+        setCommentsLoading(true)
+        try {
+            const { data: comments, error } = await supabase
+                .from('bc_comments')
+                .select('id, bc_id, parent_id, content, created_at, author:bc_people(name, email, avatar_url)')
+                .eq('parent_type', 'todo')
+                .eq('parent_id', taskId)
+                .order('created_at', { ascending: true })
+
+            if (error) throw error
+
+            const formatted = (comments || []).map((c: any) => ({
+                id: c.id,
+                bc_id: c.bc_id,
+                author: (Array.isArray(c.author) ? c.author[0]?.name : c.author?.name) || 'Unknown',
+                text: c.content,
+                timestamp: c.created_at
+            }))
+
+            setTaskComments(formatted)
+        } catch (err: any) {
+            console.error('❌ [ToolTodos Comments Fetch] Error:', err?.message || err)
+        } finally {
+            setCommentsLoading(false)
+        }
+    }, [supabase])
+
+    // Load comments on demand whenever selectedTask changes
+    useEffect(() => {
+        if (selectedTask?.id) {
+            fetchTaskComments(selectedTask.id)
+        } else {
+            setTaskComments([])
+        }
+    }, [selectedTask?.id, fetchTaskComments])
 
     useEffect(() => {
         fetchLists()
     }, [fetchLists])
 
     useEffect(() => {
-        console.log("🔍 [ToolTodos] selectedTodoId useEffect fired:", {
-            selectedTodoId,
-            listsCount: lists.length,
-            currentSelectedTaskId: selectedTask?.id
-        })
         if (selectedTodoId && lists.length > 0) {
-            if (selectedTask?.id !== selectedTodoId) {
-                let found = false
-                for (const list of lists) {
-                    const task = list.tasks.find((t: any) => t.id === selectedTodoId)
-                    if (task) {
-                        console.log("🎯 [ToolTodos] Found task matching selectedTodoId:", task.task_name)
-                        setSelectedTask(task)
-                        setSelectedTaskListId(list.id)
-                        found = true
-                        break
-                    }
-                }
-                if (!found) {
-                    console.warn("⚠️ [ToolTodos] Task not found in lists for selectedTodoId:", selectedTodoId)
-                }
-                if (!found && selectedTask) {
-                    setSelectedTask(null)
+            for (const list of lists) {
+                const task = list.tasks.find((t: any) => t.id === selectedTodoId)
+                if (task) {
+                    setSelectedTask(task)
+                    setSelectedTaskListId(list.id)
+                    break
                 }
             }
-        } else if (!selectedTodoId && selectedTask) {
-            console.log("🧹 [ToolTodos] Clearing selected task because selectedTodoId is empty")
-            setSelectedTask(null)
         }
-    }, [selectedTodoId, lists, selectedTask])
+    }, [selectedTodoId, lists])
 
     // Toggle completed status
     const handleToggleTask = async (listId: string, task: any) => {
@@ -784,6 +808,7 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
         e.preventDefault()
         if (!newComment.trim() || !selectedTask) return
         setActionLoading('comment')
+        const commentContent = newComment.trim()
         try {
             const res = await fetch('/api/basecamp/action', {
                 method: 'POST',
@@ -794,13 +819,14 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                     recordingId: selectedTask.bc_id,
                     parentType: 'todo',
                     parentDbId: selectedTask.id,
-                    content: newComment.trim()
+                    content: commentContent
                 })
             })
 
             if (!res.ok) throw new Error(await res.text())
             setNewComment('')
-            await fetchLists()
+            await fetchTaskComments(selectedTask.id)
+            fetchLists()
         } catch (err: any) {
             console.error('❌ [ToolTodos Comment] Error saving comment:', err.message)
         } finally {
@@ -862,1349 +888,1270 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
         return [...startsWithQ, ...containsQ]
     })()
 
-    return (
-        <div style={{ maxWidth: 780, margin: '0 auto', padding: '0 16px' }}>
-            {/* ── Header — Basecamp style: left-aligned title + controls row ── */}
-            <div style={{ padding: '28px 0 20px' }}>
-                <h1 style={{
-                    fontSize: 36, fontWeight: 700, color: '#1D2D35',
-                    margin: 0, lineHeight: 1.1, fontFamily: 'system-ui, -apple-system, sans-serif'
-                }}>
-                    {t('basecamp.todos') || 'To-dos'}
-                </h1>
-                
-                {/* Controls Bar: New list, View as, Filter */}
+    // Full List Renderer (Used for both List View and Single List drill-down view)
+    const renderFullList = (list: any, listIdx: number, showBackBtn: boolean = false) => {
+        const openTasks = list.tasks.filter((tk: any) => !tk.is_completed)
+        const completedTasks = list.tasks.filter((tk: any) => tk.is_completed)
+        const isExpanded = expandedCompleted[list.id] || false
+        const dotColor = LIST_DOT_COLORS[listIdx % LIST_DOT_COLORS.length]
+
+        return (
+            <div
+                key={list.id}
+                style={{
+                    background: '#fff',
+                    borderRadius: 10,
+                    border: '1px solid #E8E6E1',
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
+                    overflow: 'hidden'
+                }}
+            >
+                {/* ── List Header ── */}
                 <div style={{
-                    display: 'flex', alignItems: 'center', gap: 12,
-                    marginTop: 16, marginBottom: 8, flexWrap: 'wrap'
+                    padding: showBackBtn ? '24px 28px 18px' : '20px 24px 16px',
+                    borderBottom: '1px solid #F0EFEB',
+                    background: '#FAFAF8'
                 }}>
-                    <button
-                        onClick={() => setShowAddList(true)}
-                        style={{
-                            display: 'inline-flex', alignItems: 'center', gap: 6,
-                            padding: '8px 16px', borderRadius: 6, border: 'none',
-                            background: '#1D7DB5', color: '#fff', fontSize: 13.5, fontWeight: 600,
-                            cursor: 'pointer', transition: 'background 0.15s'
-                        }}
-                        onMouseEnter={e => (e.currentTarget.style.background = '#155D8A')}
-                        onMouseLeave={e => (e.currentTarget.style.background = '#1D7DB5')}
-                    >
-                        <Plus size={15} />
-                        {t('basecamp.add_list') || 'New list'}
-                    </button>
+                    {showBackBtn && (
+                        <div style={{ marginBottom: 14 }}>
+                            <button
+                                onClick={() => setSelectedListId(null)}
+                                style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: 6,
+                                    padding: '6px 12px',
+                                    borderRadius: 6,
+                                    border: '1px solid #D5D3CE',
+                                    background: '#fff',
+                                    color: '#1D7DB5',
+                                    fontSize: 13,
+                                    fontWeight: 600,
+                                    cursor: 'pointer',
+                                    transition: 'background 0.15s'
+                                }}
+                                onMouseEnter={e => (e.currentTarget.style.background = '#F0EFEB')}
+                                onMouseLeave={e => (e.currentTarget.style.background = '#fff')}
+                            >
+                                ← {t('basecamp.todos') || 'To-dos'}
+                            </button>
+                        </div>
+                    )}
 
-                    <button
-                        style={{
-                            display: 'inline-flex', alignItems: 'center', gap: 6,
-                            padding: '8px 14px', borderRadius: 6, border: '1px solid #D5D3CE',
-                            background: '#fff', color: '#1D2D35', fontSize: 13.5, fontWeight: 500,
-                            cursor: 'pointer', transition: 'background 0.15s'
-                        }}
-                        onMouseEnter={e => (e.currentTarget.style.background = '#F7F7F5')}
-                        onMouseLeave={e => (e.currentTarget.style.background = '#fff')}
-                    >
-                        <span>View as</span>
-                        <ChevronDown size={14} style={{ color: '#77858C' }} />
-                    </button>
-
-                    <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
-                        <input
-                            type="text"
-                            placeholder="Filter..."
-                            disabled
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <span
                             style={{
-                                padding: '8px 12px', borderRadius: 6, border: '1px solid #D5D3CE',
-                                background: '#fff', color: '#77858C', fontSize: 13.5,
-                                width: 140, outline: 'none', cursor: 'not-allowed'
+                                width: 12,
+                                height: 12,
+                                borderRadius: '50%',
+                                backgroundColor: dotColor,
+                                display: 'inline-block',
+                                flexShrink: 0
                             }}
                         />
+                        <h2 style={{
+                            fontSize: showBackBtn ? 26 : 20,
+                            fontWeight: 700,
+                            color: '#1D2D35',
+                            margin: 0,
+                            lineHeight: 1.2
+                        }}>
+                            {list.list_name}
+                        </h2>
                     </div>
-                </div>
-            </div>
 
-            {/* ── Loading State ── */}
-            {loading && lists.length === 0 ? (
-                <div style={{ display: 'flex', justifyContent: 'center', padding: '48px 0' }}>
-                    <Loader2 className="animate-spin" style={{ width: 32, height: 32, color: '#1D7DB5' }} />
+                    {list.description && (
+                        <p style={{
+                            fontSize: 14,
+                            color: '#6B7B8D',
+                            margin: '8px 0 0 22px',
+                            lineHeight: 1.4
+                        }}>
+                            {list.description}
+                        </p>
+                    )}
                 </div>
-            ) : lists.length > 0 ? (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 36 }}>
-                    {lists.map((list, listIdx) => {
-                        const openTasks = list.tasks.filter((tk: any) => !tk.is_completed)
-                        const completedTasks = list.tasks.filter((tk: any) => tk.is_completed)
-                        const isExpanded = expandedCompleted[list.id] || false
-                        const dotColor = LIST_DOT_COLORS[listIdx % LIST_DOT_COLORS.length]
+
+                {/* ── Active Tasks List ── */}
+                <div style={{ padding: '8px 0' }}>
+                    {openTasks.length === 0 && addingTaskId !== list.id && (
+                        <div style={{ padding: '18px 24px', color: '#94A3B8', fontSize: 13.5, fontStyle: 'italic' }}>
+                            {t('basecamp.no_todos_in_list') || 'No to-dos in this list yet.'}
+                        </div>
+                    )}
+
+                    {openTasks.map((task: any) => {
+                        const hasComments = task.comments_count > 0 || (task.comments && task.comments.length > 0)
+                        const commentCount = task.comments_count || (task.comments ? task.comments.length : 0)
 
                         return (
-                            <div key={list.id}>
-                                {/* ── List Header: colored dot + bold name (FLAT, no card box) ── */}
-                                <div style={{
-                                    display: 'flex', alignItems: 'center', gap: 10,
-                                    marginBottom: 6, marginTop: 12
-                                }}>
-                                    <span style={{
-                                        width: 14, height: 14, borderRadius: '50%',
-                                        background: dotColor, flexShrink: 0
-                                    }} />
-                                    <h2 style={{
-                                        fontSize: 22, fontWeight: 700, color: '#1D2D35',
-                                        margin: 0, lineHeight: 1.2,
-                                        fontFamily: 'system-ui, -apple-system, sans-serif'
-                                    }}>
-                                        {list.list_name}
-                                    </h2>
-                                </div>
-                                {list.description && (
-                                    <p style={{
-                                        fontSize: 13.5, color: '#6B7B8D', margin: '0 0 8px 24px',
-                                        fontFamily: 'system-ui, -apple-system, sans-serif'
-                                    }}>
-                                        {list.description}
-                                    </p>
-                                )}
-
-                                {/* ── Open Tasks — single-line items with inline avatars ── */}
-                                <div style={{
+                            <div
+                                key={task.id}
+                                style={{
                                     display: 'flex',
-                                    flexDirection: 'column',
-                                    gap: 0
-                                }}>
-                                    {openTasks.length > 0 ? openTasks.map((task: any) => (
-                                        <div
-                                            key={task.id}
-                                            onClick={() => {
-                                                if (navigateTo) {
-                                                    navigateTo({ project: project.id, tool: 'todos', todoId: task.id })
-                                                } else {
-                                                    setSelectedTask(task)
-                                                    setSelectedTaskListId(list.id)
-                                                }
-                                            }}
-                                            className="group"
-                                            style={{
-                                                display: 'flex', alignItems: 'flex-start', gap: 10,
-                                                padding: '6px 4px 6px 0',
-                                                cursor: 'pointer', transition: 'background 0.1s',
-                                                position: 'relative'
-                                            }}
-                                            onMouseEnter={e => (e.currentTarget.style.background = '#FAFAF8')}
-                                            onMouseLeave={e => (e.currentTarget.style.background = '')}
-                                        >
-                                            {/* Checkbox */}
-                                            <div style={{ flexShrink: 0, marginTop: 2 }}>
-                                                {actionLoading === task.id ? (
-                                                    <Loader2 className="animate-spin" style={{ width: 17, height: 17, color: '#1D7DB5' }} />
-                                                ) : (
-                                                    <div
-                                                        onClick={(e) => { e.stopPropagation(); handleToggleTask(list.id, task) }}
-                                                        style={{
-                                                            width: 17, height: 17, border: '1.5px solid #BDC5C7',
-                                                            borderRadius: 3, cursor: 'pointer',
-                                                            transition: 'border-color 0.15s',
-                                                            background: '#fff'
-                                                        }}
-                                                        onMouseEnter={e => (e.currentTarget.style.borderColor = '#1D7DB5')}
-                                                        onMouseLeave={e => (e.currentTarget.style.borderColor = '#BDC5C7')}
-                                                    />
-                                                )}
-                                            </div>
+                                    alignItems: 'flex-start',
+                                    gap: 12,
+                                    padding: '10px 24px',
+                                    borderBottom: '1px solid #F7F7F5',
+                                    transition: 'background 0.12s',
+                                    position: 'relative'
+                                }}
+                                onMouseEnter={e => (e.currentTarget.style.background = '#F9FAFB')}
+                                onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                            >
+                                {/* Checkbox / Action loading */}
+                                <button
+                                    onClick={() => handleToggleTask(list.id, task)}
+                                    disabled={actionLoading === task.id}
+                                    style={{
+                                        width: 18,
+                                        height: 18,
+                                        borderRadius: 4,
+                                        border: '1.5px solid #CBD5E1',
+                                        background: '#fff',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        cursor: 'pointer',
+                                        marginTop: 2,
+                                        flexShrink: 0,
+                                        padding: 0,
+                                        transition: 'border-color 0.15s, background 0.15s'
+                                    }}
+                                    onMouseEnter={e => (e.currentTarget.style.borderColor = '#4BAE4F')}
+                                    onMouseLeave={e => (e.currentTarget.style.borderColor = '#CBD5E1')}
+                                    title={t('basecamp.mark_as_done') || 'Mark as done'}
+                                >
+                                    {actionLoading === task.id ? (
+                                        <Loader2 size={12} className="animate-spin text-slate-400" />
+                                    ) : null}
+                                </button>
 
-                                            {/* Task content (inline container) */}
-                                            <div style={{
-                                                flex: 1, minWidth: 0, fontSize: 15, color: '#1D2D35',
-                                                lineHeight: '20px', wordBreak: 'break-word', whiteSpace: 'normal',
-                                                fontFamily: 'system-ui, -apple-system, sans-serif'
-                                            }}>
-                                                {/* Task name */}
-                                                <span style={{ fontWeight: 400 }}>
-                                                    {task.task_name}
-                                                </span>
-
-                                                {/* Comment count badge — inline Basecamp style */}
-                                                {task.comments && task.comments.length > 0 && (
-                                                    <span
-                                                        title={`${task.comments.length} comments`}
-                                                        style={{
-                                                            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                                                            width: 17, height: 17, borderRadius: '50%',
-                                                            background: '#2D9CDB', color: '#fff',
-                                                            fontSize: 9, fontWeight: 700,
-                                                            marginLeft: 6, marginRight: 2,
-                                                            verticalAlign: 'middle', lineHeight: 1
-                                                        }}
-                                                    >
-                                                        {task.comments.length}
-                                                    </span>
-                                                )}
-
-                                                {/* Assignees — inline: Avatar + Name (comma separated) */}
-                                                {task.assigneeList && task.assigneeList.length > 0 && (
-                                                    <span style={{
-                                                        fontSize: 13, color: '#77858C', marginLeft: 8,
-                                                        verticalAlign: 'middle'
-                                                    }}>
-                                                        {task.assigneeList.map((a: any, aIdx: number) => (
-                                                            <span key={a.id} style={{ display: 'inline-flex', alignItems: 'center', verticalAlign: 'middle' }}>
-                                                                {aIdx > 0 && <span style={{ marginRight: 4, color: '#A0AAB0' }}>,</span>}
-                                                                <span
-                                                                    title={a.name}
-                                                                    style={{
-                                                                        width: 16, height: 16, borderRadius: '50%',
-                                                                        background: getAvatarColor(a.name),
-                                                                        color: '#fff', fontSize: 8, fontWeight: 700,
-                                                                        display: 'inline-flex', alignItems: 'center',
-                                                                        justifyContent: 'center', marginRight: 4,
-                                                                        marginLeft: aIdx > 0 ? 4 : 0,
-                                                                        lineHeight: 1
-                                                                    }}
-                                                                >
-                                                                    {getInitials(a.name)}
-                                                                </span>
-                                                                <span style={{ color: '#5C6C73' }}>{a.name}</span>
-                                                            </span>
-                                                        ))}
-                                                    </span>
-                                                )}
-
-                                                {/* Notes/attachment icon */}
-                                                {task.description && task.description.trim() && (
-                                                    <span
-                                                        title="Has notes/attachments"
-                                                        style={{
-                                                            display: 'inline-flex', alignItems: 'center',
-                                                            color: '#A8B2B7', marginLeft: 6, verticalAlign: 'middle'
-                                                        }}
-                                                    >
-                                                        <FileText size={13} />
-                                                    </span>
-                                                )}
-                                            </div>
-
-                                            {/* Delete (hover only) */}
-                                            <button
-                                                onClick={(e) => handleDeleteTask(list.id, task, e)}
-                                                className="opacity-0 group-hover:opacity-100"
-                                                style={{
-                                                    padding: 4, borderRadius: 4, border: 'none',
-                                                    background: 'transparent', cursor: 'pointer',
-                                                    color: '#A0A0A0', transition: 'color 0.15s, opacity 0.15s',
-                                                    flexShrink: 0, marginTop: -2
-                                                }}
-                                                onMouseEnter={e => (e.currentTarget.style.color = '#D73A2E')}
-                                                onMouseLeave={e => (e.currentTarget.style.color = '#A0A0A0')}
-                                            >
-                                                <Trash2 size={14} />
-                                            </button>
-                                        </div>
-                                    )) : (
-                                        <p style={{
-                                            fontSize: 14, color: '#6B7B8D', padding: '12px 0',
-                                            margin: 0, fontStyle: 'italic'
+                                {/* Task Title + Metadata (Click opens detail) */}
+                                <div
+                                    onClick={() => {
+                                        setSelectedTask(task)
+                                        setSelectedTaskListId(list.id)
+                                    }}
+                                    style={{ flex: 1, cursor: 'pointer', minWidth: 0 }}
+                                >
+                                    {/* Primary row: Title + Due Date + Comments count */}
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                                        <span style={{
+                                            fontSize: 14.5,
+                                            fontWeight: 500,
+                                            color: '#1E293B',
+                                            lineHeight: 1.35
                                         }}>
-                                            {t('basecamp.no_open_tasks') || '✅ All tasks completed'}
-                                        </p>
+                                            {task.task_name}
+                                        </span>
+
+                                        {/* Due date badge */}
+                                        {task.due_date && (
+                                            <span style={{
+                                                display: 'inline-flex',
+                                                alignItems: 'center',
+                                                gap: 3.5,
+                                                padding: '2px 7px',
+                                                borderRadius: 12,
+                                                background: '#FEF3C7',
+                                                color: '#92400E',
+                                                fontSize: 11,
+                                                fontWeight: 600
+                                            }}>
+                                                <Calendar size={11} />
+                                                {task.due_date}
+                                            </span>
+                                        )}
+
+                                        {/* Comments badge */}
+                                        {hasComments && (
+                                            <span style={{
+                                                display: 'inline-flex',
+                                                alignItems: 'center',
+                                                gap: 4,
+                                                color: '#1D7DB5',
+                                                fontSize: 12,
+                                                fontWeight: 600
+                                            }}>
+                                                <MessageSquare size={13} />
+                                                {commentCount}
+                                            </span>
+                                        )}
+                                    </div>
+
+                                    {/* Secondary row: Assignees avatar pills on the next line */}
+                                    {task.assigneeList && task.assigneeList.length > 0 && (
+                                        <div style={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            flexWrap: 'wrap',
+                                            gap: 6,
+                                            marginTop: 5
+                                        }}>
+                                            {task.assigneeList.map((a: any, aIdx: number) => (
+                                                <span
+                                                    key={a.id || aIdx}
+                                                    style={{
+                                                        display: 'inline-flex',
+                                                        alignItems: 'center',
+                                                        gap: 4,
+                                                        padding: '2px 8px',
+                                                        borderRadius: 12,
+                                                        background: '#F1F5F9',
+                                                        border: '1px solid #E2E8F0',
+                                                        color: '#475569',
+                                                        fontSize: 11,
+                                                        fontWeight: 600
+                                                    }}
+                                                    title={a.name}
+                                                >
+                                                    <span
+                                                        style={{
+                                                            width: 14,
+                                                            height: 14,
+                                                            borderRadius: '50%',
+                                                            background: getAvatarColor(a.name || 'U'),
+                                                            color: '#fff',
+                                                            fontSize: 8,
+                                                            fontWeight: 800,
+                                                            display: 'inline-flex',
+                                                            alignItems: 'center',
+                                                            justifyContent: 'center'
+                                                        }}
+                                                    >
+                                                        {getInitials(a.name || 'U')}
+                                                    </span>
+                                                    {getShortName(a.name || '')}
+                                                </span>
+                                            ))}
+                                        </div>
                                     )}
                                 </div>
 
-
-
-                                {/* ── "Add a to-do" — blue text link (Basecamp style) ── */}
-                                {addingTaskId === list.id ? (
-                                    <div style={{ marginTop: 8, borderTop: 'none' }}>
-                                        <form onSubmit={(e) => handleAddTask(list.id, list.bc_id, e)}>
-                                            {/* Task name input row — checkbox + text like a real todo being typed */}
-                                            <div style={{
-                                                display: 'flex', alignItems: 'center', gap: 10,
-                                                padding: '10px 0',
-                                                borderBottom: '1px solid #F0EFEB'
-                                            }}>
-                                                <div style={{
-                                                    width: 18, height: 18, border: '2px solid #D5D3CE',
-                                                    borderRadius: 3, flexShrink: 0, opacity: 0.5
-                                                }} />
-                                                <input
-                                                    type="text"
-                                                    required
-                                                    value={newTaskName}
-                                                    onChange={(e) => setNewTaskName(e.target.value)}
-                                                    placeholder={t('basecamp.task_placeholder') || 'Describe this to-do...'}
-                                                    autoFocus
-                                                    style={{
-                                                        flex: 1, padding: 0, border: 'none',
-                                                        fontSize: 15, fontWeight: 500, color: '#1D2D35',
-                                                        outline: 'none', background: 'transparent',
-                                                        lineHeight: '20px'
-                                                    }}
-                                                />
-                                            </div>
-
-                                            {/* Labeled form fields — exact Basecamp layout */}
-                                            <div
-                                                className="flex flex-col gap-2.5 mt-2.5 pt-3 pb-3 pl-0 sm:pl-7 border-t border-[#E8E6E1]"
-                                            >
-                                                {/* Assigned to */}
-                                                <div className="flex flex-col sm:flex-row sm:items-start gap-1 sm:gap-0">
-                                                    <span className="w-auto sm:w-[100px] text-left sm:text-right mr-0 sm:mr-4 shrink-0 font-semibold text-[13px] text-[#6B7B8D] sm:pt-1.5">
-                                                        {t('basecamp.assign_to')}
-                                                    </span>
-                                                    <div style={{ position: 'relative', width: '100%', maxWidth: 400 }}>
-                                                        {/* Selected Assignees Row */}
-                                                        {newTaskAssignees.length > 0 && (
-                                                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
-                                                                {newTaskAssignees.map((person) => (
-                                                                    <div key={person.id} style={{
-                                                                        display: 'inline-flex',
-                                                                        alignItems: 'center',
-                                                                        gap: 6,
-                                                                        padding: '2px 8px 2px 4px',
-                                                                        borderRadius: 14,
-                                                                        background: '#FAFAF8',
-                                                                        border: '1px solid #D5D3CE',
-                                                                        fontSize: 12,
-                                                                        fontWeight: 505,
-                                                                        color: '#1D2D35'
-                                                                    }}>
-                                                                        <span style={{
-                                                                            width: 18,
-                                                                            height: 18,
-                                                                            borderRadius: '50%',
-                                                                            background: getAvatarColor(person.name),
-                                                                            color: '#fff',
-                                                                            fontSize: 9,
-                                                                            fontWeight: 700,
-                                                                            display: 'inline-flex',
-                                                                            alignItems: 'center',
-                                                                            justifyContent: 'center',
-                                                                            flexShrink: 0
-                                                                        }}>
-                                                                            {getInitials(person.name)}
-                                                                        </span>
-                                                                        <span>{person.name}</span>
-                                                                        <button
-                                                                            type="button"
-                                                                            onClick={() => setNewTaskAssignees(prev => prev.filter(p => p.id !== person.id))}
-                                                                            style={{
-                                                                                border: 'none',
-                                                                                background: 'transparent',
-                                                                                cursor: 'pointer',
-                                                                                fontSize: 11,
-                                                                                color: '#e74c3c',
-                                                                                padding: '0 2px',
-                                                                                display: 'inline-flex',
-                                                                                alignItems: 'center',
-                                                                                justifyContent: 'center',
-                                                                                fontWeight: 'bold'
-                                                                            }}
-                                                                        >
-                                                                            ✕
-                                                                        </button>
-                                                                    </div>
-                                                                ))}
-                                                            </div>
-                                                        )}
-
-                                                        {/* Search Input — with keyboard navigation (Enter to select, arrows to navigate) */}
-                                                        <input
-                                                            type="text"
-                                                            placeholder={t('basecamp.type_names_placeholder') || 'Type names to assign...'}
-                                                            value={assigneeSearchQuery}
-                                                            onChange={(e) => {
-                                                                setAssigneeSearchQuery(e.target.value)
-                                                                setShowAssigneeSuggestions(true)
-                                                                setHighlightedAssigneeIdx(0) // Reset to first suggestion on every keystroke
-                                                            }}
-                                                            onFocus={() => setShowAssigneeSuggestions(true)}
-                                                            onBlur={() => {
-                                                                setTimeout(() => {
-                                                                    setShowAssigneeSuggestions(false)
-                                                                }, 200)
-                                                            }}
-                                                            onKeyDown={(e) => {
-                                                                if (!showAssigneeSuggestions || filteredSuggestions.length === 0) return
-                                                                if (e.key === 'ArrowDown') {
-                                                                    e.preventDefault()
-                                                                    setHighlightedAssigneeIdx(prev => Math.min(prev + 1, filteredSuggestions.length - 1))
-                                                                } else if (e.key === 'ArrowUp') {
-                                                                    e.preventDefault()
-                                                                    setHighlightedAssigneeIdx(prev => Math.max(prev - 1, 0))
-                                                                } else if (e.key === 'Enter') {
-                                                                    e.preventDefault()
-                                                                    e.stopPropagation() // Prevent form submit
-                                                                    const person = filteredSuggestions[highlightedAssigneeIdx]
-                                                                    if (person) {
-                                                                        setNewTaskAssignees(prev => [...prev, person])
-                                                                        setAssigneeSearchQuery('')
-                                                                        setShowAssigneeSuggestions(false)
-                                                                        setHighlightedAssigneeIdx(0)
-                                                                    }
-                                                                } else if (e.key === 'Escape') {
-                                                                    setShowAssigneeSuggestions(false)
-                                                                }
-                                                            }}
-                                                            className="w-full"
-                                                            style={{
-                                                                border: '1px solid #E8E6E1',
-                                                                borderRadius: 4,
-                                                                padding: '6px 8px',
-                                                                fontSize: 13,
-                                                                color: '#1D2D35',
-                                                                background: '#fff',
-                                                                outline: 'none'
-                                                            }}
-                                                        />
-
-                                                        {/* Suggestions Dropdown */}
-                                                        {showAssigneeSuggestions && assigneeSearchQuery.trim().length > 0 && (
-                                                            <div style={{
-                                                                position: 'absolute',
-                                                                top: '100%',
-                                                                left: 0,
-                                                                right: 0,
-                                                                background: '#fff',
-                                                                border: '1px solid #D5D3CE',
-                                                                borderRadius: 4,
-                                                                boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
-                                                                zIndex: 100,
-                                                                maxHeight: 150,
-                                                                overflowY: 'auto',
-                                                                marginTop: 4
-                                                            }}>
-                                                                {filteredSuggestions.length > 0 ? (
-                                                                    filteredSuggestions.map((person: any, idx: number) => (
-                                                                        <div
-                                                                            key={person.id}
-                                                                            onClick={() => {
-                                                                                setNewTaskAssignees(prev => [...prev, person])
-                                                                                setAssigneeSearchQuery('')
-                                                                                setShowAssigneeSuggestions(false)
-                                                                                setHighlightedAssigneeIdx(0)
-                                                                            }}
-                                                                            onMouseEnter={() => setHighlightedAssigneeIdx(idx)}
-                                                                            style={{
-                                                                                padding: '8px 12px',
-                                                                                cursor: 'pointer',
-                                                                                fontSize: 13,
-                                                                                color: idx === highlightedAssigneeIdx ? '#fff' : '#1D2D35',
-                                                                                background: idx === highlightedAssigneeIdx ? '#4B9ED6' : 'transparent',
-                                                                                display: 'flex',
-                                                                                alignItems: 'center',
-                                                                                gap: 8,
-                                                                                transition: 'background 0.08s, color 0.08s',
-                                                                                borderRadius: 4
-                                                                            }}
-                                                                            onMouseDown={(e) => {
-                                                                                // Prevents blur from hiding options before click registers
-                                                                                e.preventDefault()
-                                                                            }}
-                                                                        >
-                                                                            <span style={{
-                                                                                width: 20,
-                                                                                height: 20,
-                                                                                borderRadius: '50%',
-                                                                                background: getAvatarColor(person.name),
-                                                                                color: '#fff',
-                                                                                fontSize: 9,
-                                                                                fontWeight: 700,
-                                                                                display: 'inline-flex',
-                                                                                alignItems: 'center',
-                                                                                justifyContent: 'center',
-                                                                                flexShrink: 0
-                                                                            }}>
-                                                                                {getInitials(person.name)}
-                                                                            </span>
-                                                                            <span style={{ fontWeight: idx === highlightedAssigneeIdx ? 600 : 400 }}>{person.name}</span>
-                                                                        </div>
-                                                                    ))
-                                                                ) : (
-                                                                    <div style={{ padding: '8px 12px', fontSize: 13, color: '#999', fontStyle: 'italic' }}>
-                                                                        No results found
-                                                                    </div>
-                                                                )}
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                </div>
-
-                                                {/* When done — same people-search widget as Assigned to */}
-                                                <div className="flex flex-col sm:flex-row sm:items-start gap-1 sm:gap-0">
-                                                    <span className="w-auto sm:w-[100px] text-left sm:text-right mr-0 sm:mr-4 shrink-0 font-semibold text-[13px] text-[#6B7B8D] sm:pt-1.5">
-                                                        {t('basecamp.when_done')}
-                                                    </span>
-                                                    <div style={{ position: 'relative', width: '100%', maxWidth: 400 }}>
-                                                        {/* Selected Notifyees Row */}
-                                                        {newTaskNotifyees.length > 0 && (
-                                                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
-                                                                {newTaskNotifyees.map((person) => (
-                                                                    <div key={person.id} style={{
-                                                                        display: 'inline-flex',
-                                                                        alignItems: 'center',
-                                                                        gap: 6,
-                                                                        padding: '2px 8px 2px 4px',
-                                                                        borderRadius: 14,
-                                                                        background: '#FAFAF8',
-                                                                        border: '1px solid #D5D3CE',
-                                                                        fontSize: 12,
-                                                                        fontWeight: 505,
-                                                                        color: '#1D2D35'
-                                                                    }}>
-                                                                        <span style={{
-                                                                            width: 18,
-                                                                            height: 18,
-                                                                            borderRadius: '50%',
-                                                                            background: getAvatarColor(person.name),
-                                                                            color: '#fff',
-                                                                            fontSize: 9,
-                                                                            fontWeight: 700,
-                                                                            display: 'inline-flex',
-                                                                            alignItems: 'center',
-                                                                            justifyContent: 'center',
-                                                                            flexShrink: 0
-                                                                        }}>
-                                                                            {getInitials(person.name)}
-                                                                        </span>
-                                                                        <span>{person.name}</span>
-                                                                        <button
-                                                                            type="button"
-                                                                            onClick={() => setNewTaskNotifyees(prev => prev.filter(p => p.id !== person.id))}
-                                                                            style={{
-                                                                                border: 'none',
-                                                                                background: 'transparent',
-                                                                                cursor: 'pointer',
-                                                                                fontSize: 11,
-                                                                                color: '#e74c3c',
-                                                                                padding: '0 2px',
-                                                                                display: 'inline-flex',
-                                                                                alignItems: 'center',
-                                                                                justifyContent: 'center',
-                                                                                fontWeight: 'bold'
-                                                                            }}
-                                                                        >
-                                                                            ✕
-                                                                        </button>
-                                                                    </div>
-                                                                ))}
-                                                            </div>
-                                                        )}
-
-                                                        {/* Notify Search Input */}
-                                                        <input
-                                                            type="text"
-                                                            placeholder={t('basecamp.notify_people_placeholder') || 'Notify these people...'}
-                                                            value={notifySearchQuery}
-                                                            onChange={(e) => {
-                                                                setNotifySearchQuery(e.target.value)
-                                                                setShowNotifySuggestions(true)
-                                                                setHighlightedNotifyIdx(0)
-                                                            }}
-                                                            onFocus={() => setShowNotifySuggestions(true)}
-                                                            onBlur={() => {
-                                                                setTimeout(() => {
-                                                                    setShowNotifySuggestions(false)
-                                                                }, 200)
-                                                            }}
-                                                            onKeyDown={(e) => {
-                                                                if (!showNotifySuggestions || filteredNotifySuggestions.length === 0) return
-                                                                if (e.key === 'ArrowDown') {
-                                                                    e.preventDefault()
-                                                                    setHighlightedNotifyIdx(prev => Math.min(prev + 1, filteredNotifySuggestions.length - 1))
-                                                                } else if (e.key === 'ArrowUp') {
-                                                                    e.preventDefault()
-                                                                    setHighlightedNotifyIdx(prev => Math.max(prev - 1, 0))
-                                                                } else if (e.key === 'Enter') {
-                                                                    e.preventDefault()
-                                                                    e.stopPropagation()
-                                                                    const person = filteredNotifySuggestions[highlightedNotifyIdx]
-                                                                    if (person) {
-                                                                        setNewTaskNotifyees(prev => [...prev, person])
-                                                                        setNotifySearchQuery('')
-                                                                        setShowNotifySuggestions(false)
-                                                                        setHighlightedNotifyIdx(0)
-                                                                    }
-                                                                } else if (e.key === 'Escape') {
-                                                                    setShowNotifySuggestions(false)
-                                                                }
-                                                            }}
-                                                            className="w-full"
-                                                            style={{
-                                                                border: '1px solid #E8E6E1',
-                                                                borderRadius: 4,
-                                                                padding: '6px 8px',
-                                                                fontSize: 13,
-                                                                color: '#1D2D35',
-                                                                background: '#fff',
-                                                                outline: 'none'
-                                                            }}
-                                                        />
-
-                                                        {/* Notify Suggestions Dropdown */}
-                                                        {showNotifySuggestions && notifySearchQuery.trim().length > 0 && (
-                                                            <div style={{
-                                                                position: 'absolute',
-                                                                top: '100%',
-                                                                left: 0,
-                                                                right: 0,
-                                                                background: '#fff',
-                                                                border: '1px solid #D5D3CE',
-                                                                borderRadius: 4,
-                                                                boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
-                                                                zIndex: 100,
-                                                                maxHeight: 150,
-                                                                overflowY: 'auto',
-                                                                marginTop: 4
-                                                            }}>
-                                                                {filteredNotifySuggestions.length > 0 ? (
-                                                                    filteredNotifySuggestions.map((person: any, idx: number) => (
-                                                                        <div
-                                                                            key={person.id}
-                                                                            onClick={() => {
-                                                                                setNewTaskNotifyees(prev => [...prev, person])
-                                                                                setNotifySearchQuery('')
-                                                                                setShowNotifySuggestions(false)
-                                                                                setHighlightedNotifyIdx(0)
-                                                                            }}
-                                                                            onMouseEnter={() => setHighlightedNotifyIdx(idx)}
-                                                                            style={{
-                                                                                padding: '8px 12px',
-                                                                                cursor: 'pointer',
-                                                                                fontSize: 13,
-                                                                                color: idx === highlightedNotifyIdx ? '#fff' : '#1D2D35',
-                                                                                background: idx === highlightedNotifyIdx ? '#4B9ED6' : 'transparent',
-                                                                                display: 'flex',
-                                                                                alignItems: 'center',
-                                                                                gap: 8,
-                                                                                transition: 'background 0.08s, color 0.08s',
-                                                                                borderRadius: 4
-                                                                            }}
-                                                                            onMouseDown={(e) => {
-                                                                                e.preventDefault()
-                                                                            }}
-                                                                        >
-                                                                            <span style={{
-                                                                                width: 20,
-                                                                                height: 20,
-                                                                                borderRadius: '50%',
-                                                                                background: getAvatarColor(person.name),
-                                                                                color: '#fff',
-                                                                                fontSize: 9,
-                                                                                fontWeight: 700,
-                                                                                display: 'inline-flex',
-                                                                                alignItems: 'center',
-                                                                                justifyContent: 'center',
-                                                                                flexShrink: 0
-                                                                            }}>
-                                                                                {getInitials(person.name)}
-                                                                            </span>
-                                                                            <span style={{ fontWeight: idx === highlightedNotifyIdx ? 600 : 400 }}>{person.name}</span>
-                                                                        </div>
-                                                                    ))
-                                                                ) : (
-                                                                    <div style={{ padding: '8px 12px', fontSize: 13, color: '#999', fontStyle: 'italic' }}>
-                                                                        No results found
-                                                                    </div>
-                                                                )}
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                </div>
-
-                                                {/* Due on */}
-                                                <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-0">
-                                                    <span className="w-auto sm:w-[100px] text-left sm:text-right mr-0 sm:mr-4 shrink-0 font-semibold text-[13px] text-[#6B7B8D]">
-                                                        {t('basecamp.due_on') || t('basecamp.due_date')}
-                                                    </span>
-                                                    <input
-                                                        type="date"
-                                                        value={newTaskDueDate}
-                                                        onChange={(e) => setNewTaskDueDate(e.target.value)}
-                                                        className="w-full sm:w-auto"
-                                                        style={{
-                                                            border: '1px solid #E8E6E1', borderRadius: 4,
-                                                            padding: '3px 8px', fontSize: 13, color: '#1D2D35',
-                                                            background: '#fff', outline: 'none'
-                                                        }}
-                                                    />
-                                                </div>
-
-                                                {/* Notes */}
-                                                <div className="flex flex-col sm:flex-row sm:items-start gap-1 sm:gap-0">
-                                                    <span className="w-auto sm:w-[100px] text-left sm:text-right mr-0 sm:mr-4 shrink-0 font-semibold text-[13px] text-[#6B7B8D] sm:pt-1.5">
-                                                        {t('basecamp.notes_label')}
-                                                    </span>
-                                                    <div className="w-full" style={{ maxWidth: 500 }}>
-                                                        {/* Toolbar — matches real Basecamp Trix editor bar */}
-                                                        <div style={{
-                                                            display: 'flex',
-                                                            alignItems: 'center',
-                                                            flexWrap: 'wrap',
-                                                            gap: 2,
-                                                            padding: '4px 6px',
-                                                            background: '#FAFAF9',
-                                                            border: '1px solid #D5D3CE',
-                                                            borderBottom: 'none',
-                                                            borderTopLeftRadius: 6,
-                                                            borderTopRightRadius: 6
-                                                        }}>
-                                                            {/* Group 1: Media — Image, Attachment */}
-                                                            <button type="button" onClick={editorInsertImage} title="Insert Image" style={toolbarBtnStyle}>
-                                                                <Image size={14} style={{ color: '#4F5E68' }} />
-                                                            </button>
-                                                            <button type="button" onClick={editorInsertAttachment} title="Attach File" style={toolbarBtnStyle}>
-                                                                <Paperclip size={14} style={{ color: '#4F5E68' }} />
-                                                            </button>
-                                                            
-                                                            <div style={dividerStyle} />
-                                                            
-                                                            {/* Group 2: Text formatting — Bold, Italic, Strikethrough, Clear, Highlight, Link */}
-                                                            <button type="button" onClick={() => execCmd('bold')} title="Bold" style={toolbarBtnStyle}>
-                                                                <Bold size={14} style={{ color: '#4F5E68' }} />
-                                                            </button>
-                                                            <button type="button" onClick={() => execCmd('italic')} title="Italic" style={toolbarBtnStyle}>
-                                                                <Italic size={14} style={{ color: '#4F5E68' }} />
-                                                            </button>
-                                                            {/* Strikethrough */}
-                                                            <button type="button" onClick={() => execCmd('strikeThrough')} title="Strikethrough" style={toolbarBtnStyle}>
-                                                                <Strikethrough size={14} style={{ color: '#4F5E68' }} />
-                                                            </button>
-                                                            
-                                                            {/* Text Size dropdown (Tᵥ) — Heading 1, Heading 2, Normal */}
-                                                            <div style={{ position: 'relative' }}>
-                                                                <button type="button" onClick={() => { setShowTextSizeMenu(!showTextSizeMenu); setShowColorMenu(false) }} title="Text Size" style={{
-                                                                    ...toolbarBtnStyle,
-                                                                    width: 36,
-                                                                    gap: 1,
-                                                                    background: showTextSizeMenu ? '#E8E6E1' : 'transparent'
-                                                                }}>
-                                                                    <Type size={14} style={{ color: '#4F5E68' }} />
-                                                                    <ChevronDown size={10} style={{ color: '#4F5E68' }} />
-                                                                </button>
-                                                                {showTextSizeMenu && (
-                                                                    <div style={{
-                                                                        position: 'absolute',
-                                                                        top: '100%',
-                                                                        left: 0,
-                                                                        zIndex: 50,
-                                                                        background: '#fff',
-                                                                        border: '1px solid #D5D3CE',
-                                                                        borderRadius: 6,
-                                                                        boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-                                                                        minWidth: 150,
-                                                                        padding: '4px 0',
-                                                                        marginTop: 2
-                                                                    }}>
-                                                                        <button type="button" onClick={() => { focusEditor(); document.execCommand('formatBlock', false, 'h1'); setShowTextSizeMenu(false) }}
-                                                                            style={{ display: 'block', width: '100%', padding: '6px 14px', border: 'none', background: 'transparent', textAlign: 'left', cursor: 'pointer', fontSize: 18, fontWeight: 700, color: '#1D2D35' }}>Heading 1</button>
-                                                                        <button type="button" onClick={() => { focusEditor(); document.execCommand('formatBlock', false, 'h2'); setShowTextSizeMenu(false) }}
-                                                                            style={{ display: 'block', width: '100%', padding: '6px 14px', border: 'none', background: 'transparent', textAlign: 'left', cursor: 'pointer', fontSize: 15, fontWeight: 600, color: '#1D2D35' }}>Heading 2</button>
-                                                                        <button type="button" onClick={() => { focusEditor(); document.execCommand('formatBlock', false, 'p'); setShowTextSizeMenu(false) }}
-                                                                            style={{ display: 'block', width: '100%', padding: '6px 14px', border: 'none', background: 'transparent', textAlign: 'left', cursor: 'pointer', fontSize: 13, color: '#1D2D35' }}>Normal text</button>
-                                                                    </div>
-                                                                )}
-                                                            </div>
-                                                            
-                                                            {/* Color/Highlight dropdown (🖊ᵥ) — color palette */}
-                                                            <div style={{ position: 'relative' }}>
-                                                                <button type="button" onClick={() => { setShowColorMenu(!showColorMenu); setShowTextSizeMenu(false) }} title="Highlight Color" style={{
-                                                                    ...toolbarBtnStyle,
-                                                                    width: 36,
-                                                                    gap: 1,
-                                                                    background: showColorMenu ? '#E8E6E1' : 'transparent'
-                                                                }}>
-                                                                    <Highlighter size={14} style={{ color: '#4F5E68' }} />
-                                                                    <ChevronDown size={10} style={{ color: '#4F5E68' }} />
-                                                                </button>
-                                                                {showColorMenu && (
-                                                                    <div style={{
-                                                                        position: 'absolute',
-                                                                        top: '100%',
-                                                                        left: 0,
-                                                                        zIndex: 50,
-                                                                        background: '#fff',
-                                                                        border: '1px solid #D5D3CE',
-                                                                        borderRadius: 6,
-                                                                        boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-                                                                        padding: '8px',
-                                                                        marginTop: 2,
-                                                                        display: 'flex',
-                                                                        gap: 4,
-                                                                        flexWrap: 'wrap',
-                                                                        width: 160
-                                                                    }}>
-                                                                        {[
-                                                                            { color: '#f1c40f', label: 'Yellow' },
-                                                                            { color: '#a8f0c6', label: 'Green' },
-                                                                            { color: '#7dd3fc', label: 'Blue' },
-                                                                            { color: '#fda4af', label: 'Pink' },
-                                                                            { color: '#fdba74', label: 'Orange' },
-                                                                            { color: '#d8b4fe', label: 'Purple' },
-                                                                        ].map((c) => (
-                                                                            <button
-                                                                                key={c.color}
-                                                                                type="button"
-                                                                                title={c.label}
-                                                                                onClick={() => { focusEditor(); document.execCommand('hiliteColor', false, c.color); setShowColorMenu(false) }}
-                                                                                style={{ width: 24, height: 24, borderRadius: 4, border: '1px solid #ddd', background: c.color, cursor: 'pointer' }}
-                                                                            />
-                                                                        ))}
-                                                                        <button
-                                                                            type="button"
-                                                                            title="Clear highlight"
-                                                                            onClick={() => { focusEditor(); document.execCommand('removeFormat'); setShowColorMenu(false) }}
-                                                                            style={{ width: 24, height: 24, borderRadius: 4, border: '1px solid #ddd', background: '#fff', cursor: 'pointer', fontSize: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#999' }}
-                                                                        >✕</button>
-                                                                    </div>
-                                                                )}
-                                                            </div>
-                                                            
-                                                            {/* Link */}
-                                                            <button type="button" onClick={editorToggleLinkBar} title="Link" style={{
-                                                                ...toolbarBtnStyle,
-                                                                background: showLinkBar ? '#4B9ED6' : 'transparent',
-                                                                borderRadius: 4
-                                                            }}>
-                                                                <Link size={14} style={{ color: showLinkBar ? '#fff' : '#4F5E68' }} />
-                                                            </button>
-                                                            
-                                                            <div style={dividerStyle} />
-                                                            
-                                                            {/* Group 3: Block — Quote, Code */}
-                                                            <button type="button" onClick={editorInsertQuote} title="Quote" style={toolbarBtnStyle}>
-                                                                <Quote size={14} style={{ color: '#4F5E68' }} />
-                                                            </button>
-                                                            <button type="button" onClick={editorInsertCode} title="Code" style={toolbarBtnStyle}>
-                                                                <Code size={14} style={{ color: '#4F5E68' }} />
-                                                            </button>
-                                                            
-                                                            <div style={dividerStyle} />
-                                                            
-                                                            {/* Group 4: Lists — Bullet, Numbered */}
-                                                            <button type="button" onClick={() => execCmd('insertUnorderedList')} title="Bullet List" style={toolbarBtnStyle}>
-                                                                <List size={14} style={{ color: '#4F5E68' }} />
-                                                            </button>
-                                                            <button type="button" onClick={() => execCmd('insertOrderedList')} title="Numbered List" style={toolbarBtnStyle}>
-                                                                <ListOrdered size={14} style={{ color: '#4F5E68' }} />
-                                                            </button>
-                                                            
-                                                            <div style={dividerStyle} />
-                                                            
-                                                            {/* Group 5: Structure — Table, Align, Mic */}
-                                                            <button type="button" onClick={editorInsertTable} title="Table" style={{
-                                                                ...toolbarBtnStyle,
-                                                                background: showTableControls ? '#2C3E50' : 'transparent',
-                                                                borderRadius: 4
-                                                            }}>
-                                                                <Table size={14} style={{ color: showTableControls ? '#fff' : '#4F5E68' }} />
-                                                            </button>
-                                                            <button type="button" onClick={() => execCmd('justifyCenter')} title="Center Align" style={toolbarBtnStyle}>
-                                                                <AlignLeft size={14} style={{ color: '#4F5E68' }} />
-                                                            </button>
-                                                            <button type="button" onClick={() => {
-                                                                if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
-                                                                    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
-                                                                    const recognition = new SpeechRecognition()
-                                                                    recognition.lang = 'es-ES'
-                                                                    recognition.start()
-                                                                    recognition.onresult = (event: any) => {
-                                                                        const resultText = event.results[0][0].transcript
-                                                                        focusEditor()
-                                                                        document.execCommand('insertText', false, resultText)
-                                                                    }
-                                                                } else {
-                                                                    console.warn('Speech recognition is not supported in this browser.')
-                                                                }
-                                                            }} title="Speech to Text" style={toolbarBtnStyle}>
-                                                                <Mic size={14} style={{ color: '#4F5E68' }} />
-                                                            </button>
-                                                            
-                                                            {/* Spacer pushes undo/redo to far right */}
-                                                            <div style={{ flex: 1 }} />
-                                                            
-                                                            {/* Group 6: History — Undo, Redo (scoped to Notes editor only) */}
-                                                            <button type="button" onClick={editorUndo} title="Undo" style={toolbarBtnStyle}>
-                                                                <Undo2 size={14} style={{ color: '#4F5E68' }} />
-                                                            </button>
-                                                            <button type="button" onClick={editorRedo} title="Redo" style={toolbarBtnStyle}>
-                                                                <Redo2 size={14} style={{ color: '#4F5E68' }} />
-                                                            </button>
-                                                        </div>
-                                                        
-                                                        {/* Inline Link Bar — appears below toolbar like real Basecamp */}
-                                                        {showLinkBar && (
-                                                            <div style={{
-                                                                display: 'flex',
-                                                                alignItems: 'center',
-                                                                gap: 8,
-                                                                padding: '8px 12px',
-                                                                background: '#fff',
-                                                                border: '1px solid #D5D3CE',
-                                                                borderTop: 'none'
-                                                            }}>
-                                                                <input
-                                                                    type="text"
-                                                                    placeholder="Enter a URL..."
-                                                                    value={linkUrl}
-                                                                    onChange={(e) => setLinkUrl(e.target.value)}
-                                                                    onKeyDown={(e) => {
-                                                                        if (e.key === 'Enter') { e.preventDefault(); editorApplyLink() }
-                                                                        if (e.key === 'Escape') { setShowLinkBar(false); setLinkUrl('') }
-                                                                    }}
-                                                                    autoFocus
-                                                                    style={{
-                                                                        flex: 1,
-                                                                        border: '1px solid #D5D3CE',
-                                                                        borderRadius: 4,
-                                                                        padding: '5px 10px',
-                                                                        fontSize: 13,
-                                                                        color: '#1D2D35',
-                                                                        outline: 'none'
-                                                                    }}
-                                                                />
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={editorApplyLink}
-                                                                    style={{
-                                                                        padding: '5px 16px',
-                                                                        background: '#4B9ED6',
-                                                                        color: '#fff',
-                                                                        border: 'none',
-                                                                        borderRadius: 4,
-                                                                        fontSize: 13,
-                                                                        fontWeight: 600,
-                                                                        cursor: 'pointer'
-                                                                    }}
-                                                                >
-                                                                    Link
-                                                                </button>
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={editorUnlink}
-                                                                    style={{
-                                                                        padding: '5px 8px',
-                                                                        background: 'transparent',
-                                                                        color: '#6B7B8D',
-                                                                        border: 'none',
-                                                                        fontSize: 13,
-                                                                        cursor: 'pointer'
-                                                                    }}
-                                                                >
-                                                                    Unlink
-                                                                </button>
-                                                            </div>
-                                                        )}
-
-                                                        {/* Inline Table Controls — dark bar with +/- rows/columns like real Basecamp */}
-                                                        {showTableControls && (
-                                                            <div style={{
-                                                                display: 'flex',
-                                                                alignItems: 'center',
-                                                                justifyContent: 'center',
-                                                                gap: 8,
-                                                                padding: '6px 12px',
-                                                                background: '#2C3E50',
-                                                                border: '1px solid #2C3E50',
-                                                                borderTop: 'none'
-                                                            }}>
-                                                                {/* Rows control */}
-                                                                <button type="button" onClick={() => { if (tableRows > 1) editorUpdateTable(tableRows - 1, tableCols) }}
-                                                                    style={{ background: '#3D5166', border: 'none', color: '#fff', width: 24, height: 24, borderRadius: 3, cursor: 'pointer', fontSize: 14, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>−</button>
-                                                                <span style={{ color: '#fff', fontSize: 12, fontWeight: 600, minWidth: 50, textAlign: 'center' }}>{tableRows} rows</span>
-                                                                <button type="button" onClick={() => editorUpdateTable(tableRows + 1, tableCols)}
-                                                                    style={{ background: '#3D5166', border: 'none', color: '#fff', width: 24, height: 24, borderRadius: 3, cursor: 'pointer', fontSize: 14, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>+</button>
-                                                                
-                                                                <div style={{ width: 8 }} />
-                                                                
-                                                                {/* Columns control */}
-                                                                <button type="button" onClick={() => { if (tableCols > 1) editorUpdateTable(tableRows, tableCols - 1) }}
-                                                                    style={{ background: '#3D5166', border: 'none', color: '#fff', width: 24, height: 24, borderRadius: 3, cursor: 'pointer', fontSize: 14, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>−</button>
-                                                                <span style={{ color: '#fff', fontSize: 12, fontWeight: 600, minWidth: 70, textAlign: 'center' }}>{tableCols} columns</span>
-                                                                <button type="button" onClick={() => editorUpdateTable(tableRows, tableCols + 1)}
-                                                                    style={{ background: '#3D5166', border: 'none', color: '#fff', width: 24, height: 24, borderRadius: 3, cursor: 'pointer', fontSize: 14, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>+</button>
-                                                                
-                                                                <div style={{ width: 8 }} />
-                                                                
-                                                                {/* Delete table */}
-                                                                <button type="button" onClick={editorRemoveTable}
-                                                                    style={{ background: '#3D5166', border: 'none', color: '#fff', width: 24, height: 24, borderRadius: 3, cursor: 'pointer', fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                                                    <Trash2 size={13} />
-                                                                </button>
-                                                            </div>
-                                                        )}
-                                                        
-                                                        {/* Hidden file input for image upload */}
-                                                        <input
-                                                            ref={fileInputRef}
-                                                            type="file"
-                                                            accept="image/*"
-                                                            style={{ display: 'none' }}
-                                                            onChange={handleImageFileSelected}
-                                                        />
-                                                        {/* Hidden file input for any attachment */}
-                                                        <input
-                                                            ref={attachmentInputRef}
-                                                            type="file"
-                                                            accept="*/*"
-                                                            style={{ display: 'none' }}
-                                                            onChange={handleAttachmentFileSelected}
-                                                        />
-                                                        
-                                                        {/* Rich text editor — contentEditable div */}
-                                                        <div
-                                                            ref={notesEditorRef}
-                                                            id="new-task-notes-editor"
-                                                            contentEditable
-                                                            data-placeholder={t('basecamp.notes_placeholder') || 'Add extra details or attach a file...'}
-                                                            className="w-full"
-                                                            onInput={editorSaveSnapshot}
-                                                            onFocus={(e) => {
-                                                                if (e.currentTarget.textContent?.trim() === '') {
-                                                                    e.currentTarget.classList.add('editor-focused')
-                                                                }
-                                                            }}
-                                                            onBlur={(e) => {
-                                                                e.currentTarget.classList.remove('editor-focused')
-                                                            }}
-                                                            style={{
-                                                                border: '1px solid #D5D3CE',
-                                                                borderBottomLeftRadius: 6,
-                                                                borderBottomRightRadius: 6,
-                                                                padding: '10px 12px',
-                                                                fontSize: 14,
-                                                                color: '#1D2D35',
-                                                                background: '#fff',
-                                                                outline: 'none',
-                                                                minHeight: 120,
-                                                                overflowY: 'auto',
-                                                                lineHeight: 1.6,
-                                                                wordBreak: 'break-word'
-                                                            }}
-                                                        />
-                                                    </div>
-                                                </div>
-                                            </div>
-
-                                            {/* Action buttons — GREEN "Add this to-do" + plain Cancel text link (matches real Basecamp) */}
-                                            <div className="flex items-center gap-3 pt-1 pb-3 pl-0 sm:pl-[144px]">
-                                                <button
-                                                    type="submit"
-                                                    style={{
-                                                        padding: '8px 18px', borderRadius: 6, border: 'none',
-                                                        background: '#1DAB45', fontSize: 14, fontWeight: 600,
-                                                        color: '#fff', cursor: 'pointer', transition: 'background 0.15s',
-                                                        whiteSpace: 'nowrap'
-                                                    }}
-                                                    onMouseEnter={e => (e.currentTarget.style.background = '#168A37')}
-                                                    onMouseLeave={e => (e.currentTarget.style.background = '#1DAB45')}
-                                                >
-                                                    {t('basecamp.add_todo_btn_label')}
-                                                </button>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => {
-                                                        setAddingTaskId(null)
-                                                        setNewTaskName('')
-                                                        setNewTaskAssignees([])
-                                                        setAssigneeSearchQuery('')
-                                                        setNewTaskDueDate('')
-                                                        setNewTaskNotes('')
-                                                        setNewTaskNotifyees([])
-                                                        setNotifySearchQuery('')
-                                                    }}
-                                                    style={{
-                                                        padding: '4px 2px',
-                                                        border: 'none', background: 'transparent',
-                                                        fontSize: 14, fontWeight: 400, color: '#6B7B8D',
-                                                        cursor: 'pointer', transition: 'color 0.15s',
-                                                        whiteSpace: 'nowrap',
-                                                        textDecoration: 'none'
-                                                    }}
-                                                    onMouseEnter={e => (e.currentTarget.style.color = '#1D2D35')}
-                                                    onMouseLeave={e => (e.currentTarget.style.color = '#6B7B8D')}
-                                                >
-                                                    {t('basecamp.cancel')}
-                                                </button>
-                                            </div>
-                                        </form>
-                                    </div>
-                                ) : (
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 4px 10px 0', marginTop: 4 }}>
-                                        {/* Checkbox placeholder */}
-                                        <div style={{
-                                            width: 17,
-                                            height: 17,
-                                            border: '1.5px dashed #BDC5C7',
-                                            borderRadius: 3,
-                                            background: 'transparent',
-                                            flexShrink: 0
-                                        }} />
-                                        {/* Add a to-do link */}
-                                        <button
-                                            onClick={() => setAddingTaskId(list.id)}
-                                            style={{
-                                                border: 'none', background: 'transparent',
-                                                fontSize: 14, fontWeight: 500, color: '#1D7DB5',
-                                                cursor: 'pointer', transition: 'color 0.1s',
-                                                padding: 0
-                                            }}
-                                            onMouseEnter={e => (e.currentTarget.style.color = '#155D8A')}
-                                            onMouseLeave={e => (e.currentTarget.style.color = '#1D7DB5')}
-                                        >
-                                            {t('basecamp.add_task') || 'Add a to-do'}
-                                        </button>
-                                    </div>
-                                )}
-
-                                {/* ── Completed Tasks Toggle (✅ N completed) — Basecamp style below add todo ── */}
-                                {(completedTasks.length > 0 || (list.completed_count && list.completed_count > 0)) && (
-                                    <div style={{ marginTop: 8 }}>
-                                        <button
-                                            onClick={() => toggleCompletedSection(list.id)}
-                                            style={{
-                                                display: 'flex', alignItems: 'center', gap: 6,
-                                                padding: '10px 0', border: 'none', background: 'transparent',
-                                                cursor: 'pointer', fontSize: 13, fontWeight: 600,
-                                                color: '#6B7B8D', transition: 'color 0.15s'
-                                            }}
-                                            onMouseEnter={e => (e.currentTarget.style.color = '#1D2D35')}
-                                            onMouseLeave={e => (e.currentTarget.style.color = '#6B7B8D')}
-                                        >
-                                            {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-                                            <CheckSquare size={14} style={{ color: '#4BAE4F' }} />
-                                            <span>{list.completed_count !== undefined && list.completed_count !== null ? list.completed_count : completedTasks.length} {t('basecamp.completed_label')}</span>
-                                        </button>
-
-                                        {isExpanded && (
-                                            <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
-                                                {completedTasks.map((task: any) => (
-                                                    <div
-                                                        key={task.id}
-                                                        onClick={() => {
-                                                            if (navigateTo) {
-                                                                navigateTo({ project: project.id, tool: 'todos', todoId: task.id })
-                                                            } else {
-                                                                setSelectedTask(task)
-                                                                setSelectedTaskListId(list.id)
-                                                            }
-                                                        }}
-                                                        style={{
-                                                            display: 'flex', alignItems: 'flex-start', gap: 10,
-                                                            padding: '6px 4px 6px 0',
-                                                            cursor: 'pointer', transition: 'background 0.1s'
-                                                        }}
-                                                        onMouseEnter={e => (e.currentTarget.style.background = '#FAFAF8')}
-                                                        onMouseLeave={e => (e.currentTarget.style.background = '')}
-                                                    >
-                                                        {/* Checked box */}
-                                                        <div style={{ flexShrink: 0, marginTop: 2 }}>
-                                                            {actionLoading === task.id ? (
-                                                                <Loader2 className="animate-spin" style={{ width: 17, height: 17, color: '#4BAE4F' }} />
-                                                            ) : (
-                                                                <div
-                                                                    onClick={(e) => { e.stopPropagation(); handleToggleTask(list.id, task) }}
-                                                                    style={{
-                                                                        width: 17, height: 17, background: '#4BAE4F',
-                                                                        border: '1.5px solid #4BAE4F', borderRadius: 3,
-                                                                        cursor: 'pointer', display: 'flex',
-                                                                        alignItems: 'center', justifyContent: 'center'
-                                                                    }}
-                                                                >
-                                                                    <svg width="10" height="8" viewBox="0 0 12 10" fill="none">
-                                                                        <path d="M1 5L4.5 8.5L11 1.5" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
-                                                                    </svg>
-                                                                </div>
-                                                            )}
-                                                        </div>
-                                                        {/* Completed task name (strikethrough + grey) */}
-                                                        <div style={{
-                                                            flex: 1, minWidth: 0, fontSize: 15, color: '#A0A0A0',
-                                                            textDecoration: 'line-through', lineHeight: '20px',
-                                                            wordBreak: 'break-word', whiteSpace: 'normal',
-                                                            fontFamily: 'system-ui, -apple-system, sans-serif'
-                                                        }}>
-                                                            <span>{task.task_name}</span>
-
-                                                            {/* Inline comment count for completed tasks too */}
-                                                            {task.comments && task.comments.length > 0 && (
-                                                                <span
-                                                                    title={`${task.comments.length} comments`}
-                                                                    style={{
-                                                                        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                                                                        width: 17, height: 17, borderRadius: '50%',
-                                                                        background: '#B0B9BE', color: '#fff',
-                                                                        fontSize: 9, fontWeight: 700,
-                                                                        marginLeft: 6, marginRight: 2,
-                                                                        verticalAlign: 'middle', lineHeight: 1
-                                                                    }}
-                                                                >
-                                                                    {task.comments.length}
-                                                                </span>
-                                                            )}
-
-                                                            {/* Inline avatar circles for completed tasks too */}
-                                                            {task.assigneeList && task.assigneeList.length > 0 && (
-                                                                <span style={{
-                                                                    fontSize: 13, color: '#A0AAB0', marginLeft: 8,
-                                                                    verticalAlign: 'middle', opacity: 0.6
-                                                                }}>
-                                                                    {task.assigneeList.map((a: any, aIdx: number) => (
-                                                                        <span key={a.id} style={{ display: 'inline-flex', alignItems: 'center', verticalAlign: 'middle' }}>
-                                                                            {aIdx > 0 && <span style={{ marginRight: 4, color: '#CBD5E1' }}>,</span>}
-                                                                            <span
-                                                                                title={a.name}
-                                                                                style={{
-                                                                                    width: 16, height: 16, borderRadius: '50%',
-                                                                                    background: getAvatarColor(a.name),
-                                                                                    color: '#fff', fontSize: 8, fontWeight: 700,
-                                                                                    display: 'inline-flex', alignItems: 'center',
-                                                                                    justifyContent: 'center', marginRight: 4,
-                                                                                    marginLeft: aIdx > 0 ? 4 : 0,
-                                                                                    lineHeight: 1
-                                                                                }}
-                                                                            >
-                                                                                {getInitials(a.name)}
-                                                                            </span>
-                                                                            <span>{a.name}</span>
-                                                                        </span>
-                                                                    ))}
-                                                                </span>
-                                                            )}
-                                                        </div>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        )}
-                                    </div>
-                                )}
+                                {/* Delete button */}
+                                <button
+                                    onClick={(e) => handleDeleteTask(list.id, task, e)}
+                                    style={{
+                                        border: 'none',
+                                        background: 'transparent',
+                                        color: '#94A3B8',
+                                        cursor: 'pointer',
+                                        padding: '2px 6px',
+                                        borderRadius: 4,
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        opacity: 0.6,
+                                        transition: 'opacity 0.15s, color 0.15s'
+                                    }}
+                                    onMouseEnter={e => {
+                                        e.currentTarget.style.opacity = '1'
+                                        e.currentTarget.style.color = '#EF4444'
+                                    }}
+                                    onMouseLeave={e => {
+                                        e.currentTarget.style.opacity = '0.6'
+                                        e.currentTarget.style.color = '#94A3B8'
+                                    }}
+                                    title={t('basecamp.delete_todo') || 'Delete to-do'}
+                                >
+                                    <Trash2 size={14} />
+                                </button>
                             </div>
                         )
                     })}
                 </div>
-            ) : (
-                /* ── Empty state ── */
-                <div style={{ textAlign: 'center', padding: '48px 0' }}>
-                    <ClipboardList size={48} style={{ color: '#C4C4C4', margin: '0 auto 12px' }} />
-                    <p style={{ fontSize: 15, color: '#6B7B8D', fontStyle: 'italic' }}>
-                        {t('basecamp.no_todos_list')}
-                    </p>
+
+                {/* ── Inline Add To-do Form or Trigger Button ── */}
+                <div style={{ padding: '12px 24px 18px', borderTop: '1px solid #F0EFEB' }}>
+                    {addingTaskId === list.id ? (
+                        <form onSubmit={(e) => handleAddTask(list.id, list.bc_id, e)} style={{ background: '#F8FAFC', padding: 16, borderRadius: 8, border: '1px solid #E2E8F0' }}>
+                            <div style={{ marginBottom: 12 }}>
+                                <input
+                                    type="text"
+                                    required
+                                    autoFocus
+                                    value={newTaskName}
+                                    onChange={(e) => setNewTaskName(e.target.value)}
+                                    placeholder={t('basecamp.describe_todo') || 'Describe this to-do...'}
+                                    style={{
+                                        width: '100%',
+                                        padding: '10px 12px',
+                                        borderRadius: 6,
+                                        border: '1.5px solid #CBD5E1',
+                                        fontSize: 14.5,
+                                        outline: 'none',
+                                        color: '#1E293B',
+                                        background: '#fff'
+                                    }}
+                                />
+                            </div>
+
+                            {/* Assignees and Notify Bar */}
+                            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
+                                {/* Assignees */}
+                                <div style={{ flex: 1, minWidth: 200, position: 'relative' }}>
+                                    <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#64748B', marginBottom: 4 }}>
+                                        {t('basecamp.assigned_to') || 'Assigned to'}
+                                    </label>
+                                    <div style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: 6,
+                                        padding: '6px 10px',
+                                        borderRadius: 6,
+                                        border: '1px solid #CBD5E1',
+                                        background: '#fff',
+                                        flexWrap: 'wrap'
+                                    }}>
+                                        {newTaskAssignees.map(a => (
+                                            <span key={a.id} style={{
+                                                display: 'inline-flex',
+                                                alignItems: 'center',
+                                                gap: 4,
+                                                padding: '2px 8px',
+                                                borderRadius: 12,
+                                                background: '#E0F2FE',
+                                                color: '#0369A1',
+                                                fontSize: 12,
+                                                fontWeight: 600
+                                            }}>
+                                                {a.name}
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setNewTaskAssignees(prev => prev.filter(p => p.id !== a.id))}
+                                                    style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: 0, color: '#0369A1', fontWeight: 800 }}
+                                                >
+                                                    ✕
+                                                </button>
+                                            </span>
+                                        ))}
+                                        <input
+                                            type="text"
+                                            value={assigneeSearchQuery}
+                                            onChange={e => {
+                                                setAssigneeSearchQuery(e.target.value)
+                                                setShowAssigneeSuggestions(true)
+                                            }}
+                                            onFocus={() => setShowAssigneeSuggestions(true)}
+                                            placeholder={newTaskAssignees.length === 0 ? (t('basecamp.type_name') || 'Type a name...') : ''}
+                                            style={{ border: 'none', outline: 'none', fontSize: 13, flex: 1, minWidth: 80, background: 'transparent' }}
+                                        />
+                                    </div>
+
+                                    {showAssigneeSuggestions && filteredSuggestions.length > 0 && (
+                                        <div style={{
+                                            position: 'absolute',
+                                            top: '100%',
+                                            left: 0,
+                                            right: 0,
+                                            marginTop: 4,
+                                            background: '#fff',
+                                            borderRadius: 8,
+                                            border: '1px solid #CBD5E1',
+                                            boxShadow: '0 10px 25px rgba(0,0,0,0.1)',
+                                            zIndex: 40,
+                                            maxHeight: 180,
+                                            overflowY: 'auto'
+                                        }}>
+                                            {filteredSuggestions.map((p: any) => (
+                                                <div
+                                                    key={p.id}
+                                                    onClick={() => {
+                                                        setNewTaskAssignees(prev => [...prev, p])
+                                                        setAssigneeSearchQuery('')
+                                                        setShowAssigneeSuggestions(false)
+                                                    }}
+                                                    style={{
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        gap: 8,
+                                                        padding: '8px 12px',
+                                                        cursor: 'pointer',
+                                                        fontSize: 13,
+                                                        color: '#1E293B',
+                                                        borderBottom: '1px solid #F1F5F9'
+                                                    }}
+                                                    onMouseEnter={e => (e.currentTarget.style.background = '#F8FAFC')}
+                                                    onMouseLeave={e => (e.currentTarget.style.background = '#fff')}
+                                                >
+                                                    <span style={{
+                                                        width: 20,
+                                                        height: 20,
+                                                        borderRadius: '50%',
+                                                        background: getAvatarColor(p.name || 'U'),
+                                                        color: '#fff',
+                                                        fontSize: 9,
+                                                        fontWeight: 800,
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center'
+                                                    }}>
+                                                        {getInitials(p.name || 'U')}
+                                                    </span>
+                                                    {p.name}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* Due Date */}
+                                <div style={{ width: 160 }}>
+                                    <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#64748B', marginBottom: 4 }}>
+                                        {t('basecamp.due_on') || 'Due on'}
+                                    </label>
+                                    <input
+                                        type="date"
+                                        value={newTaskDueDate}
+                                        onChange={e => setNewTaskDueDate(e.target.value)}
+                                        style={{
+                                            width: '100%',
+                                            padding: '6px 10px',
+                                            borderRadius: 6,
+                                            border: '1px solid #CBD5E1',
+                                            fontSize: 13,
+                                            outline: 'none',
+                                            background: '#fff',
+                                            color: '#1E293B'
+                                        }}
+                                    />
+                                </div>
+                            </div>
+
+                            {/* Action Buttons */}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 14 }}>
+                                <button
+                                    type="submit"
+                                    disabled={loading}
+                                    style={{
+                                        padding: '8px 18px',
+                                        borderRadius: 6,
+                                        border: 'none',
+                                        background: '#22C55E',
+                                        color: '#fff',
+                                        fontSize: 13.5,
+                                        fontWeight: 700,
+                                        cursor: 'pointer',
+                                        transition: 'background 0.15s'
+                                    }}
+                                    onMouseEnter={e => (e.currentTarget.style.background = '#16A34A')}
+                                    onMouseLeave={e => (e.currentTarget.style.background = '#22C55E')}
+                                >
+                                    {t('basecamp.add_todo') || 'Add this to-do'}
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setAddingTaskId(null)
+                                        setNewTaskName('')
+                                        setNewTaskAssignees([])
+                                        setNewTaskDueDate('')
+                                    }}
+                                    style={{
+                                        padding: '8px 14px',
+                                        borderRadius: 6,
+                                        border: '1px solid #CBD5E1',
+                                        background: '#fff',
+                                        color: '#64748B',
+                                        fontSize: 13.5,
+                                        fontWeight: 600,
+                                        cursor: 'pointer'
+                                    }}
+                                >
+                                    {t('basecamp.cancel') || 'Cancel'}
+                                </button>
+                            </div>
+                        </form>
+                    ) : (
+                        <button
+                            onClick={() => {
+                                setAddingTaskId(list.id)
+                                setNewTaskName('')
+                                setNewTaskAssignees([])
+                                setNewTaskDueDate('')
+                            }}
+                            style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 6,
+                                padding: '6px 12px',
+                                borderRadius: 6,
+                                border: '1px dashed #CBD5E1',
+                                background: '#fff',
+                                color: '#1D7DB5',
+                                fontSize: 13.5,
+                                fontWeight: 600,
+                                cursor: 'pointer',
+                                transition: 'all 0.15s'
+                            }}
+                            onMouseEnter={e => {
+                                e.currentTarget.style.background = '#F0F9FF'
+                                e.currentTarget.style.borderColor = '#38BDF8'
+                            }}
+                            onMouseLeave={e => {
+                                e.currentTarget.style.background = '#fff'
+                                e.currentTarget.style.borderColor = '#CBD5E1'
+                            }}
+                        >
+                            <Plus size={15} />
+                            {t('basecamp.add_todo') || 'Add a to-do'}
+                        </button>
+                    )}
                 </div>
+
+                {/* ── Completed Tasks Accordion ── */}
+                {completedTasks.length > 0 && (
+                    <div style={{ borderTop: '1px solid #F0EFEB', background: '#FAFAF8' }}>
+                        <button
+                            onClick={() => toggleCompletedSection(list.id)}
+                            style={{
+                                width: '100%',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                padding: '12px 24px',
+                                border: 'none',
+                                background: 'transparent',
+                                cursor: 'pointer',
+                                textAlign: 'left',
+                                color: '#64748B',
+                                fontSize: 13,
+                                fontWeight: 600
+                            }}
+                        >
+                            <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                {isExpanded ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+                                {completedTasks.length} {t('basecamp.completed_todos') || 'completed to-dos'}
+                            </span>
+                        </button>
+
+                        {isExpanded && (
+                            <div style={{ padding: '4px 0 12px' }}>
+                                {completedTasks.map((task: any) => (
+                                    <div
+                                        key={task.id}
+                                        style={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: 12,
+                                            padding: '8px 24px',
+                                            color: '#94A3B8'
+                                        }}
+                                    >
+                                        <button
+                                            onClick={() => handleToggleTask(list.id, task)}
+                                            disabled={actionLoading === task.id}
+                                            style={{
+                                                width: 18,
+                                                height: 18,
+                                                borderRadius: 4,
+                                                border: '1.5px solid #22C55E',
+                                                background: '#22C55E',
+                                                color: '#fff',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                cursor: 'pointer',
+                                                padding: 0,
+                                                flexShrink: 0
+                                            }}
+                                            title={t('basecamp.mark_incomplete') || 'Mark incomplete'}
+                                        >
+                                            <Check size={12} strokeWidth={3} />
+                                        </button>
+                                        <span
+                                            onClick={() => {
+                                                setSelectedTask(task)
+                                                setSelectedTaskListId(list.id)
+                                            }}
+                                            style={{
+                                                fontSize: 14,
+                                                textDecoration: 'line-through',
+                                                cursor: 'pointer',
+                                                flex: 1
+                                            }}
+                                        >
+                                            {task.task_name}
+                                        </span>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                )}
+            </div>
+        )
+    }
+
+    const filteredLists = React.useMemo(() => {
+        if (!todoFilterQuery.trim()) return lists
+        const q = todoFilterQuery.toLowerCase().trim()
+        return lists.map(list => {
+            const listMatches = list.list_name.toLowerCase().includes(q) || (list.description && list.description.toLowerCase().includes(q))
+            const matchingTasks = list.tasks.filter((tk: any) => tk.task_name.toLowerCase().includes(q))
+            if (listMatches) return list
+            if (matchingTasks.length > 0) {
+                return { ...list, tasks: matchingTasks }
+            }
+            return null
+        }).filter(Boolean) as any[]
+    }, [lists, todoFilterQuery])
+
+    return (
+        <div style={{ maxWidth: 1280, width: '100%', margin: '0 auto', padding: '0 12px' }}>
+            {/* ── Drill-down Single List View ── */}
+            {selectedListId ? (
+                (() => {
+                    const activeList = lists.find(l => l.id === selectedListId)
+                    const activeListIdx = lists.findIndex(l => l.id === selectedListId)
+                    if (!activeList) {
+                        return (
+                            <div style={{ padding: '36px 0', textAlign: 'center' }}>
+                                <p style={{ color: '#64748B', fontSize: 15, marginBottom: 16 }}>
+                                    {t('basecamp.list_not_found') || 'This list could not be found.'}
+                                </p>
+                                <button
+                                    onClick={() => setSelectedListId(null)}
+                                    style={{
+                                        padding: '8px 16px',
+                                        borderRadius: 6,
+                                        background: '#1D7DB5',
+                                        color: '#fff',
+                                        border: 'none',
+                                        fontSize: 13.5,
+                                        fontWeight: 600,
+                                        cursor: 'pointer'
+                                    }}
+                                >
+                                    ← {t('basecamp.back_to_todos') || 'Back to all to-dos'}
+                                </button>
+                            </div>
+                        )
+                    }
+                    return (
+                        <div style={{ padding: '24px 0 48px' }}>
+                            {renderFullList(activeList, activeListIdx >= 0 ? activeListIdx : 0, true)}
+                        </div>
+                    )
+                })()
+            ) : (
+                /* ── Main View (Cards or List View) ── */
+                <>
+                    {/* Header Controls */}
+                    <div style={{ padding: '28px 0 20px' }}>
+                        <h1 style={{
+                            fontSize: 36,
+                            fontWeight: 700,
+                            color: '#1D2D35',
+                            margin: 0,
+                            lineHeight: 1.1,
+                            fontFamily: 'system-ui, -apple-system, sans-serif'
+                        }}>
+                            {t('basecamp.todos') || 'To-dos'}
+                        </h1>
+
+                        <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 12,
+                            marginTop: 16,
+                            marginBottom: 8,
+                            flexWrap: 'wrap'
+                        }}>
+                            <button
+                                onClick={() => setShowAddList(true)}
+                                style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: 6,
+                                    padding: '8px 16px',
+                                    borderRadius: 6,
+                                    border: 'none',
+                                    background: '#1D7DB5',
+                                    color: '#fff',
+                                    fontSize: 13.5,
+                                    fontWeight: 600,
+                                    cursor: 'pointer',
+                                    transition: 'background 0.15s'
+                                }}
+                                onMouseEnter={e => (e.currentTarget.style.background = '#155D8A')}
+                                onMouseLeave={e => (e.currentTarget.style.background = '#1D7DB5')}
+                            >
+                                <Plus size={15} />
+                                {t('basecamp.add_list') || 'New list'}
+                            </button>
+
+                            {/* View As Menu */}
+                            <div style={{ position: 'relative' }} ref={viewAsMenuRef}>
+                                <button
+                                    onClick={() => setShowViewAsMenu(!showViewAsMenu)}
+                                    style={{
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: 6,
+                                        padding: '8px 14px',
+                                        borderRadius: 6,
+                                        border: '1px solid #D5D3CE',
+                                        background: '#fff',
+                                        color: '#1D2D35',
+                                        fontSize: 13.5,
+                                        fontWeight: 600,
+                                        cursor: 'pointer',
+                                        transition: 'background 0.15s, border-color 0.15s',
+                                        boxShadow: showViewAsMenu ? '0 0 0 2px rgba(29, 125, 181, 0.2)' : 'none'
+                                    }}
+                                    onMouseEnter={e => (e.currentTarget.style.background = '#F7F7F5')}
+                                    onMouseLeave={e => (e.currentTarget.style.background = '#fff')}
+                                >
+                                    <span>{t('basecamp.view_as') || 'View as'}</span>
+                                    <ChevronDown
+                                        size={14}
+                                        style={{
+                                            color: '#77858C',
+                                            transform: showViewAsMenu ? 'rotate(180deg)' : 'none',
+                                            transition: 'transform 0.15s'
+                                        }}
+                                    />
+                                </button>
+
+                                {showViewAsMenu && (
+                                    <div
+                                        style={{
+                                            position: 'absolute',
+                                            top: '100%',
+                                            left: 0,
+                                            marginTop: 6,
+                                            minWidth: 190,
+                                            background: '#1E293B',
+                                            color: '#fff',
+                                            borderRadius: 10,
+                                            padding: '8px 6px',
+                                            boxShadow: '0 10px 25px -5px rgba(0,0,0,0.3), 0 8px 10px -6px rgba(0,0,0,0.2)',
+                                            zIndex: 50,
+                                            border: '1px solid rgba(255,255,255,0.1)'
+                                        }}
+                                    >
+                                        <div style={{
+                                            padding: '4px 10px 8px',
+                                            fontSize: 11,
+                                            fontWeight: 700,
+                                            color: '#94A3B8',
+                                            textTransform: 'uppercase',
+                                            letterSpacing: '0.05em',
+                                            borderBottom: '1px solid rgba(255,255,255,0.1)',
+                                            marginBottom: 4
+                                        }}>
+                                            {t('basecamp.view_todos_prompt') || 'View to-dos...'}
+                                        </div>
+                                        <button
+                                            onClick={() => { setViewMode('list'); setShowViewAsMenu(false) }}
+                                            style={{
+                                                width: '100%',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'space-between',
+                                                padding: '8px 10px',
+                                                borderRadius: 6,
+                                                border: 'none',
+                                                background: viewMode === 'list' ? 'rgba(255,255,255,0.1)' : 'transparent',
+                                                color: '#fff',
+                                                fontSize: 13.5,
+                                                fontWeight: viewMode === 'list' ? 700 : 500,
+                                                cursor: 'pointer',
+                                                textAlign: 'left'
+                                            }}
+                                            onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.15)')}
+                                            onMouseLeave={e => (e.currentTarget.style.background = viewMode === 'list' ? 'rgba(255,255,255,0.1)' : 'transparent')}
+                                        >
+                                            <span>{t('basecamp.view_in_list') || 'In a list'}</span>
+                                            {viewMode === 'list' && <Check size={16} style={{ color: '#38BDF8' }} />}
+                                        </button>
+                                        <button
+                                            onClick={() => { setViewMode('cards'); setShowViewAsMenu(false) }}
+                                            style={{
+                                                width: '100%',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'space-between',
+                                                padding: '8px 10px',
+                                                borderRadius: 6,
+                                                border: 'none',
+                                                background: viewMode === 'cards' ? 'rgba(255,255,255,0.1)' : 'transparent',
+                                                color: '#fff',
+                                                fontSize: 13.5,
+                                                fontWeight: viewMode === 'cards' ? 700 : 500,
+                                                cursor: 'pointer',
+                                                textAlign: 'left'
+                                            }}
+                                            onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.15)')}
+                                            onMouseLeave={e => (e.currentTarget.style.background = viewMode === 'cards' ? 'rgba(255,255,255,0.1)' : 'transparent')}
+                                        >
+                                            <span>{t('basecamp.view_as_cards') || 'As cards'}</span>
+                                            {viewMode === 'cards' && <Check size={16} style={{ color: '#38BDF8' }} />}
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+
+                            <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
+                                <input
+                                    type="text"
+                                    value={todoFilterQuery}
+                                    onChange={(e) => setTodoFilterQuery(e.target.value)}
+                                    placeholder={t('basecamp.filter_placeholder') || 'Filter to-dos...'}
+                                    style={{
+                                        padding: todoFilterQuery ? '8px 28px 8px 12px' : '8px 12px',
+                                        borderRadius: 6,
+                                        border: '1px solid #D5D3CE',
+                                        background: '#fff',
+                                        color: '#1D2D35',
+                                        fontSize: 13.5,
+                                        width: 150,
+                                        outline: 'none',
+                                        transition: 'border-color 0.15s, box-shadow 0.15s'
+                                    }}
+                                    onFocus={e => {
+                                        e.target.style.borderColor = '#1D7DB5'
+                                        e.target.style.boxShadow = '0 0 0 2px rgba(29, 125, 181, 0.15)'
+                                    }}
+                                    onBlur={e => {
+                                        e.target.style.borderColor = '#D5D3CE'
+                                        e.target.style.boxShadow = 'none'
+                                    }}
+                                />
+                                {todoFilterQuery && (
+                                    <button
+                                        type="button"
+                                        onClick={() => setTodoFilterQuery('')}
+                                        style={{
+                                            position: 'absolute',
+                                            right: 8,
+                                            border: 'none',
+                                            background: 'transparent',
+                                            color: '#94A3B8',
+                                            cursor: 'pointer',
+                                            fontSize: 12,
+                                            fontWeight: 700,
+                                            padding: '2px 4px',
+                                            lineHeight: 1
+                                        }}
+                                        title="Clear filter"
+                                    >
+                                        ✕
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Loading State */}
+                    {loading && lists.length === 0 ? (
+                        <div style={{ display: 'flex', justifyContent: 'center', padding: '48px 0' }}>
+                            <Loader2 className="animate-spin" style={{ width: 32, height: 32, color: '#1D7DB5' }} />
+                        </div>
+                    ) : lists.length > 0 ? (
+                        filteredLists.length === 0 ? (
+                            <div style={{ padding: '48px 0', textAlign: 'center', color: '#64748B' }}>
+                                <p style={{ fontSize: 15, fontWeight: 600, color: '#1E293B', marginBottom: 8 }}>
+                                    {t('basecamp.no_matching_todos') || 'No to-dos match your filter'}
+                                </p>
+                                <button
+                                    onClick={() => setTodoFilterQuery('')}
+                                    style={{
+                                        padding: '6px 14px',
+                                        borderRadius: 6,
+                                        background: '#F1F5F9',
+                                        border: '1px solid #CBD5E1',
+                                        color: '#1D7DB5',
+                                        fontSize: 13,
+                                        fontWeight: 600,
+                                        cursor: 'pointer'
+                                    }}
+                                >
+                                    {t('common.clear') || 'Clear filter'}
+                                </button>
+                            </div>
+                        ) : viewMode === 'cards' ? (
+                            /* ── Cards View Mode: Clickable preview cards ── */
+                            <div
+                                style={{
+                                    display: 'grid',
+                                    gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))',
+                                    gap: 24,
+                                    alignItems: 'start',
+                                    paddingBottom: 48
+                                }}
+                            >
+                                {filteredLists.map((list, listIdx) => {
+                                    const openTasks = list.tasks.filter((tk: any) => !tk.is_completed)
+                                    const completedTasks = list.tasks.filter((tk: any) => tk.is_completed)
+                                    const dotColor = LIST_DOT_COLORS[listIdx % LIST_DOT_COLORS.length]
+                                    const previewTasks = openTasks.slice(0, 6)
+                                    const remainingCount = openTasks.length - previewTasks.length
+
+                                    return (
+                                        <div
+                                            key={list.id}
+                                            onClick={() => setSelectedListId(list.id)}
+                                            style={{
+                                                background: '#fff',
+                                                borderRadius: 12,
+                                                border: '1.5px solid #E8E6E1',
+                                                padding: '20px 22px',
+                                                boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
+                                                cursor: 'pointer',
+                                                transition: 'all 0.2s ease',
+                                                display: 'flex',
+                                                flexDirection: 'column',
+                                                minHeight: 220
+                                            }}
+                                            onMouseEnter={e => {
+                                                e.currentTarget.style.transform = 'translateY(-2px)'
+                                                e.currentTarget.style.boxShadow = '0 10px 25px rgba(0,0,0,0.08)'
+                                                e.currentTarget.style.borderColor = '#CBD5E1'
+                                            }}
+                                            onMouseLeave={e => {
+                                                e.currentTarget.style.transform = 'none'
+                                                e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.04)'
+                                                e.currentTarget.style.borderColor = '#E8E6E1'
+                                            }}
+                                        >
+                                            {/* Card Header */}
+                                            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 12 }}>
+                                                <span
+                                                    style={{
+                                                        width: 10,
+                                                        height: 10,
+                                                        borderRadius: '50%',
+                                                        backgroundColor: dotColor,
+                                                        marginTop: 6,
+                                                        flexShrink: 0
+                                                    }}
+                                                />
+                                                <div style={{ flex: 1, minWidth: 0 }}>
+                                                    <h3 style={{
+                                                        fontSize: 18,
+                                                        fontWeight: 700,
+                                                        color: '#1D2D35',
+                                                        margin: 0,
+                                                        lineHeight: 1.3
+                                                    }}>
+                                                        {list.list_name}
+                                                    </h3>
+                                                    {list.description && (
+                                                        <p style={{
+                                                            fontSize: 13,
+                                                            color: '#64748B',
+                                                            margin: '4px 0 0',
+                                                            overflow: 'hidden',
+                                                            textOverflow: 'ellipsis',
+                                                            whiteSpace: 'nowrap'
+                                                        }}>
+                                                            {list.description}
+                                                        </p>
+                                                    )}
+                                                </div>
+                                            </div>
+
+                                            {/* Preview Tasks */}
+                                            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8, margin: '8px 0 16px' }}>
+                                                {openTasks.length === 0 ? (
+                                                    <div style={{ color: '#94A3B8', fontSize: 13, fontStyle: 'italic', padding: '12px 0' }}>
+                                                        {t('basecamp.no_open_todos') || 'No open to-dos'}
+                                                    </div>
+                                                ) : (
+                                                    previewTasks.map((task: any) => {
+                                                        const hasComments = task.comments_count > 0 || (task.comments && task.comments.length > 0)
+                                                        const commentCount = task.comments_count || (task.comments ? task.comments.length : 0)
+
+                                                        return (
+                                                            <div
+                                                                key={task.id}
+                                                                style={{
+                                                                    display: 'flex',
+                                                                    alignItems: 'center',
+                                                                    gap: 8,
+                                                                    fontSize: 13.5,
+                                                                    color: '#334155'
+                                                                }}
+                                                            >
+                                                                <button
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation()
+                                                                        handleToggleTask(list.id, task)
+                                                                    }}
+                                                                    disabled={actionLoading === task.id}
+                                                                    style={{
+                                                                        width: 15,
+                                                                        height: 15,
+                                                                        borderRadius: 3,
+                                                                        border: '1.5px solid #CBD5E1',
+                                                                        background: '#fff',
+                                                                        display: 'flex',
+                                                                        alignItems: 'center',
+                                                                        justifyContent: 'center',
+                                                                        cursor: 'pointer',
+                                                                        flexShrink: 0,
+                                                                        padding: 0
+                                                                    }}
+                                                                >
+                                                                    {actionLoading === task.id ? (
+                                                                        <Loader2 size={10} className="animate-spin text-slate-400" />
+                                                                    ) : null}
+                                                                </button>
+                                                                <span
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation()
+                                                                        setSelectedTask(task)
+                                                                        setSelectedTaskListId(list.id)
+                                                                    }}
+                                                                    style={{
+                                                                        overflow: 'hidden',
+                                                                        textOverflow: 'ellipsis',
+                                                                        whiteSpace: 'nowrap',
+                                                                        flex: 1,
+                                                                        cursor: 'pointer'
+                                                                    }}
+                                                                    onMouseEnter={e => (e.currentTarget.style.color = '#1D7DB5')}
+                                                                    onMouseLeave={e => (e.currentTarget.style.color = '#334155')}
+                                                                >
+                                                                    {task.task_name}
+                                                                </span>
+
+                                                                {hasComments && (
+                                                                    <span style={{
+                                                                        display: 'inline-flex',
+                                                                        alignItems: 'center',
+                                                                        gap: 3,
+                                                                        color: '#1D7DB5',
+                                                                        fontSize: 11,
+                                                                        fontWeight: 600,
+                                                                        flexShrink: 0
+                                                                    }}>
+                                                                        <MessageSquare size={11} />
+                                                                        {commentCount}
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                        )
+                                                    })
+                                                )}
+                                            </div>
+
+                                            {/* Card Footer */}
+                                            <div style={{
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'space-between',
+                                                paddingTop: 12,
+                                                borderTop: '1px solid #F1F5F9',
+                                                fontSize: 12,
+                                                color: '#64748B',
+                                                fontWeight: 600
+                                            }}>
+                                                <div>
+                                                    {remainingCount > 0 && (
+                                                        <span style={{ color: '#1D7DB5' }}>
+                                                            +{remainingCount} {t('basecamp.more_todos') || 'more to-dos'}
+                                                        </span>
+                                                    )}
+                                                </div>
+
+                                                {completedTasks.length > 0 && (
+                                                    <span style={{ color: '#16A34A', display: 'flex', alignItems: 'center', gap: 4 }}>
+                                                        <Check size={12} />
+                                                        {completedTasks.length} {t('basecamp.done_short') || 'done'}
+                                                    </span>
+                                                )}
+                                            </div>
+                                        </div>
+                                    )
+                                })}
+                            </div>
+                        ) : (
+                            /* ── Continuous Stacked Flat List Mode ── */
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 36, paddingBottom: 48 }}>
+                                {filteredLists.map((list, listIdx) => renderFullList(list, listIdx, false))}
+                            </div>
+                        )
+                    ) : (
+                        <div style={{ padding: '60px 0', textAlign: 'center', color: '#64748B' }}>
+                            <ClipboardList style={{ width: 48, height: 48, margin: '0 auto 16px', color: '#CBD5E1' }} />
+                            <h3 style={{ fontSize: 18, fontWeight: 700, color: '#1E293B', marginBottom: 6 }}>
+                                {t('basecamp.no_todolists') || 'No to-do lists yet'}
+                            </h3>
+                            <p style={{ fontSize: 14, color: '#64748B', maxWidth: 400, margin: '0 auto 20px' }}>
+                                {t('basecamp.no_todolists_desc') || 'Create your first to-do list to organize team tasks, prep items, and follow-ups.'}
+                            </p>
+                            <button
+                                onClick={() => setShowAddList(true)}
+                                style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: 6,
+                                    padding: '10px 20px',
+                                    borderRadius: 6,
+                                    border: 'none',
+                                    background: '#1D7DB5',
+                                    color: '#fff',
+                                    fontSize: 14,
+                                    fontWeight: 700,
+                                    cursor: 'pointer'
+                                }}
+                            >
+                                <Plus size={16} />
+                                {t('basecamp.add_first_list') || 'Create a list'}
+                            </button>
+                        </div>
+                    )}
+                </>
             )}
 
             {/* ══════════════════════════════════════════════════════════════════
-                Modal — Add New List (Basecamp style centered dialog)
+                Modal — New List
                ══════════════════════════════════════════════════════════════════ */}
             {showAddList && (
                 <div
                     onClick={(e) => { if (e.target === e.currentTarget) setShowAddList(false) }}
                     style={{
-                        position: 'fixed', inset: 0, zIndex: 50,
-                        display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
-                        padding: '40px 16px', background: 'rgba(0,0,0,0.35)',
-                        overflowY: 'auto'
+                        position: 'fixed',
+                        inset: 0,
+                        zIndex: 50,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        padding: 16,
+                        background: 'rgba(0,0,0,0.4)'
                     }}
                 >
                     <div style={{
-                        background: '#fff', borderRadius: 10, maxWidth: 520, width: '100%',
-                        boxShadow: '0 12px 40px rgba(0,0,0,0.15)',
-                        overflow: 'hidden'
+                        background: '#fff',
+                        borderRadius: 10,
+                        maxWidth: 520,
+                        width: '100%',
+                        padding: '28px 32px',
+                        boxShadow: '0 20px 40px rgba(0,0,0,0.15)'
                     }}>
-                        {/* Header */}
                         <div style={{
-                            padding: '20px 28px', borderBottom: '1px solid #E8E6E1',
-                            background: '#FAFAF8', textAlign: 'center'
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            marginBottom: 20
                         }}>
-                            <div style={{
-                                width: 44, height: 44, borderRadius: '50%',
-                                background: '#27AE60', color: '#fff', fontSize: 20,
-                                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                                marginBottom: 12
+                            <h2 style={{
+                                fontSize: 20,
+                                fontWeight: 700,
+                                color: '#1D2D35',
+                                margin: 0
                             }}>
-                                <CheckSquare size={22} />
-                            </div>
-                            <h3 style={{
-                                fontSize: 21, fontWeight: 700, color: '#1D2D35', margin: 0
-                            }}>
-                                {t('basecamp.add_list')}
-                            </h3>
-                            <p style={{ fontSize: 13, color: '#6B7B8D', margin: '6px 0 0' }}>
-                                {t('basecamp.list_desc_label')}
-                            </p>
+                                {t('basecamp.new_list_title') || 'Add a new to-do list'}
+                            </h2>
+                            <button
+                                onClick={() => setShowAddList(false)}
+                                style={{
+                                    border: 'none',
+                                    background: 'transparent',
+                                    cursor: 'pointer',
+                                    color: '#94A3B8',
+                                    fontSize: 18,
+                                    padding: 4
+                                }}
+                            >
+                                ✕
+                            </button>
                         </div>
 
-                        {/* Form body */}
-                        <form onSubmit={handleAddList} style={{ padding: '24px 28px' }}>
-                            <div style={{ marginBottom: 20 }}>
+                        <form onSubmit={handleAddList}>
+                            <div style={{ marginBottom: 16 }}>
                                 <label style={{
-                                    display: 'block', fontSize: 13, fontWeight: 600,
-                                    color: '#1D2D35', marginBottom: 8
+                                    display: 'block',
+                                    fontSize: 13,
+                                    fontWeight: 600,
+                                    color: '#1D2D35',
+                                    marginBottom: 6
                                 }}>
-                                    {t('basecamp.name_label')}
+                                    {t('basecamp.list_name_label') || 'Name this list'}
                                 </label>
                                 <input
                                     type="text"
                                     required
                                     value={newListName}
                                     onChange={(e) => setNewListName(e.target.value)}
-                                    placeholder={t('basecamp.new_list_placeholder')}
+                                    placeholder={t('basecamp.new_list_placeholder') || 'e.g., Opening Checklist, Food Safety...'}
                                     autoFocus
                                     style={{
-                                        width: '100%', padding: '12px 14px',
-                                        border: '2px solid #E8E6E1', borderRadius: 6,
-                                        fontSize: 16, color: '#1D2D35', outline: 'none',
-                                        transition: 'border-color 0.15s'
+                                        width: '100%',
+                                        padding: '10px 12px',
+                                        borderRadius: 6,
+                                        border: '1.5px solid #CBD5E1',
+                                        fontSize: 14.5,
+                                        outline: 'none',
+                                        color: '#1E293B'
                                     }}
-                                    onFocus={e => (e.target.style.borderColor = '#1D7DB5')}
-                                    onBlur={e => (e.target.style.borderColor = '#E8E6E1')}
                                 />
                             </div>
-                            <div style={{ marginBottom: 24 }}>
+
+                            <div style={{ marginBottom: 20 }}>
                                 <label style={{
-                                    display: 'block', fontSize: 13, fontWeight: 600,
-                                    color: '#1D2D35', marginBottom: 8
+                                    display: 'block',
+                                    fontSize: 13,
+                                    fontWeight: 600,
+                                    color: '#1D2D35',
+                                    marginBottom: 6
                                 }}>
-                                    {t('basecamp.list_desc_label')}
+                                    {t('basecamp.list_desc_label') || 'Add extra details or notes (optional)'}
                                 </label>
                                 <textarea
                                     value={newListDesc}
                                     onChange={(e) => setNewListDesc(e.target.value)}
-                                    placeholder={t('basecamp.list_desc_placeholder')}
+                                    placeholder={t('basecamp.list_desc_placeholder') || 'Describe what belongs in this list...'}
                                     rows={3}
                                     style={{
-                                        width: '100%', padding: '12px 14px',
-                                        border: '2px solid #E8E6E1', borderRadius: 6,
-                                        fontSize: 15, color: '#1D2D35', outline: 'none',
-                                        resize: 'vertical', fontFamily: 'inherit',
-                                        transition: 'border-color 0.15s'
+                                        width: '100%',
+                                        padding: '10px 12px',
+                                        borderRadius: 6,
+                                        border: '1.5px solid #CBD5E1',
+                                        fontSize: 14,
+                                        outline: 'none',
+                                        color: '#1E293B',
+                                        resize: 'vertical'
                                     }}
-                                    onFocus={e => (e.target.style.borderColor = '#1D7DB5')}
-                                    onBlur={e => (e.target.style.borderColor = '#E8E6E1')}
                                 />
                             </div>
-                            <div style={{
-                                display: 'flex', justifyContent: 'flex-end', gap: 10
-                            }}>
+
+                            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
                                 <button
                                     type="button"
-                                    onClick={() => { setShowAddList(false); setNewListName(''); setNewListDesc('') }}
+                                    onClick={() => setShowAddList(false)}
                                     style={{
-                                        padding: '10px 22px', borderRadius: 6,
-                                        border: '1px solid #D5D3CE', background: '#fff',
-                                        fontSize: 14, fontWeight: 600, color: '#6B7B8D',
-                                        cursor: 'pointer', transition: 'background 0.15s'
+                                        padding: '8px 16px',
+                                        borderRadius: 6,
+                                        border: '1px solid #CBD5E1',
+                                        background: '#fff',
+                                        color: '#64748B',
+                                        fontSize: 13.5,
+                                        fontWeight: 600,
+                                        cursor: 'pointer'
                                     }}
-                                    onMouseEnter={e => (e.currentTarget.style.background = '#F0EFEB')}
-                                    onMouseLeave={e => (e.currentTarget.style.background = '#fff')}
                                 >
-                                    {t('basecamp.cancel')}
+                                    {t('basecamp.cancel') || 'Cancel'}
                                 </button>
                                 <button
                                     type="submit"
+                                    disabled={loading}
                                     style={{
-                                        padding: '10px 22px', borderRadius: 6, border: 'none',
-                                        background: '#4BAE4F', fontSize: 14, fontWeight: 700,
-                                        color: '#fff', cursor: 'pointer', transition: 'background 0.15s'
+                                        padding: '8px 20px',
+                                        borderRadius: 6,
+                                        border: 'none',
+                                        background: '#22C55E',
+                                        color: '#fff',
+                                        fontSize: 13.5,
+                                        fontWeight: 700,
+                                        cursor: 'pointer'
                                     }}
-                                    onMouseEnter={e => (e.currentTarget.style.background = '#3D9440')}
-                                    onMouseLeave={e => (e.currentTarget.style.background = '#4BAE4F')}
                                 >
-                                    {t('basecamp.create_list')}
+                                    {t('basecamp.create_list') || 'Create this list'}
                                 </button>
                             </div>
                         </form>
@@ -2579,18 +2526,22 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                     margin: '0 0 16px', display: 'flex', alignItems: 'center', gap: 8
                                 }}>
                                     <MessageSquare size={14} />
-                                    {t('basecamp.comments_title')} ({selectedTask.comments?.length || 0})
+                                    {t('basecamp.comments_title')} ({taskComments.length})
                                 </h4>
 
-                                {selectedTask.comments && selectedTask.comments.length > 0 ? (
+                                {commentsLoading ? (
+                                    <div style={{ textAlign: 'center', padding: '24px 0', color: '#1D7DB5' }}>
+                                        <Loader2 className="animate-spin" style={{ width: 24, height: 24, margin: '0 auto' }} />
+                                    </div>
+                                ) : taskComments && taskComments.length > 0 ? (
                                     <div style={{
                                         display: 'flex', flexDirection: 'column',
                                         maxHeight: 400, overflow: 'auto', marginBottom: 20
                                     }}>
-                                        {selectedTask.comments.map((c: any, idx: number) => (
-                                            <div key={idx} style={{
+                                        {taskComments.map((c: any, idx: number) => (
+                                            <div key={c.id || idx} style={{
                                                 display: 'flex', gap: 12, padding: '14px 0',
-                                                borderBottom: idx < selectedTask.comments.length - 1
+                                                borderBottom: idx < taskComments.length - 1
                                                     ? '1px solid #F0EFEB' : 'none'
                                             }}>
                                                 {/* Comment avatar */}

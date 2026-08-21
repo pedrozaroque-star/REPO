@@ -431,8 +431,8 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                     icon: <Store size={20} />,
                     roles: ['admin'],
                     tooltip: language === 'en'
-                        ? 'Master setup and location data for all Tacos El Gavilan stores (Datos maestros de sucursales)'
-                        : 'Configuración y datos maestros de las sucursales de Tacos El Gavilan'
+                        ? 'Master setup and location data for all Tacos Gavilan stores (Datos maestros de sucursales)'
+                        : 'Configuración y datos maestros de las sucursales de Tacos Gavilan'
                 },
                 {
                     name: t('items.users'),
