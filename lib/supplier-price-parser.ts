@@ -123,28 +123,28 @@ function cleanCommentText(rawComment?: string): string {
  * Intenta inferir la cantidad de piezas por caja a partir del texto de la unidad o descripción
  * Ej: "1000 count", "12/1000 count", "24/300 count", "4/1 gal", "5 gal BIB"
  */
-export function inferPackQuantity(unitStr: string, descStr: string): number {
-  const combined = `${unitStr || ''} ${descStr || ''}`.toLowerCase()
+export function inferPackQuantity(unitStr: string, descStr?: string): number {
+  const combined = `${unitStr || ''} ${descStr || ''}`.toLowerCase().trim()
 
-  // 12/1000 count -> 12000
-  const doubleCountMatch = combined.match(/(\d+)\/(\d+)\s*(?:count|ct|cs|pk|pza)/i)
-  if (doubleCountMatch) {
-    const p1 = parseInt(doubleCountMatch[1], 10)
-    const p2 = parseInt(doubleCountMatch[2], 10)
+  // 12/1000 count, 20/250, 10/100, 4/1 gal, 24/300, 6/500, 24/250
+  const slashMatch = combined.match(/(\d+)\s*\/\s*(\d+)(?:\s*(?:count|ct|cs|pk|pza|gal|gallon|rolls|sheets|gloves|napkins|bags|totes))?/i)
+  if (slashMatch) {
+    const p1 = parseInt(slashMatch[1], 10)
+    const p2 = parseInt(slashMatch[2], 10)
     if (!isNaN(p1) && !isNaN(p2) && p1 > 0 && p2 > 0) {
       return p1 * p2
     }
   }
 
-  // 1000 count, 500 count, 2000ct
-  const countMatch = combined.match(/(\d+)\s*(?:count|ct|pcs|pieces|pza|pzas)/i)
+  // 1000 count, 500 count, 2000ct, 250 count
+  const countMatch = combined.match(/(\d+)\s*(?:count|ct|pcs|pieces|pza|pzas|sheets|gloves|napkins|bags|rolls)/i)
   if (countMatch) {
     const p = parseInt(countMatch[1], 10)
     if (!isNaN(p) && p > 0) return p
   }
 
-  // 5 gal, 4/1 gal, 3/1 gal
-  const galMatch = combined.match(/(\d+)\s*(?:gal|gallon|galones)/i)
+  // 5 gal, 4 gal, 3 gal, 10 gal
+  const galMatch = combined.match(/(\d+)\s*(?:gal|gallon|galones|bib)/i)
   if (galMatch) {
     const p = parseInt(galMatch[1], 10)
     if (!isNaN(p) && p > 0) return p
@@ -466,8 +466,8 @@ function parseKnownMasterItems(rawText: string): ParsedSupplierItem[] {
       const matchPos = match.index
       const windowSnippet = rawText.slice(matchPos, Math.min(rawText.length, matchPos + 350))
 
-      // Buscar precios en la ventana del SKU
-      const priceMatches = windowSnippet.match(/\$?\s*(\d{1,4}(?:\.\d{2}))/g)
+      // Buscar precios en la ventana del SKU (soporta formato con comas de miles ej: $1,250.00)
+      const priceMatches = windowSnippet.match(/\$?\s*(\d{1,3}(?:,\d{3})*(?:\.\d{2})?|\d{1,4}(?:\.\d{2})?)/g)
       let price = catItem.recentPrice
 
       if (priceMatches && priceMatches.length > 0) {

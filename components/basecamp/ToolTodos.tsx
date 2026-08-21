@@ -27,7 +27,7 @@
 
 'use client'
 
-import React, { useState, useEffect, useCallback, useRef } from 'react'
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useLanguage } from '@/lib/i18n'
 import { ClipboardList, Plus, Trash2, Calendar, User, MessageSquare, CheckSquare, Loader2, ChevronDown, ChevronRight, FileText, Paperclip, Bold, Italic, Strikethrough, Highlighter, Link, Quote, Code, List, ListOrdered, Table, AlignLeft, Mic, Image, Type, Undo2, Redo2, Check } from 'lucide-react'
 import { getSupabaseWithAuth } from '@/lib/supabase'
@@ -140,7 +140,7 @@ const rewriteHtmlUrls = (html: string) => {
 }
 
 export default function ToolTodos({ project, currentUserName, selectedTodoId, onCloseDetail, navigateTo }: ToolTodosProps) {
-    const supabase = getSupabaseWithAuth()
+    const supabase = useMemo(() => getSupabaseWithAuth(), [])
     const { t } = useLanguage()
     const [lists, setLists] = useState<any[]>([])
     const [loading, setLoading] = useState(true)
@@ -654,7 +654,7 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
         } finally {
             setCommentsLoading(false)
         }
-    }, [supabase])
+    }, [])
 
     // Load comments on demand whenever selectedTask changes
     useEffect(() => {
@@ -2159,9 +2159,8 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                 </div>
             )}
 
-            {/* ══════════════════════════════════════════════════════════════════
-                Modal — Task Detail (Full-page overlay — Basecamp 3/4 style)
-                Breadcrumb, large title, avatar pills, description, comments
+                                            {/* ══════════════════════════════════════════════════════════════════
+                Modal — Task Detail (Modern Basecamp 4 Dialog Card with Backdrop Blur)
                ══════════════════════════════════════════════════════════════════ */}
             {selectedTask && (() => {
                 const parentList = lists.find(l => l.id === selectedTaskListId)
@@ -2170,488 +2169,320 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                 return (
                     <div
                         onClick={(e) => { if (e.target === e.currentTarget) closeTaskDetail() }}
+                        className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 overflow-y-auto animate-in fade-in duration-200"
                         style={{
-                            position: 'fixed', inset: 0, zIndex: 50,
-                            display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
-                            padding: '20px 12px', background: 'rgba(0,0,0,0.4)',
-                            overflowY: 'auto'
+                            background: 'rgba(15, 23, 42, 0.65)',
+                            backdropFilter: 'blur(8px)',
+                            WebkitBackdropFilter: 'blur(8px)'
                         }}
                     >
-                        <div style={{
-                            background: '#fff', borderRadius: 10, maxWidth: 720, width: '100%',
-                            boxShadow: '0 16px 48px rgba(0,0,0,0.18)',
-                            marginBottom: 40
-                        }}>
-                            {/* ── Breadcrumb bar ── */}
-                            <div style={{
-                                padding: '14px 28px', borderBottom: '1px solid #E8E6E1',
-                                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                                background: '#FAFAF8', borderRadius: '10px 10px 0 0'
-                            }}>
+                        <div
+                            className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200/80 dark:border-slate-800 w-full max-w-3xl max-h-[90vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200"
+                            style={{ boxShadow: '0 25px 60px -15px rgba(0, 0, 0, 0.35)' }}
+                        >
+                            {/* ── 1. Top Bar / Breadcrumb & Actions ── */}
+                            <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800/80 flex items-center justify-between bg-slate-50/80 dark:bg-slate-900/80 backdrop-blur-md flex-shrink-0">
                                 <button
                                     onClick={() => closeTaskDetail()}
-                                    style={{
-                                        border: 'none', background: 'transparent',
-                                        color: '#1D7DB5', cursor: 'pointer', fontSize: 13,
-                                        fontWeight: 500, padding: 0
-                                    }}
+                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200/90 dark:border-slate-700 text-xs font-bold text-[#1D7DB5] hover:bg-slate-100 dark:hover:bg-slate-700/80 transition-all shadow-sm cursor-pointer"
                                 >
                                     ← {listName}
                                 </button>
-                                <button
-                                    onClick={() => closeTaskDetail()}
-                                    style={{
-                                        width: 28, height: 28, borderRadius: '50%',
-                                        border: '1px solid #D5D3CE', background: '#fff',
-                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                        cursor: 'pointer', color: '#6B7B8D', fontSize: 14,
-                                        transition: 'background 0.15s'
-                                    }}
-                                    onMouseEnter={e => (e.currentTarget.style.background = '#F0EFEB')}
-                                    onMouseLeave={e => (e.currentTarget.style.background = '#fff')}
-                                >
-                                    ✕
-                                </button>
+
+                                <div className="flex items-center gap-2">
+                                    <button
+                                        onClick={(e) => {
+                                            handleDeleteTask(selectedTaskListId || '', selectedTask, e)
+                                            closeTaskDetail()
+                                        }}
+                                        className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/40 dark:hover:text-red-400 text-slate-400 transition-all flex items-center justify-center cursor-pointer"
+                                        title={t('basecamp.delete_todo') || 'Delete to-do'}
+                                    >
+                                        <Trash2 size={15} />
+                                    </button>
+                                    <button
+                                        onClick={() => closeTaskDetail()}
+                                        className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400 font-bold transition-all flex items-center justify-center cursor-pointer text-sm"
+                                        title="Close (Esc)"
+                                    >
+                                        ✕
+                                    </button>
+                                </div>
                             </div>
 
-                            {/* ── Title section — matches Basecamp original layout ── */}
-                            <div style={{ padding: '28px 28px 0' }}>
-                                {/* Large title */}
-                                <h2 style={{
-                                    fontSize: 28, fontWeight: 800, color: '#1D2D35',
-                                    margin: '0 0 14px', lineHeight: 1.3
-                                }}>
-                                    {selectedTask.task_name}
-                                </h2>
+                            {/* ── 2. Scrollable Body Content ── */}
+                            <div className="overflow-y-auto flex-1 p-6 sm:p-8 space-y-6">
 
-                                {/* Mark as complete + Added by */}
-                                <div style={{
-                                    display: 'flex', alignItems: 'center', gap: 12,
-                                    marginBottom: 20, flexWrap: 'wrap'
-                                }}>
-                                    <button
-                                        onClick={() => handleToggleTask(selectedTaskListId || '', selectedTask)}
-                                        style={{
-                                            display: 'inline-flex', alignItems: 'center', gap: 6,
-                                            padding: '6px 14px', borderRadius: 4,
-                                            border: '1px solid #D5D3CE', background: '#fff',
-                                            fontSize: 13, fontWeight: 600, color: '#1D2D35',
-                                            cursor: 'pointer', transition: 'background 0.15s'
-                                        }}
-                                        onMouseEnter={e => (e.currentTarget.style.background = '#F0EFEB')}
-                                        onMouseLeave={e => (e.currentTarget.style.background = '#fff')}
-                                    >
-                                        {selectedTask.is_completed ? (
-                                            <><CheckSquare size={14} style={{ color: '#4BAE4F' }} /> {t('basecamp.completed_label')}</>
-                                        ) : (
-                                            <><span style={{
-                                                width: 14, height: 14, border: '2px solid #A0A0A0',
-                                                borderRadius: 2, display: 'inline-block'
-                                            }} /> {t('basecamp.mark_complete')}</>
-                                        )}
-                                    </button>
-                                    {selectedTask.creator_name && (
-                                        <span style={{ fontSize: 13, color: '#6B7B8D' }}>
-                                            {t('basecamp.added_by')}{' '}
-                                            <span style={{
-                                                display: 'inline-flex', alignItems: 'center', gap: 4,
-                                                verticalAlign: 'middle'
-                                            }}>
-                                                <span style={{
-                                                    width: 20, height: 20, borderRadius: '50%',
-                                                    background: getAvatarColor(selectedTask.creator_name),
-                                                    color: '#fff', fontSize: 9, fontWeight: 700,
-                                                    display: 'inline-flex', alignItems: 'center',
-                                                    justifyContent: 'center'
-                                                }}>
-                                                    {getInitials(selectedTask.creator_name)}
-                                                </span>
-                                                <strong style={{ color: '#1D2D35' }}>{selectedTask.creator_name}</strong>
-                                            </span>
-                                            {selectedTask.created_at && (
-                                                <> {t('basecamp.on_date')} {new Date(selectedTask.created_at).toLocaleDateString(undefined, {
-                                                    month: 'short', day: 'numeric'
-                                                })}</>
+                                {/* ── Hero Title Section ── */}
+                                <div className="space-y-3">
+                                    <div className="flex items-start gap-4">
+                                        <button
+                                            onClick={() => handleToggleTask(selectedTaskListId || '', selectedTask)}
+                                            disabled={actionLoading === selectedTask.id}
+                                            className={`w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 mt-1 cursor-pointer transition-all duration-200 shadow-sm ${
+                                                selectedTask.is_completed
+                                                    ? 'bg-emerald-500 border-2 border-emerald-500 text-white hover:bg-emerald-600'
+                                                    : 'border-2 border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 hover:border-emerald-500 hover:bg-emerald-50 dark:hover:bg-emerald-950/30'
+                                            }`}
+                                            title={selectedTask.is_completed ? t('basecamp.mark_incomplete') : t('basecamp.mark_complete')}
+                                        >
+                                            {selectedTask.is_completed ? (
+                                                <Check size={18} strokeWidth={3} />
+                                            ) : (
+                                                actionLoading === selectedTask.id && (
+                                                    <Loader2 className="animate-spin text-slate-400" size={14} />
+                                                )
                                             )}
-                                        </span>
-                                    )}
+                                        </button>
+
+                                        <div className="flex-1 min-w-0">
+                                            <h2 className={`text-2xl sm:text-3xl font-extrabold tracking-tight leading-snug transition-all ${
+                                                selectedTask.is_completed
+                                                    ? 'line-through text-slate-400 dark:text-slate-500'
+                                                    : 'text-slate-900 dark:text-white'
+                                            }`}>
+                                                {selectedTask.task_name}
+                                            </h2>
+
+                                            {/* Subtitle with Creator & Status */}
+                                            <div className="flex items-center gap-3 mt-2 flex-wrap text-xs text-slate-500 dark:text-slate-400">
+                                                {selectedTask.is_completed && (
+                                                    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 font-bold">
+                                                        ✓ {t('basecamp.completed_label') || 'Completed'}
+                                                    </span>
+                                                )}
+                                                {selectedTask.creator_name && (
+                                                    <span className="inline-flex items-center gap-1.5">
+                                                        {t('basecamp.added_by')}{' '}
+                                                        <span
+                                                            className="w-4 h-4 rounded-full flex items-center justify-center text-[8px] font-black text-white"
+                                                            style={{ backgroundColor: getAvatarColor(selectedTask.creator_name) }}
+                                                        >
+                                                            {getInitials(selectedTask.creator_name)}
+                                                        </span>
+                                                        <strong className="text-slate-700 dark:text-slate-300 font-semibold">{selectedTask.creator_name}</strong>
+                                                        {selectedTask.created_at && (
+                                                            <span>
+                                                                {t('basecamp.on_date')} {new Date(selectedTask.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+                                                            </span>
+                                                        )}
+                                                    </span>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
 
-                                {/* ── Structured fields like real Basecamp ── */}
-                                <div className="grid grid-cols-1 sm:grid-cols-[100px_1fr] gap-x-4 gap-y-2 sm:gap-y-3 items-start sm:items-center" style={{
-                                    paddingBottom: 20, borderBottom: '1px solid #E8E6E1'
-                                }}>
-                                    {/* Assigned to */}
-                                    <span className="justify-self-start sm:justify-self-end text-left sm:text-right" style={{
-                                        fontSize: 13, fontWeight: 700, color: '#1D2D35',
-                                        whiteSpace: 'nowrap'
-                                    }}>
-                                        {t('basecamp.assign_to')}
-                                    </span>
-                                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-                                        {selectedTask.assigneeList && selectedTask.assigneeList.length > 0 ? (
-                                            selectedTask.assigneeList.map((a: any) => (
-                                                <span key={a.id} style={{
-                                                    display: 'inline-flex', alignItems: 'center', gap: 5,
-                                                    fontSize: 14, color: '#1D2D35', fontWeight: 500
-                                                }}>
-                                                    <span style={{
-                                                        width: 22, height: 22, borderRadius: '50%',
-                                                        background: getAvatarColor(a.name),
-                                                        color: '#fff', fontSize: 10, fontWeight: 700,
-                                                        display: 'inline-flex', alignItems: 'center',
-                                                        justifyContent: 'center', flexShrink: 0
-                                                    }}>
-                                                        {getInitials(a.name)}
+                                {/* ── 3. Structured Metadata Grid ── */}
+                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800">
+                                    {/* Assigned To */}
+                                    <div className="space-y-1.5">
+                                        <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                                            {t('basecamp.assign_to') || 'Assigned to'}
+                                        </span>
+                                        <div className="flex flex-wrap gap-1.5 items-center">
+                                            {selectedTask.assigneeList && selectedTask.assigneeList.length > 0 ? (
+                                                selectedTask.assigneeList.map((a: any) => (
+                                                    <span
+                                                        key={a.id}
+                                                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-300 shadow-2xs"
+                                                        title={a.name}
+                                                    >
+                                                        <span
+                                                            className="w-4 h-4 rounded-full flex items-center justify-center text-[8px] font-black text-white flex-shrink-0"
+                                                            style={{ backgroundColor: getAvatarColor(a.name) }}
+                                                        >
+                                                            {getInitials(a.name)}
+                                                        </span>
+                                                        <span className="truncate max-w-[120px]">{a.name}</span>
                                                     </span>
-                                                    {a.name}
-                                                    {selectedTask.assigneeList.indexOf(a) < selectedTask.assigneeList.length - 1 && ','}
+                                                ))
+                                            ) : (
+                                                <span className="text-xs text-slate-400 italic">
+                                                    {t('basecamp.no_assigned') || 'No assignee'}
                                                 </span>
-                                            ))
-                                        ) : (
-                                            <span style={{ fontSize: 14, color: '#A0A0A0', fontStyle: 'italic' }}>
-                                                {t('basecamp.no_assigned')}
-                                            </span>
-                                        )}
+                                            )}
+                                        </div>
                                     </div>
 
-                                    {/* When done */}
-                                    <span className="justify-self-start sm:justify-self-end text-left sm:text-right" style={{
-                                        fontSize: 13, fontWeight: 700, color: '#1D2D35',
-                                        whiteSpace: 'nowrap'
-                                    }}>
-                                        {t('basecamp.when_done')}
-                                    </span>
-                                    <span style={{ fontSize: 14, color: '#A0A0A0', fontStyle: 'italic' }}>
-                                        {t('basecamp.notify_people')}
-                                    </span>
+                                    {/* Due Date */}
+                                    <div className="space-y-1.5">
+                                        <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                                            {t('basecamp.due_on') || 'Due on'}
+                                        </span>
+                                        <div>
+                                            {selectedTask.due_date ? (
+                                                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-50 dark:bg-amber-950/40 border border-amber-200/80 dark:border-amber-800/80 text-xs font-bold text-amber-800 dark:text-amber-300">
+                                                    <Calendar size={12} />
+                                                    {new Date(selectedTask.due_date).toLocaleDateString(undefined, {
+                                                        weekday: 'short', month: 'short', day: 'numeric', year: 'numeric'
+                                                    })}
+                                                </span>
+                                            ) : (
+                                                <span className="text-xs text-slate-400 italic">
+                                                    {t('basecamp.no_due_date') || 'No due date'}
+                                                </span>
+                                            )}
+                                        </div>
+                                    </div>
 
-                                    {/* Due on */}
-                                    <span className="justify-self-start sm:justify-self-end text-left sm:text-right" style={{
-                                        fontSize: 13, fontWeight: 700, color: '#1D2D35',
-                                        whiteSpace: 'nowrap'
-                                    }}>
-                                        {t('basecamp.due_on')}
-                                    </span>
-                                    <span style={{
-                                        fontSize: 14,
-                                        color: selectedTask.due_date ? '#1D2D35' : '#A0A0A0',
-                                        fontStyle: selectedTask.due_date ? 'normal' : 'italic',
-                                        fontWeight: selectedTask.due_date ? 500 : 400
-                                    }}>
-                                        {selectedTask.due_date
-                                            ? new Date(selectedTask.due_date).toLocaleDateString(undefined, {
-                                                weekday: 'short', month: 'short', day: 'numeric', year: 'numeric'
-                                            })
-                                            : t('basecamp.select_due_date')
-                                        }
-                                    </span>
-
-                                    {/* Notes label */}
-                                    <span className="justify-self-start sm:justify-self-end text-left sm:text-right" style={{
-                                        fontSize: 13, fontWeight: 700, color: '#1D2D35',
-                                        whiteSpace: 'nowrap',
-                                        alignSelf: 'flex-start', paddingTop: 2
-                                    }}>
-                                        {t('basecamp.notes_label')}
-                                    </span>
-                                    <span style={{ fontSize: 14, color: '#A0A0A0', fontStyle: 'italic' }}>
-                                        {selectedTask.description ? '' : t('basecamp.add_details')}
-                                    </span>
+                                    {/* When Done */}
+                                    <div className="space-y-1.5">
+                                        <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                                            {t('basecamp.when_done') || 'When done'}
+                                        </span>
+                                        <p className="text-xs text-slate-500 dark:text-slate-400 italic">
+                                            {t('basecamp.notify_people') || 'Notify people...'}
+                                        </p>
+                                    </div>
                                 </div>
-                            </div>
 
-
-                            {/* ── Description / Notes ── */}
-                            {selectedTask.description && (() => {
-                                const desc = selectedTask.description as string
-
-                                // Extract attachments for non-image files (PDFs, videos, etc.)
-                                const allAttachments = parseAttachments(desc)
-                                const nonImageAttachments = allAttachments.filter(a => {
-                                    const ct = (a.contentType || '').toLowerCase()
-                                    const fn = (a.filename || '').toLowerCase()
-                                    return !ct.startsWith('image/') && !fn.match(/\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i)
-                                })
-
-                                // Keep images IN the HTML for inline display (like real Basecamp)
-                                // Only strip <bc-attachment> wrapper tags but preserve the inner <img> tags
-                                let richHtml = desc
-                                    .replace(/<bc-attachment[^>]*>([\s\S]*?)<\/bc-attachment>/gi, (match, inner) => {
-                                        // If the bc-attachment contains an image, keep the image visible
-                                        if (/<img[^>]+>/i.test(inner)) {
-                                            return inner
-                                        }
-                                        // For non-image attachments (files), remove from flow (they show as cards below)
-                                        return ''
+                                {/* ── 4. Description / Notes Section ── */}
+                                {selectedTask.description && (() => {
+                                    const desc = selectedTask.description as string
+                                    const allAttachments = parseAttachments(desc)
+                                    const nonImageAttachments = allAttachments.filter(a => {
+                                        const ct = (a.contentType || '').toLowerCase()
+                                        const fn = (a.filename || '').toLowerCase()
+                                        return !ct.startsWith('image/') && !fn.match(/\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i)
                                     })
-                                    .trim()
 
-                                // Rewrite Basecamp URLs to our proxy
-                                richHtml = rewriteHtmlUrls(richHtml)
+                                    let richHtml = desc
+                                        .replace(/<bc-attachment[^>]*>([\s\S]*?)<\/bc-attachment>/gi, (match, inner) => {
+                                            if (/<img[^>]+>/i.test(inner)) return inner
+                                            return ''
+                                        })
+                                        .trim()
 
-                                if (!richHtml && nonImageAttachments.length === 0) return null
+                                    richHtml = rewriteHtmlUrls(richHtml)
 
-                                return (
-                                    <div style={{ padding: '20px 28px', borderBottom: '1px solid #E8E6E1' }}>
-                                        <style dangerouslySetInnerHTML={{ __html: `
-                                            .bc-rich-text a {
-                                                color: #1D7DB5;
-                                                text-decoration: none;
-                                                font-weight: 500;
-                                            }
-                                            .bc-rich-text a:hover {
-                                                text-decoration: underline;
-                                            }
-                                            .bc-rich-text p {
-                                                margin: 0 0 12px 0;
-                                                line-height: 1.6;
-                                            }
-                                            .bc-rich-text p:last-child {
-                                                margin-bottom: 0;
-                                            }
-                                            .bc-rich-text ul {
-                                                margin: 0 0 12px 0;
-                                                padding-left: 20px;
-                                                list-style-type: disc;
-                                            }
-                                            .bc-rich-text ol {
-                                                margin: 0 0 12px 0;
-                                                padding-left: 20px;
-                                                list-style-type: decimal;
-                                            }
-                                            .bc-rich-text blockquote {
-                                                border-left: 3px solid #E8E6E1;
-                                                padding-left: 12px;
-                                                margin: 0 0 12px 0;
-                                                color: #6B7B8D;
-                                            }
-                                            .bc-rich-text img {
-                                                max-width: 100%;
-                                                height: auto;
-                                                border-radius: 6px;
-                                                margin: 8px 0;
-                                                cursor: pointer;
-                                                transition: opacity 0.15s;
-                                                display: block;
-                                            }
-                                            .bc-rich-text img:hover {
-                                                opacity: 0.9;
-                                            }
-                                            .bc-rich-text figure {
-                                                margin: 12px 0;
-                                            }
-                                            .bc-rich-text figcaption {
-                                                font-size: 12px;
-                                                color: #6B7B8D;
-                                                text-align: center;
-                                                margin-top: 4px;
-                                            }
-                                        ` }} />
+                                    if (!richHtml && nonImageAttachments.length === 0) return null
 
-                                        {/* Rich text with images displayed INLINE and LARGE, like real Basecamp */}
-                                        {richHtml && (
-                                            <div
-                                                className="bc-rich-text"
-                                                onClick={(e) => {
-                                                    // Handle image clicks: open lightbox instead of navigating
-                                                    const target = e.target as HTMLElement
-                                                    if (target.tagName === 'IMG') {
-                                                        e.preventDefault()
-                                                        e.stopPropagation()
-                                                        const imgSrc = (target as HTMLImageElement).src
-                                                        setLightboxUrl(imgSrc)
-                                                        return
-                                                    }
-                                                    // Handle link clicks normally
-                                                    handleHtmlClick(e as any)
-                                                }}
-                                                style={{
-                                                    fontSize: 15,
-                                                    color: '#1D2D35',
-                                                    lineHeight: 1.6,
-                                                    wordBreak: 'break-word'
-                                                }}
-                                                dangerouslySetInnerHTML={{ __html: richHtml }}
-                                            />
-                                        )}
+                                    return (
+                                        <div className="rounded-2xl bg-slate-50/60 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-800 p-5 space-y-4">
+                                            <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 dark:text-slate-500 block">
+                                                {t('basecamp.notes_label') || 'Notes'}
+                                            </span>
 
-                                        {/* Non-image attachments (PDFs, videos, etc.) as download cards */}
-                                        {nonImageAttachments.length > 0 && (
-                                            <div style={{ marginTop: 16 }}>
-                                                <div style={{
-                                                    fontSize: 12, fontWeight: 700, color: '#6B7B8D',
-                                                    textTransform: 'uppercase', letterSpacing: '0.5px',
-                                                    marginBottom: 8
-                                                }}>
-                                                    📎 {nonImageAttachments.length} {nonImageAttachments.length === 1 ? t('basecamp.file_count') : t('basecamp.files_count')}
-                                                </div>
-                                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-                                                    {nonImageAttachments.map((file, i) => (
+                                            {richHtml && (
+                                                <div
+                                                    className="bc-rich-text text-sm text-slate-800 dark:text-slate-200 leading-relaxed"
+                                                    onClick={handleHtmlClick}
+                                                    dangerouslySetInnerHTML={{ __html: richHtml }}
+                                                />
+                                            )}
+
+                                            {/* Non-image File Attachments */}
+                                            {nonImageAttachments.length > 0 && (
+                                                <div className="pt-3 border-t border-slate-200/80 dark:border-slate-700/80 flex flex-wrap gap-2">
+                                                    {nonImageAttachments.map((att: any, attIdx: number) => (
                                                         <a
-                                                            key={i}
-                                                            href={file.url.startsWith('http') ? `/api/basecamp/attachment?url=${encodeURIComponent(file.url)}` : file.url}
+                                                            key={attIdx}
+                                                            href={att.url ? `/api/basecamp/attachment?url=${encodeURIComponent(att.url)}` : '#'}
                                                             target="_blank"
                                                             rel="noopener noreferrer"
-                                                            style={{
-                                                                display: 'inline-flex', alignItems: 'center', gap: 8,
-                                                                padding: '8px 14px',
-                                                                background: '#FAFAF8', border: '1px solid #E8E6E1',
-                                                                borderRadius: 6, textDecoration: 'none',
-                                                                fontSize: 13, fontWeight: 500, color: '#1D7DB5',
-                                                                transition: 'background 0.15s'
-                                                            }}
+                                                            className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-[#1D7DB5] text-xs font-semibold text-slate-700 dark:text-slate-200 transition-all shadow-2xs hover:shadow-xs"
                                                         >
-                                                            <FileText size={14} style={{ color: '#6B7B8D', flexShrink: 0 }} />
-                                                            <span style={{
-                                                                maxWidth: 200, overflow: 'hidden',
-                                                                textOverflow: 'ellipsis', whiteSpace: 'nowrap'
-                                                            }}>
-                                                                {decodeURIComponent(file.filename)}
-                                                            </span>
+                                                            <Paperclip size={13} className="text-[#1D7DB5]" />
+                                                            <span className="truncate max-w-[200px]">{att.filename || 'Archivo adjunto'}</span>
+                                                            <span className="text-[10px] font-bold text-[#1D7DB5]">{t('basecamp.download_btn') || '⬇'}</span>
                                                         </a>
                                                     ))}
                                                 </div>
-                                            </div>
-                                        )}
-                                    </div>
-                                )
-                            })()}
+                                            )}
+                                        </div>
+                                    )
+                                })()}
 
-                            {/* ── Comment Thread ── */}
-                            <div style={{ padding: '20px 28px 24px' }}>
-                                <h4 style={{
-                                    fontSize: 12, fontWeight: 700, color: '#6B7B8D',
-                                    textTransform: 'uppercase', letterSpacing: '0.5px',
-                                    margin: '0 0 16px', display: 'flex', alignItems: 'center', gap: 8
-                                }}>
-                                    <MessageSquare size={14} />
-                                    {t('basecamp.comments_title')} ({taskComments.length})
-                                </h4>
-
-                                {commentsLoading ? (
-                                    <div style={{ textAlign: 'center', padding: '24px 0', color: '#1D7DB5' }}>
-                                        <Loader2 className="animate-spin" style={{ width: 24, height: 24, margin: '0 auto' }} />
+                                {/* ── 5. Discussion / Comments Stream ── */}
+                                <div className="space-y-4 pt-2">
+                                    <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
+                                        <h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-2">
+                                            <MessageSquare size={15} className="text-[#1D7DB5]" />
+                                            {t('basecamp.comments_title') || 'Discussion'} ({taskComments.length})
+                                        </h4>
                                     </div>
-                                ) : taskComments && taskComments.length > 0 ? (
-                                    <div style={{
-                                        display: 'flex', flexDirection: 'column',
-                                        maxHeight: 400, overflow: 'auto', marginBottom: 20
-                                    }}>
-                                        {taskComments.map((c: any, idx: number) => (
-                                            <div key={c.id || idx} style={{
-                                                display: 'flex', gap: 12, padding: '14px 0',
-                                                borderBottom: idx < taskComments.length - 1
-                                                    ? '1px solid #F0EFEB' : 'none'
-                                            }}>
-                                                {/* Comment avatar */}
-                                                <div style={{
-                                                    width: 34, height: 34, borderRadius: '50%',
-                                                    background: getAvatarColor(c.author),
-                                                    color: '#fff', fontSize: 12, fontWeight: 700,
-                                                    display: 'flex', alignItems: 'center',
-                                                    justifyContent: 'center', flexShrink: 0
-                                                }}>
-                                                    {getInitials(c.author)}
-                                                </div>
-                                                {/* Comment content */}
-                                                <div style={{ flex: 1, minWidth: 0 }}>
-                                                    <div style={{
-                                                        display: 'flex', alignItems: 'baseline', gap: 8,
-                                                        marginBottom: 4
-                                                    }}>
-                                                        <span style={{
-                                                            fontSize: 14, fontWeight: 700, color: '#1D2D35'
-                                                        }}>
-                                                            {c.author}
-                                                        </span>
-                                                        <span style={{ fontSize: 12, color: '#A0A0A0' }}>
-                                                            {new Date(c.timestamp).toLocaleDateString(undefined, {
-                                                                month: 'short', day: 'numeric'
-                                                            })}
-                                                            {' '}
-                                                            {new Date(c.timestamp).toLocaleTimeString([], {
-                                                                hour: '2-digit', minute: '2-digit'
-                                                            })}
-                                                        </span>
+
+                                    {commentsLoading ? (
+                                        <div className="text-center py-8 text-[#1D7DB5]">
+                                            <Loader2 className="animate-spin mx-auto w-6 h-6" />
+                                        </div>
+                                    ) : taskComments && taskComments.length > 0 ? (
+                                        <div className="space-y-4">
+                                            {taskComments.map((c: any, idx: number) => (
+                                                <div
+                                                    key={c.id || idx}
+                                                    className="flex items-start gap-3.5 p-4 rounded-2xl bg-white dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800 shadow-2xs"
+                                                >
+                                                    {/* Avatar */}
+                                                    <div
+                                                        className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-black text-white flex-shrink-0 shadow-2xs mt-0.5"
+                                                        style={{ backgroundColor: getAvatarColor(c.author) }}
+                                                    >
+                                                        {getInitials(c.author)}
                                                     </div>
-                                                     <div
-                                                         className="bc-rich-text"
-                                                         onClick={handleHtmlClick}
-                                                         style={{
-                                                             fontSize: 14,
-                                                             color: '#1D2D35',
-                                                             lineHeight: 1.55,
-                                                             whiteSpace: 'pre-wrap',
-                                                             wordBreak: 'break-word'
-                                                         }}
-                                                         dangerouslySetInnerHTML={{ __html: rewriteHtmlUrls(c.text) }}
-                                                     />
-                                                </div>
-                                            </div>
-                                        ))}
-                                    </div>
-                                ) : (
-                                    <div style={{
-                                        textAlign: 'center', padding: '28px 0', marginBottom: 20,
-                                        background: '#FAFAF8', borderRadius: 6
-                                    }}>
-                                        <MessageSquare size={24} style={{ color: '#D5D3CE', margin: '0 auto 8px' }} />
-                                        <p style={{ fontSize: 14, color: '#A0A0A0', margin: 0 }}>
-                                            {t('basecamp.no_comments_desc')}
-                                        </p>
-                                    </div>
-                                )}
 
-                                {/* ── Comment form with current user avatar ── */}
-                                <form onSubmit={handleAddComment} style={{
-                                    display: 'flex', gap: 12, alignItems: 'flex-start'
-                                }}>
-                                    <div style={{
-                                        width: 34, height: 34, borderRadius: '50%',
-                                        background: getAvatarColor(currentUserName || 'U'),
-                                        color: '#fff', fontSize: 12, fontWeight: 700,
-                                        display: 'flex', alignItems: 'center',
-                                        justifyContent: 'center', flexShrink: 0
-                                    }}>
+                                                    {/* Content */}
+                                                    <div className="flex-1 min-w-0 space-y-1">
+                                                        <div className="flex items-center justify-between flex-wrap gap-2">
+                                                            <span className="text-xs font-extrabold text-slate-900 dark:text-white">
+                                                                {c.author}
+                                                            </span>
+                                                            <span className="text-[11px] text-slate-400">
+                                                                {new Date(c.timestamp).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                                                                {' · '}
+                                                                {new Date(c.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                            </span>
+                                                        </div>
+
+                                                        <div
+                                                            className="bc-rich-text text-sm text-slate-700 dark:text-slate-300 leading-relaxed"
+                                                            onClick={handleHtmlClick}
+                                                            dangerouslySetInnerHTML={{ __html: rewriteHtmlUrls(c.text) }}
+                                                        />
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    ) : (
+                                        <div className="text-center py-8 px-4 rounded-2xl bg-slate-50/60 dark:bg-slate-800/30 border border-dashed border-slate-200 dark:border-slate-800">
+                                            <MessageSquare size={24} className="text-slate-300 dark:text-slate-600 mx-auto mb-2" />
+                                            <p className="text-xs text-slate-400 font-medium">
+                                                {t('basecamp.no_comments_desc') || 'No comments yet. Start the conversation!'}
+                                            </p>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* ── 6. Bottom Sticky Comment Input Form ── */}
+                            <div className="p-4 sm:p-5 bg-slate-50/90 dark:bg-slate-900/90 border-t border-slate-100 dark:border-slate-800 backdrop-blur-md flex-shrink-0">
+                                <form onSubmit={handleAddComment} className="flex gap-3 items-start">
+                                    <div
+                                        className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-black text-white flex-shrink-0 mt-1 shadow-2xs"
+                                        style={{ backgroundColor: getAvatarColor(currentUserName || 'U') }}
+                                    >
                                         {getInitials(currentUserName || 'User')}
                                     </div>
-                                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                    <div className="flex-1 flex flex-col gap-2">
                                         <textarea
                                             required
                                             value={newComment}
                                             onChange={(e) => setNewComment(e.target.value)}
-                                            placeholder={t('basecamp.add_comment_placeholder')}
+                                            placeholder={t('basecamp.add_comment_placeholder') || 'Type a comment...'}
                                             rows={2}
-                                            style={{
-                                                width: '100%', padding: '10px 14px',
-                                                border: '2px solid #E8E6E1', borderRadius: 6,
-                                                fontSize: 14, color: '#1D2D35', outline: 'none',
-                                                resize: 'vertical', fontFamily: 'inherit',
-                                                transition: 'border-color 0.15s', lineHeight: 1.5
-                                            }}
-                                            onFocus={e => (e.target.style.borderColor = '#1D7DB5')}
-                                            onBlur={e => (e.target.style.borderColor = '#E8E6E1')}
+                                            className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-800 dark:text-slate-100 placeholder-slate-400 outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-[#1D7DB5] transition-all resize-y"
                                         />
-                                        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                                        <div className="flex justify-end">
                                             <button
                                                 type="submit"
                                                 disabled={actionLoading === 'comment'}
-                                                style={{
-                                                    padding: '8px 20px', borderRadius: 5, border: 'none',
-                                                    background: '#4BAE4F', fontSize: 13, fontWeight: 700,
-                                                    color: '#fff', cursor: 'pointer',
-                                                    transition: 'background 0.15s',
-                                                    opacity: actionLoading === 'comment' ? 0.7 : 1,
-                                                    display: 'flex', alignItems: 'center', gap: 6
-                                                }}
-                                                onMouseEnter={e => (e.currentTarget.style.background = '#3D9440')}
-                                                onMouseLeave={e => (e.currentTarget.style.background = '#4BAE4F')}
+                                                className="inline-flex items-center gap-1.5 px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-sm transition-all cursor-pointer disabled:opacity-50"
                                             >
                                                 {actionLoading === 'comment' ? (
-                                                    <Loader2 className="animate-spin" style={{ width: 14, height: 14 }} />
+                                                    <Loader2 className="animate-spin" size={14} />
                                                 ) : (
-                                                    t('basecamp.post_comment')
+                                                    t('basecamp.post_comment') || 'Post comment'
                                                 )}
                                             </button>
                                         </div>

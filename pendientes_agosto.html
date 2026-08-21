@@ -864,7 +864,7 @@
                 </svg>
             </div>
             <div>
-                <div class="stat-number" style="color: #e05638;">63.90</div>
+                <div class="stat-number" style="color: #e05638;">65.00</div>
                 <div class="stat-desc">Horas trabajadas</div>
             </div>
         </div>
@@ -1858,7 +1858,7 @@
             <div class="report-section">
                 <div class="report-title-row">
                     <h2>Reporte de Horas Trabajadas y Actualizaciones</h2>
-                    <span class="hours-badge-large">Total de Horas: 60.9 hrs</span>
+                    <span class="hours-badge-large">Total de Horas: 63.9 hrs</span>
                 </div>
                 
                 <p class="report-subtitle-text">
@@ -2358,6 +2358,29 @@
                                     </div>
                                 </td>
                             </tr>
+                            <tr>
+                                <td><strong>20-Aug-2026</strong></td>
+                                <td>8:00 PM - 9:00 PM</td>
+                                <td style="text-align: center; font-weight: 700;">1.00</td>
+                                <td><span class="table-badge-module">Inventario</span> <span class="table-badge-module">Radar de Precios</span> <span class="table-badge-module">Auditoría Forense</span> <span class="table-badge-module">Rediseño Ejecutivo</span> <span class="table-badge-module">Simulación 35/35</span></td>
+                                <td>
+                                    <div class="lang-split">
+                                         <div class="es-desc">- **Radar de Precios de Proveedores (Rediseño Ejecutivo, Simplificación Radical y Auditoría Forense Exhaustiva)**: Transformación integral de la interfaz a un tablero ejecutivo de 1 clic con 3 pestañas limpias (Precios en Vivo, Historial y Catálogo), eliminando pantallas vacías y cargando de inmediato los 87 insumos de Viele & Sons con precios base y empaques.<br>- **Métricas Financieras en Tiempo Real**: Incorporación de 4 tarjetas de impacto financiero anual en dólares ($ USD) para las 15 sucursales (Total Insumos, Subieron, Bajaron e Impacto Anual) y cajón colapsable secundario al pie para métodos de ingesta manual (portapapeles y CSV).<br>- **Auditoría Forense Línea por Línea y Corrección de Bugs**: Auditoría exhaustiva con subagentes especializados en paralelo, corrigiendo el preservado de selecciones en filtros cruzados (`toggleSelectAll`), cálculo dinámico de impacto monetario en el modal de confirmación y eliminación de prefijos monetarios duplicados (`$$`).<br>- **Suite de Simulación en Tiempo de Ejecución (35 de 35 pruebas superadas - 100%)**: Creación y ejecución de suite de simulación automatizada (`simulate-full-radar-lifecycle.ts`) validando normalización de empaques multi-pack (`inferPackQuantity` para formatos `X/Y`), sanitización numérica, parser multi-estrategia, proyecciones financieras y compatibilidad con La Máquina del Tiempo de Food Cost. Compilación TypeScript (`npx tsc --noEmit`) con 0 errores.</div>
+                                         <div class="en-desc">- **Supplier Price Radar (Executive Redesign, Radical UI Simplification & Forensic Audit)**: Overhauled the entire interface into a clean 1-click executive dashboard with 3 tabs (Live Prices, Audit History, Master Catalog), eliminating blank states by immediately loading all 87 active Viele & Sons items with base costs and pack sizes.<br>- **Real-Time Financial Metrics**: Integrated 4 executive annual financial impact cards ($ USD) for the 15 stores (Total Items, Increases, Decreases, Annual Chain Impact) and a bottom collapsible drawer for manual text/CSV ingestion.<br>- **Line-by-Line Forensic Audit & Bug Resolution**: Exhaustive audit with parallel specialized subagents, fixing cross-filter selection preservation in `toggleSelectAll`, dynamic monetary impact calculation in approval confirmation modal, and duplicate currency formatting.<br>- **Automated Runtime Simulation Suite (35 of 35 passed - 100%)**: Created and ran automated simulation suite (`simulate-full-radar-lifecycle.ts`) verifying multi-pack packaging inference (`inferPackQuantity` for `X/Y` formats), numeric sanitization, multi-strategy parsing, financial projections, and compatibility with Food Cost Time Machine. TypeScript compiled with 0 errors (`npx tsc --noEmit`).</div>
+                                    </div>
+                                </td>
+                            <tr>
+                                <td><strong>21-Aug-2026</strong></td>
+                                <td>5:30 AM - 6:35 AM</td>
+                                <td style="text-align: center; font-weight: 700;">1.10</td>
+                                <td><span class="table-badge-module">Basecamp 3</span> <span class="table-badge-module">To-dos & Casos</span> <span class="table-badge-module">Hilos de Comentarios</span> <span class="table-badge-module">Modal Basecamp 4</span> <span class="table-badge-module">i18n</span></td>
+                                <td>
+                                    <div class="lang-split">
+                                         <div class="es-desc">- **Resolución del Límite de 1,000 Filas y Carga de Comentarios Bajo Demanda (`ToolTodos.tsx`)**: Diagnóstico en Supabase de más de 30,600 comentarios en la tabla `bc_comments` para proyectos de Basecamp. Sustitución de la descarga masiva bloqueada por PostgREST por una consulta reactiva bajo demanda (`fetchTaskComments`), cargando en milisegundos todos los comentarios reales de cualquier tarea abierta con avatares, fechas y texto enriquecido.<br>- **Estabilización de Ciclos de Render y Solución a "Maximum update depth exceeded"**: Eliminación del bucle infinito de re-renderizado en React mediante la memorización de la instancia del cliente Supabase con `useMemo` y estabilización del arreglo de dependencias de `fetchTaskComments` y `fetchLists`.<br>- **Rediseño Completo del Modal de Tareas (Estilo Basecamp 4 Dialog Card con Backdrop Blur)**: Transformación visual y funcional completa del modal de To-dos a una tarjeta flotante centrada con desenfoque de fondo (`backdrop-filter: blur(8px)`), cabecera con migas de pan (`← [Nombre de Lista]`), checkbox interactivo de 32px con checkmark esmeralda `✓`, cuadrícula de 3 columnas de metadatos (Asignados, Fecha Límite con icono y Notificaciones), visor de notas enriquecidas con soporte de adjuntos/imágenes y caja inferior para publicar comentarios con avatar y botón verde esmeralda.<br>- **Pruebas Automatizadas y TypeScript**: Validación integral con `npx tsc --noEmit` (0 errores) y suite de simulación de 48 claves i18n bilingües y filtros (100% superada).</div>
+                                         <div class="en-desc">- **Resolution of 1,000-Row Limit & On-Demand Comments Loading (`ToolTodos.tsx`)**: Diagnosed over 30,600 comments in Supabase `bc_comments` table. Replaced PostgREST-capped bulk project loading with an instant on-demand query (`fetchTaskComments`), retrieving live comment streams for any selected task with avatars, timestamps, and rich text formatting.<br>- **Render Cycle Stabilization & "Maximum update depth exceeded" Fix**: Eliminated React infinite re-render loop by memoizing the Supabase client instance with `useMemo` and stabilizing callback dependency arrays across `fetchTaskComments` and `fetchLists`.<br>- **Complete To-do Modal Redesign (Basecamp 4 Dialog Card with Backdrop Blur)**: Overhauled task detail modal into a centered floating card featuring a glassmorphism backdrop blur (`backdrop-filter: blur(8px)`), breadcrumb header (`← [List Name]`), interactive 32px checkbox button with emerald checkmark `✓`, 3-column metadata grid (Assignees, Due Date, Notifications), rich notes viewer with inline attachments, and sticky bottom comment box with user avatar and emerald submit button.<br>- **Automated Simulations & TypeScript Verification**: Verified zero compilation errors (`npx tsc --noEmit`) and 100% pass rate across 48 bilingual i18n keys and search filters.</div>
+                                    </div>
+                                </td>
+                            </tr>
                         </tbody>
                        </table>
                 </div>
@@ -2405,6 +2428,10 @@
                 </h3>
                 <div class="modules-summary">
                     <div class="module-summary-item">
+                        <span>Basecamp, Comunicación y Casos Operativos / Basecamp & Operations</span>
+                        <span class="hours">2.25 hrs</span>
+                    </div>
+                    <div class="module-summary-item">
                         <span>Actividades, Planificador, Horarios y Descansos / Scheduling & Breaks</span>
                         <span class="hours">6.2 hrs</span>
                     </div>
@@ -2414,7 +2441,7 @@
                     </div>
                     <div class="module-summary-item">
                         <span>Inventario, Uniformes, Pedidos y QuickBooks / Inventory & QuickBooks</span>
-                        <span class="hours">20.4 hrs</span>
+                        <span class="hours">21.4 hrs</span>
                     </div>
                     <div class="module-summary-item">
                         <span>Tech Packs, RFQ y Negociación con Proveedores / Supplier Tech Packs & RFQs</span>
@@ -2430,7 +2457,7 @@
                     </div>
                     <div class="module-summary-item">
                         <span>Navegación, UI/UX y Mantenimiento / Navigation & Maintenance</span>
-                        <span class="hours">2.2 hrs</span>
+                        <span class="hours">2.3 hrs</span>
                     </div>
                 </div>
  
