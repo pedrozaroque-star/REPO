@@ -2,7 +2,7 @@
  * @module api/miles/settings/route
  * @description API endpoint to fetch and update mileage rates and standard store distance matrix.
  * @businessRules
- * - Default rate per mile is $0.725 (IRS standard reimbursement rate).
+ * - Default rate per mile is $0.760 (IRS standard reimbursement rate).
  * - Admins can update current rate per mile and manage standard distance estimates between store pairs.
  * - 'auto_populate_matrix' calculates pairwise driving distances for all active stores using map coordinates and traffic evasion model directly in Supabase.
  * @dataFlow Client GET/POST request -> Supabase ('supervisor_mileage_settings', 'store_distances') -> Response JSON.

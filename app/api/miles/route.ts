@@ -3,7 +3,7 @@
  * @description API endpoint handler for querying and creating supervisor mileage trips (MilesIQ).
  * @businessRules
  * - Supervisors can read their own trip logs. Admins can read trips across all supervisors.
- * - Rate per mile defaults to $0.725/mi (IRS standard rate observed in supervisor reports).
+ * - Rate per mile defaults to $0.760/mi (IRS standard rate observed in supervisor reports).
  * - Total reimbursement is calculated as (distance_miles * rate_per_mile) + parking_amount + tolls_amount.
  * @dataFlow
  * - Client request -> Supabase ('supervisor_mileage_trips') -> Response JSON.

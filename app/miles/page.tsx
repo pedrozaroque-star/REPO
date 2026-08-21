@@ -5,7 +5,7 @@
  * @description Master dashboard and operational module for MilesIQ supervisor mileage tracking and HR payroll dispatching.
  * @businessRules
  * - Supervisores can log personal auto drives, track business mileage, parking, and tolls, and calculate reimbursement totals.
- * - Rate per mile defaults to $0.725/mi (IRS standard reimbursement rate).
+ * - Rate per mile defaults to $0.760/mi (IRS standard reimbursement rate).
  * - Dispatches payroll summaries directly to HR via email using active logged-in session profile identity (user.email & user.name).
  * - Maintains a dynamic recurrent recipient email list for 1-click HR dispatching.
  * - Admins can review, approve, reject, mark as paid, and configure distance matrices & rates.

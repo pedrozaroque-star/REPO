@@ -151,10 +151,10 @@ export async function POST(req: NextRequest) {
     `).join('')
 
     // 4b. Build detailed trip rows per supervisor (grouped and sorted by date)
-    const detailedRowsHtml = Object.values(summaryBySupervisor).map(s => {
+    const detailedRowsHtml = Object.entries(summaryBySupervisor).map(([supKey, s]) => {
       // Get all trips for this supervisor, sorted by date
       const supTrips = targetTrips
-        .filter(t => (t.supervisor_name || 'Supervisor') === s.name)
+        .filter(t => (t.supervisor_id || t.supervisor_email || t.supervisor_name) === supKey)
         .sort((a, b) => (a.trip_date || '').localeCompare(b.trip_date || ''))
 
       const tripRows = supTrips.map(t => {

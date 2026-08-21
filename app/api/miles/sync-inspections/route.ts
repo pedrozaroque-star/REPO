@@ -31,9 +31,9 @@ export async function POST(req: NextRequest) {
 
     // 2. Fetch stores map
     const { data: stores } = await supabase.from('stores').select('id, name')
-    const storeMap: Record<number, string> = {}
+    const storeMap: Record<string, string> = {}
     stores?.forEach(s => {
-      storeMap[s.id] = s.name.startsWith('Tacos Gavilan') ? s.name : `Tacos Gavilan ${s.name}`
+      storeMap[String(s.id)] = s.name.startsWith('Tacos Gavilan') ? s.name : `Tacos Gavilan ${s.name}`
     })
 
     // 3. Fetch inspections for supervisor on this business date
