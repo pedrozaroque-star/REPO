@@ -1,0 +1,1016 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Informe Ejecutivo: Distribución de Jornada Laboral — Carlos Velazquez</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&display=swap');
+        
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+        }
+
+        body {
+            font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: #ffffff;
+            color: #0f172a;
+            padding: 24px;
+            font-size: 11px;
+            line-height: 1.4;
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            border-bottom: 3px solid #e05638;
+            padding-bottom: 12px;
+            margin-bottom: 16px;
+        }
+
+        .brand-title {
+            font-size: 24px;
+            font-weight: 900;
+            color: #e05638;
+            letter-spacing: -0.5px;
+        }
+
+        .brand-subtitle {
+            font-size: 12.5px;
+            font-weight: 700;
+            color: #475569;
+            margin-top: 2px;
+        }
+
+        .header-meta {
+            text-align: right;
+        }
+
+        .header-badge {
+            display: inline-block;
+            background: #0f172a;
+            color: #ffffff;
+            font-size: 10.5px;
+            font-weight: 800;
+            padding: 4px 14px;
+            border-radius: 999px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 4px;
+        }
+
+        .author-box {
+            font-size: 11.5px;
+            color: #334155;
+        }
+
+        .author-box strong {
+            color: #0f172a;
+            font-weight: 800;
+        }
+
+        /* 4 Big KPI Cards */
+        .kpi-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+
+        .kpi-card {
+            background: #ffffff;
+            border: 1px solid #cbd5e1;
+            border-radius: 10px;
+            padding: 12px 14px;
+            position: relative;
+            overflow: hidden;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.04);
+        }
+
+        .kpi-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3.5px;
+        }
+
+        .kpi-dev::before { background: #6366f1; }
+        .kpi-mgr::before { background: #10b981; }
+        .kpi-total::before { background: #f59e0b; }
+        .kpi-ratio::before { background: #0ea5e9; }
+
+        .kpi-val {
+            font-size: 22px;
+            font-weight: 900;
+            color: #0f172a;
+            line-height: 1.1;
+        }
+
+        .kpi-val small {
+            font-size: 12px;
+            font-weight: 700;
+            color: #64748b;
+        }
+
+        .kpi-title {
+            font-size: 11px;
+            font-weight: 800;
+            color: #1e293b;
+            margin-top: 3px;
+        }
+
+        .kpi-desc {
+            font-size: 9.5px;
+            color: #64748b;
+            margin-top: 1px;
+        }
+
+        /* ═══════════════════════════════════════════════════════════════
+           EXPANDED & ENLARGED LIGHT THEMED CHART SECTION (GRÁFICA GRANDE)
+           ═══════════════════════════════════════════════════════════════ */
+        .chart-box-large {
+            background: #ffffff;
+            border: 1.5px solid #cbd5e1;
+            border-radius: 14px;
+            padding: 20px 24px;
+            color: #0f172a;
+            margin-bottom: 20px;
+            page-break-inside: avoid;
+            box-shadow: 0 8px 24px -4px rgba(15, 23, 42, 0.08);
+        }
+
+        .chart-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+            border-bottom: 1.5px solid #e2e8f0;
+            padding-bottom: 10px;
+        }
+
+        .chart-title {
+            font-size: 15px;
+            font-weight: 900;
+            color: #0f172a;
+            letter-spacing: -0.3px;
+        }
+
+        .legend {
+            display: flex;
+            gap: 20px;
+            font-size: 11.5px;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            color: #1e293b;
+            font-weight: 700;
+        }
+
+        .legend-dot {
+            width: 14px;
+            height: 14px;
+            border-radius: 4px;
+        }
+
+        .dot-dev { background: #6366f1; box-shadow: 0 2px 5px rgba(99,102,241,0.4); }
+        .dot-mgr { background: #10b981; box-shadow: 0 2px 5px rgba(16,185,129,0.4); }
+
+        .chart-body-large {
+            display: flex;
+            height: 270px;
+            gap: 14px;
+            background: #f8fafc;
+            border-radius: 12px;
+            padding: 16px 20px;
+            border: 1px solid #e2e8f0;
+        }
+
+        .y-axis {
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            font-size: 10.5px;
+            font-weight: 800;
+            color: #475569;
+            padding-bottom: 26px;
+            width: 26px;
+            text-align: right;
+            user-select: none;
+        }
+
+        .bars-container {
+            flex: 1;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+            gap: 10px;
+            padding-bottom: 26px;
+            border-bottom: 2.5px solid #94a3b8;
+            position: relative;
+        }
+
+        .chart-grid-line {
+            position: absolute;
+            left: 0;
+            right: 0;
+            height: 1px;
+            background: #e2e8f0;
+            pointer-events: none;
+        }
+
+        .bar-col {
+            flex: 1;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-end;
+            align-items: center;
+            position: relative;
+            min-width: 26px;
+        }
+
+        .bar-stack {
+            width: 100%;
+            max-width: 42px;
+            height: 100%;
+            display: flex;
+            flex-direction: column-reverse;
+            border-radius: 6px;
+            overflow: hidden;
+            background: #e2e8f0;
+            border: 1px solid #cbd5e1;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+        }
+
+        .segment {
+            width: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: height 0.3s ease;
+        }
+
+        .segment span {
+            font-size: 10.5px;
+            font-weight: 900;
+            color: #ffffff;
+            text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+            letter-spacing: -0.3px;
+        }
+
+        .segment.dev { 
+            background: linear-gradient(180deg, #6366f1 0%, #4f46e5 100%); 
+        }
+
+        .segment.mgr { 
+            background: linear-gradient(180deg, #10b981 0%, #059669 100%); 
+            border-top: 1.5px solid rgba(255,255,255,0.6); 
+        }
+
+        .bar-labels {
+            position: absolute;
+            bottom: -26px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 1px;
+        }
+
+        .bar-date {
+            font-size: 10px;
+            font-weight: 900;
+            color: #0f172a;
+        }
+
+        .bar-total {
+            font-size: 9px;
+            font-weight: 800;
+            color: #475569;
+        }
+
+        /* Table */
+        .table-box {
+            page-break-inside: auto;
+        }
+
+        .section-heading {
+            font-size: 12.5px;
+            font-weight: 800;
+            color: #0f172a;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 9.5px;
+        }
+
+        th {
+            background: #f1f5f9;
+            color: #334155;
+            font-weight: 800;
+            text-align: left;
+            padding: 6px 8px;
+            border-bottom: 2px solid #cbd5e1;
+            text-transform: uppercase;
+            font-size: 8.5px;
+            letter-spacing: 0.5px;
+        }
+
+        td {
+            padding: 6px 8px;
+            border-bottom: 1px solid #e2e8f0;
+            vertical-align: top;
+        }
+
+        tr:nth-child(even) td {
+            background: #f8fafc;
+        }
+
+        .badge-shift {
+            background: #e2e8f0;
+            color: #1e293b;
+            font-weight: 700;
+            padding: 3px 6px;
+            border-radius: 4px;
+            font-size: 8.5px;
+            display: inline-block;
+            line-height: 1.2;
+        }
+
+        .footer {
+            margin-top: 18px;
+            padding-top: 8px;
+            border-top: 1px solid #e2e8f0;
+            display: flex;
+            justify-content: space-between;
+            font-size: 9px;
+            color: #64748b;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <div>
+            <div class="brand-title">TACOS GAVILAN</div>
+            <div class="brand-subtitle">Informe Ejecutivo de Distribución Diaria de Jornada Laboral: Gerencia Lynwood vs. Desarrollo del Sistema</div>
+        </div>
+        <div class="header-meta">
+            <div class="header-badge">Agosto 2026 • Periodo 01 al 21</div>
+            <div class="author-box">
+                <strong>Carlos Velazquez</strong><br>
+                General Manager Lynwood (#14) & Creador / Arquitecto del Sistema SM TEG
+            </div>
+        </div>
+    </div>
+
+    <!-- 4 KPI Metrics -->
+    <div class="kpi-grid">
+        <div class="kpi-card kpi-dev">
+            <div class="kpi-val">54.1 <small>hrs</small></div>
+            <div class="kpi-title">💻 Desarrollo Sistema SM TEG</div>
+            <div class="kpi-desc">39.7% del total de horas trabajadas</div>
+        </div>
+        <div class="kpi-card kpi-mgr">
+            <div class="kpi-val">82.2 <small>hrs</small></div>
+            <div class="kpi-title">🏪 Gerencia Operativa Lynwood</div>
+            <div class="kpi-desc">60.3% supervisión en restaurante</div>
+        </div>
+        <div class="kpi-card kpi-total">
+            <div class="kpi-val">136.4 <small>hrs</small></div>
+            <div class="kpi-title">⏱️ Jornada Total Combinada</div>
+            <div class="kpi-desc">20 días activos registrados en Agosto</div>
+        </div>
+        <div class="kpi-card kpi-ratio">
+            <div class="kpi-val">129 <small>hrs</small></div>
+            <div class="kpi-title">📅 Horas Planificador Lynwood</div>
+            <div class="kpi-desc">18 turnos programados en tienda</div>
+        </div>
+    </div>
+
+    <!-- ENLARGED LIGHT THEMED CHART BOX (GRÁFICA GRANDE Y LIMPIA) -->
+    <div class="chart-box-large">
+        <div class="chart-header">
+            <div class="chart-title">Distribución Diaria de Horas: Desarrollo SM TEG vs. Gerencia Lynwood</div>
+            <div class="legend">
+                <div class="legend-item">
+                    <span class="legend-dot dot-dev"></span>
+                    <span>💻 Desarrollo SM TEG (54.1 hrs • 39.7%)</span>
+                </div>
+                <div class="legend-item">
+                    <span class="legend-dot dot-mgr"></span>
+                    <span>🏪 Gerencia Lynwood (82.2 hrs • 60.3%)</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="chart-body-large">
+            <div class="y-axis">
+                <span>10h</span>
+                <span>8h</span>
+                <span>6h</span>
+                <span>4h</span>
+                <span>2h</span>
+                <span>0h</span>
+            </div>
+            <div class="bars-container">
+                <div class="chart-grid-line" style="bottom: 80%;"></div>
+                <div class="chart-grid-line" style="bottom: 60%;"></div>
+                <div class="chart-grid-line" style="bottom: 40%;"></div>
+                <div class="chart-grid-line" style="bottom: 20%;"></div>
+                <div class="chart-grid-line" style="bottom: 0%;"></div>
+
+                
+    <div class="bar-col">
+        <div class="bar-stack">
+            
+            <div class="segment mgr" style="height: 25.0%;">
+                <span>2.5h</span>
+            </div>
+            
+            <div class="segment dev" style="height: 45.0%;">
+                <span>4.5h</span>
+            </div>
+        </div>
+        <div class="bar-labels">
+            <span class="bar-date">01</span>
+            <span class="bar-total">7.0h</span>
+        </div>
+    </div>
+  
+
+    <div class="bar-col">
+        <div class="bar-stack">
+            
+            <div class="segment mgr" style="height: 40.0%;">
+                <span>4.0h</span>
+            </div>
+            
+            <div class="segment dev" style="height: 10.0%;">
+                <span>1.0h</span>
+            </div>
+        </div>
+        <div class="bar-labels">
+            <span class="bar-date">02</span>
+            <span class="bar-total">5.0h</span>
+        </div>
+    </div>
+  
+
+    <div class="bar-col">
+        <div class="bar-stack">
+            
+            <div class="segment mgr" style="height: 47.5%;">
+                <span>4.8h</span>
+            </div>
+            
+            <div class="segment dev" style="height: 32.5%;">
+                <span>3.3h</span>
+            </div>
+        </div>
+        <div class="bar-labels">
+            <span class="bar-date">03</span>
+            <span class="bar-total">8.0h</span>
+        </div>
+    </div>
+  
+
+    <div class="bar-col">
+        <div class="bar-stack">
+            
+            <div class="segment mgr" style="height: 45.0%;">
+                <span>4.5h</span>
+            </div>
+            
+            <div class="segment dev" style="height: 35.0%;">
+                <span>3.5h</span>
+            </div>
+        </div>
+        <div class="bar-labels">
+            <span class="bar-date">04</span>
+            <span class="bar-total">8.0h</span>
+        </div>
+    </div>
+  
+
+    <div class="bar-col">
+        <div class="bar-stack">
+            
+            <div class="segment mgr" style="height: 70.0%;">
+                <span>7.0h</span>
+            </div>
+            
+            <div class="segment dev" style="height: 10.0%;">
+                <span>1.0h</span>
+            </div>
+        </div>
+        <div class="bar-labels">
+            <span class="bar-date">06</span>
+            <span class="bar-total">8.0h</span>
+        </div>
+    </div>
+  
+
+    <div class="bar-col">
+        <div class="bar-stack">
+            
+            <div class="segment mgr" style="height: 50.0%;">
+                <span>5.0h</span>
+            </div>
+            
+            <div class="segment dev" style="height: 20.0%;">
+                <span>2.0h</span>
+            </div>
+        </div>
+        <div class="bar-labels">
+            <span class="bar-date">07</span>
+            <span class="bar-total">7.0h</span>
+        </div>
+    </div>
+  
+
+    <div class="bar-col">
+        <div class="bar-stack">
+            
+            <div class="segment mgr" style="height: 35.0%;">
+                <span>3.5h</span>
+            </div>
+            
+            <div class="segment dev" style="height: 35.0%;">
+                <span>3.5h</span>
+            </div>
+        </div>
+        <div class="bar-labels">
+            <span class="bar-date">08</span>
+            <span class="bar-total">7.0h</span>
+        </div>
+    </div>
+  
+
+    <div class="bar-col">
+        <div class="bar-stack">
+            
+            <div class="segment mgr" style="height: 30.0%;">
+                <span>3.0h</span>
+            </div>
+            
+            <div class="segment dev" style="height: 20.0%;">
+                <span>2.0h</span>
+            </div>
+        </div>
+        <div class="bar-labels">
+            <span class="bar-date">09</span>
+            <span class="bar-total">5.0h</span>
+        </div>
+    </div>
+  
+
+    <div class="bar-col">
+        <div class="bar-stack">
+            
+            <div class="segment mgr" style="height: 57.0%;">
+                <span>5.7h</span>
+            </div>
+            
+            <div class="segment dev" style="height: 23.0%;">
+                <span>2.3h</span>
+            </div>
+        </div>
+        <div class="bar-labels">
+            <span class="bar-date">10</span>
+            <span class="bar-total">8.0h</span>
+        </div>
+    </div>
+  
+
+    <div class="bar-col">
+        <div class="bar-stack">
+            
+            <div class="segment mgr" style="height: 70.7%;">
+                <span>7.1h</span>
+            </div>
+            
+            <div class="segment dev" style="height: 9.3%;">
+                
+            </div>
+        </div>
+        <div class="bar-labels">
+            <span class="bar-date">11</span>
+            <span class="bar-total">8.0h</span>
+        </div>
+    </div>
+  
+
+    <div class="bar-col">
+        <div class="bar-stack">
+            
+            
+            <div class="segment dev" style="height: 43.3%;">
+                <span>4.3h</span>
+            </div>
+        </div>
+        <div class="bar-labels">
+            <span class="bar-date">12</span>
+            <span class="bar-total">4.3h</span>
+        </div>
+    </div>
+  
+
+    <div class="bar-col">
+        <div class="bar-stack">
+            
+            <div class="segment mgr" style="height: 25.0%;">
+                <span>2.5h</span>
+            </div>
+            
+            <div class="segment dev" style="height: 55.0%;">
+                <span>5.5h</span>
+            </div>
+        </div>
+        <div class="bar-labels">
+            <span class="bar-date">13</span>
+            <span class="bar-total">8.0h</span>
+        </div>
+    </div>
+  
+
+    <div class="bar-col">
+        <div class="bar-stack">
+            
+            <div class="segment mgr" style="height: 70.0%;">
+                <span>7.0h</span>
+            </div>
+            
+        </div>
+        <div class="bar-labels">
+            <span class="bar-date">14</span>
+            <span class="bar-total">7.0h</span>
+        </div>
+    </div>
+  
+
+    <div class="bar-col">
+        <div class="bar-stack">
+            
+            <div class="segment mgr" style="height: 47.5%;">
+                <span>4.8h</span>
+            </div>
+            
+            <div class="segment dev" style="height: 22.5%;">
+                <span>2.3h</span>
+            </div>
+        </div>
+        <div class="bar-labels">
+            <span class="bar-date">15</span>
+            <span class="bar-total">7.0h</span>
+        </div>
+    </div>
+  
+
+    <div class="bar-col">
+        <div class="bar-stack">
+            
+            <div class="segment mgr" style="height: 20.0%;">
+                <span>2.0h</span>
+            </div>
+            
+            <div class="segment dev" style="height: 30.0%;">
+                <span>3.0h</span>
+            </div>
+        </div>
+        <div class="bar-labels">
+            <span class="bar-date">16</span>
+            <span class="bar-total">5.0h</span>
+        </div>
+    </div>
+  
+
+    <div class="bar-col">
+        <div class="bar-stack">
+            
+            <div class="segment mgr" style="height: 35.7%;">
+                <span>3.6h</span>
+            </div>
+            
+            <div class="segment dev" style="height: 44.3%;">
+                <span>4.4h</span>
+            </div>
+        </div>
+        <div class="bar-labels">
+            <span class="bar-date">17</span>
+            <span class="bar-total">8.0h</span>
+        </div>
+    </div>
+  
+
+    <div class="bar-col">
+        <div class="bar-stack">
+            
+            <div class="segment mgr" style="height: 62.5%;">
+                <span>6.3h</span>
+            </div>
+            
+            <div class="segment dev" style="height: 17.5%;">
+                <span>1.8h</span>
+            </div>
+        </div>
+        <div class="bar-labels">
+            <span class="bar-date">18</span>
+            <span class="bar-total">8.0h</span>
+        </div>
+    </div>
+  
+
+    <div class="bar-col">
+        <div class="bar-stack">
+            
+            <div class="segment mgr" style="height: 45.0%;">
+                <span>4.5h</span>
+            </div>
+            
+            <div class="segment dev" style="height: 35.0%;">
+                <span>3.5h</span>
+            </div>
+        </div>
+        <div class="bar-labels">
+            <span class="bar-date">19</span>
+            <span class="bar-total">8.0h</span>
+        </div>
+    </div>
+  
+
+    <div class="bar-col">
+        <div class="bar-stack">
+            
+            
+            <div class="segment dev" style="height: 30.5%;">
+                <span>3.0h</span>
+            </div>
+        </div>
+        <div class="bar-labels">
+            <span class="bar-date">20</span>
+            <span class="bar-total">3.0h</span>
+        </div>
+    </div>
+  
+
+    <div class="bar-col">
+        <div class="bar-stack">
+            
+            <div class="segment mgr" style="height: 46.5%;">
+                <span>4.7h</span>
+            </div>
+            
+            <div class="segment dev" style="height: 23.5%;">
+                <span>2.4h</span>
+            </div>
+        </div>
+        <div class="bar-labels">
+            <span class="bar-date">21</span>
+            <span class="bar-total">7.0h</span>
+        </div>
+    </div>
+  
+            </div>
+        </div>
+    </div>
+
+    <!-- Table -->
+    <div class="table-box">
+        <div class="section-heading">Desglose Detallado Diario Cruzado con el Planificador de Lynwood</div>
+        <table>
+            <thead>
+                <tr>
+                    <th style="width: 12%;">Fecha</th>
+                    <th style="width: 16%; text-align: center;">Horario Planificador</th>
+                    <th style="width: 13%; text-align: center;">💻 Dev TEG</th>
+                    <th style="width: 13%; text-align: center;">🏪 Gerencia Lynwood</th>
+                    <th style="width: 10%; text-align: center;">⏱️ Total</th>
+                    <th style="width: 36%;">Módulos y Entregables Clave</th>
+                </tr>
+            </thead>
+            <tbody>
+                
+    <tr>
+        <td><strong>01-Ago-2026</strong><br><small style="color:#64748b;">Sáb</small></td>
+        <td style="text-align: center;"><span class="badge-shift">2:00 PM - 9:00 PM<br><strong>(7.0h)</strong></span></td>
+        <td style="text-align: center; color: #4f46e5; font-weight: 800;">4.50h <small style="color:#64748b;">(64%)</small></td>
+        <td style="text-align: center; color: #059669; font-weight: 800;">2.50h <small style="color:#64748b;">(36%)</small></td>
+        <td style="text-align: center; color: #0f172a; font-weight: 900;">7.00h</td>
+        <td><strong style="color: #1e293b;">Preparador, Soporte IA</strong><br><small style="color:#64748b;">Proyecciones por tramos y live data</small></td>
+    </tr>
+  
+
+    <tr>
+        <td><strong>02-Ago-2026</strong><br><small style="color:#64748b;">Dom</small></td>
+        <td style="text-align: center;"><span class="badge-shift">2:00 PM - 7:00 PM<br><strong>(5.0h)</strong></span></td>
+        <td style="text-align: center; color: #4f46e5; font-weight: 800;">1.00h <small style="color:#64748b;">(20%)</small></td>
+        <td style="text-align: center; color: #059669; font-weight: 800;">4.00h <small style="color:#64748b;">(80%)</small></td>
+        <td style="text-align: center; color: #0f172a; font-weight: 900;">5.00h</td>
+        <td><strong style="color: #1e293b;">Preparador</strong><br><small style="color:#64748b;">Modo básico vs avanzado y tableta</small></td>
+    </tr>
+  
+
+    <tr>
+        <td><strong>03-Ago-2026</strong><br><small style="color:#64748b;">Lun</small></td>
+        <td style="text-align: center;"><span class="badge-shift">12:00 PM - 8:00 PM<br><strong>(8.0h)</strong></span></td>
+        <td style="text-align: center; color: #4f46e5; font-weight: 800;">3.25h <small style="color:#64748b;">(41%)</small></td>
+        <td style="text-align: center; color: #059669; font-weight: 800;">4.75h <small style="color:#64748b;">(59%)</small></td>
+        <td style="text-align: center; color: #0f172a; font-weight: 900;">8.00h</td>
+        <td><strong style="color: #1e293b;">Inventario, Tech Pack</strong><br><small style="color:#64748b;">QB Estimates y PAR semanal</small></td>
+    </tr>
+  
+
+    <tr>
+        <td><strong>04-Ago-2026</strong><br><small style="color:#64748b;">Mar</small></td>
+        <td style="text-align: center;"><span class="badge-shift">2:00 PM - 10:00 PM<br><strong>(8.0h)</strong></span></td>
+        <td style="text-align: center; color: #4f46e5; font-weight: 800;">3.50h <small style="color:#64748b;">(44%)</small></td>
+        <td style="text-align: center; color: #059669; font-weight: 800;">4.50h <small style="color:#64748b;">(56%)</small></td>
+        <td style="text-align: center; color: #0f172a; font-weight: 900;">8.00h</td>
+        <td><strong style="color: #1e293b;">Tech Pack Uniformes, RFQ</strong><br><small style="color:#64748b;">Ficha técnica fabricante y RFQ Formaryx</small></td>
+    </tr>
+  
+
+    <tr>
+        <td><strong>06-Ago-2026</strong><br><small style="color:#64748b;">Jue</small></td>
+        <td style="text-align: center;"><span class="badge-shift">9:00 AM - 5:00 PM<br><strong>(8.0h)</strong></span></td>
+        <td style="text-align: center; color: #4f46e5; font-weight: 800;">1.00h <small style="color:#64748b;">(13%)</small></td>
+        <td style="text-align: center; color: #059669; font-weight: 800;">7.00h <small style="color:#64748b;">(88%)</small></td>
+        <td style="text-align: center; color: #0f172a; font-weight: 900;">8.00h</td>
+        <td><strong style="color: #1e293b;">Preparador, DB</strong><br><small style="color:#64748b;">Sincronización tableta-PC y tabla DB</small></td>
+    </tr>
+  
+
+    <tr>
+        <td><strong>07-Ago-2026</strong><br><small style="color:#64748b;">Vie</small></td>
+        <td style="text-align: center;"><span class="badge-shift">2:00 PM - 9:00 PM<br><strong>(7.0h)</strong></span></td>
+        <td style="text-align: center; color: #4f46e5; font-weight: 800;">2.00h <small style="color:#64748b;">(29%)</small></td>
+        <td style="text-align: center; color: #059669; font-weight: 800;">5.00h <small style="color:#64748b;">(71%)</small></td>
+        <td style="text-align: center; color: #0f172a; font-weight: 900;">7.00h</td>
+        <td><strong style="color: #1e293b;">Horarios, Violaciones</strong><br><small style="color:#64748b;">Notificaciones automáticas descansos</small></td>
+    </tr>
+  
+
+    <tr>
+        <td><strong>08-Ago-2026</strong><br><small style="color:#64748b;">Sáb</small></td>
+        <td style="text-align: center;"><span class="badge-shift">2:00 PM - 9:00 PM<br><strong>(7.0h)</strong></span></td>
+        <td style="text-align: center; color: #4f46e5; font-weight: 800;">3.50h <small style="color:#64748b;">(50%)</small></td>
+        <td style="text-align: center; color: #059669; font-weight: 800;">3.50h <small style="color:#64748b;">(50%)</small></td>
+        <td style="text-align: center; color: #0f172a; font-weight: 900;">7.00h</td>
+        <td><strong style="color: #1e293b;">Preparador, Menú TVs</strong><br><small style="color:#64748b;">Pace parrilla carnes y pantallas TV</small></td>
+    </tr>
+  
+
+    <tr>
+        <td><strong>09-Ago-2026</strong><br><small style="color:#64748b;">Dom</small></td>
+        <td style="text-align: center;"><span class="badge-shift">2:00 PM - 7:00 PM<br><strong>(5.0h)</strong></span></td>
+        <td style="text-align: center; color: #4f46e5; font-weight: 800;">2.00h <small style="color:#64748b;">(40%)</small></td>
+        <td style="text-align: center; color: #059669; font-weight: 800;">3.00h <small style="color:#64748b;">(60%)</small></td>
+        <td style="text-align: center; color: #0f172a; font-weight: 900;">5.00h</td>
+        <td><strong style="color: #1e293b;">Preparador</strong><br><small style="color:#64748b;">Simulación intraday acelerador</small></td>
+    </tr>
+  
+
+    <tr>
+        <td><strong>10-Ago-2026</strong><br><small style="color:#64748b;">Lun</small></td>
+        <td style="text-align: center;"><span class="badge-shift">12:00 PM - 8:00 PM<br><strong>(8.0h)</strong></span></td>
+        <td style="text-align: center; color: #4f46e5; font-weight: 800;">2.30h <small style="color:#64748b;">(29%)</small></td>
+        <td style="text-align: center; color: #059669; font-weight: 800;">5.70h <small style="color:#64748b;">(71%)</small></td>
+        <td style="text-align: center; color: #0f172a; font-weight: 900;">8.00h</td>
+        <td><strong style="color: #1e293b;">Uniformes, Recepción</strong><br><small style="color:#64748b;">Control de prendas y arqueos</small></td>
+    </tr>
+  
+
+    <tr>
+        <td><strong>11-Ago-2026</strong><br><small style="color:#64748b;">Mar</small></td>
+        <td style="text-align: center;"><span class="badge-shift">2:00 PM - 10:00 PM<br><strong>(8.0h)</strong></span></td>
+        <td style="text-align: center; color: #4f46e5; font-weight: 800;">0.93h <small style="color:#64748b;">(12%)</small></td>
+        <td style="text-align: center; color: #059669; font-weight: 800;">7.07h <small style="color:#64748b;">(88%)</small></td>
+        <td style="text-align: center; color: #0f172a; font-weight: 900;">8.00h</td>
+        <td><strong style="color: #1e293b;">Inventario, DB</strong><br><small style="color:#64748b;">Catálogos y mapeo de bodegas</small></td>
+    </tr>
+  
+
+    <tr>
+        <td><strong>12-Ago-2026</strong><br><small style="color:#64748b;">Mié</small></td>
+        <td style="text-align: center;"><span class="badge-shift">Descanso en Tienda<br><strong>(0.0h)</strong></span></td>
+        <td style="text-align: center; color: #4f46e5; font-weight: 800;">4.33h <small style="color:#64748b;">(100%)</small></td>
+        <td style="text-align: center; color: #059669; font-weight: 800;">— <small style="color:#64748b;"></small></td>
+        <td style="text-align: center; color: #0f172a; font-weight: 900;">4.33h</td>
+        <td><strong style="color: #1e293b;">Basecamp 3 API</strong><br><small style="color:#64748b;">Integración API Basecamp en día libre</small></td>
+    </tr>
+  
+
+    <tr>
+        <td><strong>13-Ago-2026</strong><br><small style="color:#64748b;">Jue</small></td>
+        <td style="text-align: center;"><span class="badge-shift">9:00 AM - 5:00 PM<br><strong>(8.0h)</strong></span></td>
+        <td style="text-align: center; color: #4f46e5; font-weight: 800;">5.50h <small style="color:#64748b;">(69%)</small></td>
+        <td style="text-align: center; color: #059669; font-weight: 800;">2.50h <small style="color:#64748b;">(31%)</small></td>
+        <td style="text-align: center; color: #0f172a; font-weight: 900;">8.00h</td>
+        <td><strong style="color: #1e293b;">Uniformes, MilesIQ</strong><br><small style="color:#64748b;">Champurrado, Caja Fuerte y MilesIQ</small></td>
+    </tr>
+  
+
+    <tr>
+        <td><strong>14-Ago-2026</strong><br><small style="color:#64748b;">Vie</small></td>
+        <td style="text-align: center;"><span class="badge-shift">2:00 PM - 9:00 PM<br><strong>(7.0h)</strong></span></td>
+        <td style="text-align: center; color: #4f46e5; font-weight: 800;">— <small style="color:#64748b;"></small></td>
+        <td style="text-align: center; color: #059669; font-weight: 800;">7.00h <small style="color:#64748b;">(100%)</small></td>
+        <td style="text-align: center; color: #0f172a; font-weight: 900;">7.00h</td>
+        <td><strong style="color: #1e293b;">Gerencia Operativa</strong><br><small style="color:#64748b;">100% Supervisión en restaurante</small></td>
+    </tr>
+  
+
+    <tr>
+        <td><strong>15-Ago-2026</strong><br><small style="color:#64748b;">Sáb</small></td>
+        <td style="text-align: center;"><span class="badge-shift">2:00 PM - 9:00 PM<br><strong>(7.0h)</strong></span></td>
+        <td style="text-align: center; color: #4f46e5; font-weight: 800;">2.25h <small style="color:#64748b;">(32%)</small></td>
+        <td style="text-align: center; color: #059669; font-weight: 800;">4.75h <small style="color:#64748b;">(68%)</small></td>
+        <td style="text-align: center; color: #0f172a; font-weight: 900;">7.00h</td>
+        <td><strong style="color: #1e293b;">Tech Pack, Uniformes</strong><br><small style="color:#64748b;">Especificaciones de fabricante</small></td>
+    </tr>
+  
+
+    <tr>
+        <td><strong>16-Ago-2026</strong><br><small style="color:#64748b;">Dom</small></td>
+        <td style="text-align: center;"><span class="badge-shift">2:00 PM - 7:00 PM<br><strong>(5.0h)</strong></span></td>
+        <td style="text-align: center; color: #4f46e5; font-weight: 800;">3.00h <small style="color:#64748b;">(60%)</small></td>
+        <td style="text-align: center; color: #059669; font-weight: 800;">2.00h <small style="color:#64748b;">(40%)</small></td>
+        <td style="text-align: center; color: #0f172a; font-weight: 900;">5.00h</td>
+        <td><strong style="color: #1e293b;">MilesIQ, Planificador</strong><br><small style="color:#64748b;">GPS tiendas y soporte IA</small></td>
+    </tr>
+  
+
+    <tr>
+        <td><strong>17-Ago-2026</strong><br><small style="color:#64748b;">Lun</small></td>
+        <td style="text-align: center;"><span class="badge-shift">12:00 PM - 8:00 PM<br><strong>(8.0h)</strong></span></td>
+        <td style="text-align: center; color: #4f46e5; font-weight: 800;">4.43h <small style="color:#64748b;">(55%)</small></td>
+        <td style="text-align: center; color: #059669; font-weight: 800;">3.57h <small style="color:#64748b;">(45%)</small></td>
+        <td style="text-align: center; color: #0f172a; font-weight: 900;">8.00h</td>
+        <td><strong style="color: #1e293b;">Radar Precios, QB</strong><br><small style="color:#64748b;">Auditoría laboral y catálogo Viele</small></td>
+    </tr>
+  
+
+    <tr>
+        <td><strong>18-Ago-2026</strong><br><small style="color:#64748b;">Mar</small></td>
+        <td style="text-align: center;"><span class="badge-shift">2:00 PM - 10:00 PM<br><strong>(8.0h)</strong></span></td>
+        <td style="text-align: center; color: #4f46e5; font-weight: 800;">1.75h <small style="color:#64748b;">(22%)</small></td>
+        <td style="text-align: center; color: #059669; font-weight: 800;">6.25h <small style="color:#64748b;">(78%)</small></td>
+        <td style="text-align: center; color: #0f172a; font-weight: 900;">8.00h</td>
+        <td><strong style="color: #1e293b;">Radar Precios, Scraper</strong><br><small style="color:#64748b;">Scraper API Viele v3 y precios</small></td>
+    </tr>
+  
+
+    <tr>
+        <td><strong>19-Ago-2026</strong><br><small style="color:#64748b;">Mié</small></td>
+        <td style="text-align: center;"><span class="badge-shift">9:00 AM - 5:00 PM<br><strong>(8.0h)</strong></span></td>
+        <td style="text-align: center; color: #4f46e5; font-weight: 800;">3.50h <small style="color:#64748b;">(44%)</small></td>
+        <td style="text-align: center; color: #059669; font-weight: 800;">4.50h <small style="color:#64748b;">(56%)</small></td>
+        <td style="text-align: center; color: #0f172a; font-weight: 900;">8.00h</td>
+        <td><strong style="color: #1e293b;">Uniformes, Radar</strong><br><small style="color:#64748b;">Auditoría 17 bugs y seguridad</small></td>
+    </tr>
+  
+
+    <tr>
+        <td><strong>20-Ago-2026</strong><br><small style="color:#64748b;">Jue</small></td>
+        <td style="text-align: center;"><span class="badge-shift">Descanso en Tienda<br><strong>(0.0h)</strong></span></td>
+        <td style="text-align: center; color: #4f46e5; font-weight: 800;">3.05h <small style="color:#64748b;">(100%)</small></td>
+        <td style="text-align: center; color: #059669; font-weight: 800;">— <small style="color:#64748b;"></small></td>
+        <td style="text-align: center; color: #0f172a; font-weight: 900;">3.05h</td>
+        <td><strong style="color: #1e293b;">Basecamp, MilesIQ</strong><br><small style="color:#64748b;">Rediseño radar y coordenadas en día libre</small></td>
+    </tr>
+  
+
+    <tr>
+        <td><strong>21-Ago-2026</strong><br><small style="color:#64748b;">Vie</small></td>
+        <td style="text-align: center;"><span class="badge-shift">2:00 PM - 9:00 PM<br><strong>(7.0h)</strong></span></td>
+        <td style="text-align: center; color: #4f46e5; font-weight: 800;">2.35h <small style="color:#64748b;">(34%)</small></td>
+        <td style="text-align: center; color: #059669; font-weight: 800;">4.65h <small style="color:#64748b;">(66%)</small></td>
+        <td style="text-align: center; color: #0f172a; font-weight: 900;">7.00h</td>
+        <td><strong style="color: #1e293b;">Basecamp, Alertas</strong><br><small style="color:#64748b;">Carga bajo demanda y PDF</small></td>
+    </tr>
+  
+            </tbody>
+        </table>
+    </div>
+
+    <div class="footer">
+        <span>Tacos Gavilan • Sistema de Monitoreo TEG • Planificador Oficial de Turnos Lynwood (#14)</span>
+        <span>Generado para Carlos Velazquez: 21-Ago-2026</span>
+    </div>
+
+</body>
+</html>

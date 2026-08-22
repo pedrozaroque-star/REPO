@@ -149,8 +149,18 @@ function getRequiredBreaks(startMs: number, endMs: number): Omit<BreakBlock, 'st
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  HORARIO LOCAL FIABLE
+//  HORARIO LOCAL FIABLE (ZONA HORARIA CALIFORNIA)
 // ─────────────────────────────────────────────────────────────────────────────
+
+export function getLocalDayOfWeek(tMs: number): number {
+    const formatter = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'America/Los_Angeles',
+        weekday: 'short'
+    })
+    const dayStr = formatter.format(new Date(tMs)) // "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"
+    const map: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 }
+    return map[dayStr] ?? new Date(tMs).getDay()
+}
 
 function getLocalHourMinute(tMs: number): { hour: number; minute: number } {
     const formatter = new Intl.DateTimeFormat('en-US', {
@@ -452,7 +462,7 @@ export function scheduleBreaksWithDemand(shifts: Shift[], operatingHours: Operat
     // ────────────────────────────────────────────────────────────────────────
     //  SCORING con penalización adicional por cercanía
     // ────────────────────────────────────────────────────────────────────────
-    function scoreSlot(sMs: number, durMs: number, isMeal: boolean, targetMs: number, shift: any, shiftStartMs: number): number {
+    function scoreSlot(sMs: number, durMs: number, isMeal: boolean, targetMs: number, shift: any, shiftStartMs: number, bypassPeak: boolean = false): number {
         const eMs = sMs + durMs
         const h = spanHeat(sMs, eMs, getHeat)
         const rk = getRoleKey(shift)
@@ -460,14 +470,16 @@ export function scheduleBreaksWithDemand(shifts: Shift[], operatingHours: Operat
         const empId = shift.employee_id ?? null
 
         // Reducimos enormemente el heatPenalty para permitir que distPenalty (basado en targetMs) tenga peso
-        const heatPenalty = Math.pow(h, 4) * 1e12
+        const heatPenalty = bypassPeak ? 0 : Math.pow(h, 4) * 1e12
 
         let peakPenalty = 0
-        const shiftEndMs = new Date(shift.end_time).getTime()
-        for (let t = sMs; t < eMs; t += ms(1)) {
-            if (isInPeakZoneForShift(t, shiftStartMs, shiftEndMs, operatingHours)) {
-                peakPenalty = 1e30
-                break
+        if (!bypassPeak) {
+            const shiftEndMs = new Date(shift.end_time).getTime()
+            for (let t = sMs; t < eMs; t += ms(1)) {
+                if (isInPeakZoneForShift(t, shiftStartMs, shiftEndMs, operatingHours)) {
+                    peakPenalty = 1e30
+                    break
+                }
             }
         }
 
@@ -540,7 +552,7 @@ export function scheduleBreaksWithDemand(shifts: Shift[], operatingHours: Operat
 
         // ── PREFERENCES CHECK ───────────────────────────────────────────────
         const rk = getRoleKey(shift);
-        const dayOfWeek = new Date(shiftStartMs).getDay();
+        const dayOfWeek = getLocalDayOfWeek(shiftStartMs);
         const pref = learnedPrefs.find(p => p.role === rk && p.day_of_week === dayOfWeek && p.break_type === 'meal_30' && p.break_index === globalMealIndex);
         
         if (pref) {
@@ -813,7 +825,7 @@ export function scheduleBreaksWithDemand(shifts: Shift[], operatingHours: Operat
         let bestSlot = pool[0]
         let bestCost = Infinity
         for (const t of pool) {
-            const cost = scoreSlot(t, durMs, isMeal, targetMs, shift, shiftStartMs)
+            const cost = scoreSlot(t, durMs, isMeal, targetMs, shift, shiftStartMs, bypassHeatBlocks)
             if (cost < bestCost) { bestCost = cost; bestSlot = t }
         }
         return new Date(bestSlot)
@@ -998,7 +1010,7 @@ export function scheduleBreaksWithDemand(shifts: Shift[], operatingHours: Operat
 
             // ── PREFERENCES CHECK FOR REST ──────────────────────────────────
             const rk = getRoleKey(shift);
-            const dayOfWeek = new Date(sMs).getDay();
+            const dayOfWeek = getLocalDayOfWeek(sMs);
             const globalRestIndex = manualRestsCount + i;
             const pref = learnedPrefs.find(p => p.role === rk && p.day_of_week === dayOfWeek && p.break_type === 'rest_10' && p.break_index === globalRestIndex);
             

@@ -11,7 +11,7 @@ import { formatDateISO, formatStoreName, getMonday, addDays, getRoleWeight } fro
 import { Shift, Employee, Job } from '@/app/planificador/lib/types'
 import { useAuth } from '@/components/ProtectedRoute'
 
-import { scheduleBreaksWithDemand, LearnedPreference } from '@/lib/breaks-engine'
+import { scheduleBreaksWithDemand, LearnedPreference, getLocalDayOfWeek } from '@/lib/breaks-engine'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 
@@ -104,13 +104,13 @@ export default function DescansosPage() {
             await supabase.from('shifts').update({ breaks_schedule: newBreaks }).eq('id', shift.id);
 
             // ── 🧠 AI LEARNING: Guardar la preferencia ──
-            const storeGuid = searchParams.get('store_guid') || 'b7f63b01-f089-4ad7-a346-afdb1803dc1a';
+            const currentStoreGuid = storeGuid || (stores.find(s => String(s.id) === String(selectedStoreId))?.external_id) || searchParams.get('store_guid') || 'b7f63b01-f089-4ad7-a346-afdb1803dc1a';
             const offsetMin = Math.round((newStartMs - shiftStart) / 60000);
             const shiftDurationMin = Math.round((shiftEnd - shiftStart) / 60000);
-            const dayOfWeek = new Date(shiftStart).getDay();
+            const dayOfWeek = getLocalDayOfWeek(shiftStart);
             
             await supabase.from('break_manual_overrides').delete().match({
-                store_id: storeGuid,
+                store_id: currentStoreGuid,
                 role: rk,
                 day_of_week: dayOfWeek,
                 break_type: b.type,
@@ -118,7 +118,7 @@ export default function DescansosPage() {
             });
             
             await supabase.from('break_manual_overrides').insert({
-                store_id: storeGuid,
+                store_id: currentStoreGuid,
                 role: rk,
                 day_of_week: dayOfWeek,
                 break_type: b.type,
@@ -161,24 +161,43 @@ export default function DescansosPage() {
             return;
         }
 
+        const currentStoreGuid = storeGuid || (stores.find(s => String(s.id) === String(selectedStoreId))?.external_id) || searchParams.get('store_guid') || 'b7f63b01-f089-4ad7-a346-afdb1803dc1a';
+        const rk = (((shift as any).job_title || shift.job_id || 'unknown') as string).toLowerCase().trim();
+        const shiftStart = new Date(shift.start_time).getTime();
+        const dayOfWeek = getLocalDayOfWeek(shiftStart);
+
         // Quitar la bandera is_manual del break
         const newBreaks = [...shift.breaks_schedule];
         newBreaks[breakIdx] = { ...b, is_manual: false };
 
-        // Guardar en DB primero
+        // Guardar en DB y limpiar la preferencia aprendida para que la IA realmente recalcule libremente
         try {
             const { getSupabaseClient } = await import('@/lib/supabase');
             const supabase = await getSupabaseClient();
             await supabase.from('shifts').update({ breaks_schedule: newBreaks }).eq('id', shift.id);
+
+            // Eliminar de break_manual_overrides para desaprender la preferencia manual previa
+            await supabase.from('break_manual_overrides').delete().match({
+                store_id: currentStoreGuid,
+                role: rk,
+                day_of_week: dayOfWeek,
+                break_type: b.type,
+                break_index: breakIdx
+            });
         } catch (err) {
             console.error('Failed to reset break', err);
             return;
         }
 
+        // Limpiar preferencia de la memoria local
+        const currentPrefs = lastDataRef.current.learnedPrefs || [];
+        lastDataRef.current.learnedPrefs = currentPrefs.filter(
+            p => !(p.role === rk && p.day_of_week === dayOfWeek && p.break_type === b.type && p.break_index === breakIdx)
+        );
+
         setAiStatus({ message: `🤖 ${b.type === 'meal_30' ? 'Lunch' : 'Break'} restaurado — recalculando con IA...`, type: 'info' });
 
         // Recalcular con la IA para que el break se mueva a su posición óptima
-        // Actualizamos lastDataRef con los breaks limpios antes de recalcular
         const updatedShifts = lastDataRef.current.shifts.map(s =>
             s.id === shift.id ? { ...s, breaks_schedule: newBreaks } : s
         );
@@ -244,12 +263,34 @@ export default function DescansosPage() {
     };
 
     const handleRemoveBreak = async (shift: Shift, breakIdx: number) => {
+        const b = (shift.breaks_schedule || [])[breakIdx];
         const updatedBreaks = (shift.breaks_schedule || []).filter((_: any, idx: number) => idx !== breakIdx);
 
         try {
             const { getSupabaseClient } = await import('@/lib/supabase');
             const supabase = await getSupabaseClient();
             await supabase.from('shifts').update({ breaks_schedule: updatedBreaks }).eq('id', shift.id);
+
+            // Si era un break manual, limpiar su override de preferencias
+            if (b && b.is_manual) {
+                const currentStoreGuid = storeGuid || (stores.find(s => String(s.id) === String(selectedStoreId))?.external_id) || searchParams.get('store_guid') || 'b7f63b01-f089-4ad7-a346-afdb1803dc1a';
+                const rk = (((shift as any).job_title || shift.job_id || 'unknown') as string).toLowerCase().trim();
+                const shiftStart = new Date(shift.start_time).getTime();
+                const dayOfWeek = getLocalDayOfWeek(shiftStart);
+
+                await supabase.from('break_manual_overrides').delete().match({
+                    store_id: currentStoreGuid,
+                    role: rk,
+                    day_of_week: dayOfWeek,
+                    break_type: b.type,
+                    break_index: breakIdx
+                });
+
+                const currentPrefs = lastDataRef.current.learnedPrefs || [];
+                lastDataRef.current.learnedPrefs = currentPrefs.filter(
+                    p => !(p.role === rk && p.day_of_week === dayOfWeek && p.break_type === b.type && p.break_index === breakIdx)
+                );
+            }
 
             const updatedShifts = lastDataRef.current.shifts.map(s =>
                 s.id === shift.id ? { ...s, breaks_schedule: updatedBreaks } : s
