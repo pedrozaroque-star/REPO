@@ -2,7 +2,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { getAuthToken, getToastRestaurants } from '@/lib/toast-api'
-import { scheduleBreaksWithDemand } from '@/lib/breaks-engine'
+import { scheduleBreaksWithDemand, LearnedPreference } from '@/lib/breaks-engine'
 import { generateSmartForecast } from '@/lib/intelligence'
 
 // Initialize Supabase
@@ -103,8 +103,22 @@ export async function GET(req: Request) {
                 
                 if (activeShiftsForRebalance.length === 0) continue;
 
-                // Re-calculate the whole day's puzzle (only for present employees)
-                const newShifts = scheduleBreaksWithDemand(activeShiftsForRebalance as any, hours)
+                // Fetch learned preferences for this store
+                const { data: storeOverrides } = await supabase
+                    .from('break_manual_overrides')
+                    .select('*')
+                    .eq('store_id', store.id)
+
+                const learnedPrefs: LearnedPreference[] = (storeOverrides || []).map(o => ({
+                    role: o.role,
+                    day_of_week: o.day_of_week,
+                    break_type: o.break_type,
+                    break_index: o.break_index,
+                    offset_from_start_min: o.offset_from_start_min
+                }))
+
+                // Re-calculate the whole day's puzzle (only for present employees) with learned preferences
+                const newShifts = scheduleBreaksWithDemand(activeShiftsForRebalance as any, hours, learnedPrefs)
 
                 // Update DB (Batching optimization: updates only if breaks actually changed)
                 for (const updated of newShifts) {

@@ -542,7 +542,7 @@
                 </svg>
             </div>
             <div>
-                <div class="stat-number" style="color: #e05638;">65.75</div>
+                <div class="stat-number" style="color: #e05638;">66.40</div>
                 <div class="stat-desc">Horas trabajadas</div>
             </div>
         </div>
@@ -9442,8 +9442,21 @@
                                     </div>
                                 </td>
                             </tr>
+                            <tr>
+                                <td><strong>21-Aug-2026</strong></td>
+                                <td>9:45 PM - 10:25 PM</td>
+                                <td style="text-align: center; font-weight: 700;">0.65</td>
+                                <td><span class="table-badge-module">Planificador</span> <span class="table-badge-module">Publicación de Horarios</span> <span class="table-badge-module">Notificaciones por Correo</span> <span class="table-badge-module">AI Learning</span> <span class="table-badge-module">iCalendar ICS</span></td>
+                                <td>
+                                    <div class="lang-split">
+                                         <div class="es-desc">- **Integración de Aprendizaje de Preferencias al Publicar Horarios (`/api/notifications/publish-schedule/route.ts`)**: Conexión de la consulta a `break_manual_overrides` por tienda dentro del proceso de publicación y recálculo de descansos. Ahora, cuando el mánager publica el horario desde el Planificador, la IA inyecta las preferencias aprendidas (`learnedPrefs`) para cada rol y día de la semana, además de respetar con fidelidad los descansos manuales (`is_manual: true`) y la regla de priorización por salida temprana.<br>- **Sincronización en Cron de Rebalanceo Automático (`/api/cron/smart-rebalance/route.ts`)**: Inclusión de `learnedPrefs` al reajustar descansos ante variaciones de ponchadas reales de Toast POS.<br>- **Fidelidad Bilingüe en Correo Electrónico y Calendarios Móviles**: Los empleados reciben en su bandeja de entrada el desglose exacto de almuerzos y descansos calculados con las preferencias del mánager (`breaksHtml`), sincronizados automáticamente con Google Calendar y archivos descargables `.ics` para iPhone y Android.<br>- **Suite de Pruebas Automatizada**: Ejecución exitosa de `scratch/test-publish-breaks-learning.ts` validando la proyección de líderes, cocineros y cajeras con 0 errores en TypeScript (`npx tsc --noEmit`).</div>
+                                         <div class="en-desc">- **Preference Learning Integration on Schedule Publishing (`/api/notifications/publish-schedule/route.ts`)**: Integrated `break_manual_overrides` lookup into the schedule publishing workflow. When a manager publishes from the Planner, the AI injects store-specific learned preferences (`learnedPrefs`), honors manually dragged breaks (`is_manual: true`), and enforces early shift exit priority.<br>- **Smart Rebalance Cron Sync (`/api/cron/smart-rebalance/route.ts`)**: Injected `learnedPrefs` when rebalancing schedules against live Toast POS punch variances.<br>- **Bilingual Email & Mobile Calendar Fidelity**: Employees receive the exact break schedule shaped by manager preferences (`breaksHtml`), synchronized with Google Calendar and RFC 5545 `.ics` mobile calendar attachments.<br>- **Automated Test Suite**: Verified 100% calculation accuracy with `scratch/test-publish-breaks-learning.ts` and 0 TypeScript errors (`npx tsc --noEmit`).</div>
+                                    </div>
+                                </td>
+                            </tr>
                         </tbody>
                        </table>
+                </div>
 
                 <!-- Parallel Activities -->
                 <h3 style="font-size: 15px; font-weight: 800; color: #0f172a; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.5px;">

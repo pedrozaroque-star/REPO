@@ -23,7 +23,7 @@ import autoTable from 'jspdf-autotable'
 import path from 'path'
 import fs from 'fs'
 import { generateSmartForecast } from '@/lib/intelligence'
-import { scheduleBreaksWithDemand } from '@/lib/breaks-engine'
+import { scheduleBreaksWithDemand, LearnedPreference } from '@/lib/breaks-engine'
 import {
     generateScheduleICS,
     buildGoogleCalendarUrl,
@@ -300,15 +300,29 @@ export async function POST(req: Request) {
             .gte('assignment_date', start_date)
             .lte('assignment_date', end_date)
 
-        // --- 6. SMART BREAKS GENERATION (Fidelity Alignment with Tablet) ---
+        // --- 6. SMART BREAKS GENERATION (Fidelity Alignment with Tablet & AI Learning) ---
         const { data: allJobs } = await supabase.from('toast_jobs').select('*')
 
+        // Fetch learned preferences for this store from break_manual_overrides
+        const { data: storeOverrides } = await supabase
+            .from('break_manual_overrides')
+            .select('*')
+            .eq('store_id', store_id)
+
+        const learnedPrefs: LearnedPreference[] = (storeOverrides || []).map(o => ({
+            role: o.role,
+            day_of_week: o.day_of_week,
+            break_type: o.break_type,
+            break_index: o.break_index,
+            offset_from_start_min: o.offset_from_start_min
+        }))
+
         // POR PETICIÓN DEL USUARIO: Forzar el recálculo de TODOS los turnos 
-        // usando el motor inteligente al publicar, y guardarlo en la BD.
+        // usando el motor inteligente con aprendizaje de preferencias al publicar, y guardarlo en la BD.
         const needsCalcShifts = shifts;
 
         if (needsCalcShifts.length > 0) {
-            console.log(`🤖 [API] Recalculando breaks para TODOS los ${needsCalcShifts.length} shifts al Publicar.`)
+            console.log(`🤖 [API] Recalculando breaks para TODOS los ${needsCalcShifts.length} shifts al Publicar (con ${learnedPrefs.length} preferencias aprendidas)...`)
             
             const datesToProcess = [...new Set(needsCalcShifts.map(s => s.shift_date))]
             
@@ -356,7 +370,7 @@ export async function POST(req: Request) {
                             return { ...s, is_leader: isLeader, job_title: extTitle }
                         })
 
-                    const augmented = scheduleBreaksWithDemand(shiftsForAi as any, hoursToDraw || [])
+                    const augmented = scheduleBreaksWithDemand(shiftsForAi as any, hoursToDraw || [], learnedPrefs)
                     
                     // Aplicar y Guardar a TODOS los turnos recalculados
                     for (const aug of augmented) {
