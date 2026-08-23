@@ -212,10 +212,8 @@ export async function POST(req: NextRequest) {
         purpose_notes: `Auto-detectado por presencia GPS (${source})`,
         distance_miles: distanceMiles,
         rate_per_mile: ratePerMile,
-        mileage_value: mileageValue,
         parking_amount: 0,
         tolls_amount: 0,
-        total_reimbursement: totalReimbursement,
         status: 'pending'
       }
 

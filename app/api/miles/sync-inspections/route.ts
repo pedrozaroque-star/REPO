@@ -180,10 +180,8 @@ export async function POST(req: NextRequest) {
               purpose_notes: `Auto-generado al completar Inspección de Calidad en ${destinationName}`,
               distance_miles: dist,
               rate_per_mile: ratePerMile,
-              mileage_value: mileageVal,
               parking_amount: 0,
               tolls_amount: 0,
-              total_reimbursement: mileageVal,
               status: 'pending'
             }])
             .select()
@@ -304,10 +302,8 @@ export async function POST(req: NextRequest) {
         purpose_notes: `Generado automáticamente desde Inspección de Calidad (${originName} → ${destName})`,
         distance_miles: distance,
         rate_per_mile: ratePerMile,
-        mileage_value: mileageVal,
         parking_amount: 0,
         tolls_amount: 0,
-        total_reimbursement: mileageVal,
         status: 'pending'
       })
     }

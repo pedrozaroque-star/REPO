@@ -130,6 +130,8 @@ export default function QuickDriveModal({
         localStorage.setItem('teg_supervisor_active_store', destinationName)
         setSuccessMessage(`¡Viaje guardado! (${data.distance_miles || ''} mi • $${data.total_reimbursement || ''} USD)`)
         if (onTripLogged) onTripLogged()
+      } else {
+        console.warn('Checkin warning/error:', data.error || data.message)
       }
 
       // 2. Abrir la app de mapas con navegación paso a paso
@@ -151,7 +153,7 @@ export default function QuickDriveModal({
       setTimeout(() => {
         setIsSaving(null)
         onClose()
-      }, 1200)
+      }, 800)
 
     } catch (err) {
       console.error('Error in handleStartDrive:', err)
