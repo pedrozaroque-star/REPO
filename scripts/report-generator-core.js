@@ -64,12 +64,21 @@ function intervalToPercentages(startDec, endDec) {
     const rulerEnd = 24.0;
     const rulerTotal = rulerEnd - rulerStart;
 
-    let s = Math.max(rulerStart, startDec);
-    let e = endDec;
+    // Normalize hours to 24h business day (anything < 4.0 AM is late night / past midnight)
+    let s = startDec < rulerStart ? startDec + 24.0 : startDec;
+    let e = endDec < rulerStart ? endDec + 24.0 : endDec;
     if (e < s) e += 24.0;
-    e = Math.min(rulerEnd, e);
 
-    if (e <= rulerStart || s >= rulerEnd) return null;
+    // If entire session is past 24.0 (e.g. 12:00 AM - 1:15 AM = 24.0 - 25.25), anchor at late night edge
+    if (s >= rulerEnd) {
+        s = Math.max(rulerStart, rulerEnd - Math.min(2.0, e - s));
+        e = rulerEnd;
+    } else {
+        s = Math.max(rulerStart, s);
+        e = Math.min(rulerEnd, e);
+    }
+
+    if (e <= s) return null;
 
     const left = ((s - rulerStart) / rulerTotal) * 100;
     const width = ((e - s) / rulerTotal) * 100;
