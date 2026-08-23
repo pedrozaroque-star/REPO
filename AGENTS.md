@@ -107,19 +107,34 @@ Al actualizar el reporte, el agente DEBE cruzar estas fuentes para detectar trab
 
 ---
 
-## ⏱️ REGLA OBLIGATORIA: Protocolo de Auto-Registro en Tiempo Real y Cero Horas Perdidas (Live Auto-Logging & Continuous Activity Sync)
+## ⏱️ REGLA OBLIGATORIA: Protocolo de Auto-Registro en Tiempo Real, Conciliación Multi-Chat y Fusión No Destructiva (Multi-Chat Forensic Reconciliation & Non-Destructive Merge Protocol)
 
-**Queda estrictamente prohibido que cualquier sesión, bloque de desarrollo, auditoría, análisis o conversación termine sin registrar de inmediato las horas trabajadas en el reporte mensual (`pendientes_[mes].html`).**
+**Queda estrictamente prohibido que cualquier sesión, bloque de desarrollo, auditoría, análisis o conversación termine sin registrar de inmediato las horas trabajadas en el reporte mensual (`pendientes_[mes].html`) o que se sobreescriban/omitan sesiones concurrentes de otros chats.**
 
-1. **Auto-Registro Obligatorio en Cada Intervención**:
-   - En **CADA conversación y al finalizar cada respuesta o tarea**, el agente TIENE LA OBLIGACIÓN de actualizar la fila del día correspondiente en `pendientes_[mes].html` (ej: `pendientes_agosto.html`) y el bloque del planificador Gantt visual.
-   - Si el día actual ya cuenta con registros previos, el agente DEBE sumar las nuevas horas transcurridas y agregar las nuevas viñetas de descripción (ES/EN) y badges de módulos trabajados, sin sobreescribir ni borrar las sesiones previas del mismo día.
-2. **Recompilación Automática de PDFs Ejecutivos**:
-   - Tras actualizar el archivo HTML, el agente DEBE ejecutar automáticamente el script de compilación (Puppeteer) para regenerar de inmediato `c:\Users\pedro\Desktop\Reporte_[Mes]_[Año]_TEG.pdf` y `distribucion_jornada_carlos_velazquez_[mes]_[año].pdf`.
-3. **Escaneo de Conversaciones Concurrentes (Multi-Chat Awareness)**:
-   - Dado que Carlos trabaja simultáneamente en múltiples conversaciones (ej. Ventas, Descansos, MilesIQ, Uniformes, etc.), el agente DEBE escanear periódicamente los directorios de transcripciones (`C:\Users\pedro\.gemini\antigravity\brain\*\.system_generated\logs\transcript.jsonl`) para consolidar todas las sesiones paralelas del día en el informe único oficial.
-4. **Cero Dependencia de Petición del Usuario**:
-   - El usuario NO debe tener que recordar o pedir que se registren las horas. El agente lo ejecuta proactivamente en segundo plano en cada turno.
+1. **Escaneo y Conciliación Multi-Chat Obligatoria (Multi-Chat Cross-Scan)**:
+   - Dado que Carlos trabaja simultáneamente en múltiples conversaciones (ej. Ventas Toast, Radar de Precios, Descansos, MilesIQ, Tech Packs, Uniformes, etc.), el agente TIENE LA OBLIGACIÓN de escanear los directorios de transcripciones (`C:\Users\pedro\.gemini\antigravity\brain\*\.system_generated\logs\transcript.jsonl`) y el `git log` antes de actualizar la tabla de horas.
+   - Debe cruzar 4 fuentes de verdad:
+     a) `transcript.jsonl` de todos los chats activos del día (para capturar peticiones, análisis de CSVs, diseño de tech packs y correos).
+     b) `git log` del día (para capturar todos los commits, archivos modificados y branches).
+     c) Base de datos de Supabase (`shifts` table para los turnos reales de Carlos como General Manager en Lynwood #14).
+     d) Archivos de entregables generados fuera de git (PDFs de Tech Packs, presentaciones ejecutivas HTML, etc.).
+
+2. **Fusión Acumulativa No Destructiva (Non-Destructive Cumulative Merge)**:
+   - **Regla Estricta**: NUNCA reemplazar la fila de un día asumiendo únicamente el trabajo de la conversación actual.
+   - Si el día actual ya cuenta con registros o sesiones previas:
+     * **Horarios (Time Slots)**: Se concatenan todas las sesiones separadas por ` & ` (ej. `6:09 AM - 8:30 AM & 11:30 AM - 1:45 PM & 4:30 PM - 5:30 PM & 7:15 PM - 9:30 PM`).
+     * **Horas Totales**: Se suman aritméticamente las horas de cada bloque (`hours = sum(session_hours)`).
+     * **Viñetas de Descripción**: Se anexan con `<br>• ` todas las actividades realizadas en el día sin sobreescribir ni resumir las sesiones anteriores.
+     * **Badges Temáticos**: Se unen en un conjunto único sin duplicados (ej. `['Radar de Precios', 'Viele & Sons v3', 'Descansos IA', 'Basecamp 4']`).
+
+3. **Inclusión Obligatoria de Actividades No-Code**:
+   - Todo trabajo técnico u operativo (redacción de Tech Packs, análisis de datos en Excel/CSV, correos de licitación a proveedores, presentaciones ejecutivas y diseño de arquitectura) DEBE tener su fila con horas asignadas, incluso si no generó un commit directo en el repositorio.
+
+4. **Recompilación Automática de PDFs Ejecutivos**:
+   - Tras actualizar el archivo HTML, el agente DEBE ejecutar automáticamente el script de compilación (`node scripts/generate-all-desktop-pdfs.js`) para regenerar de inmediato `c:\Users\pedro\Desktop\Reporte_[Mes]_[Año]_TEG.pdf`.
+
+5. **Cero Dependencia de Petición del Usuario**:
+   - El usuario NO debe tener que recordar o pedir que se registren las horas. El agente lo ejecuta proactivamente en segundo plano en cada intervención.
 
 ---
 
