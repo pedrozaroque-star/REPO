@@ -1,5 +1,15 @@
 'use client'
 
+/**
+ * @module components/checklists/DynamicQuestion
+ * @description Componente dinámico interactivo para responder preguntas individuales de checklists (Yes/No/NA, Numérico, Texto, Calificación, Fotos/Video).
+ * @businessRules
+ * - En 'sobrante', valores numéricos > 2 Lbs activan alerta visual de merma excedente.
+ * - Soporta subida de fotografías y videos a Supabase Storage con compresión automática.
+ * - Valida '0' como respuesta válida en campos numéricos (temperaturas y sobrantes).
+ * @notes Sanitiza URLs de video y preserva valores numéricos 0 frente a coerción falsy.
+ */
+
 import React, { useState, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Camera, Star, Info, X, Check, Trash2, Image as ImageIcon, Sparkles, Video, Upload, MessageSquare } from 'lucide-react'
@@ -35,7 +45,8 @@ const isNew = (dateStr?: string) => {
 }
 
 const isVideo = (url: string) => {
-    return url.toLowerCase().match(/\.(mp4|mov|webm|ogg|quicktime)$/)
+    const clean = (url || '').split('?')[0].toLowerCase()
+    return clean.match(/\.(mp4|mov|webm|ogg|quicktime)$/)
 }
 
 export default function DynamicQuestion({ question, index, value, photos, onChange, onPhotosChange, checklistType, comment, onCommentChange }: QuestionProps) {
@@ -150,7 +161,7 @@ export default function DynamicQuestion({ question, index, value, photos, onChan
                         <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 dark:text-slate-500 font-bold">#</span>
                         <input
                             type="number"
-                            value={value || ''}
+                            value={value ?? ''}
                             onChange={(e) => onChange(e.target.value)}
                             placeholder="0"
                             className={`w-full pl-8 p-4 bg-gray-50 dark:bg-slate-800/50 border-2 rounded-xl outline-none text-gray-900 dark:text-white font-black text-xl transition-all placeholder:text-gray-300 dark:placeholder:text-slate-600 ${isOverLimit

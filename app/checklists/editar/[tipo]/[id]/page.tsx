@@ -1,12 +1,23 @@
 'use client'
 
+/**
+ * @module app/checklists/editar/[tipo]/[id]/page
+ * @description Pantalla universal para editar checklists operativos existentes de asistentes y gerentes.
+ * @businessRules
+ * - Valida permisos de edición estrictos según rol y ventana de tiempo mediante canEditChecklist.
+ * - Respeta la regla de jornada laboral (6:00 AM a 5:59 AM) para edición en el mismo turno o corrección de rechazo.
+ * @dataFlow
+ * - Supabase ('assistant_checklists' o 'manager_checklists') -> ChecklistForm (Modo Edición).
+ * @notes Corrige el envío de la fecha de negocio dateToCheck a canEditChecklist para evitar bloqueos nocturnos.
+ */
+
 import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 
 import ProtectedRoute, { useAuth } from '@/components/ProtectedRoute'
 import { canEditChecklist } from '@/lib/checklistPermissions'
 import { getSupabaseClient } from '@/lib/supabase'
-import ChecklistForm from '@/components/checklists/ChecklistForm' // ✅ Importamos el Universal
+import ChecklistForm from '@/components/checklists/ChecklistForm'
 import SurpriseLoader from '@/components/SurpriseLoader'
 import '@/app/checklists/checklists.css'
 
@@ -30,23 +41,23 @@ function EditChecklistContent() {
       if (!user) return
       const supabase = await getSupabaseClient()
 
-      // 1. Cargar datos
+      // 1. Cargar datos según tipo (asistente vs manager)
+      const tableName = tipo === 'manager' ? 'manager_checklists' : 'assistant_checklists'
       const { data, error } = await supabase
-        .from('assistant_checklists')
+        .from(tableName)
         .select('*')
         .eq('id', id)
         .single()
 
       if (error || !data) throw new Error('Checklist no encontrado')
 
-      // 2. Permisos (Usando tu lógica blindada)
-      // 2. Permisos (Usando tu lógica blindada)
+      // 2. Permisos (Usando fecha de negocio o created_at)
       const dateToCheck = data.checklist_date || data.created_at
 
-      // [FIX] Determinar qué estatus revisar según el tipo
+      // Determinar qué estatus revisar según el tipo
       const statusToCheck = tipo === 'manager' ? data.estatus_supervisor : data.estatus_manager
 
-      const perms = canEditChecklist(data.created_at, user.role, data.user_id, user.id, statusToCheck)
+      const perms = canEditChecklist(dateToCheck, user.role, data.user_id, user.id, statusToCheck)
 
       if (!perms.canEdit) throw new Error(perms.reason)
 

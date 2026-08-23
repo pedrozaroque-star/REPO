@@ -1,5 +1,17 @@
 'use client'
 
+/**
+ * @module components/checklists/ChecklistForm
+ * @description Formulario universal e interactivo para captura y edición de checklists operativos de Tacos Gavilan.
+ * @businessRules
+ * - Inicializa checklist_date respetando el día de negocio (6:00 AM - 5:59 AM) y turno (AM/PM con corte a las 5:00 PM).
+ * - Calcula score porcentual en tiempo real según tipo de checklist (temperaturas, sobrantes, yes/no).
+ * - En modo edición, preserva la autoría original (user_id, user_name) del asistente.
+ * @dataFlow
+ * - Carga plantilla dinámica con useDynamicChecklist -> Renderiza DynamicQuestion -> Guarda payload en Supabase.
+ * @notes Maneja borrado de draft en localStorage tras guardado exitoso y enruta a la tabla correspondiente.
+ */
+
 import React, { useState, useEffect, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
@@ -269,10 +281,13 @@ export default function ChecklistForm({ user, initialData, type = 'daily' }: { u
 
       formattedAnswers['__question_photos'] = questionPhotos
 
+      const isEditing = Boolean(initialData?.id)
+      const tableName = type === 'manager' ? 'manager_checklists' : 'assistant_checklists'
+
       const payload = {
         checklist_type: type,
-        user_id: user.id,
-        user_name: user.name || user.email,
+        user_id: isEditing ? (initialData?.user_id || user.id) : user.id,
+        user_name: isEditing ? (initialData?.user_name || user.name || user.email) : (user.name || user.email),
         store_id: user.store_id || initialData?.store_id || null,
         checklist_date: formData.checklist_date,
         shift: formData.shift,
@@ -283,9 +298,9 @@ export default function ChecklistForm({ user, initialData, type = 'daily' }: { u
         status: initialData ? initialData.status : 'pendiente'
       }
 
-      const { error } = initialData?.id
-        ? await supabase.from('assistant_checklists').update(payload).eq('id', initialData.id)
-        : await supabase.from('assistant_checklists').insert([payload])
+      const { error } = isEditing
+        ? await supabase.from(tableName).update(payload).eq('id', initialData.id)
+        : await supabase.from(tableName).insert([payload])
 
       if (error) throw error
 

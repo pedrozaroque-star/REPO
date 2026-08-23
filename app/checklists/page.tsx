@@ -1,6 +1,18 @@
 'use client'
 
-import { useEffect, useState, useMemo, Suspense } from 'react'
+/**
+ * @module app/checklists/page
+ * @description Tablero principal y listado de checklists operativos de asistentes para Tacos Gavilan.
+ * @businessRules
+ * - Asistentes solo pueden consultar y editar los checklists de su tienda y autoría propia.
+ * - Gerentes y Supervisores pueden auditar y revisar checklists de sus tiendas asignadas.
+ * - Respeta la regla de jornada laboral (6:00 AM a 5:59 AM) y corte de turno PM (5:00 PM).
+ * @dataFlow
+ * - Supabase ('assistant_checklists' + 'stores' + 'users') -> Filtros React -> Tabla / Tarjetas Mobile -> ChecklistReviewModal.
+ * @notes Corrige loops de reapertura de modal en deep links, normaliza conteos de estadísticas y soporta estado 'cerrado'.
+ */
+
+import { useEffect, useState, useMemo, useRef, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { FileText, Plus, Filter } from 'lucide-react'
 import ProtectedRoute, { useAuth } from '@/components/ProtectedRoute'
@@ -32,6 +44,7 @@ function ChecklistsContent() {
   const [stores, setStores] = useState<any[]>([])
   const [showReviewModal, setShowReviewModal] = useState(false)
   const [selectedChecklist, setSelectedChecklist] = useState<any>(null)
+  const processedDeepLinkIdRef = useRef<string | null>(null)
 
   useEffect(() => {
     if (user) {
@@ -40,7 +53,7 @@ function ChecklistsContent() {
   }, [user])
 
   useEffect(() => {
-    if (user && stores.length > 0) {
+    if (user) {
       fetchData()
     }
   }, [typeFilter, storeFilter, statusFilter, user, stores])
@@ -49,12 +62,12 @@ function ChecklistsContent() {
   useEffect(() => {
     const checkUrlForModal = async () => {
       const id = searchParams.get('id')
-      if (id) {
-        // 1. Buscar en la lista ya cargada (comparando como string)
+      if (id && processedDeepLinkIdRef.current !== id) {
         // 1. Buscar en la lista ya cargada (comparando como string)
         const found = checklists.find(c => c.id.toString() === id)
 
         if (found) {
+          processedDeepLinkIdRef.current = id
           setSelectedChecklist(found)
           setShowReviewModal(true)
         } else {
@@ -68,15 +81,13 @@ function ChecklistsContent() {
               .single()
 
             if (data && !error) {
-              // Estandarizar objeto para el Modal (igual que fetchData)
               const formatted = {
                 ...data,
                 store_name: formatStoreName((data as any).stores?.name) || 'N/A'
               }
+              processedDeepLinkIdRef.current = id
               setSelectedChecklist(formatted)
               setShowReviewModal(true)
-              // Opcional: limpiar URL para no reabrir al recargar
-              // router.replace('/checklists', { scroll: false }) 
             }
           } catch (e) {
             console.error('Error fetching deep link checklist', e)
@@ -84,19 +95,16 @@ function ChecklistsContent() {
         }
       }
 
-
-      // 🔄 AUTO-OPEN LATEST (Fallback para notificaciones rotas)
+      // 🔄 AUTO-OPEN LATEST (Fallback para notificaciones)
       const autoOpen = searchParams.get('auto_open')
-      if (autoOpen === 'latest') {
-        if (!user) return
-
+      if (autoOpen === 'latest' && user && !processedDeepLinkIdRef.current) {
         try {
           const supabase = await getSupabaseClient()
           const { data, error } = await supabase
             .from('assistant_checklists')
             .select('*, stores(name, code), users!user_id(full_name)')
-            .eq('user_id', user.id) // Mis checklists
-            .order('fecha_revision_manager', { ascending: false }) // Último revisado
+            .eq('user_id', user.id)
+            .order('fecha_revision_manager', { ascending: false })
             .limit(1)
             .single()
 
@@ -105,6 +113,7 @@ function ChecklistsContent() {
               ...data,
               store_name: formatStoreName((data as any).stores?.name) || 'N/A'
             }
+            processedDeepLinkIdRef.current = `latest-${data.id}`
             setSelectedChecklist(formatted)
             setShowReviewModal(true)
           }
@@ -114,15 +123,11 @@ function ChecklistsContent() {
       }
     }
     checkUrlForModal()
-  }, [searchParams, checklists, loading])
+  }, [searchParams, checklists, loading, user])
 
   const fetchStores = async () => {
     try {
       const supabase = await getSupabaseClient()
-      const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-      const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-
-      // 🔄 CLIENTE MEMORIZADO (Para evitar warnings)
       const res = await supabase.from('stores').select('*')
       const data = res.data
       let loadedStores = Array.isArray(data) ? data : []
@@ -165,8 +170,6 @@ function ChecklistsContent() {
         }
         if (allowedStoreIds.length > 0) {
           query = query.in('store_id', allowedStoreIds)
-        } else {
-          query = query.eq('store_id', 0)
         }
 
         // SOLO sus propios checklists
@@ -175,10 +178,6 @@ function ChecklistsContent() {
       // 🔒 FILTRO PARA MANAGERS - Solo su tienda asignada
       else if (user?.role === 'manager' && (user as any)?.store_id) {
         query = query.eq('store_id', (user as any).store_id)
-      }
-
-      if (typeFilter !== 'all') {
-        query = query.eq('checklist_type', typeFilter)
       }
 
       const { data: checkData, error } = await query
@@ -190,7 +189,7 @@ function ChecklistsContent() {
         store_name: formatStoreName(item.stores?.name) || 'N/A'
       })) : []
 
-      // 🔍 Filtrado Frontend por Status (más rápido que backend dinámico por ahora)
+      // 🔍 Filtrado Frontend por Status
       const filteredData = statusFilter === 'all'
         ? formattedData
         : formattedData.filter(item => (item.estatus_manager || 'pendiente') === statusFilter)
@@ -200,15 +199,19 @@ function ChecklistsContent() {
       // Stats
       let statsQuery = supabase.from('assistant_checklists').select('checklist_type')
 
-      if (user?.role === 'asistente' && Array.isArray(userScope) && userScope.length > 0) {
-        const allowedStoreIds = stores
-          .filter(s => userScope.includes(s.code) || userScope.includes(s.name))
-          .map(s => s.id)
-
+      if (user?.role === 'asistente') {
+        let allowedStoreIds: any[] = []
+        if (Array.isArray(userScope) && userScope.length > 0) {
+          allowedStoreIds = stores
+            .filter(s => userScope.includes(s.code) || userScope.includes(s.name))
+            .map(s => s.id)
+        }
         if (allowedStoreIds.length > 0) {
           statsQuery = statsQuery.in('store_id', allowedStoreIds)
         }
         statsQuery = statsQuery.eq('user_id', user.id)
+      } else if (user?.role === 'manager' && (user as any)?.store_id) {
+        statsQuery = statsQuery.eq('store_id', (user as any).store_id)
       }
 
       const { data: allChecks, error: errStats } = await statsQuery
@@ -273,7 +276,8 @@ function ChecklistsContent() {
   const handleEdit = (item: any) => {
     if (!user) return
 
-    const editCheck = canEditChecklist(item.created_at, user.role, item.user_id, user.id, item.estatus_manager)
+    const dateToCheck = item.checklist_date || item.created_at
+    const editCheck = canEditChecklist(dateToCheck, user.role, item.user_id, user.id, item.estatus_manager)
 
     if (!editCheck.canEdit) {
       alert(editCheck.reason)
@@ -285,7 +289,8 @@ function ChecklistsContent() {
 
   const canUserEdit = (item: any) => {
     if (!user) return false
-    const editCheck = canEditChecklist(item.created_at, user.role, item.user_id, user.id, item.estatus_manager)
+    const dateToCheck = item.checklist_date || item.created_at
+    const editCheck = canEditChecklist(dateToCheck, user.role, item.user_id, user.id, item.estatus_manager)
     return editCheck.canEdit
   }
 
@@ -370,7 +375,7 @@ function ChecklistsContent() {
             </div>
 
             <div className="flex gap-2 overflow-x-auto pb-2 no-scrollbar">
-              {['all', 'pendiente', 'aprobado', 'rechazado'].map(status => (
+              {['all', 'pendiente', 'aprobado', 'rechazado', 'cerrado'].map(status => (
                 <button
                   key={status}
                   onClick={() => setStatusFilter(status)}

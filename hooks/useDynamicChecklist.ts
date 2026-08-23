@@ -1,3 +1,14 @@
+/**
+ * @module hooks/useDynamicChecklist
+ * @description Hook React para la carga dinámica, cacheo (localStorage) y traducción bilingüe de plantillas de checklists e inspecciones.
+ * @businessRules
+ * - Aplica estrategia Cache-First con revalidación en segundo plano (SWR).
+ * - Mantiene claves de caché separadas por idioma (es/en) para cambio instantáneo sin parpadeos.
+ * - Incluye fallbacks robustos en caso de indisponibilidad de red.
+ * @dataFlow
+ * - Supabase ('checklist_templates' + 'checklist_sections' + 'checklist_questions') -> localStorage -> Hook State.
+ */
+
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { getSupabaseClient } from '@/lib/supabase'
 import { useLanguage } from '@/lib/i18n'

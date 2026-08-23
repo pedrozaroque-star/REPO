@@ -1,5 +1,15 @@
 'use client'
 
+/**
+ * @module app/checklists/crear/recorrido/page
+ * @description Pantalla para la captura interactiva del Recorrido Operativo de Tienda.
+ * @businessRules
+ * - Evalúa limpieza, estaciones, seguridad y experiencia del cliente en piso de venta.
+ * - Registra inicio y término con cálculo automático de score porcentual.
+ * @dataFlow
+ * - Carga plantilla 'recorrido_v1' -> Inserción en 'assistant_checklists'.
+ */
+
 import React, { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'

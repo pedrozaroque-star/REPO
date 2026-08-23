@@ -1,5 +1,16 @@
 'use client'
 
+/**
+ * @module app/checklists/crear/apertura/page
+ * @description Pantalla para la captura interactiva del Checklist de Apertura Matutina.
+ * @businessRules
+ * - Turno fijado a 'AM'.
+ * - Aplica fecha de negocio ISO (6:00 AM a 5:59 AM del siguiente día).
+ * - Registra inicio y apertura de actividades del restaurante.
+ * @dataFlow
+ * - Carga plantilla 'apertura_v1' -> Inserción en 'assistant_checklists'.
+ */
+
 import React, { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'

@@ -1,3 +1,17 @@
+/**
+ * @module preparador
+ * @description Módulo de Línea de Preparación (Prep Line / Tableta de Parrilla) para taqueros y cocineros.
+ *   Proyecta el ritmo de cocción (Pace) en bloques de 30 minutos, sincroniza con Toast API y gestiona pedidos a cocina trasera.
+ * @businessRules
+ *   - Día laboral Gavilán: 6:00 AM a 5:59 AM del siguiente día (America/Los_Angeles).
+ *   - Turno PM inicia a las 5:00 PM (17:00).
+ *   - 48 intervalos de 30 minutos desde 06:00:00 hasta 05:30:00 del día siguiente.
+ *   - Solo se proyectan carnes de PARRILLA: ASADA, PASTOR, POLLO, CABEZA, LENGUA.
+ *   - Buche, Chorizo y Carnitas se cocinan al momento bajo demanda (no requieren pace en parrilla).
+ *   - Las capturas manuales de los gerentes se persisten en prep_manual_schedule por día de la semana (1=Lunes ... 7=Domingo).
+ *   - Timer de inactividad de 15 segundos regresa al carrusel al bloque de tiempo actual.
+ * @dataFlow meat_consumption_history -> /api/inventory/preparador-history -> Carousel 3D + Intraday Accelerator.
+ */
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
@@ -49,7 +63,8 @@ export default function PreparadorPage() {
         const now = new Date()
         const laDateStr = now.toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
         const laTimeStr = now.toLocaleTimeString('en-US', { timeZone: 'America/Los_Angeles', hour12: false })
-        const hour = parseInt(laTimeStr.split(':')[0], 10)
+        let hour = parseInt(laTimeStr.split(':')[0], 10)
+        if (hour === 24) hour = 0
         
         if (hour < 6) {
             const [y, m, d] = laDateStr.split('-').map(Number)
@@ -266,8 +281,9 @@ export default function PreparadorPage() {
                     let count = 0
 
                     carouselBuckets.forEach((bucket) => {
+                        if (!bucket.id || !bucket.id.includes(':')) return
                         const [bh, bm] = bucket.id.split(':').map(Number)
-                        const bMin = bh * 60 + bm
+                        const bMin = (bh || 0) * 60 + (bm || 0)
                         
                         const adjustedBMin = bh < 6 ? bMin + 24 * 60 : bMin
                         const adjustedCurMin = h < 6 ? curMin + 24 * 60 : curMin
@@ -665,9 +681,7 @@ export default function PreparadorPage() {
     // Clock Bucket Updater
     useEffect(() => {
         const updateBuckets = () => {
-            const laTimeStr = new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })
-            const d = new Date(laTimeStr)
-            
+            const now = new Date()
             const formatter = new Intl.DateTimeFormat('en-US', {
                 timeZone: 'America/Los_Angeles',
                 hour: 'numeric',
@@ -675,7 +689,7 @@ export default function PreparadorPage() {
                 hour12: false
             })
             
-            let timeParts = formatter.format(d).split(':')
+            let timeParts = formatter.format(now).split(':')
             let h = parseInt(timeParts[0], 10)
             let m = parseInt(timeParts[1], 10)
             if (h === 24) h = 0;
@@ -688,24 +702,14 @@ export default function PreparadorPage() {
                 if (h12 === 0) h12 = 12
                 return `${h12}:${min.toString().padStart(2, '0')}${p}`
             }
-            
-            // Derive store opening hour dynamically
-            const activeStoreObj = stores.find(s => s.id === storeId)
-            let openH = 8
-            if (activeStoreObj && activeStoreObj.opening_time) {
-                const parts = activeStoreObj.opening_time.split(':').map(Number)
-                if (!isNaN(parts[0])) {
-                    openH = Math.max(6, parts[0] - 1) // 1 hour prep lead time before public opening
-                }
-            }
 
             if (viewMode === '30min') {
                 const arr: any[] = []
-                let tempH = openH
+                let tempH = 6
                 let tempM = 0
                 let foundCurrentIndex = 0
                 
-                // Generate 48 30-minute buckets starting from openH
+                // Generate 48 30-minute buckets starting strictly from 06:00 (Gavilan business day)
                 for (let i = 0; i < 48; i++) {
                     let hrStr = tempH.toString().padStart(2, '0')
                     let minStr = tempM.toString().padStart(2, '0')
@@ -762,14 +766,14 @@ export default function PreparadorPage() {
                     }
                 }
             } else {
-                // Peak Periods Block Mode
+                // Peak Periods Block Mode (Gavilan Business Day: 6:00 AM to 5:59 AM)
                 const PEAK_PERIODS = [
-                    { id: 'p1', name: 'Apertura / Desayuno', startH: openH, endH: 11, duration: Math.max(1, 11 - openH), isPeak: false },
+                    { id: 'p1', name: 'Apertura / Desayuno', startH: 6, endH: 11, duration: 5, isPeak: false },
                     { id: 'p2', name: 'HORA PICO AM', startH: 11, endH: 14, duration: 3, isPeak: true },
                     { id: 'p3', name: 'Tarde / Transición', startH: 14, endH: 17, duration: 3, isPeak: false },
                     { id: 'p4', name: 'HORA PICO PM', startH: 17, endH: 21, duration: 4, isPeak: true },
                     { id: 'p5', name: 'Noche / Cena Tardía', startH: 21, endH: 1, duration: 4, isPeak: false },
-                    { id: 'p6', name: 'Madrugada / Cierre', startH: 1, endH: openH, duration: (24 - 1 + openH) % 24 || 5, isPeak: false }
+                    { id: 'p6', name: 'Madrugada / Cierre', startH: 1, endH: 6, duration: 5, isPeak: false }
                 ]
 
                 const isHourInPeriod = (hr: number, startH: number, endH: number) => {
@@ -1440,7 +1444,7 @@ export default function PreparadorPage() {
                                     </thead>
                                     <tbody>
                                         {sortedHours.map(hour => {
-                                            const data = hourlyMap.get(hour)!
+                                            const data = hourlyMap.get(hour) || { ASADA: 0, CABEZA: 0, LENGUA: 0, PASTOR: 0, POLLO: 0 }
                                             const hrTotal = data.ASADA + data.CABEZA + data.LENGUA + data.PASTOR + data.POLLO
                                             if (hrTotal === 0) return null;
                                             return (
@@ -1497,21 +1501,21 @@ export default function PreparadorPage() {
                         <motion.div 
                             initial={{ scale: 0.9, opacity: 0 }} 
                             animate={{ scale: 1, opacity: 1 }} 
-                            exit={{ scale: 0.9, opacity: 0 }}
+                            exit={{ scale: 0.9, opacity: 0 }} 
                             onClick={e => e.stopPropagation()}
                             className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 md:p-8 max-w-lg w-full shadow-2xl flex flex-col items-center text-center space-y-6"
                         >
                             <div>
                                 <span className={`text-xs font-black uppercase tracking-wider ${editingMeatItem.isManualMode ? 'text-purple-600 dark:text-purple-400' : 'text-blue-600 dark:text-blue-400'}`}>
-                                    Bloque: {editingMeatItem.bucketLabel}
+                                    {t('prep.block')}: {editingMeatItem.bucketLabel}
                                 </span>
                                 <h3 className="text-2xl md:text-3xl font-black text-slate-900 dark:text-white uppercase mt-1">
-                                    {editingMeatItem.isManualMode ? '📋 Programación Semanal' : '✏️ Modificar Proyección'} - {editingMeatItem.meatType}
+                                    {editingMeatItem.isManualMode ? `📋 ${t('prep.editModalTitle')}` : `✏️ ${t('prep.meatProjection')}`} - {editingMeatItem.meatType}
                                 </h3>
                                 <p className="text-xs md:text-sm text-slate-500 font-bold mt-1">
                                     {editingMeatItem.isManualMode 
-                                        ? `Se guardará para los ${['', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'][businessDow] || 'días'} en este horario:`
-                                        : 'Ajusta manualmente la cantidad máxima de libras sugerida:'}
+                                        ? `${t('prep.editModalSubtitle')}`
+                                        : `${t('prep.editModalSubtitle')}`}
                                 </p>
                             </div>
 
@@ -1530,7 +1534,7 @@ export default function PreparadorPage() {
                                         onChange={e => setTempEditValue(Math.max(1, parseInt(e.target.value) || 1))}
                                         className="text-5xl md:text-6xl font-black text-slate-900 dark:text-white text-center w-28 bg-transparent outline-none border-b-2 border-purple-500"
                                     />
-                                    <span className="text-2xl font-bold text-slate-500">lbs</span>
+                                    <span className="text-2xl font-bold text-slate-500">{t('prep.lbs')}</span>
                                 </div>
                                 <button 
                                     onClick={() => setTempEditValue(prev => prev + 1)}
@@ -1542,7 +1546,7 @@ export default function PreparadorPage() {
 
                             {/* Preset Fast Tap Buttons */}
                             <div className="w-full">
-                                <label className="text-[11px] font-black uppercase text-slate-400 tracking-wider block mb-2">Selección Rápida:</label>
+                                <label className="text-[11px] font-black uppercase text-slate-400 tracking-wider block mb-2">{t('prep.quickSelect')}:</label>
                                 <div className="grid grid-cols-5 gap-2">
                                     {[1, 2, 3, 4, 5, 6, 8, 10, 12, 15].map(val => (
                                         <button
@@ -1550,7 +1554,7 @@ export default function PreparadorPage() {
                                             onClick={() => setTempEditValue(val)}
                                             className={`py-2 rounded-xl font-black text-sm transition-all cursor-pointer ${tempEditValue === val ? 'bg-purple-600 text-white shadow-md scale-105' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'}`}
                                         >
-                                            {val} lbs
+                                            {val} {t('prep.lbs')}
                                         </button>
                                     ))}
                                 </div>
@@ -1568,14 +1572,14 @@ export default function PreparadorPage() {
                                         }}
                                         className="flex-1 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-extrabold py-3.5 rounded-xl text-xs uppercase cursor-pointer transition-colors border border-slate-200 dark:border-slate-700"
                                     >
-                                        🔄 Restaurar Auto
+                                        🔄 {t('prep.restoreAuto')}
                                     </button>
                                 )}
                                 <button 
                                     onClick={() => setEditingMeatItem(null)}
                                     className="flex-1 bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 font-extrabold py-3.5 rounded-xl text-sm uppercase cursor-pointer transition-colors"
                                 >
-                                    Cancelar
+                                    {t('prep.cancel')}
                                 </button>
                                 <button 
                                     onClick={async () => {
@@ -1617,7 +1621,7 @@ export default function PreparadorPage() {
                                     }}
                                     className="flex-1 bg-purple-600 hover:bg-purple-700 text-white font-extrabold py-3.5 rounded-xl text-sm uppercase cursor-pointer transition-colors shadow-lg shadow-purple-600/30"
                                 >
-                                    Guardar
+                                    {t('prep.save')}
                                 </button>
                             </div>
                         </motion.div>
@@ -1664,19 +1668,19 @@ export default function PreparadorPage() {
                                 {/* Operational Guide Summary */}
                                 <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 md:p-5 space-y-3 shadow-xs">
                                     <h4 className="font-black text-slate-900 dark:text-white text-sm md:text-base flex items-center gap-2">
-                                        <span>💡</span> Guía Operativa para Taqueros y Cocineros
+                                        <span>💡</span> {t('prep.operationalGuideTitle')}
                                     </h4>
                                     <div className="grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-4 text-xs md:text-sm">
                                         <div className="bg-slate-50 dark:bg-slate-800/80 p-3.5 md:p-4 rounded-xl border border-slate-200 dark:border-slate-700">
-                                            <span className="font-black text-slate-900 dark:text-white block mb-1">1. PROYECCIÓN (Proy)</span>
-                                            <p className="text-slate-600 dark:text-slate-400 font-medium">Consumo estimado de carne cruda para ese bloque de 30 minutos según el historial de 3 meses.</p>
+                                            <span className="font-black text-slate-900 dark:text-white block mb-1">{t('prep.step1Proj')}</span>
+                                            <p className="text-slate-600 dark:text-slate-400 font-medium">Consumo estimado de carne cruda para ese bloque de 30 minutos según el historial.</p>
                                         </div>
                                         <div className="bg-slate-50 dark:bg-slate-800/80 p-3.5 md:p-4 rounded-xl border border-slate-200 dark:border-slate-700">
-                                            <span className="font-black text-slate-900 dark:text-white block mb-1">2. MÁX. CHAROLA (Límite)</span>
+                                            <span className="font-black text-slate-900 dark:text-white block mb-1">{t('prep.step2Max')}</span>
                                             <p className="text-slate-600 dark:text-slate-400 font-medium">Cantidad máxima recomendada de carne cocinada que debe haber en la charola a la vez.</p>
                                         </div>
                                         <div className="bg-slate-50 dark:bg-slate-800/80 p-3.5 md:p-4 rounded-xl border border-slate-200 dark:border-slate-700">
-                                            <span className="font-black text-slate-900 dark:text-white block mb-1">3. BENEFICIO CALIDAD</span>
+                                            <span className="font-black text-slate-900 dark:text-white block mb-1">{t('prep.step3Quality')}</span>
                                             <p className="text-slate-600 dark:text-slate-400 font-medium">Garantiza carne siempre jugosa, caliente y recién hecha sin acumular carne seca ni mermas.</p>
                                         </div>
                                     </div>
@@ -1684,7 +1688,7 @@ export default function PreparadorPage() {
 
                                 {/* DOW Tabs */}
                                 <div className="space-y-2">
-                                    <label className="text-xs font-black uppercase text-slate-500 tracking-wider block">Selecciona el Día de la Semana:</label>
+                                    <label className="text-xs font-black uppercase text-slate-500 tracking-wider block">{t('prep.selectDOW')}</label>
                                     <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-none">
                                         {[
                                             { dow: 1, name: 'Lunes' },
@@ -1712,7 +1716,7 @@ export default function PreparadorPage() {
                                         <table className="w-full text-left text-xs md:text-sm">
                                             <thead className="bg-slate-100 dark:bg-slate-950 text-slate-700 dark:text-slate-300 font-extrabold uppercase sticky top-0 z-30 border-b border-slate-200 dark:border-slate-800">
                                                 <tr>
-                                                    <th className="p-3.5 md:p-4 sticky left-0 bg-slate-100 dark:bg-slate-950 z-40 border-r border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white">Hora</th>
+                                                    <th className="p-3.5 md:p-4 sticky left-0 bg-slate-100 dark:bg-slate-950 z-40 border-r border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white">{t('prep.hour')}</th>
                                                     <th className="p-3.5 md:p-4 text-slate-800 dark:text-slate-200">🥩 Asada</th>
                                                     <th className="p-3.5 md:p-4 text-slate-800 dark:text-slate-200">🌮 Pastor</th>
                                                     <th className="p-3.5 md:p-4 text-slate-800 dark:text-slate-200">🍗 Pollo</th>
@@ -1725,7 +1729,7 @@ export default function PreparadorPage() {
                                                     <tr>
                                                         <td colSpan={6} className="text-center py-12 text-slate-400">
                                                             <Loader2 className="w-8 h-8 animate-spin mx-auto mb-2 text-blue-500" />
-                                                            <span>Cargando tabla de máximos...</span>
+                                                            <span>{t('prep.loadingTable')}</span>
                                                         </td>
                                                     </tr>
                                                 ) : guideModalData.map((r, idx) => {
@@ -1735,8 +1739,8 @@ export default function PreparadorPage() {
                                                             <td className="p-3 font-black text-slate-900 dark:text-white sticky left-0 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 shadow-xs">{r.time}</td>
                                                             {['ASADA', 'PASTOR', 'POLLO', 'CABEZA', 'LENGUA'].map(proto => (
                                                                 <td key={proto} className="p-3">
-                                                                    <div className="font-extrabold text-slate-900 dark:text-white text-sm">{r[proto].avg} <span className="text-[10px] text-slate-500 font-normal">lbs</span></div>
-                                                                    <div className="text-[10px] font-bold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-2 py-0.5 rounded-md inline-block mt-0.5">🔥 Máx: {r[proto].maxTray} lbs</div>
+                                                                    <div className="font-extrabold text-slate-900 dark:text-white text-sm">{r[proto].avg} <span className="text-[10px] text-slate-500 font-normal">{t('prep.lbs')}</span></div>
+                                                                    <div className="text-[10px] font-bold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-2 py-0.5 rounded-md inline-block mt-0.5">🔥 {t('prep.tableMax')}: {r[proto].maxTray} {t('prep.lbs')}</div>
                                                                 </td>
                                                             ))}
                                                         </tr>
@@ -1972,9 +1976,9 @@ export default function PreparadorPage() {
                                                 <table className="w-full text-left border-collapse">
                                                     <thead>
                                                         <tr className="bg-slate-50 dark:bg-slate-800 text-slate-500 dark:text-slate-400 font-bold text-sm border-b border-slate-200 dark:border-slate-800 uppercase tracking-wider">
-                                                            <th className="p-4">Proteína</th>
-                                                            <th className="p-4 text-center">Proyectado (lbs)</th>
-                                                            <th className="p-4 text-center">Consumido Real (lbs)</th>
+                                                            <th className="p-4">{t('prep.protein')}</th>
+                                                            <th className="p-4 text-center">{t('prep.projLbs')}</th>
+                                                            <th className="p-4 text-center">{t('prep.realLbs')}</th>
                                                             <th className="p-4 text-center">{t('prep.variance')}</th>
                                                             <th className="p-4 text-center">{t('prep.status')}</th>
                                                         </tr>
@@ -1985,7 +1989,7 @@ export default function PreparadorPage() {
                                                                 <td className="p-4 font-bold text-slate-800 dark:text-slate-200 uppercase">{s.proto}</td>
                                                                 <td className="p-4 text-center text-slate-600 dark:text-slate-400">{s.totalProj.toFixed(1)}</td>
                                                                 <td className="p-4 text-center text-slate-800 dark:text-slate-200">
-                                                                    {s.hasRealData ? s.totalReal.toFixed(1) : <span className="text-slate-400 dark:text-slate-600 italic">No Data</span>}
+                                                                    {s.hasRealData ? s.totalReal.toFixed(1) : <span className="text-slate-400 dark:text-slate-600 italic">{t('prep.noData')}</span>}
                                                                 </td>
                                                                 <td className={`p-4 text-center font-black ${s.diff > 0 ? 'text-red-500' : 'text-emerald-500'}`}>
                                                                     {s.hasRealData ? (
@@ -2000,7 +2004,7 @@ export default function PreparadorPage() {
                                                                             {t(s.statusKey)}
                                                                         </span>
                                                                     ) : (
-                                                                        <span className="text-xs text-slate-400 dark:text-slate-600 font-normal">Pending Sync</span>
+                                                                        <span className="text-xs text-slate-400 dark:text-slate-600 font-normal">{t('prep.pendingSync')}</span>
                                                                     )}
                                                                 </td>
                                                             </tr>

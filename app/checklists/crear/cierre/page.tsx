@@ -1,5 +1,16 @@
 'use client'
 
+/**
+ * @module app/checklists/crear/cierre/page
+ * @description Pantalla para la captura interactiva del Checklist de Cierre Nocturno.
+ * @businessRules
+ * - Turno fijado a 'PM'.
+ * - Aplica fecha de negocio ISO (6:00 AM a 5:59 AM del siguiente día).
+ * - Registra inicio y cierre de actividades del restaurante.
+ * @dataFlow
+ * - Carga plantilla 'cierre_v1' -> Inserción en 'assistant_checklists'.
+ */
+
 import React, { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'

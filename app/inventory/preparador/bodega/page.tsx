@@ -1,3 +1,14 @@
+/**
+ * @module preparador-bodega
+ * @description Tableta de Cocina Trasera / Bodega que proyecta la demanda de carnes lentas y preparaciones
+ *   (Cabeza, Lengua, Champurrado, Guacamole, Frijol molido, Arroz) y recibe alertas de insumos en tiempo real.
+ * @businessRules
+ *   - Día laboral Gavilán: 6:00 AM a 5:59 AM del siguiente día (America/Los_Angeles).
+ *   - Champurrado: 1 galón = 8 lbs líquido / 20 porciones.
+ *   - Guacamole: Demanda dividida entre 2 para indicar bolsas de 2 lbs.
+ *   - Escucha en tiempo real inserciones en preparador_requests con estado PENDING.
+ * @dataFlow meat_consumption_history -> /api/inventory/preparador-history -> Bodega carousel & Realtime WebSocket.
+ */
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
@@ -37,7 +48,8 @@ export default function BodegaPWA() {
         const now = new Date()
         const laDateStr = now.toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
         const laTimeStr = now.toLocaleTimeString('en-US', { timeZone: 'America/Los_Angeles', hour12: false })
-        const hour = parseInt(laTimeStr.split(':')[0], 10)
+        let hour = parseInt(laTimeStr.split(':')[0], 10)
+        if (hour === 24) hour = 0
         
         if (hour < 6) {
             const [y, m, d] = laDateStr.split('-').map(Number)
@@ -545,7 +557,7 @@ export default function BodegaPWA() {
         }, 20000)
 
         // 2. REALTIME WEBSOCKET
-        const channel = supabase.channel('schema-db-changes')
+        const channel = supabase.channel(`preparador-requests-${storeId}`)
             .on(
                 'postgres_changes',
                 {
@@ -636,14 +648,14 @@ export default function BodegaPWA() {
                 
                 <div className="z-10 bg-slate-800/80 p-10 rounded-3xl border border-slate-700 max-w-xl w-full text-center shadow-2xl backdrop-blur-sm">
                     <AlertOctagon className="w-24 h-24 text-red-500 mx-auto mb-6 drop-shadow-[0_0_15px_rgba(239,68,68,0.5)]" />
-                    <h1 className="text-4xl font-black tracking-tighter mb-4 text-transparent bg-clip-text bg-gradient-to-br from-white to-slate-400">WAREHOUSE TABLET</h1>
-                    <p className="text-slate-400 font-medium mb-12 text-lg">You must physically initialize the system so the browser allows the alarm to play when an order comes in.</p>
+                    <h1 className="text-4xl font-black tracking-tighter mb-4 text-transparent bg-clip-text bg-gradient-to-br from-white to-slate-400">{t('prep.warehouseTablet')}</h1>
+                    <p className="text-slate-400 font-medium mb-12 text-lg">{t('prep.systemStandbyDesc')}</p>
                     
                     <button 
                         onClick={startSystem}
                         className="w-full py-6 rounded-2xl bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 text-2xl font-black text-white shadow-[0_10px_40px_rgba(220,38,38,0.4)] transition-all active:scale-95 flex items-center justify-center gap-3"
                     >
-                        <Play fill="currentColor" /> START SYSTEM
+                        <Play fill="currentColor" /> {t('prep.startSystem')}
                     </button>
                     
                     {/* Elemento oculto para precargar el audio de la alarma */}
@@ -761,7 +773,7 @@ export default function BodegaPWA() {
                         {isMuted ? <VolumeX size={24} /> : <Volume2 size={24} />}
                     </button>
                     <div className="bg-black/40 px-5 py-2 rounded-full font-mono text-white/70 font-bold tracking-widest text-sm border border-white/5">
-                        LISTENING...
+                        {t('prep.listening')}
                     </div>
                 </div>
             </div>
@@ -779,7 +791,7 @@ export default function BodegaPWA() {
                                 <Clock className="w-10 h-10 md:w-12 md:h-12 text-blue-500" />
                                 <div>
                                     <h2 className="text-2xl md:text-3xl font-black text-white uppercase tracking-wider flex items-center gap-3">
-                                        Cooking Pace
+                                        {t('prep.cookingPace')}
                                         {intelligenceAcelerador !== 1.0 && (
                                             <span className={`text-sm px-2 py-0.5 rounded-lg border ${intelligenceAcelerador > 1 ? 'bg-red-50 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-300 dark:border-red-800/50 shadow-[0_0_10px_rgba(239,68,68,0.2)]' : 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-800/50'}`}>
                                                 Pace {intelligenceAcelerador > 1 ? '+' : ''}{((intelligenceAcelerador - 1) * 100).toFixed(0)}%
@@ -855,7 +867,7 @@ export default function BodegaPWA() {
                                                             {isRealCurrent && <div className="w-4 h-4 rounded-full bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.8)] animate-pulse" />}
                                                             <div className="flex flex-col md:flex-row md:items-center gap-1 md:gap-4">
                                                                 <span className="uppercase text-lg md:text-2xl flex items-center gap-2">
-                                                                    {isRealCurrent && isTop ? 'NOW' : (!isTop && activeIndex === 0 ? 'NEXT' : 'PROJECTION')}
+                                                                    {isRealCurrent && isTop ? t('prep.now') : (!isTop && activeIndex === 0 ? t('prep.next') : t('prep.projection'))}
                                                                     {isTop && <HelpCircle size={20} className="text-blue-500/50" />}
                                                                 </span>
                                                                 <span className={`text-base md:text-xl font-bold [font-feature-settings:'tnum'] ${isTop ? 'opacity-90' : 'opacity-60'}`}>
@@ -956,7 +968,7 @@ export default function BodegaPWA() {
                         {/* LADO DERECHO: ESTADO SISTEMA (ESPERA) */}
                         <div className="w-full lg:w-2/5 flex flex-col items-center justify-center opacity-30 animate-pulse py-10 lg:py-0 shrink-0 lg:shrink">
                             <CheckCircle2 size={160} className="text-white mb-6 md:mb-10 w-32 h-32 md:w-40 md:h-40 shrink-0" />
-                            <h2 className="text-3xl md:text-5xl font-black text-white tracking-widest text-center">SYSTEM ON STANDBY</h2>
+                            <h2 className="text-3xl md:text-5xl font-black text-white tracking-widest text-center">{t('prep.systemStandby')}</h2>
                             <p className="text-xl md:text-2xl text-white/70 mt-4 md:mt-6 text-center">No pending line orders.</p>
                         </div>
                     </div>
@@ -998,7 +1010,7 @@ export default function BodegaPWA() {
                                         className="w-full h-full min-h-[150px] md:min-h-full rounded-3xl bg-emerald-500 hover:bg-emerald-400 active:bg-emerald-600 border-4 border-emerald-400 shadow-[0_0_40px_rgba(16,185,129,0.5)] flex flex-col items-center justify-center gap-4 text-white hover:scale-[1.02] transition-transform active:scale-95"
                                     >
                                         <CheckCircle2 size={80} strokeWidth={3} />
-                                        <span className="font-black text-4xl uppercase tracking-tighter">DELIVERED</span>
+                                        <span className="font-black text-4xl uppercase tracking-tighter">{t('prep.acknowledge')}</span>
                                     </button>
                                 </div>
                             </div>
@@ -1138,7 +1150,7 @@ export default function BodegaPWA() {
                                     onClick={() => setShowInfoModal(false)}
                                     className="w-full bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-black uppercase md:text-2xl tracking-widest py-5 md:py-6 rounded-2xl transition-all shadow-xl shadow-blue-500/30"
                                 >
-                                    Understood!
+                                    {t('prep.understoodBtn')}
                                 </button>
                             </div>
                         </motion.div>

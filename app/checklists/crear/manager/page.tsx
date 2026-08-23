@@ -1,5 +1,15 @@
 'use client'
 
+/**
+ * @module app/checklists/crear/manager/page
+ * @description Pantalla para la captura interactiva del Checklist Gerencial de Tienda.
+ * @businessRules
+ * - Acceso exclusivo para Gerentes, Administradores y Supervisores.
+ * - Inserción en 'manager_checklists' con fecha de negocio (6:00 AM corte) y turno laboral (AM/PM).
+ * @dataFlow
+ * - Carga plantilla 'manager_checklist_v1' -> Inserción en 'manager_checklists'.
+ */
+
 import React, { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'

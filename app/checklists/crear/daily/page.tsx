@@ -1,5 +1,16 @@
 'use client'
 
+/**
+ * @module app/checklists/crear/daily/page
+ * @description Pantalla para la captura interactiva del Daily Checklist operativo de asistentes.
+ * @businessRules
+ * - Aplica fecha de negocio ISO (corte a las 6:00 AM) y cálculo de turno AM/PM.
+ * - Registra hora de inicio (start_time) y fin (end_time) para cálculo de duración operativa.
+ * - Requiere validación de preguntas obligatorias y subida de fotos requeridas.
+ * @dataFlow
+ * - Carga plantilla 'daily_checklist_v1' -> Captura de respuestas -> Inserción en 'assistant_checklists'.
+ */
+
 import React, { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'

@@ -1,3 +1,14 @@
+/**
+ * @module components/checklists/AnswerDisplay
+ * @description Componente de solo lectura para renderizar visualmente respuestas de checklists e inspecciones según su tipo de pregunta.
+ * @businessRules
+ * - Yes/No: Botones SI (Verde), NO (Rojo), NA (Gris).
+ * - Temperaturas: Verde si está dentro de rango normativo, Rojo con alerta si está fuera de rango.
+ * - Sobrante: Muestra libras (Lbs), borde rojo de advertencia si excede 2 Lbs.
+ * - Rating / NPS / Compliance: Estrellas, círculos numéricos y badges de cumplimiento.
+ * @notes Maneja optional chaining en question para evitar TypeErrors ante respuestas heredadas.
+ */
+
 import React from 'react'
 import { Star, CheckCircle, AlertCircle } from 'lucide-react'
 import { getTempValidation } from '@/lib/checklistValidators'
@@ -6,7 +17,7 @@ import { useLanguage } from '@/lib/i18n'
 interface AnswerDisplayProps {
     question: {
         type?: string
-        text: string
+        text?: string
         [key: string]: any
     }
     value: any
@@ -34,7 +45,8 @@ export function AnswerDisplay({ question, value: rawValue, type, sectionTitle }:
     }
 
     // YES/NO TYPE (Blocky Buttons style)
-    if (question.type === 'yes_no' || displayValue.toUpperCase() === 'SI' || displayValue.toUpperCase() === 'NO' || displayValue.toUpperCase() === 'NA' || displayValue.toUpperCase() === 'N/A') {
+    const qType = question?.type || ''
+    if (qType === 'yes_no' || displayValue.toUpperCase() === 'SI' || displayValue.toUpperCase() === 'NO' || displayValue.toUpperCase() === 'NA' || displayValue.toUpperCase() === 'N/A') {
         const valUpper = displayValue.toUpperCase().replace('Í', 'I')
         // Normalizing input to align with button keys
         const target = valUpper === 'SI' ? 'SI' : valUpper === 'NO' ? 'NO' : 'NA'

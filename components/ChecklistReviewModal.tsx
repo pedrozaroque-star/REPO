@@ -1,5 +1,18 @@
 'use client'
 
+/**
+ * @module components/ChecklistReviewModal
+ * @description Modal principal de auditoría, revisión, aprobación/rechazo y chat en tiempo real para checklists e inspecciones de Tacos Gavilan.
+ * @businessRules
+ * - Permite a gerentes y supervisores auditar respuestas, evidencias fotográficas/video y cambiar estatus (pendiente, aprobado, rechazado, cerrado).
+ * - Enlaza notificaciones automáticas bidireccionales según el tipo de checklist auditado.
+ * - Respeta scores históricos almacenados (incluyendo 0%) sin alteración por cambios posteriores de plantilla.
+ * @dataFlow
+ * - Carga dinámicamente secciones y preguntas mediante useDynamicChecklist.
+ * - Sincroniza comentarios y estados con Supabase en tiempo real.
+ * @notes Elimina doble instancia de ImageViewer y corrige visualización de fechas en checklists de asistentes.
+ */
+
 import { useState, useMemo, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { formatDateLA } from '@/lib/checklistPermissions'
@@ -45,7 +58,6 @@ import {
 import { useLanguage } from '@/lib/i18n'
 import { getTranslatedSupervisor } from '@/lib/supervisor-translations'
 import '@/app/checklists/checklists.css'
-import { ScoreGauge } from '@/components/checklists/ScoreGauge'
 
 interface ChecklistReviewModalProps {
     isOpen: boolean
@@ -225,8 +237,13 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
             fetchComments() // Refresh for real ID
 
             // 🔔 SEND NOTIFICATION
-
             try {
+                const notificationLink = type === 'supervisor'
+                    ? `/inspecciones?id=${checklist.id}`
+                    : type === 'manager'
+                        ? `/checklists-manager?id=${checklist.id}`
+                        : `/checklists?id=${checklist.id}`
+
                 // 🔔 EXTRA: Notify Manager if toggled (Parallel)
                 if (includeManager && managerId && String(managerId) !== String(currentUser.id)) {
                     await supabase.from('notifications').insert({
@@ -234,16 +251,15 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                         title: '💬 Actualización de Inspección',
                         message: `${currentUser.name} comentó en la inspección de ${checklist.store_name}`,
                         type: 'info',
-                        link: `/inspecciones?id=${checklist.id}`,
+                        link: notificationLink,
                         is_read: false
                     })
                 }
-                const isCreator = String(checklist.inspector_id) === String(currentUser.id)
+                const authorId = checklist.inspector_id || checklist.user_id
+                const isCreator = String(authorId) === String(currentUser.id)
 
                 if (isCreator) {
-                    // I am the Supervisor -> Target the specific Admin who commented previously
-
-                    // 1. Find the LAST comment made by someone else (The Admin)
+                    // I am the Supervisor/Assistant -> Target the specific Admin/Manager who commented previously
                     const { data: lastAdminComment } = await supabase
                         .from('inspection_comments')
                         .select('user_id')
@@ -255,21 +271,20 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
 
                     let targetAdminId = lastAdminComment?.user_id
 
-                    // 2. Fallback: If no comments yet (Supervisor just starting a note), notify ALL Admins as broadcast
+                    // 2. Fallback: If no comments yet, notify ALL Admins as broadcast
                     if (!targetAdminId) {
                         const { data: admins } = await supabase
                             .from('users')
                             .select('id')
                             .in('role', ['admin', 'administrador', 'auditor'])
 
-                        // If multiple admins, we notify all (broadcast) or picking the first one
                         if (admins && admins.length > 0) {
                             const notifPayloads = admins.map(admin => ({
                                 user_id: admin.id,
-                                title: '💬 Nota de Supervisor',
-                                message: `${currentUser.name} dejó una nota en la inspección de ${checklist.store_name}`,
+                                title: '💬 Comentario de Checklist',
+                                message: `${currentUser.name} dejó una nota en el checklist de ${checklist.store_name}`,
                                 type: 'info',
-                                link: `/inspecciones?id=${checklist.id}`,
+                                link: notificationLink,
                                 is_read: false
                             }))
                             await supabase.from('notifications').insert(notifPayloads)
@@ -281,23 +296,23 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                     if (targetAdminId) {
                         await supabase.from('notifications').insert({
                             user_id: targetAdminId,
-                            title: '💬 Respuesta de Supervisor',
-                            message: `${currentUser.name} respondió en la inspección de ${checklist.store_name}`,
+                            title: '💬 Respuesta de Checklist',
+                            message: `${currentUser.name} respondió en el checklist de ${checklist.store_name}`,
                             type: 'info',
-                            link: `/inspecciones?id=${checklist.id}`,
+                            link: notificationLink,
                             is_read: false
                         })
                     }
 
                 } else {
-                    // I am Admin/Manager -> Notify the Supervisor (Creator)
-                    if (checklist.inspector_id) {
+                    // I am Admin/Manager -> Notify the Creator (Supervisor or Assistant)
+                    if (authorId) {
                         await supabase.from('notifications').insert({
-                            user_id: checklist.inspector_id,
-                            title: '💬 Revisión de Admin',
-                            message: `${currentUser.name} comentó en tu inspección de ${checklist.store_name}`,
+                            user_id: authorId,
+                            title: '💬 Revisión de Checklist',
+                            message: `${currentUser.name} comentó en tu checklist de ${checklist.store_name}`,
                             type: 'info',
-                            link: `/inspecciones?id=${checklist.id}`,
+                            link: notificationLink,
                             is_read: false
                         })
                     }
@@ -410,7 +425,7 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
         // Supervisor Calculation (Average of Section Averages)
         if (type === 'supervisor') {
             // [FIX] Prioritize Historical Score to match List View (avoid recalculating with new template rules)
-            if (checklist.overall_score !== undefined && checklist.overall_score !== null && checklist.overall_score > 0) {
+            if (checklist.overall_score !== undefined && checklist.overall_score !== null && checklist.overall_score >= 0) {
                 return checklist.overall_score
             }
             return calculateInspectionScore(checklist, template)
@@ -757,7 +772,7 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
 
                                         <div className="bg-white dark:bg-slate-800/50 rounded-xl p-3 border-2 border-gray-200 dark:border-slate-700 shadow-sm transition-all hover:border-pink-300 dark:hover:border-pink-500">
                                             <label className="text-[10px] font-black text-gray-900 dark:text-slate-400 uppercase tracking-widest mb-1.5 block">{t('inspections.review.date')}</label>
-                                            <div className="text-base font-black text-gray-950 dark:text-white leading-tight">{formatDateLA(checklist.inspection_date)}</div>
+                                            <div className="text-base font-black text-gray-950 dark:text-white leading-tight">{formatDateLA(checklist.checklist_date || checklist.inspection_date || checklist.created_at)}</div>
                                         </div>
 
                                         <div className="bg-white dark:bg-slate-800/50 rounded-xl p-3 border-2 border-gray-200 dark:border-slate-700 shadow-sm transition-all hover:border-indigo-300 dark:hover:border-indigo-500">
@@ -1636,16 +1651,6 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                     }
                 }
             `}</style>
-
-            {/* Image Viewer */}
-            <ImageViewer
-                isOpen={viewerOpen}
-                onClose={() => setViewerOpen(false)}
-                images={galleryImages}
-                currentIndex={currentImageIndex}
-                onNext={nextImage}
-                onPrev={prevImage}
-            />
         </>
     )
 }

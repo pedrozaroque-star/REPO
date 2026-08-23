@@ -1,5 +1,15 @@
 'use client'
 
+/**
+ * @module app/checklists/crear/sobrante/page
+ * @description Pantalla para el pesaje y registro de producto cárnico y guarniciones sobrantes al cierre de turno.
+ * @businessRules
+ * - Control de mermas en libras (Lbs).
+ * - Identifica desviaciones operativas si el remanente excede el umbral objetivo.
+ * @dataFlow
+ * - Carga plantilla 'sobrante_v1' -> Inserción en 'assistant_checklists'.
+ */
+
 import React, { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'

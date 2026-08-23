@@ -1,5 +1,15 @@
 'use client'
 
+/**
+ * @module app/checklists/crear/temperaturas/page
+ * @description Pantalla para la captura interactiva del control de temperaturas de equipos y alimentos.
+ * @businessRules
+ * - Validación en tiempo real de rangos normativos (°F) para refrigeración (34-41°F), congelación (<=32°F) y mantenimiento caliente (>=140°F).
+ * - Registra hora de inicio y fin de captura y turno laboral respectivo.
+ * @dataFlow
+ * - Carga plantilla 'temperaturas_v1' -> Valida e inserta en 'assistant_checklists'.
+ */
+
 import React, { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'

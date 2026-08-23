@@ -1,53 +1,56 @@
 'use client'
 
+/**
+ * @module app/checklists/ver/[id]/page
+ * @description Pantalla directa para visualizar o auditar un checklist específico mediante su ID.
+ * @businessRules
+ * - Requiere autenticación activa del usuario.
+ * - Renderiza el visor moderno ChecklistReviewModal con soporte completo para fotos, chat y plantillas dinámicas.
+ * @dataFlow
+ * - Supabase ('assistant_checklists' + 'stores' + 'users') -> ChecklistReviewModal.
+ * @notes Reemplaza el modal legacy DetailsModal por ChecklistReviewModal estándar.
+ */
+
 import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import DetailsModal from '@/components/DetailsModal'
-import LoadingSkeleton from '@/components/LoadingSkeleton'
+import ProtectedRoute, { useAuth } from '@/components/ProtectedRoute'
+import ChecklistReviewModal from '@/components/ChecklistReviewModal'
+import SurpriseLoader from '@/components/SurpriseLoader'
+import { getSupabaseClient, formatStoreName } from '@/lib/supabase'
 
-export default function VerAssistantChecklistPage() {
+function VerChecklistContent() {
   const params = useParams()
   const router = useRouter()
+  const { user } = useAuth()
   const [checklist, setChecklist] = useState<any>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    loadChecklist()
+    if (params.id) {
+      loadChecklist()
+    }
   }, [params.id])
 
   const loadChecklist = async () => {
     try {
-      const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-      const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+      const supabase = await getSupabaseClient()
+      const { data, error } = await supabase
+        .from('assistant_checklists')
+        .select('*, stores(name, code), users!user_id(full_name)')
+        .eq('id', params.id)
+        .single()
 
-      const res = await fetch(
-        `${url}/rest/v1/assistant_checklists?id=eq.${params.id}&select=*,stores(name)`,
-        {
-          headers: {
-            'apikey': key || '',
-            'Authorization': `Bearer ${key}`
-          }
+      if (data && !error) {
+        const formatted = {
+          ...data,
+          store_name: formatStoreName((data as any).stores?.name) || 'N/A'
         }
-      )
-
-      if (res.ok) {
-        const data = await res.json()
-        if (data && data.length > 0) {
-          const item = data[0]
-          // Agregar nombre de tienda
-          item.store_name = item.stores?.name || 'N/A'
-          setChecklist(item)
-        } else {
-          alert('Checklist no encontrado')
-          router.push('/checklists')
-        }
+        setChecklist(formatted)
       } else {
-        alert('Error loading checklist')
         router.push('/checklists')
       }
     } catch (error) {
-      console.error('Error:', error)
-      alert('Error loading checklist')
+      console.error('Error loading checklist:', error)
       router.push('/checklists')
     } finally {
       setLoading(false)
@@ -59,25 +62,38 @@ export default function VerAssistantChecklistPage() {
   }
 
   if (loading) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 p-8">
-        <LoadingSkeleton />
-      </div>
-    )
+    return <SurpriseLoader />
   }
 
-  if (!checklist) {
+  if (!checklist || !user) {
     return null
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
-      <DetailsModal
+    <div className="min-h-screen bg-transparent dark:bg-neutral-900">
+      <ChecklistReviewModal
         isOpen={true}
         onClose={handleClose}
         checklist={checklist}
-        type="assistant"
+        currentUser={{
+          id: user.id,
+          name: user.name || user.email,
+          email: user.email,
+          role: user.role
+        }}
+        onUpdate={() => {
+          loadChecklist()
+        }}
       />
     </div>
   )
 }
+
+export default function VerAssistantChecklistPage() {
+  return (
+    <ProtectedRoute>
+      <VerChecklistContent />
+    </ProtectedRoute>
+  )
+}
+
