@@ -82,7 +82,7 @@ function getLocalBusinessDate(d: Date = new Date()): string {
 // ============================================================================
 // TYPES
 // ============================================================================
-type TabId = 'daily_order' | 'weekly_config' | 'history' | 'leftovers'
+type TabId = 'daily_order' | 'weekly_config' | 'history' | 'leftovers' | 'analysis'
 
 const WEEK_DAYS = [
     { key: 'mon', baseField: 'mon_par', offset: 0 },
@@ -139,7 +139,7 @@ export default function InventoryOrdersPage() {
     const [parIdeal, setParIdeal] = useState<Record<string, ParIdealRecord>>({})
     const [counts, setCounts] = useState<Record<string, Record<string, number>>>({})
     const [orderLines, setOrderLines] = useState<CalculatedOrderLine[]>([])
-    const [adjustments, setAdjustments] = useState<Record<string, number>>({})
+    const [adjustments, setAdjustments] = useState<Record<string, number | string>>({})
     const [orders, setOrders] = useState<any[]>([])
     const [analysisData, setAnalysisData] = useState<any>(null)
 
@@ -170,14 +170,16 @@ export default function InventoryOrdersPage() {
 
     useEffect(() => {
         if (!storeId) return
+        let isMounted = true
         fetch(`/api/inventory/champurrado-forecast?storeId=${storeId}`)
             .then(res => res.json())
             .then(data => {
-                if (!data.error) {
+                if (isMounted && !data.error) {
                     setChampurradoForecast(data)
                 }
             })
             .catch(console.error)
+        return () => { isMounted = false }
     }, [storeId])
 
     const renderItemName = (name: string, className: string = "font-semibold") => {
@@ -415,7 +417,10 @@ export default function InventoryOrdersPage() {
 
     useEffect(() => { loadData() }, [loadData])
 
-    // Recalcular orden localmente al cambiar el día de base a usar o la fecha seleccionada o el incremento de PAR
+    // Recalcular orden localmente al cambiar el día de base, fecha seleccionada, incremento de PAR, o tipo de orden.
+    // NOTA: NO incluir bases/counts/nextWeekBases aquí — cada handler individual ya recalcula su línea.
+    // Incluirlos causaría recálculos en cada tecla presionada (cada onChange actualiza bases).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     useEffect(() => {
         if (!loading && storeId && items.length > 0 && bases && Object.keys(bases).length > 0) {
             calculateDailyOrder(
@@ -430,14 +435,14 @@ export default function InventoryOrdersPage() {
                 })
             })
         }
-    }, [loading, overrideDayField, storeId, selectedOrderDate, items, bases, nextWeekBases, counts, activeMonday, parIdeal, parBoostPercent, orderType])
+    }, [loading, overrideDayField, storeId, selectedOrderDate, items, activeMonday, parIdeal, parBoostPercent, orderType])
 
     // Load analysis data when tab switches
     useEffect(() => {
-        if (activeTab === 'analysis' as any && storeId && !analysisData) {
+        if (activeTab === 'analysis' && storeId && !analysisData) {
             fetchAnalysisData(storeId).then(setAnalysisData)
         }
-    }, [activeTab, storeId])
+    }, [activeTab, storeId, analysisData])
 
     // Load history/leftovers data function
     const loadHistoryData = useCallback(async () => {
@@ -518,7 +523,7 @@ export default function InventoryOrdersPage() {
             const res = await saveOrderDraft(
                 storeId, 
                 editModal.order.order_date, 
-                editModal.order.week_start_date || activeMonday, // Usar la semana real de la orden, no la actual
+                editModal.order.week_start_date || getMonday(editModal.order.order_date),
                 lines, 
                 user?.name, 
                 modalNotes || undefined,
@@ -553,7 +558,7 @@ export default function InventoryOrdersPage() {
             const saveRes = await saveOrderDraft(
                 storeId, 
                 editModal.order.order_date, 
-                editModal.order.week_start_date || activeMonday, // Usar la semana real de la orden, no la actual
+                editModal.order.week_start_date || getMonday(editModal.order.order_date),
                 lines, 
                 user?.name, 
                 modalNotes || undefined,
@@ -683,15 +688,18 @@ export default function InventoryOrdersPage() {
             else if (item.order_rounding_rule === 'ceiling_4') numVal = Math.ceil(numVal / 4) * 4
         }
 
-        const b = bases[itemId] || { inventory_item_id: itemId, mon_par: 0, tue_par: 0, wed_par: 0, thu_par: 0, fri_par: 0, sat_par: 0, sun_par: 0 }
-        const updatedItemBase = { ...b, inventory_item_id: itemId, [field]: numVal }
-        setBases(prev => ({ ...prev, [itemId]: updatedItemBase as any }))
+        // Usar functional updater para evitar stale state al editar rápido con Tab
+        setBases(prev => {
+            const b = prev[itemId] || { inventory_item_id: itemId, mon_par: 0, tue_par: 0, wed_par: 0, thu_par: 0, fri_par: 0, sat_par: 0, sun_par: 0 }
+            return { ...prev, [itemId]: { ...b, inventory_item_id: itemId, [field]: numVal } as any }
+        })
         setHasBaseChanges(true)
 
-        // También actualizar en el estado local de nextWeekBases
-        const nextBaseObj = nextWeekBases[itemId] || b
-        const updatedNextWeekBase = { ...nextBaseObj, inventory_item_id: itemId, [field]: numVal }
-        setNextWeekBases(prev => ({ ...prev, [itemId]: updatedNextWeekBase as any }))
+        // También actualizar nextWeekBases con functional updater
+        setNextWeekBases(prev => {
+            const b = prev[itemId] || bases[itemId] || { inventory_item_id: itemId, mon_par: 0, tue_par: 0, wed_par: 0, thu_par: 0, fri_par: 0, sat_par: 0, sun_par: 0 }
+            return { ...prev, [itemId]: { ...b, inventory_item_id: itemId, [field]: numVal } as any }
+        })
     }
 
     /** onBlur: Guarda en Supabase cuando el usuario sale de la celda.
@@ -743,16 +751,16 @@ export default function InventoryOrdersPage() {
             else if (item.order_rounding_rule === 'ceiling_4') numVal = Math.ceil(numVal / 4) * 4
         }
 
-        const b = bases[itemId] || { inventory_item_id: itemId, mon_par: 0, tue_par: 0, wed_par: 0, thu_par: 0, fri_par: 0, sat_par: 0, sun_par: 0 }
-        const updatedItemBase = {
-            ...b,
-            inventory_item_id: itemId,
-            mon_par: numVal, tue_par: numVal, wed_par: numVal,
-            thu_par: numVal, fri_par: numVal, sat_par: numVal, sun_par: numVal
-        }
-
-        setBases(prev => ({ ...prev, [itemId]: updatedItemBase as any }))
-        setNextWeekBases(prev => ({ ...prev, [itemId]: updatedItemBase as any }))
+        // Usar functional updater para evitar stale state
+        const allDaysPar = { mon_par: numVal, tue_par: numVal, wed_par: numVal, thu_par: numVal, fri_par: numVal, sat_par: numVal, sun_par: numVal }
+        setBases(prev => {
+            const b = prev[itemId] || { inventory_item_id: itemId, mon_par: 0, tue_par: 0, wed_par: 0, thu_par: 0, fri_par: 0, sat_par: 0, sun_par: 0 }
+            return { ...prev, [itemId]: { ...b, inventory_item_id: itemId, ...allDaysPar } as any }
+        })
+        setNextWeekBases(prev => {
+            const b = prev[itemId] || bases[itemId] || { inventory_item_id: itemId, mon_par: 0, tue_par: 0, wed_par: 0, thu_par: 0, fri_par: 0, sat_par: 0, sun_par: 0 }
+            return { ...prev, [itemId]: { ...b, inventory_item_id: itemId, ...allDaysPar } as any }
+        })
         setHasBaseChanges(true)
     }
 
@@ -851,16 +859,21 @@ export default function InventoryOrdersPage() {
     async function handleLeftoverChange(itemId: string, dateStr: string, value: string) {
         if (!storeId) return
         if (value === '') {
-            const itemCounts = counts[itemId] || {}
-            const newCounts = { ...itemCounts }
-            delete newCounts[dateStr]
-            setCounts({ ...counts, [itemId]: newCounts })
+            // Borrar sobrante — usar functional updater para evitar stale state
+            setCounts(prev => {
+                const itemCounts = { ...(prev[itemId] || {}) }
+                delete itemCounts[dateStr]
+                return { ...prev, [itemId]: itemCounts }
+            })
             await updateDailyLeftover(storeId, itemId, dateStr, null)
             return
         }
         const numVal = parseFloat(value) || 0
-        const itemCounts = counts[itemId] || {}
-        setCounts({ ...counts, [itemId]: { ...itemCounts, [dateStr]: numVal } })
+        // Usar functional updater para evitar stale state al capturar rápido
+        setCounts(prev => ({
+            ...prev,
+            [itemId]: { ...(prev[itemId] || {}), [dateStr]: numVal }
+        }))
         await updateDailyLeftover(storeId, itemId, dateStr, numVal)
     }
 
@@ -985,16 +998,21 @@ export default function InventoryOrdersPage() {
         setSaving(true)
         const lines = orderLines.filter(l => {
             if (!l.is_extraordinary && (l.leftover_value === null || l.leftover_value === undefined)) return false
-            const adj = adjustments[l.inventory_item_id]
-            const finalQty = adj !== undefined ? adj : l.calculated_qty
+            const rawAdj = adjustments[l.inventory_item_id]
+            const adj = rawAdj !== undefined && rawAdj !== '' ? Number(rawAdj) : undefined
+            const finalQty = adj !== undefined && !isNaN(adj) ? adj : l.calculated_qty
             return finalQty > 0
-        }).map(l => ({
-            inventory_item_id: l.inventory_item_id,
-            calculated_qty: l.calculated_qty,
-            adjusted_qty: adjustments[l.inventory_item_id],
-            par_value: l.par_value,
-            leftover_value: l.leftover_value ?? 0
-        }))
+        }).map(l => {
+            const rawAdj = adjustments[l.inventory_item_id]
+            const adj = rawAdj !== undefined && rawAdj !== '' ? Number(rawAdj) : undefined
+            return {
+                inventory_item_id: l.inventory_item_id,
+                calculated_qty: l.calculated_qty,
+                adjusted_qty: adj !== undefined && !isNaN(adj) ? adj : undefined,
+                par_value: l.par_value,
+                leftover_value: l.leftover_value ?? 0
+            }
+        })
 
         const res = await saveOrderDraft(storeId, selectedOrderDate, activeMonday, lines, user?.name, orderNotes || undefined, orderType)
         if (res.error) alert(res.error)
@@ -1011,16 +1029,21 @@ export default function InventoryOrdersPage() {
         setSaving(true)
         const lines = orderLines.filter(l => {
             if (!l.is_extraordinary && (l.leftover_value === null || l.leftover_value === undefined)) return false
-            const adj = adjustments[l.inventory_item_id]
-            const finalQty = adj !== undefined ? adj : l.calculated_qty
+            const rawAdj = adjustments[l.inventory_item_id]
+            const adj = rawAdj !== undefined && rawAdj !== '' ? Number(rawAdj) : undefined
+            const finalQty = adj !== undefined && !isNaN(adj) ? adj : l.calculated_qty
             return finalQty > 0
-        }).map(l => ({
-            inventory_item_id: l.inventory_item_id,
-            calculated_qty: l.calculated_qty,
-            adjusted_qty: adjustments[l.inventory_item_id],
-            par_value: l.par_value,
-            leftover_value: l.leftover_value ?? 0
-        }))
+        }).map(l => {
+            const rawAdj = adjustments[l.inventory_item_id]
+            const adj = rawAdj !== undefined && rawAdj !== '' ? Number(rawAdj) : undefined
+            return {
+                inventory_item_id: l.inventory_item_id,
+                calculated_qty: l.calculated_qty,
+                adjusted_qty: adj !== undefined && !isNaN(adj) ? adj : undefined,
+                par_value: l.par_value,
+                leftover_value: l.leftover_value ?? 0
+            }
+        })
 
         if (lines.length === 0) {
             alert(t('bodegaOrders.noItemsToOrderError'))
@@ -1222,7 +1245,7 @@ export default function InventoryOrdersPage() {
         if (!l.is_extraordinary && (l.leftover_value === null || l.leftover_value === undefined)) return false
         const adj = adjustments[l.inventory_item_id]
         const finalQty = adj !== undefined ? adj : l.calculated_qty
-        return finalQty > 0
+        return Number(finalQty) > 0
     }).length
     const excessItems = orderLines.filter(l => l.leftover_value !== null && l.leftover_value !== undefined && l.par_value > 0 && l.leftover_value > l.par_value).length
 
@@ -2141,8 +2164,8 @@ export default function InventoryOrdersPage() {
                                                              </div>
                                                          </th>
                                                      )}
-                                                    <th className="p-3 text-center w-24 bg-orange-50 text-orange-700 border-b-2 border-orange-200">
-                                                        {t('bodegaOrders.leftover')}
+                                                    <th className={`p-3 text-center w-24 border-b-2 ${orderType === 'uniforms' ? 'bg-emerald-50 text-emerald-800 border-emerald-300' : 'bg-orange-50 text-orange-700 border-orange-200'}`}>
+                                                        {orderType === 'uniforms' ? `🎽 ${t('bodegaOrders.inStock')}` : t('bodegaOrders.leftover')}
                                                     </th>
                                                     <th className="p-3 text-center w-20 bg-blue-50 text-blue-700 border-b-2 border-blue-200">
                                                         {t('bodegaOrders.orderCol')}
@@ -2158,8 +2181,9 @@ export default function InventoryOrdersPage() {
                                             <tbody>
                                                 {/* ---- Orderable items ---- */}
                                                 {orderableLines.map((line, rowIndex) => {
-                                                    const adj = adjustments[line.inventory_item_id]
-                                                    const finalQty = adj !== undefined ? adj : line.calculated_qty
+                                                    const rawAdj = adjustments[line.inventory_item_id]
+                                                    const adjNum = rawAdj !== undefined && rawAdj !== '' ? Number(rawAdj) : undefined
+                                                    const finalQty = adjNum !== undefined && !isNaN(adjNum) ? adjNum : line.calculated_qty
                                                     const isNegative = line.calculated_qty < 0
                                                     const isZeroLeftover = line.leftover_value === null
                                                     const currentLeftover = counts[line.inventory_item_id]?.[selectedOrderDate]
@@ -2190,36 +2214,31 @@ export default function InventoryOrdersPage() {
                                                             </td>
                                                             {/* PAR Ideal (readonly) */}
                                                             {showParIdealCol && (
-                                                                <td className="p-2 text-center font-medium text-violet-600 bg-violet-50/40 border-b border-violet-100">
-                                                                    {line.par_ideal_value || '-'}
+                                                                <td className="p-2 text-center text-violet-600 border-b border-slate-100 font-semibold text-xs bg-violet-50/20">
+                                                                    {line.par_ideal !== null && line.par_ideal !== undefined ? line.par_ideal : '-'}
                                                                 </td>
                                                             )}
-                                                            {/* PAR (readonly) */}
-                                                            <td className="p-2 text-center font-bold text-emerald-700 bg-emerald-50/40 border-b border-emerald-100">
-                                                                {line.par_value || '-'}
-                                                                {parBoostPercent > 0 && line.par_value > 0 && (
-                                                                    <span className="text-[9px] text-indigo-600 font-semibold block mt-0.5 animate-pulse">+{parBoostPercent}%</span>
-                                                                )}
+                                                            {/* PAR (actual) */}
+                                                            <td className="p-2 text-center text-slate-700 border-b border-slate-100 font-bold text-sm bg-slate-50/30">
+                                                                {line.par_value}
                                                             </td>
-                                                            {/* Sugerido (Teórico) */}
+                                                            {/* Sugerido (theoretical leftover) */}
                                                             {showSuggestedCol && (
-                                                                <td className="p-2 text-center font-bold text-cyan-800 bg-cyan-50/40 border-b border-cyan-100">
+                                                                <td className="p-2 text-center border-b border-slate-100 font-medium text-xs bg-amber-50/20 text-amber-800">
                                                                     {line.suggested_leftover !== null && line.suggested_leftover !== undefined ? (
-                                                                        <span className="flex items-center justify-center gap-1" title={line.is_burn_rate ? "Promedio histórico diario (Burn Rate)" : "Ventas Toast × Recetas"}>
-                                                                            <span>{line.suggested_leftover}</span>
-                                                                            <span className="text-[10px]">{line.is_burn_rate ? '📊' : '🤖'}</span>
+                                                                        <span title={`Consumo proyectado: ${line.theoretical_consumption ?? '-'} | Órdenes: ${line.yesterday_order_qty ?? '-'}`}>
+                                                                            {line.suggested_leftover}
                                                                         </span>
                                                                     ) : (
-                                                                        '—'
+                                                                        <span className="text-slate-300">-</span>
                                                                     )}
                                                                 </td>
                                                             )}
-                                                            {/* Sobrante (AUTO-FILLED FOR UNIFORMS, EDITABLE FOR OTHERS) */}
-                                                            <td className="p-0 border-b border-orange-200 bg-orange-50/30">
+                                                            {/* Sobrante (daily count) */}
+                                                            <td className="p-0 border-b border-orange-100 bg-orange-50/20">
                                                                 {orderType === 'uniforms' ? (
-                                                                    <div className="px-3 py-2 text-center font-extrabold text-xs text-emerald-800 bg-emerald-50/70 border-l-[3px] border-l-emerald-500 flex items-center justify-center gap-1 shadow-2xs" title="Sincronizado automáticamente desde En Existencia del Módulo de Uniformes">
-                                                                        <span>🎽 {currentLeftover !== undefined ? currentLeftover : 0}</span>
-                                                                        <span className="text-[10px] text-emerald-600 font-medium">({t('bodegaOrders.inStock') || 'En Existencia'})</span>
+                                                                    <div className="w-full p-2.5 text-center font-bold text-emerald-800 text-xs bg-emerald-50/60 border-l-[3px] border-l-emerald-500">
+                                                                        🎽 {currentLeftover !== undefined ? currentLeftover : '-'}
                                                                     </div>
                                                                 ) : (
                                                                     <div className="relative flex items-center">
@@ -2259,18 +2278,21 @@ export default function InventoryOrdersPage() {
                                                             <td className="p-0 border-b border-indigo-100 bg-indigo-50/20">
                                                                 <input
                                                                     id={`input_${rowIndex}_1`}
-                                                                    type="number"
+                                                                    type="text"
+                                                                    inputMode="decimal"
                                                                     placeholder="-"
                                                                     className="w-full p-2.5 text-center outline-none bg-transparent focus:bg-white focus:ring-2 focus:ring-indigo-400 font-bold text-indigo-700 text-sm placeholder:text-indigo-200"
-                                                                    value={adj !== undefined ? adj : ''}
+                                                                    value={rawAdj !== undefined ? rawAdj : ''}
                                                                     onChange={e => {
                                                                         const v = e.target.value
                                                                         if (v === '') {
-                                                                            const newAdj = { ...adjustments }
-                                                                            delete newAdj[line.inventory_item_id]
-                                                                            setAdjustments(newAdj)
-                                                                        } else {
-                                                                            setAdjustments({ ...adjustments, [line.inventory_item_id]: parseFloat(v) || 0 })
+                                                                            setAdjustments(prev => {
+                                                                                const newAdj = { ...prev }
+                                                                                delete newAdj[line.inventory_item_id]
+                                                                                return newAdj
+                                                                            })
+                                                                        } else if (/^-?\d*\.?\d*$/.test(v)) {
+                                                                            setAdjustments(prev => ({ ...prev, [line.inventory_item_id]: v }))
                                                                         }
                                                                     }}
                                                                     onKeyDown={e => handleGridKeyDown(e, rowIndex, 1)}
@@ -2298,8 +2320,9 @@ export default function InventoryOrdersPage() {
 
                                                 {extraordinaryLines.map((line, idx) => {
                                                     const rowIndex = orderableLines.length + idx + 1
-                                                    const adj = adjustments[line.inventory_item_id]
-                                                    const finalQty = adj !== undefined ? adj : line.calculated_qty
+                                                    const rawAdj = adjustments[line.inventory_item_id]
+                                                    const adjNum = rawAdj !== undefined && rawAdj !== '' ? Number(rawAdj) : undefined
+                                                    const finalQty = adjNum !== undefined && !isNaN(adjNum) ? adjNum : line.calculated_qty
 
                                                     return (
                                                         <tr key={line.inventory_item_id} className="transition-colors border-b border-indigo-100/50 hover:bg-indigo-50/10">
@@ -2353,18 +2376,21 @@ export default function InventoryOrdersPage() {
                                                             <td className="p-0 border-b border-indigo-250 bg-indigo-50/20">
                                                                 <input
                                                                     id={`input_${rowIndex}_1`}
-                                                                    type="number"
+                                                                    type="text"
+                                                                    inputMode="decimal"
                                                                     placeholder="-"
                                                                     className="w-full p-2.5 text-center outline-none bg-transparent focus:bg-white focus:ring-2 focus:ring-indigo-400 font-bold text-indigo-700 text-sm placeholder:text-indigo-200 border-l-[3px] border-l-indigo-300"
-                                                                    value={adj !== undefined ? adj : ''}
+                                                                    value={rawAdj !== undefined ? rawAdj : ''}
                                                                     onChange={e => {
                                                                         const v = e.target.value
                                                                         if (v === '') {
-                                                                            const newAdj = { ...adjustments }
-                                                                            delete newAdj[line.inventory_item_id]
-                                                                            setAdjustments(newAdj)
-                                                                        } else {
-                                                                            setAdjustments({ ...adjustments, [line.inventory_item_id]: parseFloat(v) || 0 })
+                                                                            setAdjustments(prev => {
+                                                                                const newAdj = { ...prev }
+                                                                                delete newAdj[line.inventory_item_id]
+                                                                                return newAdj
+                                                                            })
+                                                                        } else if (/^-?\d*\.?\d*$/.test(v)) {
+                                                                            setAdjustments(prev => ({ ...prev, [line.inventory_item_id]: v }))
                                                                         }
                                                                     }}
                                                                     onKeyDown={e => handleGridKeyDown(e, rowIndex, 1)}
@@ -2778,8 +2804,8 @@ export default function InventoryOrdersPage() {
                                                             {weekDays.map((d, colIndex) => {
                                                                 const val = b ? (b as any)[d.baseField] : undefined
                                                                 const piVal = parIdeal[item.id] ? (parIdeal[item.id] as any)[d.baseField] : undefined
-                                                                const isOver = val !== undefined && (val || 0) > (piVal || 0)
-                                                                const isUnder = val !== undefined && (val || 0) < (piVal || 0)
+                                                                const isOver = val !== undefined && piVal !== undefined && piVal !== null && val > piVal
+                                                                const isUnder = val !== undefined && piVal !== undefined && piVal !== null && val < piVal
 
                                                                 const dayOffset = fieldIndexMap[d.baseField] ?? 0
                                                                 const fieldDateStr = addDays(activeMonday, dayOffset)
@@ -2794,8 +2820,11 @@ export default function InventoryOrdersPage() {
                                                                             id={`input_${rowIndex}_${colIndex}`}
                                                                             type="number"
                                                                             placeholder=""
+                                                                            disabled={isLocked}
                                                                             className={`w-full p-2 text-center outline-none focus:bg-white focus:ring-2 text-sm transition-all rounded-lg ${
-                                                                                isOver
+                                                                                isLocked
+                                                                                ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                                                                                : isOver
                                                                                 ? 'bg-indigo-50/50 text-indigo-700 font-bold border-b-2 border-b-indigo-400 focus:ring-indigo-400'
                                                                                 : isUnder
                                                                                 ? 'bg-amber-50/50 text-amber-700 font-bold border-b-2 border-b-amber-400 focus:ring-amber-400'

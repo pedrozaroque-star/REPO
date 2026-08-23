@@ -344,6 +344,7 @@ export async function POST(request: NextRequest) {
         if (tryUpdate && existingEstimate) {
             estimateData.Id = order.qb_estimate_id
             estimateData.SyncToken = existingEstimate.SyncToken
+            estimateData.DocNumber = existingEstimate.DocNumber || order.qb_estimate_number || estimateData.DocNumber
             estimateData.sparse = false // Importante: false para que QB reemplace el arreglo de líneas completo e incluya insumos nuevos/extraordinarios
 
             console.log(`[QB-Order] 🔄 Actualizando Estimate #${existingEstimate.DocNumber} en QuickBooks...`)

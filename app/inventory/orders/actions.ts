@@ -287,9 +287,12 @@ export async function fetchWeeklyData(storeId: string | number, mondayStr: strin
                 mon_par: b.mon_par, tue_par: b.tue_par, wed_par: b.wed_par,
                 thu_par: b.thu_par, fri_par: b.fri_par, sat_par: b.sat_par, sun_par: b.sun_par
             }))
-            await supabase
+            const { error: cloneErr } = await supabase
                 .from('inventory_weekly_bases')
                 .upsert(clonedBases, { onConflict: 'store_id, inventory_item_id, week_start_date' })
+            if (cloneErr) {
+                console.error(`[fetchWeeklyData] Error auto-cloning bases for store ${storeId}:`, cloneErr.message)
+            }
             bases = prevBases
             basesAreFallback = true
             console.log(`[fetchWeeklyData] Store ${storeId}: Auto-cloned ${prevBases.length} bases from ${lastWeekMonday} → ${mondayStr}`)
@@ -307,9 +310,12 @@ export async function fetchWeeklyData(storeId: string | number, mondayStr: strin
                     mon_par: p.mon_par, tue_par: p.tue_par, wed_par: p.wed_par,
                     thu_par: p.thu_par, fri_par: p.fri_par, sat_par: p.sat_par, sun_par: p.sun_par
                 }))
-                await supabase
+                const { error: idealErr } = await supabase
                     .from('inventory_weekly_bases')
                     .upsert(idealBases, { onConflict: 'store_id, inventory_item_id, week_start_date' })
+                if (idealErr) {
+                    console.error(`[fetchWeeklyData] Error auto-populating from PAR Ideal for store ${storeId}:`, idealErr.message)
+                }
                 bases = idealFallback
                 basesAreFallback = true
                 console.log(`[fetchWeeklyData] Store ${storeId}: Auto-populated ${idealFallback.length} bases from PAR Ideal → ${mondayStr}`)
@@ -478,40 +484,28 @@ export async function fetchWeeklyData(storeId: string | number, mondayStr: strin
 }
 
 /**
- * Guarda las modificaciones del PAR tanto en las bases de la semana actual 
- * como en el PAR Ideal de referencia (el baseline para todas las semanas futuras).
+ * Guarda las modificaciones del PAR en las bases semanales.
  */
 export async function saveWeeklyBases(
     storeId: string | number,
     weekStartDate: string,
-    basesList: { inventory_item_id: string; mon_par: number; tue_par: number; wed_par: number; thu_par: number; fri_par: number; sat_par: number; sun_par: number }[]
+    basesList: { inventory_item_id: string; mon_par?: number; tue_par?: number; wed_par?: number; thu_par?: number; fri_par?: number; sat_par?: number; sun_par?: number }[]
 ) {
-    // 0. Obtener bases existentes en BD para weekStartDate para preservar datos previo si los hay
-    const { data: existingBases } = await supabase
-        .from('inventory_weekly_bases')
-        .select('*')
-        .eq('store_id', storeId)
-        .eq('week_start_date', weekStartDate)
-
-    const existingMap = new Map<string, any>()
-    existingBases?.forEach(eb => existingMap.set(eb.inventory_item_id, eb))
-
-    // 1. Guardar en weekly bases de la semana seleccionada
     const weeklyPayload = basesList.map(b => {
-        const ex = existingMap.get(b.inventory_item_id)
-        return {
+        const row: any = {
             store_id: storeId,
             inventory_item_id: b.inventory_item_id,
             week_start_date: weekStartDate,
-            mon_par: b.mon_par ?? (ex?.mon_par || 0),
-            tue_par: b.tue_par ?? (ex?.tue_par || 0),
-            wed_par: b.wed_par ?? (ex?.wed_par || 0),
-            thu_par: b.thu_par ?? (ex?.thu_par || 0),
-            fri_par: b.fri_par ?? (ex?.fri_par || 0),
-            sat_par: b.sat_par ?? (ex?.sat_par || 0),
-            sun_par: b.sun_par ?? (ex?.sun_par || 0),
             updated_at: new Date().toISOString()
         }
+        if (b.mon_par !== undefined) row.mon_par = b.mon_par
+        if (b.tue_par !== undefined) row.tue_par = b.tue_par
+        if (b.wed_par !== undefined) row.wed_par = b.wed_par
+        if (b.thu_par !== undefined) row.thu_par = b.thu_par
+        if (b.fri_par !== undefined) row.fri_par = b.fri_par
+        if (b.sat_par !== undefined) row.sat_par = b.sat_par
+        if (b.sun_par !== undefined) row.sun_par = b.sun_par
+        return row
     })
 
     const { error: err1 } = await supabase
@@ -532,30 +526,21 @@ export async function saveWeeklyBases(
 export async function saveSingleItemWeeklyBase(
     storeId: string | number,
     weekStartDate: string,
-    b: { inventory_item_id: string; mon_par: number; tue_par: number; wed_par: number; thu_par: number; fri_par: number; sat_par: number; sun_par: number }
+    b: { inventory_item_id: string; mon_par?: number; tue_par?: number; wed_par?: number; thu_par?: number; fri_par?: number; sat_par?: number; sun_par?: number }
 ) {
-    // Buscar si ya existe la fila en la BD para no perder otros campos
-    const { data: existing } = await supabase
-        .from('inventory_weekly_bases')
-        .select('*')
-        .eq('store_id', storeId)
-        .eq('inventory_item_id', b.inventory_item_id)
-        .eq('week_start_date', weekStartDate)
-        .maybeSingle()
-
-    const payload = {
+    const payload: any = {
         store_id: storeId,
         inventory_item_id: b.inventory_item_id,
         week_start_date: weekStartDate,
-        mon_par: b.mon_par !== undefined ? b.mon_par : (existing?.mon_par || 0),
-        tue_par: b.tue_par !== undefined ? b.tue_par : (existing?.tue_par || 0),
-        wed_par: b.wed_par !== undefined ? b.wed_par : (existing?.wed_par || 0),
-        thu_par: b.thu_par !== undefined ? b.thu_par : (existing?.thu_par || 0),
-        fri_par: b.fri_par !== undefined ? b.fri_par : (existing?.fri_par || 0),
-        sat_par: b.sat_par !== undefined ? b.sat_par : (existing?.sat_par || 0),
-        sun_par: b.sun_par !== undefined ? b.sun_par : (existing?.sun_par || 0),
         updated_at: new Date().toISOString()
     }
+    if (b.mon_par !== undefined) payload.mon_par = b.mon_par
+    if (b.tue_par !== undefined) payload.tue_par = b.tue_par
+    if (b.wed_par !== undefined) payload.wed_par = b.wed_par
+    if (b.thu_par !== undefined) payload.thu_par = b.thu_par
+    if (b.fri_par !== undefined) payload.fri_par = b.fri_par
+    if (b.sat_par !== undefined) payload.sat_par = b.sat_par
+    if (b.sun_par !== undefined) payload.sun_par = b.sun_par
 
     const { error } = await supabase
         .from('inventory_weekly_bases')

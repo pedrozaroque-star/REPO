@@ -21,7 +21,7 @@ type Dictionary = {
 };
 
 // DICCIONARIOS
-const dictionaries: Record<Language, Dictionary> = {
+export const dictionaries: Record<Language, Dictionary> = {
     es: {
         common: {
             cancel: 'Cancelar',
@@ -1692,6 +1692,21 @@ const dictionaries: Record<Language, Dictionary> = {
             filter_placeholder: 'Filtrar...',
             no_matching_todos: 'No hay tareas que coincidan con el filtro',
             no_filtered_results: 'Ningún anuncio coincide con tu filtro.',
+            star_project: 'Destacar este proyecto',
+            unstar_project: 'Quitar de destacados',
+            screenshot_file: 'Captura de pantalla',
+            invite: 'Invitar',
+            folder_name_label: 'Nombre de la carpeta *',
+            delete_todo_confirm: '¿Eliminar esta tarea de forma permanente?',
+            clear_filter: 'Limpiar filtro',
+            close_esc: 'Cerrar (Esc)',
+            attached_file_fallback: 'Archivo adjunto',
+            categories_filter: 'Categorías',
+            sort_newest: 'Más reciente',
+            sort_oldest: 'Más antiguo',
+            fullscreen_view: 'Vista de pantalla completa',
+            time_at: 'a las',
+            location_prefix: 'Ubicación:',
         },
         roles_hub: {
             title: 'Control de Roles y Posiciones',
@@ -4479,6 +4494,21 @@ const dictionaries: Record<Language, Dictionary> = {
             filter_placeholder: 'Filter...',
             no_matching_todos: 'No to-dos match your filter',
             no_filtered_results: 'No posts match your filter.',
+            star_project: 'Star this project',
+            unstar_project: 'Unstar project',
+            screenshot_file: 'Screenshot',
+            invite: 'Invite',
+            folder_name_label: 'Folder name *',
+            delete_todo_confirm: 'Delete this to-do permanently?',
+            clear_filter: 'Clear filter',
+            close_esc: 'Close (Esc)',
+            attached_file_fallback: 'Attached file',
+            categories_filter: 'Categories',
+            sort_newest: 'Newest post',
+            sort_oldest: 'Oldest post',
+            fullscreen_view: 'Fullscreen view',
+            time_at: 'at',
+            location_prefix: 'Location:',
         },
         roles_hub: {
             title: 'Roles & Positions Control',

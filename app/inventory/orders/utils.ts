@@ -13,27 +13,55 @@
 // HELPERS
 // ============================================================================
 
-/** Obtiene el lunes de la semana de una fecha dada (calendario puro) */
-export function getMonday(d: Date): string {
-    const date = new Date(d)
-    date.setHours(0, 0, 0, 0)
-    const day = date.getDay()
-    const diff = date.getDate() - day + (day === 0 ? -6 : 1)
-    return new Date(date.setDate(diff)).toISOString().split('T')[0]
+/** Obtiene el lunes de la semana de una fecha dada (calendario puro en UTC/seguro de timezone) */
+export function getMonday(d: Date | string): string {
+    let date: Date
+    if (typeof d === 'string') {
+        date = new Date(d.includes('T') ? d : `${d}T12:00:00Z`)
+    } else {
+        date = new Date(d)
+    }
+    const utcYear = date.getUTCFullYear()
+    const utcMonth = date.getUTCMonth()
+    const utcDate = date.getUTCDate()
+    const target = new Date(Date.UTC(utcYear, utcMonth, utcDate, 12, 0, 0))
+    const day = target.getUTCDay()
+    const diff = target.getUTCDate() - day + (day === 0 ? -6 : 1)
+    target.setUTCDate(diff)
+    return target.toISOString().split('T')[0]
 }
 
 /**
- * Obtiene el lunes de la semana de NEGOCIO actual.
+ * Obtiene el lunes de la semana de NEGOCIO actual en America/Los_Angeles.
  * El día laboral empieza a las 6:00 AM y termina a las 5:59 AM del siguiente día.
- * Entonces lunes 1:00 AM = todavía es "domingo" → retorna el lunes de la semana anterior.
+ * Entonces lunes 1:00 AM PT = todavía es "domingo" → retorna el lunes de la semana anterior.
  */
 export function getBusinessMonday(d: Date = new Date()): string {
-    const adjusted = new Date(d)
-    if (adjusted.getHours() < 6) {
-        adjusted.setDate(adjusted.getDate() - 1) // Retroceder al día laboral anterior
+    const formatter = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'America/Los_Angeles',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false
+    })
+    const parts = formatter.formatToParts(d)
+    const partMap: Record<string, string> = {}
+    parts.forEach(p => { partMap[p.type] = p.value })
+
+    const year = parseInt(partMap.year, 10)
+    const month = parseInt(partMap.month, 10) - 1
+    const day = parseInt(partMap.day, 10)
+    const hour = parseInt(partMap.hour, 10)
+
+    const dateInLA = new Date(Date.UTC(year, month, day, 12, 0, 0))
+    if (hour < 6) {
+        dateInLA.setUTCDate(dateInLA.getUTCDate() - 1)
     }
-    adjusted.setHours(12, 0, 0, 0)
-    return getMonday(adjusted)
+
+    return getMonday(dateInLA)
 }
 
 /** Suma días a una fecha string YYYY-MM-DD */
@@ -79,6 +107,7 @@ export type CalculatedOrderLine = {
     unit_description: string
     par_value: number
     par_ideal_value?: number
+    par_ideal?: number | null
     leftover_value: number | null
     calculated_qty: number
     rounding_rule: string
@@ -90,6 +119,8 @@ export type CalculatedOrderLine = {
     purchase_unit_cost?: number
     unit_measure?: string
     adjusted_qty?: number
+    theoretical_consumption?: number | null
+    yesterday_order_qty?: number | null
 }
 
 export type OrderRecord = {
