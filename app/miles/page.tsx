@@ -19,13 +19,16 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   Car, Plus, MapPin, Calendar, DollarSign, Send, CheckCircle2,
   Clock, AlertCircle, Download, RefreshCw, Settings, Search,
-  Filter, RotateCw, Trash2, Edit3, ShieldCheck, Mail, Users, FileSpreadsheet, Check
+  Filter, RotateCw, Trash2, Edit3, ShieldCheck, Mail, Users, FileSpreadsheet, Check,
+  Navigation, RotateCcw, Sparkles
 } from 'lucide-react'
 import ProtectedRoute, { useAuth } from '@/components/ProtectedRoute'
 import SurpriseLoader from '@/components/SurpriseLoader'
 import { useLanguage } from '@/lib/i18n'
 import TripModal from '@/components/miles/TripModal'
+import QuickDriveModal from '@/components/miles/QuickDriveModal'
 import { getCaliforniaBusinessDate, getCaliforniaDate } from '@/lib/business-date'
+import { CANONICAL_STORE_COORDINATES, haversineDistanceMiles, normalizeStoreName } from '@/lib/store-coordinates'
 
 interface TripRecord {
   id: string
@@ -113,6 +116,7 @@ function MilesIQContent() {
 
   // Modal state
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false)
+  const [isQuickDriveOpen, setIsQuickDriveOpen] = useState<boolean>(false)
   const [editingTrip, setEditingTrip] = useState<TripRecord | null>(null)
 
   // Distance matrix edit state
@@ -123,6 +127,85 @@ function MilesIQContent() {
   const showToast = (message: string, type: 'success' | 'error' | 'warning') => {
     setToast({ message, type })
     setTimeout(() => setToast(null), 4500)
+  }
+
+  // Quick 1-click return trip generator (Inverts origin & destination preserving original date)
+  const handleCreateReturnTrip = async (trip: TripRecord) => {
+    try {
+      const res = await fetch('/api/miles', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          supervisor_id: trip.supervisor_id || currentUser.id,
+          supervisor_name: trip.supervisor_name || currentUser.name,
+          supervisor_email: trip.supervisor_email || currentUser.email,
+          trip_date: trip.trip_date || getCaliforniaBusinessDate(),
+          origin_name: trip.destination_name,
+          destination_name: trip.origin_name,
+          distance_miles: Number(trip.distance_miles) || 0,
+          rate_per_mile: Number(trip.rate_per_mile) || currentRate,
+          purpose: trip.purpose || 'Business',
+          purpose_notes: `Viaje de regreso (${(trip.destination_name || '').replace('Tacos Gavilan ', '')} → ${(trip.origin_name || '').replace('Tacos Gavilan ', '')})`,
+          is_round_trip: false,
+          parking_amount: 0,
+          tolls_amount: 0,
+          status: 'pending'
+        })
+      })
+      const data = await res.json()
+      if (data.success) {
+        showToast(t('miles.return_trip_created'), 'success')
+        fetchInitialData()
+      } else {
+        showToast(data.error || t('miles.error_return_trip'), 'error')
+      }
+    } catch (err: any) {
+      showToast(err.message || t('miles.error_connection'), 'error')
+    }
+  }
+
+  // 1-click Gap Resolver (Registers the omitted leg for that specific supervisor and date)
+  const handleCreateGapTrip = async (gap: {
+    origin: string
+    dest: string
+    supId: string
+    supName: string
+    supEmail: string
+    date: string
+    distance: number
+    amount: number
+  }) => {
+    try {
+      const res = await fetch('/api/miles', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          supervisor_id: gap.supId || currentUser.id,
+          supervisor_name: gap.supName || currentUser.name,
+          supervisor_email: gap.supEmail || currentUser.email,
+          trip_date: gap.date,
+          origin_name: gap.origin,
+          destination_name: gap.dest,
+          distance_miles: gap.distance,
+          rate_per_mile: currentRate,
+          purpose: 'Business',
+          purpose_notes: `Ruta intermedia detectada (${gap.origin.replace('Tacos Gavilan ', '')} → ${gap.dest.replace('Tacos Gavilan ', '')})`,
+          is_round_trip: false,
+          parking_amount: 0,
+          tolls_amount: 0,
+          status: 'pending'
+        })
+      })
+      const data = await res.json()
+      if (data.success) {
+        showToast(t('miles.gap_trip_added'), 'success')
+        fetchInitialData()
+      } else {
+        showToast(data.error || t('miles.error_save'), 'error')
+      }
+    } catch (err: any) {
+      showToast(err.message || t('miles.error_connection'), 'error')
+    }
   }
 
   // Sync trips from supervisor's quality inspections of the day
@@ -140,13 +223,13 @@ function MilesIQContent() {
       })
       const data = await res.json()
       if (data.success) {
-        showToast(data.message || 'Inspecciones sincronizadas con éxito', 'success')
+        showToast(data.message || t('miles.sync_inspections_success'), 'success')
         fetchInitialData()
       } else {
-        showToast(data.error || 'Error al sincronizar inspecciones', 'error')
+        showToast(data.error || t('miles.sync_inspections_error'), 'error')
       }
     } catch (err: any) {
-      showToast(err.message || 'Error de conexión al sincronizar inspecciones', 'error')
+      showToast(err.message || t('miles.error_connection'), 'error')
     } finally {
       setSyncingInspections(false)
     }
@@ -499,7 +582,7 @@ function MilesIQContent() {
     }
   }, [trips, isAdmin, currentUser])
 
-  // Summaries per supervisor for HR dispatch tab
+  // Summaries per supervisor for HR dispatch tab (Filtered by selected date range)
   const supervisorSummaries = useMemo(() => {
     const map: Record<string, {
       id: string
@@ -512,7 +595,14 @@ function MilesIQContent() {
       totalAmount: number
     }> = {}
 
-    trips.forEach(t => {
+    // Filter trips by active payroll date range
+    const targetTrips = trips.filter(t => {
+      if (dateRange.start && t.trip_date < dateRange.start) return false
+      if (dateRange.end && t.trip_date > dateRange.end) return false
+      return true
+    })
+
+    targetTrips.forEach(t => {
       const key = t.supervisor_id || t.supervisor_name
       if (!map[key]) {
         map[key] = {
@@ -528,7 +618,7 @@ function MilesIQContent() {
       }
 
       const m = Number(t.distance_miles) || 0
-      const r = Number(t.rate_per_mile) || 0.76
+      const r = Number(t.rate_per_mile) || currentRate
       const p = Number(t.parking_amount) || 0
       const to = Number(t.tolls_amount) || 0
       const tot = (m * r) + p + to
@@ -541,7 +631,166 @@ function MilesIQContent() {
     })
 
     return Object.values(map)
-  }, [trips])
+  }, [trips, dateRange, currentRate])
+
+  // Intelligent Route Gap Detector (Grouped by Supervisor and Date with Exact Canonical Distances)
+  const detectedRouteGapsGrouped = useMemo(() => {
+    // Converts 12h AM/PM strings (e.g. "09:30 AM", "02:15 PM") or timestamps into 0-1439 minutes of the day
+    const parseTimeToMinutes = (timeStr?: string, createdAt?: string): number => {
+      if (timeStr && timeStr.trim()) {
+        const match = timeStr.trim().match(/^(\d{1,2}):(\d{2})\s*(AM|PM)?$/i)
+        if (match) {
+          let hours = parseInt(match[1], 10)
+          const minutes = parseInt(match[2], 10)
+          const ampm = match[3]?.toUpperCase()
+          if (ampm === 'PM' && hours < 12) hours += 12
+          if (ampm === 'AM' && hours === 12) hours = 0
+          return hours * 60 + minutes
+        }
+      }
+      if (createdAt) {
+        const d = new Date(createdAt)
+        if (!isNaN(d.getTime())) {
+          return d.getHours() * 60 + d.getMinutes()
+        }
+      }
+      return 0
+    }
+
+    const getExactDistance = (orig: string, dest: string): number => {
+      const normOrig = normalizeStoreName(orig)
+      const normDest = normalizeStoreName(dest)
+      const match = distances.find(
+        d =>
+          (d.origin_name === orig && d.destination_name === dest) ||
+          (d.origin_name === dest && d.destination_name === orig) ||
+          (normalizeStoreName(d.origin_name) === normOrig && normalizeStoreName(d.destination_name) === normDest) ||
+          (normalizeStoreName(d.origin_name) === normDest && normalizeStoreName(d.destination_name) === normOrig)
+      )
+      if (match && Number(match.distance_miles) > 0) {
+        return Number(match.distance_miles)
+      }
+      const c1 = CANONICAL_STORE_COORDINATES[normOrig] || CANONICAL_STORE_COORDINATES[orig]
+      const c2 = CANONICAL_STORE_COORDINATES[normDest] || CANONICAL_STORE_COORDINATES[dest]
+      if (c1 && c2 && c1.lat && c2.lat) {
+        return parseFloat((haversineDistanceMiles(c1.lat, c1.lng, c2.lat, c2.lng) * 1.33).toFixed(2))
+      }
+      return 4.0
+    }
+
+    const bySupAndDate: Record<string, {
+      supId: string
+      supName: string
+      supEmail: string
+      date: string
+      trips: TripRecord[]
+    }> = {}
+
+    trips.forEach(t => {
+      if (!isAdmin && !isOwnTrip(t)) return
+      if (supervisorFilter !== 'all' && t.supervisor_id !== supervisorFilter && t.supervisor_name !== supervisorFilter) return
+      
+      const supKey = t.supervisor_name || t.supervisor_id || 'Unknown'
+      const key = `${supKey}__${t.trip_date}`
+      if (!bySupAndDate[key]) {
+        bySupAndDate[key] = {
+          supId: t.supervisor_id,
+          supName: t.supervisor_name,
+          supEmail: t.supervisor_email,
+          date: t.trip_date,
+          trips: []
+        }
+      }
+      bySupAndDate[key].trips.push(t)
+    })
+
+    const groups: {
+      supervisorId: string
+      supervisorName: string
+      supervisorEmail: string
+      date: string
+      gaps: {
+        origin: string
+        dest: string
+        supId: string
+        supName: string
+        supEmail: string
+        date: string
+        distance: number
+        amount: number
+      }[]
+    }[] = []
+
+    Object.values(bySupAndDate).forEach(item => {
+      const dayTrips = item.trips
+      const sorted = [...dayTrips].sort((a, b) => {
+        const minA = parseTimeToMinutes(a.start_time, a.created_at)
+        const minB = parseTimeToMinutes(b.start_time, b.created_at)
+        return minA - minB
+      })
+
+      const dayGaps: {
+        origin: string
+        dest: string
+        supId: string
+        supName: string
+        supEmail: string
+        date: string
+        distance: number
+        amount: number
+      }[] = []
+
+      for (let i = 0; i < sorted.length - 1; i++) {
+        const current = sorted[i]
+        const next = sorted[i + 1]
+        
+        const origStore = current.destination_name
+        const destStore = next.origin_name
+
+        if (origStore && destStore && origStore !== destStore) {
+          const alreadyLogged = dayTrips.some(
+            t =>
+              (t.origin_name === origStore && t.destination_name === destStore) ||
+              (t.is_round_trip && t.origin_name === destStore && t.destination_name === origStore)
+          )
+
+          if (!alreadyLogged) {
+            const dist = getExactDistance(origStore, destStore)
+            const amt = parseFloat((dist * currentRate).toFixed(2))
+            
+            if (!dayGaps.some(g => g.origin === origStore && g.dest === destStore)) {
+              dayGaps.push({
+                origin: origStore,
+                dest: destStore,
+                supId: item.supId,
+                supName: item.supName,
+                supEmail: item.supEmail,
+                date: item.date,
+                distance: dist,
+                amount: amt
+              })
+            }
+          }
+        }
+      }
+
+      if (dayGaps.length > 0) {
+        groups.push({
+          supervisorId: item.supId,
+          supervisorName: item.supName,
+          supervisorEmail: item.supEmail,
+          date: item.date,
+          gaps: dayGaps
+        })
+      }
+    })
+
+    return groups.sort((a, b) => b.date.localeCompare(a.date))
+  }, [trips, isAdmin, isOwnTrip, supervisorFilter, distances, currentRate])
+
+  const totalPendingGapsCount = useMemo(() => {
+    return detectedRouteGapsGrouped.reduce((acc, g) => acc + g.gaps.length, 0)
+  }, [detectedRouteGapsGrouped])
 
   if (loading) {
     return <SurpriseLoader />
@@ -590,6 +839,14 @@ function MilesIQContent() {
 
           {/* Action buttons */}
           <div className="flex items-center gap-2.5 flex-wrap">
+            <button
+              onClick={() => setIsQuickDriveOpen(true)}
+              className="px-4 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-xl text-xs font-black flex items-center gap-2 shadow-lg shadow-emerald-600/25 transition-all active:scale-[0.98]"
+            >
+              <Navigation size={16} />
+              <span>{t('miles.quick_drive')}</span>
+            </button>
+
             <button
               onClick={handleSyncInspections}
               disabled={syncingInspections}
@@ -775,6 +1032,78 @@ function MilesIQContent() {
               </div>
             </div>
 
+            {/* Intelligent Route Gap Detector Banner (Grouped by Supervisor & Date) */}
+            {detectedRouteGapsGrouped.length > 0 && (
+              <div className="bg-gradient-to-r from-amber-500/15 via-amber-500/10 to-amber-500/5 border border-amber-400/50 dark:border-amber-500/40 rounded-2xl p-4 sm:p-5 shadow-sm space-y-3.5">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 bg-amber-500 text-white rounded-xl shrink-0 shadow-md shadow-amber-500/20">
+                    <Sparkles size={20} />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-black uppercase tracking-wider text-amber-900 dark:text-amber-200 flex items-center gap-2">
+                      <span>{t('miles.gap_detector_title')}</span>
+                      <span className="px-2 py-0.5 bg-amber-200 dark:bg-amber-900/60 text-amber-950 dark:text-amber-100 rounded-full text-[10px] font-black">
+                        {totalPendingGapsCount} pendiente{totalPendingGapsCount > 1 ? 's' : ''}
+                      </span>
+                    </h4>
+                    <p className="text-xs text-amber-800 dark:text-amber-300 mt-0.5 font-medium">
+                      {t('miles.gap_detector_desc')}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Supervisor & Date Breakdown Cards */}
+                <div className="grid grid-cols-1 gap-2.5 pt-1">
+                  {detectedRouteGapsGrouped.map((group, gIdx) => (
+                    <div
+                      key={`${group.supervisorName}_${group.date}_${gIdx}`}
+                      className="bg-white/90 dark:bg-slate-900/90 border border-amber-300/80 dark:border-amber-700/60 rounded-xl p-3 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-3"
+                    >
+                      {/* Supervisor Avatar & Info */}
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-lg bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 flex items-center justify-center font-black text-xs shrink-0 border border-amber-300/60">
+                          {group.supervisorName.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-xs font-black text-slate-900 dark:text-slate-100">
+                              {group.supervisorName}
+                            </span>
+                            <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-100 dark:bg-amber-950/70 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
+                              📅 {group.date}
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                            {group.gaps.length} {group.gaps.length === 1 ? 'recorrido pendiente' : 'recorridos pendientes'} detectados
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* 1-Click Action Buttons for this supervisor & date */}
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {group.gaps.map((gap, idx) => (
+                          <button
+                            key={idx}
+                            onClick={() => handleCreateGapTrip(gap)}
+                            className="px-3.5 py-2 bg-amber-600 hover:bg-amber-700 active:scale-95 text-white text-xs font-black rounded-xl shadow-md shadow-amber-600/20 flex items-center gap-2 transition-all"
+                            title={`Registrar viaje ${gap.origin} → ${gap.dest} para ${gap.supName} el ${gap.date}`}
+                          >
+                            <Plus size={14} />
+                            <span>
+                              {gap.origin.replace('Tacos Gavilan ', '')} → {gap.dest.replace('Tacos Gavilan ', '')}
+                              <span className="opacity-90 font-semibold ml-1.5 text-[11px]">
+                                ({gap.distance.toFixed(2)} mi • ${gap.amount.toFixed(2)})
+                              </span>
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Trips Table — Desktop */}
             <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm hidden md:block">
               <div className="overflow-x-auto">
@@ -866,6 +1195,16 @@ function MilesIQContent() {
                             </td>
                             <td className="py-3.5 px-4 text-right whitespace-nowrap">
                               <div className="flex items-center justify-end gap-1">
+                                {/* Quick 1-click Return Trip */}
+                                <button
+                                  onClick={() => handleCreateReturnTrip(trip)}
+                                  title={t('miles.return_trip_btn')}
+                                  className="px-2 py-1 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 rounded-lg text-[11px] font-bold flex items-center gap-1 transition-colors border border-emerald-300/60 dark:border-emerald-700/60"
+                                >
+                                  <RotateCcw size={13} />
+                                  <span>{t('miles.return_trip_btn')}</span>
+                                </button>
+
                                 {(trip.status === 'pending' || isAdmin) && (
                                   <button
                                     onClick={() => handleOpenEditModal(trip)}
@@ -970,6 +1309,15 @@ function MilesIQContent() {
                           {trip.status === 'paid' && (
                             <span className="px-2 py-0.5 rounded-md text-[9px] font-bold bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:text-blue-400">{t('miles.badge_paid')}</span>
                           )}
+                          {/* 1-click Return Trip */}
+                          <button
+                            onClick={() => handleCreateReturnTrip(trip)}
+                            title={t('miles.return_trip_btn')}
+                            className="p-1 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 rounded transition-colors"
+                          >
+                            <RotateCcw size={14} />
+                          </button>
+
                           {(trip.status === 'pending' || isAdmin) && (
                             <button
                               onClick={() => handleOpenEditModal(trip)}
@@ -1550,6 +1898,14 @@ function MilesIQContent() {
         currentUser={currentUser}
         isAdmin={isAdmin}
         editingTrip={editingTrip}
+      />
+
+      {/* Quick 1-Tap Drive & Live Navigation Modal */}
+      <QuickDriveModal
+        isOpen={isQuickDriveOpen}
+        onClose={() => setIsQuickDriveOpen(false)}
+        currentUser={currentUser}
+        onTripLogged={fetchInitialData}
       />
     </div>
   )

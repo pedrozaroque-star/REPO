@@ -19,9 +19,16 @@ export async function GET(request: Request) {
     try {
         // 🛡️ SECURITY CHECK 🛡️
         const authHeader = request.headers.get('Authorization')
-        if (!authHeader) return NextResponse.json({ error: 'Missing Authorization Header' }, { status: 401 })
+        const cookieHeader = request.headers.get('cookie') || ''
+        let token = authHeader ? authHeader.replace(/^Bearer\s+/i, '').trim() : ''
 
-        const token = authHeader.replace(/^Bearer\s+/i, '').trim()
+        if (!token) {
+            const match = cookieHeader.match(/teg_token=([^;]+)/)
+            if (match) token = match[1]
+        }
+
+        if (!token) return NextResponse.json({ error: 'Missing Authorization Header' }, { status: 401 })
+
         const user = verifyAuthToken(token)
         if (!user) return NextResponse.json({ error: 'Invalid Token' }, { status: 401 })
 
@@ -57,7 +64,15 @@ export async function GET(request: Request) {
         // ----------- MODO REPORTE ANUAL (MATRIX) -----------
         const year = searchParams.get('year') || new Date().getFullYear().toString()
         const limitDateParam = searchParams.get('limit_date') // YYYY-MM-DD opcional
-        const limitDate = limitDateParam ? new Date(limitDateParam) : null
+
+        let limM: number | null = null
+        let limD: number | null = null
+
+        if (limitDateParam && /^\d{4}-\d{2}-\d{2}$/.test(limitDateParam)) {
+            const parts = limitDateParam.split('-').map(Number)
+            limM = parts[1]
+            limD = parts[2]
+        }
 
         const supabase = await getSupabaseAdminClient()
         const storeMap: Record<string, number[]> = {}
@@ -66,22 +81,22 @@ export async function GET(request: Request) {
         const monthPromises = []
 
         for (let m = 0; m < 12; m++) {
-            const monthPad = String(m + 1).padStart(2, '0')
-            const startDate = new Date(Number(year), m, 1)
-            const lastDayOfMonth = new Date(Number(year), m + 1, 0)
+            const monthNum = m + 1
+            const monthPad = String(monthNum).padStart(2, '0')
+            const lastDayOfMonth = new Date(Number(year), monthNum, 0).getDate()
 
-            // Si hay límite y el mes empieza DESPUÉS del límite, saltar
-            if (limitDate && startDate > limitDate) {
+            // Si hay límite y el mes supera el límite
+            if (limM !== null && monthNum > limM) {
                 monthPromises.push(Promise.resolve({ data: [], error: null }))
                 continue
             }
 
             const startStr = `${year}-${monthPad}-01`
-            let endDay = String(lastDayOfMonth.getDate()).padStart(2, '0')
+            let endDay = String(lastDayOfMonth).padStart(2, '0')
             
-            // Si el límite cae adentro del mes
-            if (limitDate && limitDate < lastDayOfMonth && limitDate >= startDate) {
-                endDay = String(limitDate.getDate()).padStart(2, '0')
+            // Si es exactamente el mes del límite
+            if (limM !== null && monthNum === limM && limD !== null) {
+                endDay = String(Math.min(limD, lastDayOfMonth)).padStart(2, '0')
             }
             const endStr = `${year}-${monthPad}-${endDay}`
 
@@ -109,7 +124,7 @@ export async function GET(request: Request) {
             const rows = chunk.data || []
             totalRowsFetched += rows.length
 
-            rows.forEach(row => {
+            rows.forEach((row: any) => {
                 const storeName = row.store_name?.trim() || 'Unknown'
                 const targetMonthIndex = monthIdx
 

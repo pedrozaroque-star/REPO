@@ -47,20 +47,21 @@ export async function GET(request: Request) {
     }
 
     const transactions = data || [];
+    const activeSales = transactions.filter(tx => (Number(tx.total_amount) || 0) > 0);
     const totalCollected = transactions.reduce(
-      (sum: number, tx: { total_amount: number | null }) => sum + (tx.total_amount || 0), 
+      (sum: number, tx: { total_amount: number | null }) => sum + (Number(tx.total_amount) || 0), 
       0
     );
 
-    const breakdown = transactions.length === 0
+    const breakdown = activeSales.length === 0
       ? 'Sin ventas de uniforme registradas hoy'
-      : `${transactions.length} venta(s) de uniforme por un total de $${totalCollected.toFixed(2)}`;
+      : `${activeSales.length} venta(s) de uniforme por un total de $${totalCollected.toFixed(2)}`;
 
     return NextResponse.json({
       storeId,
       businessDate,
       totalCollected,
-      transactionCount: transactions.length,
+      transactionCount: activeSales.length,
       breakdown
     });
   } catch (error: any) {

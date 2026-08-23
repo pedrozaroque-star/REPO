@@ -22,17 +22,23 @@ export async function fetchStoresForUser(userRole: string, userStoreIds: string[
     const { data, error } = await supabase
       .from('stores')
       .select('id, name')
-      .eq('is_active', true);
+      .eq('is_active', true)
+      .order('id');
     if (error) throw new Error(error.message);
     return data || [];
   } else {
-    // Convertir IDs de string a numéricos si es necesario, pero vienen como strings en la prop
-    const numericStoreIds = userStoreIds.map((id: string) => parseInt(id, 10));
+    const numericStoreIds = (userStoreIds || [])
+      .map((id: string) => parseInt(id, 10))
+      .filter((id: number) => !isNaN(id));
+
+    if (numericStoreIds.length === 0) return [];
+
     const { data, error } = await supabase
       .from('stores')
       .select('id, name')
       .in('id', numericStoreIds)
-      .eq('is_active', true);
+      .eq('is_active', true)
+      .order('id');
     if (error) throw new Error(error.message);
     return data || [];
   }
@@ -54,10 +60,14 @@ export async function updateUniformPricing(
   userEmail: string
 ): Promise<void> {
   const supabase = await getSupabaseAdminClient();
+  const sanitizedUpdates: Record<string, any> = { ...updates };
+  if (updates.sale_price !== undefined) sanitizedUpdates.sale_price = Math.max(0, Number(updates.sale_price) || 0);
+  if (updates.provider_cost !== undefined) sanitizedUpdates.provider_cost = Math.max(0, Number(updates.provider_cost) || 0);
+
   const { error } = await supabase
     .from('uniforms_pricing')
     .update({
-      ...updates,
+      ...sanitizedUpdates,
       updated_by: userEmail,
       updated_at: new Date().toISOString()
     })
@@ -102,7 +112,7 @@ export async function saveInitialCount(
   const businessDate = getBusinessDate();
   
   for (const count of counts) {
-    const { data: existingStock } = await supabase
+    const { data: existingStock, error: fetchErr } = await supabase
       .from('uniforms_inventory_stock')
       .select('quantity_on_hand, min_stock')
       .eq('store_id', storeId)
@@ -110,45 +120,52 @@ export async function saveInitialCount(
       .eq('size', count.size)
       .maybeSingle();
 
+    if (fetchErr) throw new Error(fetchErr.message);
+
     const prevQty = Number(existingStock?.quantity_on_hand ?? 0);
     const minStock = (existingStock?.min_stock !== null && existingStock?.min_stock !== undefined)
-      ? existingStock.min_stock
+      ? Number(existingStock.min_stock)
       : getDefaultMinStock(count.item_category as UniformCategory, count.size as UniformSize);
+    const targetQty = Math.max(0, Number(count.quantity) || 0);
 
-    await supabase
+    const { error: upsertErr } = await supabase
       .from('uniforms_inventory_stock')
       .upsert({
         store_id: storeId,
         item_category: count.item_category,
         size: count.size,
-        quantity_on_hand: count.quantity,
+        quantity_on_hand: targetQty,
         min_stock: minStock,
         updated_at: new Date().toISOString()
       }, { onConflict: 'store_id, item_category, size' });
 
-    await supabase
+    if (upsertErr) throw new Error(upsertErr.message);
+
+    const { error: txErr } = await supabase
       .from('uniforms_transactions')
       .insert({
         store_id: storeId,
         item_category: count.item_category,
         size: count.size,
         transaction_type: 'initial_count',
-        quantity: count.quantity,
+        quantity: targetQty,
         previous_stock: prevQty,
-        new_stock: count.quantity,
+        new_stock: targetQty,
         unit_price: 0,
         total_amount: 0,
         business_date: businessDate,
         created_by: userEmail,
         created_at: new Date().toISOString()
       });
+
+    if (txErr) throw new Error(txErr.message);
   }
   return { success: true };
 }
 
 export async function resetInitialCount(storeId: number, userEmail: string): Promise<{success: boolean}> {
   const supabase = await getSupabaseAdminClient();
-  const businessDate = new Date().toISOString().split('T')[0];
+  const businessDate = getBusinessDate();
 
   const { error: delErr } = await supabase
     .from('uniforms_inventory_stock')
@@ -157,7 +174,7 @@ export async function resetInitialCount(storeId: number, userEmail: string): Pro
 
   if (delErr) throw new Error(delErr.message);
 
-  await supabase
+  const { error: txErr } = await supabase
     .from('uniforms_transactions')
     .insert({
       store_id: storeId,
@@ -175,6 +192,8 @@ export async function resetInitialCount(storeId: number, userEmail: string): Pro
       created_at: new Date().toISOString()
     });
 
+  if (txErr) throw new Error(txErr.message);
+
   return { success: true };
 }
 
@@ -187,7 +206,7 @@ export async function saveManualAudit(
   const businessDate = getBusinessDate();
 
   for (const adj of adjustments) {
-    const { data: existingStock } = await supabase
+    const { data: existingStock, error: fetchErr } = await supabase
       .from('uniforms_inventory_stock')
       .select('quantity_on_hand, min_stock')
       .eq('store_id', storeId)
@@ -195,24 +214,29 @@ export async function saveManualAudit(
       .eq('size', adj.size)
       .maybeSingle();
 
+    if (fetchErr) throw new Error(fetchErr.message);
+
     const prevQty = Number(existingStock?.quantity_on_hand ?? 0);
     const minStock = (existingStock?.min_stock !== null && existingStock?.min_stock !== undefined)
-      ? existingStock.min_stock
+      ? Number(existingStock.min_stock)
       : getDefaultMinStock(adj.item_category as UniformCategory, adj.size as UniformSize);
-    const qtyDiff = adj.newQty - prevQty;
+    const targetQty = Math.max(0, Number(adj.newQty) || 0);
+    const qtyDiff = targetQty - prevQty;
 
-    await supabase
+    const { error: upsertErr } = await supabase
       .from('uniforms_inventory_stock')
       .upsert({
         store_id: storeId,
         item_category: adj.item_category,
         size: adj.size,
-        quantity_on_hand: adj.newQty,
+        quantity_on_hand: targetQty,
         min_stock: minStock,
         updated_at: new Date().toISOString()
       }, { onConflict: 'store_id, item_category, size' });
 
-    await supabase
+    if (upsertErr) throw new Error(upsertErr.message);
+
+    const { error: txErr } = await supabase
       .from('uniforms_transactions')
       .insert({
         store_id: storeId,
@@ -221,7 +245,7 @@ export async function saveManualAudit(
         transaction_type: 'manual_audit',
         quantity: qtyDiff,
         previous_stock: prevQty,
-        new_stock: adj.newQty,
+        new_stock: targetQty,
         unit_price: 0,
         total_amount: 0,
         reason: adj.reason,
@@ -229,6 +253,8 @@ export async function saveManualAudit(
         created_by: userEmail,
         created_at: new Date().toISOString()
       });
+
+    if (txErr) throw new Error(txErr.message);
   }
   return { success: true };
 }
@@ -244,7 +270,7 @@ export async function updateSingleUniformStock(payload: {
   const supabase = await getSupabaseAdminClient();
   const businessDate = getBusinessDate();
 
-  const { data: existingStock } = await supabase
+  const { data: existingStock, error: fetchErr } = await supabase
     .from('uniforms_inventory_stock')
     .select('quantity_on_hand, min_stock')
     .eq('store_id', payload.storeId)
@@ -252,24 +278,29 @@ export async function updateSingleUniformStock(payload: {
     .eq('size', payload.size)
     .maybeSingle();
 
+  if (fetchErr) throw new Error(fetchErr.message);
+
   const prevQty = Number(existingStock?.quantity_on_hand ?? 0);
   const minStock = (existingStock?.min_stock !== null && existingStock?.min_stock !== undefined)
-    ? existingStock.min_stock
+    ? Number(existingStock.min_stock)
     : getDefaultMinStock(payload.item_category as UniformCategory, payload.size as UniformSize);
-  const qtyDiff = payload.newQty - prevQty;
+  const targetQty = Math.max(0, Number(payload.newQty) || 0);
+  const qtyDiff = targetQty - prevQty;
 
-  await supabase
+  const { error: upsertErr } = await supabase
     .from('uniforms_inventory_stock')
     .upsert({
       store_id: payload.storeId,
       item_category: payload.item_category,
       size: payload.size,
-      quantity_on_hand: payload.newQty,
+      quantity_on_hand: targetQty,
       min_stock: minStock,
       updated_at: new Date().toISOString()
     }, { onConflict: 'store_id, item_category, size' });
 
-  await supabase
+  if (upsertErr) throw new Error(upsertErr.message);
+
+  const { error: txErr } = await supabase
     .from('uniforms_transactions')
     .insert({
       store_id: payload.storeId,
@@ -278,7 +309,7 @@ export async function updateSingleUniformStock(payload: {
       transaction_type: 'manual_audit',
       quantity: qtyDiff,
       previous_stock: prevQty,
-      new_stock: payload.newQty,
+      new_stock: targetQty,
       unit_price: 0,
       total_amount: 0,
       reason: payload.reason || 'Ajuste individual de stock por supervisor',
@@ -286,6 +317,8 @@ export async function updateSingleUniformStock(payload: {
       created_by: payload.userEmail,
       created_at: new Date().toISOString()
     });
+
+  if (txErr) throw new Error(txErr.message);
 
   return { success: true };
 }
@@ -331,20 +364,26 @@ export async function recordUniformSale(payload: {
     }
   }
 
-  const { data: stock } = await supabase
+  const { data: stock, error: sErr } = await supabase
     .from('uniforms_inventory_stock')
-    .select('quantity_on_hand')
+    .select('quantity_on_hand, min_stock')
     .eq('store_id', payload.storeId)
     .eq('item_category', payload.item_category)
     .eq('size', payload.size)
-    .single();
+    .maybeSingle();
+
+  if (sErr) throw new Error(sErr.message);
 
   const prevQty = Number(stock?.quantity_on_hand ?? 0);
+  const minStock = (stock?.min_stock !== null && stock?.min_stock !== undefined)
+    ? Number(stock.min_stock)
+    : getDefaultMinStock(payload.item_category as UniformCategory, payload.size as UniformSize);
+
   if (prevQty <= 0) {
     return { success: false, processedQty: 0, warning: 'No stock available' };
   }
 
-  let processedQty = Number(payload.quantity) || 1;
+  let processedQty = Math.max(1, Number(payload.quantity) || 1);
   let warning = undefined;
   if (prevQty < processedQty) {
     processedQty = prevQty;
@@ -352,14 +391,18 @@ export async function recordUniformSale(payload: {
   }
 
   const newQty = prevQty - processedQty;
-  const totalAmount = unitPrice * processedQty;
+  const totalAmount = Math.round((unitPrice * processedQty) * 100) / 100;
 
   const { error: stockErr } = await supabase
     .from('uniforms_inventory_stock')
-    .update({ quantity_on_hand: newQty, updated_at: new Date().toISOString() })
-    .eq('store_id', payload.storeId)
-    .eq('item_category', payload.item_category)
-    .eq('size', payload.size);
+    .upsert({
+      store_id: payload.storeId,
+      item_category: payload.item_category,
+      size: payload.size,
+      quantity_on_hand: newQty,
+      min_stock: minStock,
+      updated_at: new Date().toISOString()
+    }, { onConflict: 'store_id, item_category, size' });
 
   if (stockErr) throw new Error(stockErr.message);
 
@@ -400,7 +443,7 @@ export async function recordNewHirePackage(payload: {
   const supabase = await getSupabaseAdminClient();
   const bDate = payload.businessDate || getBusinessDate();
   const packageItems: Array<{ item: UniformCategory, size: UniformSize, requested: number }> = payload.items 
-    ? payload.items.map(i => ({ item: i.item_category, size: i.size, requested: i.quantity }))
+    ? payload.items.map(i => ({ item: i.item_category, size: i.size, requested: Number(i.quantity) || 0 }))
     : [
         { item: 'shirt_red' as UniformCategory, size: (payload.sizes?.shirt || 'M') as UniformSize, requested: 6 },
         { item: 'cap_red' as UniformCategory, size: (payload.sizes?.cap || 'ONE_SIZE') as UniformSize, requested: 1 },
@@ -412,16 +455,22 @@ export async function recordNewHirePackage(payload: {
   for (const packItem of packageItems) {
     if (packItem.requested <= 0) continue;
 
-    const { data: stock } = await supabase
+    const { data: stock, error: sErr } = await supabase
       .from('uniforms_inventory_stock')
-      .select('quantity_on_hand')
+      .select('quantity_on_hand, min_stock')
       .eq('store_id', payload.storeId)
       .eq('item_category', packItem.item)
       .eq('size', packItem.size)
-      .single();
+      .maybeSingle();
     
+    if (sErr) throw new Error(sErr.message);
+
     const prevQty = Number(stock?.quantity_on_hand ?? 0);
-    let delivered = Number(packItem.requested) || 0;
+    const minStock = (stock?.min_stock !== null && stock?.min_stock !== undefined)
+      ? Number(stock.min_stock)
+      : getDefaultMinStock(packItem.item as UniformCategory, packItem.size as UniformSize);
+
+    let delivered = Math.max(0, Number(packItem.requested) || 0);
     let warning = undefined;
     
     if (prevQty <= 0) {
@@ -437,10 +486,14 @@ export async function recordNewHirePackage(payload: {
       
       const { error: stockErr } = await supabase
         .from('uniforms_inventory_stock')
-        .update({ quantity_on_hand: newQty, updated_at: new Date().toISOString() })
-        .eq('store_id', payload.storeId)
-        .eq('item_category', packItem.item)
-        .eq('size', packItem.size);
+        .upsert({
+          store_id: payload.storeId,
+          item_category: packItem.item,
+          size: packItem.size,
+          quantity_on_hand: newQty,
+          min_stock: minStock,
+          updated_at: new Date().toISOString()
+        }, { onConflict: 'store_id, item_category, size' });
 
       if (stockErr) throw new Error(stockErr.message);
 
@@ -557,7 +610,7 @@ export async function confirmOrderReception(payload: {
   const businessDate = getBusinessDate();
 
   for (const item of payload.items) {
-    const { data: stock } = await supabase
+    const { data: stock, error: sErr } = await supabase
       .from('uniforms_inventory_stock')
       .select('quantity_on_hand, min_stock')
       .eq('store_id', payload.storeId)
@@ -565,14 +618,16 @@ export async function confirmOrderReception(payload: {
       .eq('size', item.size)
       .maybeSingle();
 
+    if (sErr) throw new Error(sErr.message);
+
     const prevQty = Number(stock?.quantity_on_hand ?? 0);
     const minStock = (stock?.min_stock !== null && stock?.min_stock !== undefined)
-      ? stock.min_stock
+      ? Number(stock.min_stock)
       : getDefaultMinStock(item.item_category as UniformCategory, item.size as UniformSize);
-    const receivedQty = Number(item.receivedQty) || 0;
+    const receivedQty = Math.max(0, Number(item.receivedQty) || 0);
     const newQty = prevQty + receivedQty;
 
-    await supabase
+    const { error: upsertErr } = await supabase
       .from('uniforms_inventory_stock')
       .upsert({
         store_id: payload.storeId,
@@ -583,9 +638,11 @@ export async function confirmOrderReception(payload: {
         updated_at: new Date().toISOString()
       }, { onConflict: 'store_id, item_category, size' });
 
+    if (upsertErr) throw new Error(upsertErr.message);
+
     const isValidUuid = payload.orderId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(payload.orderId) && payload.orderId !== '00000000-0000-0000-0000-000000000000';
 
-    await supabase
+    const { error: txErr } = await supabase
       .from('uniforms_transactions')
       .insert({
         store_id: payload.storeId,
@@ -598,27 +655,33 @@ export async function confirmOrderReception(payload: {
         unit_price: 0,
         total_amount: 0,
         reference_order_id: isValidUuid ? payload.orderId : null,
-        reason: payload.notes,
+        reason: payload.notes || null,
         business_date: businessDate,
         created_by: payload.userEmail,
         created_at: new Date().toISOString()
       });
+
+    if (txErr) throw new Error(txErr.message);
   }
 
   // Update order status in inventory_orders to 'received' to prevent duplicate reception
   if (payload.orderId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(payload.orderId) && payload.orderId !== '00000000-0000-0000-0000-000000000000') {
-    await supabase
+    const { error: ordErr } = await supabase
       .from('inventory_orders')
       .update({ status: 'received', updated_at: new Date().toISOString() })
       .eq('id', payload.orderId);
+    if (ordErr) throw new Error(ordErr.message);
   } else if (payload.estimateNum && payload.estimateNum.trim()) {
-    const safeEst = payload.estimateNum.trim().replace(/[%'(),]/g, '');
-    await supabase
-      .from('inventory_orders')
-      .update({ status: 'received', updated_at: new Date().toISOString() })
-      .eq('store_id', payload.storeId)
-      .eq('order_type', 'uniforms')
-      .or(`qb_estimate_number.ilike.%${safeEst}%,qb_estimate_id.ilike.%${safeEst}%`);
+    const safeEst = payload.estimateNum.trim().replace(/[^a-zA-Z0-9\-_]/g, '');
+    if (safeEst) {
+      const { error: ordErr } = await supabase
+        .from('inventory_orders')
+        .update({ status: 'received', updated_at: new Date().toISOString() })
+        .eq('store_id', payload.storeId)
+        .eq('order_type', 'uniforms')
+        .or(`qb_estimate_number.ilike.%${safeEst}%,qb_estimate_id.ilike.%${safeEst}%`);
+      if (ordErr) throw new Error(ordErr.message);
+    }
   }
 
   return { success: true };
@@ -650,12 +713,15 @@ export async function fetchTransactionHistory(
   return data || [];
 }
 
-export async function fetchEmployeeKardex(employeeToastGuid: string): Promise<any[]> {
+export async function fetchEmployeeKardex(searchQuery: string): Promise<any[]> {
   const supabase = await getSupabaseAdminClient();
+  const clean = searchQuery.trim().replace(/[%'(),]/g, '');
+  if (!clean) return [];
+
   const { data, error } = await supabase
     .from('uniforms_transactions')
     .select('*')
-    .eq('employee_toast_guid', employeeToastGuid)
+    .or(`employee_toast_guid.eq.${clean},employee_name.ilike.%${clean}%`)
     .order('created_at', { ascending: false });
   if (error) throw new Error(error.message);
   return data || [];
@@ -667,10 +733,23 @@ export async function fetchExecutiveDashboard(): Promise<{
 }> {
   const supabase = await getSupabaseAdminClient();
   
-  const { data: stores } = await supabase.from('stores').select('id, name').eq('is_active', true);
-  const { data: stockData } = await supabase.from('uniforms_inventory_stock').select('*');
-  const { data: pricingData } = await supabase.from('uniforms_pricing').select('*');
-  const { data: txData } = await supabase.from('uniforms_transactions').select('*');
+  const { data: stores, error: sErr } = await supabase.from('stores').select('id, name').eq('is_active', true);
+  if (sErr) throw new Error(sErr.message);
+
+  const { data: stockData, error: stErr } = await supabase.from('uniforms_inventory_stock').select('*');
+  if (stErr) throw new Error(stErr.message);
+
+  const { data: pricingData, error: pErr } = await supabase.from('uniforms_pricing').select('*');
+  if (pErr) throw new Error(pErr.message);
+
+  const { data: txData, error: tErr } = await supabase.from('uniforms_transactions').select('*');
+  if (tErr) throw new Error(tErr.message);
+
+  const { count: pendingOrdersCount } = await supabase
+    .from('inventory_orders')
+    .select('*', { count: 'exact', head: true })
+    .eq('order_type', 'uniforms')
+    .eq('status', 'pending');
 
   const pricingMap = new Map((pricingData || []).map((p: any) => [p.item_category, p]));
 
@@ -680,12 +759,12 @@ export async function fetchExecutiveDashboard(): Promise<{
 
   const storesData = (stores || []).map((store: any) => {
     const storeStock = (stockData || []).filter((s: any) => s.store_id === store.id);
-    const storeTx = (txData || []).filter((tx: any) => tx.store_id === store.id);
+    const storeTx = (txData || []).filter((tx: any) => tx.store_id === store.id && !(tx.reason && tx.reason.includes('[ANULADO]')));
 
-    const totalItems = storeStock.reduce((sum: number, item: any) => sum + (item.quantity_on_hand || 0), 0);
+    const totalItems = storeStock.reduce((sum: number, item: any) => sum + (Number(item.quantity_on_hand) || 0), 0);
     const totalValue = storeStock.reduce((sum: number, item: any) => {
       const p = pricingMap.get(item.item_category);
-      return sum + ((item.quantity_on_hand || 0) * (p?.sale_price || 0));
+      return sum + ((Number(item.quantity_on_hand) || 0) * (Number(p?.sale_price) || 0));
     }, 0);
     
     const hasInitialCount = storeTx.some((tx: any) => tx.transaction_type === 'initial_count');
@@ -697,7 +776,7 @@ export async function fetchExecutiveDashboard(): Promise<{
     globalTotalStock += totalItems;
     globalTotalSalesAmount += storeTx
       .filter((tx: any) => tx.transaction_type === 'employee_sale' || tx.transaction_type === 'customer_sale')
-      .reduce((sum: number, tx: any) => sum + (tx.total_amount || 0), 0);
+      .reduce((sum: number, tx: any) => sum + (Number(tx.total_amount) || 0), 0);
     globalDamageExchanges += storeTx.filter((tx: any) => tx.transaction_type === 'damage_exchange').length;
 
     return {
@@ -716,7 +795,7 @@ export async function fetchExecutiveDashboard(): Promise<{
       totalStock: globalTotalStock,
       totalSalesAmount: globalTotalSalesAmount,
       damageExchanges: globalDamageExchanges,
-      pendingReceptions: 0
+      pendingReceptions: pendingOrdersCount || 0
     }
   };
 }
@@ -732,7 +811,7 @@ export async function fetchDailySalesTotal(storeId: number, businessDate: string
     
   if (error) throw new Error(error.message);
   
-  return (data || []).reduce((sum: number, tx: any) => sum + (tx.total_amount || 0), 0);
+  return (data || []).reduce((sum: number, tx: any) => sum + (Number(tx.total_amount) || 0), 0);
 }
 
 export async function fetchQBEstimateForReception(storeId: number, searchEstimate: string): Promise<{
@@ -822,8 +901,8 @@ export async function fetchQBEstimateForReception(storeId: number, searchEstimat
     .map((l: any, idx: number) => {
       const itemName = invItemMap.get(l.inventory_item_id) || `Item #${idx + 1}`;
       const qty = l.final_qty !== null && l.final_qty !== undefined
-        ? l.final_qty
-        : (l.adjusted_qty !== null && l.adjusted_qty !== undefined ? l.adjusted_qty : (l.calculated_qty ?? 0));
+        ? Number(l.final_qty)
+        : (l.adjusted_qty !== null && l.adjusted_qty !== undefined ? Number(l.adjusted_qty) : Number(l.calculated_qty ?? 0));
       
       const parsed = parseUniformCategoryAndSize(itemName);
 
@@ -861,13 +940,15 @@ export async function fetchRecentStoreEstimates(storeId: number): Promise<Array<
   status: string
 }>> {
   const supabase = await getSupabaseAdminClient();
-  const { data: orders } = await supabase
+  const { data: orders, error } = await supabase
     .from('inventory_orders')
     .select('id, qb_estimate_number, qb_estimate_id, created_at, status')
     .eq('store_id', storeId)
     .eq('order_type', 'uniforms')
     .order('created_at', { ascending: false })
     .limit(10);
+
+  if (error) throw new Error(error.message);
 
   return (orders || []).map((o: any) => ({
     id: o.id,
@@ -1011,17 +1092,19 @@ export async function voidUniformTransaction(payload: {
     return { success: false, warning: 'La transacción ya está anulada' };
   }
 
-  const { data: stock } = await supabase
+  const { data: stock, error: sErr } = await supabase
     .from('uniforms_inventory_stock')
     .select('quantity_on_hand, min_stock')
     .eq('store_id', tx.store_id)
     .eq('item_category', tx.item_category)
     .eq('size', tx.size)
-    .single();
+    .maybeSingle();
+
+  if (sErr) throw new Error(sErr.message);
 
   const prevStock = Number(stock?.quantity_on_hand ?? 0);
   const minStock = (stock?.min_stock !== null && stock?.min_stock !== undefined)
-    ? stock.min_stock
+    ? Number(stock.min_stock)
     : getDefaultMinStock(tx.item_category as UniformCategory, tx.size as UniformSize);
   const reverseDelta = -Number(tx.quantity);
   const newStock = Math.max(0, prevStock + reverseDelta);

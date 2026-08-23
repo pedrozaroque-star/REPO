@@ -1,3 +1,16 @@
+/**
+ * @module descansos-page
+ * @description Gestor interactivo inteligente de descansos y almuerzos (Breaks de 10 min y Lunches de 30 min) para restaurantes de Tacos Gavilan.
+ * @businessRules
+ * - Regla de Día Laboral: 6:00 AM a 5:59 AM del siguiente día (24 horas continuas = 1,440 minutos).
+ * - Ley Laboral de California: Primer almuerzo obligatorio antes de la 5ª hora de jornada.
+ * - Prioridad de Salida Anticipada (Regla Manager Jesús): Empleados con salida más temprana van a comer primero.
+ * - Modo Kiosko / Tableta: Visualización de alta legibilidad bloqueada contra arrastres accidentales en iPad/tablets.
+ * - Aprendizaje Continuo (AI Learning): Movimientos manuales del mánager se guardan en `break_manual_overrides` y se aplican en futuros cálculos.
+ * @dataFlow Sincroniza turnos de `shifts`, ponchadas de `punches` (Toast POS), proyección de ventas, y guarda preferencias aprendidas en `break_manual_overrides`.
+ * @notes Renderizado progresivo ultrarrápido con caché en DB (<150ms) y sincronización bidireccional PC-tableta.
+ */
+
 'use client'
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
@@ -97,9 +110,11 @@ export default function DescansosPage() {
         };
         
         setSmartShifts(prev => prev.map(s => s.id === shift.id ? { ...s, breaks_schedule: newBreaks } : s));
+        if (lastDataRef.current?.shifts) {
+            lastDataRef.current.shifts = lastDataRef.current.shifts.map(s => s.id === shift.id ? { ...s, breaks_schedule: newBreaks } : s);
+        }
         
         try {
-            const { getSupabaseClient } = await import('@/lib/supabase');
             const supabase = await getSupabaseClient();
             await supabase.from('shifts').update({ breaks_schedule: newBreaks }).eq('id', shift.id);
 
@@ -172,7 +187,6 @@ export default function DescansosPage() {
 
         // Guardar en DB y limpiar la preferencia aprendida para que la IA realmente recalcule libremente
         try {
-            const { getSupabaseClient } = await import('@/lib/supabase');
             const supabase = await getSupabaseClient();
             await supabase.from('shifts').update({ breaks_schedule: newBreaks }).eq('id', shift.id);
 
@@ -239,7 +253,6 @@ export default function DescansosPage() {
         const updatedBreaks = [...existingBreaks, newBreak].sort((a: any, b: any) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime());
 
         try {
-            const { getSupabaseClient } = await import('@/lib/supabase');
             const supabase = await getSupabaseClient();
             await supabase.from('shifts').update({ breaks_schedule: updatedBreaks }).eq('id', shift.id);
 
@@ -267,7 +280,6 @@ export default function DescansosPage() {
         const updatedBreaks = (shift.breaks_schedule || []).filter((_: any, idx: number) => idx !== breakIdx);
 
         try {
-            const { getSupabaseClient } = await import('@/lib/supabase');
             const supabase = await getSupabaseClient();
             await supabase.from('shifts').update({ breaks_schedule: updatedBreaks }).eq('id', shift.id);
 

@@ -127,43 +127,72 @@ export function parseUniformCategoryAndSize(name: string): { category: UniformCa
     const cleanName = (name || '').trim().toLowerCase()
 
     let category: UniformCategory | null = null
-    if (cleanName.includes('team member') || cleanName.includes('shirt red') || cleanName.includes('camisa roja')) {
-        if (cleanName.includes('chamarra')) category = 'jacket_red'
-        else if (cleanName.includes('gorra')) category = 'cap_red'
-        else category = 'shirt_red'
-    } else if (cleanName.includes('shift leader')) {
+
+    // 1. Caps / Gorras
+    if (cleanName.includes('gorra') || cleanName.includes('cap')) {
+        if (cleanName.includes('negra') || cleanName.includes('black')) {
+            category = 'cap_black'
+        } else if (cleanName.includes('roja') || cleanName.includes('red') || cleanName.includes('team member')) {
+            category = 'cap_red'
+        } else {
+            category = 'cap_red'
+        }
+    }
+    // 2. Jackets / Chamarras
+    else if (cleanName.includes('chamarra') || cleanName.includes('jacket')) {
+        if (cleanName.includes('negra') || cleanName.includes('black')) {
+            category = 'jacket_black'
+        } else if (cleanName.includes('roja') || cleanName.includes('red') || cleanName.includes('team member')) {
+            category = 'jacket_red'
+        } else {
+            category = 'jacket_red'
+        }
+    }
+    // 3. Shift Leader Shirts
+    else if (cleanName.includes('shift leader')) {
         category = 'shirt_shift_leader'
-    } else if (cleanName.includes('assistant manager')) {
+    }
+    // 4. Assistant Manager Polo
+    else if (cleanName.includes('assistant manager') || cleanName.includes('polo black') || cleanName.includes('polo negra')) {
         category = 'shirt_assistant'
-    } else if (cleanName.includes('store manager')) {
+    }
+    // 5. Store Manager Shirt
+    else if (cleanName.includes('store manager') || cleanName.includes('shirt manager')) {
         category = 'shirt_manager'
-    } else if (cleanName.includes('chamarra negra')) {
-        category = 'jacket_black'
-    } else if (cleanName.includes('chamarra roja')) {
-        category = 'jacket_red'
-    } else if (cleanName.includes('gorra') && cleanName.includes('roja')) {
-        category = 'cap_red'
-    } else if (cleanName.includes('gorra') && cleanName.includes('negra')) {
-        category = 'cap_black'
+    }
+    // 6. Red Team Member Shirts
+    else if (
+        cleanName.includes('team member') ||
+        cleanName.includes('shirt red') ||
+        cleanName.includes('red shirt') ||
+        cleanName.includes('camisa roja') ||
+        cleanName.includes('playera roja')
+    ) {
+        category = 'shirt_red'
     }
 
+    // Determine size (ONE_SIZE for caps, or parsed size for shirts/jackets)
     let size: UniformSize = 'ONE_SIZE'
     if (category === 'cap_red' || category === 'cap_black') {
         size = 'ONE_SIZE'
-    } else if (cleanName.includes('xxx-large') || cleanName.includes('3xl') || cleanName.includes('xxx-l')) {
-        size = '3XL'
-    } else if (cleanName.includes('xx-large') || cleanName.includes('2xl') || cleanName.includes('xx-l')) {
-        size = '2XL'
-    } else if (cleanName.includes('x-large') || cleanName.includes(' xl') || cleanName.includes('xl') || cleanName.includes('x-l')) {
-        size = 'XL'
-    } else if (cleanName.includes('x-small') || cleanName.includes('xs')) {
-        size = 'XS'
-    } else if (cleanName.includes('small')) {
-        size = 'S'
-    } else if (cleanName.includes('medium')) {
-        size = 'M'
-    } else if (cleanName.includes('large')) {
-        size = 'L'
+    } else if (category) {
+        if (cleanName.includes('xxx-large') || cleanName.includes('3xl') || cleanName.includes('xxx-l') || cleanName.includes('xxxl')) {
+            size = '3XL'
+        } else if (cleanName.includes('xx-large') || cleanName.includes('2xl') || cleanName.includes('xx-l') || cleanName.includes('xxl')) {
+            size = '2XL'
+        } else if (cleanName.includes('x-large') || cleanName.includes(' xl') || cleanName.includes('xl') || cleanName.includes('x-l')) {
+            size = 'XL'
+        } else if (cleanName.includes('x-small') || cleanName.includes('xs') || cleanName.includes('x-s')) {
+            size = 'XS'
+        } else if (cleanName.includes('small') || /\b(s|ch|chica)\b/.test(cleanName)) {
+            size = 'S'
+        } else if (cleanName.includes('medium') || /\b(m|med|mediana)\b/.test(cleanName)) {
+            size = 'M'
+        } else if (cleanName.includes('large') || /\b(l|g|grande)\b/.test(cleanName)) {
+            size = 'L'
+        } else {
+            size = 'M' // Default fallback size for shirts
+        }
     }
 
     return { category, size }

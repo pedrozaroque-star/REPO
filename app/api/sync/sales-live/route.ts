@@ -1,21 +1,42 @@
 /**
  * @module api/sync/sales-live/route
- * @description Triggers on-demand live synchronization of sales and labor punches from Toast API for the current business day.
+ * @description Triggers on-demand live synchronization of sales and labor punches from Toast API for the current business day and persists to database.
  * @businessRules
  * - Day rollover boundary is 6:00 AM PST/PDT.
  * - Captures labor punches from 00:00 UTC through 14:00 UTC next day (7:00 AM PDT) ensuring no early morning punch cutoffs.
+ * - Writes live sales records atomically to sales_daily_cache.
  * @dataFlow
- * - Client / Background Sync -> POST /api/sync/sales-live -> Toast API & syncToastPunches -> Response.
+ * - Client / Background Sync -> POST /api/sync/sales-live -> Toast API & syncToastPunches -> Supabase -> Response.
  */
 
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { fetchToastData } from '@/lib/toast-api'
 import { syncToastPunches } from '@/lib/toast-labor'
+import { verifyAuthToken } from '@/lib/auth-server'
+import { getSupabaseAdminClient } from '@/lib/supabase'
 
 export const dynamic = 'force-dynamic'
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
     try {
+        // Authenticate request
+        const authHeader = request.headers.get('Authorization')
+        const cookieToken = request.cookies.get('teg_token')?.value
+        const token = authHeader ? authHeader.replace(/^Bearer\s+/i, '').trim() : cookieToken
+
+        if (!token) {
+            return NextResponse.json({ error: 'Missing Authentication Token' }, { status: 401 })
+        }
+
+        const user = verifyAuthToken(token)
+        if (!user) {
+            return NextResponse.json({ error: 'Invalid Token' }, { status: 401 })
+        }
+
+        if (user.user_role !== 'admin' && user.user_role !== 'supervisor' && user.user_role !== 'manager') {
+            return NextResponse.json({ error: 'Forbidden: Admins, Supervisors & Managers Only' }, { status: 403 })
+        }
+
         const body = await request.json()
         const { storeId } = body
 
@@ -53,30 +74,77 @@ export async function POST(request: Request) {
             startDate: todayStr,
             endDate: todayStr,
             groupBy: 'day',
-            fastMode: false, // Switch to Full Mode for precision parity with Sales Page
+            fastMode: false,
             skipCache: true,
-            readOnly: true
+            readOnly: false
         })
 
         // 2. Sync Labor (Punches)
-        let laborPromise = Promise.resolve({ count: 0, success: true })
+        const supabase = await getSupabaseAdminClient()
+        let laborCount = 0
 
-        if (storeId) {
-            laborPromise = (syncToastPunches(storeId, startIso, endIso) as Promise<{ count: number, success: boolean }>)
+        if (storeId && storeId !== 'all') {
+            const laborRes = await (syncToastPunches(storeId, startIso, endIso) as Promise<{ count: number, success: boolean }>)
+            laborCount = laborRes.count || 0
+        } else {
+            const { data: stores } = await supabase.from('stores').select('id, external_id, name').eq('is_active', true)
+            if (stores && stores.length > 0) {
+                const punchPromises = stores.map(st => {
+                    const extId = st.external_id || st.id
+                    return syncToastPunches(extId, startIso, endIso)
+                })
+                const results = await Promise.allSettled(punchPromises)
+                results.forEach((r: any) => {
+                    if (r.status === 'fulfilled' && r.value?.count) {
+                        laborCount += r.value.count
+                    }
+                })
+            }
         }
 
-        const [salesRes, laborRes] = await Promise.all([salesPromise, laborPromise])
+        const salesRes = await salesPromise
 
-        if (salesRes.connectionError) {
+        if (salesRes.connectionError && salesRes.rows.length === 0) {
             return NextResponse.json({ error: salesRes.connectionError }, { status: 502 })
+        }
+
+        // Explicit Upsert into sales_daily_cache for today's live sales
+        if (salesRes.rows && salesRes.rows.length > 0) {
+            const dbRows = salesRes.rows.map((r: any) => ({
+                store_id: r.storeId,
+                business_date: todayStr,
+                store_name: r.storeName,
+                net_sales: r.netSales,
+                gross_sales: r.grossSales,
+                discounts: r.discounts,
+                tips: r.tips,
+                taxes: r.taxes,
+                service_charges: r.serviceCharges,
+                order_count: r.orderCount,
+                guest_count: r.guestCount,
+                labor_hours: r.totalHours,
+                labor_cost: r.laborCost,
+                uber_sales: r.uberSales || 0,
+                doordash_sales: r.doordashSales || 0,
+                grubhub_sales: r.grubhubSales || 0,
+                ebt_count: r.ebtCount || 0,
+                ebt_amount: r.ebtAmount || 0,
+                hourly_data: r.hourlySales || {},
+                hourly_tickets: r.hourlyTickets || {},
+                hourly_labor: r.hourlyLabor || {},
+                updated_at: new Date().toISOString()
+            }))
+
+            await supabase
+                .from('sales_daily_cache')
+                .upsert(dbRows, { onConflict: 'store_id,business_date' })
         }
 
         return NextResponse.json({
             success: true,
             sales_records: salesRes.rows.length,
-            labor_records: laborRes.count,
-            sales_data: salesRes.rows.length > 0 ? salesRes.rows[0].netSales : 0,
-            message: `Updated Live Data for ${todayStr}. Sales: ${salesRes.rows.length}, Punches: ${laborRes.count}`
+            labor_records: laborCount,
+            message: `Updated Live Data for ${todayStr}. Sales: ${salesRes.rows.length}, Punches: ${laborCount}`
         })
 
     } catch (error: any) {

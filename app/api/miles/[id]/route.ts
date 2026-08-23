@@ -81,6 +81,20 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
 
     const supabase = await getSupabaseAdminClient()
 
+    // 1. Fetch trip to verify status
+    const { data: existingTrip } = await supabase
+      .from('supervisor_mileage_trips')
+      .select('status')
+      .eq('id', id)
+      .single()
+
+    if (existingTrip && (existingTrip.status === 'submitted_hr' || existingTrip.status === 'paid')) {
+      return NextResponse.json(
+        { error: 'No se pueden eliminar viajes que ya han sido enviados a Recursos Humanos o pagados.' },
+        { status: 403 }
+      )
+    }
+
     const { error } = await supabase
       .from('supervisor_mileage_trips')
       .delete()

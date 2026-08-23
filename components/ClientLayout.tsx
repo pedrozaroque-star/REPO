@@ -4,6 +4,7 @@ import { usePathname } from 'next/navigation'
 import AppSidebar from './AppSidebar'
 import BottomTabBar from './BottomTabBar'
 import SupportChatWidget from './SupportChatWidget'
+import SupervisorAutoTracker from './miles/SupervisorAutoTracker'
 import { useState, useEffect } from 'react'
 import { LanguageProvider } from '@/lib/i18n'
 
@@ -99,6 +100,9 @@ export default function ClientLayout({
                     
                     {/* TEG Assistant Chat Widget */}
                     <SupportChatWidget />
+
+                    {/* Supervisor Smart Mileage Auto-Tracker */}
+                    <SupervisorAutoTracker />
                 </div>
             )}
         </LanguageProvider>

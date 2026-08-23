@@ -32,6 +32,13 @@ import {
     CalendarShiftItem
 } from '@/lib/calendar-helper'
 
+// Helper to extract California local hour (0-23) immune to UTC server drift
+function getLAHour(d: Date): number {
+  const str = d.toLocaleTimeString('en-US', { hour: 'numeric', hour12: false, timeZone: 'America/Los_Angeles' });
+  const h = parseInt(str, 10);
+  return h === 24 ? 0 : h;
+}
+
 // Helper to translate employee job + station group to the 6 standard roles
 function resolvePositionKey(jobTitle: string, stationName?: string, stationGroup?: string): string {
   const title = (jobTitle || '').toLowerCase();
@@ -434,7 +441,7 @@ export async function POST(req: Request) {
                     const dayStr = s.shift_date;
                     let empShiftType = 'AM';
                     const startDate = new Date(s.start_time);
-                    if (startDate.getHours() >= 17) empShiftType = 'PM';
+                    if (getLAHour(startDate) >= 17) empShiftType = 'PM';
                     const shiftSuffix = `_${empShiftType}`;
                     const myPositions = (stationAssignments || []).filter(a => 
                         a.employee_id === emp.id && 
@@ -498,9 +505,9 @@ export async function POST(req: Request) {
                     // BUSCAR POSICIONES / STATIONS (un empleado puede tener múltiples posiciones)
                     const dayStr = s.shift_date; // Usar la fecha del shift mapeada correctamente en DB en vez de la conversión UTC
 
-                    // Determine shift type from start time
+                    // Determine shift type from start time using LA timezone
                     let empShiftType = 'AM';
-                    if (startDate.getHours() >= 17) {
+                    if (getLAHour(startDate) >= 17) {
                         empShiftType = 'PM';
                     }
                     const shiftSuffix = `_${empShiftType}`;
@@ -558,6 +565,10 @@ export async function POST(req: Request) {
                     const job = (allJobs || []).find((j: any) => j.id === s.job_id || String(j.guid) === String(s.job_id) || String(j.id) === String(s.job_id));
                     const jobTitle = job?.title || '';
 
+                    // Resolve station display name
+                    const stationNames = myPositions.map(p => p.main_station || p.sub_position?.replace(shiftSuffix, '')).filter(Boolean);
+                    const stationDisplay = stationNames.length > 0 ? stationNames.join(' + ') : jobTitle;
+
                     if (s.is_callback === true) {
                         positionBadge = `
                             <div style="margin-top: 4px; font-size: 13px; font-weight: 800; color: #dc2626; background: #fef2f2; padding: 4px 10px; border-radius: 6px; display: inline-block; border: 1px solid #fee2e2;">
@@ -565,16 +576,15 @@ export async function POST(req: Request) {
                             </div>
                         `;
                         tasksHtml = '';
-                    } else if (myPositions.length > 0 && isActivitiesEnabled) {
-                        // Show ALL station names in the badge
-                        const stationNames = myPositions.map(p => p.main_station || p.sub_position?.replace(shiftSuffix, '')).filter(Boolean);
-                        const stationDisplay = stationNames.join(' + ');
+                    } else if (stationDisplay) {
                         positionBadge = `
                             <div style="margin-top: 4px; font-size: 13px; font-weight: 800; color: #4f46e5; background: #eef2ff; padding: 4px 10px; border-radius: 6px; display: inline-block; border: 1px solid #c7d2fe;">
-                                <span style="font-size: 10px; color: #6366f1; text-transform: uppercase;">Posición:</span> ${stationDisplay}
+                                <span style="font-size: 10px; color: #6366f1; text-transform: uppercase;">Puesto:</span> ${stationDisplay}
                             </div>
                         `;
+                    }
 
+                    if (s.is_callback !== true && myPositions.length > 0 && isActivitiesEnabled) {
                         const shiftType = empShiftType;
                         const storeModel = hasDT ? 'DRIVE_THRU' : 'REGULAR';
 
@@ -663,7 +673,7 @@ export async function POST(req: Request) {
                     } else if (isActivitiesEnabled) {
                         // Fallback resolution directly from Toast Job Title & Shift Hours (only for pilot stores)
                         let shiftType = 'AM';
-                        if (startDate.getHours() >= 17) {
+                        if (getLAHour(startDate) >= 17) {
                             shiftType = 'PM';
                         }
 
@@ -983,8 +993,8 @@ export async function POST(req: Request) {
                 empShifts.forEach(s => {
                     const start = new Date(s.start_time);
                     const end = new Date(s.end_time);
-                    const startH = start.getHours() + (start.getMinutes() / 60);
-                    let endH = end.getHours() + (end.getMinutes() / 60);
+                    const startH = getLAHour(start) + (start.getMinutes() / 60);
+                    let endH = getLAHour(end) + (end.getMinutes() / 60);
                     if (endH < startH) endH += 24;
                     const overlapAm = Math.max(0, Math.min(endH, 17) - startH);
                     const overlapPm = Math.max(0, endH - Math.max(startH, 17));
@@ -1014,7 +1024,7 @@ export async function POST(req: Request) {
                 const wA = getApiRoleWeight(aJob, aShifts);
                 const wB = getApiRoleWeight(bJob, bShifts);
                 if (wA !== wB) return wA - wB;
-                return a.first_name.localeCompare(b.first_name);
+                return (a.first_name || '').localeCompare(b.first_name || '');
             })
             
             // Get unique dates for columns

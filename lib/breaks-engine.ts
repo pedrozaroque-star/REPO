@@ -144,7 +144,7 @@ function getRequiredBreaks(startMs: number, endMs: number): Omit<BreakBlock, 'st
     const restCount = h > 14 ? 4 : h > 10 ? 3 : h > 6 ? 2 : h >= 3.5 ? 1 : 0
     for (let i = 0; i < restCount; i++) result.push({ type: 'rest_10' })
     if (h > 6) result.push({ type: 'meal_30' })
-    if (h > 12) result.push({ type: 'meal_30' })
+    if (h > 10) result.push({ type: 'meal_30' })
     return result
 }
 
@@ -475,11 +475,13 @@ export function scheduleBreaksWithDemand(shifts: Shift[], operatingHours: Operat
         let peakPenalty = 0
         if (!bypassPeak) {
             const shiftEndMs = new Date(shift.end_time).getTime()
-            for (let t = sMs; t < eMs; t += ms(1)) {
-                if (isInPeakZoneForShift(t, shiftStartMs, shiftEndMs, operatingHours)) {
-                    peakPenalty = 1e30
-                    break
-                }
+            const peak = getPeakHoursForShift(shiftStartMs, shiftEndMs, operatingHours)
+            const { hour: sH, minute: sM } = getLocalHourMinute(shiftStartMs)
+            const shiftMidnightMs = shiftStartMs - ms(60 * sH) - ms(sM)
+            const pStartTs = shiftMidnightMs + ms(60 * peak.start)
+            const pEndTs = shiftMidnightMs + ms(60 * peak.end)
+            if (sMs < pEndTs && eMs > pStartTs) {
+                peakPenalty = 1e30
             }
         }
 
@@ -545,7 +547,7 @@ export function scheduleBreaksWithDemand(shifts: Shift[], operatingHours: Operat
         // Comer al INICIO del rush está bien: la persona termina antes
         // del pico máximo y regresa a trabajar en lo más fuerte.
         // Ej: peak=18-20, safeBeforeEnd=18:30 → meal a 6PM, regresa 6:30PM
-        const safeBeforeStart = Math.max(wStartMs, shiftStartMidnightMs + ms(60 * (peak.start - 1)))
+        const safeBeforeStart = wStartMs
         const safeBeforeEnd = Math.min(wEndMs, peakStartMs + ms(30))
         const safeAfterStart = Math.max(wStartMs, peakEndMs)
         const safeAfterEnd = wEndMs
@@ -558,7 +560,7 @@ export function scheduleBreaksWithDemand(shifts: Shift[], operatingHours: Operat
         if (pref) {
             const target = shiftStartMs + ms(pref.offset_from_start_min);
             console.warn(`   → 🧠 LEARNED PREFERENCE applied for ${rk} meal ${globalMealIndex}: offset ${pref.offset_from_start_min}m -> target ${new Date(target).toLocaleTimeString()}`);
-            return { target, bypassHeat: true };
+            return { target: midMs(target, durMs), bypassHeat: true };
         }
 
         // ── CAPACITY CHECK ──────────────────────────────────────────────────
@@ -618,8 +620,14 @@ export function scheduleBreaksWithDemand(shifts: Shift[], operatingHours: Operat
         // ── Elegir la ventana con MENOR heat ──────────────────────────────
         // Empleados que salen más temprano (frac < 0.5) priorizan PRE-PEAK para comer primero
         if (preFits && postFits) {
-            const preferPreByCohort = frac < 0.5
-            const preferPre = preferPreByCohort || (preAvgHeat <= postAvgHeat * 1.2)
+            let preferPre: boolean
+            if (shift._cohortSize && shift._cohortSize > 1) {
+                // En cohortes de varios empleados del mismo rol,
+                // quien sale más temprano va a PRE-PEAK y quien sale más tarde va a POST-PEAK
+                preferPre = frac < 0.5
+            } else {
+                preferPre = preAvgHeat <= postAvgHeat * 1.2
+            }
             const chosen = preferPre
                 ? { start: safeBeforeStart, end: safeBeforeEnd, label: 'PRE-PEAK' }
                 : { start: safeAfterStart, end: safeAfterEnd, label: 'POST-PEAK' }
@@ -635,7 +643,7 @@ export function scheduleBreaksWithDemand(shifts: Shift[], operatingHours: Operat
                 if (h < bestH) { bestH = h; best = t }
             }
             console.warn(`   → ${chosen.label} (heat-compare: pre=${preAvgHeat.toFixed(2)} post=${postAvgHeat.toFixed(2)}): frac=${frac.toFixed(2)} interval=[${new Date(chosen.start).toLocaleTimeString()}-${new Date(chosen.end).toLocaleTimeString()}] target=${new Date(best).toLocaleTimeString()} heat=${bestH.toFixed(2)}`)
-            return { target: midMs(best, durMs), bypassHeat: false }
+            return { target: midMs(best, durMs), bypassHeat: chosen.label.startsWith('PRE-PEAK') }
         }
 
         // Solo una ventana cabe
@@ -655,7 +663,7 @@ export function scheduleBreaksWithDemand(shifts: Shift[], operatingHours: Operat
                 if (h < bestH) { bestH = h; best = t }
             }
             console.warn(`   → ${chosen.label}: frac=${frac.toFixed(2)} interval=[${new Date(chosen.start).toLocaleTimeString()}-${new Date(chosen.end).toLocaleTimeString()}] target=${new Date(best).toLocaleTimeString()} heat=${bestH.toFixed(2)}`)
-            return { target: midMs(best, durMs), bypassHeat: false }
+            return { target: midMs(best, durMs), bypassHeat: chosen.label.startsWith('PRE-PEAK') }
         }
 
         // ── FULL WINDOW: ninguna ventana segura alcanza ──────────────────
@@ -707,9 +715,9 @@ export function scheduleBreaksWithDemand(shifts: Shift[], operatingHours: Operat
                 if (slot.empId !== null && slot.empId === empId) continue
                 const overlapMs = Math.max(0, Math.min(t + durMs, slot.endMs) - Math.max(t, slot.startMs))
                 
-                // NO global blocks anymore. Only block if SAME ROLE!
-                if (slot.roleKey === rk && overlapMs > 0) {
-                    // Excepción: si rol es 'unknown' o vacío, bloquear igual por si acaso
+                // NO global blocks anymore. Block if SAME ROLE or if LEADER collision!
+                const isLeaderConflict = cat === 'leader' && slot.category === 'leader'
+                if ((slot.roleKey === rk || isLeaderConflict) && overlapMs > 0) {
                     return false
                 }
             }
@@ -895,12 +903,13 @@ export function scheduleBreaksWithDemand(shifts: Shift[], operatingHours: Operat
         const endBuf = eMs - ms(60 * H_END_BUFFER)
         const totalMealsForShift = meals.length
 
-        meals.forEach((_, mealIdx) => {
+        meals.forEach((_, loopIdx) => {
+            const globalMealIndex = manualMealsCount + loopIdx
             let wStartMs: number, wEndMs: number
             const shiftDurationMs = eMs - sMs;
             const durationHrs = shiftDurationMs / (1000 * 60 * 60);
             
-            if (mealIdx === 0) {
+            if (globalMealIndex === 0) {
                 // Adelantar todos los lunches para evitar que caigan en HORA PICO
                 // Las personas con turnos cortos (priorizadas por sort) agarrarán los primeros lugares.
                 // Las personas con turnos largos (últimas en sort) agarrarán lugares post-pico si no caben antes.
@@ -914,13 +923,13 @@ export function scheduleBreaksWithDemand(shifts: Shift[], operatingHours: Operat
             }
             if (wEndMs - wStartMs < ms(60)) wEndMs = Math.min(endBuf, wStartMs + ms(90))
 
-            const { target: targetMs, bypassHeat } = getMealTargetOutsidePeak(wStartMs, wEndMs, ms(30), mealIdx, totalMealsForShift, sMs, totalMealsForShift, mealIdx, durationHrs, shift)
+            const { target: targetMs, bypassHeat } = getMealTargetOutsidePeak(wStartMs, wEndMs, ms(30), loopIdx, totalMealsForShift, sMs, totalMealsForShift, globalMealIndex, durationHrs, shift)
             
             const best = findSlot(wStartMs, wEndMs, 30, shift.breaks_schedule, shift, true, targetMs, sMs, eMs, bypassHeat)
             const bestEnd = new Date(best.getTime() + ms(30))
             shift.breaks_schedule.push({ type: 'meal_30', start_time: toIso(best), end_time: toIso(bestEnd), status: 'scheduled' })
             globalSlots.push({ type: 'meal_30', startMs: best.getTime(), endMs: bestEnd.getTime(), roleKey: getRoleKey(shift), category: getRoleCategory(getRoleKey(shift)), empId: shift.employee_id ?? null })
-            console.warn(`🍽️ ${shift.employee_name} meal#${mealIdx + 1} → ${best.toLocaleTimeString()} (heat=${spanHeat(best.getTime(), bestEnd.getTime(), getHeat).toFixed(2)})`)
+            console.warn(`🍽️ ${shift.employee_name} meal#${globalMealIndex + 1} → ${best.toLocaleTimeString()} (heat=${spanHeat(best.getTime(), bestEnd.getTime(), getHeat).toFixed(2)})`)
         })
         shift.breaks_schedule = sortChron(shift.breaks_schedule)
     }

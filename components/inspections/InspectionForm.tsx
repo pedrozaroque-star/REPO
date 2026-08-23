@@ -569,6 +569,21 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
                 .catch(err => console.error('❌ Email notification failed:', err))
             }
 
+            // --- NUEVO: AUTO-SINCRONIZAR RECORRIDO EN MILESIQ ---
+            try {
+              fetch('/api/miles/sync-inspections', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  supervisor_id: payload.inspector_id,
+                  supervisor_name: payload.supervisor_name,
+                  target_store_id: payload.store_id
+                })
+              }).then(res => res.json())
+                .then(mRes => console.log('🚗 MilesIQ auto-sync response:', mRes))
+                .catch(mErr => console.warn('🚗 MilesIQ auto-sync failed:', mErr))
+            } catch (milesErr) { console.warn('Miles auto-sync error ignored', milesErr) }
+
             if (notifs.length > 0) {
               supabase.from('notifications').insert(notifs).then(() => console.log('Notifs sent including comments'))
             }

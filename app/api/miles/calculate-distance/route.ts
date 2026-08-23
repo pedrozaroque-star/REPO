@@ -10,7 +10,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseAdminClient } from '@/lib/supabase'
-import { CANONICAL_STORE_COORDINATES, haversineDistanceMiles } from '@/lib/store-coordinates'
+import { CANONICAL_STORE_COORDINATES, haversineDistanceMiles, normalizeStoreName } from '@/lib/store-coordinates'
 
 export async function GET(req: NextRequest) {
   try {
@@ -72,8 +72,28 @@ export async function GET(req: NextRequest) {
       })
     }
 
-    const origInfo = storeMap[origin]
-    const destInfo = storeMap[destination]
+    const normOrig = normalizeStoreName(origin)
+    const normDest = normalizeStoreName(destination)
+
+    const findInfo = (name: string) => {
+      if (storeMap[name]) return storeMap[name]
+      const lower = name.toLowerCase().trim()
+      for (const [k, v] of Object.entries(storeMap)) {
+        if (k.toLowerCase().trim() === lower) return v
+      }
+      const c = CANONICAL_STORE_COORDINATES[name] || CANONICAL_STORE_COORDINATES[normalizeStoreName(name)]
+      if (c) {
+        return {
+          lat: c.lat,
+          lng: c.lng,
+          address: `${c.address}, ${c.city}, ${c.state} ${c.zip_code}`
+        }
+      }
+      return null
+    }
+
+    const origInfo = findInfo(normOrig) || findInfo(origin)
+    const destInfo = findInfo(normDest) || findInfo(destination)
 
     let distanceMiles = 0
     let routeMethod = 'median_traffic_evasion'

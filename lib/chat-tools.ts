@@ -1483,13 +1483,21 @@ async function queryUniformsStock(args: any): Promise<string> {
 }
 
 async function queryExecutiveUniformsDashboard(args: any): Promise<string> {
-  // Get all transactions
-  const { data: tx, error: txError } = await supabaseAdmin
+  const { data: pricingData } = await supabaseAdmin.from('uniforms_pricing').select('*')
+  const pricingMap = new Map((pricingData || []).map((p: any) => [p.item_category, Number(p.sale_price) || 0]))
+
+  let query = supabaseAdmin
     .from('uniforms_transactions')
     .select('*')
     .gte('business_date', args.start_date)
     .lte('business_date', args.end_date)
     
+  if (args.store_name) {
+    const storeIds = await getStoreIdsByName(args.store_name)
+    if (storeIds.length) query = query.in('store_id', storeIds)
+  }
+
+  const { data: tx, error: txError } = await query
   if (txError) return `Error fetching transactions: ${txError.message}`
   
   let totalSales = 0
@@ -1498,16 +1506,23 @@ async function queryExecutiveUniformsDashboard(args: any): Promise<string> {
   let itemsFree = 0
   
   ;(tx || []).forEach(t => {
+    const amount = Number(t.total_amount) || 0
+    const isVoided = amount === 0 && (t.reason || '').includes('[ANULADO]')
+    if (isVoided) return
+
     if (t.transaction_type === 'employee_sale' || t.transaction_type === 'customer_sale') {
-      totalSales += Number(t.total_amount) || 0
+      totalSales += amount
       itemsSold += Math.abs(Number(t.quantity)) || 0
     } else if (t.transaction_type === 'new_hire_package' || t.transaction_type === 'manager_free') {
-      totalFree += Number(t.total_amount) || 0
-      itemsFree += Math.abs(Number(t.quantity)) || 0
+      const unitVal = pricingMap.get(t.item_category) || 0
+      const qty = Math.abs(Number(t.quantity)) || 0
+      totalFree += qty * unitVal
+      itemsFree += qty
     }
   })
   
-  return `Uniforms Executive Dashboard (${args.start_date} to ${args.end_date}):\n\n` +
+  const scopeHeader = args.store_name ? ` para **${args.store_name}**` : ''
+  return `Uniforms Executive Dashboard${scopeHeader} (${args.start_date} to ${args.end_date}):\n\n` +
          `💰 **Sales Revenue**: ${fmt$(totalSales)} (${itemsSold} items sold)\n` +
          `👕 **Free Uniforms Value**: ${fmt$(totalFree)} (${itemsFree} items given)\n` +
          `\nTo investigate cash discrepancies, recommend comparing this with the Safe Counts report for the same period.`

@@ -72,7 +72,7 @@ export async function GET(request: Request) {
         const [historyRes, shiftRes, punchRes, budgetRes, lookbackRes, jobsRes, projCacheRes] = await Promise.all([
             withStore(supabase.from('sales_daily_cache').select('*')).gte('business_date', startStr).lte('business_date', endStr),
             withStore(supabase.from('shifts').select('*')).gte('shift_date', startStr).lte('shift_date', endStr).limit(10000),
-            withStore(supabase.from('punches').select('*')).gte('business_date', startStr).lte('business_date', endStr),
+            withStore(supabase.from('punches').select('*')).gte('business_date', startStr).lte('business_date', endStr).limit(20000),
             withStore(supabase.from('weekly_budgets').select('sales_projections, week_start, store_id')).gte('week_start', lookbackStr || startStr).lte('week_start', new Date(new Date(endStr).setDate(new Date(endStr).getDate() + 14)).toISOString().split('T')[0]),
             withStore(supabase.from('sales_daily_cache').select('business_date, net_sales, order_count, store_id')).gte('business_date', lookbackStr || startStr).lte('business_date', startStr),
             supabase.from('toast_jobs').select('*'),

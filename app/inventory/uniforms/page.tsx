@@ -80,7 +80,7 @@ function UniformsContent() {
     ].map(id => String(id));
 
     const filtered = stores.filter(s => userStoreIds.includes(String(s.id)));
-    return filtered.length > 0 ? filtered : (user?.store_id ? stores.filter(s => String(s.id) === String(user.store_id)) : stores);
+    return filtered.length > 0 ? filtered : (user?.store_id ? stores.filter(s => String(s.id) === String(user.store_id)) : []);
   }, [stores, user, isExecutive]);
 
   // Fetch stores and pricing on mount
@@ -419,7 +419,7 @@ function SetupWizard({ storeId, onComplete, showToast }: { storeId: number, onCo
                           value={counts[key] || 0}
                           onChange={(e) => setCounts({
                             ...counts,
-                            [key]: parseInt(e.target.value) || 0
+                            [key]: Math.max(0, parseInt(e.target.value) || 0)
                           })}
                         />
                       </div>
@@ -501,7 +501,7 @@ function TabStockAndAudit({ storeId, stockData, setStockData, pricingData, setPr
   const lowStockItems = useMemo(() => {
     return fullStockData.filter((item: any) => {
       const min = (item.min_stock !== null && item.min_stock !== undefined) ? item.min_stock : getDefaultMinStock(item.item_category, item.size);
-      return min > 0 && item.quantity_on_hand < min;
+      return min > 0 && item.quantity_on_hand <= min;
     });
   }, [fullStockData]);
 
@@ -613,7 +613,7 @@ function TabStockAndAudit({ storeId, stockData, setStockData, pricingData, setPr
                         value={qty}
                         onChange={(e) => setEditedStock({
                           ...editedStock,
-                          [item.id]: parseInt(e.target.value) || 0
+                          [item.id]: Math.max(0, parseInt(e.target.value) || 0)
                         })}
                       />
                     ) : (
@@ -1315,7 +1315,7 @@ function ReorderModal({ onClose, lowStockItems }: { onClose: () => void, lowStoc
             <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
               {lowStockItems.map(item => {
                 const min = (item.min_stock !== null && item.min_stock !== undefined) ? item.min_stock : getDefaultMinStock(item.item_category, item.size);
-                const suggested = Math.max(1, (min * 2) - item.quantity_on_hand);
+                const suggested = min > 0 ? Math.max(1, (min * 2) - item.quantity_on_hand) : 0;
                 const isOut = item.quantity_on_hand <= 0;
 
                 return (
@@ -1459,7 +1459,8 @@ function TabSalesAndIssues({ storeId, stockData, pricingData, showToast, onTrans
       }
       setEmpGuid('');
     } else if (newType === 'sale' || newType === 'new_hire') {
-      if (employeeList.length > 0 && isCustomNameMode && empName === 'Cliente Mostrador') {
+      const isDefaultCustomer = empName === 'Cliente Mostrador' || empName === 'Counter Customer' || empName === t('uniforms.sales.counter_customer');
+      if (employeeList.length > 0 && isCustomNameMode && isDefaultCustomer) {
         setIsCustomNameMode(false);
         setSelectedEmpId(employeeList[0].id);
         setEmpName(employeeList[0].name);
@@ -1508,7 +1509,7 @@ function TabSalesAndIssues({ storeId, stockData, pricingData, showToast, onTrans
   }, [storeId]);
 
   const isExempt = useMemo(() => {
-    if (txType === 'customer_sale') return false;
+    if (txType === 'customer_sale' || isCustomNameMode) return false;
     const p = pricingData.find((x: any) => x.item_category === saleCategory);
     if (!p || !p.is_free_for_roles || !Array.isArray(p.is_free_for_roles) || p.is_free_for_roles.length === 0) return false;
     const jobLower = (selectedJobTitle || '').toLowerCase().trim();
@@ -1516,7 +1517,7 @@ function TabSalesAndIssues({ storeId, stockData, pricingData, showToast, onTrans
       const rLower = role.toLowerCase().trim();
       return rLower.length > 0 && jobLower.includes(rLower);
     });
-  }, [txType, pricingData, saleCategory, selectedJobTitle]);
+  }, [txType, isCustomNameMode, pricingData, saleCategory, selectedJobTitle]);
 
   const currentPrice = useMemo(() => {
     if (txType === 'sale' || txType === 'customer_sale') {
@@ -3078,7 +3079,7 @@ function TabHistoryAndKardex({ storeId, showToast, onTransactionComplete }: any)
                   className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm transition-all shadow-md flex items-center gap-2 disabled:opacity-50"
                 >
                   {editSubmitting ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                  <span>{t('pricing.save')}</span>
+                  <span>{t('common.save')}</span>
                 </button>
               </div>
             </form>

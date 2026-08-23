@@ -88,11 +88,12 @@ function SalesPageContent() {
         return 'today'
     })
     const getLocalDateString = () => {
-        const d = new Date()
-        if (d.getHours() < 6) d.setDate(d.getDate() - 1)
-        const year = d.getFullYear()
-        const month = String(d.getMonth() + 1).padStart(2, '0')
-        const day = String(d.getDate()).padStart(2, '0')
+        const now = new Date()
+        const laTime = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
+        if (laTime.getHours() < 6) laTime.setDate(laTime.getDate() - 1)
+        const year = laTime.getFullYear()
+        const month = String(laTime.getMonth() + 1).padStart(2, '0')
+        const day = String(laTime.getDate()).padStart(2, '0')
         return `${year}-${month}-${day}`
     }
 
@@ -233,7 +234,7 @@ function SalesPageContent() {
                 s.guestCount += (row.guestCount || 0)
                 s.laborCost += (row.laborCost || 0)
                 s.totalHours += (row.totalHours || 0)
-                if (['today', 'yesterday'].includes(period)) {
+                if (data?.groupByMode === 'hour' || row.periodStart?.includes(':')) {
                     s.projectedSales = (row.projectedSales || 0)
                     s.projectedToDate = (row.projectedToDate || 0)
                 } else {
@@ -554,8 +555,10 @@ function SalesPageContent() {
             } else if (period === 'week') {
                 const day = today.getDay()
                 const diff = today.getDate() - day + (day === 0 ? -6 : 1)
-                start = new Date(today.setDate(diff))
-                end = new Date()
+                const wStart = new Date(today)
+                wStart.setDate(diff)
+                start = wStart
+                end = today
                 groupBy = 'day'
             } else if (period === 'month') {
                 start = new Date(today.getFullYear(), today.getMonth(), 1)
@@ -693,19 +696,28 @@ function SalesPageContent() {
                     let totalCost = 0
                     let totalSales = 0
                     const storeMap: Record<string, { totalCost: number, netSales: number, costPercentage: number }> = {}
+                    const storeNameMap: Record<string, { totalCost: number, netSales: number, costPercentage: number }> = {}
                     fullJson.data.forEach((item: any) => {
                         totalCost += item.total_cost || 0
                         totalSales += item.net_sales || 0
                         const sid = item.store_id || 'unknown'
+                        const sname = item.store_name || sid
                         if (!storeMap[sid]) storeMap[sid] = { totalCost: 0, netSales: 0, costPercentage: 0 }
                         storeMap[sid].totalCost += item.total_cost || 0
                         storeMap[sid].netSales += item.net_sales || 0
+
+                        if (!storeNameMap[sname]) storeNameMap[sname] = { totalCost: 0, netSales: 0, costPercentage: 0 }
+                        storeNameMap[sname].totalCost += item.total_cost || 0
+                        storeNameMap[sname].netSales += item.net_sales || 0
                     })
                     Object.values(storeMap).forEach(s => {
                         s.costPercentage = s.netSales > 0 ? (s.totalCost / s.netSales) * 100 : 0
                     })
+                    Object.values(storeNameMap).forEach(s => {
+                        s.costPercentage = s.netSales > 0 ? (s.totalCost / s.netSales) * 100 : 0
+                    })
                     const costPct = totalSales > 0 ? (totalCost / totalSales) * 100 : 0
-                    setFoodCostData({ totalCost, totalSales, costPercentage: costPct, byStore: storeMap, byStoreName: storeMap })
+                    setFoodCostData({ totalCost, totalSales, costPercentage: costPct, byStore: storeMap, byStoreName: storeNameMap })
                     console.log(`[FoodCost] ✅ Calculated & cached for ${sDate}`)
                     return
                 }

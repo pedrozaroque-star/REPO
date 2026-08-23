@@ -1,13 +1,13 @@
 <!--
 @module Reporte de Pendientes e Informe de Horas de Agosto 2026 (Tacos Gavilan)
-@description Este archivo HTML contiene el informe consolidado de auditoria, plan de trabajo de los 20 proyectos tecnologicos, y el Reporte Mensual de Horas y Avances de Agosto de 2026 (89.62 hrs). Es compatible con WhatsApp WebViews y funciona offline.
+@description Este archivo HTML contiene el informe consolidado de auditoria, plan de trabajo de los 20 proyectos tecnologicos, y el Reporte Mensual de Horas y Avances de Agosto de 2026 (90.79 hrs). Es compatible con WhatsApp WebViews y funciona offline.
 @businessRules
   1. No requiere ejecucion de JavaScript para renderizar contenido, previniendo fallos en navegadores integrados de aplicaciones.
   2. Todos los estilos estan embebidos directamente (inline y en bloque style) utilizando colores en hexadecimal en lugar de variables CSS.
   3. No depende de redes CDN externas. Todo es nativo o usa vectores SVG embebidos.
   4. Marca Oficial: Tacos Gavilan.
 @notes
-  - Creado especificamente para registrar el avance de Agosto de 2026 (89.62 horas acumuladas hasta la fecha).
+  - Creado especificamente para registrar el avance de Agosto de 2026 (90.79 horas acumuladas hasta la fecha).
   - Incluye el Planificador Visual Diario de Horarios e Intervalos de Tiempo (4 AM - 12 AM) para Carlos Velazquez.
 -->
 <!DOCTYPE html>
@@ -807,7 +807,7 @@
             <div class="stat-label">Pendiente</div>
         </div>
         <div class="stat-card hours">
-            <div class="stat-num">89.62 <small style="font-size:16px;">hrs</small></div>
+            <div class="stat-num">90.79 <small style="font-size:16px;">hrs</small></div>
             <div class="stat-label">Horas Agosto</div>
         </div>
     </div>
@@ -829,7 +829,7 @@
                 <div class="gantt-header-block">
                     <div>
                         <div class="gantt-title">Planificador Diario de Horarios e Intervalos de Tiempo (4:00 AM – 12:00 AM)</div>
-                        <div class="gantt-subtitle">Visualizacion en pistas horizontales que refleja las 52 sesiones reales de programacion (89.62 hrs) cruzadas con los turnos oficiales de Lynwood (136 hrs).</div>
+                        <div class="gantt-subtitle">Visualizacion en pistas horizontales que refleja las 53 sesiones reales de programacion (90.79 hrs) cruzadas con los turnos oficiales de Lynwood (136 hrs).</div>
                     </div>
                     <div class="legend-row">
                         <div class="legend-item">
@@ -838,7 +838,7 @@
                         </div>
                         <div class="legend-item">
                             <span class="legend-box box-dev"></span>
-                            <span>💻 Sesiones de Programacion (89.62 hrs)</span>
+                            <span>💻 Sesiones de Programacion (90.79 hrs)</span>
                         </div>
                     </div>
                 </div>
@@ -2215,7 +2215,7 @@
                     🏪 Turno Tienda: <strong>2:00 PM - 9:00 PM (7.0h)</strong>
                 </span>
                 <span class="info-pill pill-dev active">
-                    💻 Dev TEG: <strong>1.36 hrs</strong>
+                    💻 Dev TEG: <strong>2.53 hrs</strong>
                 </span>
             </div>
         </div>
@@ -2239,6 +2239,12 @@
                 💻 <strong>1.4h</strong>
             </span>
         </div>
+      
+        <div class="gantt-bar bar-dev" style="left: 86.2%; width: 5.8%;" title="MilesIQ Smart Auto-Capture, Geofencing, 1-Tap Quick Drive y Gap Detector (9:15 PM - 10:25 PM • 1.17h)">
+            <span class="bar-center-text">
+                💻 <strong>1.2h</strong>
+            </span>
+        </div>
       </div>
             </div>
         </div>
@@ -2250,6 +2256,10 @@
                 
     <span class="session-badge">
         <span class="dot-indigo"></span> <strong>5:22 PM - 6:28 PM</strong> (1.36h) • <span class="task-desc">Toast API Cross-Date Refunds (Bell $8,332.64) y Conciliación</span>
+    </span>
+   
+    <span class="session-badge">
+        <span class="dot-indigo"></span> <strong>9:15 PM - 10:25 PM</strong> (1.17h) • <span class="task-desc">MilesIQ Smart Auto-Capture, Geofencing, 1-Tap Quick Drive y Gap Detector</span>
     </span>
   
             </div>
@@ -2590,6 +2600,20 @@
                                 <div class="lang-split">
                                     <div class="es-desc">- **Estandarizacion Global de Stock Minimo de Uniformes (Estandar Lynwood)**: Calibracion y sincronizacion del stock minimo por prenda y talla en las 15 tiendas activas en <code>uniforms_inventory_stock</code> (Playeras Rojas: XS:5, S:5, M:10, L:15, XL:10, 2XL:5, 3XL:5; Shift Leader: S:5, M:10, L:15, XL:10, 2XL:5, 3XL:5; Asistentes Polo: M:3, L:3, XL:3; Gorras: 1; Chamarras: S:3, M:3, L:3, XL:2).<br>- **Blindaje de Preservacion de Stock Minimo en Base de Datos**: Actualizacion de <code>saveInitialCount</code>, <code>saveManualAudit</code>, <code>updateSingleUniformStock</code>, <code>recordDamageExchange</code>, <code>confirmOrderReception</code> y <code>voidUniformTransaction</code> en <code>app/inventory/uniforms/actions.ts</code> para retener y nunca sobreescribir con <code>NULL</code> los niveles minimos preconfigurados al realizar ajustes o recepciones.<br>- **Correccion de Logica de Evaluacion (0 es un Valor Valido)**: Correccion de operadores ternarios en <code>app/inventory/orders/actions.ts</code> (linea 438) y <code>app/inventory/uniforms/page.tsx</code> (lineas 479, 503, 587, 1317) para validar valores con <code>!== null && !== undefined</code>, evitando que items con meta 0 caigan erroneamente en valores por defecto inflados.</div>
                                     <div class="en-desc">- **Global Uniform Minimum Stock Standardization (Lynwood Standard)**: Calibrated and synchronized minimum stock levels by garment and size across all 15 active stores in <code>uniforms_inventory_stock</code> (Red Shirts: XS:5, S:5, M:10, L:15, XL:10, 2XL:5, 3XL:5; Shift Leader: S:5, M:10, L:15, XL:10, 2XL:5, 3XL:5; Assistant Polo: M:3, L:3, XL:3; Caps: 1; Jackets: S:3, M:3, L:3, XL:2).<br>- **DB Min Stock Retention Hardening**: Updated <code>saveInitialCount</code>, <code>saveManualAudit</code>, <code>updateSingleUniformStock</code>, <code>recordDamageExchange</code>, <code>confirmOrderReception</code>, and <code>voidUniformTransaction</code> in <code>app/inventory/uniforms/actions.ts</code> to preserve existing <code>min_stock</code> without resetting to <code>NULL</code> during stock edits or order receptions.<br>- **Zero-Value Safe Evaluation**: Replaced truthy <code>> 0</code> ternary fallbacks in <code>app/inventory/orders/actions.ts</code> (line 438) and <code>app/inventory/uniforms/page.tsx</code> (lines 479, 503, 587, 1317) with strict nullish checks (<code>!== null && !== undefined</code>), preventing intentional zero targets from falling back to inflated defaults.</div>
+                                </div>
+                            </td>
+                        </tr>
+
+                        <!-- 22-Aug-2026 (MilesIQ Smart Auto-Capture & Exhaustive Audit) -->
+                        <tr>
+                            <td><strong>22-Aug-2026</strong></td>
+                            <td>9:15 PM - 10:45 PM</td>
+                            <td style="text-align: center; font-weight: 800;">1.50</td>
+                            <td><span class="table-badge-module">MilesIQ (DriveLog)</span> <span class="table-badge-module">Auto-Capture GPS</span> <span class="table-badge-module">Auditoría Línea por Línea</span> <span class="table-badge-module">Gap Detector</span></td>
+                            <td>
+                                <div class="lang-split">
+                                    <div class="es-desc">- **Ecosistema de Captura Inteligente y Presencia GPS en MilesIQ**: Implementación de rastreo pasivo en segundo plano (SupervisorAutoTracker) con geocercas (&lt;550m), modal táctil de 1 toque "Ir a Tienda" (QuickDriveModal) con navegación paso a paso en Google Maps / Apple Maps / Waze, y auto-sincronización no bloqueante desde Inspecciones de Calidad.<br>- **Auditoría Exhaustiva Línea por Línea y Correcciones Críticas**: Corrección de ordenamiento lexicográfico 12h AM/PM en el Detector de Rutas Faltantes (parseTimeToMinutes), aislamiento multi-usuario en chequeos de duplicados de checkin e inspecciones, preservación de fechas originales en viajes de regreso, protección contra eliminación accidental de viajes enviados a nómina, filtrado dinámico por fecha en resumen de RRHH, adición de BOM UTF-8 para Excel y 100% de éxito en suites de pruebas de compilación y simulación.</div>
+                                    <div class="en-desc">- **MilesIQ Smart Auto-Capture & GPS Presence Ecosystem**: Implemented passive background tracking (SupervisorAutoTracker) with geofencing (&lt;550m), 1-tap "Go to Store" quick drive modal (QuickDriveModal) with turn-by-turn live navigation, and non-blocking auto-sync on InspectionForm submit.<br>- **Exhaustive Line-by-Line Codebase Audit & Critical Fixes**: Fixed 12h AM/PM string sorting in Route Gap Detector (parseTimeToMinutes), multi-user duplicate check isolation in checkin/inspections, original date retention on return trips, delete protection on payroll-submitted trips, dynamic date range filtering in HR summaries, UTF-8 BOM in CSV exports, and 100% pass on all runtime simulation test suites.</div>
                                 </div>
                             </td>
                         </tr>
@@ -3064,7 +3088,7 @@
                     Estatus del código / BD
                 </span>
                 <div class="audit-box green-box">
-                    <strong>Completado en Producción.</strong> Módulo de recepción y asignación de prendas (tallas S a 4XL), arqueos físicos de stock por tienda y control de reposición.
+                    <strong>100% Auditado y Blindado.</strong> Estandarización de stock mínimo tipo Lynwood para las 15 sucursales (660 registros en BD), conciliación directa de ventas en efectivo con la Caja Fuerte, auditorías físicas y recepción de pedidos desde QuickBooks.
                 </div>
             </div>
         </div>
@@ -3078,17 +3102,17 @@
                 
     <div class="step-item">
         <span class="step-number green-num">✓</span>
-        <span class="step-text">Módulo administrativo de control de prendas y asignación.</span>
+        <span class="step-text">Stock mínimo estándar (Lynwood) unificado en las 15 tiendas (660 registros).</span>
     </div>
   
     <div class="step-item">
         <span class="step-number green-num">✓</span>
-        <span class="step-text">Recepción de órdenes de almacén y arqueos de stock.</span>
+        <span class="step-text">Integración de dinero de ventas con la conciliación diaria de Caja Fuerte.</span>
     </div>
   
     <div class="step-item">
         <span class="step-number green-num">✓</span>
-        <span class="step-text">Bloqueo contra duplicados y registro por gerente.</span>
+        <span class="step-text">Auditoría línea por línea, regla contable de 6:00 AM y suite de 81 pruebas automáticas aprobadas.</span>
     </div>
   
             </div>

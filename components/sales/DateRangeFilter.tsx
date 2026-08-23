@@ -118,8 +118,10 @@ export default function DateRangeFilter({ period, startDate, endDate, onChange, 
     }
 
     const handleApply = () => {
-        if (tempStart && tempEnd) {
-            onChange('custom', formatDateISO(tempStart), formatDateISO(tempEnd))
+        if (tempStart) {
+            const finalEnd = tempEnd || tempStart
+            const [s, e] = isBefore(finalEnd, tempStart) ? [finalEnd, tempStart] : [tempStart, finalEnd]
+            onChange('custom', formatDateISO(s), formatDateISO(e))
             setIsOpen(false)
         }
     }
@@ -296,11 +298,11 @@ export default function DateRangeFilter({ period, startDate, endDate, onChange, 
                                 <div className="flex items-center gap-3 mt-4 pt-4 border-t border-slate-100 dark:border-slate-800">
                                     <div className="flex flex-col gap-1.5 flex-1">
                                         <label className="text-[10px] uppercase font-black text-slate-400 tracking-widest">{t('sales.start_date')}</label>
-                                        <input type="date" value={tempStart ? formatDateISO(tempStart) : ''} onChange={(e) => setTempStart(parseDate(e.target.value))} className="border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-3 text-sm bg-slate-50 dark:bg-slate-800 w-full font-semibold" />
+                                        <input type="date" value={tempStart ? formatDateISO(tempStart) : ''} onChange={(e) => setTempStart(parseDate(e.target.value))} className="border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-3 text-sm bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white w-full font-semibold" />
                                     </div>
                                     <div className="flex flex-col gap-1.5 flex-1">
                                         <label className="text-[10px] uppercase font-black text-slate-400 tracking-widest">{t('sales.end_date')}</label>
-                                        <input type="date" value={tempEnd ? formatDateISO(tempEnd) : ''} onChange={(e) => setTempEnd(parseDate(e.target.value))} className="border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-3 text-sm bg-slate-50 dark:bg-slate-800 w-full font-semibold" />
+                                        <input type="date" value={tempEnd ? formatDateISO(tempEnd) : ''} onChange={(e) => setTempEnd(parseDate(e.target.value))} className="border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-3 text-sm bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white w-full font-semibold" />
                                     </div>
                                 </div>
                             </div>
@@ -381,11 +383,11 @@ export default function DateRangeFilter({ period, startDate, endDate, onChange, 
                                 <div className="flex items-center gap-2">
                                     <div className="flex flex-col gap-1">
                                         <label className="text-[10px] uppercase font-bold text-slate-400">{t('sales.start_date')}</label>
-                                        <input type="date" value={tempStart ? formatDateISO(tempStart) : ''} onChange={(e) => setTempStart(parseDate(e.target.value))} className="border border-slate-200 dark:border-slate-700 rounded-md px-2 py-1 text-xs bg-slate-50 dark:bg-slate-800" />
+                                        <input type="date" value={tempStart ? formatDateISO(tempStart) : ''} onChange={(e) => setTempStart(parseDate(e.target.value))} className="border border-slate-200 dark:border-slate-700 rounded-md px-2 py-1 text-xs bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white" />
                                     </div>
                                     <div className="flex flex-col gap-1">
                                         <label className="text-[10px] uppercase font-bold text-slate-400">{t('sales.end_date')}</label>
-                                        <input type="date" value={tempEnd ? formatDateISO(tempEnd) : ''} onChange={(e) => setTempEnd(parseDate(e.target.value))} className="border border-slate-200 dark:border-slate-700 rounded-md px-2 py-1 text-xs bg-slate-50 dark:bg-slate-800" />
+                                        <input type="date" value={tempEnd ? formatDateISO(tempEnd) : ''} onChange={(e) => setTempEnd(parseDate(e.target.value))} className="border border-slate-200 dark:border-slate-700 rounded-md px-2 py-1 text-xs bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white" />
                                     </div>
                                 </div>
                                 <div className="flex gap-2 self-end">

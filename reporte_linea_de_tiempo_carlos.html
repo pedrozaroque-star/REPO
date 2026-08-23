@@ -1,0 +1,2073 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Planificador Diario de Turnos y Desarrollo — Carlos Velazquez</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&display=swap');
+        
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+        }
+
+        body {
+            font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: #f8fafc;
+            color: #0f172a;
+            padding: 24px 32px;
+            font-size: 12px;
+            line-height: 1.4;
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            border-bottom: 3px solid #e05638;
+            padding-bottom: 12px;
+            margin-bottom: 18px;
+            background: #ffffff;
+            padding: 18px 24px;
+            border-radius: 14px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        }
+
+        .brand-title {
+            font-size: 26px;
+            font-weight: 900;
+            color: #e05638;
+            letter-spacing: -0.5px;
+        }
+
+        .brand-subtitle {
+            font-size: 14px;
+            font-weight: 700;
+            color: #334155;
+            margin-top: 2px;
+        }
+
+        .header-meta {
+            text-align: right;
+        }
+
+        .header-badge {
+            display: inline-block;
+            background: #0f172a;
+            color: #ffffff;
+            font-size: 11px;
+            font-weight: 800;
+            padding: 4px 14px;
+            border-radius: 999px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 4px;
+        }
+
+        .author-box {
+            font-size: 12px;
+            color: #475569;
+        }
+
+        .author-box strong {
+            color: #0f172a;
+            font-weight: 800;
+        }
+
+        /* 4 KPI Metrics */
+        .kpi-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 14px;
+            margin-bottom: 20px;
+        }
+
+        .kpi-card {
+            background: #ffffff;
+            border: 1.5px solid #cbd5e1;
+            border-radius: 12px;
+            padding: 14px 18px;
+            position: relative;
+            overflow: hidden;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+        }
+
+        .kpi-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+        }
+
+        .kpi-dev::before { background: #6366f1; }
+        .kpi-mgr::before { background: #10b981; }
+        .kpi-total::before { background: #f59e0b; }
+        .kpi-ratio::before { background: #0ea5e9; }
+
+        .kpi-val {
+            font-size: 24px;
+            font-weight: 900;
+            color: #0f172a;
+            line-height: 1.1;
+        }
+
+        .kpi-val small {
+            font-size: 13px;
+            font-weight: 700;
+            color: #64748b;
+        }
+
+        .kpi-title {
+            font-size: 12px;
+            font-weight: 800;
+            color: #1e293b;
+            margin-top: 3px;
+        }
+
+        .kpi-desc {
+            font-size: 10.5px;
+            color: #64748b;
+            margin-top: 1px;
+        }
+
+        .gantt-container {
+            background: #ffffff;
+            border: 1.5px solid #cbd5e1;
+            border-radius: 16px;
+            padding: 24px;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.06);
+            margin-bottom: 24px;
+        }
+
+        .gantt-header-block {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 18px;
+            border-bottom: 1.5px solid #e2e8f0;
+            padding-bottom: 14px;
+            flex-wrap: wrap;
+            gap: 14px;
+        }
+
+        .gantt-title {
+            font-size: 18px;
+            font-weight: 900;
+            color: #0f172a;
+            letter-spacing: -0.4px;
+        }
+
+        .gantt-subtitle {
+            font-size: 13px;
+            color: #64748b;
+            font-weight: 500;
+            margin-top: 2px;
+        }
+
+        .legend-row {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+            font-weight: 800;
+            color: #1e293b;
+        }
+
+        .legend-box {
+            width: 16px;
+            height: 16px;
+            border-radius: 4px;
+        }
+
+        .box-mgr { background: linear-gradient(90deg, #10b981 0%, #059669 100%); }
+        .box-dev { background: linear-gradient(90deg, #6366f1 0%, #4f46e5 100%); }
+
+        .sticky-ruler {
+            display: flex;
+            align-items: center;
+            height: 36px;
+            background: #0f172a;
+            color: #ffffff;
+            border-radius: 8px;
+            padding: 0 16px 0 94px;
+            position: relative;
+            margin-bottom: 14px;
+        }
+
+        .ruler-canvas {
+            flex: 1;
+            position: relative;
+            height: 100%;
+        }
+
+        .ruler-tick {
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            transform: translateX(-50%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .tick-label {
+            font-size: 10.5px;
+            font-weight: 800;
+            color: #ffffff;
+            letter-spacing: -0.2px;
+        }
+
+        .days-grid {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .gantt-day-card {
+            background: #ffffff;
+            border: 1.5px solid #e2e8f0;
+            border-radius: 12px;
+            padding: 14px 18px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.02);
+            transition: border-color 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .gantt-day-card:hover {
+            border-color: #cbd5e1;
+            box-shadow: 0 6px 16px rgba(0,0,0,0.06);
+        }
+
+        .gantt-day-card.store-day-off {
+            background: #fffdfa;
+            border-left: 5px solid #f59e0b;
+        }
+
+        .gantt-day-card.has-shift {
+            border-left: 5px solid #10b981;
+        }
+
+        .gantt-card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .day-date-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .date-badge {
+            background: #0f172a;
+            color: #ffffff;
+            font-size: 12px;
+            font-weight: 900;
+            padding: 4px 10px;
+            border-radius: 6px;
+            letter-spacing: -0.2px;
+        }
+
+        .day-name-label {
+            font-size: 14px;
+            font-weight: 800;
+            color: #0f172a;
+        }
+
+        .day-info-pills {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .info-pill {
+            font-size: 11.5px;
+            padding: 4px 12px;
+            border-radius: 999px;
+            border: 1px solid #cbd5e1;
+            background: #f8fafc;
+            color: #334155;
+        }
+
+        .info-pill.pill-dev.active {
+            background: #ede9fe;
+            color: #4f46e5;
+            border-color: #c7d2fe;
+            font-weight: 800;
+        }
+
+        .gantt-lanes-box {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 8px 12px;
+            margin-bottom: 8px;
+        }
+
+        .lane-wrapper {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .lane-label {
+            width: 70px;
+            font-size: 10px;
+            font-weight: 900;
+            color: #64748b;
+            letter-spacing: 0.3px;
+            flex-shrink: 0;
+        }
+
+        .lane-track {
+            flex: 1;
+            height: 26px;
+            position: relative;
+            background: #ffffff;
+            border-radius: 6px;
+            border: 1px solid #e2e8f0;
+        }
+
+        .gantt-bar {
+            position: absolute;
+            top: 2px;
+            bottom: 2px;
+            border-radius: 5px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 8px;
+            color: #ffffff;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.12);
+            transition: transform 0.15s ease;
+        }
+
+        .gantt-bar:hover {
+            transform: scaleY(1.12);
+            z-index: 10;
+        }
+
+        .bar-mgr {
+            background: linear-gradient(90deg, #10b981 0%, #059669 100%);
+            border: 1px solid #047857;
+        }
+
+        .bar-dev {
+            background: linear-gradient(90deg, #6366f1 0%, #4f46e5 100%);
+            border: 1px solid #4338ca;
+        }
+
+        .bar-center-text {
+            font-size: 11px;
+            font-weight: 800;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            text-shadow: 0 1px 2px rgba(0,0,0,0.6);
+            margin: 0 auto;
+        }
+
+        .bar-tag-left, .bar-tag-right {
+            font-size: 9px;
+            font-weight: 900;
+            background: rgba(15, 23, 42, 0.7);
+            padding: 1px 4px;
+            border-radius: 3px;
+            line-height: 1;
+        }
+
+        .day-off-tag {
+            font-size: 11px;
+            color: #d97706;
+            font-weight: 700;
+            padding: 3px 8px;
+        }
+
+        .no-dev-tag {
+            font-size: 11px;
+            color: #94a3b8;
+            font-style: italic;
+            padding: 3px 8px;
+        }
+
+        .gantt-card-footer {
+            font-size: 11px;
+            color: #475569;
+        }
+
+        .sessions-breakdown {
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 8px;
+            padding-top: 4px;
+        }
+
+        .sessions-title {
+            font-weight: 800;
+            color: #0f172a;
+        }
+
+        .session-badge {
+            background: #ffffff;
+            border: 1px solid #cbd5e1;
+            padding: 2px 8px;
+            border-radius: 6px;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            font-size: 10.5px;
+        }
+
+        .dot-indigo {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: #6366f1;
+            display: inline-block;
+        }
+
+        .task-desc {
+            color: #64748b;
+        }
+
+        .footer {
+            margin-top: 24px;
+            padding-top: 12px;
+            border-top: 1px solid #e2e8f0;
+            display: flex;
+            justify-content: space-between;
+            font-size: 11px;
+            color: #64748b;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <div>
+            <div class="brand-title">TACOS GAVILAN</div>
+            <div class="brand-subtitle">Planificador Visual Diario: Franjas Reales de Gerencia Lynwood (#14) vs. Sesiones de Desarrollo SM TEG</div>
+        </div>
+        <div class="header-meta">
+            <div class="header-badge">Agosto 2026 • 22 Días Registrados</div>
+            <div class="author-box">
+                <strong>Carlos Velazquez</strong><br>
+                General Manager Lynwood (#14) & Creador / Arquitecto del Sistema SM TEG
+            </div>
+        </div>
+    </div>
+
+    <!-- 4 KPI Metrics -->
+    <div class="kpi-grid">
+        <div class="kpi-card kpi-dev">
+            <div class="kpi-val">89.62 <small>hrs</small></div>
+            <div class="kpi-title">💻 Total Real Programado SM TEG</div>
+            <div class="kpi-desc">52 sesiones registradas en el reporte mensual</div>
+        </div>
+        <div class="kpi-card kpi-mgr">
+            <div class="kpi-val">136 <small>hrs</small></div>
+            <div class="kpi-title">📅 Horas Planificador Lynwood</div>
+            <div class="kpi-desc">19 turnos asignados en rol oficial (#14)</div>
+        </div>
+        <div class="kpi-card kpi-total">
+            <div class="kpi-val">21 <small>días</small></div>
+            <div class="kpi-title">🚀 Días con Desarrollo Activo</div>
+            <div class="kpi-desc">Avances continuos en software y tech packs</div>
+        </div>
+        <div class="kpi-card kpi-ratio">
+            <div class="kpi-val">2 <small>días</small></div>
+            <div class="kpi-title">⚡ Desarrollo en Días Libres</div>
+            <div class="kpi-desc">12-Ago (4.33h) y 20-Ago (6.98h)</div>
+        </div>
+    </div>
+
+    <!-- GANTT SCHEDULE CONTAINER -->
+    <div class="gantt-container">
+        <div class="gantt-header-block">
+            <div>
+                <div class="gantt-title">Planificador Diario de Horarios e Intervalos de Tiempo (4:00 AM – 12:00 AM)</div>
+                <div class="gantt-subtitle">Cada tarjeta muestra las horas exactas en la tienda y las franjas de programación con sus entregables y módulos.</div>
+            </div>
+            <div class="legend-row">
+                <div class="legend-item">
+                    <span class="legend-box box-mgr"></span>
+                    <span>🏪 Horario en Lynwood (136 hrs)</span>
+                </div>
+                <div class="legend-item">
+                    <span class="legend-box box-dev"></span>
+                    <span>💻 Sesiones de Programación (89.62 hrs)</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Sticky Time Ruler on Top -->
+        <div class="sticky-ruler">
+            <div class="ruler-canvas">
+                
+    <div class="ruler-tick" style="left: 0.0%;">
+        <span class="tick-label">4 AM</span>
+    </div>
+  
+
+    <div class="ruler-tick" style="left: 10.0%;">
+        <span class="tick-label">6 AM</span>
+    </div>
+  
+
+    <div class="ruler-tick" style="left: 20.0%;">
+        <span class="tick-label">8 AM</span>
+    </div>
+  
+
+    <div class="ruler-tick" style="left: 30.0%;">
+        <span class="tick-label">10 AM</span>
+    </div>
+  
+
+    <div class="ruler-tick" style="left: 40.0%;">
+        <span class="tick-label">12 PM</span>
+    </div>
+  
+
+    <div class="ruler-tick" style="left: 50.0%;">
+        <span class="tick-label">2 PM</span>
+    </div>
+  
+
+    <div class="ruler-tick" style="left: 60.0%;">
+        <span class="tick-label">4 PM</span>
+    </div>
+  
+
+    <div class="ruler-tick" style="left: 70.0%;">
+        <span class="tick-label">6 PM</span>
+    </div>
+  
+
+    <div class="ruler-tick" style="left: 80.0%;">
+        <span class="tick-label">8 PM</span>
+    </div>
+  
+
+    <div class="ruler-tick" style="left: 90.0%;">
+        <span class="tick-label">10 PM</span>
+    </div>
+  
+
+    <div class="ruler-tick" style="left: 100.0%;">
+        <span class="tick-label">12 AM</span>
+    </div>
+  
+            </div>
+        </div>
+
+        <!-- Days Grid -->
+        <div class="days-grid">
+            
+    <div class="gantt-day-card has-shift">
+        <div class="gantt-card-header">
+            <div class="day-date-group">
+                <span class="date-badge">01 Ago</span>
+                <span class="day-name-label">Sábado</span>
+            </div>
+            <div class="day-info-pills">
+                <span class="info-pill pill-shift">
+                    🏪 Turno Tienda: <strong>2:00 PM - 9:00 PM (7.0h)</strong>
+                </span>
+                <span class="info-pill pill-dev active">
+                    💻 Dev TEG: <strong>4.50 hrs</strong>
+                </span>
+            </div>
+        </div>
+
+        <div class="gantt-lanes-box">
+            <!-- Manager Lane -->
+            <div class="lane-wrapper">
+                <div class="lane-label">🏪 TIENDA</div>
+                <div class="lane-track mgr-lane">
+                    
+      <div class="gantt-bar bar-mgr" style="left: 50.0%; width: 35.0%;">
+          <span class="bar-tag-left">2:00 PM</span>
+          <span class="bar-center-text">🏪 Turno Lynwood: <strong>7.0 hrs</strong></span>
+          <span class="bar-tag-right">9:00 PM</span>
+      </div>
+    
+                </div>
+            </div>
+            <!-- Dev Lane -->
+            <div class="lane-wrapper">
+                <div class="lane-label">💻 SISTEMA</div>
+                <div class="lane-track dev-lane">
+                    
+        <div class="gantt-bar bar-dev" style="left: 72.5%; width: 12.5%;" title="Preparador (Tramos, Live data) (6:30 PM - 9:00 PM • 4.5h)">
+            <span class="bar-center-text">
+                💻 <strong>4.5h</strong>
+            </span>
+        </div>
+      
+                </div>
+            </div>
+        </div>
+
+        <div class="gantt-card-footer">
+            
+            <div class="sessions-breakdown">
+                <span class="sessions-title">⏱️ Sesiones Reales:</span>
+                
+    <span class="session-badge">
+        <span class="dot-indigo"></span> <strong>6:30 PM - 9:00 PM</strong> (4.50h) • <span class="task-desc">Preparador (Tramos, Live data)</span>
+    </span>
+  
+            </div>
+        </div>
+    </div>
+  
+
+    <div class="gantt-day-card has-shift">
+        <div class="gantt-card-header">
+            <div class="day-date-group">
+                <span class="date-badge">02 Ago</span>
+                <span class="day-name-label">Domingo</span>
+            </div>
+            <div class="day-info-pills">
+                <span class="info-pill pill-shift">
+                    🏪 Turno Tienda: <strong>2:00 PM - 7:00 PM (5.0h)</strong>
+                </span>
+                <span class="info-pill pill-dev active">
+                    💻 Dev TEG: <strong>1.00 hrs</strong>
+                </span>
+            </div>
+        </div>
+
+        <div class="gantt-lanes-box">
+            <!-- Manager Lane -->
+            <div class="lane-wrapper">
+                <div class="lane-label">🏪 TIENDA</div>
+                <div class="lane-track mgr-lane">
+                    
+      <div class="gantt-bar bar-mgr" style="left: 50.0%; width: 25.0%;">
+          <span class="bar-tag-left">2:00 PM</span>
+          <span class="bar-center-text">🏪 Turno Lynwood: <strong>5.0 hrs</strong></span>
+          <span class="bar-tag-right">7:00 PM</span>
+      </div>
+    
+                </div>
+            </div>
+            <!-- Dev Lane -->
+            <div class="lane-wrapper">
+                <div class="lane-label">💻 SISTEMA</div>
+                <div class="lane-track dev-lane">
+                    
+        <div class="gantt-bar bar-dev" style="left: 65.0%; width: 5.0%;" title="Modo básico vs avanzado y tableta (5:00 PM - 6:00 PM • 1h)">
+            <span class="bar-center-text">
+                💻 <strong>1.0h</strong>
+            </span>
+        </div>
+      
+                </div>
+            </div>
+        </div>
+
+        <div class="gantt-card-footer">
+            
+            <div class="sessions-breakdown">
+                <span class="sessions-title">⏱️ Sesiones Reales:</span>
+                
+    <span class="session-badge">
+        <span class="dot-indigo"></span> <strong>5:00 PM - 6:00 PM</strong> (1.00h) • <span class="task-desc">Modo básico vs avanzado y tableta</span>
+    </span>
+  
+            </div>
+        </div>
+    </div>
+  
+
+    <div class="gantt-day-card has-shift">
+        <div class="gantt-card-header">
+            <div class="day-date-group">
+                <span class="date-badge">03 Ago</span>
+                <span class="day-name-label">Lunes</span>
+            </div>
+            <div class="day-info-pills">
+                <span class="info-pill pill-shift">
+                    🏪 Turno Tienda: <strong>12:00 PM - 8:00 PM (8.0h)</strong>
+                </span>
+                <span class="info-pill pill-dev active">
+                    💻 Dev TEG: <strong>3.92 hrs</strong>
+                </span>
+            </div>
+        </div>
+
+        <div class="gantt-lanes-box">
+            <!-- Manager Lane -->
+            <div class="lane-wrapper">
+                <div class="lane-label">🏪 TIENDA</div>
+                <div class="lane-track mgr-lane">
+                    
+      <div class="gantt-bar bar-mgr" style="left: 40.0%; width: 40.0%;">
+          <span class="bar-tag-left">12:00 PM</span>
+          <span class="bar-center-text">🏪 Turno Lynwood: <strong>8.0 hrs</strong></span>
+          <span class="bar-tag-right">8:00 PM</span>
+      </div>
+    
+                </div>
+            </div>
+            <!-- Dev Lane -->
+            <div class="lane-wrapper">
+                <div class="lane-label">💻 SISTEMA</div>
+                <div class="lane-track dev-lane">
+                    
+        <div class="gantt-bar bar-dev" style="left: 63.5%; width: 11.9%;" title="QB Estimates y PAR semanal (4:42 PM - 7:04 PM • 2.61h)">
+            <span class="bar-center-text">
+                💻 <strong>2.6h</strong>
+            </span>
+        </div>
+      
+        <div class="gantt-bar bar-dev" style="left: 82.7%; width: 5.4%;" title="Tech Pack specs y RFQ (8:32 PM - 9:36 PM • 1.31h)">
+            <span class="bar-center-text">
+                💻 <strong>1.3h</strong>
+            </span>
+        </div>
+      
+                </div>
+            </div>
+        </div>
+
+        <div class="gantt-card-footer">
+            
+            <div class="sessions-breakdown">
+                <span class="sessions-title">⏱️ Sesiones Reales:</span>
+                
+    <span class="session-badge">
+        <span class="dot-indigo"></span> <strong>4:42 PM - 7:04 PM</strong> (2.61h) • <span class="task-desc">QB Estimates y PAR semanal</span>
+    </span>
+   
+    <span class="session-badge">
+        <span class="dot-indigo"></span> <strong>8:32 PM - 9:36 PM</strong> (1.31h) • <span class="task-desc">Tech Pack specs y RFQ</span>
+    </span>
+  
+            </div>
+        </div>
+    </div>
+  
+
+    <div class="gantt-day-card has-shift">
+        <div class="gantt-card-header">
+            <div class="day-date-group">
+                <span class="date-badge">04 Ago</span>
+                <span class="day-name-label">Martes</span>
+            </div>
+            <div class="day-info-pills">
+                <span class="info-pill pill-shift">
+                    🏪 Turno Tienda: <strong>2:00 PM - 10:00 PM (8.0h)</strong>
+                </span>
+                <span class="info-pill pill-dev active">
+                    💻 Dev TEG: <strong>9.00 hrs</strong>
+                </span>
+            </div>
+        </div>
+
+        <div class="gantt-lanes-box">
+            <!-- Manager Lane -->
+            <div class="lane-wrapper">
+                <div class="lane-label">🏪 TIENDA</div>
+                <div class="lane-track mgr-lane">
+                    
+      <div class="gantt-bar bar-mgr" style="left: 50.0%; width: 40.0%;">
+          <span class="bar-tag-left">2:00 PM</span>
+          <span class="bar-center-text">🏪 Turno Lynwood: <strong>8.0 hrs</strong></span>
+          <span class="bar-tag-right">10:00 PM</span>
+      </div>
+    
+                </div>
+            </div>
+            <!-- Dev Lane -->
+            <div class="lane-wrapper">
+                <div class="lane-label">💻 SISTEMA</div>
+                <div class="lane-track dev-lane">
+                    
+        <div class="gantt-bar bar-dev" style="left: 28.7%; width: 46.3%;" title="Tech Pack Uniformes, RFQ Formaryx (9:45 AM - 7:00 PM • 9h)">
+            <span class="bar-center-text">
+                💻 <strong>9.0h</strong> • 9:45 AM - 7:00 PM
+            </span>
+        </div>
+      
+                </div>
+            </div>
+        </div>
+
+        <div class="gantt-card-footer">
+            
+            <div class="sessions-breakdown">
+                <span class="sessions-title">⏱️ Sesiones Reales:</span>
+                
+    <span class="session-badge">
+        <span class="dot-indigo"></span> <strong>9:45 AM - 7:00 PM</strong> (9.00h) • <span class="task-desc">Tech Pack Uniformes, RFQ Formaryx</span>
+    </span>
+  
+            </div>
+        </div>
+    </div>
+  
+
+    <div class="gantt-day-card has-shift">
+        <div class="gantt-card-header">
+            <div class="day-date-group">
+                <span class="date-badge">05 Ago</span>
+                <span class="day-name-label">Miércoles</span>
+            </div>
+            <div class="day-info-pills">
+                <span class="info-pill pill-shift">
+                    🏪 Turno Tienda: <strong>9:00 AM - 5:00 PM (8.0h)</strong>
+                </span>
+                <span class="info-pill pill-dev active">
+                    💻 Dev TEG: <strong>1.64 hrs</strong>
+                </span>
+            </div>
+        </div>
+
+        <div class="gantt-lanes-box">
+            <!-- Manager Lane -->
+            <div class="lane-wrapper">
+                <div class="lane-label">🏪 TIENDA</div>
+                <div class="lane-track mgr-lane">
+                    
+      <div class="gantt-bar bar-mgr" style="left: 25.0%; width: 40.0%;">
+          <span class="bar-tag-left">9:00 AM</span>
+          <span class="bar-center-text">🏪 Turno Lynwood: <strong>8.0 hrs</strong></span>
+          <span class="bar-tag-right">5:00 PM</span>
+      </div>
+    
+                </div>
+            </div>
+            <!-- Dev Lane -->
+            <div class="lane-wrapper">
+                <div class="lane-label">💻 SISTEMA</div>
+                <div class="lane-track dev-lane">
+                    
+        <div class="gantt-bar bar-dev" style="left: 38.3%; width: 5.9%;" title="Configurar Semana PAR Uniformes (11:40 AM - 12:51 PM • 1.14h)">
+            <span class="bar-center-text">
+                💻 <strong>1.1h</strong>
+            </span>
+        </div>
+      
+        <div class="gantt-bar bar-dev" style="left: 59.8%; width: 4.0%;" title="Sincronización base de datos (3:58 PM - 4:12 PM • 0.5h)">
+            <span class="bar-center-text">
+                💻 <strong>0.5h</strong>
+            </span>
+        </div>
+      
+                </div>
+            </div>
+        </div>
+
+        <div class="gantt-card-footer">
+            
+            <div class="sessions-breakdown">
+                <span class="sessions-title">⏱️ Sesiones Reales:</span>
+                
+    <span class="session-badge">
+        <span class="dot-indigo"></span> <strong>11:40 AM - 12:51 PM</strong> (1.14h) • <span class="task-desc">Configurar Semana PAR Uniformes</span>
+    </span>
+   
+    <span class="session-badge">
+        <span class="dot-indigo"></span> <strong>3:58 PM - 4:12 PM</strong> (0.50h) • <span class="task-desc">Sincronización base de datos</span>
+    </span>
+  
+            </div>
+        </div>
+    </div>
+  
+
+    <div class="gantt-day-card has-shift">
+        <div class="gantt-card-header">
+            <div class="day-date-group">
+                <span class="date-badge">06 Ago</span>
+                <span class="day-name-label">Jueves</span>
+            </div>
+            <div class="day-info-pills">
+                <span class="info-pill pill-shift">
+                    🏪 Turno Tienda: <strong>9:00 AM - 5:00 PM (8.0h)</strong>
+                </span>
+                <span class="info-pill pill-dev active">
+                    💻 Dev TEG: <strong>1.75 hrs</strong>
+                </span>
+            </div>
+        </div>
+
+        <div class="gantt-lanes-box">
+            <!-- Manager Lane -->
+            <div class="lane-wrapper">
+                <div class="lane-label">🏪 TIENDA</div>
+                <div class="lane-track mgr-lane">
+                    
+      <div class="gantt-bar bar-mgr" style="left: 25.0%; width: 40.0%;">
+          <span class="bar-tag-left">9:00 AM</span>
+          <span class="bar-center-text">🏪 Turno Lynwood: <strong>8.0 hrs</strong></span>
+          <span class="bar-tag-right">5:00 PM</span>
+      </div>
+    
+                </div>
+            </div>
+            <!-- Dev Lane -->
+            <div class="lane-wrapper">
+                <div class="lane-label">💻 SISTEMA</div>
+                <div class="lane-track dev-lane">
+                    
+        <div class="gantt-bar bar-dev" style="left: 30.0%; width: 8.0%;" title="Sincronización tableta-PC y DB (10:00 AM - 11:37 AM • 1h)">
+            <span class="bar-center-text">
+                💻 <strong>1.0h</strong>
+            </span>
+        </div>
+      
+        <div class="gantt-bar bar-dev" style="left: 52.5%; width: 4.0%;" title="Ajuste de letras de cocina (2:30 PM - 3:00 PM • 0.75h)">
+            <span class="bar-center-text">
+                💻 <strong>0.8h</strong>
+            </span>
+        </div>
+      
+                </div>
+            </div>
+        </div>
+
+        <div class="gantt-card-footer">
+            
+            <div class="sessions-breakdown">
+                <span class="sessions-title">⏱️ Sesiones Reales:</span>
+                
+    <span class="session-badge">
+        <span class="dot-indigo"></span> <strong>10:00 AM - 11:37 AM</strong> (1.00h) • <span class="task-desc">Sincronización tableta-PC y DB</span>
+    </span>
+   
+    <span class="session-badge">
+        <span class="dot-indigo"></span> <strong>2:30 PM - 3:00 PM</strong> (0.75h) • <span class="task-desc">Ajuste de letras de cocina</span>
+    </span>
+  
+            </div>
+        </div>
+    </div>
+  
+
+    <div class="gantt-day-card has-shift">
+        <div class="gantt-card-header">
+            <div class="day-date-group">
+                <span class="date-badge">07 Ago</span>
+                <span class="day-name-label">Viernes</span>
+            </div>
+            <div class="day-info-pills">
+                <span class="info-pill pill-shift">
+                    🏪 Turno Tienda: <strong>2:00 PM - 9:00 PM (7.0h)</strong>
+                </span>
+                <span class="info-pill pill-dev active">
+                    💻 Dev TEG: <strong>2.54 hrs</strong>
+                </span>
+            </div>
+        </div>
+
+        <div class="gantt-lanes-box">
+            <!-- Manager Lane -->
+            <div class="lane-wrapper">
+                <div class="lane-label">🏪 TIENDA</div>
+                <div class="lane-track mgr-lane">
+                    
+      <div class="gantt-bar bar-mgr" style="left: 50.0%; width: 35.0%;">
+          <span class="bar-tag-left">2:00 PM</span>
+          <span class="bar-center-text">🏪 Turno Lynwood: <strong>7.0 hrs</strong></span>
+          <span class="bar-tag-right">9:00 PM</span>
+      </div>
+    
+                </div>
+            </div>
+            <!-- Dev Lane -->
+            <div class="lane-wrapper">
+                <div class="lane-label">💻 SISTEMA</div>
+                <div class="lane-track dev-lane">
+                    
+        <div class="gantt-bar bar-dev" style="left: 37.3%; width: 11.5%;" title="Notificaciones automáticas descansos LUNCH (11:28 AM - 1:46 PM • 2.54h)">
+            <span class="bar-center-text">
+                💻 <strong>2.5h</strong>
+            </span>
+        </div>
+      
+                </div>
+            </div>
+        </div>
+
+        <div class="gantt-card-footer">
+            
+            <div class="sessions-breakdown">
+                <span class="sessions-title">⏱️ Sesiones Reales:</span>
+                
+    <span class="session-badge">
+        <span class="dot-indigo"></span> <strong>11:28 AM - 1:46 PM</strong> (2.54h) • <span class="task-desc">Notificaciones automáticas descansos LUNCH</span>
+    </span>
+  
+            </div>
+        </div>
+    </div>
+  
+
+    <div class="gantt-day-card has-shift">
+        <div class="gantt-card-header">
+            <div class="day-date-group">
+                <span class="date-badge">08 Ago</span>
+                <span class="day-name-label">Sábado</span>
+            </div>
+            <div class="day-info-pills">
+                <span class="info-pill pill-shift">
+                    🏪 Turno Tienda: <strong>2:00 PM - 9:00 PM (7.0h)</strong>
+                </span>
+                <span class="info-pill pill-dev active">
+                    💻 Dev TEG: <strong>7.15 hrs</strong>
+                </span>
+            </div>
+        </div>
+
+        <div class="gantt-lanes-box">
+            <!-- Manager Lane -->
+            <div class="lane-wrapper">
+                <div class="lane-label">🏪 TIENDA</div>
+                <div class="lane-track mgr-lane">
+                    
+      <div class="gantt-bar bar-mgr" style="left: 50.0%; width: 35.0%;">
+          <span class="bar-tag-left">2:00 PM</span>
+          <span class="bar-center-text">🏪 Turno Lynwood: <strong>7.0 hrs</strong></span>
+          <span class="bar-tag-right">9:00 PM</span>
+      </div>
+    
+                </div>
+            </div>
+            <!-- Dev Lane -->
+            <div class="lane-wrapper">
+                <div class="lane-label">💻 SISTEMA</div>
+                <div class="lane-track dev-lane">
+                    
+        <div class="gantt-bar bar-dev" style="left: 45.0%; width: 35.0%;" title="Pace parrilla carnes y pantallas TV (1:00 PM - 8:00 PM • 7h)">
+            <span class="bar-center-text">
+                💻 <strong>7.0h</strong> • 1:00 PM - 8:00 PM
+            </span>
+        </div>
+      
+        <div class="gantt-bar bar-dev" style="left: 79.1%; width: 4.0%;" title="Sincronización (7:50 PM - 8:00 PM • 0.15h)">
+            <span class="bar-center-text">
+                💻 <strong>0.1h</strong>
+            </span>
+        </div>
+      
+                </div>
+            </div>
+        </div>
+
+        <div class="gantt-card-footer">
+            
+            <div class="sessions-breakdown">
+                <span class="sessions-title">⏱️ Sesiones Reales:</span>
+                
+    <span class="session-badge">
+        <span class="dot-indigo"></span> <strong>1:00 PM - 8:00 PM</strong> (7.00h) • <span class="task-desc">Pace parrilla carnes y pantallas TV</span>
+    </span>
+   
+    <span class="session-badge">
+        <span class="dot-indigo"></span> <strong>7:50 PM - 8:00 PM</strong> (0.15h) • <span class="task-desc">Sincronización</span>
+    </span>
+  
+            </div>
+        </div>
+    </div>
+  
+
+    <div class="gantt-day-card has-shift">
+        <div class="gantt-card-header">
+            <div class="day-date-group">
+                <span class="date-badge">09 Ago</span>
+                <span class="day-name-label">Domingo</span>
+            </div>
+            <div class="day-info-pills">
+                <span class="info-pill pill-shift">
+                    🏪 Turno Tienda: <strong>2:00 PM - 7:00 PM (5.0h)</strong>
+                </span>
+                <span class="info-pill pill-dev active">
+                    💻 Dev TEG: <strong>2.74 hrs</strong>
+                </span>
+            </div>
+        </div>
+
+        <div class="gantt-lanes-box">
+            <!-- Manager Lane -->
+            <div class="lane-wrapper">
+                <div class="lane-label">🏪 TIENDA</div>
+                <div class="lane-track mgr-lane">
+                    
+      <div class="gantt-bar bar-mgr" style="left: 50.0%; width: 25.0%;">
+          <span class="bar-tag-left">2:00 PM</span>
+          <span class="bar-center-text">🏪 Turno Lynwood: <strong>5.0 hrs</strong></span>
+          <span class="bar-tag-right">7:00 PM</span>
+      </div>
+    
+                </div>
+            </div>
+            <!-- Dev Lane -->
+            <div class="lane-wrapper">
+                <div class="lane-label">💻 SISTEMA</div>
+                <div class="lane-track dev-lane">
+                    
+        <div class="gantt-bar bar-dev" style="left: 50.8%; width: 5.0%;" title="Simulación intraday acelerador (2:09 PM - 3:09 PM • 1.24h)">
+            <span class="bar-center-text">
+                💻 <strong>1.2h</strong>
+            </span>
+        </div>
+      
+        <div class="gantt-bar bar-dev" style="left: 68.2%; width: 9.6%;" title="Monitoreo de ritmo en parrilla (5:38 PM - 7:33 PM • 1.5h)">
+            <span class="bar-center-text">
+                💻 <strong>1.5h</strong>
+            </span>
+        </div>
+      
+                </div>
+            </div>
+        </div>
+
+        <div class="gantt-card-footer">
+            
+            <div class="sessions-breakdown">
+                <span class="sessions-title">⏱️ Sesiones Reales:</span>
+                
+    <span class="session-badge">
+        <span class="dot-indigo"></span> <strong>2:09 PM - 3:09 PM</strong> (1.24h) • <span class="task-desc">Simulación intraday acelerador</span>
+    </span>
+   
+    <span class="session-badge">
+        <span class="dot-indigo"></span> <strong>5:38 PM - 7:33 PM</strong> (1.50h) • <span class="task-desc">Monitoreo de ritmo en parrilla</span>
+    </span>
+  
+            </div>
+        </div>
+    </div>
+  
+
+    <div class="gantt-day-card has-shift">
+        <div class="gantt-card-header">
+            <div class="day-date-group">
+                <span class="date-badge">10 Ago</span>
+                <span class="day-name-label">Lunes</span>
+            </div>
+            <div class="day-info-pills">
+                <span class="info-pill pill-shift">
+                    🏪 Turno Tienda: <strong>12:00 PM - 8:00 PM (8.0h)</strong>
+                </span>
+                <span class="info-pill pill-dev active">
+                    💻 Dev TEG: <strong>2.30 hrs</strong>
+                </span>
+            </div>
+        </div>
+
+        <div class="gantt-lanes-box">
+            <!-- Manager Lane -->
+            <div class="lane-wrapper">
+                <div class="lane-label">🏪 TIENDA</div>
+                <div class="lane-track mgr-lane">
+                    
+      <div class="gantt-bar bar-mgr" style="left: 40.0%; width: 40.0%;">
+          <span class="bar-tag-left">12:00 PM</span>
+          <span class="bar-center-text">🏪 Turno Lynwood: <strong>8.0 hrs</strong></span>
+          <span class="bar-tag-right">8:00 PM</span>
+      </div>
+    
+                </div>
+            </div>
+            <!-- Dev Lane -->
+            <div class="lane-wrapper">
+                <div class="lane-label">💻 SISTEMA</div>
+                <div class="lane-track dev-lane">
+                    
+        <div class="gantt-bar bar-dev" style="left: 57.5%; width: 10.0%;" title="Control de prendas y arqueos (3:30 PM - 5:30 PM • 2.3h)">
+            <span class="bar-center-text">
+                💻 <strong>2.3h</strong>
+            </span>
+        </div>
+      
+                </div>
+            </div>
+        </div>
+
+        <div class="gantt-card-footer">
+            
+            <div class="sessions-breakdown">
+                <span class="sessions-title">⏱️ Sesiones Reales:</span>
+                
+    <span class="session-badge">
+        <span class="dot-indigo"></span> <strong>3:30 PM - 5:30 PM</strong> (2.30h) • <span class="task-desc">Control de prendas y arqueos</span>
+    </span>
+  
+            </div>
+        </div>
+    </div>
+  
+
+    <div class="gantt-day-card has-shift">
+        <div class="gantt-card-header">
+            <div class="day-date-group">
+                <span class="date-badge">11 Ago</span>
+                <span class="day-name-label">Martes</span>
+            </div>
+            <div class="day-info-pills">
+                <span class="info-pill pill-shift">
+                    🏪 Turno Tienda: <strong>2:00 PM - 10:00 PM (8.0h)</strong>
+                </span>
+                <span class="info-pill pill-dev active">
+                    💻 Dev TEG: <strong>3.18 hrs</strong>
+                </span>
+            </div>
+        </div>
+
+        <div class="gantt-lanes-box">
+            <!-- Manager Lane -->
+            <div class="lane-wrapper">
+                <div class="lane-label">🏪 TIENDA</div>
+                <div class="lane-track mgr-lane">
+                    
+      <div class="gantt-bar bar-mgr" style="left: 50.0%; width: 40.0%;">
+          <span class="bar-tag-left">2:00 PM</span>
+          <span class="bar-center-text">🏪 Turno Lynwood: <strong>8.0 hrs</strong></span>
+          <span class="bar-tag-right">10:00 PM</span>
+      </div>
+    
+                </div>
+            </div>
+            <!-- Dev Lane -->
+            <div class="lane-wrapper">
+                <div class="lane-label">💻 SISTEMA</div>
+                <div class="lane-track dev-lane">
+                    
+        <div class="gantt-bar bar-dev" style="left: 26.4%; width: 9.6%;" title="Catálogos y mapeo de bodegas (9:17 AM - 11:10 AM • 1h)">
+            <span class="bar-center-text">
+                💻 <strong>1.0h</strong>
+            </span>
+        </div>
+      
+        <div class="gantt-bar bar-dev" style="left: 64.6%; width: 14.5%;" title="Caja Fuerte, RBAC y auditoría (4:56 PM - 7:50 PM • 2.18h)">
+            <span class="bar-center-text">
+                💻 <strong>2.2h</strong>
+            </span>
+        </div>
+      
+                </div>
+            </div>
+        </div>
+
+        <div class="gantt-card-footer">
+            
+            <div class="sessions-breakdown">
+                <span class="sessions-title">⏱️ Sesiones Reales:</span>
+                
+    <span class="session-badge">
+        <span class="dot-indigo"></span> <strong>9:17 AM - 11:10 AM</strong> (1.00h) • <span class="task-desc">Catálogos y mapeo de bodegas</span>
+    </span>
+   
+    <span class="session-badge">
+        <span class="dot-indigo"></span> <strong>4:56 PM - 7:50 PM</strong> (2.18h) • <span class="task-desc">Caja Fuerte, RBAC y auditoría</span>
+    </span>
+  
+            </div>
+        </div>
+    </div>
+  
+
+    <div class="gantt-day-card store-day-off">
+        <div class="gantt-card-header">
+            <div class="day-date-group">
+                <span class="date-badge">12 Ago</span>
+                <span class="day-name-label">Miércoles</span>
+            </div>
+            <div class="day-info-pills">
+                <span class="info-pill pill-shift">
+                    🏖️ <strong>Día Libre en Tienda</strong>
+                </span>
+                <span class="info-pill pill-dev active">
+                    💻 Dev TEG: <strong>4.33 hrs</strong>
+                </span>
+            </div>
+        </div>
+
+        <div class="gantt-lanes-box">
+            <!-- Manager Lane -->
+            <div class="lane-wrapper">
+                <div class="lane-label">🏪 TIENDA</div>
+                <div class="lane-track mgr-lane">
+                    <div class="day-off-tag">🏖️ <strong>Día Libre en Tienda</strong> (Descanso Oficial en Rol de Turnos)</div>
+                </div>
+            </div>
+            <!-- Dev Lane -->
+            <div class="lane-wrapper">
+                <div class="lane-label">💻 SISTEMA</div>
+                <div class="lane-track dev-lane">
+                    
+        <div class="gantt-bar bar-dev" style="left: 46.3%; width: 4.0%;" title="API Basecamp (1:15 PM - 1:35 PM • 0.33h)">
+            <span class="bar-center-text">
+                💻 <strong>0.3h</strong>
+            </span>
+        </div>
+      
+        <div class="gantt-bar bar-dev" style="left: 76.6%; width: 20.9%;" title="Sincronizador continuo en día libre (7:20 PM - 11:30 PM • 4h)">
+            <span class="bar-center-text">
+                💻 <strong>4.0h</strong> • 7:20 PM - 11:30 PM
+            </span>
+        </div>
+      
+                </div>
+            </div>
+        </div>
+
+        <div class="gantt-card-footer">
+            
+            <div class="sessions-breakdown">
+                <span class="sessions-title">⏱️ Sesiones Reales:</span>
+                
+    <span class="session-badge">
+        <span class="dot-indigo"></span> <strong>1:15 PM - 1:35 PM</strong> (0.33h) • <span class="task-desc">API Basecamp</span>
+    </span>
+   
+    <span class="session-badge">
+        <span class="dot-indigo"></span> <strong>7:20 PM - 11:30 PM</strong> (4.00h) • <span class="task-desc">Sincronizador continuo en día libre</span>
+    </span>
+  
+            </div>
+        </div>
+    </div>
+  
+
+    <div class="gantt-day-card has-shift">
+        <div class="gantt-card-header">
+            <div class="day-date-group">
+                <span class="date-badge">13 Ago</span>
+                <span class="day-name-label">Jueves</span>
+            </div>
+            <div class="day-info-pills">
+                <span class="info-pill pill-shift">
+                    🏪 Turno Tienda: <strong>9:00 AM - 5:00 PM (8.0h)</strong>
+                </span>
+                <span class="info-pill pill-dev active">
+                    💻 Dev TEG: <strong>6.45 hrs</strong>
+                </span>
+            </div>
+        </div>
+
+        <div class="gantt-lanes-box">
+            <!-- Manager Lane -->
+            <div class="lane-wrapper">
+                <div class="lane-label">🏪 TIENDA</div>
+                <div class="lane-track mgr-lane">
+                    
+      <div class="gantt-bar bar-mgr" style="left: 25.0%; width: 40.0%;">
+          <span class="bar-tag-left">9:00 AM</span>
+          <span class="bar-center-text">🏪 Turno Lynwood: <strong>8.0 hrs</strong></span>
+          <span class="bar-tag-right">5:00 PM</span>
+      </div>
+    
+                </div>
+            </div>
+            <!-- Dev Lane -->
+            <div class="lane-wrapper">
+                <div class="lane-label">💻 SISTEMA</div>
+                <div class="lane-track dev-lane">
+                    
+        <div class="gantt-bar bar-dev" style="left: 22.5%; width: 5.8%;" title="Champurrado y Caja Fuerte (8:31 AM - 9:41 AM • 1.41h)">
+            <span class="bar-center-text">
+                💻 <strong>1.4h</strong>
+            </span>
+        </div>
+      
+        <div class="gantt-bar bar-dev" style="left: 35.0%; width: 8.2%;" title="Arqueos y deducciones (11:01 AM - 12:39 PM • 1.89h)">
+            <span class="bar-center-text">
+                💻 <strong>1.9h</strong>
+            </span>
+        </div>
+      
+        <div class="gantt-bar bar-dev" style="left: 51.4%; width: 12.1%;" title="Control de prendas (2:17 PM - 4:42 PM • 1.26h)">
+            <span class="bar-center-text">
+                💻 <strong>1.3h</strong>
+            </span>
+        </div>
+      
+        <div class="gantt-bar bar-dev" style="left: 68.5%; width: 8.2%;" title="MilesIQ deducción IRS (5:43 PM - 7:22 PM • 1.89h)">
+            <span class="bar-center-text">
+                💻 <strong>1.9h</strong>
+            </span>
+        </div>
+      
+                </div>
+            </div>
+        </div>
+
+        <div class="gantt-card-footer">
+            
+            <div class="sessions-breakdown">
+                <span class="sessions-title">⏱️ Sesiones Reales:</span>
+                
+    <span class="session-badge">
+        <span class="dot-indigo"></span> <strong>8:31 AM - 9:41 AM</strong> (1.41h) • <span class="task-desc">Champurrado y Caja Fuerte</span>
+    </span>
+   
+    <span class="session-badge">
+        <span class="dot-indigo"></span> <strong>11:01 AM - 12:39 PM</strong> (1.89h) • <span class="task-desc">Arqueos y deducciones</span>
+    </span>
+   
+    <span class="session-badge">
+        <span class="dot-indigo"></span> <strong>2:17 PM - 4:42 PM</strong> (1.26h) • <span class="task-desc">Control de prendas</span>
+    </span>
+   
+    <span class="session-badge">
+        <span class="dot-indigo"></span> <strong>5:43 PM - 7:22 PM</strong> (1.89h) • <span class="task-desc">MilesIQ deducción IRS</span>
+    </span>
+  
+            </div>
+        </div>
+    </div>
+  
+
+    <div class="gantt-day-card has-shift">
+        <div class="gantt-card-header">
+            <div class="day-date-group">
+                <span class="date-badge">14 Ago</span>
+                <span class="day-name-label">Viernes</span>
+            </div>
+            <div class="day-info-pills">
+                <span class="info-pill pill-shift">
+                    🏪 Turno Tienda: <strong>2:00 PM - 9:00 PM (7.0h)</strong>
+                </span>
+                <span class="info-pill pill-dev ">
+                    💻 Dev TEG: <strong>0h</strong>
+                </span>
+            </div>
+        </div>
+
+        <div class="gantt-lanes-box">
+            <!-- Manager Lane -->
+            <div class="lane-wrapper">
+                <div class="lane-label">🏪 TIENDA</div>
+                <div class="lane-track mgr-lane">
+                    
+      <div class="gantt-bar bar-mgr" style="left: 50.0%; width: 35.0%;">
+          <span class="bar-tag-left">2:00 PM</span>
+          <span class="bar-center-text">🏪 Turno Lynwood: <strong>7.0 hrs</strong></span>
+          <span class="bar-tag-right">9:00 PM</span>
+      </div>
+    
+                </div>
+            </div>
+            <!-- Dev Lane -->
+            <div class="lane-wrapper">
+                <div class="lane-label">💻 SISTEMA</div>
+                <div class="lane-track dev-lane">
+                    <div class="no-dev-tag"><em>Sin sesiones de desarrollo registradas</em></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="gantt-card-footer">
+            
+        </div>
+    </div>
+  
+
+    <div class="gantt-day-card has-shift">
+        <div class="gantt-card-header">
+            <div class="day-date-group">
+                <span class="date-badge">15 Ago</span>
+                <span class="day-name-label">Sábado</span>
+            </div>
+            <div class="day-info-pills">
+                <span class="info-pill pill-shift">
+                    🏪 Turno Tienda: <strong>2:00 PM - 9:00 PM (7.0h)</strong>
+                </span>
+                <span class="info-pill pill-dev active">
+                    💻 Dev TEG: <strong>4.94 hrs</strong>
+                </span>
+            </div>
+        </div>
+
+        <div class="gantt-lanes-box">
+            <!-- Manager Lane -->
+            <div class="lane-wrapper">
+                <div class="lane-label">🏪 TIENDA</div>
+                <div class="lane-track mgr-lane">
+                    
+      <div class="gantt-bar bar-mgr" style="left: 50.0%; width: 35.0%;">
+          <span class="bar-tag-left">2:00 PM</span>
+          <span class="bar-center-text">🏪 Turno Lynwood: <strong>7.0 hrs</strong></span>
+          <span class="bar-tag-right">9:00 PM</span>
+      </div>
+    
+                </div>
+            </div>
+            <!-- Dev Lane -->
+            <div class="lane-wrapper">
+                <div class="lane-label">💻 SISTEMA</div>
+                <div class="lane-track dev-lane">
+                    
+        <div class="gantt-bar bar-dev" style="left: 60.9%; width: 20.9%;" title="Tech Pack tabla de tallas y medidas (4:11 PM - 8:22 PM • 4.44h)">
+            <span class="bar-center-text">
+                💻 <strong>4.4h</strong> • 4:11 PM - 8:22 PM
+            </span>
+        </div>
+      
+        <div class="gantt-bar bar-dev" style="left: 84.9%; width: 4.0%;" title="Fichas técnicas proveedores (8:59 PM - 9:12 PM • 0.5h)">
+            <span class="bar-center-text">
+                💻 <strong>0.5h</strong>
+            </span>
+        </div>
+      
+                </div>
+            </div>
+        </div>
+
+        <div class="gantt-card-footer">
+            
+            <div class="sessions-breakdown">
+                <span class="sessions-title">⏱️ Sesiones Reales:</span>
+                
+    <span class="session-badge">
+        <span class="dot-indigo"></span> <strong>4:11 PM - 8:22 PM</strong> (4.44h) • <span class="task-desc">Tech Pack tabla de tallas y medidas</span>
+    </span>
+   
+    <span class="session-badge">
+        <span class="dot-indigo"></span> <strong>8:59 PM - 9:12 PM</strong> (0.50h) • <span class="task-desc">Fichas técnicas proveedores</span>
+    </span>
+  
+            </div>
+        </div>
+    </div>
+  
+
+    <div class="gantt-day-card has-shift">
+        <div class="gantt-card-header">
+            <div class="day-date-group">
+                <span class="date-badge">16 Ago</span>
+                <span class="day-name-label">Domingo</span>
+            </div>
+            <div class="day-info-pills">
+                <span class="info-pill pill-shift">
+                    🏪 Turno Tienda: <strong>2:00 PM - 7:00 PM (5.0h)</strong>
+                </span>
+                <span class="info-pill pill-dev active">
+                    💻 Dev TEG: <strong>6.96 hrs</strong>
+                </span>
+            </div>
+        </div>
+
+        <div class="gantt-lanes-box">
+            <!-- Manager Lane -->
+            <div class="lane-wrapper">
+                <div class="lane-label">🏪 TIENDA</div>
+                <div class="lane-track mgr-lane">
+                    
+      <div class="gantt-bar bar-mgr" style="left: 50.0%; width: 25.0%;">
+          <span class="bar-tag-left">2:00 PM</span>
+          <span class="bar-center-text">🏪 Turno Lynwood: <strong>5.0 hrs</strong></span>
+          <span class="bar-tag-right">7:00 PM</span>
+      </div>
+    
+                </div>
+            </div>
+            <!-- Dev Lane -->
+            <div class="lane-wrapper">
+                <div class="lane-label">💻 SISTEMA</div>
+                <div class="lane-track dev-lane">
+                    
+        <div class="gantt-bar bar-dev" style="left: 43.0%; width: 16.1%;" title="GPS tiendas y soporte IA (12:37 PM - 3:50 PM • 3.45h)">
+            <span class="bar-center-text">
+                💻 <strong>3.5h</strong>
+            </span>
+        </div>
+      
+        <div class="gantt-bar bar-dev" style="left: 75.5%; width: 7.7%;" title="Simulador de millas (7:07 PM - 8:39 PM • 1.51h)">
+            <span class="bar-center-text">
+                💻 <strong>1.5h</strong>
+            </span>
+        </div>
+      
+        <div class="gantt-bar bar-dev" style="left: 1.2%; width: 8.8%;" title="Auditoría nocturna de motor (4:14 AM - 5:59 AM • 2h)">
+            <span class="bar-center-text">
+                💻 <strong>2.0h</strong>
+            </span>
+        </div>
+      
+                </div>
+            </div>
+        </div>
+
+        <div class="gantt-card-footer">
+            
+            <div class="sessions-breakdown">
+                <span class="sessions-title">⏱️ Sesiones Reales:</span>
+                
+    <span class="session-badge">
+        <span class="dot-indigo"></span> <strong>12:37 PM - 3:50 PM</strong> (3.45h) • <span class="task-desc">GPS tiendas y soporte IA</span>
+    </span>
+   
+    <span class="session-badge">
+        <span class="dot-indigo"></span> <strong>7:07 PM - 8:39 PM</strong> (1.51h) • <span class="task-desc">Simulador de millas</span>
+    </span>
+   
+    <span class="session-badge">
+        <span class="dot-indigo"></span> <strong>4:14 AM - 5:59 AM</strong> (2.00h) • <span class="task-desc">Auditoría nocturna de motor</span>
+    </span>
+  
+            </div>
+        </div>
+    </div>
+  
+
+    <div class="gantt-day-card has-shift">
+        <div class="gantt-card-header">
+            <div class="day-date-group">
+                <span class="date-badge">17 Ago</span>
+                <span class="day-name-label">Lunes</span>
+            </div>
+            <div class="day-info-pills">
+                <span class="info-pill pill-shift">
+                    🏪 Turno Tienda: <strong>12:00 PM - 8:00 PM (8.0h)</strong>
+                </span>
+                <span class="info-pill pill-dev active">
+                    💻 Dev TEG: <strong>4.43 hrs</strong>
+                </span>
+            </div>
+        </div>
+
+        <div class="gantt-lanes-box">
+            <!-- Manager Lane -->
+            <div class="lane-wrapper">
+                <div class="lane-label">🏪 TIENDA</div>
+                <div class="lane-track mgr-lane">
+                    
+      <div class="gantt-bar bar-mgr" style="left: 40.0%; width: 40.0%;">
+          <span class="bar-tag-left">12:00 PM</span>
+          <span class="bar-center-text">🏪 Turno Lynwood: <strong>8.0 hrs</strong></span>
+          <span class="bar-tag-right">8:00 PM</span>
+      </div>
+    
+                </div>
+            </div>
+            <!-- Dev Lane -->
+            <div class="lane-wrapper">
+                <div class="lane-label">💻 SISTEMA</div>
+                <div class="lane-track dev-lane">
+                    
+        <div class="gantt-bar bar-dev" style="left: 0.0%; width: 8.8%;" title="Catálogo Viele y auditoría (4:00 AM - 5:45 AM • 2.03h)">
+            <span class="bar-center-text">
+                💻 <strong>2.0h</strong>
+            </span>
+        </div>
+      
+        <div class="gantt-bar bar-dev" style="left: 45.8%; width: 12.1%;" title="Radar de precios proveedores (1:10 PM - 3:35 PM • 2.4h)">
+            <span class="bar-center-text">
+                💻 <strong>2.4h</strong>
+            </span>
+        </div>
+      
+                </div>
+            </div>
+        </div>
+
+        <div class="gantt-card-footer">
+            
+            <div class="sessions-breakdown">
+                <span class="sessions-title">⏱️ Sesiones Reales:</span>
+                
+    <span class="session-badge">
+        <span class="dot-indigo"></span> <strong>4:00 AM - 5:45 AM</strong> (2.03h) • <span class="task-desc">Catálogo Viele y auditoría</span>
+    </span>
+   
+    <span class="session-badge">
+        <span class="dot-indigo"></span> <strong>1:10 PM - 3:35 PM</strong> (2.40h) • <span class="task-desc">Radar de precios proveedores</span>
+    </span>
+  
+            </div>
+        </div>
+    </div>
+  
+
+    <div class="gantt-day-card has-shift">
+        <div class="gantt-card-header">
+            <div class="day-date-group">
+                <span class="date-badge">18 Ago</span>
+                <span class="day-name-label">Martes</span>
+            </div>
+            <div class="day-info-pills">
+                <span class="info-pill pill-shift">
+                    🏪 Turno Tienda: <strong>2:00 PM - 10:00 PM (8.0h)</strong>
+                </span>
+                <span class="info-pill pill-dev active">
+                    💻 Dev TEG: <strong>5.39 hrs</strong>
+                </span>
+            </div>
+        </div>
+
+        <div class="gantt-lanes-box">
+            <!-- Manager Lane -->
+            <div class="lane-wrapper">
+                <div class="lane-label">🏪 TIENDA</div>
+                <div class="lane-track mgr-lane">
+                    
+      <div class="gantt-bar bar-mgr" style="left: 50.0%; width: 40.0%;">
+          <span class="bar-tag-left">2:00 PM</span>
+          <span class="bar-center-text">🏪 Turno Lynwood: <strong>8.0 hrs</strong></span>
+          <span class="bar-tag-right">10:00 PM</span>
+      </div>
+    
+                </div>
+            </div>
+            <!-- Dev Lane -->
+            <div class="lane-wrapper">
+                <div class="lane-label">💻 SISTEMA</div>
+                <div class="lane-track dev-lane">
+                    
+        <div class="gantt-bar bar-dev" style="left: 35.0%; width: 11.6%;" title="Viele & Sons Scraper API v3 (11:00 AM - 1:19 PM • 1.05h)">
+            <span class="bar-center-text">
+                💻 <strong>1.1h</strong>
+            </span>
+        </div>
+      
+        <div class="gantt-bar bar-dev" style="left: 52.0%; width: 20.4%;" title="Catálogo 87 insumos y auditoría precios (2:24 PM - 6:29 PM • 4.34h)">
+            <span class="bar-center-text">
+                💻 <strong>4.3h</strong> • 2:24 PM - 6:29 PM
+            </span>
+        </div>
+      
+                </div>
+            </div>
+        </div>
+
+        <div class="gantt-card-footer">
+            
+            <div class="sessions-breakdown">
+                <span class="sessions-title">⏱️ Sesiones Reales:</span>
+                
+    <span class="session-badge">
+        <span class="dot-indigo"></span> <strong>11:00 AM - 1:19 PM</strong> (1.05h) • <span class="task-desc">Viele & Sons Scraper API v3</span>
+    </span>
+   
+    <span class="session-badge">
+        <span class="dot-indigo"></span> <strong>2:24 PM - 6:29 PM</strong> (4.34h) • <span class="task-desc">Catálogo 87 insumos y auditoría precios</span>
+    </span>
+  
+            </div>
+        </div>
+    </div>
+  
+
+    <div class="gantt-day-card has-shift">
+        <div class="gantt-card-header">
+            <div class="day-date-group">
+                <span class="date-badge">19 Ago</span>
+                <span class="day-name-label">Miércoles</span>
+            </div>
+            <div class="day-info-pills">
+                <span class="info-pill pill-shift">
+                    🏪 Turno Tienda: <strong>9:00 AM - 5:00 PM (8.0h)</strong>
+                </span>
+                <span class="info-pill pill-dev active">
+                    💻 Dev TEG: <strong>4.70 hrs</strong>
+                </span>
+            </div>
+        </div>
+
+        <div class="gantt-lanes-box">
+            <!-- Manager Lane -->
+            <div class="lane-wrapper">
+                <div class="lane-label">🏪 TIENDA</div>
+                <div class="lane-track mgr-lane">
+                    
+      <div class="gantt-bar bar-mgr" style="left: 25.0%; width: 40.0%;">
+          <span class="bar-tag-left">9:00 AM</span>
+          <span class="bar-center-text">🏪 Turno Lynwood: <strong>8.0 hrs</strong></span>
+          <span class="bar-tag-right">5:00 PM</span>
+      </div>
+    
+                </div>
+            </div>
+            <!-- Dev Lane -->
+            <div class="lane-wrapper">
+                <div class="lane-label">💻 SISTEMA</div>
+                <div class="lane-track dev-lane">
+                    
+        <div class="gantt-bar bar-dev" style="left: 28.7%; width: 13.9%;" title="Auditoría 17 bugs y seguridad (9:44 AM - 12:31 PM • 3.05h)">
+            <span class="bar-center-text">
+                💻 <strong>3.0h</strong>
+            </span>
+        </div>
+      
+        <div class="gantt-bar bar-dev" style="left: 54.5%; width: 11.7%;" title="Radar de precios rediseño (2:54 PM - 5:15 PM • 1.65h)">
+            <span class="bar-center-text">
+                💻 <strong>1.6h</strong>
+            </span>
+        </div>
+      
+                </div>
+            </div>
+        </div>
+
+        <div class="gantt-card-footer">
+            
+            <div class="sessions-breakdown">
+                <span class="sessions-title">⏱️ Sesiones Reales:</span>
+                
+    <span class="session-badge">
+        <span class="dot-indigo"></span> <strong>9:44 AM - 12:31 PM</strong> (3.05h) • <span class="task-desc">Auditoría 17 bugs y seguridad</span>
+    </span>
+   
+    <span class="session-badge">
+        <span class="dot-indigo"></span> <strong>2:54 PM - 5:15 PM</strong> (1.65h) • <span class="task-desc">Radar de precios rediseño</span>
+    </span>
+  
+            </div>
+        </div>
+    </div>
+  
+
+    <div class="gantt-day-card store-day-off">
+        <div class="gantt-card-header">
+            <div class="day-date-group">
+                <span class="date-badge">20 Ago</span>
+                <span class="day-name-label">Jueves</span>
+            </div>
+            <div class="day-info-pills">
+                <span class="info-pill pill-shift">
+                    🏖️ <strong>Día Libre en Tienda</strong>
+                </span>
+                <span class="info-pill pill-dev active">
+                    💻 Dev TEG: <strong>6.98 hrs</strong>
+                </span>
+            </div>
+        </div>
+
+        <div class="gantt-lanes-box">
+            <!-- Manager Lane -->
+            <div class="lane-wrapper">
+                <div class="lane-label">🏪 TIENDA</div>
+                <div class="lane-track mgr-lane">
+                    <div class="day-off-tag">🏖️ <strong>Día Libre en Tienda</strong> (Descanso Oficial en Rol de Turnos)</div>
+                </div>
+            </div>
+            <!-- Dev Lane -->
+            <div class="lane-wrapper">
+                <div class="lane-label">💻 SISTEMA</div>
+                <div class="lane-track dev-lane">
+                    
+        <div class="gantt-bar bar-dev" style="left: 11.3%; width: 5.8%;" title="Basecamp View As y UX (6:15 AM - 7:25 AM • 1.15h)">
+            <span class="bar-center-text">
+                💻 <strong>1.1h</strong>
+            </span>
+        </div>
+      
+        <div class="gantt-bar bar-dev" style="left: 56.3%; width: 13.8%;" title="MilesIQ 15 Tiendas y Basecamp Drawer (3:15 PM - 6:00 PM • 2.75h)">
+            <span class="bar-center-text">
+                💻 <strong>2.8h</strong>
+            </span>
+        </div>
+      
+        <div class="gantt-bar bar-dev" style="left: 83.3%; width: 15.4%;" title="Radar Rediseño y Auditoría 35/35 (8:40 PM - 11:45 PM • 3.08h)">
+            <span class="bar-center-text">
+                💻 <strong>3.1h</strong>
+            </span>
+        </div>
+      
+                </div>
+            </div>
+        </div>
+
+        <div class="gantt-card-footer">
+            
+            <div class="sessions-breakdown">
+                <span class="sessions-title">⏱️ Sesiones Reales:</span>
+                
+    <span class="session-badge">
+        <span class="dot-indigo"></span> <strong>6:15 AM - 7:25 AM</strong> (1.15h) • <span class="task-desc">Basecamp View As y UX</span>
+    </span>
+   
+    <span class="session-badge">
+        <span class="dot-indigo"></span> <strong>3:15 PM - 6:00 PM</strong> (2.75h) • <span class="task-desc">MilesIQ 15 Tiendas y Basecamp Drawer</span>
+    </span>
+   
+    <span class="session-badge">
+        <span class="dot-indigo"></span> <strong>8:40 PM - 11:45 PM</strong> (3.08h) • <span class="task-desc">Radar Rediseño y Auditoría 35/35</span>
+    </span>
+  
+            </div>
+        </div>
+    </div>
+  
+
+    <div class="gantt-day-card has-shift">
+        <div class="gantt-card-header">
+            <div class="day-date-group">
+                <span class="date-badge">21 Ago</span>
+                <span class="day-name-label">Viernes</span>
+            </div>
+            <div class="day-info-pills">
+                <span class="info-pill pill-shift">
+                    🏪 Turno Tienda: <strong>2:00 PM - 9:00 PM (7.0h)</strong>
+                </span>
+                <span class="info-pill pill-dev active">
+                    💻 Dev TEG: <strong>4.36 hrs</strong>
+                </span>
+            </div>
+        </div>
+
+        <div class="gantt-lanes-box">
+            <!-- Manager Lane -->
+            <div class="lane-wrapper">
+                <div class="lane-label">🏪 TIENDA</div>
+                <div class="lane-track mgr-lane">
+                    
+      <div class="gantt-bar bar-mgr" style="left: 50.0%; width: 35.0%;">
+          <span class="bar-tag-left">2:00 PM</span>
+          <span class="bar-center-text">🏪 Turno Lynwood: <strong>7.0 hrs</strong></span>
+          <span class="bar-tag-right">9:00 PM</span>
+      </div>
+    
+                </div>
+            </div>
+            <!-- Dev Lane -->
+            <div class="lane-wrapper">
+                <div class="lane-label">💻 SISTEMA</div>
+                <div class="lane-track dev-lane">
+                    
+        <div class="gantt-bar bar-dev" style="left: 10.8%; width: 4.5%;" title="Modal Basecamp 4 y MilesIQ (6:09 AM - 7:03 AM • 1.14h)">
+            <span class="bar-center-text">
+                💻 <strong>1.1h</strong>
+            </span>
+        </div>
+      
+        <div class="gantt-bar bar-dev" style="left: 39.4%; width: 4.0%;" title="Alertas correo directivos (11:53 AM - 12:30 PM • 0.87h)">
+            <span class="bar-center-text">
+                💻 <strong>0.9h</strong>
+            </span>
+        </div>
+      
+        <div class="gantt-bar bar-dev" style="left: 64.1%; width: 4.0%;" title="Ajuste UI (4:50 PM - 5:00 PM • 0.5h)">
+            <span class="bar-center-text">
+                💻 <strong>0.5h</strong>
+            </span>
+        </div>
+      
+        <div class="gantt-bar bar-dev" style="left: 79.3%; width: 8.0%;" title="Descansos IA motor y aprendizaje (7:52 PM - 9:28 PM • 1.84h)">
+            <span class="bar-center-text">
+                💻 <strong>1.8h</strong>
+            </span>
+        </div>
+      
+                </div>
+            </div>
+        </div>
+
+        <div class="gantt-card-footer">
+            
+            <div class="sessions-breakdown">
+                <span class="sessions-title">⏱️ Sesiones Reales:</span>
+                
+    <span class="session-badge">
+        <span class="dot-indigo"></span> <strong>6:09 AM - 7:03 AM</strong> (1.14h) • <span class="task-desc">Modal Basecamp 4 y MilesIQ</span>
+    </span>
+   
+    <span class="session-badge">
+        <span class="dot-indigo"></span> <strong>11:53 AM - 12:30 PM</strong> (0.87h) • <span class="task-desc">Alertas correo directivos</span>
+    </span>
+   
+    <span class="session-badge">
+        <span class="dot-indigo"></span> <strong>4:50 PM - 5:00 PM</strong> (0.50h) • <span class="task-desc">Ajuste UI</span>
+    </span>
+   
+    <span class="session-badge">
+        <span class="dot-indigo"></span> <strong>7:52 PM - 9:28 PM</strong> (1.84h) • <span class="task-desc">Descansos IA motor y aprendizaje</span>
+    </span>
+  
+            </div>
+        </div>
+    </div>
+  
+
+    <div class="gantt-day-card has-shift">
+        <div class="gantt-card-header">
+            <div class="day-date-group">
+                <span class="date-badge">22 Ago</span>
+                <span class="day-name-label">Sábado</span>
+            </div>
+            <div class="day-info-pills">
+                <span class="info-pill pill-shift">
+                    🏪 Turno Tienda: <strong>2:00 PM - 9:00 PM (7.0h)</strong>
+                </span>
+                <span class="info-pill pill-dev active">
+                    💻 Dev TEG: <strong>1.36 hrs</strong>
+                </span>
+            </div>
+        </div>
+
+        <div class="gantt-lanes-box">
+            <!-- Manager Lane -->
+            <div class="lane-wrapper">
+                <div class="lane-label">🏪 TIENDA</div>
+                <div class="lane-track mgr-lane">
+                    
+      <div class="gantt-bar bar-mgr" style="left: 50.0%; width: 35.0%;">
+          <span class="bar-tag-left">2:00 PM</span>
+          <span class="bar-center-text">🏪 Turno Lynwood: <strong>7.0 hrs</strong></span>
+          <span class="bar-tag-right">9:00 PM</span>
+      </div>
+    
+                </div>
+            </div>
+            <!-- Dev Lane -->
+            <div class="lane-wrapper">
+                <div class="lane-label">💻 SISTEMA</div>
+                <div class="lane-track dev-lane">
+                    
+        <div class="gantt-bar bar-dev" style="left: 66.8%; width: 5.5%;" title="Toast API Cross-Date Refunds (Bell $8,332.64) y Conciliación (5:22 PM - 6:28 PM • 1.36h)">
+            <span class="bar-center-text">
+                💻 <strong>1.4h</strong>
+            </span>
+        </div>
+      
+                </div>
+            </div>
+        </div>
+
+        <div class="gantt-card-footer">
+            
+            <div class="sessions-breakdown">
+                <span class="sessions-title">⏱️ Sesiones Reales:</span>
+                
+    <span class="session-badge">
+        <span class="dot-indigo"></span> <strong>5:22 PM - 6:28 PM</strong> (1.36h) • <span class="task-desc">Toast API Cross-Date Refunds (Bell $8,332.64) y Conciliación</span>
+    </span>
+  
+            </div>
+        </div>
+    </div>
+  
+        </div>
+    </div>
+
+    <div class="footer">
+        <span>Tacos Gavilan • SM TEG • Planificador Oficial de Turnos Lynwood (#14)</span>
+        <span>Generado para Carlos Velazquez: 22-Ago-2026</span>
+    </div>
+
+</body>
+</html>

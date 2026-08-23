@@ -21,8 +21,14 @@ export default function TopProductsList({ data }: { data?: any[] }) {
 
     if (safeData.length === 0) {
         return (
-            <div className="bg-white/60 dark:bg-slate-900/50 border border-black/5 dark:border-slate-800 rounded-3xl p-6 backdrop-blur-xl shadow-xl shadow-black/5 flex items-center justify-center">
-                <p className="text-slate-400">{t('sales.no_products_data')}</p>
+            <div className="bg-white/60 dark:bg-slate-900/50 border border-black/5 dark:border-slate-800 rounded-3xl p-6 backdrop-blur-xl shadow-xl shadow-black/5 min-h-[360px] flex flex-col">
+                <h3 className="text-lg text-slate-900 dark:text-white font-semibold flex items-center gap-2 mb-6">
+                    <span className="w-1.5 h-6 bg-orange-500 rounded-full"></span>
+                    {t('sales.top_products_title')}
+                </h3>
+                <div className="flex-1 flex items-center justify-center">
+                    <p className="text-slate-400 text-sm">{t('sales.no_products_data')}</p>
+                </div>
             </div>
         )
     }

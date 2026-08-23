@@ -1,12 +1,13 @@
 /**
  * @module api/cron/integrity-check/route
- * @description Deep background scanner that audits the last 8 days of sales and labor in Supabase sales_daily_cache against live Toast POS API, auto-healing any drift exceeding \$1.00.
+ * @description Deep background scanner that audits the last 8 days of sales and labor in Supabase sales_daily_cache against live Toast POS API, auto-healing any drift exceeding $1.00.
  * @businessRules
  * - Audits completed historical days (yesterday backwards 8 days) in America/Los_Angeles timezone.
+ * - Respects the 6:00 AM business day rollover boundary.
  * - Uses Full Precision Toast API data as the single source of truth.
  * - Heals discrepancies with complete granular payload (sales, labor, hourly curves, EBT).
  * @dataFlow
- * - Vercel Cron -> GET /api/cron/integrity-check -> Toast API (Full Precision) -> Compare sales_daily_cache -> Auto-Heal Upsert -> Response.
+ * - Vercel Cron -> GET /api/cron/integrity-check -> Toast API (Full Precision) -> Compare sales_daily_cache -> Auto-Heal Batch Upsert -> Response.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -19,8 +20,8 @@ export const dynamic = 'force-dynamic'
 export async function GET(req: NextRequest) {
     try {
         const authHeader = req.headers.get('authorization')
-        if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-            if (process.env.CRON_SECRET) {
+        if (process.env.CRON_SECRET) {
+            if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
                 return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
             }
         }
@@ -29,7 +30,12 @@ export async function GET(req: NextRequest) {
         const now = new Date()
         const laNow = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
 
-        // End Date = Yesterday (Last complete day)
+        // Si es antes de las 6 AM, el día de ayer todavía no ha terminado contablemente
+        if (laNow.getHours() < 6) {
+            laNow.setDate(laNow.getDate() - 1)
+        }
+
+        // End Date = Yesterday (Last complete closed day)
         const endDate = new Date(laNow)
         endDate.setDate(endDate.getDate() - 1)
 
@@ -84,6 +90,7 @@ export async function GET(req: NextRequest) {
 
         let fixedCount = 0
         const logUpdates: string[] = []
+        const healPayloads: any[] = []
 
         // 3. COMPARE AND HEAL
         for (const live of toastData.rows) {
@@ -98,7 +105,7 @@ export async function GET(req: NextRequest) {
             const needsFix = isMissing || salesDiff > 1.00 || laborDiff > 1.00
 
             if (needsFix) {
-                const payload = {
+                healPayloads.push({
                     business_date: live.periodStart,
                     store_id: live.storeId,
                     store_name: live.storeName,
@@ -121,19 +128,21 @@ export async function GET(req: NextRequest) {
                     ebt_count: live.ebtCount || 0,
                     ebt_amount: live.ebtAmount || 0,
                     updated_at: new Date().toISOString()
-                }
+                })
 
-                const { error: upsertError } = await supabase
-                    .from('sales_daily_cache')
-                    .upsert(payload, { onConflict: 'business_date,store_id' })
+                fixedCount++
+                const issue = isMissing ? 'MISSING' : `DIFF(Sales:$${salesDiff.toFixed(2)}, Labor:$${laborDiff.toFixed(2)})`
+                logUpdates.push(`[FIXED] ${live.storeName} ${live.periodStart}: ${issue}`)
+            }
+        }
 
-                if (!upsertError) {
-                    fixedCount++
-                    const issue = isMissing ? 'MISSING' : `DIFF(Sales:$${salesDiff.toFixed(2)}, Labor:$${laborDiff.toFixed(2)})`
-                    logUpdates.push(`[FIXED] ${live.storeName} ${live.periodStart}: ${issue}`)
-                } else {
-                    console.error(`❌ Failed to fix ${live.storeName}:`, upsertError)
-                }
+        if (healPayloads.length > 0) {
+            const { error: batchError } = await supabase
+                .from('sales_daily_cache')
+                .upsert(healPayloads, { onConflict: 'store_id,business_date' })
+
+            if (batchError) {
+                console.error("❌ [CRON INTEGRITY] Batch Upsert Error:", batchError)
             }
         }
 

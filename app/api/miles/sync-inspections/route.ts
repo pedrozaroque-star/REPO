@@ -2,16 +2,22 @@
  * @module api/miles/sync-inspections
  * @description Sincroniza automáticamente los viajes de un supervisor a partir de sus inspecciones de calidad realizadas en el día de negocio.
  * @businessRules
- * - Lee las inspecciones registradas en supervisor_inspections para la fecha de negocio en California.
- * - Conecta cronológicamente las tiendas visitadas [Tienda A → Tienda B → Tienda C].
- * - Consulta la distancia estándar en store_distances.
- * - Evita duplicar viajes si ya existen para el mismo par de tiendas y fecha.
+ * - Lee las inspecciones registradas en supervisor_inspections para la fecha de negocio en California (regla 6:00 AM).
+ * - Conecta cronológicamente las tiendas visitadas [Tienda A → Tienda B → Tienda C], soportando re-visitas a una misma tienda en horarios distintos.
+ * - Soporta ejecución inmediata en tiempo real tras guardar una inspección individual (target_store_id).
+ * - Consulta la distancia estándar en store_distances o calcula con coordenadas canónicas y factor 1.33x de tráfico.
+ * - Tarifa oficial de reembolso IRS: $0.760/mi.
+ * @dataFlow
+ * - Consulta: stores, supervisor_inspections, store_distances, supervisor_mileage_trips, supervisor_mileage_settings
+ * - Inserta: supervisor_mileage_trips
+ * @notes
+ * - La lógica de duplicados evalúa la ventana temporal del viaje para permitir viajes de ida y vuelta o re-visitas legítimas sin descartarlos.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseAdminClient } from '@/lib/supabase'
 import { getCaliforniaBusinessDate } from '@/lib/business-date'
-import { CANONICAL_STORE_COORDINATES, haversineDistanceMiles } from '@/lib/store-coordinates'
+import { CANONICAL_STORE_COORDINATES, haversineDistanceMiles, normalizeStoreName } from '@/lib/store-coordinates'
 
 export async function POST(req: NextRequest) {
   try {
@@ -21,6 +27,7 @@ export async function POST(req: NextRequest) {
     const targetDate = body.date || getCaliforniaBusinessDate()
     const supervisorId = body.supervisor_id
     const supervisorName = body.supervisor_name
+    const targetStoreId = body.target_store_id
 
     // 1. Get current official rate per mile
     const { data: settings } = await supabase
@@ -33,13 +40,180 @@ export async function POST(req: NextRequest) {
     const { data: stores } = await supabase.from('stores').select('id, name')
     const storeMap: Record<string, string> = {}
     stores?.forEach(s => {
-      storeMap[String(s.id)] = s.name.startsWith('Tacos Gavilan') ? s.name : `Tacos Gavilan ${s.name}`
+      storeMap[String(s.id)] = normalizeStoreName(s.name)
     })
 
-    // 3. Fetch inspections for supervisor on this business date
+    // 3. Fetch standard distance matrix
+    const { data: distancesData } = await supabase.from('store_distances').select('*')
+    const distanceLookup: Record<string, number> = {}
+    distancesData?.forEach(d => {
+      distanceLookup[`${d.origin_name}-${d.destination_name}`] = Number(d.distance_miles)
+      distanceLookup[`${d.destination_name}-${d.origin_name}`] = Number(d.distance_miles)
+    })
+
+    const getDistance = (origin: string, dest: string): number => {
+      const key1 = `${origin}-${dest}`
+      const key2 = `${dest}-${origin}`
+      let dist = distanceLookup[key1] || distanceLookup[key2]
+      if (!dist || dist <= 0) {
+        const oLoc = CANONICAL_STORE_COORDINATES[origin]
+        const dLoc = CANONICAL_STORE_COORDINATES[dest]
+        if (oLoc && dLoc) {
+          dist = parseFloat((haversineDistanceMiles(oLoc.lat, oLoc.lng, dLoc.lat, dLoc.lng) * 1.33).toFixed(2))
+        } else {
+          dist = 4.5
+        }
+      }
+      return dist
+    }
+
+    // --- CASE A: SINGLE REAL-TIME INSPECTION AUTO-SYNC (Called on inspection submit) ---
+    if (targetStoreId) {
+      const destinationName = storeMap[String(targetStoreId)] || `Tienda #${targetStoreId}`
+      
+      // Look up supervisor's most recent trip destination or previous inspection destination
+      let previousStoreName = ''
+
+      // Check last trip today
+      let lastTripQuery = supabase
+        .from('supervisor_mileage_trips')
+        .select('destination_name, created_at')
+        .eq('trip_date', targetDate)
+        .order('created_at', { ascending: false })
+        .limit(1)
+
+      if (supervisorId) {
+        lastTripQuery = lastTripQuery.eq('supervisor_id', supervisorId)
+      } else if (supervisorName) {
+        lastTripQuery = lastTripQuery.ilike('supervisor_name', `%${supervisorName}%`)
+      }
+
+      const { data: lastTrips } = await lastTripQuery
+      if (lastTrips && lastTrips.length > 0 && lastTrips[0].destination_name) {
+        const prev = normalizeStoreName(lastTrips[0].destination_name)
+        if (prev !== destinationName) {
+          previousStoreName = prev
+        }
+      }
+
+      // If no prior trip, check previous inspection today
+      if (!previousStoreName) {
+        let prevInspQuery = supabase
+          .from('supervisor_inspections')
+          .select('store_id, created_at')
+          .order('created_at', { ascending: false })
+          .limit(2)
+
+        if (supervisorName) {
+          prevInspQuery = prevInspQuery.ilike('supervisor_name', `%${supervisorName}%`)
+        }
+
+        const { data: prevInsps } = await prevInspQuery
+        if (prevInsps) {
+          for (const insp of prevInsps) {
+            const name = storeMap[String(insp.store_id)]
+            if (name && name !== destinationName) {
+              previousStoreName = name
+              break
+            }
+          }
+        }
+      }
+
+      // If we found an origin different from destination, log the trip
+      if (previousStoreName && previousStoreName !== destinationName) {
+        // Check if created within last 20 mins for this supervisor
+        const twentyMinsAgo = new Date(Date.now() - 20 * 60 * 1000).toISOString()
+        let dupQuery = supabase
+          .from('supervisor_mileage_trips')
+          .select('id')
+          .eq('trip_date', targetDate)
+          .eq('origin_name', previousStoreName)
+          .eq('destination_name', destinationName)
+          .gte('created_at', twentyMinsAgo)
+
+        if (supervisorId) {
+          dupQuery = dupQuery.eq('supervisor_id', supervisorId)
+        } else if (supervisorName) {
+          dupQuery = dupQuery.ilike('supervisor_name', `%${supervisorName}%`)
+        }
+
+        const { data: dup } = await dupQuery.limit(1)
+
+        if (!dup || dup.length === 0) {
+          const dist = getDistance(previousStoreName, destinationName)
+          const nowLa = new Date()
+          const startTime = nowLa.toLocaleTimeString('en-US', {
+            timeZone: 'America/Los_Angeles',
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: true
+          })
+          const mileageVal = parseFloat((dist * ratePerMile).toFixed(2))
+
+          let resolvedSupId = supervisorId
+          if (!resolvedSupId && supervisorName) {
+            const { data: matchedUser } = await supabase
+              .from('users')
+              .select('id')
+              .ilike('full_name', `%${supervisorName}%`)
+              .limit(1)
+            if (matchedUser && matchedUser[0]?.id) {
+              resolvedSupId = String(matchedUser[0].id)
+            }
+          }
+
+          const { data: createdTrip, error: tripErr } = await supabase
+            .from('supervisor_mileage_trips')
+            .insert([{
+              supervisor_id: resolvedSupId || supervisorName || 'Supervisor',
+              supervisor_name: supervisorName || 'Supervisor',
+              supervisor_email: body.supervisor_email || 'supervisor@tacosgavilan.com',
+              trip_date: targetDate,
+              start_time: startTime,
+              origin_type: 'store',
+              origin_name: previousStoreName,
+              destination_type: 'store',
+              destination_name: destinationName,
+              is_round_trip: false,
+              purpose: 'Business',
+              purpose_notes: `Auto-generado al completar Inspección de Calidad en ${destinationName}`,
+              distance_miles: dist,
+              rate_per_mile: ratePerMile,
+              mileage_value: mileageVal,
+              parking_amount: 0,
+              tolls_amount: 0,
+              total_reimbursement: mileageVal,
+              status: 'pending'
+            }])
+            .select()
+            .single()
+
+          if (!tripErr && createdTrip) {
+            return NextResponse.json({
+              success: true,
+              created: 1,
+              trip: createdTrip,
+              message: `Recorrido auto-guardado: ${previousStoreName} → ${destinationName} (${dist} mi • $${mileageVal} USD)`
+            })
+          }
+        }
+      }
+
+      return NextResponse.json({
+        success: true,
+        created: 0,
+        message: `Inspección procesada en ${destinationName}.`
+      })
+    }
+
+    // --- CASE B: BULK DAY RECONCILIATION ---
+    // Filter inspections starting from previous day to capture full 6:00 AM business day
+    const prevDay = new Date(new Date(targetDate).getTime() - 24 * 60 * 60 * 1000).toISOString().split('T')[0]
     let inspQuery = supabase
       .from('supervisor_inspections')
       .select('*')
+      .gte('created_at', `${prevDay}T00:00:00.000Z`)
       .order('created_at', { ascending: true })
 
     if (supervisorName) {
@@ -62,19 +236,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({
         success: true,
         created: 0,
-        message: `Se encontraron ${dayInspections.length} inspecciones en la fecha ${targetDate}. Se necesitan al menos 2 inspecciones para trazar una ruta entre tiendas.`
+        message: `Se encontraron ${dayInspections.length} inspecciones en la fecha ${targetDate}. Se necesitan al menos 2 paradas para trazar una ruta entre tiendas.`
       })
     }
 
-    // 4. Fetch standard distance matrix
-    const { data: distancesData } = await supabase.from('store_distances').select('*')
-    const distanceLookup: Record<string, number> = {}
-    distancesData?.forEach(d => {
-      distanceLookup[`${d.origin_name}-${d.destination_name}`] = Number(d.distance_miles)
-      distanceLookup[`${d.destination_name}-${d.origin_name}`] = Number(d.distance_miles)
-    })
-
-    // 5. Fetch existing trips for this date and supervisor to avoid duplicate creation
+    // Fetch existing trips for this date and supervisor
     let tripsQuery = supabase
       .from('supervisor_mileage_trips')
       .select('*')
@@ -88,38 +254,30 @@ export async function POST(req: NextRequest) {
 
     const { data: existingTrips } = await tripsQuery
 
-    const isDuplicate = (origin: string, dest: string) => {
-      return (existingTrips || []).some(
-        t => t.origin_name === origin && t.destination_name === dest
-      )
-    }
-
-    // 6. Build consecutive pairs [A -> B], [B -> C]
+    // Build consecutive pairs [A -> B], [B -> C], allowing re-visits if timing matches
     const tripsToInsert: any[] = []
 
     for (let i = 0; i < dayInspections.length - 1; i++) {
       const current = dayInspections[i]
       const next = dayInspections[i + 1]
 
-      const originName = storeMap[current.store_id] || current.store_name || `Tienda #${current.store_id}`
-      const destName = storeMap[next.store_id] || next.store_name || `Tienda #${next.store_id}`
+      const originName = storeMap[String(current.store_id)] || current.store_name || `Tienda #${current.store_id}`
+      const destName = storeMap[String(next.store_id)] || next.store_name || `Tienda #${next.store_id}`
 
       if (originName === destName) continue
-      if (isDuplicate(originName, destName)) continue
 
-      // Look up distance
-      const key1 = `${originName}-${destName}`
-      const key2 = `${destName}-${originName}`
-      let distance = distanceLookup[key1] || distanceLookup[key2]
-      if (!distance || distance <= 0) {
-        const oLoc = CANONICAL_STORE_COORDINATES[originName]
-        const dLoc = CANONICAL_STORE_COORDINATES[destName]
-        if (oLoc && dLoc) {
-          distance = parseFloat((haversineDistanceMiles(oLoc.lat, oLoc.lng, dLoc.lat, dLoc.lng) * 1.33).toFixed(2))
-        } else {
-          distance = 4.5
-        }
-      }
+      const inspTime = new Date(current.created_at).getTime()
+
+      // Check if a trip already exists within +/- 45 minutes of this inspection
+      const alreadyExists = (existingTrips || []).some(t => {
+        if (t.origin_name !== originName || t.destination_name !== destName) return false
+        const tripCreatedAt = new Date(t.created_at).getTime()
+        return Math.abs(tripCreatedAt - inspTime) < 45 * 60 * 1000
+      })
+
+      if (alreadyExists) continue
+
+      const distance = getDistance(originName, destName)
 
       const startTime = new Date(current.created_at).toLocaleTimeString('en-US', {
         timeZone: 'America/Los_Angeles',
@@ -129,11 +287,12 @@ export async function POST(req: NextRequest) {
       })
 
       const supName = current.supervisor_name || supervisorName || 'Supervisor'
+      const mileageVal = parseFloat((distance * ratePerMile).toFixed(2))
 
       tripsToInsert.push({
-        supervisor_id: supervisorId || current.supervisor_id || 'e89547d2-7c8d-4e9e-97c3-71869e984920',
+        supervisor_id: supervisorId || current.inspector_id || current.supervisor_id || supName,
         supervisor_name: supName,
-        supervisor_email: current.supervisor_email || 'willian@tacosgavilan.com',
+        supervisor_email: current.supervisor_email || 'supervisor@tacosgavilan.com',
         trip_date: targetDate,
         start_time: startTime,
         origin_type: 'store',
@@ -145,8 +304,10 @@ export async function POST(req: NextRequest) {
         purpose_notes: `Generado automáticamente desde Inspección de Calidad (${originName} → ${destName})`,
         distance_miles: distance,
         rate_per_mile: ratePerMile,
+        mileage_value: mileageVal,
         parking_amount: 0,
         tolls_amount: 0,
+        total_reimbursement: mileageVal,
         status: 'pending'
       })
     }

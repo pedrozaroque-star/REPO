@@ -1,38 +1,39 @@
 /**
  * @module api/cron/sync-sales
- * @description Daily Vercel cron handler that synchronizes sales metrics from Toast API to the Supabase cache.
+ * @description Daily Vercel cron handler that synchronizes sales metrics from Toast API to the Supabase cache for the last 3 business days.
  * 
  * @businessRules
  * - **Ventana de Sincronización (Last 3 Days)**: Sincroniza los últimos 3 días de ventas para capturar ajustes tardíos de gerentes (Manager Edits), actualizaciones de reembolsos (Refunds) o transacciones anuladas (Voids).
- * - **Patrón Delete-before-insert (Borrado previo)**: Para evitar filas duplicadas o problemas de integridad referencial, el registro de caché de ventas para una fecha específica se elimina explícitamente antes de insertar los datos frescos recién obtenidos de Toast.
+ * - **Regla de las 6:00 AM**: Si se ejecuta antes de las 6:00 AM, el día de negocio actual aún no ha cerrado.
+ * - **Upsert Atómico**: Inserta o actualiza directamente en `sales_daily_cache` con `{ onConflict: 'store_id,business_date' }` para garantizar cero pérdida de datos ante interrupciones de red.
  * 
  * @dataFlow
- * - Invocación del endpoint -> Llama a `fetchToastData` (con `skipCache: true`) -> Elimina registros previos en `sales_daily_cache` -> Inserta las métricas frescas diarias en Supabase.
- * 
- * @notes
- * - Valida la firma del header `Authorization` usando el secreto `CRON_SECRET` provisto por Vercel Cron para asegurar el endpoint.
+ * - Vercel Cron -> GET /api/cron/sync-sales -> Llama a `fetchToastData` (con `skipCache: true`) -> Upsert en `sales_daily_cache`.
  */
 import { NextResponse } from 'next/server'
 import { fetchToastData } from '@/lib/toast-api'
+import { getSupabaseAdminClient } from '@/lib/supabase'
 
 export const dynamic = 'force-dynamic'
 
 export async function GET(request: Request) {
     try {
-        // Verificar firma de autorización (Opcional, recomendado para Vercel Cron)
+        // Verificar firma de autorización
         const authHeader = request.headers.get('authorization')
-        if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-            // Si no hay secreto configurado, permitir (modo dev/local), si safe.
-            // Pero mejor retornamos 401 si se configura.
-            if (process.env.CRON_SECRET) {
+        if (process.env.CRON_SECRET) {
+            if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
                 return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
             }
         }
 
-        // Calcular los últimos 3 días para capturar ajustes de gerentes (Manager Edits)
-        // 1. Obtener fecha actual en LA
+        // 1. Obtener fecha actual en Los Ángeles
         const now = new Date()
         const laNow = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
+
+        // Si es antes de las 6 AM, el día en curso es el de ayer
+        if (laNow.getHours() < 6) {
+            laNow.setDate(laNow.getDate() - 1)
+        }
 
         const results = []
         const datesToSync: string[] = []
@@ -46,6 +47,8 @@ export async function GET(request: Request) {
         }
         console.log(`⏰ [CRON] Iniciando sincronización de ventas para: ${datesToSync.join(', ')}`)
 
+        const supabase = await getSupabaseAdminClient()
+
         for (const dateStr of datesToSync) {
             try {
                 // Ejecutar sincronización para cada día
@@ -57,7 +60,7 @@ export async function GET(request: Request) {
                     skipCache: true
                 })
 
-                if (connectionError) {
+                if (connectionError && rows.length === 0) {
                     console.error(`❌ [CRON] Error conectando a Toast para ${dateStr}: ${connectionError}`)
                     results.push({ date: dateStr, success: false, error: connectionError })
                     continue
@@ -65,22 +68,6 @@ export async function GET(request: Request) {
 
                 // --- SAVE TO SUPABASE ---
                 if (rows.length > 0) {
-                    const { createClient } = require('@supabase/supabase-js')
-                    const supabase = createClient(
-                        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-                        process.env.SUPABASE_SERVICE_ROLE_KEY!
-                    )
-
-                    // 🛡️ REGLA: Borrar explícitamente el día antes de insertar
-                    const { error: deleteError } = await supabase
-                        .from('sales_daily_cache')
-                        .delete()
-                        .eq('business_date', dateStr)
-
-                    if (deleteError) {
-                        console.error(`❌ [CRON] Error borrando caché previa para ${dateStr}:`, deleteError)
-                    }
-
                     const dbRows = rows.map(r => ({
                         store_id: r.storeId,
                         store_name: r.storeName || 'Unknown Store',
@@ -95,9 +82,9 @@ export async function GET(request: Request) {
                         guest_count: r.guestCount,
                         labor_cost: r.laborCost,
                         labor_hours: r.totalHours,
-                        hourly_data: r.hourlySales,
-                        hourly_tickets: r.hourlyTickets,
-                        hourly_labor: r.hourlyLabor,
+                        hourly_data: r.hourlySales || {},
+                        hourly_tickets: r.hourlyTickets || {},
+                        hourly_labor: r.hourlyLabor || {},
                         uber_sales: r.uberSales || 0,
                         doordash_sales: r.doordashSales || 0,
                         grubhub_sales: r.grubhubSales || 0,

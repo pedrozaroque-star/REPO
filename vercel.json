@@ -18,7 +18,7 @@
         },
         {
             "path": "/api/cron/integrity-check",
-            "schedule": "15 13 * * *"
+            "schedule": "0 15 * * *"
         },
         {
             "path": "/api/cron/sync-pmix",

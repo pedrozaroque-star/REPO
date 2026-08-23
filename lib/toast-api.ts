@@ -407,10 +407,12 @@ async function getCrossDateRefunds(
                         }
                     }
 
-                    // Fallback if item refund was not explicitly itemized on selections
-                    if (refundNet === 0 && pay.refund?.refundAmount) {
-                        const totalRef = Number(pay.refund.refundAmount)
-                        refundNet = Math.max(0, totalRef - refundTip)
+                    // Ensure refundNet does not exceed physical payment refund amount minus tip
+                    if (pay.refund?.refundAmount) {
+                        const maxAllowed = Math.max(0, Number(pay.refund.refundAmount) - refundTip)
+                        if (refundNet === 0 || refundNet > maxAllowed) {
+                            refundNet = maxAllowed
+                        }
                     }
 
                     totalNetRefund += refundNet
@@ -709,12 +711,13 @@ async function getSalesForStore(token: string, storeId: string, startDate: strin
                                 if (sel.deferred && !isGiftCard) return
 
                                 let itemPrice = Number(sel.price || 0)
-                                const itemPreDiscount = Number(sel.preDiscountPrice || sel.price || 0)
+                                let itemPreDiscount = Number(sel.preDiscountPrice || sel.price || 0)
 
                                 // HANDLE TAX INCLUDED ITEMS
                                 if (sel.taxInclusion === 'INCLUDED') {
                                     const taxAmount = Number(sel.tax || 0)
                                     itemPrice -= taxAmount
+                                    itemPreDiscount -= taxAmount
                                 }
 
                                 // Item Refunds
@@ -1402,9 +1405,10 @@ export const fetchToastData = async (options: ToastMetricsOptions): Promise<{ ro
             // Re-calculate logic to be safe
             const nowForCache = new Date()
             const laHourForCache = parseInt(nowForCache.toLocaleTimeString('en-US', { hour: 'numeric', hour12: false, timeZone: 'America/Los_Angeles' }))
-            const yesterdayForCache = new Date(nowForCache)
-            yesterdayForCache.setDate(nowForCache.getDate() - 1)
-            const yesterdayStrCache = yesterdayForCache.toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
+            const todayLAStr = nowForCache.toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
+            const [ty, tm, td] = todayLAStr.split('-').map(Number)
+            const yDate = new Date(ty, tm - 1, td - 1)
+            const yesterdayStrCache = `${yDate.getFullYear()}-${String(yDate.getMonth() + 1).padStart(2, '0')}-${String(yDate.getDate()).padStart(2, '0')}`
 
             const toCache = results.filter(r => {
                 // 1. Never cache if read from cache

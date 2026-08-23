@@ -1,4 +1,14 @@
 
+/**
+ * @module smart-rebalance-cron
+ * @description Robot desatendido que audita ponchadas reales de Toast POS vs turnos programados y recalcula descansos con IA ante variaciones > 60 min.
+ * @businessRules
+ * - Regla 6:00 AM: El día laboral corre de 6:00 AM a 5:59 AM del día siguiente (horario Los Ángeles).
+ * - Variación Significativa: Solo rebalancea si un empleado poncha con >= 60 minutos de diferencia respecto a su horario.
+ * - Aprendizaje Automático: Incorpora `break_manual_overrides` de la tienda al ejecutar `scheduleBreaksWithDemand`.
+ * @dataFlow Consulta `toast_employees`, `toast_jobs`, `shifts`, `break_manual_overrides` y API de Toast Labor → Actualiza `shifts.breaks_schedule`.
+ */
+
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { getAuthToken, getToastRestaurants } from '@/lib/toast-api'
@@ -14,7 +24,7 @@ export async function GET(req: Request) {
     // 🔒 Security check (Vercel Cron header or token)
     const authHeader = req.headers.get('authorization')
     if (process.env.NODE_ENV === 'production' && authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-        // return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
     console.log('🤖 [Smart Rebalance] Starting automated punch monitoring...')
@@ -45,9 +55,10 @@ export async function GET(req: Request) {
             
             if (!dbShifts || dbShifts.length === 0) continue
 
-            // 2. Get Toast Real Punches
-            const startIso = `${today}T00:00:00.000+0000`
-            const endIso = `${today}T23:59:59.999+0000`
+            // 2. Get Toast Real Punches (cubriendo el día de negocio completo de Los Ángeles: 6 AM a 6 AM)
+            const tmrw = new Date(new Date(today + 'T12:00:00Z').getTime() + 86400000).toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
+            const startIso = `${today}T06:00:00.000-0700`
+            const endIso = `${tmrw}T06:00:00.000-0700`
             const punchRes = await fetch(`https://ws-api.toasttab.com/labor/v1/timeEntries?startDate=${startIso}&endDate=${endIso}`, {
                 headers: { 'Authorization': `Bearer ${token}`, 'Toast-Restaurant-External-ID': store.id }
             })
@@ -63,8 +74,10 @@ export async function GET(req: Request) {
                 const emp = emps?.find(e => e.id === s.employee_id)
                 if (!emp) return s
 
-                // Find matching punch by toast_guid
-                const punch = timeEntries.find((p: any) => p.employee.guid === emp.toast_guid)
+                // Find matching punch by toast_guid (ordenado por inDate)
+                const empPunches = timeEntries.filter((p: any) => p.employee?.guid === emp.toast_guid && p.inDate)
+                empPunches.sort((a: any, b: any) => new Date(a.inDate).getTime() - new Date(b.inDate).getTime())
+                const punch = empPunches[0]
                 
                 if (punch && punch.inDate) {
                     const scheduledStart = new Date(s.start_time).getTime()
@@ -98,8 +111,8 @@ export async function GET(req: Request) {
                     return { ...s, is_leader: isLeader, job_title: title }
                 })
 
-                // 🧠 DEEP AUDIT: Filter out shifts marked as absent (is_callback)
-                const activeShiftsForRebalance = adjustedShifts.filter(s => s.is_callback !== true);
+                // 🧠 DEEP AUDIT: Filter out shifts marked as absent (is_callback) using augmented shifts with job titles
+                const activeShiftsForRebalance = augmentedForAi.filter(s => s.is_callback !== true);
                 
                 if (activeShiftsForRebalance.length === 0) continue;
 

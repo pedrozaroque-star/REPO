@@ -118,7 +118,7 @@ function HistoryPageContent() {
         rows.push([`"${t('sales.history_page.global')}"`, ...monthTotals.map(t => t.toFixed(2)), grandTotal.toFixed(2)])
 
         const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n')
-        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+        const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' })
         const url = URL.createObjectURL(blob)
         const link = document.createElement('a')
         link.setAttribute('href', url)
@@ -126,6 +126,7 @@ function HistoryPageContent() {
         document.body.appendChild(link)
         link.click()
         document.body.removeChild(link)
+        URL.revokeObjectURL(url)
     }
 
     // Función para determinar estilos de celda
@@ -224,7 +225,7 @@ function HistoryPageContent() {
                                 </div>
                             </div>
                         )}
-                        <div className="bg-white dark:bg-slate-900 border border-black/5 dark:border-slate-800 rounded-3xl overflow-hidden shadow-2xl shadow-black/5">
+                        <div className="hidden md:block bg-white dark:bg-slate-900 border border-black/5 dark:border-slate-800 rounded-3xl overflow-hidden shadow-2xl shadow-black/5">
                             <div className="overflow-x-auto">
                                 <table className="w-full text-xs md:text-sm">
                                     <thead>
@@ -341,10 +342,14 @@ function AnalysisSection({ currentData, year }: { currentData: any[], year: numb
                 let url = `/api/ventas/yearly?year=${year - 1}`
 
                 if (isCurrentYear) {
-                    const yest = new Date(now)
-                    yest.setDate(yest.getDate() - 1)
-                    const mPad = String(yest.getMonth() + 1).padStart(2, '0')
-                    const dPad = String(yest.getDate()).padStart(2, '0')
+                    const targetDate = new Date(now)
+                    if (targetDate.getMonth() === 0 && targetDate.getDate() === 1) {
+                        // On Jan 1st, compare up to Jan 1st
+                    } else {
+                        targetDate.setDate(targetDate.getDate() - 1)
+                    }
+                    const mPad = String(targetDate.getMonth() + 1).padStart(2, '0')
+                    const dPad = String(targetDate.getDate()).padStart(2, '0')
                     const limitStr = `${year - 1}-${mPad}-${dPad}`
                     url += `&limit_date=${limitStr}`
                 }
@@ -371,16 +376,18 @@ function AnalysisSection({ currentData, year }: { currentData: any[], year: numb
     const now = new Date()
     const isCurrentYear = year === now.getFullYear()
 
-    const yest = new Date(now)
-    yest.setDate(yest.getDate() - 1)
+    const targetDate = new Date(now)
+    if (!(targetDate.getMonth() === 0 && targetDate.getDate() === 1)) {
+        targetDate.setDate(targetDate.getDate() - 1)
+    }
     const monthNamesEs = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
     const monthNamesEn = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-    const monthName = language === 'es' ? monthNamesEs[yest.getMonth()] : monthNamesEn[yest.getMonth()]
+    const monthName = language === 'es' ? monthNamesEs[targetDate.getMonth()] : monthNamesEn[targetDate.getMonth()]
 
     const comparisonLabel = isCurrentYear
         ? language === 'es'
-            ? `Vs. ${year - 1} (YTD exacto al ${yest.getDate()} de ${monthName})`
-            : `Vs. ${year - 1} (Exact YTD as of ${monthName} ${yest.getDate()})`
+            ? `Vs. ${year - 1} (YTD exacto al ${targetDate.getDate()} de ${monthName})`
+            : `Vs. ${year - 1} (Exact YTD as of ${monthName} ${targetDate.getDate()})`
         : `Vs. Total ${year - 1}`
 
     // Unify all stores (both current and previous year) to prevent financial skew
@@ -410,10 +417,11 @@ function AnalysisSection({ currentData, year }: { currentData: any[], year: numb
     const globalCurr = comparison.reduce((sum, item) => sum + item.curr, 0)
     const globalPrev = comparison.reduce((sum, item) => sum + item.prev, 0)
     const globalDiff = globalCurr - globalPrev
-    const globalPercent = globalPrev === 0 ? 0 : (globalDiff / globalPrev) * 100
+    const globalPercent = globalPrev === 0 ? (globalCurr > 0 ? 100 : 0) : (globalDiff / globalPrev) * 100
 
     const bestStore = comparison.length > 0 ? comparison[0] : null
-    const worstStore = comparison.length > 1 ? comparison[comparison.length - 1] : null
+    const activeStores = comparison.filter(s => !s.isClosed)
+    const worstStore = activeStores.length > 1 ? activeStores[activeStores.length - 1] : (comparison.length > 1 ? comparison[comparison.length - 1] : null)
 
     const formatCurrency = (val: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(val)
     const formatPercent = (val: number) => `${val > 0 ? '+' : ''}${val.toFixed(2)}%`
@@ -522,6 +530,7 @@ function AnalysisSection({ currentData, year }: { currentData: any[], year: numb
                                 <h4 className="font-bold text-slate-900 dark:text-white">
                                     {formatStoreName(item.name)}
                                     {item.isNew && <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 font-bold">{t('sales.history_page.new_store')}</span>}
+                                    {item.isClosed && <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400 font-bold">{t('sales.history_page.closed_store')}</span>}
                                 </h4>
                                 <span className={`px-2 py-1 rounded-lg font-bold text-xs ${item.percent >= 0
                                     ? 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300'

@@ -972,7 +972,7 @@ export default function ReportesPage() {
 
     const handleAutoFill = async () => {
         if (!selectedStore || !weekDate) {
-            alert('Selecciona Tienda y Semana primero')
+            alert(t('sales.reports_page.alerts.select_store_week') || 'Selecciona Tienda y Semana primero')
             return
         }
 
@@ -987,7 +987,13 @@ export default function ReportesPage() {
             end.setDate(start.getDate() + 6)
             const endStr = end.toISOString().split('T')[0]
 
-            const res = await fetch(`/api/ventas/autofill?storeId=${selectedStore}&start=${weekDate}&end=${endStr}&t=${Date.now()}`)
+            const storeObj = stores.find(s => String(s.id) === String(selectedStore))
+            const queryStoreId = selectedStore === 'all' ? 'all' : (storeObj?.external_id || selectedStore)
+            const token = typeof window !== 'undefined' ? localStorage.getItem('teg_token') : null
+
+            const res = await fetch(`/api/ventas/autofill?storeId=${queryStoreId}&start=${weekDate}&end=${endStr}&t=${Date.now()}`, {
+                headers: { 'Authorization': `Bearer ${token || ''}` }
+            })
             const json = await res.json()
 
             if (json.error) throw new Error(json.error)
@@ -1182,7 +1188,7 @@ export default function ReportesPage() {
     const calculateWeekTotal = (rowId: string, type: string) => {
         if (type === 'text' || type === 'time' || type === 'header') return ''
         
-        if (rowId === 'target_avg_order' || rowId === 'actual_avg_order' || rowId === 'diff_avg_order') {
+        if (rowId === 'target_avg_order' || rowId === 'actual_avg_order') {
             const countDays = DAYS.filter(d => parseNumber(getCellValue(d.key, rowId)) > 0).length
             if (countDays === 0) return '$0.00'
             const sum = DAYS.reduce((s, d) => s + parseNumber(getCellValue(d.key, rowId)), 0)
@@ -1192,11 +1198,31 @@ export default function ReportesPage() {
             return isNeg ? `-$${formatted}` : `$${formatted}`
         }
 
-        if (rowId === 'projected_labor' || rowId === 'actual_labor' || rowId === 'diff_labor') {
+        if (rowId === 'diff_avg_order') {
+            const countDays = DAYS.filter(d => parseNumber(getCellValue(d.key, 'actual_sales')) > 0).length
+            if (countDays === 0) return '$0.00'
+            const sum = DAYS.reduce((s, d) => s + parseNumber(getCellValue(d.key, rowId)), 0)
+            const avg = sum / countDays
+            const isNeg = avg < 0
+            const formatted = Math.abs(avg).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+            return isNeg ? `-$${formatted}` : `$${formatted}`
+        }
+
+        if (rowId === 'projected_labor' || rowId === 'actual_labor') {
             const countDays = DAYS.filter(d => parseNumber(getCellValue(d.key, rowId)) > 0).length
             if (countDays === 0) return '0.00%'
             const sum = DAYS.reduce((s, d) => s + parseNumber(getCellValue(d.key, rowId)), 0)
             return (sum / countDays).toFixed(2) + '%'
+        }
+
+        if (rowId === 'diff_labor') {
+            const countDays = DAYS.filter(d => parseNumber(getCellValue(d.key, 'actual_sales')) > 0).length
+            if (countDays === 0) return '0.00%'
+            const sum = DAYS.reduce((s, d) => s + parseNumber(getCellValue(d.key, rowId)), 0)
+            const avg = sum / countDays
+            const isNeg = avg < 0
+            const formatted = Math.abs(avg).toFixed(2)
+            return isNeg ? `-${formatted}%` : `+${formatted}%`
         }
 
         let sum = 0

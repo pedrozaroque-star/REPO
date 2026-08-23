@@ -86,7 +86,7 @@ export async function GET(req: NextRequest) {
       'Notas'
     ].join(',')
 
-    const csvContent = [header, ...rows].join('\n')
+    const csvContent = '\uFEFF' + [header, ...rows].join('\n')
 
     return new NextResponse(csvContent, {
       status: 200,
