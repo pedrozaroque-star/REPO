@@ -46,6 +46,24 @@ Antes de modificar, analizar o trabajar con cualquier módulo del sistema, **el 
 
 ---
 
+## 🛑 REGLA OBLIGATORIA: Protocolo de Columnas Generadas (PostgreSQL Generated Columns) y Pruebas Reales de Mutación en DB
+
+### 1. Prohibición de Columnas Calculadas en Payloads de Mutación (`INSERT` / `UPDATE`)
+- **Regla Estricta**: NUNCA incluir columnas autocalculadas o generadas por PostgreSQL (`GENERATED ALWAYS AS`, triggers, o defaults dinámicos) en los objetos de `INSERT` o `UPDATE` de Supabase/SQL.
+- **Ejemplos en el sistema**:
+  * `supervisor_mileage_trips.mileage_value` (`distance_miles * rate_per_mile`)
+  * `supervisor_mileage_trips.total_reimbursement` (`mileage_value + parking_amount + tolls_amount`)
+  * O cualquier columna derivada similar en tablas de ventas, inventario o nómina.
+- **Principio Operativo**: El backend solo debe enviar los valores atómicos de entrada (`distance_miles`, `rate_per_mile`, `quantity`, etc.). PostgreSQL se encarga de calcular y asignar las columnas generadas automáticamente. Enviar cualquier valor explícito (incluso si coincide con el cálculo) provocará un error fatal `PostgresError 428C9: cannot insert a non-DEFAULT value into column`.
+
+### 2. Pruebas Obligatorias de Inserción y Mutación Real en Base de Datos (Live DB Mutation Smoke Tests)
+- En **CADA auditoría, refactorización, creación de endpoints o corrección de módulos** que realice operaciones de escritura en base de datos (`POST`, `PUT`, `DELETE`):
+  1. **Queda estrictamente prohibido asumir que la mutación funciona solo porque TypeScript compila (`npx tsc`)**.
+  2. El agente TIENE LA OBLIGACIÓN de crear y ejecutar un script de prueba real en tiempo real (vía `tsx`) que inserte un registro de prueba en la tabla de Supabase, verifique la respuesta y lo limpie (`delete`) inmediatamente.
+  3. Esto garantiza que no existan discrepancias invisibles de esquema, restricciones de llaves foráneas (`foreign keys`), violaciones de columnas generadas (`428C9`), tipos incompatibles o fallos de triggers.
+
+---
+
 ## 🤖 REGLA OBLIGATORIA: Sincronización de Conocimiento del Asistente (TEG Assistant Sync)
 Cada vez que se cree, modifique, elimine o actualice una característica, lógica de negocio, endpoint de API, o tabla de base de datos en el sistema, **el desarrollador/agente DEBE de inmediato actualizar el prompt del asistente** en `app/api/support-chat/route.ts` y sus herramientas de chat en `lib/chat-tools.ts`. Esto garantiza que el TEG Assistant AI aprenda de cada actualización del sistema y mantenga un dominio preciso del 100% del ecosistema en tiempo real.
 
