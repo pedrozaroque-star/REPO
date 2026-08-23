@@ -489,6 +489,21 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                         ? 'Periodic staff performance reviews and skills evaluation (Evaluación de desempeño del personal)'
                         : 'Evaluación periódica de desempeño y habilidades del personal de tienda'
                 },
+                {
+                    name: (
+                        <div className="flex items-center gap-2">
+                            <span>{t('items.activity_reports') || 'Reporte de Actividades'}</span>
+                            <span className="text-[10px] bg-orange-100 dark:bg-orange-950/60 text-orange-600 dark:text-orange-400 border border-orange-300 dark:border-orange-700 px-1.5 py-0.5 rounded font-black tracking-widest">ADMIN</span>
+                        </div>
+                    ),
+                    plainName: 'Reporte de Actividades',
+                    path: '/admin/reporte-actividades',
+                    icon: <Clock size={20} />,
+                    roles: ['admin'],
+                    tooltip: language === 'en'
+                        ? 'Interactive HTML viewer of monthly roadmaps, audited dev hours, and Gantt schedules (Agosto, Julio, Junio)'
+                        : 'Consulta interactiva en HTML de planes de trabajo, horas de desarrollo y distribución diaria (Agosto, Julio, Junio)'
+                },
             ]
         }
     ]

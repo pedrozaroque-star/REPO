@@ -121,6 +121,22 @@ Al actualizar el reporte, el agente DEBE cruzar estas fuentes para detectar trab
 
 ---
 
+## ⏱️ REGLA OBLIGATORIA: Protocolo de Auto-Registro en Tiempo Real y Cero Horas Perdidas (Live Auto-Logging & Continuous Activity Sync)
+
+**Queda estrictamente prohibido que cualquier sesión, bloque de desarrollo, auditoría, análisis o conversación termine sin registrar de inmediato las horas trabajadas en el reporte mensual (`pendientes_[mes].html`).**
+
+1. **Auto-Registro Obligatorio en Cada Intervención**:
+   - En **CADA conversación y al finalizar cada respuesta o tarea**, el agente TIENE LA OBLIGACIÓN de actualizar la fila del día correspondiente en `pendientes_[mes].html` (ej: `pendientes_agosto.html`) y el bloque del planificador Gantt visual.
+   - Si el día actual ya cuenta con registros previos, el agente DEBE sumar las nuevas horas transcurridas y agregar las nuevas viñetas de descripción (ES/EN) y badges de módulos trabajados, sin sobreescribir ni borrar las sesiones previas del mismo día.
+2. **Recompilación Automática de PDFs Ejecutivos**:
+   - Tras actualizar el archivo HTML, el agente DEBE ejecutar automáticamente el script de compilación (Puppeteer) para regenerar de inmediato `c:\Users\pedro\Desktop\Reporte_[Mes]_[Año]_TEG.pdf` y `distribucion_jornada_carlos_velazquez_[mes]_[año].pdf`.
+3. **Escaneo de Conversaciones Concurrentes (Multi-Chat Awareness)**:
+   - Dado que Carlos trabaja simultáneamente en múltiples conversaciones (ej. Ventas, Descansos, MilesIQ, Uniformes, etc.), el agente DEBE escanear periódicamente los directorios de transcripciones (`C:\Users\pedro\.gemini\antigravity\brain\*\.system_generated\logs\transcript.jsonl`) para consolidar todas las sesiones paralelas del día en el informe único oficial.
+4. **Cero Dependencia de Petición del Usuario**:
+   - El usuario NO debe tener que recordar o pedir que se registren las horas. El agente lo ejecuta proactivamente en segundo plano en cada turno.
+
+---
+
 ## 🏗️ ARQUITECTURA DEL SISTEMA — Tacos El Gavilan (TEG)
 
 ### Inventario y Costos

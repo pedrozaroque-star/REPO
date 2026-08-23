@@ -669,6 +669,9 @@ function MilesIQContent() {
       if (!isAdmin && !isOwnTrip(t)) return
       if (supervisorFilter !== 'all' && t.supervisor_id !== supervisorFilter && t.supervisor_name !== supervisorFilter) return
       
+      // Ricardo Velazquez y Estefani Duran inician el 1 de Septiembre 2026
+      if (t.trip_date < '2026-09-01' && /estefani|ricardo/i.test(t.supervisor_name || '')) return
+
       const supKey = t.supervisor_name || t.supervisor_id || 'Unknown'
       const key = `${supKey}__${t.trip_date}`
       if (!bySupAndDate[key]) {
@@ -1014,11 +1017,17 @@ function MilesIQContent() {
                     className="px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold text-blue-600 dark:text-blue-400"
                   >
                     <option value="all">{t('miles.all_supervisors')}</option>
-                    {supervisorsList.map(sup => (
-                      <option key={sup.id} value={sup.id}>
-                        {sup.name}
-                      </option>
-                    ))}
+                    {supervisorsList
+                      .filter(sup => {
+                        const isPreSept = new Date().toISOString() < '2026-09-01T00:00:00.000Z'
+                        if (isPreSept && /estefani|ricardo/i.test(sup.name)) return false
+                        return true
+                      })
+                      .map(sup => (
+                        <option key={sup.id} value={sup.id}>
+                          {sup.name}
+                        </option>
+                      ))}
                   </select>
                 )}
               </div>

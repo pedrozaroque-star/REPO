@@ -238,81 +238,111 @@ export async function POST(req: NextRequest) {
       })
     }
 
-    // Fetch existing trips for this date and supervisor
+    // Fetch existing trips for this date
     let tripsQuery = supabase
       .from('supervisor_mileage_trips')
       .select('*')
       .eq('trip_date', targetDate)
 
-    if (supervisorId) {
-      tripsQuery = tripsQuery.eq('supervisor_id', supervisorId)
-    } else if (supervisorName) {
-      tripsQuery = tripsQuery.ilike('supervisor_name', `%${supervisorName}%`)
-    }
-
     const { data: existingTrips } = await tripsQuery
 
-    // Build consecutive pairs [A -> B], [B -> C], allowing re-visits if timing matches
+    // Group inspections strictly by supervisor so we never cross-contaminate routes between different people
+    const inspectionsBySupervisor: Record<string, typeof dayInspections> = {}
+    dayInspections.forEach(insp => {
+      const sName = (insp.supervisor_name || '').trim()
+      
+      // Regla de Negocio: Ricardo Velazquez y Estefani Duran inician el 1 de Septiembre 2026
+      if (targetDate < '2026-09-01' && /estefani|ricardo/i.test(sName)) {
+        return
+      }
+
+      if (supervisorName && !sName.toLowerCase().includes(supervisorName.toLowerCase())) {
+        return
+      }
+
+      const supKey = sName || 'Supervisor'
+      if (!inspectionsBySupervisor[supKey]) {
+        inspectionsBySupervisor[supKey] = []
+      }
+      inspectionsBySupervisor[supKey].push(insp)
+    })
+
     const tripsToInsert: any[] = []
 
-    for (let i = 0; i < dayInspections.length - 1; i++) {
-      const current = dayInspections[i]
-      const next = dayInspections[i + 1]
+    // Build consecutive pairs [A -> B], [B -> C] for EACH supervisor INDEPENDENTLY
+    for (const [supKey, supInspections] of Object.entries(inspectionsBySupervisor)) {
+      if (supInspections.length < 2) continue
 
-      const originName = storeMap[String(current.store_id)] || current.store_name || `Tienda #${current.store_id}`
-      const destName = storeMap[String(next.store_id)] || next.store_name || `Tienda #${next.store_id}`
-
-      if (originName === destName) continue
-
-      const inspTime = new Date(current.created_at).getTime()
-
-      // Check if a trip already exists within +/- 45 minutes of this inspection
-      const alreadyExists = (existingTrips || []).some(t => {
-        if (t.origin_name !== originName || t.destination_name !== destName) return false
-        const tripCreatedAt = new Date(t.created_at).getTime()
-        return Math.abs(tripCreatedAt - inspTime) < 45 * 60 * 1000
+      // Sort this supervisor's inspections chronologically
+      const sortedInsps = [...supInspections].sort((a, b) => {
+        const timeA = new Date(a.created_at || a.inspection_date).getTime()
+        const timeB = new Date(b.created_at || b.inspection_date).getTime()
+        return timeA - timeB
       })
 
-      if (alreadyExists) continue
+      // Get existing trips for this supervisor
+      const supExistingTrips = (existingTrips || []).filter(t => 
+        (t.supervisor_name || '').toLowerCase().includes(supKey.toLowerCase()) ||
+        (t.supervisor_id && sortedInsps[0]?.supervisor_id && t.supervisor_id === sortedInsps[0]?.supervisor_id)
+      )
 
-      const distance = getDistance(originName, destName)
+      for (let i = 0; i < sortedInsps.length - 1; i++) {
+        const current = sortedInsps[i]
+        const next = sortedInsps[i + 1]
 
-      const startTime = new Date(current.created_at).toLocaleTimeString('en-US', {
-        timeZone: 'America/Los_Angeles',
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: true
-      })
+        const originName = storeMap[String(current.store_id)] || current.store_name || `Tienda #${current.store_id}`
+        const destName = storeMap[String(next.store_id)] || next.store_name || `Tienda #${next.store_id}`
 
-      const supName = current.supervisor_name || supervisorName || 'Supervisor'
-      const mileageVal = parseFloat((distance * ratePerMile).toFixed(2))
+        if (originName === destName) continue
 
-      tripsToInsert.push({
-        supervisor_id: supervisorId || current.inspector_id || current.supervisor_id || supName,
-        supervisor_name: supName,
-        supervisor_email: current.supervisor_email || 'supervisor@tacosgavilan.com',
-        trip_date: targetDate,
-        start_time: startTime,
-        origin_type: 'store',
-        origin_name: originName,
-        destination_type: 'store',
-        destination_name: destName,
-        is_round_trip: false,
-        purpose: 'Business',
-        purpose_notes: `Generado automáticamente desde Inspección de Calidad (${originName} → ${destName})`,
-        distance_miles: distance,
-        rate_per_mile: ratePerMile,
-        parking_amount: 0,
-        tolls_amount: 0,
-        status: 'pending'
-      })
+        // Check if this supervisor already logged this trip on this date
+        const alreadyExists = supExistingTrips.some(t => {
+          const normOrigin = (t.origin_name || '').toLowerCase()
+          const normDest = (t.destination_name || '').toLowerCase()
+          const checkOrigin = originName.toLowerCase()
+          const checkDest = destName.toLowerCase()
+          return (normOrigin.includes(checkOrigin) || checkOrigin.includes(normOrigin)) &&
+                 (normDest.includes(checkDest) || checkDest.includes(normDest))
+        })
+
+        if (alreadyExists) continue
+
+        const distance = getDistance(originName, destName)
+
+        const startTime = new Date(current.created_at || current.inspection_date).toLocaleTimeString('en-US', {
+          timeZone: 'America/Los_Angeles',
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: true
+        })
+
+        tripsToInsert.push({
+          supervisor_id: current.inspector_id || current.supervisor_id || supKey,
+          supervisor_name: supKey,
+          supervisor_email: current.supervisor_email || 'supervisor@tacosgavilan.com',
+          trip_date: targetDate,
+          start_time: startTime,
+          origin_type: 'store',
+          origin_name: originName,
+          destination_type: 'store',
+          destination_name: destName,
+          is_round_trip: false,
+          purpose: 'Business',
+          purpose_notes: `Generado automáticamente desde Inspección de Calidad (${originName.replace('Tacos Gavilan ', '')} → ${destName.replace('Tacos Gavilan ', '')})`,
+          distance_miles: distance,
+          rate_per_mile: ratePerMile,
+          parking_amount: 0,
+          tolls_amount: 0,
+          status: 'pending'
+        })
+      }
     }
 
     if (tripsToInsert.length === 0) {
       return NextResponse.json({
         success: true,
         created: 0,
-        message: 'Todas las rutas de las inspecciones ya se encuentran registradas en DriveLog.'
+        message: 'Todas las rutas de las inspecciones de los supervisores activos ya se encuentran registradas en DriveLog.'
       })
     }
 

@@ -82,6 +82,7 @@ const dictionaries: Record<Language, Dictionary> = {
             safe: 'Caja Fuerte',
             miles: 'MilesIQ',
             supplier_prices: 'Radar de Precios',
+            activity_reports: 'Reporte de Actividades',
         },
         // LOGIN
         login: {
@@ -2868,6 +2869,7 @@ const dictionaries: Record<Language, Dictionary> = {
             safe: 'Cash Safe',
             miles: 'MilesIQ',
             supplier_prices: 'Price Radar',
+            activity_reports: 'Activity Reports',
         },
         // LOGIN
         login: {
