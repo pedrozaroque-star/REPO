@@ -1,15 +1,16 @@
 /**
  * @module lib/toast-api
- * @description Central integration module for Toast API v2 Orders bulk and authentication. Handles direct connections to Toast API, auth token caching/lifecycle, and parsing of order structures into database-friendly sales metrics.
+ * @description Central integration module for Toast API v2 Orders bulk, payments, and authentication. Handles direct connections to Toast API, auth token caching/lifecycle, and parsing of order structures into database-friendly sales metrics.
  * 
  * @businessRules
- * - **Cálculo de Net Sales**: Debe coincidir exactamente con los estados financieros corporativos al centavo: `Sum(Item.Price) - Sum(Item.Discounts) - Sum(Item.Refunds) - Sum(UnlinkedRefunds)`. Los totales a nivel de cabecera (header) no son confiables; la fuente de verdad siempre son los items individuales (`selections`).
+ * - **Cálculo de Net Sales**: Debe coincidir exactamente con los estados financieros corporativos al centavo: `Sum(Item.Price) - Sum(Item.Discounts) - Sum(Item.Refunds) - Sum(UnlinkedRefunds) - Sum(CrossDateRefunds)`. Los totales a nivel de cabecera (header) no son confiables; la fuente de verdad siempre son los items individuales (`selections`).
+ * - **Reembolsos de Fechas Cruzadas (Cross-Date Refunds)**: Órdenes creadas en fechas pasadas (ej. Party Trays cobrados con antelación) cuyos reembolsos se ejecuten en la fecha de negocio actual son identificadas mediante `/orders/v2/payments?refundBusinessDate=YYYYMMDD` y deducidas de las ventas netas del día en que se procesó el reembolso, garantizando paridad exacta con Toast Group Sales Overview.
  * - **Mapeo de Tiendas (Stores)**: Está hardcodeado en el objeto `STORES` o manejado dinámicamente debido a que el endpoint de descubrimiento `/restaurants` está deshabilitado o retorna error 405.
  * - **Canales de Delivery de Terceros (3rd-party Delivery)**: Uber Eats, DoorDash y Grubhub deben mapearse dinámicamente usando `getDiningOptionsMap` porque los GUIDs de las opciones de servicio (dining options) cambian por instancia de cada tienda. NUNCA hardcodear estos GUIDs de comedor.
  * - **Límites del Día Laboral (Business Date boundaries)**: El día laboral comienza a las 6:00 AM y termina a las 5:59 AM del día siguiente (Turno PM inicia a las 5:00 PM). Se utiliza la zona horaria de Los Ángeles para una asignación precisa del día de negocio (6 AM Rule).
  * 
  * @dataFlow
- * - Toast API `/orders/v2/ordersBulk` -> `fetchToastData()` -> parsing selections, discounts, and payments -> outputs raw metrics and daily aggregates.
+ * - Toast API `/orders/v2/ordersBulk` + `/orders/v2/payments?refundBusinessDate` -> `fetchToastData()` -> parsing selections, discounts, refunds, and payments -> outputs raw metrics and daily aggregates.
  * - Utiliza la tabla `integrations` en Supabase para el almacenamiento del token OAuth de Toast API.
  * 
  * @notes
@@ -292,6 +293,185 @@ async function getAlternatePaymentTypesMap(token: string, storeId: string): Prom
     }
 }
 
+// --- HELPER: GET CROSS-DATE REFUNDS ---
+// Toast's /orders/v2/ordersBulk?businessDate=YYYYMMDD only returns orders created on that business date.
+// If an order from a prior business date (e.g. party tray paid 10 days ago) is refunded on formattedDate,
+// Toast Financial Reports attribute the refund to the business date when it was physically refunded.
+// /orders/v2/payments?refundBusinessDate=YYYYMMDD identifies all payments refunded on formattedDate.
+async function getCrossDateRefunds(
+    token: string,
+    storeId: string,
+    formattedDate: string,
+    diningOptionMap: Record<string, string> = {}
+): Promise<{
+    crossDateNetRefund: number
+    crossDateTaxRefund: number
+    crossDateTipRefund: number
+    crossDateUberRefund: number
+    crossDateDoorDashRefund: number
+    crossDateGrubhubRefund: number
+    hourlyRefunds: Record<number, number>
+}> {
+    try {
+        const url = new URL(`${TOAST_API_HOST}/orders/v2/payments`)
+        url.searchParams.append('refundBusinessDate', formattedDate)
+
+        const res = await fetch(url.toString(), {
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Toast-Restaurant-External-ID': storeId
+            }
+        })
+
+        if (!res.ok) {
+            return {
+                crossDateNetRefund: 0,
+                crossDateTaxRefund: 0,
+                crossDateTipRefund: 0,
+                crossDateUberRefund: 0,
+                crossDateDoorDashRefund: 0,
+                crossDateGrubhubRefund: 0,
+                hourlyRefunds: {}
+            }
+        }
+
+        const paymentGuids = await res.json()
+        if (!Array.isArray(paymentGuids) || paymentGuids.length === 0) {
+            return {
+                crossDateNetRefund: 0,
+                crossDateTaxRefund: 0,
+                crossDateTipRefund: 0,
+                crossDateUberRefund: 0,
+                crossDateDoorDashRefund: 0,
+                crossDateGrubhubRefund: 0,
+                hourlyRefunds: {}
+            }
+        }
+
+        let totalNetRefund = 0
+        let totalTaxRefund = 0
+        let totalTipRefund = 0
+        let uberRefund = 0
+        let doorDashRefund = 0
+        let grubhubRefund = 0
+        const hourlyRefunds: Record<number, number> = {}
+
+        for (const pGuid of paymentGuids) {
+            if (!pGuid) continue
+            try {
+                const pRes = await fetch(`${TOAST_API_HOST}/orders/v2/payments/${pGuid}`, {
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Toast-Restaurant-External-ID': storeId
+                    }
+                })
+                if (!pRes.ok) continue
+                const pay = await pRes.json()
+
+                const paidBizDate = String(pay.paidBusinessDate || '')
+                // Only process cross-date refunds (orders created on a DIFFERENT business date)
+                // Same-day refunds are already captured within ordersBulk selections
+                if (paidBizDate && paidBizDate !== formattedDate) {
+                    let refundNet = 0
+                    let refundTax = 0
+                    const refundTip = Number(pay.refund?.tipRefundAmount || 0)
+                    let orderDiningGuid = ''
+                    let orderSource = ''
+                    let orderDeliveryService = ''
+
+                    if (pay.orderGuid) {
+                        try {
+                            const oRes = await fetch(`${TOAST_API_HOST}/orders/v2/orders/${pay.orderGuid}`, {
+                                headers: {
+                                    'Authorization': `Bearer ${token}`,
+                                    'Toast-Restaurant-External-ID': storeId
+                                }
+                            })
+                            if (oRes.ok) {
+                                const order = await oRes.json()
+                                orderDiningGuid = order.diningOption?.guid || ''
+                                orderSource = typeof order.source === 'string' ? order.source : (order.source?.name || '')
+                                orderDeliveryService = order.deliveryService?.name || ''
+
+                                order.checks?.forEach((chk: any) => {
+                                    chk.selections?.forEach((sel: any) => {
+                                        if (sel.refundDetails?.refundAmount) {
+                                            refundNet += Number(sel.refundDetails.refundAmount || 0)
+                                            refundTax += Number(sel.refundDetails.taxRefundAmount || 0)
+                                        }
+                                    })
+                                })
+                            }
+                        } catch (err) {
+                            // ignore order detail fetch error and fall back below
+                        }
+                    }
+
+                    // Fallback if item refund was not explicitly itemized on selections
+                    if (refundNet === 0 && pay.refund?.refundAmount) {
+                        const totalRef = Number(pay.refund.refundAmount)
+                        refundNet = Math.max(0, totalRef - refundTip)
+                    }
+
+                    totalNetRefund += refundNet
+                    totalTaxRefund += refundTax
+                    totalTipRefund += refundTip
+
+                    // Attribute channel if 3rd party
+                    const dName = diningOptionMap[orderDiningGuid] || ''
+                    const fullString = `${orderDeliveryService} ${dName} ${orderSource}`.toLowerCase()
+                    if (fullString.includes('uber') || fullString.includes('eats') || fullString.includes('postmates')) {
+                        uberRefund += refundNet
+                    } else if (fullString.includes('doordash') || fullString.includes('dash')) {
+                        doorDashRefund += refundNet
+                    } else if (fullString.includes('grubhub') || fullString.includes('grub')) {
+                        grubhubRefund += refundNet
+                    }
+
+                    // Attribute hour of the refund in Los Angeles time
+                    if (pay.refund?.refundDate) {
+                        try {
+                            const laHour = parseInt(new Date(pay.refund.refundDate).toLocaleTimeString('en-US', {
+                                hour: 'numeric',
+                                hour12: false,
+                                timeZone: 'America/Los_Angeles'
+                            }))
+                            const h = laHour === 24 ? 0 : laHour
+                            if (h >= 0 && h < 24) {
+                                hourlyRefunds[h] = (hourlyRefunds[h] || 0) + refundNet
+                            }
+                        } catch (err) {
+                            // ignore date parse error
+                        }
+                    }
+                }
+            } catch (err) {
+                // ignore single payment error
+            }
+        }
+
+        return {
+            crossDateNetRefund: totalNetRefund,
+            crossDateTaxRefund: totalTaxRefund,
+            crossDateTipRefund: totalTipRefund,
+            crossDateUberRefund: uberRefund,
+            crossDateDoorDashRefund: doorDashRefund,
+            crossDateGrubhubRefund: grubhubRefund,
+            hourlyRefunds
+        }
+    } catch (e: any) {
+        return {
+            crossDateNetRefund: 0,
+            crossDateTaxRefund: 0,
+            crossDateTipRefund: 0,
+            crossDateUberRefund: 0,
+            crossDateDoorDashRefund: 0,
+            crossDateGrubhubRefund: 0,
+            hourlyRefunds: {}
+        }
+    }
+}
+
 // --- HELPER: GET SALES (ATTEMPT) ---
 // Since we might not have Reporting API, we'll try to get Orders Summary or Fallback
 async function getSalesForStore(token: string, storeId: string, startDate: string, endDate: string, fastMode: boolean = false) {
@@ -498,8 +678,6 @@ async function getSalesForStore(token: string, storeId: string, startDate: strin
                         // --- FULL PRECISION LOGIC ---
                         order.checks.forEach((check: any) => {
                             if (check.voided) return
-
-                            if (check.voided) return
                             // check.payments?.some(...) removed to include re-paid checks
 
                             // --- EBT DETECTION (Check Level) ---
@@ -561,19 +739,20 @@ async function getSalesForStore(token: string, storeId: string, startDate: strin
                             // Gross = Sum of pre-discount prices (before ANY discounts)
                             const checkGross = checkItemGrossSum
                             let checkNet = checkItemNetSum // Initial - refunds logic applies below
-                            let checkDiscounts = 0
-
 
                             // Deduct Check-level discounts
-                            if (check.appliedDiscounts) {
-                                const checkLevelDiscountAmount = check.appliedDiscounts.reduce((sum: number, d: any) => sum + (d.amount || 0), 0)
+                            let checkLevelDiscountAmount = 0
+                            if (check.appliedDiscounts && Array.isArray(check.appliedDiscounts)) {
+                                checkLevelDiscountAmount = check.appliedDiscounts.reduce((sum: number, d: any) => sum + Number(d.amount || 0), 0)
                                 checkNet -= checkLevelDiscountAmount
-                                checkDiscounts += checkLevelDiscountAmount
                             }
 
-                            // Apply item refunds
+                            // Calculate pure commercial discounts (Item-level discounts + Check-level discounts)
+                            const itemLevelDiscounts = Math.max(0, checkItemGrossSum - checkItemNetSum)
+                            const checkDiscounts = itemLevelDiscounts + checkLevelDiscountAmount
+
+                            // Apply item refunds to net sales
                             checkNet -= checkItemRefunds
-                            checkDiscounts += (checkGross - checkNet - checkDiscounts) // Adjust totalDiscounts based on final net/gross
 
                             // 4. Other metrics
                             const checkTax = Number(check.taxAmount || 0)
@@ -658,6 +837,27 @@ async function getSalesForStore(token: string, storeId: string, startDate: strin
 
             if (orders.length < pageSize) hasMore = false
             else page++
+        }
+
+        // --- CROSS-DATE REFUNDS DEDUCTION ---
+        // Deduct refunds of orders originally created on prior business dates that were refunded today
+        if (!fastMode) {
+            const crossRefunds = await getCrossDateRefunds(token, storeId, formattedDate, diningOptionMap)
+            if (crossRefunds.crossDateNetRefund > 0) {
+                net -= crossRefunds.crossDateNetRefund
+                totalTaxes -= crossRefunds.crossDateTaxRefund
+                totalTips -= crossRefunds.crossDateTipRefund
+                uber = Math.max(0, uber - crossRefunds.crossDateUberRefund)
+                doordash = Math.max(0, doordash - crossRefunds.crossDateDoorDashRefund)
+                grubhub = Math.max(0, grubhub - crossRefunds.crossDateGrubhubRefund)
+
+                Object.entries(crossRefunds.hourlyRefunds).forEach(([h, refAmt]) => {
+                    const hour = Number(h)
+                    if (hour >= 0 && hour < 24) {
+                        hourlySales[hour] = (hourlySales[hour] || 0) - refAmt
+                    }
+                })
+            }
         }
 
         return {
@@ -1004,10 +1204,10 @@ export const fetchToastData = async (options: ToastMetricsOptions): Promise<{ ro
                 // If it is before 6 AM in LA, we treat Yesterday as "Today" (Dirty/Dynamic).
                 const nowLA = new Date()
                 const laHour = parseInt(nowLA.toLocaleTimeString('en-US', { hour: 'numeric', hour12: false, timeZone: 'America/Los_Angeles' }))
-
-                const yesterday = new Date(nowLA)
-                yesterday.setDate(nowLA.getDate() - 1)
-                const yesterdayStr = yesterday.toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
+                const todayLAStr = nowLA.toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
+                const [ty, tm, td] = todayLAStr.split('-').map(Number)
+                const yDate = new Date(ty, tm - 1, td - 1)
+                const yesterdayStr = `${yDate.getFullYear()}-${String(yDate.getMonth() + 1).padStart(2, '0')}-${String(yDate.getDate()).padStart(2, '0')}`
 
                 const isToday = dateStr === todayStr
                 const isYesterdayEarlyHours = dateStr === yesterdayStr && laHour < 6
@@ -1084,52 +1284,6 @@ export const fetchToastData = async (options: ToastMetricsOptions): Promise<{ ro
                             // laborMap keys are normalized to YYYY-MM-DD
                             if (laborMap[dateStr]) labor = laborMap[dateStr] as any
                         } catch (e) { /* ignore labor error */ }
-
-                        // --- SELF-HEALING CACHE (Write-Back) ---
-                        // If we successfully fetched a PAST date (not dirty), save it to DB for next time.
-                        if (!isDirty && !options.readOnly) {
-                            // Run in background (fire and forget) so we don't slow down the response
-                            (async () => {
-                                try {
-                                    const { createClient } = require('@supabase/supabase-js')
-                                    const adminAuthClient = createClient(
-                                        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-                                        process.env.SUPABASE_SERVICE_ROLE_KEY!
-                                    )
-
-                                    const payload = {
-                                        store_id: store.id,
-                                        business_date: dateStr,
-                                        net_sales: sales.netSales,
-                                        gross_sales: sales.grossSales,
-                                        discounts: sales.discounts,
-                                        tips: sales.tips,
-                                        taxes: sales.taxes,
-                                        service_charges: sales.serviceCharges,
-                                        order_count: sales.orders,
-                                        guest_count: sales.guests,
-                                        labor_cost: labor.laborCost,
-                                        labor_hours: labor.hours,
-                                        hourly_data: sales.hourlySales,
-                                        hourly_tickets: sales.hourlyTickets,
-                                        hourly_labor: labor.hourlyLabor,
-                                        uber_sales: sales.uberSales || 0,
-                                        doordash_sales: sales.doordashSales || 0,
-                                        grubhub_sales: sales.grubhubSales || 0,
-                                        ebt_count: sales.ebtCount || 0,
-                                        ebt_amount: sales.ebtAmount || 0,
-                                        updated_at: new Date().toISOString()
-                                    }
-
-                                    await adminAuthClient
-                                        .from('sales_daily_cache')
-                                        .upsert(payload, { onConflict: 'store_id,business_date' })
-                                } catch (err) {
-                                    console.error('Cache Write-Back Error:', err)
-                                }
-                            })()
-                        }
-                        // ----------------------------------------
 
                         return {
                             store,

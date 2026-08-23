@@ -435,7 +435,7 @@ export async function fetchWeeklyData(storeId: string | number, mondayStr: strin
 
                 const stockRow = stockMap.get(`${category}_${size}`)
                 const defaultMin = getDefaultMinStock(category, size)
-                const minStock = (stockRow?.min_stock && stockRow.min_stock > 0) ? stockRow.min_stock : defaultMin
+                const minStock = (stockRow?.min_stock !== null && stockRow?.min_stock !== undefined) ? Number(stockRow.min_stock) : defaultMin
                 const quantityOnHand = stockRow ? Number(stockRow.quantity_on_hand) || 0 : 0
 
                 // Si no hay base manual de esta semana, pre-cargar el Stock Mínimo como PAR

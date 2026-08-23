@@ -1,3 +1,12 @@
+/**
+ * @module api/sync/sales-live/route
+ * @description Triggers on-demand live synchronization of sales and labor punches from Toast API for the current business day.
+ * @businessRules
+ * - Day rollover boundary is 6:00 AM PST/PDT.
+ * - Captures labor punches from 00:00 UTC through 14:00 UTC next day (7:00 AM PDT) ensuring no early morning punch cutoffs.
+ * @dataFlow
+ * - Client / Background Sync -> POST /api/sync/sales-live -> Toast API & syncToastPunches -> Response.
+ */
 
 import { NextResponse } from 'next/server'
 import { fetchToastData } from '@/lib/toast-api'
@@ -8,7 +17,6 @@ export const dynamic = 'force-dynamic'
 export async function POST(request: Request) {
     try {
         const body = await request.json()
-        // DEBUG: Force Lynwood ID to rule out payload issues
         const { storeId } = body
 
         // Robust YYYY-MM-DD in LA Time with Business Day Awareness
@@ -33,9 +41,9 @@ export async function POST(request: Request) {
         const dd2 = String(nextDay.getDate()).padStart(2, '0')
         const tomorrowStr = `${yyyy2}-${mm2}-${dd2}`
 
-        // Range: From 00:00 UTC (Business Day Start - Buffer) to 12:00 UTC Next Day (4am LA Next Day)
+        // Range: From 00:00 UTC (Business Day Start - Buffer) to 14:00 UTC Next Day (7am LA Next Day, safely covers 5:59am closing)
         const startIso = `${todayStr}T00:00:00.000+0000`
-        const endIso = `${tomorrowStr}T12:00:00.000+0000`
+        const endIso = `${tomorrowStr}T14:00:00.000+0000`
 
         console.log(`⚡ [LIVE SYNC] Triggered for Store ${storeId || 'ALL'} Date: ${todayStr}`)
 
@@ -51,8 +59,6 @@ export async function POST(request: Request) {
         })
 
         // 2. Sync Labor (Punches)
-        // Only if storeId is provided (optimization), otherwise loop?
-        // syncToastPunches requires storeId.
         let laborPromise = Promise.resolve({ count: 0, success: true })
 
         if (storeId) {

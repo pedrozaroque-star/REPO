@@ -1,6 +1,17 @@
+/**
+ * @module api/integrity/verify-day/route
+ * @description Verifies sales and labor integrity between live Toast API data and Supabase sales_daily_cache, auto-healing any data drift silently.
+ * @businessRules
+ * - Checks past closed dates (e.g. Yesterday) against live Toast POS API ignoring cache.
+ * - Auto-heals discrepancies exceeding \$5.00 in Net Sales or Labor.
+ * - Preserves complete granular hourly sales, tickets, labor curves, and EBT amounts during healing.
+ * @dataFlow
+ * - Client -> POST /api/integrity/verify-day -> Toast API (skipCache) -> Compare Supabase -> Auto-Heal Upsert -> Response.
+ * @notes Protected by Supabase Admin Client for safe database write operations.
+ */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { getSupabaseClient } from '@/lib/supabase'
+import { getSupabaseAdminClient } from '@/lib/supabase'
 import { fetchToastData } from '@/lib/toast-api'
 
 export const dynamic = 'force-dynamic'
@@ -21,15 +32,15 @@ export async function POST(req: NextRequest) {
             storeIds: storeIds || 'all',
             groupBy: 'day',
             skipCache: true, // FORCE LIVE FETCH
-            fastMode: false // DISABLING FAST MODE: It causes Net=Net-Tax errors on Delivery orders. Using Full Mode for safety.
+            fastMode: false // Using Full Precision Mode for maximum safety
         })
 
         if (!toastData.rows || toastData.rows.length === 0) {
-            return NextResponse.json({ status: 'error', message: 'No data received from Toast' })
+            return NextResponse.json({ status: 'error', message: 'No data received from Toast' }, { status: 502 })
         }
 
         // 2. Fetch CACHED Data
-        const supabase = await getSupabaseClient()
+        const supabase = await getSupabaseAdminClient()
         const { data: cachedRows } = await supabase
             .from('sales_daily_cache')
             .select('*')
@@ -45,17 +56,16 @@ export async function POST(req: NextRequest) {
         for (const liveRow of toastData.rows) {
             const cached = cacheMap.get(liveRow.storeId)
 
-            // Tolerances: Sales $5.00, Labor 0.1 hrs
+            // Tolerances: Sales $5.00, Labor $5.00
             const salesDiff = Math.abs((liveRow.netSales || 0) - (cached?.net_sales || 0))
-            const laborDiff = Math.abs((liveRow.laborCost || 0) - (cached?.labor_cost || 0)) // Using cost as hours can be tricky with rounding
+            const laborDiff = Math.abs((liveRow.laborCost || 0) - (cached?.labor_cost || 0))
 
             if (!cached || salesDiff > 5.00 || laborDiff > 5.00) {
                 console.warn(`⚠️ [INTEGRITY] Discrepancy found for ${liveRow.storeName}:`)
                 console.warn(`   Sales: Live $${liveRow.netSales} vs Cache $${cached?.net_sales} (Diff: $${salesDiff})`)
                 console.warn(`   Labor: Live $${liveRow.laborCost} vs Cache $${cached?.labor_cost} (Diff: $${laborDiff})`)
 
-                // HEAL IT
-                // Upsert into Supabase
+                // HEAL IT: Complete payload with all columns preserved
                 const payload = {
                     business_date: date,
                     store_id: liveRow.storeId,
@@ -72,7 +82,13 @@ export async function POST(req: NextRequest) {
                     labor_cost: liveRow.laborCost,
                     uber_sales: liveRow.uberSales || 0,
                     doordash_sales: liveRow.doordashSales || 0,
-                    grubhub_sales: liveRow.grubhubSales || 0
+                    grubhub_sales: liveRow.grubhubSales || 0,
+                    ebt_count: liveRow.ebtCount || 0,
+                    ebt_amount: liveRow.ebtAmount || 0,
+                    hourly_data: liveRow.hourlySales || {},
+                    hourly_tickets: liveRow.hourlyTickets || {},
+                    hourly_labor: liveRow.hourlyLabor || {},
+                    updated_at: new Date().toISOString()
                 }
 
                 const { error } = await supabase
@@ -89,7 +105,6 @@ export async function POST(req: NextRequest) {
         }
 
         // 4. Construct Fresh Data Payload (to update UI silently)
-        // Recalculate Summary
         const summary = {
             netSales: 0,
             grossSales: 0,
@@ -136,7 +151,7 @@ export async function POST(req: NextRequest) {
             summary,
             data: toastData.rows.map((r: any) => ({
                 ...r,
-                labor_cost: r.laborCost, // Map for frontend compatibility if needed
+                labor_cost: r.laborCost,
                 labor_hours: r.totalHours,
                 net_sales: r.netSales
             })),
@@ -154,8 +169,6 @@ export async function POST(req: NextRequest) {
             })
         } else {
             console.log(`✅ [INTEGRITY] Integrity Verified. No drift detected.`)
-            // Even if no drift, we can return fresh data if we want to be super sure, 
-            // but usually 'ok' is enough to keep current state.
             return NextResponse.json({ status: 'ok', message: 'Datos verificados (Sincronizados)' })
         }
 

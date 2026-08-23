@@ -1,6 +1,20 @@
+/**
+ * @module api/ventas/route
+ * @description Primary API endpoint for Sales Dashboard data retrieval, orchestrating Toast API integration, Supabase caching, and live machine-learning sales forecasts.
+ * @businessRules
+ * - Enforces authentication and authorization for admin, supervisor, and manager roles.
+ * - Business day follows the standard 6:00 AM to 5:59 AM next day rule.
+ * - Integrates with sales_projections_cache and generateSmartForecast for intraday and multi-day pacing targets.
+ * @dataFlow
+ * - Client -> GET /api/ventas -> Toast API / sales_daily_cache -> Smart Forecast Engine -> JSON Response.
+ */
+
 import { NextRequest, NextResponse } from 'next/server'
 import { fetchToastData, ToastMetricsOptions } from '@/lib/toast-api'
 import { verifyAuthToken } from '@/lib/auth-server'
+import { getSupabaseAdminClient } from '@/lib/supabase'
+
+export const dynamic = 'force-dynamic'
 
 export async function GET(request: NextRequest) {
     try {
@@ -10,7 +24,7 @@ export async function GET(request: NextRequest) {
             return NextResponse.json({ error: 'Missing Authorization Header' }, { status: 401 })
         }
 
-        const token = authHeader.replace('Bearer ', '')
+        const token = authHeader.replace(/^Bearer\s+/i, '').trim()
 
         // 1. Validate Token (Manual JWT Verify)
         const user = verifyAuthToken(token)
@@ -19,15 +33,10 @@ export async function GET(request: NextRequest) {
             return NextResponse.json({ error: 'Invalid Token' }, { status: 401 })
         }
 
-        // 2. Validate Role (Admin Only)
-        // Check the 'user_role' claim inside the token directly! 
-        // Logic: Our /api/login embeds 'user_role' in the JWT.
+        // 2. Validate Role (Admin, Supervisor, Manager)
         if (user.user_role !== 'admin' && user.user_role !== 'supervisor' && user.user_role !== 'manager') {
             return NextResponse.json({ error: 'Forbidden: Admins, Supervisors & Managers Only' }, { status: 403 })
         }
-
-        // ✅ AUTH SUCCESS - PROCEED
-
 
         const searchParams = request.nextUrl.searchParams
 
@@ -44,17 +53,7 @@ export async function GET(request: NextRequest) {
             )
         }
 
-        const options: ToastMetricsOptions = {
-            storeIds,
-            startDate,
-            endDate,
-            groupBy,
-            skipCache,
-            allowDirtyCache: true // Allow reading intra-day cached data if available (populated by cron)
-        }
-
         // Logic "Granularity Guard"
-        // If range > 60 days and groupBy is 'day', suggest 'week'
         const start = new Date(startDate)
         const end = new Date(endDate)
         const dayDiff = (end.getTime() - start.getTime()) / (1000 * 3600 * 24)
@@ -62,31 +61,25 @@ export async function GET(request: NextRequest) {
         let effectiveGroupBy = groupBy
         if (dayDiff > 60 && groupBy === 'day') {
             effectiveGroupBy = 'week'
-            // We could auto-switch, but for now we just process what is asked 
-            // or we could force it: options.groupBy = 'week'
+        }
+
+        const options: ToastMetricsOptions = {
+            storeIds,
+            startDate,
+            endDate,
+            groupBy: effectiveGroupBy,
+            skipCache,
+            allowDirtyCache: true
         }
 
         const { rows, connectionError } = await fetchToastData(options)
 
-        // DEBUG: Check Labor
-        if (rows.length > 0) {
-            const totalLabor = rows.reduce((acc, r) => acc + (r.laborCost || 0), 0)
-            console.log(`[API DEBUG] /api/ventas returned ${rows.length} rows. Total Labor Cost: ${totalLabor}`)
-            if (totalLabor === 0) {
-                console.warn('[API WARNING] Labor Cost is 0 everywhere!')
-                // Check first row detail
-                console.log('[API DEBUG] Row[0]:', JSON.stringify(rows[0], null, 2))
-            }
-        }
-
         // 📊 PROJECTION ENHANCEMENT: Use LIVE Intelligence Engine
-
         // CASE 1: Single day with hourly view (Today/Yesterday)
-        if (groupBy === 'hour' && startDate === endDate) {
+        if (effectiveGroupBy === 'hour' && startDate === endDate) {
             try {
                 const { generateSmartForecast } = await import('@/lib/intelligence')
-                const { createClient } = await import('@supabase/supabase-js')
-                const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
+                const supabase = await getSupabaseAdminClient()
 
                 // Get unique store IDs
                 const storeMap = new Map<string, any>()
@@ -99,7 +92,7 @@ export async function GET(request: NextRequest) {
                 // Generate or fetch projections for each UNIQUE store
                 const projectionResults = new Map<string, { projectedHourly: Record<number, number>, projectedSales: number, meta?: any }>()
 
-                const projectionPromises = Array.from(storeMap.entries()).map(async ([storeId, sampleRow]) => {
+                const projectionPromises = Array.from(storeMap.entries()).map(async ([storeId]) => {
                     try {
                         // 1. Check Cache
                         const { data: cached } = await supabase
@@ -107,7 +100,7 @@ export async function GET(request: NextRequest) {
                             .select('*')
                             .eq('store_id', storeId)
                             .eq('business_date', startDate)
-                            .single();
+                            .maybeSingle();
                         
                         let totalSales = 0;
                         let hourlyMap: Record<number, number> = {};
@@ -160,15 +153,13 @@ export async function GET(request: NextRequest) {
 
                 await Promise.all(projectionPromises)
 
-                // Assign projections to first row of each store only
-                const assignedStores = new Set<string>()
+                // Assign projections to rows
                 rows.forEach((row: any) => {
                     const proj = projectionResults.get(row.storeId)
-                    if (proj && !assignedStores.has(row.storeId)) {
+                    if (proj) {
                         row.projectedHourly = proj.projectedHourly
                         row.projectedSales = proj.projectedSales
                         row.projectionMeta = proj.meta
-                        assignedStores.add(row.storeId)
                     }
                 })
 
@@ -179,11 +170,10 @@ export async function GET(request: NextRequest) {
 
         // CASE 2: Multi-day view (This Week, Last Week, This Month, etc.)
         // Generate daily projections for each date + store combination
-        else if (groupBy === 'day' && dayDiff <= 31) {
+        else if (effectiveGroupBy === 'day' && dayDiff <= 31) {
             try {
                 const { generateSmartForecast } = await import('@/lib/intelligence')
-                const { createClient } = await import('@supabase/supabase-js')
-                const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
+                const supabase = await getSupabaseAdminClient()
 
                 // Get unique store IDs
                 const uniqueStoreIds = new Set<string>()
@@ -238,7 +228,7 @@ export async function GET(request: NextRequest) {
                         const forecast = await generateSmartForecast(storeId, dateStr)
                         if (forecast && forecast.total_sales > 0) {
                             const hourlyMap: Record<number, number> = {}
-                            forecast.hours.forEach(h => hourlyMap[h.hour] = h.projected_sales)
+                            forecast.hours?.forEach(h => hourlyMap[h.hour] = h.projected_sales)
 
                             projectionCache.set(`${storeId}|${dateStr}`, {
                                 total: forecast.total_sales,
@@ -250,8 +240,8 @@ export async function GET(request: NextRequest) {
                                 }
                             })
 
-                            // Fire and forget cache save
-                            supabase.from('sales_projections_cache').upsert({
+                            // Safe async cache save
+                            await supabase.from('sales_projections_cache').upsert({
                                 store_id: storeId,
                                 business_date: dateStr,
                                 total_sales: forecast.total_sales,
@@ -261,7 +251,7 @@ export async function GET(request: NextRequest) {
                                     growth_factor: forecast.growth_factor_applied,
                                     generated_at: new Date().toISOString()
                                 }
-                            }).then();
+                            })
                         }
                     } catch (err) {
                         // Non-blocking
@@ -291,7 +281,7 @@ export async function GET(request: NextRequest) {
                 requestedGroupBy: groupBy,
                 effectiveGroupBy: effectiveGroupBy,
                 totalRows: rows.length,
-                connectionError // Pass error to frontend
+                connectionError
             },
             data: rows
         })
@@ -302,7 +292,7 @@ export async function GET(request: NextRequest) {
             {
                 error: 'Internal Server Error',
                 details: error.message,
-                _debug_stack: error.stack
+                ...(process.env.NODE_ENV === 'development' ? { _debug_stack: error.stack } : {})
             },
             { status: 500 }
         )

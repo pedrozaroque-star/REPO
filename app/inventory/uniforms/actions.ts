@@ -104,13 +104,16 @@ export async function saveInitialCount(
   for (const count of counts) {
     const { data: existingStock } = await supabase
       .from('uniforms_inventory_stock')
-      .select('quantity_on_hand')
+      .select('quantity_on_hand, min_stock')
       .eq('store_id', storeId)
       .eq('item_category', count.item_category)
       .eq('size', count.size)
-      .single();
+      .maybeSingle();
 
     const prevQty = Number(existingStock?.quantity_on_hand ?? 0);
+    const minStock = (existingStock?.min_stock !== null && existingStock?.min_stock !== undefined)
+      ? existingStock.min_stock
+      : getDefaultMinStock(count.item_category as UniformCategory, count.size as UniformSize);
 
     await supabase
       .from('uniforms_inventory_stock')
@@ -119,6 +122,7 @@ export async function saveInitialCount(
         item_category: count.item_category,
         size: count.size,
         quantity_on_hand: count.quantity,
+        min_stock: minStock,
         updated_at: new Date().toISOString()
       }, { onConflict: 'store_id, item_category, size' });
 
@@ -185,13 +189,16 @@ export async function saveManualAudit(
   for (const adj of adjustments) {
     const { data: existingStock } = await supabase
       .from('uniforms_inventory_stock')
-      .select('quantity_on_hand')
+      .select('quantity_on_hand, min_stock')
       .eq('store_id', storeId)
       .eq('item_category', adj.item_category)
       .eq('size', adj.size)
       .maybeSingle();
 
     const prevQty = Number(existingStock?.quantity_on_hand ?? 0);
+    const minStock = (existingStock?.min_stock !== null && existingStock?.min_stock !== undefined)
+      ? existingStock.min_stock
+      : getDefaultMinStock(adj.item_category as UniformCategory, adj.size as UniformSize);
     const qtyDiff = adj.newQty - prevQty;
 
     await supabase
@@ -201,6 +208,7 @@ export async function saveManualAudit(
         item_category: adj.item_category,
         size: adj.size,
         quantity_on_hand: adj.newQty,
+        min_stock: minStock,
         updated_at: new Date().toISOString()
       }, { onConflict: 'store_id, item_category, size' });
 
@@ -238,13 +246,16 @@ export async function updateSingleUniformStock(payload: {
 
   const { data: existingStock } = await supabase
     .from('uniforms_inventory_stock')
-    .select('quantity_on_hand')
+    .select('quantity_on_hand, min_stock')
     .eq('store_id', payload.storeId)
     .eq('item_category', payload.item_category)
     .eq('size', payload.size)
     .maybeSingle();
 
   const prevQty = Number(existingStock?.quantity_on_hand ?? 0);
+  const minStock = (existingStock?.min_stock !== null && existingStock?.min_stock !== undefined)
+    ? existingStock.min_stock
+    : getDefaultMinStock(payload.item_category as UniformCategory, payload.size as UniformSize);
   const qtyDiff = payload.newQty - prevQty;
 
   await supabase
@@ -254,6 +265,7 @@ export async function updateSingleUniformStock(payload: {
       item_category: payload.item_category,
       size: payload.size,
       quantity_on_hand: payload.newQty,
+      min_stock: minStock,
       updated_at: new Date().toISOString()
     }, { onConflict: 'store_id, item_category, size' });
 
@@ -477,13 +489,16 @@ export async function recordDamageExchange(payload: {
 
   const { data: stock } = await supabase
     .from('uniforms_inventory_stock')
-    .select('quantity_on_hand')
+    .select('quantity_on_hand, min_stock')
     .eq('store_id', payload.storeId)
     .eq('item_category', payload.item_category)
     .eq('size', payload.size)
     .maybeSingle();
 
   const prevQty = Number(stock?.quantity_on_hand ?? 0);
+  const minStock = (stock?.min_stock !== null && stock?.min_stock !== undefined)
+    ? stock.min_stock
+    : getDefaultMinStock(payload.item_category as UniformCategory, payload.size as UniformSize);
   const newQty = prevQty - qtyToDeduct;
 
   // Upsert to uniforms_inventory_stock to ensure the record exists and updates stock
@@ -494,6 +509,7 @@ export async function recordDamageExchange(payload: {
       item_category: payload.item_category,
       size: payload.size,
       quantity_on_hand: newQty,
+      min_stock: minStock,
       updated_at: new Date().toISOString()
     }, { onConflict: 'store_id, item_category, size' });
 
@@ -543,13 +559,16 @@ export async function confirmOrderReception(payload: {
   for (const item of payload.items) {
     const { data: stock } = await supabase
       .from('uniforms_inventory_stock')
-      .select('quantity_on_hand')
+      .select('quantity_on_hand, min_stock')
       .eq('store_id', payload.storeId)
       .eq('item_category', item.item_category)
       .eq('size', item.size)
       .maybeSingle();
 
     const prevQty = Number(stock?.quantity_on_hand ?? 0);
+    const minStock = (stock?.min_stock !== null && stock?.min_stock !== undefined)
+      ? stock.min_stock
+      : getDefaultMinStock(item.item_category as UniformCategory, item.size as UniformSize);
     const receivedQty = Number(item.receivedQty) || 0;
     const newQty = prevQty + receivedQty;
 
@@ -560,6 +579,7 @@ export async function confirmOrderReception(payload: {
         item_category: item.item_category,
         size: item.size,
         quantity_on_hand: newQty,
+        min_stock: minStock,
         updated_at: new Date().toISOString()
       }, { onConflict: 'store_id, item_category, size' });
 
@@ -993,13 +1013,16 @@ export async function voidUniformTransaction(payload: {
 
   const { data: stock } = await supabase
     .from('uniforms_inventory_stock')
-    .select('quantity_on_hand')
+    .select('quantity_on_hand, min_stock')
     .eq('store_id', tx.store_id)
     .eq('item_category', tx.item_category)
     .eq('size', tx.size)
     .single();
 
   const prevStock = Number(stock?.quantity_on_hand ?? 0);
+  const minStock = (stock?.min_stock !== null && stock?.min_stock !== undefined)
+    ? stock.min_stock
+    : getDefaultMinStock(tx.item_category as UniformCategory, tx.size as UniformSize);
   const reverseDelta = -Number(tx.quantity);
   const newStock = Math.max(0, prevStock + reverseDelta);
 
@@ -1010,6 +1033,7 @@ export async function voidUniformTransaction(payload: {
       item_category: tx.item_category,
       size: tx.size,
       quantity_on_hand: newStock,
+      min_stock: minStock,
       updated_at: new Date().toISOString()
     }, { onConflict: 'store_id, item_category, size' });
 

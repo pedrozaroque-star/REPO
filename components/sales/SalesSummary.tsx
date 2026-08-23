@@ -1,3 +1,13 @@
+/**
+ * @module components/sales/SalesSummary
+ * @description KPI Summary cards for Net Sales, Average Ticket, Labor Cost %, and Food Cost % / Prime Cost.
+ * @businessRules
+ * - Calculates Average Ticket = Net Sales / Order Count safely with 0 division guard.
+ * - Displays Prime Cost = Labor % + Food Cost % when food cost theoretical data is loaded.
+ * - Semantic styling badges for critical (>35%), warning (32-35%), and healthy (<32%) food costs.
+ * @dataFlow
+ * - Props (data, foodCost) -> Framer Motion Cards -> UI Grid.
+ */
 'use client'
 
 import React from 'react'
@@ -5,19 +15,18 @@ import { DollarSign, ShoppingBag, Clock, UtensilsCrossed, AlertTriangle } from '
 import { motion } from 'framer-motion'
 import { useLanguage } from '@/lib/i18n'
 
-
 interface SummaryProps {
-    data: {
-        netSales: number
-        grossSales: number
-        discounts: number
-        tips: number
-        taxes: number
-        orderCount: number
-        guestCount: number
-        laborCost: number
-        laborPercentage: number
-    }
+    data?: {
+        netSales?: number
+        grossSales?: number
+        discounts?: number
+        tips?: number
+        taxes?: number
+        orderCount?: number
+        guestCount?: number
+        laborCost?: number
+        laborPercentage?: number
+    } | null
     foodCost?: {
         totalCost: number
         costPercentage: number
@@ -36,8 +45,15 @@ const formatCurrency = (value: number) => {
 export default function SalesSummary({ data, foodCost }: SummaryProps) {
     const { t } = useLanguage()
 
+    const netSales = data?.netSales ?? 0
+    const grossSales = data?.grossSales ?? 0
+    const orderCount = data?.orderCount ?? 0
+    const guestCount = data?.guestCount ?? 0
+    const laborCost = data?.laborCost ?? 0
+    const laborPercentage = Number(data?.laborPercentage ?? 0)
+
     // Calculate derived metrics
-    const avgTicket = data.orderCount > 0 ? data.netSales / data.orderCount : 0
+    const avgTicket = orderCount > 0 ? netSales / orderCount : 0
 
     // Food Cost data
     const hasFoodCost = foodCost && !foodCost.loading && foodCost.totalCost > 0
@@ -47,13 +63,13 @@ export default function SalesSummary({ data, foodCost }: SummaryProps) {
     const isFcWarning = fcPct > 32 && fcPct <= 35
 
     // Prime Cost = Labor % + Food Cost %
-    const primeCostPct = hasFoodCost ? data.laborPercentage + fcPct : 0
+    const primeCostPct = hasFoodCost ? laborPercentage + fcPct : 0
 
     const cards = [
         {
             title: t('sales.summary.net_sales'),
-            value: formatCurrency(data.netSales),
-            subValue: `${t('sales.summary.gross')}: ${formatCurrency(data.grossSales)}`,
+            value: formatCurrency(netSales),
+            subValue: `${t('sales.summary.gross')}: ${formatCurrency(grossSales)}`,
             icon: DollarSign,
             color: 'text-emerald-500',
             bg: 'bg-emerald-500/10',
@@ -62,7 +78,7 @@ export default function SalesSummary({ data, foodCost }: SummaryProps) {
         {
             title: t('sales.summary.avg_ticket'),
             value: formatCurrency(avgTicket),
-            subValue: `${data.orderCount.toLocaleString('en-US')} ${t('sales.summary.orders')} · ${data.guestCount.toLocaleString('en-US')} ${t('sales.summary.guests')}`,
+            subValue: `${orderCount.toLocaleString('en-US')} ${t('sales.summary.orders')} · ${guestCount.toLocaleString('en-US')} ${t('sales.summary.guests')}`,
             icon: ShoppingBag,
             color: 'text-blue-400',
             bg: 'bg-blue-500/10',
@@ -70,9 +86,10 @@ export default function SalesSummary({ data, foodCost }: SummaryProps) {
         },
         {
             title: t('sales.summary.labor_cost'),
-            value: `${data.laborPercentage.toFixed(2)}%`,
-            subValue: formatCurrency(data.laborCost),
+            value: `${laborPercentage.toFixed(2)}%`,
+            subValue: formatCurrency(laborCost),
             secondarySubValue: hasFoodCost ? `${t('sales.prime_cost')}: ${primeCostPct.toFixed(1)}%` : undefined,
+            status: 'prime',
             icon: Clock,
             color: 'text-orange-400',
             bg: 'bg-orange-500/10',
@@ -86,6 +103,7 @@ export default function SalesSummary({ data, foodCost }: SummaryProps) {
         value: `${fcPct.toFixed(1)}%`,
         subValue: `${t('sales.summary.theo_cost')}: ${formatCurrency(fcCost)}`,
         secondarySubValue: isFcHigh ? t('sales.summary.fc_critical') : isFcWarning ? t('sales.summary.fc_warning') : t('sales.summary.fc_healthy'),
+        status: isFcHigh ? 'critical' : isFcWarning ? 'warning' : 'healthy',
         icon: isFcHigh ? AlertTriangle : UtensilsCrossed,
         color: isFcHigh ? 'text-rose-500' : isFcWarning ? 'text-yellow-500' : 'text-teal-500',
         bg: isFcHigh ? 'bg-rose-500/10' : isFcWarning ? 'bg-yellow-500/10' : 'bg-teal-500/10',
@@ -135,11 +153,11 @@ export default function SalesSummary({ data, foodCost }: SummaryProps) {
                         )}
                         {'secondarySubValue' in card && card.secondarySubValue && (
                             <p className={`text-xs font-semibold mt-0.5 ${
-                                card.secondarySubValue.includes('Critical') || card.secondarySubValue.includes('Crítico') 
+                                card.status === 'critical'
                                     ? 'text-rose-500 dark:text-rose-400' 
-                                    : card.secondarySubValue.includes('Prime') || card.secondarySubValue.includes('Primo') 
+                                    : card.status === 'prime'
                                         ? 'text-amber-600 dark:text-amber-400'
-                                        : card.secondarySubValue.includes('Warning') || card.secondarySubValue.includes('Alerta')
+                                        : card.status === 'warning'
                                             ? 'text-yellow-600 dark:text-yellow-400'
                                             : 'text-emerald-600 dark:text-emerald-400'
                             }`}>

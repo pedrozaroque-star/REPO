@@ -1,3 +1,14 @@
+/**
+ * @module ventas/reportes/page
+ * @description Weekly Operations Report, DSR Labor Log, and Monthly Sales Dashboard for Tacos Gavilan stores.
+ * @businessRules
+ * - AM Shift (Apertura) spans 6:00 AM to 4:59 PM (hours 6..16).
+ * - PM Shift (Cierre) spans 5:00 PM to 5:59 AM next day (hours 17..23, 0..5).
+ * - Inverse color rules for Labor % and Hours differences: negative is green (savings) and positive is red (over-budget).
+ * - Weighted average for weekly summary metrics to maintain financial integrity.
+ * @dataFlow
+ * - Client -> GET /api/reports/weekly-ops & Toast Daily Cache -> Operations Grid, Labor Log, & Monthly Reports.
+ */
 'use client'
 
 import React, { useState, useEffect } from 'react'
@@ -573,13 +584,13 @@ export default function ReportesPage() {
                     const totalMs = end.getTime() - start.getTime()
                     if (totalMs <= 0) return
 
-                    // AM Window: 06:01 AM to 05:00 PM
-                    const amStart = new Date(dateStr + 'T06:01:00')
+                    // AM Window: 06:00 AM to 05:00 PM
+                    const amStart = new Date(dateStr + 'T06:00:00')
                     const amEnd = new Date(dateStr + 'T17:00:00')
 
-                    // PM Window: 05:00 PM to 05:59 AM (Next Day)
+                    // PM Window: 05:00 PM to 06:00 AM (Next Day)
                     const pmStart = new Date(dateStr + 'T17:00:00')
-                    const pmEnd = new Date(dateStr + 'T05:59:00')
+                    const pmEnd = new Date(dateStr + 'T06:00:00')
                     pmEnd.setDate(pmEnd.getDate() + 1)
 
                     const intersect = (s1: Date, e1: Date, s2: Date, e2: Date) => {
@@ -593,8 +604,8 @@ export default function ReportesPage() {
                     const totalIntersect = amMs + pmMs
 
                     if (totalIntersect > 0) {
-                        morningLaborCost += totalPunchCost * (amMs / totalMs)
-                        nightLaborCost += totalPunchCost * (pmMs / totalMs)
+                        morningLaborCost += totalPunchCost * (amMs / totalIntersect)
+                        nightLaborCost += totalPunchCost * (pmMs / totalIntersect)
                     } else {
                         // If entirely outside both (rare for business day logic), assume PM if h < 6, else AM
                         if (start.getHours() < 6) nightLaborCost += totalPunchCost
@@ -815,8 +826,7 @@ export default function ReportesPage() {
         const daysInMon = endOfMonth.getDate()
 
         for (let d = 1; d <= daysInMon; d++) {
-            const dateObj = new Date(y, m - 1, d)
-            const dateKey = dateObj.toISOString().split('T')[0]
+            const dateKey = `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`
 
             // Find rows for this date
             const dayRows = salesData.filter((s: any) => s.business_date === dateKey)
@@ -841,36 +851,22 @@ export default function ReportesPage() {
                 dayRows.forEach(r => {
                     sysData.net_sales += (r.net_sales || 0)
                     sysData.order_count += (r.order_count || 0)
-                    sysData.guest_count += (r.guest_count || 0) // Serves as DriveThru Ticket Count
+                    sysData.guest_count += (r.guest_count || 0)
                     sysData.uber_sales += (r.uber_sales || 0)
                     sysData.doordash_sales += (r.doordash_sales || 0)
                     sysData.grubhub_sales += (r.grubhub_sales || 0)
                     sysData.ebt_amount += (r.ebt_amount || 0)
 
-                    if ((r.ebt_count || 0) > 0) {
-                        // ebt_count serves as DriveThru SOS Average in seconds
-                        // De-average it for multiple stores sum
-                        sysData.drivethru_time_sum += (r.ebt_count * (r.guest_count || 1))
-                    }
-
-                    // Dynamically calculate Open and Close from hourly_data to ensure accuracy
+                    // Sum complete AM shift (hours 6 to 16) and PM shift (hours 17..23, 0..5)
                     const hourly = r.hourly_data || {}
-                    const hoursOrder = [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5]
+                    let openSales = 0
+                    for (let h = 6; h <= 16; h++) openSales += Number(hourly[h] || 0)
+                    let closeSales = 0
+                    for (let h = 17; h <= 23; h++) closeSales += Number(hourly[h] || 0)
+                    for (let h = 0; h <= 5; h++) closeSales += Number(hourly[h] || 0)
 
-                    let o = 0
-                    for (const h of hoursOrder) {
-                        const val = Number(hourly[h] || 0)
-                        if (val > 20) { o = val; break; }
-                    }
-                    sysData.open_sales += o || (r.open_sales || 0)
-
-                    let c = 0
-                    for (let i = hoursOrder.length - 1; i >= 0; i--) {
-                        const h = hoursOrder[i]
-                        const val = Number(hourly[h] || 0)
-                        if (val > 20) { c = val; break; }
-                    }
-                    sysData.close_sales += c || (r.close_sales || 0)
+                    sysData.open_sales += openSales
+                    sysData.close_sales += closeSales
                 })
                 // Recalc Avg Order globally
                 sysData.act_avg_order = sysData.order_count > 0 ? (sysData.net_sales / sysData.order_count) : 0
@@ -1185,18 +1181,36 @@ export default function ReportesPage() {
 
     const calculateWeekTotal = (rowId: string, type: string) => {
         if (type === 'text' || type === 'time' || type === 'header') return ''
+        
+        if (rowId === 'target_avg_order' || rowId === 'actual_avg_order' || rowId === 'diff_avg_order') {
+            const countDays = DAYS.filter(d => parseNumber(getCellValue(d.key, rowId)) > 0).length
+            if (countDays === 0) return '$0.00'
+            const sum = DAYS.reduce((s, d) => s + parseNumber(getCellValue(d.key, rowId)), 0)
+            const avg = sum / countDays
+            const isNeg = avg < 0
+            const formatted = Math.abs(avg).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+            return isNeg ? `-$${formatted}` : `$${formatted}`
+        }
+
+        if (rowId === 'projected_labor' || rowId === 'actual_labor' || rowId === 'diff_labor') {
+            const countDays = DAYS.filter(d => parseNumber(getCellValue(d.key, rowId)) > 0).length
+            if (countDays === 0) return '0.00%'
+            const sum = DAYS.reduce((s, d) => s + parseNumber(getCellValue(d.key, rowId)), 0)
+            return (sum / countDays).toFixed(2) + '%'
+        }
+
         let sum = 0
-        let count = 0
         DAYS.forEach(day => {
             const val = parseNumber(getCellValue(day.key, rowId))
-            if (val !== 0) {
-                sum += val
-                count++
-            }
+            sum += val
         })
 
-        if (type === 'percent' && count > 0) return (sum / count).toFixed(2) + '%'
-        if (type === 'currency') return '$' + sum.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+        if (type === 'percent') return sum.toFixed(2) + '%'
+        if (type === 'currency') {
+            const isNeg = sum < 0
+            const formatted = Math.abs(sum).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+            return isNeg ? `-$${formatted}` : `$${formatted}`
+        }
         return sum.toLocaleString('en-US', { maximumFractionDigits: 2 })
     }
 
@@ -1241,7 +1255,7 @@ export default function ReportesPage() {
                             </div>
                             <div>
                                 <h1 className="text-lg font-bold text-slate-900 dark:text-white">
-                                    {activeTab === 'ops' ? t('sales.reports_page.title') : t('sales.reports_page.tabs.labor')}
+                                    {activeTab === 'ops' ? t('sales.reports_page.title') : activeTab === 'labor' ? t('sales.reports_page.tabs.labor') : t('sales.reports_page.tabs.monthly')}
                                 </h1>
                                 <p className="text-xs text-slate-500">{t('sales.reports_page.subtitle')}</p>
                             </div>

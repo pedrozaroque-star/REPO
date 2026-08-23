@@ -1,29 +1,41 @@
+/**
+ * @module api/ventas/yearly/route
+ * @description Provides annual monthly sales matrix aggregating 12-month net sales per store from Supabase sales_daily_cache, and provides list of available historical years.
+ * @businessRules
+ * - Enforces authentication and authorization for admin, supervisor, and manager roles.
+ * - Pure calendar arithmetic prevents timezone date drift on UTC servers.
+ * - Filters out mock, test, and placeholder stores from analytics.
+ * @dataFlow
+ * - Client -> GET /api/ventas/yearly -> Supabase sales_daily_cache -> Formatted JSON matrix.
+ */
 
-import { getSupabaseClient } from '@/lib/supabase'
+import { getSupabaseAdminClient } from '@/lib/supabase'
 import { NextResponse } from 'next/server'
-
 import { verifyAuthToken } from '@/lib/auth-server'
 
 export const dynamic = 'force-dynamic'
 
 export async function GET(request: Request) {
-    // 🛡️ SECURITY CHECK 🛡️
-    const token = request.headers.get('Authorization')?.replace('Bearer ', '')
-    if (!token) return NextResponse.json({ error: 'Missing Authorization Header' }, { status: 401 })
+    try {
+        // 🛡️ SECURITY CHECK 🛡️
+        const authHeader = request.headers.get('Authorization')
+        if (!authHeader) return NextResponse.json({ error: 'Missing Authorization Header' }, { status: 401 })
 
-    const user = verifyAuthToken(token)
-    if (!user) return NextResponse.json({ error: 'Invalid Token' }, { status: 401 })
+        const token = authHeader.replace(/^Bearer\s+/i, '').trim()
+        const user = verifyAuthToken(token)
+        if (!user) return NextResponse.json({ error: 'Invalid Token' }, { status: 401 })
 
-    if (user.user_role !== 'admin' && user.user_role !== 'supervisor') return NextResponse.json({ error: 'Forbidden: Admins & Supervisors Only' }, { status: 403 })
+        if (user.user_role !== 'admin' && user.user_role !== 'supervisor' && user.user_role !== 'manager') {
+            return NextResponse.json({ error: 'Forbidden: Admins, Supervisors & Managers Only' }, { status: 403 })
+        }
 
-    // ✅ AUTH SUCCESS
-    const { searchParams } = new URL(request.url)
-    const mode = searchParams.get('mode')
+        // ✅ AUTH SUCCESS
+        const { searchParams } = new URL(request.url)
+        const mode = searchParams.get('mode')
 
-    // ----------- MODO AÑOS DISPONIBLES -----------
-    if (mode === 'years') {
-        try {
-            const supabase = await getSupabaseClient()
+        // ----------- MODO AÑOS DISPONIBLES -----------
+        if (mode === 'years') {
+            const supabase = await getSupabaseAdminClient()
             const currentY = new Date().getFullYear()
             const promises = []
             // Escanear desde 2018 hasta año actual + 1
@@ -40,42 +52,38 @@ export async function GET(request: Request) {
             const results = await Promise.all(promises)
             const years = results.filter(r => r.exists).map(r => r.year)
             return NextResponse.json(years)
-        } catch (e: any) {
-            return NextResponse.json({ error: e.message }, { status: 500 })
         }
-    }
 
-    // ----------- MODO REPORTE ANUAL (MATRIX) -----------
-    const year = searchParams.get('year') || new Date().getFullYear().toString()
-    const limitDateParam = searchParams.get('limit_date') // YYYY-MM-DD opcional
-    const limitDate = limitDateParam ? new Date(limitDateParam) : null
+        // ----------- MODO REPORTE ANUAL (MATRIX) -----------
+        const year = searchParams.get('year') || new Date().getFullYear().toString()
+        const limitDateParam = searchParams.get('limit_date') // YYYY-MM-DD opcional
+        const limitDate = limitDateParam ? new Date(limitDateParam) : null
 
-    try {
-        const supabase = await getSupabaseClient()
+        const supabase = await getSupabaseAdminClient()
         const storeMap: Record<string, number[]> = {}
         const initMonths = () => Array(12).fill(0)
 
         const monthPromises = []
 
         for (let m = 0; m < 12; m++) {
+            const monthPad = String(m + 1).padStart(2, '0')
             const startDate = new Date(Number(year), m, 1)
             const lastDayOfMonth = new Date(Number(year), m + 1, 0)
 
             // Si hay límite y el mes empieza DESPUÉS del límite, saltar
             if (limitDate && startDate > limitDate) {
-                // Promesa vacía resuelta para mantener el índice del array
                 monthPromises.push(Promise.resolve({ data: [], error: null }))
                 continue
             }
 
-            // Si hay límite y el límite cae ADENTRO de este mes, cortar la fecha fin
-            let endDate = lastDayOfMonth
+            const startStr = `${year}-${monthPad}-01`
+            let endDay = String(lastDayOfMonth.getDate()).padStart(2, '0')
+            
+            // Si el límite cae adentro del mes
             if (limitDate && limitDate < lastDayOfMonth && limitDate >= startDate) {
-                endDate = limitDate
+                endDay = String(limitDate.getDate()).padStart(2, '0')
             }
-
-            const startStr = startDate.toISOString().split('T')[0]
-            const endStr = endDate.toISOString().split('T')[0]
+            const endStr = `${year}-${monthPad}-${endDay}`
 
             const p = supabase
                 .from('sales_daily_cache')
@@ -87,9 +95,8 @@ export async function GET(request: Request) {
             monthPromises.push(p)
         }
 
-        // Ejecutar las 12 peticiones en paralelo (muy rápido en infraestructura server)
+        // Ejecutar las 12 peticiones en paralelo
         const results = await Promise.all(monthPromises)
-
         let totalRowsFetched = 0
 
         // Procesar los 12 resultados
@@ -104,15 +111,12 @@ export async function GET(request: Request) {
 
             rows.forEach(row => {
                 const storeName = row.store_name?.trim() || 'Unknown'
-                // Ya sabemos el mes por el índice del chunk (monthIdx), 
-                // no hace falta parsear la fecha, lo cual es más seguro aún.
                 const targetMonthIndex = monthIdx
 
                 if (!storeMap[storeName]) {
                     storeMap[storeName] = initMonths()
                 }
 
-                // Sumar venta
                 storeMap[storeName][targetMonthIndex] += Number(row.net_sales || 0)
             })
         })
@@ -125,12 +129,10 @@ export async function GET(request: Request) {
             })
             .filter(r => {
                 const n = r.name.toLowerCase()
-                // Lista negra de palabras clave de mocks
                 if (n.includes('mock')) return false
                 if (n.includes('test')) return false
                 if (n.includes('example')) return false
                 if (n === 'unknown') return false
-                // Si tienes nombres específicos de mocks de Toast, agrégalos aquí
                 return true
             })
             .sort((a, b) => b.total - a.total)
@@ -146,6 +148,7 @@ export async function GET(request: Request) {
         })
 
     } catch (error: any) {
+        console.error("Yearly Sales API Error:", error)
         return NextResponse.json({ error: error.message }, { status: 500 })
     }
 }

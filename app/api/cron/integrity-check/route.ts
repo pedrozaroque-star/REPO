@@ -1,6 +1,16 @@
+/**
+ * @module api/cron/integrity-check/route
+ * @description Deep background scanner that audits the last 8 days of sales and labor in Supabase sales_daily_cache against live Toast POS API, auto-healing any drift exceeding \$1.00.
+ * @businessRules
+ * - Audits completed historical days (yesterday backwards 8 days) in America/Los_Angeles timezone.
+ * - Uses Full Precision Toast API data as the single source of truth.
+ * - Heals discrepancies with complete granular payload (sales, labor, hourly curves, EBT).
+ * @dataFlow
+ * - Vercel Cron -> GET /api/cron/integrity-check -> Toast API (Full Precision) -> Compare sales_daily_cache -> Auto-Heal Upsert -> Response.
+ */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { getSupabaseClient } from '@/lib/supabase'
+import { getSupabaseAdminClient } from '@/lib/supabase'
 import { fetchToastData } from '@/lib/toast-api'
 
 export const maxDuration = 300 // 5 minutes timeout (Vercel Pro)
@@ -8,6 +18,13 @@ export const dynamic = 'force-dynamic'
 
 export async function GET(req: NextRequest) {
     try {
+        const authHeader = req.headers.get('authorization')
+        if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+            if (process.env.CRON_SECRET) {
+                return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+            }
+        }
+
         // Calcular Fechas en LA Time para evitar errores UTC
         const now = new Date()
         const laNow = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
@@ -33,7 +50,6 @@ export async function GET(req: NextRequest) {
         console.log(`🛡️ [CRON INTEGRITY] Starting Deep Scan: ${startStr} to ${endStr}`)
 
         // 1. MASSIVE FETCH TO TOAST (Absolute Truth)
-        // We use skipCache=true to bypass our DB totally.
         const toastData = await fetchToastData({
             startDate: startStr,
             endDate: endStr,
@@ -45,13 +61,13 @@ export async function GET(req: NextRequest) {
 
         if (!toastData.rows || toastData.rows.length === 0) {
             console.warn("⚠️ [CRON INTEGRITY] No data received from Toast API")
-            return NextResponse.json({ error: 'No data from Toast' }, { status: 500 })
+            return NextResponse.json({ error: 'No data from Toast' }, { status: 502 })
         }
 
         console.log(`📊 [CRON INTEGRITY] Toast returned ${toastData.rows.length} rows. Comparing with DB...`)
 
         // 2. FETCH CURRENT DB STATE
-        const supabase = await getSupabaseClient()
+        const supabase = await getSupabaseAdminClient()
         const { data: dbData, error: dbError } = await supabase
             .from('sales_daily_cache')
             .select('*')
@@ -63,7 +79,6 @@ export async function GET(req: NextRequest) {
         // Create Map for O(1) Lookup
         const dbMap = new Map()
         dbData?.forEach((r: any) => {
-            // Key: StoreID_Date
             dbMap.set(`${r.store_id}_${r.business_date}`, r)
         })
 
@@ -75,11 +90,7 @@ export async function GET(req: NextRequest) {
             const key = `${live.storeId}_${live.periodStart}`
             const cached = dbMap.get(key)
 
-            // STRICT TOLERANCES
-            // Sales > $1.00 diff
-            // Labor Cost > $1.00 diff
-            // We focus on COST for labor because hours can vary slightly with different rounding, but cost is money.
-
+            // STRICT TOLERANCES: Sales > $1.00 diff, Labor Cost > $1.00 diff
             const salesDiff = Math.abs((live.netSales || 0) - (cached?.net_sales || 0))
             const laborDiff = Math.abs((live.laborCost || 0) - (cached?.labor_cost || 0))
 
@@ -87,7 +98,6 @@ export async function GET(req: NextRequest) {
             const needsFix = isMissing || salesDiff > 1.00 || laborDiff > 1.00
 
             if (needsFix) {
-                // UPSERT Payload
                 const payload = {
                     business_date: live.periodStart,
                     store_id: live.storeId,
@@ -102,13 +112,15 @@ export async function GET(req: NextRequest) {
                     guest_count: live.guestCount,
                     labor_hours: live.totalHours,
                     labor_cost: live.laborCost,
-                    hourly_data: live.hourlySales,
-                    hourly_tickets: live.hourlyTickets,
+                    hourly_data: live.hourlySales || {},
+                    hourly_tickets: live.hourlyTickets || {},
+                    hourly_labor: live.hourlyLabor || {},
                     uber_sales: live.uberSales || 0,
                     doordash_sales: live.doordashSales || 0,
                     grubhub_sales: live.grubhubSales || 0,
                     ebt_count: live.ebtCount || 0,
-                    ebt_amount: live.ebtAmount || 0
+                    ebt_amount: live.ebtAmount || 0,
+                    updated_at: new Date().toISOString()
                 }
 
                 const { error: upsertError } = await supabase
@@ -125,15 +137,15 @@ export async function GET(req: NextRequest) {
             }
         }
 
-        console.log(`✅ [CRON INTEGRITY] Completed. Healed ${fixedCount} records. / Completado. ${fixedCount} registros corregidos.`)
+        console.log(`✅ [CRON INTEGRITY] Completed. Healed ${fixedCount} records.`)
 
         return NextResponse.json({
             success: true,
-            message: `Scanned 7 days. Healed ${fixedCount} records. / Escaneados 7 dias. Corregidos ${fixedCount} registros.`,
+            message: `Scanned 8 days. Healed ${fixedCount} records.`,
             scannedWindow: `${startStr} to ${endStr}`,
             recordsScanned: toastData.rows.length,
             correctionsMade: fixedCount,
-            details: logUpdates.slice(0, 50) // Limit output size
+            details: logUpdates.slice(0, 50)
         })
 
     } catch (e: any) {

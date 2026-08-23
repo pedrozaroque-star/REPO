@@ -1,3 +1,15 @@
+/**
+ * @module ventas/page
+ * @description Main Sales Analytics Dashboard for Tacos Gavilan, featuring real-time Toast POS monitoring, intraday smart projections, labor/food cost reconciliation, hourly curves, and multi-store rankings.
+ * @businessRules
+ * - Business day spans 6:00 AM to 5:59 AM next day (PST/PDT America/Los_Angeles).
+ * - Net Sales formula: Sum(Item.Price) - Sum(Item.Discounts) - Sum(Item.Refunds) - Sum(UnlinkedRefunds) - Sum(CrossDateRefunds).
+ * - Supports instant Stale-While-Revalidate caching with silent live updates.
+ * - Dynamic dining options mapping and delivery channel segregation (Uber, DoorDash, Grubhub).
+ * @dataFlow
+ * - Client -> /api/ventas (Toast + Supabase Cache) -> Live Projections -> Food Cost Sync -> Recharts Dashboard.
+ * @notes Self-heals historical discrepancies silently via /api/integrity/verify-day.
+ */
 'use client'
 
 import React, { useState, useEffect, useMemo, useRef, Suspense } from 'react'
@@ -176,10 +188,34 @@ function SalesPageContent() {
             }
 
             if (resolvedTime !== 'all') {
+                if (data.groupByMode === 'hour') {
+                    const storeGroups = new Map<string, any[]>()
+                    filteredRows.forEach((r: any) => {
+                        if (!storeGroups.has(r.storeId)) storeGroups.set(r.storeId, [])
+                        storeGroups.get(r.storeId)!.push(r)
+                    })
+                    const redistributed: any[] = []
+                    storeGroups.forEach((rows) => {
+                        const concRow = rows.find((r: any) => (r.orderCount || 0) > 0 || (r.laborCost || 0) > 0)
+                        const totalSales = rows.reduce((sum: number, r: any) => sum + (r.netSales || 0), 0)
+                        rows.forEach((r: any) => {
+                            const proportion = totalSales > 0 ? (r.netSales || 0) / totalSales : 0
+                            redistributed.push({
+                                ...r,
+                                orderCount: concRow ? Math.round((concRow.orderCount || 0) * proportion) : 0,
+                                guestCount: concRow ? Math.round((concRow.guestCount || 0) * proportion) : 0,
+                                laborCost: concRow ? (concRow.laborCost || 0) * proportion : 0,
+                                totalHours: concRow ? (concRow.totalHours || 0) * proportion : 0,
+                            })
+                        })
+                    })
+                    filteredRows = redistributed
+                }
                 filteredRows = filteredRows.map((r: any) => applyTimeFilterToRow(r, resolvedTime)).filter(Boolean)
             }
             // Re-aggregate by store from the filtered rows
             const storeMap = new Map<string, any>()
+            const seenDayStores = new Set<string>()
             filteredRows.forEach((row: any) => {
                 const storeName = row.storeName || 'Unknown'
                 if (!storeMap.has(storeName)) {
@@ -197,7 +233,17 @@ function SalesPageContent() {
                 s.guestCount += (row.guestCount || 0)
                 s.laborCost += (row.laborCost || 0)
                 s.totalHours += (row.totalHours || 0)
-                s.projectedSales += (row.projectedSales || 0)
+                if (['today', 'yesterday'].includes(period)) {
+                    s.projectedSales = (row.projectedSales || 0)
+                    s.projectedToDate = (row.projectedToDate || 0)
+                } else {
+                    const dayStoreKey = `${row.storeId}_${row.periodStart}`
+                    if (!seenDayStores.has(dayStoreKey)) {
+                        seenDayStores.add(dayStoreKey)
+                        s.projectedSales += (row.projectedSales || 0)
+                        s.projectedToDate += (row.projectedToDate || 0)
+                    }
+                }
             })
             sourceData = Array.from(storeMap.values()).map((s: any) => ({
                 ...s,
@@ -240,7 +286,7 @@ function SalesPageContent() {
             })
         }
         return sortableItems
-    }, [data, sortConfig, dayOfWeekFilter, timeFilter, customHourStart, customHourEnd, foodCostData])
+    }, [data, sortConfig, dayOfWeekFilter, timeFilter, customHourStart, customHourEnd, foodCostData, period])
 
     // Helper to process raw rows into UI Data Structure
     const processData = (rows: any[], groupByMode: string, referenceDate: string) => {
@@ -260,8 +306,10 @@ function SalesPageContent() {
         summary.laborPercentage = summary.netSales > 0 ? (summary.laborCost / summary.netSales) * 100 : 0
 
         const now = new Date();
+        const bizNow = new Date(now);
+        if (bizNow.getHours() < 6) bizNow.setDate(bizNow.getDate() - 1);
         const nowStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:00`;
-        const nowDateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+        const nowDateStr = `${bizNow.getFullYear()}-${String(bizNow.getMonth() + 1).padStart(2, '0')}-${String(bizNow.getDate()).padStart(2, '0')}`;
         const currentMinuteRatio = now.getMinutes() / 60;
 
         // Store Data
@@ -326,8 +374,13 @@ function SalesPageContent() {
             s.guestCount += (row.guestCount || 0)
             s.laborCost += (row.laborCost || 0)
             s.totalHours += (row.totalHours || 0)
-            s.projectedSales += (row.projectedSales || 0)
-            s.projectedToDate += rowProjToDate
+            if (groupByMode === 'hour') {
+                s.projectedSales = (row.projectedSales || 0)
+                s.projectedToDate = rowProjToDate
+            } else {
+                s.projectedSales += (row.projectedSales || 0)
+                s.projectedToDate += rowProjToDate
+            }
         })
 
         const storeData = Array.from(storeMap.values())
@@ -401,8 +454,13 @@ function SalesPageContent() {
                     }
                 }
 
-                // Use projected hourly if available from API response
-                if (row.projectedHourly) {
+            })
+
+            // Collect unique store projections to prevent summing 24 times in hourly mode
+            const seenStoresForProj = new Set<string>()
+            rows.forEach((row: any) => {
+                if (row.projectedHourly && !seenStoresForProj.has(row.storeId)) {
+                    seenStoresForProj.add(row.storeId)
                     Object.entries(row.projectedHourly).forEach(([h, amount]) => {
                         let hourInt = parseInt(h)
                         let isNext = hourInt < 6
@@ -415,17 +473,9 @@ function SalesPageContent() {
 
                         const dStr = isNext ? nextDateStr : baseDateStr
                         const key = `${dStr} ${hourInt.toString().padStart(2, '0')}:00`
-                        if (!hourlyProjCounts[key]) hourlyProjCounts[key] = { sum: 0, count: 0 }
-                        hourlyProjCounts[key].sum += Number(amount) || 0
-                        hourlyProjCounts[key].count += 1
+                        const currentVal = projMap.get(key) || 0
+                        projMap.set(key, currentVal + (Number(amount) || 0))
                     })
-                }
-            })
-
-            // SUM all store projections per hour (not average!)
-            Object.entries(hourlyProjCounts).forEach(([key, data]) => {
-                if (data.sum > 0) {
-                    projMap.set(key, data.sum) // Use sum, not average - we want total across all stores
                 }
             })
         } else {
@@ -786,9 +836,9 @@ function SalesPageContent() {
                             console.log("🛠️ [AUTO-HEAL] Discrepancias corregidas. Actualizando UI silenciosamente...")
                             setIntegrityStatus('fixed')
                             // SILENT UPDATE: Update data directly without full reload/spinner
-                            // FIX: Process data to generate storeData/trendData needed by UI
-                            const freshProcessed = processData(json.freshData.data, 'hour', startDate) // integrity check forces hour/day view
-                            setData(freshProcessed)
+                            // FIX: Process data to generate storeData/trendData needed by UI and preserve rawRows/groupByMode
+                            const freshProcessed = processData(json.freshData.data, 'day', startDate)
+                            setData({ ...freshProcessed, rawRows: json.freshData.data, groupByMode: 'day' })
                             setLastUpdated(new Date())
                         } else {
                             setIntegrityStatus('ok')
@@ -922,6 +972,31 @@ function SalesPageContent() {
         }
     }, [foodCostData, foodCostLoading, selectedStore])
 
+    // CSV Export Handler
+    const handleExportCSV = () => {
+        if (!sortedStoreData || sortedStoreData.length === 0) return
+        const headers = ['Store', 'Net Sales', 'Orders', 'Avg Ticket', 'Labor %', 'Labor Cost', 'Projected', 'Difference']
+        const rows = sortedStoreData.map((s: any) => [
+            `"${formatStoreName(s.name || s.storeName)}"`,
+            (s.amount || s.netSales || 0).toFixed(2),
+            s.orderCount || 0,
+            ((s.amount || 0) / (s.orderCount || 1)).toFixed(2),
+            Number(s.laborPercentage || 0).toFixed(2),
+            (s.laborCost || 0).toFixed(2),
+            (s.projectedSales || 0).toFixed(2),
+            ((s.amount || 0) - (s.projectedSales || 0)).toFixed(2)
+        ])
+        const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n')
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+        const url = URL.createObjectURL(blob)
+        const link = document.createElement('a')
+        link.setAttribute('href', url)
+        link.setAttribute('download', `ventas_${startDate}_${endDate}.csv`)
+        document.body.appendChild(link)
+        link.click()
+        document.body.removeChild(link)
+    }
+
     // Early return for loading state
     if (!data) return (
         <div className="flex flex-col items-center justify-center min-h-screen gap-4">
@@ -1042,7 +1117,7 @@ function SalesPageContent() {
                                             <CheckCircle size={10} /> {t('sales.corrected')}
                                         </span>
                                     ) : (
-                                        <span>{t('sales.updated')}: {lastUpdated.toLocaleTimeString()}</span>
+                                        <span>{t('sales.updated')}: {lastUpdated.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}</span>
                                     )}
                                 </span>
                                 {data?.groupByMode === 'hour' && data?.rawRows?.some((r: any) => r.projectionMeta) && (
@@ -1096,7 +1171,13 @@ function SalesPageContent() {
                                                     explanation += `${t('sales.projection.weather_penalty')}`;
                                                 }
                                                 
-                                                const totalProj = targetRows.reduce((sum: number, r: any) => sum + (r.projectedSales || 0), 0);
+                                                const uniqueStoreProjs = new Map<string, number>()
+                                                targetRows.forEach((r: any) => {
+                                                    if (r.storeId && !uniqueStoreProjs.has(r.storeId)) {
+                                                        uniqueStoreProjs.set(r.storeId, r.projectedSales || 0)
+                                                    }
+                                                })
+                                                const totalProj = Array.from(uniqueStoreProjs.values()).reduce((sum, v) => sum + v, 0);
                                                 if (totalProj > 0) {
                                                     explanation += ` ➔ ${t('sales.projection.total_projected')}: $${totalProj.toLocaleString('en-US', {minimumFractionDigits: 0, maximumFractionDigits: 0})}.`;
                                                 } else {
@@ -1371,7 +1452,10 @@ function SalesPageContent() {
                                     <Store size={18} className="text-emerald-500" />
                                     {t('sales.detail_by_store')}
                                 </h3>
-                                <button className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 hover:opacity-80 flex items-center gap-1 uppercase tracking-wider">
+                                <button 
+                                    onClick={handleExportCSV}
+                                    className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 hover:opacity-80 flex items-center gap-1 uppercase tracking-wider transition-opacity cursor-pointer"
+                                >
                                     <Download size={14} /> {t('sales.export_csv')}
                                 </button>
                             </div>
@@ -1380,10 +1464,10 @@ function SalesPageContent() {
 
                         {/* Mobile Card View (Visible ONLY on small screens) */}
                         <div className="md:hidden flex flex-col gap-3 p-4 bg-slate-50/50 dark:bg-slate-900/20">
-                            {data.storeData.map((store: any, idx: number) => {
+                            {sortedStoreData.map((store: any, idx: number) => {
                                 const orders = store.orderCount || 1
-                                const laborPct = store.laborPercentage.toFixed(2)
-                                const avgTicket = store.amount / orders
+                                const laborPct = Number(store.laborPercentage || 0).toFixed(2)
+                                const avgTicket = (store.amount || 0) / orders
                                 const storeFC = foodCostData?.byStore?.[store.storeId]
                                 const fcPct = storeFC?.costPercentage ?? null
 
@@ -1522,7 +1606,7 @@ function SalesPageContent() {
                                         {foodCostData?.byStore && Object.keys(foodCostData.byStore).length > 0 && (
                                             <th className="px-6 py-4 text-right cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 transition-colors group" onClick={() => requestSort('foodCostPct')}>
                                                 <div className="flex items-center justify-end gap-1 text-teal-600 dark:text-teal-400">
-                                                    Food Cost
+                                                    {t('sales.food_label')}
                                                     {sortConfig?.key === 'foodCostPct' ? (
                                                         sortConfig.direction === 'asc' ? <ChevronUp size={14} /> : <ChevronDown size={14} />
                                                     ) : <ArrowUpDown size={14} className="opacity-0 group-hover:opacity-30 text-slate-400" />}
@@ -1534,7 +1618,7 @@ function SalesPageContent() {
                                 <tbody className="divide-y divide-black/5 dark:divide-slate-800">
                                     {sortedStoreData.map((store: any, idx: number) => {
                                         const orders = store.orderCount || 1
-                                        const laborPct = store.laborPercentage.toFixed(2)
+                                        const laborPct = Number(store.laborPercentage || 0).toFixed(2)
 
                                         return (
                                             <tr

@@ -476,7 +476,7 @@ function TabStockAndAudit({ storeId, stockData, setStockData, pricingData, setPr
           const defaultMin = getDefaultMinStock(cat, size);
           fullList.push({
             ...item,
-            min_stock: item.min_stock && item.min_stock > 0 ? item.min_stock : defaultMin
+            min_stock: (item.min_stock !== null && item.min_stock !== undefined) ? item.min_stock : defaultMin
           });
         } else {
           const defaultMin = getDefaultMinStock(cat, size);
@@ -500,7 +500,7 @@ function TabStockAndAudit({ storeId, stockData, setStockData, pricingData, setPr
 
   const lowStockItems = useMemo(() => {
     return fullStockData.filter((item: any) => {
-      const min = item.min_stock > 0 ? item.min_stock : getDefaultMinStock(item.item_category, item.size);
+      const min = (item.min_stock !== null && item.min_stock !== undefined) ? item.min_stock : getDefaultMinStock(item.item_category, item.size);
       return min > 0 && item.quantity_on_hand < min;
     });
   }, [fullStockData]);
@@ -584,7 +584,7 @@ function TabStockAndAudit({ storeId, stockData, setStockData, pricingData, setPr
           <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
             {items.map(item => {
               const qty = auditMode && editedStock[item.id] !== undefined ? editedStock[item.id] : item.quantity_on_hand;
-              const min = item.min_stock > 0 ? item.min_stock : getDefaultMinStock(item.item_category, item.size);
+              const min = (item.min_stock !== null && item.min_stock !== undefined) ? item.min_stock : getDefaultMinStock(item.item_category, item.size);
               const isLow = min > 0 && qty < min && qty > 0;
               const isOut = min > 0 ? qty <= 0 : false;
 
@@ -1314,7 +1314,7 @@ function ReorderModal({ onClose, lowStockItems }: { onClose: () => void, lowStoc
             </thead>
             <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
               {lowStockItems.map(item => {
-                const min = item.min_stock > 0 ? item.min_stock : getDefaultMinStock(item.item_category, item.size);
+                const min = (item.min_stock !== null && item.min_stock !== undefined) ? item.min_stock : getDefaultMinStock(item.item_category, item.size);
                 const suggested = Math.max(1, (min * 2) - item.quantity_on_hand);
                 const isOut = item.quantity_on_hand <= 0;
 

@@ -250,6 +250,18 @@ const dictionaries: Record<Language, Dictionary> = {
             prime_cost: 'Costo Primo',
             proj_to_date_label: 'Proy. a la Fecha',
             variance_label: 'Diferencia',
+            variance_short: 'Dif.',
+            labor_cost_legend: 'Labor $',
+            top_products_title: 'Top 10 Productos',
+            no_products_data: 'No hay datos de productos disponibles',
+            units_sold: 'vendidos',
+            sales_mix_title: 'Canales de Venta (Mix)',
+            no_sales_mix_data: 'Sin datos de canales de venta',
+            sales_mix_tooltip: 'Venta',
+            prev_day: 'Día Anterior',
+            next_day: 'Día Siguiente',
+            lightning_mode_help: '¿Cómo funciona el modo Relámpago?',
+            food_label: 'Food Cost',
             // Day-of-Week Filter
             day_filter: {
                 all_days: 'Todos los días',
@@ -291,7 +303,11 @@ const dictionaries: Record<Language, Dictionary> = {
                         growth: "Crecimiento %"
                     }
                 },
-                values_in_k: 'Valores en miles (k)'
+                values_in_k: 'Valores en miles (k)',
+                export_csv: "Exportar CSV",
+                new_store: "Nueva Tienda",
+                closed_store: "Cerrada",
+                no_data: "No hay registros de ventas disponibles"
             },
             reports_page: {
                 title: "Reportes Operativos",
@@ -2968,6 +2984,18 @@ const dictionaries: Record<Language, Dictionary> = {
             prime_cost: 'Prime Cost',
             proj_to_date_label: 'Proj. To Date',
             variance_label: 'Variance',
+            variance_short: 'Var.',
+            labor_cost_legend: 'Labor $',
+            top_products_title: 'Top 10 Products',
+            no_products_data: 'No product data available',
+            units_sold: 'sold',
+            sales_mix_title: 'Sales Channels (Mix)',
+            no_sales_mix_data: 'No sales channel data',
+            sales_mix_tooltip: 'Sales',
+            prev_day: 'Previous Day',
+            next_day: 'Next Day',
+            lightning_mode_help: 'How does Lightning mode work?',
+            food_label: 'Food Cost',
             // Day-of-Week Filter
             day_filter: {
                 all_days: 'All days',
@@ -3009,7 +3037,11 @@ const dictionaries: Record<Language, Dictionary> = {
                         growth: "Growth %"
                     }
                 },
-                values_in_k: 'Values in thousands (k)'
+                values_in_k: 'Values in thousands (k)',
+                export_csv: "Export CSV",
+                new_store: "New Store",
+                closed_store: "Closed",
+                no_data: "No sales records available"
             },
             reports_page: {
                 title: "Operational Reports",

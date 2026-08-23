@@ -105,14 +105,14 @@ export const SIZES_BY_CATEGORY: Record<string, UniformSize[]> = {
  * Triggers reorder alerts to La Bodega when quantity_on_hand <= min_stock.
  */
 export const DEFAULT_MIN_STOCK: Record<UniformCategory, Record<UniformSize, number>> = {
-    shirt_red: { XS: 10, S: 10, M: 20, L: 15, XL: 15, '2XL': 5, '3XL': 5, ONE_SIZE: 0 },
-    cap_red: { XS: 0, S: 0, M: 0, L: 0, XL: 0, '2XL': 0, '3XL': 0, ONE_SIZE: 12 },
-    jacket_red: { XS: 3, S: 3, M: 3, L: 3, XL: 3, '2XL': 2, '3XL': 2, ONE_SIZE: 0 },
-    shirt_shift_leader: { XS: 10, S: 10, M: 20, L: 15, XL: 15, '2XL': 5, '3XL': 5, ONE_SIZE: 0 },
-    shirt_assistant: { XS: 3, S: 3, M: 3, L: 3, XL: 3, '2XL': 3, '3XL': 3, ONE_SIZE: 0 },
+    shirt_red: { XS: 5, S: 5, M: 10, L: 15, XL: 10, '2XL': 5, '3XL': 5, ONE_SIZE: 0 },
+    shirt_shift_leader: { XS: 0, S: 5, M: 10, L: 15, XL: 10, '2XL': 5, '3XL': 5, ONE_SIZE: 0 },
+    shirt_assistant: { XS: 0, S: 0, M: 3, L: 3, XL: 3, '2XL': 0, '3XL': 0, ONE_SIZE: 0 },
     shirt_manager: { XS: 0, S: 0, M: 0, L: 0, XL: 0, '2XL': 0, '3XL': 0, ONE_SIZE: 0 },
-    cap_black: { XS: 0, S: 0, M: 0, L: 0, XL: 0, '2XL': 0, '3XL': 0, ONE_SIZE: 12 },
-    jacket_black: { XS: 3, S: 3, M: 3, L: 3, XL: 3, '2XL': 2, '3XL': 2, ONE_SIZE: 0 },
+    cap_red: { XS: 0, S: 0, M: 0, L: 0, XL: 0, '2XL': 0, '3XL': 0, ONE_SIZE: 1 },
+    cap_black: { XS: 0, S: 0, M: 0, L: 0, XL: 0, '2XL': 0, '3XL': 0, ONE_SIZE: 1 },
+    jacket_red: { XS: 0, S: 3, M: 3, L: 3, XL: 2, '2XL': 0, '3XL': 0, ONE_SIZE: 0 },
+    jacket_black: { XS: 0, S: 0, M: 3, L: 3, XL: 2, '2XL': 0, '3XL': 0, ONE_SIZE: 0 },
 }
 
 export function getDefaultMinStock(category: UniformCategory, size: UniformSize): number {

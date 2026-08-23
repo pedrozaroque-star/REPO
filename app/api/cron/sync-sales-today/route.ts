@@ -1,37 +1,43 @@
+/**
+ * @module api/cron/sync-sales-today/route
+ * @description Periodic cron job running every 5 minutes during operating hours (6:00 AM to 4:59 AM next day) to synchronize intraday live sales from Toast POS into Supabase sales_daily_cache.
+ * @businessRules
+ * - Business day starts at 6:00 AM and ends at 5:59 AM next day (PST/PDT America/Los_Angeles).
+ * - Skips only 5:00 AM (shift handover downtime) and starts syncing immediately at 6:00 AM.
+ * - Uses Full Precision mode for exact penny parity with Toast.
+ * @dataFlow
+ * - Vercel Cron -> GET /api/cron/sync-sales-today -> Toast API -> sales_daily_cache (Supabase) -> Response.
+ */
+
 import { NextResponse } from 'next/server'
 import { fetchToastData } from '@/lib/toast-api'
+import { getSupabaseAdminClient } from '@/lib/supabase'
 
 export const dynamic = 'force-dynamic'
-
-// Maximum timeout for Vercel Hobby/Pro, but we'll try to process what we can
 export const maxDuration = 300 
 
 export async function GET(request: Request) {
     try {
-        // Verificar firma de autorización (Opcional, recomendado para Vercel Cron)
         const authHeader = request.headers.get('authorization')
         if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-            // Si no hay secreto configurado, permitir (modo dev/local), si safe.
             if (process.env.CRON_SECRET) {
                 return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
             }
         }
 
-        // Obtener fecha actual en LA (Día de "Hoy" según la regla de negocio)
         const now = new Date()
         const laNow = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
         
         const currentHour = laNow.getHours()
 
-        // Restricción de horario: Correr entre las 7 AM y las 4:59 AM del día siguiente.
-        // Omitimos únicamente las 5 AM y 6 AM (horas muertas donde se cierra el día).
-        if (currentHour === 5 || currentHour === 6) {
-            console.log(`⏳ [CRON TODAY] Ejecución omitida. Fuera de horario operativo (7am-4:59am). Hora actual LA: ${currentHour}:00`)
-            return NextResponse.json({ success: true, message: 'Skipped: Outside operating hours' })
+        // Restricción de horario: Correr entre las 6 AM y las 4:59 AM del día siguiente.
+        // Omitimos únicamente las 5 AM (cierre/transición de jornada).
+        if (currentHour === 5) {
+            console.log(`⏳ [CRON TODAY] Ejecución omitida. Fuera de horario operativo (5:00am-5:59am). Hora actual LA: ${currentHour}:00`)
+            return NextResponse.json({ success: true, message: 'Skipped: Outside operating hours (5 AM rollover)' })
         }
 
         // Regla de las 6 AM: si es antes de las 6 AM, sigue siendo el "hoy" operativo del día anterior
-        // (Aunque con la regla anterior, currentHour < 7 ya lo omite, mantenemos la lógica por robustez)
         if (currentHour < 6) {
             laNow.setDate(laNow.getDate() - 1)
         }
@@ -51,7 +57,7 @@ export async function GET(request: Request) {
             groupBy: 'day',
             skipCache: true,
             fastMode: false,
-            readOnly: false // Queremos que la función haga el Write-Back a la BD o nosotros lo hacemos explícito abajo
+            readOnly: true
         })
 
         if (connectionError) {
@@ -60,23 +66,8 @@ export async function GET(request: Request) {
         }
 
         // --- SAVE TO SUPABASE ---
-        // Forzamos el guardado explícitamente igual que el cron original, para cumplir la regla
         if (rows.length > 0) {
-            const { createClient } = require('@supabase/supabase-js')
-            const supabase = createClient(
-                process.env.NEXT_PUBLIC_SUPABASE_URL!,
-                process.env.SUPABASE_SERVICE_ROLE_KEY!
-            )
-
-            // 🛡️ REGLA: Borrar explícitamente el día antes de insertar
-            const { error: deleteError } = await supabase
-                .from('sales_daily_cache')
-                .delete()
-                .eq('business_date', todayStr)
-
-            if (deleteError) {
-                console.error(`❌ [CRON TODAY] Error borrando caché previa para ${todayStr}:`, deleteError)
-            }
+            const supabase = await getSupabaseAdminClient()
 
             const dbRows = rows.map(r => ({
                 store_id: r.storeId,
@@ -92,9 +83,9 @@ export async function GET(request: Request) {
                 guest_count: r.guestCount,
                 labor_cost: r.laborCost,
                 labor_hours: r.totalHours,
-                hourly_data: r.hourlySales,
-                hourly_tickets: r.hourlyTickets,
-                hourly_labor: r.hourlyLabor,
+                hourly_data: r.hourlySales || {},
+                hourly_tickets: r.hourlyTickets || {},
+                hourly_labor: r.hourlyLabor || {},
                 uber_sales: r.uberSales || 0,
                 doordash_sales: r.doordashSales || 0,
                 grubhub_sales: r.grubhubSales || 0,
@@ -119,12 +110,11 @@ export async function GET(request: Request) {
         return NextResponse.json({
             success: true,
             date: todayStr,
-            count: rows.length,
-            processed_at: new Date().toISOString()
+            stores_synced: rows.length
         })
 
     } catch (error: any) {
-        console.error(`💥 [CRON TODAY] Error crítico:`, error)
+        console.error('CRON TODAY Error:', error)
         return NextResponse.json({ error: error.message }, { status: 500 })
     }
 }
