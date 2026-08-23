@@ -1,3 +1,12 @@
+/**
+ * @module components/checklists/ImageViewer
+ * @description Modal visor a pantalla completa para inspección de evidencias multimedia (fotografías y videos) de checklists.
+ * @businessRules
+ * - Soporta navegación por teclado (Escape, Flecha Izquierda, Flecha Derecha) y gestos táctiles.
+ * - Detecta y reproduce videos HTML5 (mp4, webm, ogg, mov) con soporte para signed URLs.
+ * @notes Sanitiza URLs con query parameters para evitar fallos de renderizado.
+ */
+
 import React, { useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { X, ChevronLeft, ChevronRight } from 'lucide-react'
@@ -26,7 +35,7 @@ export function ImageViewer({ isOpen, onClose, images, currentIndex, onNext, onP
         return () => window.removeEventListener('keydown', handleKeyDown)
     }, [isOpen, onNext, onPrev, onClose])
 
-    if (!isOpen) return null
+    if (!isOpen || !Array.isArray(images) || images.length === 0) return null
 
     return (
         <AnimatePresence>
@@ -67,8 +76,10 @@ export function ImageViewer({ isOpen, onClose, images, currentIndex, onNext, onP
                     {/* Image Container */}
                     <div className="relative w-full h-full max-w-7xl max-h-screen p-4 flex items-center justify-center" onClick={(e) => e.stopPropagation()}>
                         {(() => {
-                            const currentUrl = getEmbeddableImageUrl(images[currentIndex])
-                            const isVideo = currentUrl?.toLowerCase().match(/\.(mp4|webm|ogg|mov)$/)
+                            const safeIndex = ((currentIndex % images.length) + images.length) % images.length
+                            const currentUrl = getEmbeddableImageUrl(images[safeIndex] || '')
+                            const cleanUrl = (currentUrl || '').split('?')[0].toLowerCase()
+                            const isVideo = cleanUrl.match(/\.(mp4|webm|ogg|mov|quicktime)$/)
 
                             return isVideo ? (
                                 <motion.video

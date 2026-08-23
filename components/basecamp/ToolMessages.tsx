@@ -20,7 +20,7 @@
 
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import { useLanguage } from '@/lib/i18n'
 import { Mail, Plus, ArrowLeft, MessageSquare, Trash2, Tag, Calendar, User, Loader2, FileText } from 'lucide-react'
 import { getSupabaseWithAuth } from '@/lib/supabase'
@@ -185,7 +185,7 @@ interface ToolMessagesProps {
 }
 
 export default function ToolMessages({ project, currentUserName }: ToolMessagesProps) {
-    const supabase = getSupabaseWithAuth()
+    const supabase = useMemo(() => getSupabaseWithAuth(), [])
     const { t } = useLanguage()
     const [messages, setMessages] = useState<any[]>([])
     const [board, setBoard] = useState<{ id: string; bc_id: number } | null>(null)
@@ -207,6 +207,8 @@ export default function ToolMessages({ project, currentUserName }: ToolMessagesP
     // Formulario de comentario
     const [commentText, setCommentText] = useState('')
     const [filterText, setFilterText] = useState('')
+    const [categoryFilter, setCategoryFilter] = useState<string | null>(null)
+    const [sortOrder, setSortOrder] = useState<'newest' | 'oldest'>('newest')
 
     // Fetch message board and messages from Supabase
     const fetchBoardAndMessages = async () => {
@@ -295,14 +297,27 @@ export default function ToolMessages({ project, currentUserName }: ToolMessagesP
         setSelectedMessageComments([])
     }, [project.id, project.db_id])
 
-    // Load comments when selectedMessage changes
+    // Close lightbox on Escape key
     useEffect(() => {
-        if (selectedMessage) {
+        if (!lightboxUrl) return
+        const handleEsc = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') {
+                e.preventDefault()
+                setLightboxUrl(null)
+            }
+        }
+        window.addEventListener('keydown', handleEsc)
+        return () => window.removeEventListener('keydown', handleEsc)
+    }, [lightboxUrl])
+
+    // Load comments when selectedMessage ID changes
+    useEffect(() => {
+        if (selectedMessage?.id) {
             fetchSelectedMessageComments(selectedMessage.id)
         } else {
             setSelectedMessageComments([])
         }
-    }, [selectedMessage])
+    }, [selectedMessage?.id])
 
     // Publish Message
     const handlePublishMessage = async (e: React.FormEvent) => {
@@ -406,14 +421,24 @@ export default function ToolMessages({ project, currentUserName }: ToolMessagesP
         }
     }
 
-    const filteredMessages = messages.filter(m => {
-        const title = (m.title || '').toLowerCase()
-        const content = stripHtml(m.content || '').toLowerCase()
-        const author = (m.author?.name || '').toLowerCase()
-        const cat = (m.category || '').toLowerCase()
-        const query = filterText.toLowerCase()
-        return title.includes(query) || content.includes(query) || author.includes(query) || cat.includes(query)
-    })
+    const filteredMessages = useMemo(() => {
+        let result = messages.filter(m => {
+            const title = (m.title || '').toLowerCase()
+            const content = stripHtml(m.content || '').toLowerCase()
+            const author = (m.author?.name || '').toLowerCase()
+            const cat = (m.category || '').toLowerCase()
+            const query = filterText.toLowerCase()
+            const matchesQuery = !query || title.includes(query) || content.includes(query) || author.includes(query) || cat.includes(query)
+            const matchesCat = !categoryFilter || cat === categoryFilter.toLowerCase()
+            return matchesQuery && matchesCat
+        })
+        result.sort((a, b) => {
+            const tA = new Date(a.created_at || 0).getTime()
+            const tB = new Date(b.created_at || 0).getTime()
+            return sortOrder === 'newest' ? tB - tA : tA - tB
+        })
+        return result
+    }, [messages, filterText, categoryFilter, sortOrder])
 
     return (
         <div className="flex-1 max-w-4xl mx-auto px-4 w-full flex flex-col gap-6">
@@ -433,7 +458,7 @@ export default function ToolMessages({ project, currentUserName }: ToolMessagesP
                     <div className="flex flex-wrap items-center justify-center gap-2 mt-2 w-full max-w-2xl text-xs">
                         <button
                             onClick={() => setShowCreateForm(true)}
-                            className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-[#1D7DB5] hover:bg-[#155D8A] text-white font-extrabold shadow-sm transition-all"
+                            className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-[#1D7DB5] hover:bg-[#155D8A] text-white font-extrabold shadow-sm transition-all cursor-pointer"
                         >
                             <Plus size={14} />
                             <span>{t('basecamp.new_message_btn')}</span>
@@ -441,17 +466,41 @@ export default function ToolMessages({ project, currentUserName }: ToolMessagesP
                         
                         <div className="h-5 w-px bg-slate-200 dark:bg-slate-700 mx-1 hidden sm:block"></div>
 
-                        <button className="px-3 py-2 rounded-full border border-slate-250 dark:border-slate-700 bg-white dark:bg-slate-850 text-slate-700 dark:text-slate-300 font-bold hover:bg-slate-50 dark:hover:bg-slate-800">
+                        <button 
+                            onClick={() => { setCategoryFilter(null); setFilterText(''); }}
+                            className={`px-3 py-2 rounded-full border text-xs font-bold transition-all cursor-pointer ${
+                                !categoryFilter && !filterText
+                                    ? 'border-[#1D7DB5] bg-[#1D7DB5]/10 text-[#1D7DB5] dark:text-sky-400'
+                                    : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700'
+                            }`}
+                        >
                             {t('basecamp.all_messages')}
                         </button>
                         
-                        <button className="px-3 py-2 rounded-full border border-slate-250 dark:border-slate-700 bg-white dark:bg-slate-850 text-slate-700 dark:text-slate-300 font-bold hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-1">
-                            <span>{t('basecamp.categories')}</span>
+                        <button 
+                            onClick={() => {
+                                const cats = ['Anuncio', 'Procedimiento', 'Alerta', 'Idea']
+                                if (!categoryFilter) setCategoryFilter('Anuncio')
+                                else {
+                                    const nextIdx = cats.indexOf(categoryFilter) + 1
+                                    setCategoryFilter(nextIdx < cats.length ? cats[nextIdx] : null)
+                                }
+                            }}
+                            className={`px-3 py-2 rounded-full border text-xs font-bold transition-all cursor-pointer flex items-center gap-1 ${
+                                categoryFilter
+                                    ? 'border-[#1D7DB5] bg-[#1D7DB5]/10 text-[#1D7DB5] dark:text-sky-400'
+                                    : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700'
+                            }`}
+                        >
+                            <span>{categoryFilter ? (categoryFilter === 'Anuncio' ? t('basecamp.cat_announcement') : categoryFilter === 'Procedimiento' ? t('basecamp.cat_guide') : categoryFilter === 'Alerta' ? t('basecamp.cat_alert') : t('basecamp.cat_idea')) : t('basecamp.categories')}</span>
                             <span className="text-[9px]">▼</span>
                         </button>
 
-                        <button className="px-3 py-2 rounded-full border border-slate-250 dark:border-slate-700 bg-white dark:bg-slate-850 text-slate-700 dark:text-slate-300 font-bold hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-1">
-                            <span>{t('basecamp.newest_post')}</span>
+                        <button 
+                            onClick={() => setSortOrder(prev => prev === 'newest' ? 'oldest' : 'newest')}
+                            className="px-3 py-2 rounded-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-1 cursor-pointer transition-all"
+                        >
+                            <span>{sortOrder === 'newest' ? (t('basecamp.sort_newest') || 'Más reciente') : (t('basecamp.sort_oldest') || 'Más antiguo')}</span>
                             <span className="text-[9px]">▼</span>
                         </button>
 
@@ -462,7 +511,7 @@ export default function ToolMessages({ project, currentUserName }: ToolMessagesP
                                 value={filterText}
                                 onChange={(e) => setFilterText(e.target.value)}
                                 placeholder={t('basecamp.filter_placeholder')}
-                                className="w-full pl-7 pr-3 py-2 border border-slate-250 dark:border-slate-700 rounded-full bg-white dark:bg-slate-800 text-slate-800 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-[#1D7DB5] text-xs font-bold"
+                                className="w-full pl-7 pr-3 py-2 border border-slate-200 dark:border-slate-700 rounded-full bg-white dark:bg-slate-800 text-slate-800 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-[#1D7DB5] text-xs font-bold"
                             />
                             <div className="absolute left-2.5 top-2.5 text-slate-400">
                                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
@@ -605,6 +654,9 @@ export default function ToolMessages({ project, currentUserName }: ToolMessagesP
                             <div className="flex-1 min-w-0">
                                 {/* Rich HTML body and attachments styling */}
                                 <style dangerouslySetInnerHTML={{ __html: `
+                                    .bc-rich-text {
+                                        white-space: pre-wrap;
+                                    }
                                     .bc-rich-text a {
                                         color: #1D7DB5;
                                         text-decoration: none;

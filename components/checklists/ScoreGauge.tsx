@@ -1,3 +1,13 @@
+/**
+ * @module components/checklists/ScoreGauge
+ * @description Componente visual de aguja/anillo circular animado para mostrar puntajes porcentuales de checklists e inspecciones.
+ * @businessRules
+ * - >= 80%: Verde (Aprobatorio / Excelente).
+ * - 60% - 79%: Ámbar (Alerta / Aceptable).
+ * - < 60%: Rojo (Deficiente / Requiere Corrección).
+ * @notes Sanitiza valores nulos, indefinidos y NaN a 0% para prevenir fallos en renderizado SVG.
+ */
+
 import React from 'react'
 import { motion } from 'framer-motion'
 import { useLanguage } from '@/lib/i18n'
@@ -11,8 +21,9 @@ export function ScoreGauge({ score, size = 120 }: ScoreGaugeProps) {
     const { t } = useLanguage()
     const radius = (size - 16) / 2
     const circumference = 2 * Math.PI * radius
-    // Asegurar que el score esté entre 0 y 100 para evitar errores visuales
-    const clampedScore = Math.min(Math.max(score, 0), 100)
+    // Sanitizar y asegurar que el score sea numérico válido entre 0 y 100
+    const rawScore = typeof score === 'number' && !isNaN(score) ? score : 0
+    const clampedScore = Math.min(Math.max(rawScore, 0), 100)
     const offset = circumference - (clampedScore / 100) * circumference
 
     const getColor = () => {

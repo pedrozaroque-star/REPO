@@ -1,3 +1,12 @@
+/**
+ * @module preparador-tabla
+ * @description Vista tabular de máximos de carne en charola por bloque de 30 minutos y día de la semana.
+ * @businessRules
+ *   - Muestra las carnes de parrilla (Asada, Pastor, Pollo, Cabeza, Lengua) desde 8:00 AM hasta cierre.
+ *   - Calcula el límite sugerido en charola redondeando hacia arriba el promedio histórico.
+ *   - Nombre oficial de la marca: Tacos Gavilan.
+ * @dataFlow meat_consumption_history -> /api/inventory/preparador-history -> Tabla de Máximos.
+ */
 'use client'
 
 import { useState, useEffect } from 'react'
@@ -6,16 +15,6 @@ import { useAuth } from '@/components/ProtectedRoute'
 import { createClient } from '@/lib/supabase-client'
 import { Store, ArrowLeft } from 'lucide-react'
 import Link from 'next/link'
-
-const DOW_MAP: Record<number, string> = {
-    1: 'Lunes',
-    2: 'Martes',
-    3: 'Miércoles',
-    4: 'Jueves',
-    5: 'Viernes',
-    6: 'Sábado',
-    7: 'Domingo'
-}
 
 const PROTEINS = ['ASADA', 'PASTOR', 'POLLO', 'CABEZA', 'LENGUA']
 
@@ -36,17 +35,32 @@ function getOperationalTimeOrder() {
 const OPERATIONAL_TIMES = getOperationalTimeOrder()
 
 const getTodayLADow = () => {
-    const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
+    const now = new Date()
+    const formatterTime = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Los_Angeles', hour: 'numeric', hour12: false })
+    let hour = parseInt(formatterTime.format(now), 10)
+    if (hour === 24) hour = 0
+
+    const todayStr = now.toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
     const [y, m, d] = todayStr.split('-').map(Number)
-    const dateObj = new Date(y, m - 1, d)
+    const dateObj = (hour < 6) ? new Date(y, m - 1, d - 1) : new Date(y, m - 1, d)
     const dayNum = dateObj.getDay()
     return dayNum === 0 ? 7 : dayNum
 }
 
 export default function TablaMaximosPage() {
-    const { t } = useLanguage()
+    const { t, language } = useLanguage()
     const { user } = useAuth()
     const supabase = createClient()
+
+    const DOW_LABELS: Record<number, string> = {
+        1: language === 'es' ? 'Lunes' : 'Monday',
+        2: language === 'es' ? 'Martes' : 'Tuesday',
+        3: language === 'es' ? 'Miércoles' : 'Wednesday',
+        4: language === 'es' ? 'Jueves' : 'Thursday',
+        5: language === 'es' ? 'Viernes' : 'Friday',
+        6: language === 'es' ? 'Sábado' : 'Saturday',
+        7: language === 'es' ? 'Domingo' : 'Sunday'
+    }
 
     const [stores, setStores] = useState<any[]>([])
     const [storeId, setStoreId] = useState('')
@@ -56,7 +70,7 @@ export default function TablaMaximosPage() {
 
     useEffect(() => {
         const fetchStores = async () => {
-            const { data } = await supabase.from('stores').select('id, name').order('name')
+            const { data } = await supabase.from('stores').select('id, name').eq('is_active', true).order('name')
             if (data && data.length > 0) {
                 setStores(data)
                 const slauson = data.find(s => s.name.toLowerCase().includes('slauson'))
@@ -112,8 +126,8 @@ export default function TablaMaximosPage() {
                         <ArrowLeft size={20} />
                     </Link>
                     <div>
-                        <h1 className="font-black text-lg md:text-xl text-red-600 dark:text-red-500">TACOS EL GAVILAN</h1>
-                        <p className="text-xs text-slate-500 font-bold">Tabla de Máximos en Charola • 8:00 AM – Cierre</p>
+                        <h1 className="font-black text-lg md:text-xl text-red-600 dark:text-red-500">TACOS GAVILAN</h1>
+                        <p className="text-xs text-slate-500 font-bold">{t('prep.tableMaxTrayTitle')}</p>
                     </div>
                 </div>
 
@@ -139,7 +153,7 @@ export default function TablaMaximosPage() {
                         onClick={() => setSelectedDow(dow)}
                         className={`px-4 py-2.5 rounded-2xl font-black text-sm whitespace-nowrap transition-all duration-200 cursor-pointer ${selectedDow === dow ? 'bg-red-600 text-white shadow-md scale-105' : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-800 hover:bg-slate-50'}`}
                     >
-                        {DOW_MAP[dow]}
+                        {DOW_LABELS[dow]}
                     </button>
                 ))}
             </div>
@@ -148,7 +162,7 @@ export default function TablaMaximosPage() {
             <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl overflow-hidden shadow-sm">
                 <div className="p-4 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center bg-slate-50 dark:bg-slate-900/50">
                     <h3 className="font-black text-base text-slate-900 dark:text-white flex items-center gap-2">
-                        📅 {DOW_MAP[selectedDow]} — 36 Bloques Operativos
+                        📅 {DOW_LABELS[selectedDow]} — 36 {t('prep.tableOperatingBlocks')}
                     </h3>
                 </div>
 
@@ -156,7 +170,7 @@ export default function TablaMaximosPage() {
                     <table className="w-full text-left text-xs">
                         <thead className="bg-slate-100 dark:bg-slate-950 text-slate-700 dark:text-slate-300 font-extrabold uppercase border-b border-slate-200 dark:border-slate-800">
                             <tr>
-                                <th className="p-3 sticky left-0 bg-slate-100 dark:bg-slate-950 z-20 border-r border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white">Hora</th>
+                                <th className="p-3 sticky left-0 bg-slate-100 dark:bg-slate-950 z-20 border-r border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white">{t('prep.hour')}</th>
                                 <th className="p-3 text-slate-800 dark:text-slate-200">🥩 Asada</th>
                                 <th className="p-3 text-slate-800 dark:text-slate-200">🌮 Pastor</th>
                                 <th className="p-3 text-slate-800 dark:text-slate-200">🍗 Pollo</th>
@@ -172,8 +186,8 @@ export default function TablaMaximosPage() {
                                         <td className="p-3 font-black text-slate-900 dark:text-white sticky left-0 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 shadow-xs">{r.time}</td>
                                         {['ASADA', 'PASTOR', 'POLLO', 'CABEZA', 'LENGUA'].map(proto => (
                                             <td key={proto} className="p-3">
-                                                <div className="font-extrabold text-slate-900 dark:text-white text-sm">{r[proto].avg} <span className="text-[10px] text-slate-500 font-normal">lbs</span></div>
-                                                <div className="text-[10px] font-bold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-2 py-0.5 rounded-md inline-block mt-0.5">🔥 Máx: {r[proto].maxTray} lbs</div>
+                                                <div className="font-extrabold text-slate-900 dark:text-white text-sm">{r[proto].avg} <span className="text-[10px] text-slate-500 font-normal">{t('prep.lbs')}</span></div>
+                                                <div className="text-[10px] font-bold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-2 py-0.5 rounded-md inline-block mt-0.5">🔥 {t('prep.tableMax')}: {r[proto].maxTray} {t('prep.lbs')}</div>
                                             </td>
                                         ))}
                                     </tr>

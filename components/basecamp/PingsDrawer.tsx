@@ -157,11 +157,23 @@ export default function PingsDrawer({ activeUser, navigateTo, currentUserName }:
         if (!inputText.trim() || !currentPerson || !activePartner || sending) return
 
         const messageText = inputText.trim()
+        const tempId = 'temp-' + Date.now()
+        const tempBcId = Math.floor(Date.now() / 1000)
+
+        // Optimistic UI update
+        const optimisticMsg = {
+            id: tempId,
+            bc_id: tempBcId,
+            sender_person_id: currentPerson.id,
+            recipient_person_id: activePartner.id,
+            content: messageText,
+            created_at: new Date().toISOString()
+        }
+        setMessages(prev => [...prev, optimisticMsg])
         setInputText('')
         setSending(true)
 
         try {
-            const tempBcId = Math.floor(Date.now() / 1000)
             const { error } = await supabase
                 .from('bc_pings')
                 .insert({
@@ -174,6 +186,8 @@ export default function PingsDrawer({ activeUser, navigateTo, currentUserName }:
             if (error) throw error
         } catch (err: any) {
             console.error('❌ [PingsDrawer Send] Error sending ping:', err.message)
+            // Revert optimistic message on error
+            setMessages(prev => prev.filter(m => m.id !== tempId))
             setInputText(messageText)
         } finally {
             setSending(false)

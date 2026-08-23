@@ -362,8 +362,10 @@ export default function ToolDocs({ project, currentUserName }: ToolDocsProps) {
     // Reconstruir breadcrumbs recursivamente en base a parent_vault_id
     const getPathHistory = (vaultId: string | null) => {
         const history: { id: string | null; name: string }[] = []
+        const visited = new Set<string>()
         let currentId = vaultId
-        while (currentId !== null) {
+        while (currentId !== null && !visited.has(currentId)) {
+            visited.add(currentId)
             const v = allVaults.find(item => item.id === currentId)
             if (!v) break
             history.unshift({ id: v.id, name: v.name })
@@ -541,8 +543,8 @@ export default function ToolDocs({ project, currentUserName }: ToolDocsProps) {
                     </p>
                 </div>
 
-                {/* Acciones solo si no estamos en la vista de detalle y estamos dentro de un vault */}
-                {!showCreateForm && !showCreateFolderForm && !selectedDoc && currentVaultId !== null && (
+                {/* Acciones para crear documentos, carpetas y subir archivos */}
+                {!showCreateForm && !showCreateFolderForm && !selectedDoc && (
                     <div className="flex flex-wrap items-center gap-2">
                         {/* Subir archivo */}
                         <label style={{

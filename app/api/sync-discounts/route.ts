@@ -1,3 +1,15 @@
+/**
+ * @module api/sync-discounts
+ * @description Sincronizador automatizado de descuentos y micro-descuentos desde Toast POS API hacia Supabase (sales_discounts_log).
+ * @businessRules
+ *   - Día contable operativo: 6:00 AM a 5:59 AM del día siguiente (America/Los_Angeles).
+ *   - Deduplicación matemática: la suma acumulada de descuentos en un cheque no puede exceder el descuento real cobrado (subtotalBruto - subtotalNeto + 0.05).
+ *   - Filtro anti-fantasmas: descarta reglas canceladas o reemplazadas en POS antes de guardar.
+ *   - Mapeo dinámico de Dining Options y Nombres de Empleados.
+ * @dataFlow Toast POS API /ordersBulk -> Transform & Filter -> Supabase sales_discounts_log
+ * @notes Maneja autenticación machine-to-machine de Toast y previene inserciones infladas.
+ */
+
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
@@ -316,7 +328,11 @@ async function syncDiscountsForDate(dateStr: string) {
                 }
 
                 if (allDiscountsToInsert.length > 0) {
-                    await supabase.from('sales_discounts_log').insert(allDiscountsToInsert)
+                    for (let i = 0; i < allDiscountsToInsert.length; i += 500) {
+                        const chunk = allDiscountsToInsert.slice(i, i + 500);
+                        const { error } = await supabase.from('sales_discounts_log').insert(chunk);
+                        if (error) console.error(`[SYNC DISCOUNTS] Error inserting chunk:`, error.message);
+                    }
                     totalInserted += allDiscountsToInsert.length
                 }
 

@@ -58,13 +58,30 @@ export async function GET(request: Request) {
   }
 
   // Calculate differences between consecutive counts per store
-  const countsWithDiff = (counts || []).map((count: any, index: number, arr: any[]) => {
+  const countsWithDiff = await Promise.all((counts || []).map(async (count: any, index: number, arr: any[]) => {
     // Find the next (older) count for the same store
     let previousTotal: number | null = null
     for (let i = index + 1; i < arr.length; i++) {
-      if (arr[i].store_id === count.store_id) {
+      if (String(arr[i].store_id) === String(count.store_id)) {
         previousTotal = parseFloat(arr[i].grand_total)
         break
+      }
+    }
+
+    if (previousTotal === null && from) {
+      // Lookup previous count prior to 'from' range
+      const { data: prevRecord } = await supabase
+        .from('safe_counts')
+        .select('grand_total')
+        .eq('store_id', count.store_id)
+        .lt('business_date', count.business_date)
+        .order('business_date', { ascending: false })
+        .order('counted_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+
+      if (prevRecord && prevRecord.grand_total !== null && prevRecord.grand_total !== undefined) {
+        previousTotal = parseFloat(prevRecord.grand_total)
       }
     }
 
@@ -77,7 +94,7 @@ export async function GET(request: Request) {
       counted_by_name: count.user?.full_name || 'Unknown',
       store_name: count.store?.name || 'Unknown',
     }
-  })
+  }))
 
   return NextResponse.json({ counts: countsWithDiff })
 }

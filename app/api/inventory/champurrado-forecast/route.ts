@@ -64,13 +64,21 @@ export async function GET(request: Request) {
       });
     }
 
-    const currentWeek = getIsoWeek(new Date());
+    // Convert current LA date to ISO week
+    const now = new Date();
+    const formatter = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Los_Angeles', hour: 'numeric', hour12: false });
+    const laHour = parseInt(formatter.format(now), 10);
+    const laDateStr = now.toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' });
+    const [y, m, d] = laDateStr.split('-').map(Number);
+    const businessDate = (laHour < 6) ? new Date(Date.UTC(y, m - 1, d - 1)) : new Date(Date.UTC(y, m - 1, d));
+    const currentWeek = getIsoWeek(businessDate);
     let totalLbs = 0;
     const distinctDays = new Set<string>();
     const distinctYears = new Set<number>();
 
     for (const record of history) {
-      const recordDate = new Date(record.business_date);
+      const [ry, rm, rd] = record.business_date.split('-').map(Number);
+      const recordDate = new Date(Date.UTC(ry, rm - 1, rd));
       if (getIsoWeek(recordDate) === currentWeek) {
         totalLbs += Number(record.raw_lbs);
         distinctDays.add(record.business_date);

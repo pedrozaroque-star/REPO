@@ -91,7 +91,7 @@ export default function ActividadesPage() {
                 <button
                   onClick={() => setShowHelpModal(true)}
                   className="p-1 rounded-full text-slate-400 hover:text-orange-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                  title="Guía de uso"
+                  title={t('actividades.help.title')}
                 >
                   <Info size={20} />
                 </button>

@@ -218,7 +218,7 @@ export async function POST(request: NextRequest) {
       if (!mapping || !masterItem) {
         status = mapping ? 'unmapped' : 'new_sku'
         totalNew++
-      } else if (currentCasePrice <= 0) {
+      } else if (currentCasePrice <= 0 || newCasePrice <= 0) {
         status = 'new_sku'
         totalNew++
       } else {

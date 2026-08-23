@@ -456,9 +456,35 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
         return () => window.removeEventListener('keydown', handleEsc)
     }, [lightboxUrl])
 
-    // Intercept clicks on HTML links to handle Basecamp-to-Basecamp routing locally
+    // Format due dates locally without UTC timezone shift
+    const formatDueDate = (dateStr: string) => {
+        if (!dateStr) return ''
+        const parts = dateStr.split('-').map(Number)
+        if (parts.length === 3) {
+            return new Date(parts[0], parts[1] - 1, parts[2]).toLocaleDateString(undefined, {
+                weekday: 'short', month: 'short', day: 'numeric', year: 'numeric'
+            })
+        }
+        return new Date(dateStr).toLocaleDateString(undefined, {
+            weekday: 'short', month: 'short', day: 'numeric', year: 'numeric'
+        })
+    }
+
+    // Intercept clicks on HTML links and images to handle routing & lightbox
     const handleHtmlClick = (e: React.MouseEvent<HTMLDivElement>) => {
         const target = e.target as HTMLElement
+
+        // Intercept image clicks to open fullscreen lightbox
+        if (target.tagName === 'IMG') {
+            const imgSrc = (target as HTMLImageElement).src
+            if (imgSrc) {
+                e.preventDefault()
+                e.stopPropagation()
+                setLightboxUrl(imgSrc)
+                return
+            }
+        }
+
         const anchor = target.closest('a')
         if (anchor && anchor.href) {
             const href = anchor.href
@@ -777,7 +803,7 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
     // Delete Task
     const handleDeleteTask = async (listId: string, task: any, e: React.MouseEvent) => {
         e.stopPropagation()
-        if (!confirm('¿Eliminar esta tarea de forma permanente?')) return
+        if (!confirm(t('basecamp.delete_todo_confirm') || '¿Eliminar esta tarea de forma permanente?')) return
         setLoading(true)
         try {
             const res = await fetch('/api/basecamp/action', {
@@ -1422,7 +1448,7 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                         >
                             <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                                 {isExpanded ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
-                                {completedTasks.length} {t('basecamp.completed_todos') || 'completed to-dos'}
+                                {(list.completed_count !== undefined && list.completed_count !== null ? list.completed_count : completedTasks.length)} {t('basecamp.completed_todos') || 'completed to-dos'}
                             </span>
                         </button>
 
@@ -1958,10 +1984,10 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                                     )}
                                                 </div>
 
-                                                {completedTasks.length > 0 && (
+                                                {((list.completed_count !== undefined && list.completed_count !== null ? list.completed_count : list.tasks.filter((tk: any) => tk.is_completed).length) > 0) && (
                                                     <span style={{ color: '#16A34A', display: 'flex', alignItems: 'center', gap: 4 }}>
                                                         <Check size={12} />
-                                                        {completedTasks.length} {t('basecamp.done_short') || 'done'}
+                                                        {list.completed_count !== undefined && list.completed_count !== null ? list.completed_count : list.tasks.filter((tk: any) => tk.is_completed).length} {t('basecamp.done_short') || 'done'}
                                                     </span>
                                                 )}
                                             </div>
@@ -2193,7 +2219,6 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                     <button
                                         onClick={(e) => {
                                             handleDeleteTask(selectedTaskListId || '', selectedTask, e)
-                                            closeTaskDetail()
                                         }}
                                         className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/40 dark:hover:text-red-400 text-slate-400 transition-all flex items-center justify-center cursor-pointer"
                                         title={t('basecamp.delete_todo') || 'Delete to-do'}
@@ -2203,7 +2228,7 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                     <button
                                         onClick={() => closeTaskDetail()}
                                         className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400 font-bold transition-all flex items-center justify-center cursor-pointer text-sm"
-                                        title="Close (Esc)"
+                                        title={t('basecamp.close_esc') || 'Close (Esc)'}
                                     >
                                         ✕
                                     </button>
@@ -2314,9 +2339,7 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                             {selectedTask.due_date ? (
                                                 <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-50 dark:bg-amber-950/40 border border-amber-200/80 dark:border-amber-800/80 text-xs font-bold text-amber-800 dark:text-amber-300">
                                                     <Calendar size={12} />
-                                                    {new Date(selectedTask.due_date).toLocaleDateString(undefined, {
-                                                        weekday: 'short', month: 'short', day: 'numeric', year: 'numeric'
-                                                    })}
+                                                    {formatDueDate(selectedTask.due_date)}
                                                 </span>
                                             ) : (
                                                 <span className="text-xs text-slate-400 italic">

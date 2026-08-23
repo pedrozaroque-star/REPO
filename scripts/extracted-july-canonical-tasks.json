@@ -1,0 +1,154 @@
+[
+  {
+    "title": "17. Módulo de Rendimiento y Telemetría de Drive-Thru (HME Zoom Nitro)",
+    "category": "💻 Sistemas",
+    "dept": "💻 Sistemas",
+    "statusLabel": "💻 Sistemas",
+    "audit": "<strong>Completado e Integrado.</strong> Se vinculó exitosamente el sistema con los sensores físicos de autos del Drive-Thru y las pantallas de la cocina (KDS). El tablero administrativo cuenta con 4 pestañas interactivas para ver rankings de velocidad por tienda, promedios por media hora, reportes exportables en Excel (CSV) y visor directo de tickets para auditar órdenes lentas.",
+    "steps": []
+  },
+  {
+    "title": "19. Módulo de Caja Fuerte (Conteo de Efectivo por Sucursal)",
+    "category": "💻 Sistemas",
+    "dept": "💻 Sistemas",
+    "statusLabel": "💻 Sistemas",
+    "audit": "<strong>Completado e Integrado (10-Jul-2026).</strong> Módulo completo para que los gerentes registren el conteo de efectivo de la caja fuerte de cada sucursal. Incluye formulario de captura con desglose por denominación ($100, $50, $20, $10, $5, $1 y monedas), cálculo automático del total, historial de conteos por tienda y fecha, APIs de creación/edición/eliminación, migración SQL para la tabla <code>safe_counts</code>, tipos TypeScript completos, entrada en el menú de navegación lateral, y soporte bilingüe con 116 claves de traducción (español/inglés).",
+    "steps": []
+  },
+  {
+    "title": "20. Módulo de Tiendas (Integración Dinámica, Geocodificación y Mapas de Google)",
+    "category": "💻 Sistemas",
+    "dept": "💻 Sistemas",
+    "statusLabel": "💻 Sistemas",
+    "audit": "<strong>Completado e Integrado (14-Jul-2026).</strong> Vinculación dinámica de sucursales con el resto de los módulos (roles de empleados, sincronización de Toast y QuickBooks). Se implementó un geocodificador inteligente en backend (Google Maps/Nominatim) para auto-ubicar direcciones, y un visor visual interactivo de **Google Maps** con controles de satélite/mapa y pin arrastrable para micro-ajustes precisos. Todo el flujo cuenta con soporte bilingüe completo y se resolvió el desajuste de hidratación de Next.js.",
+    "steps": []
+  },
+  {
+    "title": "1. Inventario con reposición automática",
+    "category": "Sistema",
+    "dept": "💻 Sistemas",
+    "statusLabel": "📦 Inventario",
+    "audit": "<strong>Muy Avanzado.</strong> El sistema calcula de manera inteligente el pedido sugerido de insumos para las tiendas restando el stock ideal contra el sobrante diario, con redondeos específicos para tortillas, papelitos y empaques. Se implementaron los pedidos de líquidos semanales, selector de fecha de conteo interactivo y la duplicación de PAR diario (Copy Day PAR).",
+    "steps": []
+  },
+  {
+    "title": "2. Inventario para Bodega y COGS (Viele &amp; Sons)",
+    "category": "Sistema",
+    "dept": "💻 Sistemas",
+    "statusLabel": "📦 Inventario",
+    "audit": "<strong>Estructurado.</strong> Creado el catálogo en base de datos para diferenciar los insumos de uso interno del restaurante contra la mercancía que la Bodega revende. Sincronizado con los costos reales de QuickBooks. Corregido el mapeo de \"Tortillas, Tacos y Platos\" desde la carga de Excel.",
+    "steps": []
+  },
+  {
+    "title": "3. Configuración local de TVs de Menús",
+    "category": "Sistema",
+    "dept": "💻 Sistemas",
+    "statusLabel": "📺 Dispositivos",
+    "audit": "<strong>Muy Avanzado.</strong> Diseñada la pantalla de administración para subir las imágenes de menús por tienda y la pantalla receptora en las televisiones de sucursal con actualización automática cada 2 minutos.",
+    "steps": []
+  },
+  {
+    "title": "4. Logotipo de marca en correos electrónicos",
+    "category": "Sistema",
+    "dept": "💻 Sistemas",
+    "statusLabel": "✉️ Comunicaciones",
+    "audit": "<strong>Configuración Básica.</strong> El sistema ya envía correos institucionales utilizando el servidor de <em>tacosgavilan.com</em>, pero los mensajes se muestran en texto plano sin logotipo oficial ni imagen de marca.",
+    "steps": []
+  },
+  {
+    "title": "5. Descripciones de procedimientos en página de ACTIVIDADES",
+    "category": "Sistema",
+    "dept": "💻 Sistemas",
+    "statusLabel": "📝 Operaciones",
+    "audit": "<strong>Estructura Concluida.</strong> El panel administrativo y móvil de Actividades de Cocina está completo. Contiene 110 procedimientos operativos precargados en el catálogo, pero la mayoría tiene la descripción y guías de elaboración pendientes.",
+    "steps": []
+  },
+  {
+    "title": "6. Verificar tabletas piloto en Slauson",
+    "category": "Sistema",
+    "dept": "💻 Sistemas",
+    "statusLabel": "📺 Dispositivos",
+    "audit": "<strong>Completado e Integrado.</strong> Se verificaron físicamente las 4 tabletas piloto en la cocina de Slauson durante la visita de campo. El software del Preparador de carne (Cooking Pace) se adaptó para una óptima legibilidad en tablets con un modo Kiosko simplificado monocromático, botón de Pantalla Completa destacado con badge <code>TABLETA</code> que bloquea la interfaz para evitar salidas accidentales, y visor estático sin JS para previsualizaciones rápidas.",
+    "steps": []
+  },
+  {
+    "title": "7. App de Tacos Gavilán (Imitar King Taco)",
+    "category": "💻 Sistemas",
+    "dept": "💻 Sistemas",
+    "statusLabel": "💻 Sistemas",
+    "audit": "<strong>Muy Avanzado.</strong> Creado el sistema de base de datos para la aplicación móvil (carritos de compra, puntos de recompensa, cupones y aviso de llegada). La aplicación para celulares cuenta con pantallas funcionales de login, menú de platillos, carrito y selector de ingredientes.",
+    "steps": []
+  },
+  {
+    "title": "8. Sincronizador y clon de Basecamp",
+    "category": "💻 Sistemas",
+    "dept": "💻 Sistemas",
+    "statusLabel": "💻 Sistemas",
+    "audit": "<strong>Altamente Avanzado.</strong> El sistema web está integrado con Basecamp. Las tablas internas sincronizan automáticamente proyectos, tableros de mensajes, listas de pendientes y comentarios bidireccionales.",
+    "steps": []
+  },
+  {
+    "title": "9. Página Web Oficial de Tacos El Gavilán",
+    "category": "💻 Sistemas",
+    "dept": "💻 Sistemas",
+    "statusLabel": "💻 Sistemas",
+    "audit": "<strong>Avanzado.</strong> Toda la estructura visual y de contenidos del sitio web oficial está finalizada (exhibición de menú, ubicaciones de tiendas, y logotipos).",
+    "steps": []
+  },
+  {
+    "title": "10. Determinar gasto en Salsa Bar",
+    "category": "Sistema",
+    "dept": "💻 Sistemas",
+    "statusLabel": "📦 Inventario",
+    "audit": "<strong>No Iniciado.</strong> Existe registro de mermas e ingredientes de la barra de salsas en los checklists históricos de los supervisores, pero el gasto no está cuantificado ni calculado en la fórmula financiera diaria de costo de alimentos (Food Cost).",
+    "steps": []
+  },
+  {
+    "title": "11. Fotos y verificación Apple Business Connect (Slauson)",
+    "category": "Sistema",
+    "dept": "💻 Sistemas",
+    "statusLabel": "📺 Dispositivos",
+    "audit": "<strong>No Iniciado (Tarea Externa).</strong> Tarea operativa consistente en registrar la sucursal de Slauson, subir fotos del local y completar el proceso oficial para aparecer correctamente en los mapas de Apple Maps.",
+    "steps": []
+  },
+  {
+    "title": "12. Registro de proveedores y técnicos sin contraseña",
+    "category": "💻 Sistemas",
+    "dept": "💻 Sistemas",
+    "statusLabel": "💻 Sistemas",
+    "audit": "<strong>No Iniciado.</strong> Planificado un portal simplificado de acceso rápido con códigos temporales para que técnicos de mantenimiento (refrigeración, gas, plomería) puedan subir fotos del trabajo realizado directamente al sistema sin necesidad de una cuenta permanente.",
+    "steps": []
+  },
+  {
+    "title": "13. Control de uniformes, gorras e inventario de ropa",
+    "category": "Sistema",
+    "dept": "💻 Sistemas",
+    "statusLabel": "📦 Inventario",
+    "audit": "<strong>Parcialmente Completado.</strong> Se implementó y desplegó en producción el tipo de orden de Uniformes en el panel de pedidos de inventario de las 15 tiendas, enlazado directamente a la plantilla de QuickBooks Recurring Transactions para sincronización automatizada. Queda pendiente el control interno de stock físico en bodega y el registro de asignación individual por empleado.",
+    "steps": []
+  },
+  {
+    "title": "14. Manuales, videos y certificación de cocina",
+    "category": "Sistema",
+    "dept": "💻 Sistemas",
+    "statusLabel": "📝 Operaciones",
+    "audit": "<strong>No Iniciado (Básico).</strong> El sistema cuenta con exámenes rápidos de desempeño para gerentes, pero falta crear la biblioteca digital interactiva de videos educativos con certificación oficial de cocina.",
+    "steps": []
+  },
+  {
+    "title": "15. Sección de Cultura Empresarial",
+    "category": "Sistema",
+    "dept": "💻 Sistemas",
+    "statusLabel": "📝 Operaciones",
+    "audit": "<strong>No Iniciado.</strong> Sección informativa planificada para capacitar y familiarizar a los nuevos empleados con la filosofía corporativa, misión y valores de Tacos El Gavilán.",
+    "steps": []
+  },
+  {
+    "title": "16. CLONAR Cohesion (app de contabilidad)",
+    "category": "💻 Sistemas",
+    "dept": "💻 Sistemas",
+    "statusLabel": "💻 Sistemas",
+    "audit": "<strong>No Iniciado (Por evaluar).</strong> Desarrollo e integración de un clon contable de la plataforma Cohesión a solicitud de <em>Raquel Velázquez</em>, con vinculación y automatización hacia QuickBooks para la conciliación ágil de pólizas diarias.",
+    "steps": []
+  }
+]

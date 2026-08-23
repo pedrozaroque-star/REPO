@@ -361,10 +361,8 @@ async function resolveOrCreatePerson(
 
 export async function GET(request: Request) {
   const authHeader = request.headers.get('authorization')
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-    if (process.env.CRON_SECRET) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+  if (!process.env.CRON_SECRET || authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
   const mockRequest = new Request(request.url, {
@@ -560,6 +558,7 @@ export async function POST(request: Request) {
       const { data: existingProjects } = await supabase
         .from('bc_projects')
         .select('bc_id, color, is_pinned')
+        .limit(1000)
 
       const existingColorMap = new Map<number, string>()
       const existingPinMap = new Map<number, boolean>()

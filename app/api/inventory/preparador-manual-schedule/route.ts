@@ -1,7 +1,11 @@
 /**
- * @module Preparador Manual Schedule API
- * @description Manages recurring weekly manual target quantities for meats per 30-minute block and day of week.
- * @businessRules Manual entries set by managers repeat weekly for that specific Day of Week (1=Monday...7=Sunday).
+ * @module preparador-manual-schedule
+ * @description API endpoint que gestiona las metas manuales recurrentes de libras de carne por bloque de 30 minutos y día de la semana.
+ * @businessRules
+ *   - Las capturas manuales de los gerentes se repiten semanalmente para ese día específico (1=Lunes ... 7=Domingo).
+ *   - Las modificaciones se guardan directamente en prep_manual_schedule y tienen precedencia en modo Manual.
+ * @dataFlow prep_manual_schedule table <-> UI Tablet Preparador.
+ * @notes Admite inserción individual o por lote (batch).
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseAdminClient } from '@/lib/supabase'

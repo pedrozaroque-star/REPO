@@ -1,0 +1,2782 @@
+{
+  "2026-06": [
+    {
+      "id": "6555e732-b099-4898-bc88-55b6502b07db",
+      "employee_id": "42deef34-31ed-441e-ba89-3531b78fd1d9",
+      "store_id": "80a1ec95-bc73-402e-8884-e5abbe9343e6",
+      "job_id": "6f0aa249-f3a3-4d37-b2c7-832757cf8a0b",
+      "start_time": "2026-06-01T17:00:00+00:00",
+      "end_time": "2026-06-02T00:00:00+00:00",
+      "status": "published",
+      "notes": "",
+      "is_open": false,
+      "toast_job_guid": null,
+      "created_at": "2026-05-31T20:54:26.676368+00:00",
+      "shift_date": "2026-06-01",
+      "source": "manual",
+      "claim_id": null,
+      "breaks_schedule": [
+        {
+          "type": "meal_30",
+          "status": "scheduled",
+          "end_time": "2026-06-01T18:30:00.000Z",
+          "start_time": "2026-06-01T18:00:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-01T20:20:00.000Z",
+          "start_time": "2026-06-01T20:10:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-01T22:10:00.000Z",
+          "start_time": "2026-06-01T22:00:00.000Z"
+        }
+      ],
+      "is_callback": false
+    },
+    {
+      "id": "f7040f0e-ca7c-4608-a558-2ca65a031ab6",
+      "employee_id": "fb419508-9a58-49fa-8b53-d1e6f6a74e3f",
+      "store_id": "80a1ec95-bc73-402e-8884-e5abbe9343e6",
+      "job_id": "d6aaecfa-fddf-47fc-9850-e6a5d71556bb",
+      "start_time": "2026-06-03T00:00:00+00:00",
+      "end_time": "2026-06-03T09:00:00+00:00",
+      "status": "published",
+      "notes": null,
+      "is_open": false,
+      "toast_job_guid": null,
+      "created_at": "2026-05-31T20:54:26.676368+00:00",
+      "shift_date": "2026-06-02",
+      "source": "manual",
+      "claim_id": null,
+      "breaks_schedule": [
+        {
+          "type": "meal_30",
+          "status": "scheduled",
+          "end_time": "2026-06-03T02:10:00.000Z",
+          "start_time": "2026-06-03T01:40:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-03T05:50:00.000Z",
+          "start_time": "2026-06-03T05:40:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-03T07:30:00.000Z",
+          "start_time": "2026-06-03T07:20:00.000Z"
+        }
+      ],
+      "is_callback": false
+    },
+    {
+      "id": "e3bae9ce-f5f4-483a-a8d7-8cf14ad13a95",
+      "employee_id": "42deef34-31ed-441e-ba89-3531b78fd1d9",
+      "store_id": "80a1ec95-bc73-402e-8884-e5abbe9343e6",
+      "job_id": "6f0aa249-f3a3-4d37-b2c7-832757cf8a0b",
+      "start_time": "2026-06-02T21:00:00+00:00",
+      "end_time": "2026-06-03T05:00:00+00:00",
+      "status": "published",
+      "notes": null,
+      "is_open": false,
+      "toast_job_guid": null,
+      "created_at": "2026-05-31T20:54:26.676368+00:00",
+      "shift_date": "2026-06-02",
+      "source": "manual",
+      "claim_id": null,
+      "breaks_schedule": [
+        {
+          "type": "meal_30",
+          "status": "scheduled",
+          "end_time": "2026-06-02T22:30:00.000Z",
+          "start_time": "2026-06-02T22:00:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-03T00:40:00.000Z",
+          "start_time": "2026-06-03T00:30:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-03T02:30:00.000Z",
+          "start_time": "2026-06-03T02:20:00.000Z"
+        }
+      ],
+      "is_callback": false
+    },
+    {
+      "id": "6f75a226-47d0-4050-8551-c7e86e993630",
+      "employee_id": "fb419508-9a58-49fa-8b53-d1e6f6a74e3f",
+      "store_id": "80a1ec95-bc73-402e-8884-e5abbe9343e6",
+      "job_id": "d6aaecfa-fddf-47fc-9850-e6a5d71556bb",
+      "start_time": "2026-06-04T00:00:00+00:00",
+      "end_time": "2026-06-04T08:30:00+00:00",
+      "status": "published",
+      "notes": null,
+      "is_open": false,
+      "toast_job_guid": null,
+      "created_at": "2026-05-31T20:54:26.676368+00:00",
+      "shift_date": "2026-06-03",
+      "source": "manual",
+      "claim_id": null,
+      "breaks_schedule": [
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-04T02:30:00.000Z",
+          "start_time": "2026-06-04T02:20:00.000Z"
+        },
+        {
+          "type": "meal_30",
+          "status": "scheduled",
+          "end_time": "2026-06-04T04:00:00.000Z",
+          "start_time": "2026-06-04T03:30:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-04T05:40:00.000Z",
+          "start_time": "2026-06-04T05:30:00.000Z"
+        }
+      ],
+      "is_callback": false
+    },
+    {
+      "id": "dc0e539e-928b-4ad7-8f95-7a5908c6d360",
+      "employee_id": "42deef34-31ed-441e-ba89-3531b78fd1d9",
+      "store_id": "80a1ec95-bc73-402e-8884-e5abbe9343e6",
+      "job_id": "6f0aa249-f3a3-4d37-b2c7-832757cf8a0b",
+      "start_time": "2026-06-03T17:00:00+00:00",
+      "end_time": "2026-06-04T00:00:00+00:00",
+      "status": "published",
+      "notes": "",
+      "is_open": false,
+      "toast_job_guid": null,
+      "created_at": "2026-05-31T20:54:26.676368+00:00",
+      "shift_date": "2026-06-03",
+      "source": "manual",
+      "claim_id": null,
+      "breaks_schedule": [
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-03T18:50:00.000Z",
+          "start_time": "2026-06-03T18:40:00.000Z"
+        },
+        {
+          "type": "meal_30",
+          "status": "scheduled",
+          "end_time": "2026-06-03T20:30:00.000Z",
+          "start_time": "2026-06-03T20:00:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-03T22:50:00.000Z",
+          "start_time": "2026-06-03T22:40:00.000Z"
+        }
+      ],
+      "is_callback": false
+    },
+    {
+      "id": "841db619-b7b8-4461-b855-ceaeaf9296a2",
+      "employee_id": "fb419508-9a58-49fa-8b53-d1e6f6a74e3f",
+      "store_id": "80a1ec95-bc73-402e-8884-e5abbe9343e6",
+      "job_id": "d6aaecfa-fddf-47fc-9850-e6a5d71556bb",
+      "start_time": "2026-06-05T00:00:00+00:00",
+      "end_time": "2026-06-05T10:00:00+00:00",
+      "status": "published",
+      "notes": null,
+      "is_open": false,
+      "toast_job_guid": null,
+      "created_at": "2026-05-31T20:54:26.676368+00:00",
+      "shift_date": "2026-06-04",
+      "source": "manual",
+      "claim_id": null,
+      "breaks_schedule": [
+        {
+          "type": "meal_30",
+          "status": "scheduled",
+          "end_time": "2026-06-05T02:20:00.000Z",
+          "start_time": "2026-06-05T01:50:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-05T04:50:00.000Z",
+          "start_time": "2026-06-05T04:40:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-05T07:20:00.000Z",
+          "start_time": "2026-06-05T07:10:00.000Z"
+        }
+      ],
+      "is_callback": false
+    },
+    {
+      "id": "caac1380-81b6-49a9-8a8c-4956c3b4ebc9",
+      "employee_id": "fb419508-9a58-49fa-8b53-d1e6f6a74e3f",
+      "store_id": "80a1ec95-bc73-402e-8884-e5abbe9343e6",
+      "job_id": "d6aaecfa-fddf-47fc-9850-e6a5d71556bb",
+      "start_time": "2026-06-06T00:00:00+00:00",
+      "end_time": "2026-06-06T11:00:00+00:00",
+      "status": "published",
+      "notes": null,
+      "is_open": false,
+      "toast_job_guid": null,
+      "created_at": "2026-05-31T20:54:26.676368+00:00",
+      "shift_date": "2026-06-05",
+      "source": "manual",
+      "claim_id": null,
+      "breaks_schedule": [
+        {
+          "type": "meal_30",
+          "status": "scheduled",
+          "end_time": "2026-06-06T03:50:00.000Z",
+          "start_time": "2026-06-06T03:20:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-06T06:10:00.000Z",
+          "start_time": "2026-06-06T06:00:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-06T07:50:00.000Z",
+          "start_time": "2026-06-06T07:40:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-06T09:30:00.000Z",
+          "start_time": "2026-06-06T09:20:00.000Z"
+        }
+      ],
+      "is_callback": false
+    },
+    {
+      "id": "e6fec056-1ede-47c5-b20f-1f7481f3ba30",
+      "employee_id": "42deef34-31ed-441e-ba89-3531b78fd1d9",
+      "store_id": "80a1ec95-bc73-402e-8884-e5abbe9343e6",
+      "job_id": "6f0aa249-f3a3-4d37-b2c7-832757cf8a0b",
+      "start_time": "2026-06-05T18:00:00+00:00",
+      "end_time": "2026-06-06T04:00:00+00:00",
+      "status": "published",
+      "notes": "",
+      "is_open": false,
+      "toast_job_guid": null,
+      "created_at": "2026-05-31T20:54:26.676368+00:00",
+      "shift_date": "2026-06-05",
+      "source": "manual",
+      "claim_id": null,
+      "breaks_schedule": [
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-05T20:20:00.000Z",
+          "start_time": "2026-06-05T20:10:00.000Z"
+        },
+        {
+          "type": "meal_30",
+          "status": "scheduled",
+          "end_time": "2026-06-05T21:50:00.000Z",
+          "start_time": "2026-06-05T21:20:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-06T02:00:00.000Z",
+          "start_time": "2026-06-06T01:50:00.000Z"
+        }
+      ],
+      "is_callback": false
+    },
+    {
+      "id": "2ba11929-a3a6-47cc-9955-ac3991cfe614",
+      "employee_id": "fb419508-9a58-49fa-8b53-d1e6f6a74e3f",
+      "store_id": "80a1ec95-bc73-402e-8884-e5abbe9343e6",
+      "job_id": "d6aaecfa-fddf-47fc-9850-e6a5d71556bb",
+      "start_time": "2026-06-07T00:00:00+00:00",
+      "end_time": "2026-06-07T10:30:00+00:00",
+      "status": "published",
+      "notes": null,
+      "is_open": false,
+      "toast_job_guid": null,
+      "created_at": "2026-05-31T20:54:26.676368+00:00",
+      "shift_date": "2026-06-06",
+      "source": "manual",
+      "claim_id": null,
+      "breaks_schedule": [
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-07T01:50:00.000Z",
+          "start_time": "2026-06-07T01:40:00.000Z"
+        },
+        {
+          "type": "meal_30",
+          "status": "scheduled",
+          "end_time": "2026-06-07T03:50:00.000Z",
+          "start_time": "2026-06-07T03:20:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-07T06:40:00.000Z",
+          "start_time": "2026-06-07T06:30:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-07T08:20:00.000Z",
+          "start_time": "2026-06-07T08:10:00.000Z"
+        }
+      ],
+      "is_callback": false
+    },
+    {
+      "id": "7f02b531-396d-4d68-8da9-f261e5ceff3c",
+      "employee_id": "42deef34-31ed-441e-ba89-3531b78fd1d9",
+      "store_id": "80a1ec95-bc73-402e-8884-e5abbe9343e6",
+      "job_id": "6f0aa249-f3a3-4d37-b2c7-832757cf8a0b",
+      "start_time": "2026-06-06T18:00:00+00:00",
+      "end_time": "2026-06-07T04:00:00+00:00",
+      "status": "published",
+      "notes": "",
+      "is_open": false,
+      "toast_job_guid": null,
+      "created_at": "2026-05-31T23:51:19.653498+00:00",
+      "shift_date": "2026-06-06",
+      "source": "manual",
+      "claim_id": null,
+      "breaks_schedule": [
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-06T19:10:00.000Z",
+          "start_time": "2026-06-06T19:00:00.000Z"
+        },
+        {
+          "type": "meal_30",
+          "status": "scheduled",
+          "end_time": "2026-06-06T22:30:00.000Z",
+          "start_time": "2026-06-06T22:00:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-07T02:00:00.000Z",
+          "start_time": "2026-06-07T01:50:00.000Z"
+        }
+      ],
+      "is_callback": false
+    },
+    {
+      "id": "27089ee7-3b03-4d7a-a582-91d647f1c5ee",
+      "employee_id": "fb419508-9a58-49fa-8b53-d1e6f6a74e3f",
+      "store_id": "80a1ec95-bc73-402e-8884-e5abbe9343e6",
+      "job_id": "d6aaecfa-fddf-47fc-9850-e6a5d71556bb",
+      "start_time": "2026-06-08T00:00:00+00:00",
+      "end_time": "2026-06-08T09:00:00+00:00",
+      "status": "published",
+      "notes": null,
+      "is_open": false,
+      "toast_job_guid": null,
+      "created_at": "2026-05-31T20:54:26.676368+00:00",
+      "shift_date": "2026-06-07",
+      "source": "manual",
+      "claim_id": null,
+      "breaks_schedule": [
+        {
+          "type": "meal_30",
+          "status": "scheduled",
+          "end_time": "2026-06-08T02:00:00.000Z",
+          "start_time": "2026-06-08T01:30:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-08T05:10:00.000Z",
+          "start_time": "2026-06-08T05:00:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-08T08:00:00.000Z",
+          "start_time": "2026-06-08T07:50:00.000Z"
+        }
+      ],
+      "is_callback": false
+    },
+    {
+      "id": "24989462-e0ad-48a8-8918-274f45563d33",
+      "employee_id": "42deef34-31ed-441e-ba89-3531b78fd1d9",
+      "store_id": "80a1ec95-bc73-402e-8884-e5abbe9343e6",
+      "job_id": "6f0aa249-f3a3-4d37-b2c7-832757cf8a0b",
+      "start_time": "2026-06-07T21:00:00+00:00",
+      "end_time": "2026-06-08T02:00:00+00:00",
+      "status": "published",
+      "notes": "",
+      "is_open": false,
+      "toast_job_guid": null,
+      "created_at": "2026-05-31T20:54:26.676368+00:00",
+      "shift_date": "2026-06-07",
+      "source": "manual",
+      "claim_id": null,
+      "breaks_schedule": [
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-08T01:10:00.000Z",
+          "start_time": "2026-06-08T01:00:00.000Z"
+        }
+      ],
+      "is_callback": false
+    },
+    {
+      "id": "1d52e464-c774-496e-a095-2903a275657c",
+      "employee_id": "42deef34-31ed-441e-ba89-3531b78fd1d9",
+      "store_id": "80a1ec95-bc73-402e-8884-e5abbe9343e6",
+      "job_id": "6f0aa249-f3a3-4d37-b2c7-832757cf8a0b",
+      "start_time": "2026-06-08T17:00:00+00:00",
+      "end_time": "2026-06-09T00:00:00+00:00",
+      "status": "published",
+      "notes": null,
+      "is_open": false,
+      "toast_job_guid": null,
+      "created_at": "2026-06-08T00:24:56.844416+00:00",
+      "shift_date": "2026-06-08",
+      "source": "manual",
+      "claim_id": null,
+      "breaks_schedule": [
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-08T18:50:00.000Z",
+          "start_time": "2026-06-08T18:40:00.000Z"
+        },
+        {
+          "type": "meal_30",
+          "status": "scheduled",
+          "end_time": "2026-06-08T21:20:00.000Z",
+          "start_time": "2026-06-08T20:50:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-08T23:10:00.000Z",
+          "start_time": "2026-06-08T23:00:00.000Z"
+        }
+      ],
+      "is_callback": false
+    },
+    {
+      "id": "92c2a80c-0146-4c8f-b36a-80fac7b1c2af",
+      "employee_id": "42deef34-31ed-441e-ba89-3531b78fd1d9",
+      "store_id": "80a1ec95-bc73-402e-8884-e5abbe9343e6",
+      "job_id": "6f0aa249-f3a3-4d37-b2c7-832757cf8a0b",
+      "start_time": "2026-06-09T21:00:00+00:00",
+      "end_time": "2026-06-10T05:00:00+00:00",
+      "status": "published",
+      "notes": null,
+      "is_open": false,
+      "toast_job_guid": null,
+      "created_at": "2026-06-08T00:24:56.844416+00:00",
+      "shift_date": "2026-06-09",
+      "source": "manual",
+      "claim_id": null,
+      "breaks_schedule": [
+        {
+          "type": "meal_30",
+          "status": "scheduled",
+          "end_time": "2026-06-09T23:50:00.000Z",
+          "start_time": "2026-06-09T23:20:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-10T00:50:00.000Z",
+          "start_time": "2026-06-10T00:40:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-10T03:10:00.000Z",
+          "start_time": "2026-06-10T03:00:00.000Z"
+        }
+      ],
+      "is_callback": false
+    },
+    {
+      "id": "cc78d91f-9187-418e-b6fd-693bc6a98837",
+      "employee_id": "fb419508-9a58-49fa-8b53-d1e6f6a74e3f",
+      "store_id": "80a1ec95-bc73-402e-8884-e5abbe9343e6",
+      "job_id": "d6aaecfa-fddf-47fc-9850-e6a5d71556bb",
+      "start_time": "2026-06-10T00:00:00+00:00",
+      "end_time": "2026-06-10T09:00:00+00:00",
+      "status": "published",
+      "notes": null,
+      "is_open": false,
+      "toast_job_guid": null,
+      "created_at": "2026-06-08T00:24:56.844416+00:00",
+      "shift_date": "2026-06-09",
+      "source": "manual",
+      "claim_id": null,
+      "breaks_schedule": [
+        {
+          "type": "meal_30",
+          "status": "scheduled",
+          "end_time": "2026-06-10T01:40:00.000Z",
+          "start_time": "2026-06-10T01:10:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-10T02:40:00.000Z",
+          "start_time": "2026-06-10T02:30:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-10T07:40:00.000Z",
+          "start_time": "2026-06-10T07:30:00.000Z"
+        }
+      ],
+      "is_callback": false
+    },
+    {
+      "id": "3fbd2ce7-3cf4-4444-8b71-dbf73944489f",
+      "employee_id": "42deef34-31ed-441e-ba89-3531b78fd1d9",
+      "store_id": "80a1ec95-bc73-402e-8884-e5abbe9343e6",
+      "job_id": "6f0aa249-f3a3-4d37-b2c7-832757cf8a0b",
+      "start_time": "2026-06-10T16:00:00+00:00",
+      "end_time": "2026-06-11T00:00:00+00:00",
+      "status": "published",
+      "notes": "",
+      "is_open": false,
+      "toast_job_guid": null,
+      "created_at": "2026-06-08T00:24:56.844416+00:00",
+      "shift_date": "2026-06-10",
+      "source": "manual",
+      "claim_id": null,
+      "breaks_schedule": [
+        {
+          "type": "meal_30",
+          "status": "scheduled",
+          "end_time": "2026-06-10T17:40:00.000Z",
+          "start_time": "2026-06-10T17:10:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-10T21:30:00.000Z",
+          "start_time": "2026-06-10T21:20:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-10T23:10:00.000Z",
+          "start_time": "2026-06-10T23:00:00.000Z"
+        }
+      ],
+      "is_callback": false
+    },
+    {
+      "id": "5bb77453-b487-44bf-a1cd-9b49fdf6e52f",
+      "employee_id": "fb419508-9a58-49fa-8b53-d1e6f6a74e3f",
+      "store_id": "80a1ec95-bc73-402e-8884-e5abbe9343e6",
+      "job_id": "d6aaecfa-fddf-47fc-9850-e6a5d71556bb",
+      "start_time": "2026-06-11T00:00:00+00:00",
+      "end_time": "2026-06-11T08:30:00+00:00",
+      "status": "published",
+      "notes": null,
+      "is_open": false,
+      "toast_job_guid": null,
+      "created_at": "2026-06-08T00:24:56.844416+00:00",
+      "shift_date": "2026-06-10",
+      "source": "manual",
+      "claim_id": null,
+      "breaks_schedule": [
+        {
+          "type": "meal_30",
+          "status": "scheduled",
+          "end_time": "2026-06-11T01:40:00.000Z",
+          "start_time": "2026-06-11T01:10:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-11T05:50:00.000Z",
+          "start_time": "2026-06-11T05:40:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-11T07:30:00.000Z",
+          "start_time": "2026-06-11T07:20:00.000Z"
+        }
+      ],
+      "is_callback": false
+    },
+    {
+      "id": "28eff876-9c95-426f-a410-6a642f9873b2",
+      "employee_id": "fb419508-9a58-49fa-8b53-d1e6f6a74e3f",
+      "store_id": "80a1ec95-bc73-402e-8884-e5abbe9343e6",
+      "job_id": "d6aaecfa-fddf-47fc-9850-e6a5d71556bb",
+      "start_time": "2026-06-12T00:00:00+00:00",
+      "end_time": "2026-06-12T10:00:00+00:00",
+      "status": "published",
+      "notes": null,
+      "is_open": false,
+      "toast_job_guid": null,
+      "created_at": "2026-06-08T00:24:56.844416+00:00",
+      "shift_date": "2026-06-11",
+      "source": "manual",
+      "claim_id": null,
+      "breaks_schedule": [
+        {
+          "type": "meal_30",
+          "status": "scheduled",
+          "end_time": "2026-06-12T02:40:00.000Z",
+          "start_time": "2026-06-12T02:10:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-12T05:30:00.000Z",
+          "start_time": "2026-06-12T05:20:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-12T08:30:00.000Z",
+          "start_time": "2026-06-12T08:20:00.000Z"
+        }
+      ],
+      "is_callback": false
+    },
+    {
+      "id": "7a4c7309-c983-4e79-afa9-e79c86ce2464",
+      "employee_id": "42deef34-31ed-441e-ba89-3531b78fd1d9",
+      "store_id": "80a1ec95-bc73-402e-8884-e5abbe9343e6",
+      "job_id": "6f0aa249-f3a3-4d37-b2c7-832757cf8a0b",
+      "start_time": "2026-06-12T18:00:00+00:00",
+      "end_time": "2026-06-13T04:00:00+00:00",
+      "status": "published",
+      "notes": null,
+      "is_open": false,
+      "toast_job_guid": null,
+      "created_at": "2026-06-08T00:24:56.844416+00:00",
+      "shift_date": "2026-06-12",
+      "source": "manual",
+      "claim_id": null,
+      "breaks_schedule": [
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-12T20:50:00.000Z",
+          "start_time": "2026-06-12T20:40:00.000Z"
+        },
+        {
+          "type": "meal_30",
+          "status": "scheduled",
+          "end_time": "2026-06-12T22:30:00.000Z",
+          "start_time": "2026-06-12T22:00:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-13T01:40:00.000Z",
+          "start_time": "2026-06-13T01:30:00.000Z"
+        }
+      ],
+      "is_callback": false
+    },
+    {
+      "id": "2e435eb8-1f59-43f7-a797-088853613b76",
+      "employee_id": "fb419508-9a58-49fa-8b53-d1e6f6a74e3f",
+      "store_id": "80a1ec95-bc73-402e-8884-e5abbe9343e6",
+      "job_id": "d6aaecfa-fddf-47fc-9850-e6a5d71556bb",
+      "start_time": "2026-06-13T00:00:00+00:00",
+      "end_time": "2026-06-13T11:00:00+00:00",
+      "status": "published",
+      "notes": null,
+      "is_open": false,
+      "toast_job_guid": null,
+      "created_at": "2026-06-08T00:24:56.844416+00:00",
+      "shift_date": "2026-06-12",
+      "source": "manual",
+      "claim_id": null,
+      "breaks_schedule": [
+        {
+          "type": "meal_30",
+          "status": "scheduled",
+          "end_time": "2026-06-13T02:00:00.000Z",
+          "start_time": "2026-06-13T01:30:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-13T03:10:00.000Z",
+          "start_time": "2026-06-13T03:00:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-13T04:50:00.000Z",
+          "start_time": "2026-06-13T04:40:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-13T09:30:00.000Z",
+          "start_time": "2026-06-13T09:20:00.000Z"
+        }
+      ],
+      "is_callback": false
+    },
+    {
+      "id": "c641f684-265f-4156-a525-ab6b9c3a47fa",
+      "employee_id": "fb419508-9a58-49fa-8b53-d1e6f6a74e3f",
+      "store_id": "80a1ec95-bc73-402e-8884-e5abbe9343e6",
+      "job_id": "d6aaecfa-fddf-47fc-9850-e6a5d71556bb",
+      "start_time": "2026-06-14T00:00:00+00:00",
+      "end_time": "2026-06-14T10:30:00+00:00",
+      "status": "published",
+      "notes": null,
+      "is_open": false,
+      "toast_job_guid": null,
+      "created_at": "2026-06-08T00:24:56.844416+00:00",
+      "shift_date": "2026-06-13",
+      "source": "manual",
+      "claim_id": null,
+      "breaks_schedule": [
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-14T01:40:00.000Z",
+          "start_time": "2026-06-14T01:30:00.000Z"
+        },
+        {
+          "type": "meal_30",
+          "status": "scheduled",
+          "end_time": "2026-06-14T04:40:00.000Z",
+          "start_time": "2026-06-14T04:10:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-14T06:10:00.000Z",
+          "start_time": "2026-06-14T06:00:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-14T08:10:00.000Z",
+          "start_time": "2026-06-14T08:00:00.000Z"
+        }
+      ],
+      "is_callback": false
+    },
+    {
+      "id": "983fdc8a-f8e9-4438-85ac-1ed803eebd8b",
+      "employee_id": "42deef34-31ed-441e-ba89-3531b78fd1d9",
+      "store_id": "80a1ec95-bc73-402e-8884-e5abbe9343e6",
+      "job_id": "6f0aa249-f3a3-4d37-b2c7-832757cf8a0b",
+      "start_time": "2026-06-13T18:00:00+00:00",
+      "end_time": "2026-06-14T04:00:00+00:00",
+      "status": "published",
+      "notes": null,
+      "is_open": false,
+      "toast_job_guid": null,
+      "created_at": "2026-06-08T00:24:56.844416+00:00",
+      "shift_date": "2026-06-13",
+      "source": "manual",
+      "claim_id": null,
+      "breaks_schedule": [
+        {
+          "type": "meal_30",
+          "status": "scheduled",
+          "end_time": "2026-06-13T20:40:00.000Z",
+          "start_time": "2026-06-13T20:10:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-13T23:30:00.000Z",
+          "start_time": "2026-06-13T23:20:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-14T01:10:00.000Z",
+          "start_time": "2026-06-14T01:00:00.000Z"
+        }
+      ],
+      "is_callback": false
+    },
+    {
+      "id": "b1305184-2806-4e88-8dc6-c3e9d05cdcaf",
+      "employee_id": "42deef34-31ed-441e-ba89-3531b78fd1d9",
+      "store_id": "80a1ec95-bc73-402e-8884-e5abbe9343e6",
+      "job_id": "6f0aa249-f3a3-4d37-b2c7-832757cf8a0b",
+      "start_time": "2026-06-14T21:00:00+00:00",
+      "end_time": "2026-06-15T02:00:00+00:00",
+      "status": "published",
+      "notes": null,
+      "is_open": false,
+      "toast_job_guid": null,
+      "created_at": "2026-06-08T00:24:56.844416+00:00",
+      "shift_date": "2026-06-14",
+      "source": "manual",
+      "claim_id": null,
+      "breaks_schedule": [
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-14T23:00:00.000Z",
+          "start_time": "2026-06-14T22:50:00.000Z"
+        }
+      ],
+      "is_callback": false
+    },
+    {
+      "id": "afda28bd-3182-4d48-b50a-bc61e14951b5",
+      "employee_id": "fb419508-9a58-49fa-8b53-d1e6f6a74e3f",
+      "store_id": "80a1ec95-bc73-402e-8884-e5abbe9343e6",
+      "job_id": "d6aaecfa-fddf-47fc-9850-e6a5d71556bb",
+      "start_time": "2026-06-15T00:00:00+00:00",
+      "end_time": "2026-06-15T09:00:00+00:00",
+      "status": "published",
+      "notes": null,
+      "is_open": false,
+      "toast_job_guid": null,
+      "created_at": "2026-06-08T00:24:56.844416+00:00",
+      "shift_date": "2026-06-14",
+      "source": "manual",
+      "claim_id": null,
+      "breaks_schedule": [
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-15T01:40:00.000Z",
+          "start_time": "2026-06-15T01:30:00.000Z"
+        },
+        {
+          "type": "meal_30",
+          "status": "scheduled",
+          "end_time": "2026-06-15T03:50:00.000Z",
+          "start_time": "2026-06-15T03:20:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-15T08:00:00.000Z",
+          "start_time": "2026-06-15T07:50:00.000Z"
+        }
+      ],
+      "is_callback": false
+    },
+    {
+      "id": "23ba5785-3d64-4c8a-b8d5-302eb2cf83af",
+      "employee_id": "42deef34-31ed-441e-ba89-3531b78fd1d9",
+      "store_id": "80a1ec95-bc73-402e-8884-e5abbe9343e6",
+      "job_id": "6f0aa249-f3a3-4d37-b2c7-832757cf8a0b",
+      "start_time": "2026-06-15T17:00:00+00:00",
+      "end_time": "2026-06-16T00:00:00+00:00",
+      "status": "published",
+      "notes": null,
+      "is_open": false,
+      "toast_job_guid": null,
+      "created_at": "2026-06-14T19:09:00.967047+00:00",
+      "shift_date": "2026-06-15",
+      "source": "manual",
+      "claim_id": null,
+      "breaks_schedule": [
+        {
+          "type": "meal_30",
+          "status": "scheduled",
+          "end_time": "2026-06-15T18:30:00.000Z",
+          "start_time": "2026-06-15T18:00:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-15T20:20:00.000Z",
+          "start_time": "2026-06-15T20:10:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-15T22:00:00.000Z",
+          "start_time": "2026-06-15T21:50:00.000Z"
+        }
+      ],
+      "is_callback": false
+    },
+    {
+      "id": "326ac9af-cae6-4f41-9135-cc7b609b9685",
+      "employee_id": "42deef34-31ed-441e-ba89-3531b78fd1d9",
+      "store_id": "80a1ec95-bc73-402e-8884-e5abbe9343e6",
+      "job_id": "6f0aa249-f3a3-4d37-b2c7-832757cf8a0b",
+      "start_time": "2026-06-16T21:00:00+00:00",
+      "end_time": "2026-06-17T05:00:00+00:00",
+      "status": "published",
+      "notes": null,
+      "is_open": false,
+      "toast_job_guid": null,
+      "created_at": "2026-06-14T19:09:00.967047+00:00",
+      "shift_date": "2026-06-16",
+      "source": "manual",
+      "claim_id": null,
+      "breaks_schedule": [
+        {
+          "type": "meal_30",
+          "status": "scheduled",
+          "end_time": "2026-06-16T22:30:00.000Z",
+          "start_time": "2026-06-16T22:00:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-16T23:50:00.000Z",
+          "start_time": "2026-06-16T23:40:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-17T03:30:00.000Z",
+          "start_time": "2026-06-17T03:20:00.000Z"
+        }
+      ],
+      "is_callback": false
+    },
+    {
+      "id": "c5af5261-2759-4e14-92b7-9b489a04042d",
+      "employee_id": "fb419508-9a58-49fa-8b53-d1e6f6a74e3f",
+      "store_id": "80a1ec95-bc73-402e-8884-e5abbe9343e6",
+      "job_id": "d6aaecfa-fddf-47fc-9850-e6a5d71556bb",
+      "start_time": "2026-06-17T00:00:00+00:00",
+      "end_time": "2026-06-17T09:00:00+00:00",
+      "status": "published",
+      "notes": null,
+      "is_open": false,
+      "toast_job_guid": null,
+      "created_at": "2026-06-14T19:09:00.967047+00:00",
+      "shift_date": "2026-06-16",
+      "source": "manual",
+      "claim_id": null,
+      "breaks_schedule": [
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-17T02:30:00.000Z",
+          "start_time": "2026-06-17T02:20:00.000Z"
+        },
+        {
+          "type": "meal_30",
+          "status": "scheduled",
+          "end_time": "2026-06-17T04:00:00.000Z",
+          "start_time": "2026-06-17T03:30:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-17T06:40:00.000Z",
+          "start_time": "2026-06-17T06:30:00.000Z"
+        }
+      ],
+      "is_callback": false
+    },
+    {
+      "id": "7687ead5-5203-4c28-a71a-f4f7565110b5",
+      "employee_id": "fb419508-9a58-49fa-8b53-d1e6f6a74e3f",
+      "store_id": "80a1ec95-bc73-402e-8884-e5abbe9343e6",
+      "job_id": "d6aaecfa-fddf-47fc-9850-e6a5d71556bb",
+      "start_time": "2026-06-18T00:00:00+00:00",
+      "end_time": "2026-06-18T08:30:00+00:00",
+      "status": "published",
+      "notes": null,
+      "is_open": false,
+      "toast_job_guid": null,
+      "created_at": "2026-06-14T19:09:00.967047+00:00",
+      "shift_date": "2026-06-17",
+      "source": "manual",
+      "claim_id": null,
+      "breaks_schedule": [
+        {
+          "type": "meal_30",
+          "status": "scheduled",
+          "end_time": "2026-06-18T02:20:00.000Z",
+          "start_time": "2026-06-18T01:50:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-18T05:50:00.000Z",
+          "start_time": "2026-06-18T05:40:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-18T07:30:00.000Z",
+          "start_time": "2026-06-18T07:20:00.000Z"
+        }
+      ],
+      "is_callback": false
+    },
+    {
+      "id": "803f1108-7bb1-4fea-b3e0-21e70ce529e5",
+      "employee_id": "42deef34-31ed-441e-ba89-3531b78fd1d9",
+      "store_id": "80a1ec95-bc73-402e-8884-e5abbe9343e6",
+      "job_id": "6f0aa249-f3a3-4d37-b2c7-832757cf8a0b",
+      "start_time": "2026-06-17T16:00:00+00:00",
+      "end_time": "2026-06-18T00:00:00+00:00",
+      "status": "published",
+      "notes": null,
+      "is_open": false,
+      "toast_job_guid": null,
+      "created_at": "2026-06-14T19:09:00.967047+00:00",
+      "shift_date": "2026-06-17",
+      "source": "manual",
+      "claim_id": null,
+      "breaks_schedule": [
+        {
+          "type": "meal_30",
+          "status": "scheduled",
+          "end_time": "2026-06-17T18:00:00.000Z",
+          "start_time": "2026-06-17T17:30:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-17T19:00:00.000Z",
+          "start_time": "2026-06-17T18:50:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-17T23:00:00.000Z",
+          "start_time": "2026-06-17T22:50:00.000Z"
+        }
+      ],
+      "is_callback": false
+    },
+    {
+      "id": "7345aafd-b673-4858-b8d7-c3ecfcdc4a6d",
+      "employee_id": "fb419508-9a58-49fa-8b53-d1e6f6a74e3f",
+      "store_id": "80a1ec95-bc73-402e-8884-e5abbe9343e6",
+      "job_id": "d6aaecfa-fddf-47fc-9850-e6a5d71556bb",
+      "start_time": "2026-06-19T00:00:00+00:00",
+      "end_time": "2026-06-19T10:00:00+00:00",
+      "status": "published",
+      "notes": null,
+      "is_open": false,
+      "toast_job_guid": null,
+      "created_at": "2026-06-14T19:09:00.967047+00:00",
+      "shift_date": "2026-06-18",
+      "source": "manual",
+      "claim_id": null,
+      "breaks_schedule": [
+        {
+          "type": "meal_30",
+          "status": "scheduled",
+          "end_time": "2026-06-19T01:50:00.000Z",
+          "start_time": "2026-06-19T01:20:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-19T06:10:00.000Z",
+          "start_time": "2026-06-19T06:00:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-19T08:30:00.000Z",
+          "start_time": "2026-06-19T08:20:00.000Z"
+        }
+      ],
+      "is_callback": false
+    },
+    {
+      "id": "fc220966-8429-4aaf-bc15-faaab63c6105",
+      "employee_id": "fb419508-9a58-49fa-8b53-d1e6f6a74e3f",
+      "store_id": "80a1ec95-bc73-402e-8884-e5abbe9343e6",
+      "job_id": "d6aaecfa-fddf-47fc-9850-e6a5d71556bb",
+      "start_time": "2026-06-20T00:00:00+00:00",
+      "end_time": "2026-06-20T11:00:00+00:00",
+      "status": "published",
+      "notes": null,
+      "is_open": false,
+      "toast_job_guid": null,
+      "created_at": "2026-06-14T19:09:00.967047+00:00",
+      "shift_date": "2026-06-19",
+      "source": "manual",
+      "claim_id": null,
+      "breaks_schedule": [
+        {
+          "type": "meal_30",
+          "status": "scheduled",
+          "end_time": "2026-06-20T02:00:00.000Z",
+          "start_time": "2026-06-20T01:30:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-20T03:10:00.000Z",
+          "start_time": "2026-06-20T03:00:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-20T05:40:00.000Z",
+          "start_time": "2026-06-20T05:30:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-20T09:30:00.000Z",
+          "start_time": "2026-06-20T09:20:00.000Z"
+        }
+      ],
+      "is_callback": false
+    },
+    {
+      "id": "de66a2a3-e8ea-4c0c-bf70-f7155a39e0ee",
+      "employee_id": "42deef34-31ed-441e-ba89-3531b78fd1d9",
+      "store_id": "80a1ec95-bc73-402e-8884-e5abbe9343e6",
+      "job_id": "6f0aa249-f3a3-4d37-b2c7-832757cf8a0b",
+      "start_time": "2026-06-19T18:00:00+00:00",
+      "end_time": "2026-06-20T04:00:00+00:00",
+      "status": "published",
+      "notes": null,
+      "is_open": false,
+      "toast_job_guid": null,
+      "created_at": "2026-06-14T19:09:00.967047+00:00",
+      "shift_date": "2026-06-19",
+      "source": "manual",
+      "claim_id": null,
+      "breaks_schedule": [
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-19T21:10:00.000Z",
+          "start_time": "2026-06-19T21:00:00.000Z"
+        },
+        {
+          "type": "meal_30",
+          "status": "scheduled",
+          "end_time": "2026-06-19T22:30:00.000Z",
+          "start_time": "2026-06-19T22:00:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-20T00:00:00.000Z",
+          "start_time": "2026-06-19T23:50:00.000Z"
+        }
+      ],
+      "is_callback": false
+    },
+    {
+      "id": "c8c0e554-1e20-4025-b07c-76305416c3d8",
+      "employee_id": "fb419508-9a58-49fa-8b53-d1e6f6a74e3f",
+      "store_id": "80a1ec95-bc73-402e-8884-e5abbe9343e6",
+      "job_id": "d6aaecfa-fddf-47fc-9850-e6a5d71556bb",
+      "start_time": "2026-06-21T00:00:00+00:00",
+      "end_time": "2026-06-21T10:30:00+00:00",
+      "status": "published",
+      "notes": null,
+      "is_open": false,
+      "toast_job_guid": null,
+      "created_at": "2026-06-14T19:09:00.967047+00:00",
+      "shift_date": "2026-06-20",
+      "source": "manual",
+      "claim_id": null,
+      "breaks_schedule": [
+        {
+          "type": "meal_30",
+          "status": "scheduled",
+          "end_time": "2026-06-21T02:50:00.000Z",
+          "start_time": "2026-06-21T02:20:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-21T05:20:00.000Z",
+          "start_time": "2026-06-21T05:10:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-21T07:00:00.000Z",
+          "start_time": "2026-06-21T06:50:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-21T09:00:00.000Z",
+          "start_time": "2026-06-21T08:50:00.000Z"
+        }
+      ],
+      "is_callback": false
+    },
+    {
+      "id": "f105bc01-9b3c-4167-9bb1-1769e236652f",
+      "employee_id": "42deef34-31ed-441e-ba89-3531b78fd1d9",
+      "store_id": "80a1ec95-bc73-402e-8884-e5abbe9343e6",
+      "job_id": "6f0aa249-f3a3-4d37-b2c7-832757cf8a0b",
+      "start_time": "2026-06-20T18:00:00+00:00",
+      "end_time": "2026-06-21T04:00:00+00:00",
+      "status": "published",
+      "notes": null,
+      "is_open": false,
+      "toast_job_guid": null,
+      "created_at": "2026-06-14T19:09:00.967047+00:00",
+      "shift_date": "2026-06-20",
+      "source": "manual",
+      "claim_id": null,
+      "breaks_schedule": [
+        {
+          "type": "meal_30",
+          "status": "scheduled",
+          "end_time": "2026-06-20T19:40:00.000Z",
+          "start_time": "2026-06-20T19:10:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-21T00:00:00.000Z",
+          "start_time": "2026-06-20T23:50:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-21T02:10:00.000Z",
+          "start_time": "2026-06-21T02:00:00.000Z"
+        }
+      ],
+      "is_callback": false
+    },
+    {
+      "id": "e38d47e8-2b98-4537-b866-80794653d03e",
+      "employee_id": "fb419508-9a58-49fa-8b53-d1e6f6a74e3f",
+      "store_id": "80a1ec95-bc73-402e-8884-e5abbe9343e6",
+      "job_id": "d6aaecfa-fddf-47fc-9850-e6a5d71556bb",
+      "start_time": "2026-06-22T00:00:00+00:00",
+      "end_time": "2026-06-22T09:00:00+00:00",
+      "status": "published",
+      "notes": null,
+      "is_open": false,
+      "toast_job_guid": null,
+      "created_at": "2026-06-14T19:09:00.967047+00:00",
+      "shift_date": "2026-06-21",
+      "source": "manual",
+      "claim_id": null,
+      "breaks_schedule": [
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-22T01:40:00.000Z",
+          "start_time": "2026-06-22T01:30:00.000Z"
+        },
+        {
+          "type": "meal_30",
+          "status": "scheduled",
+          "end_time": "2026-06-22T03:50:00.000Z",
+          "start_time": "2026-06-22T03:20:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-22T08:00:00.000Z",
+          "start_time": "2026-06-22T07:50:00.000Z"
+        }
+      ],
+      "is_callback": false
+    },
+    {
+      "id": "3cd8eb15-9b6b-4a37-a485-15bf250c9f12",
+      "employee_id": "42deef34-31ed-441e-ba89-3531b78fd1d9",
+      "store_id": "80a1ec95-bc73-402e-8884-e5abbe9343e6",
+      "job_id": "6f0aa249-f3a3-4d37-b2c7-832757cf8a0b",
+      "start_time": "2026-06-21T21:00:00+00:00",
+      "end_time": "2026-06-22T02:00:00+00:00",
+      "status": "published",
+      "notes": null,
+      "is_open": false,
+      "toast_job_guid": null,
+      "created_at": "2026-06-14T19:09:00.967047+00:00",
+      "shift_date": "2026-06-21",
+      "source": "manual",
+      "claim_id": null,
+      "breaks_schedule": [
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-21T23:00:00.000Z",
+          "start_time": "2026-06-21T22:50:00.000Z"
+        }
+      ],
+      "is_callback": false
+    },
+    {
+      "id": "3ab53f4f-75c1-4375-ac60-0a247b255dd8",
+      "employee_id": "42deef34-31ed-441e-ba89-3531b78fd1d9",
+      "store_id": "80a1ec95-bc73-402e-8884-e5abbe9343e6",
+      "job_id": "6f0aa249-f3a3-4d37-b2c7-832757cf8a0b",
+      "start_time": "2026-06-22T17:00:00+00:00",
+      "end_time": "2026-06-23T00:00:00+00:00",
+      "status": "published",
+      "notes": null,
+      "is_open": false,
+      "toast_job_guid": null,
+      "created_at": "2026-06-21T23:25:46.613495+00:00",
+      "shift_date": "2026-06-22",
+      "source": "manual",
+      "claim_id": null,
+      "breaks_schedule": [
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-22T18:40:00.000Z",
+          "start_time": "2026-06-22T18:30:00.000Z"
+        },
+        {
+          "type": "meal_30",
+          "status": "scheduled",
+          "end_time": "2026-06-22T20:00:00.000Z",
+          "start_time": "2026-06-22T19:30:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-22T22:40:00.000Z",
+          "start_time": "2026-06-22T22:30:00.000Z"
+        }
+      ],
+      "is_callback": false
+    },
+    {
+      "id": "3135acd8-9a0d-4817-a4c1-5ee46c04ca8e",
+      "employee_id": "fb419508-9a58-49fa-8b53-d1e6f6a74e3f",
+      "store_id": "80a1ec95-bc73-402e-8884-e5abbe9343e6",
+      "job_id": "d6aaecfa-fddf-47fc-9850-e6a5d71556bb",
+      "start_time": "2026-06-24T00:00:00+00:00",
+      "end_time": "2026-06-24T09:00:00+00:00",
+      "status": "published",
+      "notes": null,
+      "is_open": false,
+      "toast_job_guid": null,
+      "created_at": "2026-06-21T23:25:46.613495+00:00",
+      "shift_date": "2026-06-23",
+      "source": "manual",
+      "claim_id": null,
+      "breaks_schedule": [
+        {
+          "type": "meal_30",
+          "status": "scheduled",
+          "end_time": "2026-06-24T02:10:00.000Z",
+          "start_time": "2026-06-24T01:40:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-24T03:30:00.000Z",
+          "start_time": "2026-06-24T03:20:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-24T07:40:00.000Z",
+          "start_time": "2026-06-24T07:30:00.000Z"
+        }
+      ],
+      "is_callback": false
+    },
+    {
+      "id": "a8ac3e05-ff27-42b9-9f76-a02aad66c524",
+      "employee_id": "42deef34-31ed-441e-ba89-3531b78fd1d9",
+      "store_id": "80a1ec95-bc73-402e-8884-e5abbe9343e6",
+      "job_id": "6f0aa249-f3a3-4d37-b2c7-832757cf8a0b",
+      "start_time": "2026-06-23T21:00:00+00:00",
+      "end_time": "2026-06-24T05:00:00+00:00",
+      "status": "published",
+      "notes": null,
+      "is_open": false,
+      "toast_job_guid": null,
+      "created_at": "2026-06-21T23:25:46.613495+00:00",
+      "shift_date": "2026-06-23",
+      "source": "manual",
+      "claim_id": null,
+      "breaks_schedule": [
+        {
+          "type": "meal_30",
+          "status": "scheduled",
+          "end_time": "2026-06-23T22:30:00.000Z",
+          "start_time": "2026-06-23T22:00:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-24T00:40:00.000Z",
+          "start_time": "2026-06-24T00:30:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-24T02:50:00.000Z",
+          "start_time": "2026-06-24T02:40:00.000Z"
+        }
+      ],
+      "is_callback": false
+    },
+    {
+      "id": "255325ef-4a2b-444d-8761-111fbc45cff8",
+      "employee_id": "fb419508-9a58-49fa-8b53-d1e6f6a74e3f",
+      "store_id": "80a1ec95-bc73-402e-8884-e5abbe9343e6",
+      "job_id": "d6aaecfa-fddf-47fc-9850-e6a5d71556bb",
+      "start_time": "2026-06-25T00:00:00+00:00",
+      "end_time": "2026-06-25T08:30:00+00:00",
+      "status": "published",
+      "notes": null,
+      "is_open": false,
+      "toast_job_guid": null,
+      "created_at": "2026-06-21T23:25:46.613495+00:00",
+      "shift_date": "2026-06-24",
+      "source": "manual",
+      "claim_id": null,
+      "breaks_schedule": [
+        {
+          "type": "meal_30",
+          "status": "scheduled",
+          "end_time": "2026-06-25T01:30:00.000Z",
+          "start_time": "2026-06-25T01:00:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-25T02:40:00.000Z",
+          "start_time": "2026-06-25T02:30:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-25T07:30:00.000Z",
+          "start_time": "2026-06-25T07:20:00.000Z"
+        }
+      ],
+      "is_callback": false
+    },
+    {
+      "id": "1abffc7d-1145-4e3d-b660-c278ce6363a0",
+      "employee_id": "42deef34-31ed-441e-ba89-3531b78fd1d9",
+      "store_id": "80a1ec95-bc73-402e-8884-e5abbe9343e6",
+      "job_id": "6f0aa249-f3a3-4d37-b2c7-832757cf8a0b",
+      "start_time": "2026-06-24T16:00:00+00:00",
+      "end_time": "2026-06-25T00:00:00+00:00",
+      "status": "published",
+      "notes": null,
+      "is_open": false,
+      "toast_job_guid": null,
+      "created_at": "2026-06-21T23:25:46.613495+00:00",
+      "shift_date": "2026-06-24",
+      "source": "manual",
+      "claim_id": null,
+      "breaks_schedule": [
+        {
+          "type": "meal_30",
+          "status": "scheduled",
+          "end_time": "2026-06-24T17:50:00.000Z",
+          "start_time": "2026-06-24T17:20:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-24T19:40:00.000Z",
+          "start_time": "2026-06-24T19:30:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-24T22:00:00.000Z",
+          "start_time": "2026-06-24T21:50:00.000Z"
+        }
+      ],
+      "is_callback": false
+    },
+    {
+      "id": "dbbfd1bc-c35a-4f8f-83d9-d3d615378c09",
+      "employee_id": "fb419508-9a58-49fa-8b53-d1e6f6a74e3f",
+      "store_id": "80a1ec95-bc73-402e-8884-e5abbe9343e6",
+      "job_id": "d6aaecfa-fddf-47fc-9850-e6a5d71556bb",
+      "start_time": "2026-06-26T00:00:00+00:00",
+      "end_time": "2026-06-26T10:00:00+00:00",
+      "status": "published",
+      "notes": null,
+      "is_open": false,
+      "toast_job_guid": null,
+      "created_at": "2026-06-21T23:25:46.613495+00:00",
+      "shift_date": "2026-06-25",
+      "source": "manual",
+      "claim_id": null,
+      "breaks_schedule": [
+        {
+          "type": "meal_30",
+          "status": "scheduled",
+          "end_time": "2026-06-26T02:00:00.000Z",
+          "start_time": "2026-06-26T01:30:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-26T06:50:00.000Z",
+          "start_time": "2026-06-26T06:40:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-26T08:40:00.000Z",
+          "start_time": "2026-06-26T08:30:00.000Z"
+        }
+      ],
+      "is_callback": false
+    },
+    {
+      "id": "67aa1d8e-bc6c-4cf9-bcc6-574065d5aafe",
+      "employee_id": "fb419508-9a58-49fa-8b53-d1e6f6a74e3f",
+      "store_id": "80a1ec95-bc73-402e-8884-e5abbe9343e6",
+      "job_id": "d6aaecfa-fddf-47fc-9850-e6a5d71556bb",
+      "start_time": "2026-06-27T00:00:00+00:00",
+      "end_time": "2026-06-27T11:00:00+00:00",
+      "status": "published",
+      "notes": null,
+      "is_open": false,
+      "toast_job_guid": null,
+      "created_at": "2026-06-21T23:25:46.613495+00:00",
+      "shift_date": "2026-06-26",
+      "source": "manual",
+      "claim_id": null,
+      "breaks_schedule": [
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-27T03:10:00.000Z",
+          "start_time": "2026-06-27T03:00:00.000Z"
+        },
+        {
+          "type": "meal_30",
+          "status": "scheduled",
+          "end_time": "2026-06-27T04:40:00.000Z",
+          "start_time": "2026-06-27T04:10:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-27T06:10:00.000Z",
+          "start_time": "2026-06-27T06:00:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-27T09:30:00.000Z",
+          "start_time": "2026-06-27T09:20:00.000Z"
+        }
+      ],
+      "is_callback": false
+    },
+    {
+      "id": "b5bc531b-b9a3-4570-90dc-bac7320b671a",
+      "employee_id": "42deef34-31ed-441e-ba89-3531b78fd1d9",
+      "store_id": "80a1ec95-bc73-402e-8884-e5abbe9343e6",
+      "job_id": "6f0aa249-f3a3-4d37-b2c7-832757cf8a0b",
+      "start_time": "2026-06-26T18:00:00+00:00",
+      "end_time": "2026-06-27T04:00:00+00:00",
+      "status": "published",
+      "notes": null,
+      "is_open": false,
+      "toast_job_guid": null,
+      "created_at": "2026-06-21T23:25:46.613495+00:00",
+      "shift_date": "2026-06-26",
+      "source": "manual",
+      "claim_id": null,
+      "breaks_schedule": [
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-26T20:30:00.000Z",
+          "start_time": "2026-06-26T20:20:00.000Z"
+        },
+        {
+          "type": "meal_30",
+          "status": "scheduled",
+          "end_time": "2026-06-26T22:10:00.000Z",
+          "start_time": "2026-06-26T21:40:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-27T00:10:00.000Z",
+          "start_time": "2026-06-27T00:00:00.000Z"
+        }
+      ],
+      "is_callback": false
+    },
+    {
+      "id": "f6a9ec94-6aec-4bf8-9ee8-6beb10f6a441",
+      "employee_id": "fb419508-9a58-49fa-8b53-d1e6f6a74e3f",
+      "store_id": "80a1ec95-bc73-402e-8884-e5abbe9343e6",
+      "job_id": "d6aaecfa-fddf-47fc-9850-e6a5d71556bb",
+      "start_time": "2026-06-28T00:00:00+00:00",
+      "end_time": "2026-06-28T10:30:00+00:00",
+      "status": "published",
+      "notes": null,
+      "is_open": false,
+      "toast_job_guid": null,
+      "created_at": "2026-06-21T23:25:46.613495+00:00",
+      "shift_date": "2026-06-27",
+      "source": "manual",
+      "claim_id": null,
+      "breaks_schedule": [
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-28T01:10:00.000Z",
+          "start_time": "2026-06-28T01:00:00.000Z"
+        },
+        {
+          "type": "meal_30",
+          "status": "scheduled",
+          "end_time": "2026-06-28T02:50:00.000Z",
+          "start_time": "2026-06-28T02:20:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-28T04:30:00.000Z",
+          "start_time": "2026-06-28T04:20:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-28T07:00:00.000Z",
+          "start_time": "2026-06-28T06:50:00.000Z"
+        }
+      ],
+      "is_callback": false
+    },
+    {
+      "id": "7c7ba8bc-d8f1-46cb-a292-1a2d21034a7f",
+      "employee_id": "42deef34-31ed-441e-ba89-3531b78fd1d9",
+      "store_id": "80a1ec95-bc73-402e-8884-e5abbe9343e6",
+      "job_id": "6f0aa249-f3a3-4d37-b2c7-832757cf8a0b",
+      "start_time": "2026-06-27T18:00:00+00:00",
+      "end_time": "2026-06-28T04:00:00+00:00",
+      "status": "published",
+      "notes": null,
+      "is_open": false,
+      "toast_job_guid": null,
+      "created_at": "2026-06-21T23:25:46.613495+00:00",
+      "shift_date": "2026-06-27",
+      "source": "manual",
+      "claim_id": null,
+      "breaks_schedule": [
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-27T20:20:00.000Z",
+          "start_time": "2026-06-27T20:10:00.000Z"
+        },
+        {
+          "type": "meal_30",
+          "status": "scheduled",
+          "end_time": "2026-06-27T22:30:00.000Z",
+          "start_time": "2026-06-27T22:00:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-28T01:20:00.000Z",
+          "start_time": "2026-06-28T01:10:00.000Z"
+        }
+      ],
+      "is_callback": false
+    },
+    {
+      "id": "88770046-76b1-4dbf-9699-5050a504ead8",
+      "employee_id": "42deef34-31ed-441e-ba89-3531b78fd1d9",
+      "store_id": "80a1ec95-bc73-402e-8884-e5abbe9343e6",
+      "job_id": "6f0aa249-f3a3-4d37-b2c7-832757cf8a0b",
+      "start_time": "2026-06-28T21:00:00+00:00",
+      "end_time": "2026-06-29T02:00:00+00:00",
+      "status": "published",
+      "notes": null,
+      "is_open": false,
+      "toast_job_guid": null,
+      "created_at": "2026-06-21T23:25:46.613495+00:00",
+      "shift_date": "2026-06-28",
+      "source": "manual",
+      "claim_id": null,
+      "breaks_schedule": [
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-28T22:50:00.000Z",
+          "start_time": "2026-06-28T22:40:00.000Z"
+        }
+      ],
+      "is_callback": false
+    },
+    {
+      "id": "251e606b-a17f-4190-85a1-09d9159a225e",
+      "employee_id": "fb419508-9a58-49fa-8b53-d1e6f6a74e3f",
+      "store_id": "80a1ec95-bc73-402e-8884-e5abbe9343e6",
+      "job_id": "d6aaecfa-fddf-47fc-9850-e6a5d71556bb",
+      "start_time": "2026-06-29T00:00:00+00:00",
+      "end_time": "2026-06-29T09:00:00+00:00",
+      "status": "published",
+      "notes": null,
+      "is_open": false,
+      "toast_job_guid": null,
+      "created_at": "2026-06-21T23:25:46.613495+00:00",
+      "shift_date": "2026-06-28",
+      "source": "manual",
+      "claim_id": null,
+      "breaks_schedule": [
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-29T02:10:00.000Z",
+          "start_time": "2026-06-29T02:00:00.000Z"
+        },
+        {
+          "type": "meal_30",
+          "status": "scheduled",
+          "end_time": "2026-06-29T04:40:00.000Z",
+          "start_time": "2026-06-29T04:10:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-29T08:00:00.000Z",
+          "start_time": "2026-06-29T07:50:00.000Z"
+        }
+      ],
+      "is_callback": false
+    },
+    {
+      "id": "5d29cd2d-7bc0-4e39-a2dc-16846d4e1afe",
+      "employee_id": "42deef34-31ed-441e-ba89-3531b78fd1d9",
+      "store_id": "80a1ec95-bc73-402e-8884-e5abbe9343e6",
+      "job_id": "6f0aa249-f3a3-4d37-b2c7-832757cf8a0b",
+      "start_time": "2026-06-29T17:00:00+00:00",
+      "end_time": "2026-06-30T00:00:00+00:00",
+      "status": "published",
+      "notes": null,
+      "is_open": false,
+      "toast_job_guid": null,
+      "created_at": "2026-06-28T23:55:58.358363+00:00",
+      "shift_date": "2026-06-29",
+      "source": "manual",
+      "claim_id": null,
+      "breaks_schedule": [
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-29T19:20:00.000Z",
+          "start_time": "2026-06-29T19:10:00.000Z"
+        },
+        {
+          "type": "meal_30",
+          "status": "scheduled",
+          "end_time": "2026-06-29T21:00:00.000Z",
+          "start_time": "2026-06-29T20:30:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-06-29T23:10:00.000Z",
+          "start_time": "2026-06-29T23:00:00.000Z"
+        }
+      ],
+      "is_callback": false
+    },
+    {
+      "id": "32ea8532-de63-41ba-8df1-35d55e836b9c",
+      "employee_id": "fb419508-9a58-49fa-8b53-d1e6f6a74e3f",
+      "store_id": "80a1ec95-bc73-402e-8884-e5abbe9343e6",
+      "job_id": "d6aaecfa-fddf-47fc-9850-e6a5d71556bb",
+      "start_time": "2026-07-01T00:00:00+00:00",
+      "end_time": "2026-07-01T09:00:00+00:00",
+      "status": "published",
+      "notes": null,
+      "is_open": false,
+      "toast_job_guid": null,
+      "created_at": "2026-06-28T23:55:58.358363+00:00",
+      "shift_date": "2026-06-30",
+      "source": "manual",
+      "claim_id": null,
+      "breaks_schedule": [
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-07-01T02:10:00.000Z",
+          "start_time": "2026-07-01T02:00:00.000Z"
+        },
+        {
+          "type": "meal_30",
+          "status": "scheduled",
+          "end_time": "2026-07-01T04:00:00.000Z",
+          "start_time": "2026-07-01T03:30:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-07-01T07:40:00.000Z",
+          "start_time": "2026-07-01T07:30:00.000Z"
+        }
+      ],
+      "is_callback": false
+    },
+    {
+      "id": "9ff6a3d5-f46f-4127-93c8-39a8f731201e",
+      "employee_id": "42deef34-31ed-441e-ba89-3531b78fd1d9",
+      "store_id": "80a1ec95-bc73-402e-8884-e5abbe9343e6",
+      "job_id": "6f0aa249-f3a3-4d37-b2c7-832757cf8a0b",
+      "start_time": "2026-06-30T21:00:00+00:00",
+      "end_time": "2026-07-01T05:00:00+00:00",
+      "status": "published",
+      "notes": null,
+      "is_open": false,
+      "toast_job_guid": null,
+      "created_at": "2026-06-28T23:55:58.358363+00:00",
+      "shift_date": "2026-06-30",
+      "source": "manual",
+      "claim_id": null,
+      "breaks_schedule": [
+        {
+          "type": "meal_30",
+          "status": "scheduled",
+          "end_time": "2026-06-30T22:30:00.000Z",
+          "start_time": "2026-06-30T22:00:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-07-01T00:30:00.000Z",
+          "start_time": "2026-07-01T00:20:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-07-01T03:50:00.000Z",
+          "start_time": "2026-07-01T03:40:00.000Z"
+        }
+      ],
+      "is_callback": false
+    }
+  ],
+  "2026-07": [
+    {
+      "id": "79ecddfc-2eb8-43cf-95f4-f219d14d0915",
+      "employee_id": "fb419508-9a58-49fa-8b53-d1e6f6a74e3f",
+      "store_id": "80a1ec95-bc73-402e-8884-e5abbe9343e6",
+      "job_id": "d6aaecfa-fddf-47fc-9850-e6a5d71556bb",
+      "start_time": "2026-07-02T00:00:00+00:00",
+      "end_time": "2026-07-02T08:30:00+00:00",
+      "status": "published",
+      "notes": null,
+      "is_open": false,
+      "toast_job_guid": null,
+      "created_at": "2026-06-28T23:55:58.358363+00:00",
+      "shift_date": "2026-07-01",
+      "source": "manual",
+      "claim_id": null,
+      "breaks_schedule": [
+        {
+          "type": "meal_30",
+          "status": "scheduled",
+          "end_time": "2026-07-02T01:40:00.000Z",
+          "start_time": "2026-07-02T01:10:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-07-02T03:00:00.000Z",
+          "start_time": "2026-07-02T02:50:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-07-02T07:30:00.000Z",
+          "start_time": "2026-07-02T07:20:00.000Z"
+        }
+      ],
+      "is_callback": false
+    },
+    {
+      "id": "842be96c-23b1-4bfa-9f82-eba354e48e7f",
+      "employee_id": "42deef34-31ed-441e-ba89-3531b78fd1d9",
+      "store_id": "80a1ec95-bc73-402e-8884-e5abbe9343e6",
+      "job_id": "6f0aa249-f3a3-4d37-b2c7-832757cf8a0b",
+      "start_time": "2026-07-01T16:00:00+00:00",
+      "end_time": "2026-07-02T00:00:00+00:00",
+      "status": "published",
+      "notes": null,
+      "is_open": false,
+      "toast_job_guid": null,
+      "created_at": "2026-06-28T23:55:58.358363+00:00",
+      "shift_date": "2026-07-01",
+      "source": "manual",
+      "claim_id": null,
+      "breaks_schedule": [
+        {
+          "type": "meal_30",
+          "status": "scheduled",
+          "end_time": "2026-07-01T17:50:00.000Z",
+          "start_time": "2026-07-01T17:20:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-07-01T19:40:00.000Z",
+          "start_time": "2026-07-01T19:30:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-07-01T22:00:00.000Z",
+          "start_time": "2026-07-01T21:50:00.000Z"
+        }
+      ],
+      "is_callback": false
+    },
+    {
+      "id": "e56acbe9-28f5-4210-9bae-675c73a62065",
+      "employee_id": "fb419508-9a58-49fa-8b53-d1e6f6a74e3f",
+      "store_id": "80a1ec95-bc73-402e-8884-e5abbe9343e6",
+      "job_id": "d6aaecfa-fddf-47fc-9850-e6a5d71556bb",
+      "start_time": "2026-07-03T00:00:00+00:00",
+      "end_time": "2026-07-03T10:00:00+00:00",
+      "status": "published",
+      "notes": null,
+      "is_open": false,
+      "toast_job_guid": null,
+      "created_at": "2026-06-28T23:55:58.358363+00:00",
+      "shift_date": "2026-07-02",
+      "source": "manual",
+      "claim_id": null,
+      "breaks_schedule": [
+        {
+          "type": "meal_30",
+          "status": "scheduled",
+          "end_time": "2026-07-03T02:00:00.000Z",
+          "start_time": "2026-07-03T01:30:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-07-03T03:40:00.000Z",
+          "start_time": "2026-07-03T03:30:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-07-03T09:00:00.000Z",
+          "start_time": "2026-07-03T08:50:00.000Z"
+        }
+      ],
+      "is_callback": false
+    },
+    {
+      "id": "4471899a-ca1f-42c3-bd9d-d336e0c9793b",
+      "employee_id": "42deef34-31ed-441e-ba89-3531b78fd1d9",
+      "store_id": "80a1ec95-bc73-402e-8884-e5abbe9343e6",
+      "job_id": "6f0aa249-f3a3-4d37-b2c7-832757cf8a0b",
+      "start_time": "2026-07-03T18:00:00+00:00",
+      "end_time": "2026-07-04T04:00:00+00:00",
+      "status": "published",
+      "notes": null,
+      "is_open": false,
+      "toast_job_guid": null,
+      "created_at": "2026-06-28T23:55:58.358363+00:00",
+      "shift_date": "2026-07-03",
+      "source": "manual",
+      "claim_id": null,
+      "breaks_schedule": [
+        {
+          "type": "meal_30",
+          "status": "scheduled",
+          "end_time": "2026-07-03T20:50:00.000Z",
+          "start_time": "2026-07-03T20:20:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-07-03T23:40:00.000Z",
+          "start_time": "2026-07-03T23:30:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-07-04T01:20:00.000Z",
+          "start_time": "2026-07-04T01:10:00.000Z"
+        }
+      ],
+      "is_callback": false
+    },
+    {
+      "id": "9e60520c-253a-45f4-8066-788db741bae0",
+      "employee_id": "fb419508-9a58-49fa-8b53-d1e6f6a74e3f",
+      "store_id": "80a1ec95-bc73-402e-8884-e5abbe9343e6",
+      "job_id": "d6aaecfa-fddf-47fc-9850-e6a5d71556bb",
+      "start_time": "2026-07-04T00:00:00+00:00",
+      "end_time": "2026-07-04T11:00:00+00:00",
+      "status": "published",
+      "notes": null,
+      "is_open": false,
+      "toast_job_guid": null,
+      "created_at": "2026-06-28T23:55:58.358363+00:00",
+      "shift_date": "2026-07-03",
+      "source": "manual",
+      "claim_id": null,
+      "breaks_schedule": [
+        {
+          "type": "meal_30",
+          "status": "scheduled",
+          "end_time": "2026-07-04T02:50:00.000Z",
+          "start_time": "2026-07-04T02:20:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-07-04T04:20:00.000Z",
+          "start_time": "2026-07-04T04:10:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-07-04T06:10:00.000Z",
+          "start_time": "2026-07-04T06:00:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-07-04T09:30:00.000Z",
+          "start_time": "2026-07-04T09:20:00.000Z"
+        }
+      ],
+      "is_callback": false
+    },
+    {
+      "id": "5f8e73e8-dfdc-4a06-84f4-50d776c601a0",
+      "employee_id": "42deef34-31ed-441e-ba89-3531b78fd1d9",
+      "store_id": "80a1ec95-bc73-402e-8884-e5abbe9343e6",
+      "job_id": "6f0aa249-f3a3-4d37-b2c7-832757cf8a0b",
+      "start_time": "2026-07-04T18:00:00+00:00",
+      "end_time": "2026-07-05T04:00:00+00:00",
+      "status": "published",
+      "notes": null,
+      "is_open": false,
+      "toast_job_guid": null,
+      "created_at": "2026-06-28T23:55:58.358363+00:00",
+      "shift_date": "2026-07-04",
+      "source": "manual",
+      "claim_id": null,
+      "breaks_schedule": [
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-07-04T19:30:00.000Z",
+          "start_time": "2026-07-04T19:20:00.000Z"
+        },
+        {
+          "type": "meal_30",
+          "status": "scheduled",
+          "end_time": "2026-07-04T22:10:00.000Z",
+          "start_time": "2026-07-04T21:40:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-07-05T01:10:00.000Z",
+          "start_time": "2026-07-05T01:00:00.000Z"
+        }
+      ],
+      "is_callback": false
+    },
+    {
+      "id": "5fa8ee16-9cbd-4d91-9b97-792c7c5bdd5e",
+      "employee_id": "fb419508-9a58-49fa-8b53-d1e6f6a74e3f",
+      "store_id": "80a1ec95-bc73-402e-8884-e5abbe9343e6",
+      "job_id": "d6aaecfa-fddf-47fc-9850-e6a5d71556bb",
+      "start_time": "2026-07-05T00:00:00+00:00",
+      "end_time": "2026-07-05T10:30:00+00:00",
+      "status": "published",
+      "notes": null,
+      "is_open": false,
+      "toast_job_guid": null,
+      "created_at": "2026-06-28T23:55:58.358363+00:00",
+      "shift_date": "2026-07-04",
+      "source": "manual",
+      "claim_id": null,
+      "breaks_schedule": [
+        {
+          "type": "meal_30",
+          "status": "scheduled",
+          "end_time": "2026-07-05T02:30:00.000Z",
+          "start_time": "2026-07-05T02:00:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-07-05T03:50:00.000Z",
+          "start_time": "2026-07-05T03:40:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-07-05T06:30:00.000Z",
+          "start_time": "2026-07-05T06:20:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-07-05T08:50:00.000Z",
+          "start_time": "2026-07-05T08:40:00.000Z"
+        }
+      ],
+      "is_callback": false
+    },
+    {
+      "id": "8d480a92-be34-47a8-aced-8c775b0ce2f8",
+      "employee_id": "fb419508-9a58-49fa-8b53-d1e6f6a74e3f",
+      "store_id": "80a1ec95-bc73-402e-8884-e5abbe9343e6",
+      "job_id": "d6aaecfa-fddf-47fc-9850-e6a5d71556bb",
+      "start_time": "2026-07-06T00:00:00+00:00",
+      "end_time": "2026-07-06T09:00:00+00:00",
+      "status": "published",
+      "notes": null,
+      "is_open": false,
+      "toast_job_guid": null,
+      "created_at": "2026-06-28T23:55:58.358363+00:00",
+      "shift_date": "2026-07-05",
+      "source": "manual",
+      "claim_id": null,
+      "breaks_schedule": [
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-07-06T01:50:00.000Z",
+          "start_time": "2026-07-06T01:40:00.000Z"
+        },
+        {
+          "type": "meal_30",
+          "status": "scheduled",
+          "end_time": "2026-07-06T04:30:00.000Z",
+          "start_time": "2026-07-06T04:00:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-07-06T07:30:00.000Z",
+          "start_time": "2026-07-06T07:20:00.000Z"
+        }
+      ],
+      "is_callback": false
+    },
+    {
+      "id": "293b77ff-9339-48be-82af-a1c961de7bae",
+      "employee_id": "42deef34-31ed-441e-ba89-3531b78fd1d9",
+      "store_id": "80a1ec95-bc73-402e-8884-e5abbe9343e6",
+      "job_id": "6f0aa249-f3a3-4d37-b2c7-832757cf8a0b",
+      "start_time": "2026-07-05T21:00:00+00:00",
+      "end_time": "2026-07-06T02:00:00+00:00",
+      "status": "published",
+      "notes": null,
+      "is_open": false,
+      "toast_job_guid": null,
+      "created_at": "2026-06-28T23:55:58.358363+00:00",
+      "shift_date": "2026-07-05",
+      "source": "manual",
+      "claim_id": null,
+      "breaks_schedule": [
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-07-05T22:50:00.000Z",
+          "start_time": "2026-07-05T22:40:00.000Z"
+        }
+      ],
+      "is_callback": false
+    },
+    {
+      "id": "0ad215f7-66fb-4090-9ffa-94b9e17c7e8a",
+      "employee_id": "42deef34-31ed-441e-ba89-3531b78fd1d9",
+      "store_id": "80a1ec95-bc73-402e-8884-e5abbe9343e6",
+      "job_id": "6f0aa249-f3a3-4d37-b2c7-832757cf8a0b",
+      "start_time": "2026-07-06T16:00:00+00:00",
+      "end_time": "2026-07-07T00:00:00+00:00",
+      "status": "published",
+      "notes": "",
+      "is_open": false,
+      "toast_job_guid": null,
+      "created_at": "2026-07-05T21:01:28.836755+00:00",
+      "shift_date": "2026-07-06",
+      "source": "manual",
+      "claim_id": null,
+      "breaks_schedule": [
+        {
+          "type": "meal_30",
+          "status": "scheduled",
+          "end_time": "2026-07-06T19:00:00.000Z",
+          "start_time": "2026-07-06T18:30:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-07-06T21:10:00.000Z",
+          "start_time": "2026-07-06T21:00:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-07-06T23:00:00.000Z",
+          "start_time": "2026-07-06T22:50:00.000Z"
+        }
+      ],
+      "is_callback": false
+    },
+    {
+      "id": "36f457cb-c8b8-48b8-ab42-5a534ff9db6f",
+      "employee_id": "fb419508-9a58-49fa-8b53-d1e6f6a74e3f",
+      "store_id": "80a1ec95-bc73-402e-8884-e5abbe9343e6",
+      "job_id": "d6aaecfa-fddf-47fc-9850-e6a5d71556bb",
+      "start_time": "2026-07-08T00:00:00+00:00",
+      "end_time": "2026-07-08T09:00:00+00:00",
+      "status": "published",
+      "notes": null,
+      "is_open": false,
+      "toast_job_guid": null,
+      "created_at": "2026-07-05T21:01:28.836755+00:00",
+      "shift_date": "2026-07-07",
+      "source": "manual",
+      "claim_id": null,
+      "breaks_schedule": [
+        {
+          "type": "meal_30",
+          "status": "scheduled",
+          "end_time": "2026-07-08T03:00:00.000Z",
+          "start_time": "2026-07-08T02:30:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-07-08T05:40:00.000Z",
+          "start_time": "2026-07-08T05:30:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-07-08T07:40:00.000Z",
+          "start_time": "2026-07-08T07:30:00.000Z"
+        }
+      ],
+      "is_callback": false
+    },
+    {
+      "id": "4385d5cd-33fb-4a8f-b866-f3a9e8805511",
+      "employee_id": "42deef34-31ed-441e-ba89-3531b78fd1d9",
+      "store_id": "80a1ec95-bc73-402e-8884-e5abbe9343e6",
+      "job_id": "6f0aa249-f3a3-4d37-b2c7-832757cf8a0b",
+      "start_time": "2026-07-07T21:00:00+00:00",
+      "end_time": "2026-07-08T05:00:00+00:00",
+      "status": "published",
+      "notes": null,
+      "is_open": false,
+      "toast_job_guid": null,
+      "created_at": "2026-07-05T21:01:28.836755+00:00",
+      "shift_date": "2026-07-07",
+      "source": "manual",
+      "claim_id": null,
+      "breaks_schedule": [
+        {
+          "type": "meal_30",
+          "status": "scheduled",
+          "end_time": "2026-07-07T22:30:00.000Z",
+          "start_time": "2026-07-07T22:00:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-07-07T23:50:00.000Z",
+          "start_time": "2026-07-07T23:40:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-07-08T01:30:00.000Z",
+          "start_time": "2026-07-08T01:20:00.000Z"
+        }
+      ],
+      "is_callback": false
+    },
+    {
+      "id": "00da8493-a789-4dc5-a140-a124cc6676f1",
+      "employee_id": "fb419508-9a58-49fa-8b53-d1e6f6a74e3f",
+      "store_id": "80a1ec95-bc73-402e-8884-e5abbe9343e6",
+      "job_id": "d6aaecfa-fddf-47fc-9850-e6a5d71556bb",
+      "start_time": "2026-07-09T00:00:00+00:00",
+      "end_time": "2026-07-09T08:30:00+00:00",
+      "status": "published",
+      "notes": null,
+      "is_open": false,
+      "toast_job_guid": null,
+      "created_at": "2026-07-05T21:01:28.836755+00:00",
+      "shift_date": "2026-07-08",
+      "source": "manual",
+      "claim_id": null,
+      "breaks_schedule": [
+        {
+          "type": "meal_30",
+          "status": "scheduled",
+          "end_time": "2026-07-09T01:50:00.000Z",
+          "start_time": "2026-07-09T01:20:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-07-09T03:00:00.000Z",
+          "start_time": "2026-07-09T02:50:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-07-09T07:30:00.000Z",
+          "start_time": "2026-07-09T07:20:00.000Z"
+        }
+      ],
+      "is_callback": false
+    },
+    {
+      "id": "4583c9d3-4d36-47d0-861e-d610c9e5d2af",
+      "employee_id": "42deef34-31ed-441e-ba89-3531b78fd1d9",
+      "store_id": "80a1ec95-bc73-402e-8884-e5abbe9343e6",
+      "job_id": "6f0aa249-f3a3-4d37-b2c7-832757cf8a0b",
+      "start_time": "2026-07-08T16:00:00+00:00",
+      "end_time": "2026-07-09T00:00:00+00:00",
+      "status": "published",
+      "notes": null,
+      "is_open": false,
+      "toast_job_guid": null,
+      "created_at": "2026-07-05T21:01:28.836755+00:00",
+      "shift_date": "2026-07-08",
+      "source": "manual",
+      "claim_id": null,
+      "breaks_schedule": [
+        {
+          "type": "meal_30",
+          "status": "scheduled",
+          "end_time": "2026-07-08T17:50:00.000Z",
+          "start_time": "2026-07-08T17:20:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-07-08T19:40:00.000Z",
+          "start_time": "2026-07-08T19:30:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-07-08T22:00:00.000Z",
+          "start_time": "2026-07-08T21:50:00.000Z"
+        }
+      ],
+      "is_callback": false
+    },
+    {
+      "id": "a1cf0d54-022e-4d58-ae4e-84581f725612",
+      "employee_id": "fb419508-9a58-49fa-8b53-d1e6f6a74e3f",
+      "store_id": "80a1ec95-bc73-402e-8884-e5abbe9343e6",
+      "job_id": "d6aaecfa-fddf-47fc-9850-e6a5d71556bb",
+      "start_time": "2026-07-10T00:00:00+00:00",
+      "end_time": "2026-07-10T10:00:00+00:00",
+      "status": "published",
+      "notes": null,
+      "is_open": false,
+      "toast_job_guid": null,
+      "created_at": "2026-07-05T21:01:28.836755+00:00",
+      "shift_date": "2026-07-09",
+      "source": "manual",
+      "claim_id": null,
+      "breaks_schedule": [
+        {
+          "type": "meal_30",
+          "status": "scheduled",
+          "end_time": "2026-07-10T02:50:00.000Z",
+          "start_time": "2026-07-10T02:20:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-07-10T06:10:00.000Z",
+          "start_time": "2026-07-10T06:00:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-07-10T08:20:00.000Z",
+          "start_time": "2026-07-10T08:10:00.000Z"
+        }
+      ],
+      "is_callback": false
+    },
+    {
+      "id": "454d8574-f547-43a7-8101-c295cef1a0fc",
+      "employee_id": "fb419508-9a58-49fa-8b53-d1e6f6a74e3f",
+      "store_id": "80a1ec95-bc73-402e-8884-e5abbe9343e6",
+      "job_id": "d6aaecfa-fddf-47fc-9850-e6a5d71556bb",
+      "start_time": "2026-07-11T00:00:00+00:00",
+      "end_time": "2026-07-11T11:00:00+00:00",
+      "status": "published",
+      "notes": null,
+      "is_open": false,
+      "toast_job_guid": null,
+      "created_at": "2026-07-05T21:01:28.836755+00:00",
+      "shift_date": "2026-07-10",
+      "source": "manual",
+      "claim_id": null,
+      "breaks_schedule": [
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-07-11T01:40:00.000Z",
+          "start_time": "2026-07-11T01:30:00.000Z"
+        },
+        {
+          "type": "meal_30",
+          "status": "scheduled",
+          "end_time": "2026-07-11T04:40:00.000Z",
+          "start_time": "2026-07-11T04:10:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-07-11T06:10:00.000Z",
+          "start_time": "2026-07-11T06:00:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-07-11T09:30:00.000Z",
+          "start_time": "2026-07-11T09:20:00.000Z"
+        }
+      ],
+      "is_callback": false
+    },
+    {
+      "id": "cce3c32e-1d0f-445c-a4db-de4f19d1e3ea",
+      "employee_id": "42deef34-31ed-441e-ba89-3531b78fd1d9",
+      "store_id": "80a1ec95-bc73-402e-8884-e5abbe9343e6",
+      "job_id": "6f0aa249-f3a3-4d37-b2c7-832757cf8a0b",
+      "start_time": "2026-07-10T21:00:00+00:00",
+      "end_time": "2026-07-11T04:00:00+00:00",
+      "status": "published",
+      "notes": "",
+      "is_open": false,
+      "toast_job_guid": null,
+      "created_at": "2026-07-05T21:01:28.836755+00:00",
+      "shift_date": "2026-07-10",
+      "source": "manual",
+      "claim_id": null,
+      "breaks_schedule": [
+        {
+          "type": "meal_30",
+          "status": "scheduled",
+          "end_time": "2026-07-10T22:30:00.000Z",
+          "start_time": "2026-07-10T22:00:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-07-11T00:20:00.000Z",
+          "start_time": "2026-07-11T00:10:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-07-11T02:30:00.000Z",
+          "start_time": "2026-07-11T02:20:00.000Z"
+        }
+      ],
+      "is_callback": false
+    },
+    {
+      "id": "eae008ce-38e9-4921-b43e-cae4327803e4",
+      "employee_id": "fb419508-9a58-49fa-8b53-d1e6f6a74e3f",
+      "store_id": "80a1ec95-bc73-402e-8884-e5abbe9343e6",
+      "job_id": "d6aaecfa-fddf-47fc-9850-e6a5d71556bb",
+      "start_time": "2026-07-12T00:00:00+00:00",
+      "end_time": "2026-07-12T10:30:00+00:00",
+      "status": "published",
+      "notes": null,
+      "is_open": false,
+      "toast_job_guid": null,
+      "created_at": "2026-07-05T21:01:28.836755+00:00",
+      "shift_date": "2026-07-11",
+      "source": "manual",
+      "claim_id": null,
+      "breaks_schedule": [
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-07-12T01:40:00.000Z",
+          "start_time": "2026-07-12T01:30:00.000Z"
+        },
+        {
+          "type": "meal_30",
+          "status": "scheduled",
+          "end_time": "2026-07-12T04:40:00.000Z",
+          "start_time": "2026-07-12T04:10:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-07-12T06:10:00.000Z",
+          "start_time": "2026-07-12T06:00:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-07-12T08:10:00.000Z",
+          "start_time": "2026-07-12T08:00:00.000Z"
+        }
+      ],
+      "is_callback": false
+    },
+    {
+      "id": "0f6d6c61-e3bf-4350-bea2-0e5a50c67cd7",
+      "employee_id": "42deef34-31ed-441e-ba89-3531b78fd1d9",
+      "store_id": "80a1ec95-bc73-402e-8884-e5abbe9343e6",
+      "job_id": "6f0aa249-f3a3-4d37-b2c7-832757cf8a0b",
+      "start_time": "2026-07-11T21:00:00+00:00",
+      "end_time": "2026-07-12T04:00:00+00:00",
+      "status": "published",
+      "notes": "",
+      "is_open": false,
+      "toast_job_guid": null,
+      "created_at": "2026-07-05T21:01:28.836755+00:00",
+      "shift_date": "2026-07-11",
+      "source": "manual",
+      "claim_id": null,
+      "breaks_schedule": [
+        {
+          "type": "meal_30",
+          "status": "scheduled",
+          "end_time": "2026-07-11T22:30:00.000Z",
+          "start_time": "2026-07-11T22:00:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-07-12T00:20:00.000Z",
+          "start_time": "2026-07-12T00:10:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-07-12T02:30:00.000Z",
+          "start_time": "2026-07-12T02:20:00.000Z"
+        }
+      ],
+      "is_callback": false
+    },
+    {
+      "id": "61d00dff-9ce3-45bf-a57b-8abfd5338ee3",
+      "employee_id": "fb419508-9a58-49fa-8b53-d1e6f6a74e3f",
+      "store_id": "80a1ec95-bc73-402e-8884-e5abbe9343e6",
+      "job_id": "d6aaecfa-fddf-47fc-9850-e6a5d71556bb",
+      "start_time": "2026-07-13T00:00:00+00:00",
+      "end_time": "2026-07-13T09:00:00+00:00",
+      "status": "published",
+      "notes": null,
+      "is_open": false,
+      "toast_job_guid": null,
+      "created_at": "2026-07-05T21:01:28.836755+00:00",
+      "shift_date": "2026-07-12",
+      "source": "manual",
+      "claim_id": null,
+      "breaks_schedule": [
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-07-13T01:40:00.000Z",
+          "start_time": "2026-07-13T01:30:00.000Z"
+        },
+        {
+          "type": "meal_30",
+          "status": "scheduled",
+          "end_time": "2026-07-13T03:50:00.000Z",
+          "start_time": "2026-07-13T03:20:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-07-13T08:00:00.000Z",
+          "start_time": "2026-07-13T07:50:00.000Z"
+        }
+      ],
+      "is_callback": false
+    },
+    {
+      "id": "54e433f8-078b-4f05-ad2f-08e4241bb1ff",
+      "employee_id": "42deef34-31ed-441e-ba89-3531b78fd1d9",
+      "store_id": "80a1ec95-bc73-402e-8884-e5abbe9343e6",
+      "job_id": "6f0aa249-f3a3-4d37-b2c7-832757cf8a0b",
+      "start_time": "2026-07-12T21:00:00+00:00",
+      "end_time": "2026-07-13T02:00:00+00:00",
+      "status": "published",
+      "notes": null,
+      "is_open": false,
+      "toast_job_guid": null,
+      "created_at": "2026-07-05T21:01:28.836755+00:00",
+      "shift_date": "2026-07-12",
+      "source": "manual",
+      "claim_id": null,
+      "breaks_schedule": [
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-07-12T22:50:00.000Z",
+          "start_time": "2026-07-12T22:40:00.000Z"
+        }
+      ],
+      "is_callback": false
+    },
+    {
+      "id": "3230158d-e41c-4df1-a6f8-2e1275aa6c38",
+      "employee_id": "42deef34-31ed-441e-ba89-3531b78fd1d9",
+      "store_id": "80a1ec95-bc73-402e-8884-e5abbe9343e6",
+      "job_id": "6f0aa249-f3a3-4d37-b2c7-832757cf8a0b",
+      "start_time": "2026-07-13T16:00:00+00:00",
+      "end_time": "2026-07-14T00:00:00+00:00",
+      "status": "published",
+      "notes": null,
+      "is_open": false,
+      "toast_job_guid": null,
+      "created_at": "2026-07-12T22:25:47.49199+00:00",
+      "shift_date": "2026-07-13",
+      "source": "manual",
+      "claim_id": null,
+      "breaks_schedule": [
+        {
+          "type": "meal_30",
+          "status": "scheduled",
+          "end_time": "2026-07-13T17:30:00.000Z",
+          "start_time": "2026-07-13T17:00:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-07-13T19:00:00.000Z",
+          "start_time": "2026-07-13T18:50:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-07-13T22:20:00.000Z",
+          "start_time": "2026-07-13T22:10:00.000Z"
+        }
+      ],
+      "is_callback": false
+    },
+    {
+      "id": "5bbd2330-eeeb-410e-85e8-73e8871c04c0",
+      "employee_id": "42deef34-31ed-441e-ba89-3531b78fd1d9",
+      "store_id": "80a1ec95-bc73-402e-8884-e5abbe9343e6",
+      "job_id": "6f0aa249-f3a3-4d37-b2c7-832757cf8a0b",
+      "start_time": "2026-07-14T21:00:00+00:00",
+      "end_time": "2026-07-15T05:00:00+00:00",
+      "status": "published",
+      "notes": null,
+      "is_open": false,
+      "toast_job_guid": null,
+      "created_at": "2026-07-12T22:25:47.49199+00:00",
+      "shift_date": "2026-07-14",
+      "source": "manual",
+      "claim_id": null,
+      "breaks_schedule": [
+        {
+          "type": "meal_30",
+          "status": "scheduled",
+          "end_time": "2026-07-14T22:30:00.000Z",
+          "start_time": "2026-07-14T22:00:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-07-15T00:40:00.000Z",
+          "start_time": "2026-07-15T00:30:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-07-15T03:00:00.000Z",
+          "start_time": "2026-07-15T02:50:00.000Z"
+        }
+      ],
+      "is_callback": false
+    },
+    {
+      "id": "a46513a6-0065-46f7-bd2f-ed13e930390c",
+      "employee_id": "fb419508-9a58-49fa-8b53-d1e6f6a74e3f",
+      "store_id": "80a1ec95-bc73-402e-8884-e5abbe9343e6",
+      "job_id": "d6aaecfa-fddf-47fc-9850-e6a5d71556bb",
+      "start_time": "2026-07-15T00:00:00+00:00",
+      "end_time": "2026-07-15T09:00:00+00:00",
+      "status": "published",
+      "notes": null,
+      "is_open": false,
+      "toast_job_guid": null,
+      "created_at": "2026-07-12T22:25:47.49199+00:00",
+      "shift_date": "2026-07-14",
+      "source": "manual",
+      "claim_id": null,
+      "breaks_schedule": [
+        {
+          "type": "meal_30",
+          "status": "scheduled",
+          "end_time": "2026-07-15T02:30:00.000Z",
+          "start_time": "2026-07-15T02:00:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-07-15T05:20:00.000Z",
+          "start_time": "2026-07-15T05:10:00.000Z"
+        },
+        {
+          "type": "rest_10",
+          "status": "scheduled",
+          "end_time": "2026-07-15T07:40:00.000Z",
+          "start_time": "2026-07-15T07:30:00.000Z"
+        }
+      ],
+      "is_callback": false
+    }
+  ],
+  "2026-08": []
+}

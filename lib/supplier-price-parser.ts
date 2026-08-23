@@ -124,7 +124,16 @@ function cleanCommentText(rawComment?: string): string {
  * Ej: "1000 count", "12/1000 count", "24/300 count", "4/1 gal", "5 gal BIB"
  */
 export function inferPackQuantity(unitStr: string, descStr?: string): number {
-  const combined = `${unitStr || ''} ${descStr || ''}`.toLowerCase().trim()
+  let combined = `${unitStr || ''} ${descStr || ''}`.toLowerCase().trim()
+  // Limpiar comas en números como 2,500
+  combined = combined.replace(/(\d+),(\d+)/g, '$1$2')
+
+  // Formato tipo botellas / líquidos: 12/32 OZ -> 12 unidades
+  const bottleMatch = combined.match(/(\d+)\s*\/\s*(\d+)\s*(?:oz|fl\.?\s*oz|ounce|ounces|lb|lbs)/i)
+  if (bottleMatch) {
+    const p1 = parseInt(bottleMatch[1], 10)
+    if (!isNaN(p1) && p1 > 0) return p1
+  }
 
   // 12/1000 count, 20/250, 10/100, 4/1 gal, 24/300, 6/500, 24/250
   const slashMatch = combined.match(/(\d+)\s*\/\s*(\d+)(?:\s*(?:count|ct|cs|pk|pza|gal|gallon|rolls|sheets|gloves|napkins|bags|totes))?/i)
@@ -136,8 +145,8 @@ export function inferPackQuantity(unitStr: string, descStr?: string): number {
     }
   }
 
-  // 1000 count, 500 count, 2000ct, 250 count
-  const countMatch = combined.match(/(\d+)\s*(?:count|ct|pcs|pieces|pza|pzas|sheets|gloves|napkins|bags|rolls)/i)
+  // 1000 count, 500 count, 2000ct, 250 count, 2500/cs, 500 pzas
+  const countMatch = combined.match(/(\d+)\s*(?:\/)?\s*(?:count|ct|pcs|pieces|pza|pzas|sheets|gloves|napkins|bags|rolls|cs)/i)
   if (countMatch) {
     const p = parseInt(countMatch[1], 10)
     if (!isNaN(p) && p > 0) return p
@@ -155,6 +164,29 @@ export function inferPackQuantity(unitStr: string, descStr?: string): number {
   if (csMatch) {
     const p = parseInt(csMatch[1], 10)
     if (!isNaN(p) && p > 0) return p
+  }
+
+  // Fallback para SKUs conocidos de empaques de alta rotación
+  const upperCombined = `${unitStr || ''} ${descStr || ''}`.toUpperCase()
+  const KNOWN_SKU_PACK_MAP: Record<string, number> = {
+    EP9PR: 500,
+    EL4OZ: 2500,
+    ELDP32: 500,
+    ELDP24: 500,
+    ELDP16: 1000,
+    '117SYLPR': 1800,
+    '12PR': 1000,
+    '108SPOON': 144,
+    '10WRTO': 12000,
+    '2611000': 12,
+    '2HOMA': 300,
+    '4HOMA': 300,
+    '44OZ': 1000
+  }
+  for (const [sku, qty] of Object.entries(KNOWN_SKU_PACK_MAP)) {
+    if (upperCombined.includes(sku)) {
+      return qty
+    }
   }
 
   return 1
@@ -359,7 +391,7 @@ function parseHorizontalTable(rawLines: string[], detectedFormat: 'tab_separated
     if (detectedFormat === 'tab_separated_table') {
       cols = line.split('\t').map(c => c.trim())
     } else if (detectedFormat === 'csv') {
-      const matches = line.match(/(?:\"([^\"]*(?:\"\"[^\"]*)*)\"|([^\",]+))/g)
+      const matches = line.match(/"(?:[^"]|"")*"|[^,]+/g)
       cols = matches ? matches.map(m => m.replace(/^"|"$/g, '').replace(/""/g, '"').trim()) : line.split(',').map(c => c.trim())
     } else {
       cols = line.split(/\s{2,}|\s*\|\s*/).map(c => c.trim())
@@ -411,7 +443,10 @@ function parseHorizontalTable(rawLines: string[], detectedFormat: 'tab_separated
       if (cols.length >= 5) {
         unit = cols[3] || 'CS'
         price = cleanPriceNumber(cols[4])
-      } else if (cols.length >= 3) {
+      } else if (cols.length === 4) {
+        unit = cols[2] || 'CS'
+        price = cleanPriceNumber(cols[3])
+      } else if (cols.length === 3) {
         price = cleanPriceNumber(cols[2])
       }
     }

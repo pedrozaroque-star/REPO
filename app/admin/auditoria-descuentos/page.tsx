@@ -496,14 +496,14 @@ export default function AuditoriaDescuentos() {
                     <div>
                         <div className="flex items-center gap-3 mb-2">
                              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-400 border border-amber-200 shadow-sm">
-                                ACTIVE AUDIT
+                                {t('descuentos.active_audit')}
                             </span>
                              <button
                                 onClick={() => setShowWizard(true)}
                                 className="px-2.5 py-0.5 rounded text-[10px] font-bold bg-red-500 hover:bg-red-600 transition-colors text-white shadow-sm shadow-red-500/30 flex items-center gap-1.5 cursor-pointer"
                             >
                                 <ShieldAlert size={12} className={riskAlerts.data.length > 0 ? "animate-pulse" : ""} />
-                                Radar de Riesgos (15 Días)
+                                {t('descuentos.risk_radar_15_days')}
                             </button>
                         </div>
                         <h1 className="text-3xl md:text-4xl font-semibold tracking-tight text-slate-900 dark:text-white flex items-center gap-2">
@@ -518,7 +518,7 @@ export default function AuditoriaDescuentos() {
                             <button 
                                 onClick={() => shiftDate(-1)}
                                 className="p-1.5 text-slate-500 hover:text-slate-900 hover:bg-slate-200 dark:hover:text-white dark:hover:bg-slate-700 rounded-lg transition-colors cursor-pointer"
-                                title="Día Anterior"
+                                title={t('descuentos.prev_day')}
                             >
                                 <ChevronLeft className="w-5 h-5" />
                             </button>
@@ -536,7 +536,7 @@ export default function AuditoriaDescuentos() {
                                 onClick={() => shiftDate(1)}
                                 disabled={isTodayOrFuture}
                                 className="p-1.5 text-slate-500 hover:text-slate-900 hover:bg-slate-200 dark:hover:text-white dark:hover:bg-slate-700 rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
-                                title="Día Siguiente"
+                                title={t('descuentos.next_day')}
                             >
                                 <ChevronRight className="w-5 h-5" />
                             </button>
@@ -563,11 +563,11 @@ export default function AuditoriaDescuentos() {
                                 onChange={e => setFocusKeyword(e.target.value)}
                                 className="bg-transparent text-slate-700 dark:text-slate-300 border-none outline-none focus:ring-0 text-sm font-medium appearance-none w-full pr-4 text-amber-600 dark:text-amber-500"
                             >
-                                <option value="all">Foco Global: Todos</option>
-                                <option value="senior">Foco Global: Seniors</option>
+                                <option value="all">{t('descuentos.focus_all')}</option>
+                                <option value="senior">{t('descuentos.focus_seniors')}</option>
                                 <optgroup label="Descuentos del Día">
                                     {uniqueDiscountTypes.map(s => (
-                                        <option key={s} value={s}>Analizar: {s}</option>
+                                        <option key={s} value={s}>{t('descuentos.focus_prefix')} {s}</option>
                                     ))}
                                 </optgroup>
                             </select>
@@ -599,7 +599,7 @@ export default function AuditoriaDescuentos() {
                                 disabled={loading || !startDate}
                                 className="w-full sm:w-auto px-4 py-2 bg-slate-900 hover:bg-slate-800 disabled:opacity-50 dark:bg-slate-100 dark:hover:bg-white text-white dark:text-slate-900 rounded-xl font-bold text-sm transition-all shadow-md flex justify-center items-center gap-2"
                             >
-                                {loading ? 'Escaneando cajas...' : `📡 Sincronizar desde Toast (${startDate})`}
+                                {loading ? t('descuentos.syncing') : `📡 ${t('descuentos.sync_toast')} (${startDate})`}
                             </button>
                         </div>
                     </div>
@@ -612,25 +612,25 @@ export default function AuditoriaDescuentos() {
                         <div className="absolute -right-4 -top-4 opacity-5">
                             <AlertTriangle className="w-32 h-32 text-amber-500" />
                         </div>
-                        <h2 className="text-slate-500 dark:text-slate-400 font-semibold tracking-wide uppercase text-xs mb-1 truncate">TOTAL APLICADO EN: {focusKeyword === 'senior' ? 'SENIOR DISCOUNT' : focusKeyword === 'all' ? 'TODOS LOS DESCUENTOS' : focusKeyword.toUpperCase()}</h2>
+                        <h2 className="text-slate-500 dark:text-slate-400 font-semibold tracking-wide uppercase text-xs mb-1 truncate">{t('descuentos.kpi_focus_total')} {focusKeyword === 'senior' ? 'SENIOR DISCOUNT' : focusKeyword === 'all' ? 'TODOS LOS DESCUENTOS' : focusKeyword.toUpperCase()}</h2>
                         <div className="text-4xl font-extrabold text-amber-600 dark:text-amber-500">${totalSeniorAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
                         <div className="mt-2 text-slate-600 dark:text-slate-400 text-sm font-medium bg-amber-50 dark:bg-amber-500/10 inline-table px-2 py-1 rounded w-fit border border-amber-100 dark:border-amber-500/20">
-                            {seniors.length.toLocaleString('en-US')} Aplicaciones detectadas
+                            {seniors.length.toLocaleString('en-US')} {t('descuentos.kpi_focus_apps')}
                         </div>
                     </div>
 
                     {/* Other Discounts KPI */}
                     <div className="bg-white dark:bg-slate-900/50 border border-black/5 dark:border-slate-800 p-6 rounded-xl flex flex-col justify-between shadow-sm">
-                        <h2 className="text-slate-500 dark:text-slate-400 font-semibold tracking-wide uppercase text-xs mb-1">Other Discounts</h2>
+                        <h2 className="text-slate-500 dark:text-slate-400 font-semibold tracking-wide uppercase text-xs mb-1">{t('descuentos.kpi_other_discounts')}</h2>
                         <div className="text-3xl font-bold text-slate-700 dark:text-slate-200">${totalOtherAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-                        <div className="mt-2 text-slate-500 text-sm">{others.length.toLocaleString('en-US')} Transacciones ordinarias</div>
+                        <div className="mt-2 text-slate-500 text-sm">{others.length.toLocaleString('en-US')} {t('descuentos.kpi_other_desc')}</div>
                     </div>
 
                     {/* Grand Total */}
                     <div className="bg-slate-50 dark:bg-slate-900/80 border border-black/5 dark:border-slate-800 p-6 rounded-xl flex flex-col justify-between shadow-sm">
-                        <h2 className="text-slate-500 dark:text-slate-400 font-semibold tracking-wide uppercase text-xs mb-1">Grand Total</h2>
+                        <h2 className="text-slate-500 dark:text-slate-400 font-semibold tracking-wide uppercase text-xs mb-1">{t('descuentos.kpi_grand_total')}</h2>
                         <div className="text-3xl font-bold text-slate-900 dark:text-white">${(totalSeniorAmount + totalOtherAmount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-                        <div className="mt-2 text-slate-500 text-sm">Suma de todos los descuentos del día</div>
+                        <div className="mt-2 text-slate-500 text-sm">{t('descuentos.kpi_grand_desc')}</div>
                     </div>
                 </div>
 
@@ -655,7 +655,7 @@ export default function AuditoriaDescuentos() {
                             
                             <div className="p-0 grid grid-cols-1 md:grid-cols-2">
                                 <div className="p-5 border-b md:border-b-0 md:border-r border-black/5 dark:border-slate-800 bg-white dark:bg-transparent">
-                                    <h4 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-4">Top Cajeras Aplicando {focusKeyword === 'senior' ? 'Senior' : focusKeyword === 'all' ? 'Descuentos' : focusKeyword}</h4>
+                                    <h4 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-4">{t('descuentos.top_cashiers_applying')} {focusKeyword === 'senior' ? 'Senior' : focusKeyword === 'all' ? 'Descuentos' : focusKeyword}</h4>
                                     <div className="space-y-3">
                                         {topSeniorApprovers.length === 0 && <p className="text-slate-500 text-sm italic">Sin datos para mostrar.</p>}
                                         {topSeniorApprovers.map(([name, data], i) => (
@@ -675,7 +675,7 @@ export default function AuditoriaDescuentos() {
                                                     <div>
                                                         <div className="flex items-center gap-2">
                                                             <p className="text-sm font-bold text-slate-700 dark:text-slate-200 group-hover:text-amber-600 dark:group-hover:text-amber-400 transition-colors">{name}</p>
-                                                            <span className="opacity-0 group-hover:opacity-100 text-[9px] bg-slate-200 dark:bg-slate-700 px-1.5 py-0.5 rounded font-bold text-slate-600 dark:text-slate-300 transition-opacity">Ver Detalles</span>
+                                                            <span className="opacity-0 group-hover:opacity-100 text-[9px] bg-slate-200 dark:bg-slate-700 px-1.5 py-0.5 rounded font-bold text-slate-600 dark:text-slate-300 transition-opacity">{t('descuentos.view_details')}</span>
                                                         </div>
                                                         <p className="text-[10px] font-semibold uppercase text-slate-400">{data.store}</p>
                                                     </div>
@@ -691,8 +691,8 @@ export default function AuditoriaDescuentos() {
                                 
                                 <div className="p-5 bg-slate-50/50 dark:bg-slate-900/20">
                                     <h4 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-4 flex justify-between">
-                                        <span>Últimas Transacciones</span>
-                                        <span className="text-[10px] normal-case font-normal">Hora exacta Toast</span>
+                                        <span>{t('descuentos.latest_transactions')}</span>
+                                        <span className="text-[10px] normal-case font-normal">{t('descuentos.exact_toast_time')}</span>
                                     </h4>
                                     <div className="max-h-[350px] overflow-y-auto pr-2 space-y-3 custom-scrollbar">
                                         {seniors.length === 0 && <p className="text-slate-500 text-sm italic">N/A</p>}
@@ -752,7 +752,7 @@ export default function AuditoriaDescuentos() {
                             <div className="p-5 border-b border-black/5 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50 flex justify-between items-center">
                                 <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200 flex items-center gap-2">
                                     {isSingleStore ? <User className="w-5 h-5 text-emerald-500" /> : <Store className="w-5 h-5 text-sky-500" />}
-                                    {isSingleStore ? 'Impact by Cashier' : 'Impact by Location'}
+                                    {isSingleStore ? t('descuentos.impact_by_cashier') : t('descuentos.impact_by_location')}
                                 </h3>
                                 <span className="text-[10px] uppercase font-bold text-slate-400">
                                     {isSingleStore ? `Top 15 - ${storeImpactData[0].name}` : 'All'}
@@ -760,7 +760,7 @@ export default function AuditoriaDescuentos() {
                             </div>
                             <div className="p-5 flex-1 w-full min-h-[400px] h-full flex flex-col">
                                 {storeImpactData.length === 0 ? (
-                                    <div className="h-full flex items-center justify-center"><p className="text-slate-400 italic text-sm">Not enough data to graph.</p></div>
+                                    <div className="h-full flex items-center justify-center"><p className="text-slate-400 italic text-sm">{t('descuentos.no_chart_data')}</p></div>
                                 ) : (
                                     <ResponsiveContainer width="100%" height="100%">
                                         <BarChart
@@ -823,16 +823,16 @@ export default function AuditoriaDescuentos() {
                             {/* Tabla 1: Resumen General (Discount Reasons) */}
                             <div className="bg-white dark:bg-slate-900 border border-black/5 dark:border-slate-800 rounded-2xl shadow-xl overflow-hidden flex flex-col">
                                 <div className="p-5 border-b border-black/5 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50 flex items-center justify-between">
-                                    <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200">Resumen General de Descuentos</h3>
+                                    <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200">{t('descuentos.general_summary')}</h3>
                                     <span className="text-[10px] uppercase font-bold text-slate-400 bg-transparent px-2 py-0.5 rounded border border-slate-200 dark:border-slate-700">Discount Reasons (Toast)</span>
                                 </div>
                                 <div className="overflow-x-auto max-h-[500px] custom-scrollbar">
                                     <table className="w-full text-left text-sm whitespace-nowrap">
                                         <thead className="text-[11px] uppercase tracking-wider text-slate-500 bg-slate-50/80 dark:bg-slate-900/80 border-b border-slate-100 dark:border-slate-800 sticky top-0 backdrop-blur-md z-10">
                                             <tr>
-                                                <th className="px-5 py-3 font-semibold">Tipo de Descuento</th>
-                                                <th className="px-5 py-3 font-semibold text-right">Cant.</th>
-                                                <th className="px-5 py-3 font-semibold text-right">Monto Total</th>
+                                                <th className="px-5 py-3 font-semibold">{t('descuentos.discount_type')}</th>
+                                                <th className="px-5 py-3 font-semibold text-right">{t('descuentos.col_count')}</th>
+                                                <th className="px-5 py-3 font-semibold text-right">{t('descuentos.col_total')}</th>
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
@@ -844,7 +844,7 @@ export default function AuditoriaDescuentos() {
                                                     <td className="px-5 py-3 font-bold text-slate-700 dark:text-slate-300">
                                                         <div className="flex items-center justify-between">
                                                             {name}
-                                                            <span className="opacity-0 group-hover:opacity-100 text-[10px] bg-slate-200 dark:bg-slate-700 px-2 py-0.5 rounded text-slate-600 dark:text-slate-300 transition-opacity">Ver Detalles</span>
+                                                            <span className="opacity-0 group-hover:opacity-100 text-[10px] bg-slate-200 dark:bg-slate-700 px-2 py-0.5 rounded text-slate-600 dark:text-slate-300 transition-opacity">{t('descuentos.view_details')}</span>
                                                         </div>
                                                     </td>
                                                     <td className="px-5 py-3 text-right text-slate-600 dark:text-slate-400 font-mono">{data.count.toLocaleString('en-US')}</td>
@@ -854,7 +854,7 @@ export default function AuditoriaDescuentos() {
                                         </tbody>
                                         <tfoot className="bg-slate-100 dark:bg-slate-800/80 border-t border-slate-200 dark:border-slate-700 font-bold sticky bottom-0 z-10">
                                             <tr>
-                                                <td className="px-5 py-3 text-slate-800 dark:text-slate-200">GRAN TOTAL</td>
+                                                <td className="px-5 py-3 text-slate-800 dark:text-slate-200">{t('descuentos.kpi_grand_total')}</td>
                                                 <td className="px-5 py-3 text-right text-slate-900 dark:text-white font-mono">{discountReasonsTable.reduce((sum, [_, d]) => sum + d.count, 0).toLocaleString('en-US')}</td>
                                                 <td className="px-5 py-3 text-right text-emerald-600 dark:text-emerald-400 font-mono text-lg">${discountReasonsTable.reduce((sum, [_, d]) => sum + d.amount, 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                                             </tr>
@@ -866,17 +866,17 @@ export default function AuditoriaDescuentos() {
                             {/* Tabla 2: Desglose por Empleado (Discount by Employee) */}
                             <div className="bg-white dark:bg-slate-900 border border-black/5 dark:border-slate-800 rounded-2xl shadow-xl overflow-hidden flex flex-col">
                                 <div className="p-5 border-b border-black/5 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50 flex items-center justify-between">
-                                    <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200">Desglose a Fondo Por Cajero(a)</h3>
+                                    <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200">{t('descuentos.breakdown_by_cashier')}</h3>
                                     <span className="text-[10px] uppercase font-bold text-slate-400 bg-transparent px-2 py-0.5 rounded border border-slate-200 dark:border-slate-700">Por Empleado (Toast)</span>
                                 </div>
                                 <div className="overflow-x-auto max-h-[500px] custom-scrollbar">
                                     <table className="w-full min-w-[500px] text-left text-sm">
                                         <thead className="text-[11px] uppercase tracking-wider text-slate-500 bg-slate-50/80 dark:bg-slate-900/80 border-b border-slate-100 dark:border-slate-800 sticky top-0 backdrop-blur-md z-10">
                                             <tr>
-                                                <th className="px-4 sm:px-5 py-3 font-semibold min-w-[120px] max-w-[200px]">Cajero(a)</th>
-                                                <th className="px-4 sm:px-5 py-3 font-semibold">Tipo Detectado</th>
-                                                <th className="px-4 sm:px-5 py-3 font-semibold text-right whitespace-nowrap">Cant.</th>
-                                                <th className="px-4 sm:px-5 py-3 font-semibold text-right whitespace-nowrap">Monto</th>
+                                                <th className="px-4 sm:px-5 py-3 font-semibold min-w-[120px] max-w-[200px]">{t('descuentos.col_cashier')}</th>
+                                                <th className="px-4 sm:px-5 py-3 font-semibold">{t('descuentos.discount_type')}</th>
+                                                <th className="px-4 sm:px-5 py-3 font-semibold text-right whitespace-nowrap">{t('descuentos.col_count')}</th>
+                                                <th className="px-4 sm:px-5 py-3 font-semibold text-right whitespace-nowrap">{t('descuentos.amount')}</th>
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
@@ -1121,7 +1121,7 @@ export default function AuditoriaDescuentos() {
                     <div className="bg-white dark:bg-slate-900/90 rounded-none md:rounded-xl shadow-2xl w-full max-w-sm max-h-[90vh] flex flex-col font-mono text-sm border-2 border-slate-200 dark:border-slate-700" onClick={e => e.stopPropagation()}>
                         
                         <div className="p-4 border-b-2 border-dashed border-slate-300 dark:border-slate-700 font-bold text-center bg-white dark:bg-slate-800 md:rounded-t-xl shrink-0">
-                            RECIBO TICKET #{orderDetailData.checkId}
+                            {t('descuentos.receipt_ticket')} #{orderDetailData.checkId}
                             {orderDetailData.loading && <p className="text-amber-500 animate-pulse text-xs mt-1">Conectando con cajero virtual...</p>}
                         </div>
                         
@@ -1228,13 +1228,13 @@ export default function AuditoriaDescuentos() {
 
                                             return (
                                                 <>
-                                                    <div className="flex justify-between text-slate-500"><span>Subtotal bruto:</span> <span>${subtotalBruto.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
+                                                    <div className="flex justify-between text-slate-500"><span>{t('descuentos.subtotal_gross')}</span> <span>${subtotalBruto.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
                                                     {totalDiscounts > 0.009 && (
-                                                        <div className="flex justify-between font-bold text-amber-600 dark:text-amber-400"><span>Descuentos prorrateados aplicados:</span> <span>-${totalDiscounts.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
+                                                        <div className="flex justify-between font-bold text-amber-600 dark:text-amber-400"><span>{t('descuentos.discounts_applied')}</span> <span>-${totalDiscounts.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
                                                     )}
-                                                    <div className="flex justify-between text-slate-700 dark:text-slate-300 font-semibold mt-1"><span>Subtotal neto:</span> <span>${subtotalNeto.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
-                                                    <div className="flex justify-between text-slate-500"><span>Tax:</span> <span>${Number(check.taxAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
-                                                    <div className="flex justify-between font-bold text-lg mt-2 text-slate-900 dark:text-white border-t border-slate-200 dark:border-slate-800 pt-2"><span>TOTAL:</span> <span>${(Number(check.totalAmount || 0)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
+                                                    <div className="flex justify-between text-slate-700 dark:text-slate-300 font-semibold mt-1"><span>{t('descuentos.subtotal_net')}</span> <span>${subtotalNeto.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
+                                                    <div className="flex justify-between text-slate-500"><span>{t('descuentos.tax')}</span> <span>${Number(check.taxAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
+                                                    <div className="flex justify-between font-bold text-lg mt-2 text-slate-900 dark:text-white border-t border-slate-200 dark:border-slate-800 pt-2"><span>{t('descuentos.total')}</span> <span>${(Number(check.totalAmount || 0)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
                                                 </>
                                             );
                                         })()}
@@ -1257,7 +1257,7 @@ export default function AuditoriaDescuentos() {
                         
                         <div className="p-3 text-center border-t-2 border-dashed border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 md:rounded-b-xl shrink-0">
                             <button onClick={() => setOrderDetailData(null)} className="text-xs uppercase tracking-widest font-bold text-slate-500 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-700 px-6 py-2 rounded transition-colors w-full border border-slate-200 dark:border-slate-700 cursor-pointer">
-                                Cerrar Recibo
+                                {t('descuentos.close_receipt')}
                             </button>
                         </div>
                     </div>

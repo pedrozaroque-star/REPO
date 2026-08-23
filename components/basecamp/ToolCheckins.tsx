@@ -17,7 +17,7 @@
 
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import { useLanguage } from '@/lib/i18n'
 import { HelpCircle, Send, MessageSquare, User, Clock, Loader2, ChevronRight } from 'lucide-react'
 import { getSupabaseWithAuth } from '@/lib/supabase'
@@ -28,7 +28,7 @@ interface ToolCheckinsProps {
 }
 
 export default function ToolCheckins({ project, currentUserName }: ToolCheckinsProps) {
-    const supabase = getSupabaseWithAuth()
+    const supabase = useMemo(() => getSupabaseWithAuth(), [])
     const { t, language } = useLanguage()
     const [questions, setQuestions] = useState<any[]>([])
     const [selectedQuestion, setSelectedQuestion] = useState<any | null>(null)
@@ -136,12 +136,36 @@ export default function ToolCheckins({ project, currentUserName }: ToolCheckinsP
 
     // Load answers when selected question changes
     useEffect(() => {
-        if (selectedQuestion) {
+        if (selectedQuestion?.id) {
             fetchQuestionAnswers(selectedQuestion.id)
         } else {
             setAnswers([])
         }
-    }, [selectedQuestion])
+    }, [selectedQuestion?.id])
+
+    // Realtime subscription to new checkin answers
+    useEffect(() => {
+        if (!selectedQuestion?.id) return
+        const channel = supabase
+            .channel(`checkin-answers-${selectedQuestion.id}`)
+            .on(
+                'postgres_changes',
+                {
+                    event: 'INSERT',
+                    schema: 'public',
+                    table: 'bc_answers',
+                    filter: `question_id=eq.${selectedQuestion.id}`
+                },
+                () => {
+                    fetchQuestionAnswers(selectedQuestion.id)
+                }
+            )
+            .subscribe()
+
+        return () => {
+            supabase.removeChannel(channel)
+        }
+    }, [selectedQuestion?.id, supabase])
 
     // Send Answer
     const handleSendAnswer = async (e: React.FormEvent) => {
@@ -168,7 +192,7 @@ export default function ToolCheckins({ project, currentUserName }: ToolCheckinsP
             if (!res.ok) throw new Error(await res.text())
             await fetchQuestionAnswers(selectedQuestion.id)
         } catch (err: any) {
-            console.error('❌ [ToolCheckins Send] Error posting answer:', err.message)
+            console.error('❌ [ToolCheckins SendA] Error:', err.message)
             setInputText(contentToSend)
         } finally {
             setSending(false)
@@ -176,22 +200,15 @@ export default function ToolCheckins({ project, currentUserName }: ToolCheckinsP
     }
 
     return (
-        <div className="flex-1 max-w-3xl mx-auto w-full flex flex-col gap-6">
-            {/* Cabecera */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-3">
-                <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-amber-700/10 text-amber-700 flex items-center justify-center border border-amber-600/20">
-                        <HelpCircle size={20} />
-                    </div>
-                    <div>
-                        <h3 className="text-base font-extrabold text-slate-850 dark:text-slate-100">
-                            {t('basecamp.checkins')}
-                        </h3>
-                        <p className="text-[10px] text-slate-450 dark:text-slate-400 uppercase tracking-wider">
-                            {t('basecamp.checkins_sub')}
-                        </p>
-                    </div>
-                </div>
+        <div className="flex-1 max-w-4xl mx-auto px-4 w-full flex flex-col gap-6">
+            {/* Header */}
+            <div className="flex flex-col items-center gap-1 text-center border-b border-slate-100 dark:border-slate-800 pb-6">
+                <span className="text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
+                    {t('basecamp.checkins_sub')}
+                </span>
+                <h3 className="text-3xl sm:text-4xl font-extrabold text-slate-900 dark:text-slate-100 font-serif">
+                    {t('basecamp.checkins')}
+                </h3>
             </div>
 
             {loading ? (
@@ -200,23 +217,31 @@ export default function ToolCheckins({ project, currentUserName }: ToolCheckinsP
                 </div>
             ) : (
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    {/* Left Column: List of Questions */}
-                    <div className="md:col-span-1 space-y-3">
-                        <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-2">{t('basecamp.active_questions')}</h4>
+                    {/* Left Column: Questions List */}
+                    <div className="md:col-span-1 flex flex-col gap-2">
+                        <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-2">
+                            {t('basecamp.active_questions')} ({questions.length})
+                        </h4>
                         {questions.map((q) => (
                             <div
                                 key={q.id}
                                 onClick={() => setSelectedQuestion(q)}
-                                className={`p-3 rounded-xl border cursor-pointer transition-all text-xs flex justify-between items-center ${
+                                className={`p-3.5 rounded-2xl border text-left cursor-pointer transition-all ${
                                     selectedQuestion?.id === q.id
-                                        ? 'bg-amber-700 text-white border-amber-800 font-extrabold'
-                                        : 'bg-[#fcfaf6] dark:bg-slate-850 border-slate-200/60 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-350'
+                                        ? 'bg-[#1D7DB5] text-white border-[#1D7DB5] shadow-md shadow-blue-500/10'
+                                        : 'bg-white dark:bg-slate-900 border-slate-200/60 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
                                 }`}
                             >
-                                <span className="line-clamp-2 leading-snug">
+                                <p className={`text-xs font-bold leading-snug line-clamp-2 ${selectedQuestion?.id === q.id ? 'text-white' : 'text-slate-800 dark:text-slate-200'}`}>
                                     {language === 'en' && q.title.split(' / ')[1] ? q.title.split(' / ')[1] : q.title.split(' / ')[0]}
+                                </p>
+                                <span className={`text-[10px] block mt-1.5 font-semibold ${selectedQuestion?.id === q.id ? 'text-blue-100' : 'text-slate-400'}`}>
+                                    {q.schedule_text
+                                        ? (language === 'en'
+                                            ? q.schedule_text.replace(/Todos los días/i, 'Every day').replace(/ a las /i, ' at ')
+                                            : q.schedule_text.replace(/Every day/i, 'Todos los días').replace(/ at /i, ' a las '))
+                                        : t('basecamp.every_day')}
                                 </span>
-                                <ChevronRight size={14} className="shrink-0 ml-1 opacity-70" />
                             </div>
                         ))}
                     </div>
@@ -230,19 +255,21 @@ export default function ToolCheckins({ project, currentUserName }: ToolCheckinsP
                                     <h4 className="text-[9px] font-black text-amber-700 dark:text-amber-500 uppercase tracking-widest mb-1.5">
                                         Check-in
                                     </h4>
-                                    <p className="text-sm font-extrabold text-slate-800 dark:text-slate-150">
+                                    <p className="text-sm font-extrabold text-slate-800 dark:text-slate-100">
                                         {language === 'en' && selectedQuestion.title.split(' / ')[1] ? selectedQuestion.title.split(' / ')[1] : selectedQuestion.title.split(' / ')[0]}
                                     </p>
-                                    <p className="text-[10px] text-slate-440 mt-1 uppercase tracking-wider font-semibold">
+                                    <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1 uppercase tracking-wider font-semibold">
                                         {selectedQuestion.schedule_text
-                                            ? selectedQuestion.schedule_text.replace('Todos los días', t('basecamp.every_day')).replace('a las', 'at')
+                                            ? (language === 'en'
+                                                ? selectedQuestion.schedule_text.replace(/Todos los días/i, 'Every day').replace(/ a las /i, ' at ')
+                                                : selectedQuestion.schedule_text.replace(/Every day/i, 'Todos los días').replace(/ at /i, ' a las '))
                                             : t('basecamp.every_day')}
                                     </p>
                                 </div>
 
                                 {/* Answers feed */}
                                 <div className="space-y-4">
-                                    <h4 className="text-[10px] font-black text-slate-450 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800 pb-2">
+                                    <h4 className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800 pb-2">
                                         {t('basecamp.team_answers').replace('{count}', String(answers.length))}
                                     </h4>
 
@@ -265,12 +292,12 @@ export default function ToolCheckins({ project, currentUserName }: ToolCheckinsP
                                                             <span className="text-xs font-black text-slate-800 dark:text-slate-100">
                                                                 {ans.author?.name || t('basecamp.anonymous_user')}
                                                             </span>
-                                                            <span className="text-[9px] text-slate-400 flex items-center gap-1">
+                                                            <span className="text-[10px] text-slate-400 flex items-center gap-1 font-medium">
                                                                 <Clock size={10} />
-                                                                {new Date(ans.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                                {new Date(ans.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} • {new Date(ans.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                                             </span>
                                                         </div>
-                                                        <p className="text-xs text-slate-650 dark:text-slate-400 leading-relaxed whitespace-pre-wrap">
+                                                        <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed whitespace-pre-wrap">
                                                             {ans.content}
                                                         </p>
                                                     </div>

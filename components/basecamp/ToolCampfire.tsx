@@ -19,7 +19,7 @@
 
 'use client'
 
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef, useMemo } from 'react'
 import { useLanguage } from '@/lib/i18n'
 import { Send, MessageSquare, Loader2 } from 'lucide-react'
 import { getSupabaseWithAuth } from '@/lib/supabase'
@@ -30,7 +30,7 @@ interface ToolCampfireProps {
 }
 
 export default function ToolCampfire({ project, currentUserName }: ToolCampfireProps) {
-    const supabase = getSupabaseWithAuth()
+    const supabase = useMemo(() => getSupabaseWithAuth(), [])
     const { t } = useLanguage()
     const [campfire, setCampfire] = useState<{ id: string; bc_id: number } | null>(null)
     const [messages, setMessages] = useState<any[]>([])
@@ -68,7 +68,7 @@ export default function ToolCampfire({ project, currentUserName }: ToolCampfireP
             if (dbCampfire) {
                 setCampfire({ id: dbCampfire.id, bc_id: Number(dbCampfire.bc_id) })
 
-                // Fetch last 50 campfire lines
+                // Fetch last 80 campfire lines
                 const { data: dbLines, error: linesErr } = await supabase
                     .from('bc_campfire_lines')
                     .select(`
@@ -125,9 +125,10 @@ export default function ToolCampfire({ project, currentUserName }: ToolCampfireP
 
                     if (!error && newLine) {
                         setMessages((prev) => {
-                            // Avoid duplicate appends
+                            // Avoid duplicate appends (and replace temporary optimistic message)
                             if (prev.some((m) => m.id === newLine.id)) return prev
-                            return [...prev, newLine]
+                            const withoutTemp = prev.filter(m => !m.id.startsWith('temp-') || m.content !== newLine.content)
+                            return [...withoutTemp, newLine]
                         })
                     }
                 }
@@ -137,7 +138,7 @@ export default function ToolCampfire({ project, currentUserName }: ToolCampfireP
         return () => {
             supabase.removeChannel(channel)
         }
-    }, [campfire?.id])
+    }, [campfire?.id, supabase])
 
     // Auto-scroll
     useEffect(() => {
@@ -150,6 +151,16 @@ export default function ToolCampfire({ project, currentUserName }: ToolCampfireP
         if (!inputText.trim() || !campfire || sending) return
 
         const textToSend = inputText.trim()
+        const tempId = 'temp-' + Date.now()
+
+        // Optimistic UI update
+        const optimisticLine = {
+            id: tempId,
+            content: textToSend,
+            created_at: new Date().toISOString(),
+            author: { name: currentUserName }
+        }
+        setMessages((prev) => [...prev, optimisticLine])
         setInputText('')
         setSending(true)
 
@@ -169,7 +180,8 @@ export default function ToolCampfire({ project, currentUserName }: ToolCampfireP
             if (!res.ok) throw new Error(await res.text())
         } catch (err: any) {
             console.error('❌ [ToolCampfire Send] Error sending message:', err.message)
-            // Restore input in case of failure
+            // Revert optimistic message on failure
+            setMessages((prev) => prev.filter(m => m.id !== tempId))
             setInputText(textToSend)
         } finally {
             setSending(false)
@@ -184,10 +196,10 @@ export default function ToolCampfire({ project, currentUserName }: ToolCampfireP
                     <MessageSquare size={20} />
                 </div>
                 <div>
-                    <h3 className="text-base font-extrabold text-slate-855 dark:text-slate-100">
+                    <h3 className="text-base font-extrabold text-slate-900 dark:text-slate-100">
                         {t('basecamp.campfire')}
                     </h3>
-                    <p className="text-[10px] text-slate-455 dark:text-slate-400 uppercase tracking-wider">
+                    <p className="text-[10px] text-slate-500 dark:text-slate-400 uppercase tracking-wider">
                         {t('basecamp.campfire_sub')}
                     </p>
                 </div>
@@ -201,13 +213,13 @@ export default function ToolCampfire({ project, currentUserName }: ToolCampfireP
                     </div>
                 ) : messages.length > 0 ? (
                     messages.map((m) => {
-                        const authorName = m.author?.name || 'Usuario'
+                        const authorName = m.author?.name || t('basecamp.anonymous_user') || 'Usuario'
                         const isMe = authorName === currentUserName
                         return (
                             <div key={m.id} className={`flex gap-3 items-start ${isMe ? 'flex-row-reverse' : ''}`}>
                                 {/* Avatar */}
                                 <div className="w-8 h-8 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-extrabold flex items-center justify-center text-xs shrink-0 uppercase border border-slate-300/30">
-                                    {authorName[0]}
+                                    {(authorName[0] || 'U').toUpperCase()}
                                 </div>
                                 
                                 {/* Detalle */}
@@ -221,7 +233,7 @@ export default function ToolCampfire({ project, currentUserName }: ToolCampfireP
                                     <div className={`p-2.5 sm:p-3 rounded-2xl text-xs mt-1 leading-relaxed whitespace-pre-wrap border ${
                                         isMe 
                                             ? 'bg-orange-500 text-white border-orange-600 rounded-tr-none' 
-                                            : 'bg-slate-55/70 dark:bg-slate-800/80 text-slate-800 dark:text-slate-250 border-slate-200/40 dark:border-slate-800 rounded-tl-none'
+                                            : 'bg-slate-50 dark:bg-slate-800/80 text-slate-800 dark:text-slate-200 border-slate-200/40 dark:border-slate-800 rounded-tl-none'
                                     }`}>
                                         {m.content}
                                     </div>
@@ -239,7 +251,7 @@ export default function ToolCampfire({ project, currentUserName }: ToolCampfireP
             </div>
 
             {/* Input */}
-            <form onSubmit={handleSendMessage} className="p-3 border-t border-slate-100 dark:border-slate-850 bg-white dark:bg-slate-900 rounded-b-2xl flex gap-2">
+            <form onSubmit={handleSendMessage} className="p-3 border-t border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-b-2xl flex gap-2">
                 <input
                     type="text"
                     value={inputText}

@@ -170,16 +170,38 @@ export default function ToolSchedule({ project, currentUserName }: ToolScheduleP
         }
     }
 
-    // Date formatting helper for Basecamp list view
-    const getMonthName = (dateStr: string) => {
-        const date = new Date(dateStr)
-        return date.toLocaleDateString(undefined, { month: 'short' }).toUpperCase()
+    // Local date parsing without UTC shift
+    const getLocalDateParts = (dateStr: string) => {
+        if (!dateStr) return { month: '', day: 0 }
+        const clean = dateStr.split('T')[0]
+        const parts = clean.split('-').map(Number)
+        if (parts.length === 3) {
+            const d = new Date(parts[0], parts[1] - 1, parts[2])
+            return {
+                month: d.toLocaleDateString(undefined, { month: 'short' }).toUpperCase(),
+                day: parts[2]
+            }
+        }
+        const d = new Date(dateStr)
+        return {
+            month: d.toLocaleDateString(undefined, { month: 'short' }).toUpperCase(),
+            day: d.getDate()
+        }
     }
 
-    const getDayNum = (dateStr: string) => {
-        const date = new Date(dateStr)
-        return date.getDate()
+    const getPacificTodayStr = () => {
+        try {
+            const formatter = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Los_Angeles', year: 'numeric', month: '2-digit', day: '2-digit' })
+            return formatter.format(new Date())
+        } catch {
+            const now = new Date()
+            return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+        }
     }
+
+    // Date formatting helper for Basecamp list view
+    const getMonthName = (dateStr: string) => getLocalDateParts(dateStr).month
+    const getDayNum = (dateStr: string) => getLocalDateParts(dateStr).day
 
     // ── CALENDAR GRID MATH ──
     const getDaysInMonth = (year: number, month: number) => new Date(year, month + 1, 0).getDate()
@@ -281,16 +303,20 @@ export default function ToolSchedule({ project, currentUserName }: ToolScheduleP
                 </div>
 
                 {/* Calendar Days */}
-                <div className="grid grid-cols-7 gap-0.5 sm:gap-1 bg-slate-100/50 dark:bg-slate-850 p-0.5 sm:p-1 rounded-xl">
+                <div className="grid grid-cols-7 gap-0.5 sm:gap-1 bg-slate-100/50 dark:bg-slate-800 p-0.5 sm:p-1 rounded-xl">
                     {gridCells.map((cell, idx) => {
-                        const cellDateStr = cell.date.toISOString().split('T')[0]
+                        const cellYear = cell.date.getFullYear()
+                        const cellMonth = String(cell.date.getMonth() + 1).padStart(2, '0')
+                        const cellDay = String(cell.date.getDate()).padStart(2, '0')
+                        const cellDateStr = `${cellYear}-${cellMonth}-${cellDay}`
+
                         const dayEvents = events.filter(e => {
                             if (!e.starts_at) return false
-                            const eDateStr = new Date(e.starts_at).toISOString().split('T')[0]
+                            const eDateStr = (e.starts_at || '').split('T')[0]
                             return eDateStr === cellDateStr
                         })
 
-                        const isToday = new Date().toISOString().split('T')[0] === cellDateStr
+                        const isToday = getPacificTodayStr() === cellDateStr
 
                         return (
                             <div
@@ -303,7 +329,7 @@ export default function ToolSchedule({ project, currentUserName }: ToolScheduleP
                                 }}
                                 className={`min-h-[50px] sm:min-h-[70px] bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800/40 p-1 sm:p-1.5 rounded-md sm:rounded-lg flex flex-col justify-between transition-colors ${
                                     cell.isCurrentMonth 
-                                        ? 'cursor-pointer hover:bg-slate-50/50 dark:hover:bg-slate-850' 
+                                        ? 'cursor-pointer hover:bg-slate-50/50 dark:hover:bg-slate-800' 
                                         : 'opacity-40 pointer-events-none'
                                 } ${isToday ? 'ring-2 ring-purple-500 ring-inset' : ''}`}
                             >

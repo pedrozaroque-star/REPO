@@ -29,7 +29,6 @@ import {
   ChevronDown,
   ChevronRight,
   Plus,
-  X,
   CheckCircle2,
   Clock,
   Users,
@@ -130,8 +129,11 @@ const ALL_POSITIONS = POSITION_GROUPS.flatMap(g => g.positions);
 // Helper: format time for display badges
 // ═══════════════════════════════════════════════════════════════
 function formatTimeBadge(timeStr: string | null): string {
-  if (!timeStr) return '';
-  const [h, m] = timeStr.split(':').map(Number);
+  if (!timeStr || !timeStr.includes(':')) return timeStr || '';
+  const parts = timeStr.split(':');
+  const h = parseInt(parts[0], 10);
+  const m = parseInt(parts[1], 10);
+  if (isNaN(h) || isNaN(m)) return timeStr;
   const ampm = h >= 12 ? 'PM' : 'AM';
   let h12 = h % 12;
   h12 = h12 === 0 ? 12 : h12;

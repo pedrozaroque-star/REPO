@@ -1,0 +1,1191 @@
+
+
+=================== PAGE 1 ===================
+Control y Avance del Sistema
+Informe Consolidado de Horas de Trabajo (Julio 2026) y P lanificación de P royectos P endientes
+Completado 4 Tareas
+💻  SISTEMAS
+ 🔴  ALTA ✓  COMPLETADO
+17. Módulo de Rendimiento y Telemetría de Drive-Thru
+(HME Zoom Nitro)
+ESTATUS DEL CÓDIGO / BD
+Completado e Integrado. Se vinculó exitosamente el sistema con
+los sensores físicos de autos del Drive-Thru y las pantallas de la
+cocina (KDS). El tablero administrativo cuenta con 4 pestañas
+interactivas para ver rankings de velocidad por tienda, promedios
+por media hora, reportes exportables en Excel (CSV) y visor
+directo de tickets para auditar órdenes lentas.
+PASOS CONCLUIDOS
+💻  SISTEMAS
+ 🔴  ALTA ✓  COMPLETADO
+19. Módulo de Caja Fuerte (Conteo de Efectivo por
+Sucursal)
+ESTATUS DEL CÓDIGO / BD
+Completado e Integrado (10-Jul-2026). Módulo completo para
+que los gerentes registren el conteo de efectivo de la caja fuerte
+de cada sucursal. Incluye formulario de captura con desglose por
+denominación ($100, $50, $20, $10, $5, $1 y monedas), cálculo
+automático del total, historial de conteos por tienda y fecha, APIs
+de creación/edición/eliminación, migración SQL para la tabla
+safe_counts, tipos TypeScript completos, entrada en el menú de
+navegación lateral, y soporte bilingüe con 116 claves de traducción
+(español/inglés).
+PASOS CONCLUIDOS
+TOTAL TAREAS
+20
+Tareas registradas
+EN PROGRESO
+9
+En desarrollo activo
+PENDIENTE
+7
+Sin iniciar / P or evaluar
+COMPLETADO
+4
+4 tareas finalizadas
+HORAS JULIO
+117.8
+Horas trabajadas
+Configurado el proceso de descarga automática de datos de
+velocidad cada 2 minutos.
+✓
+Creada la API de consulta rápida para el tablero de velocidades,
+reportes y búsquedas.
+✓
+Vinculado el modal para abrir el ticket detallado de Toast al
+presionar órdenes con demora.
+✓
+Página completa con formulario de captura de denominaciones y
+cálculo de totales en tiempo real.
+✓
+APIs REST para crear, editar y eliminar conteos con validación por
+tienda y fecha.
+✓
+Migración SQL para tabla safe_counts, tipos TypeScript, sidebar, y
+116 claves i18n bilingües.
+✓
+
+=================== PAGE 2 ===================
+💻  SISTEMAS
+ 🔴  ALTA ✓  COMPLETADO
+20. Módulo de Tiendas (Integración Dinámica,
+Geocodificación y Mapas de Google)
+ESTATUS DEL CÓDIGO / BD
+Completado e Integrado (14-Jul-2026). Vinculación dinámica de
+sucursales con el resto de los módulos (roles de empleados,
+sincronización de Toast y QuickBooks). Se implementó un
+geocodificador inteligente en backend (Google Maps/Nominatim)
+para auto-ubicar direcciones, y un visor visual interactivo de
+**Google Maps** con controles de satélite/mapa y pin
+arrastrable para micro-ajustes precisos. Todo el flujo cuenta con
+soporte bilingüe completo y se resolvió el desajuste de hidratación
+de Next.js.
+PASOS CONCLUIDOS
+En P rogreso 9 Tareas
+📦  INVENTARIO
+ 🔴  ALTA ▶  EN PROGRESO
+1. Inventario con reposición automática
+ESTATUS DEL CÓDIGO / BD
+Muy Avanzado. El sistema calcula de manera inteligente el pedido
+sugerido de insumos para las tiendas restando el stock ideal
+contra el sobrante diario, con redondeos específicos para tortillas,
+papelitos y empaques. Se implementaron los pedidos de líquidos
+semanales, selector de fecha de conteo interactivo y la
+duplicación de PAR diario (Copy Day PAR).
+PASOS RECOMENDADOS
+📦  INVENTARIO
+ 🔴  ALTA ▶  EN PROGRESO
+2. Inventario para Bodega y COGS (Viele & Sons)
+ESTATUS DEL CÓDIGO / BD
+Estructurado. Creado el catálogo en base de datos para
+diferenciar los insumos de uso interno del restaurante contra la
+mercancía que la Bodega revende. Sincronizado con los costos
+reales de QuickBooks. Corregido el mapeo de "Tortillas, Tacos y
+Platos" desde la carga de Excel.
+PASOS RECOMENDADOS
+Integración dinámica de nuevas sucursales en reportes, empleados
+y sincronizador de Toast.
+✓
+Visor interactivo oficial de Google Maps con soporte para vista
+satelital y etiquetas de comercio.
+✓
+Geocodificador y configurador de claves en el backend de forma
+segura y libre de errores de tipos.
+✓
+Terminar de enlazar todos los códigos de insumos del sistema con
+el Excel de bodega. (Completado)
+✓
+Ajustar los mínimos de seguridad y redondeos para los insumos de
+empaque y tortillas. (Completado)
+✓
+Habilitar el proceso de compras en producción tras fase piloto en
+Lynwood.
+3
+Subir el listado completo de mercancías del proveedor Viele &
+Sons.
+1
+Confirmar que la actualización de precios de QuickBooks no altere
+los costos de insumos externos.
+2
+
+=================== PAGE 3 ===================
+📺  DISPOSITIVOS
+ 🟡  MEDIA ▶  EN PROGRESO
+3. Configuración local de TVs de Menús
+ESTATUS DEL CÓDIGO / BD
+Muy Avanzado. Diseñada la pantalla de administración para subir
+las imágenes de menús por tienda y la pantalla receptora en las
+televisiones de sucursal con actualización automática cada 2
+minutos.
+PASOS RECOMENDADOS
+✉  COMUNICACIONES
+ 🔵  BAJA ▶  EN PROGRESO
+4. Logotipo de marca en correos electrónicos
+ESTATUS DEL CÓDIGO / BD
+Configuración Básica. El sistema ya envía correos institucionales
+utilizando el servidor de tacosgavilan.com, pero los mensajes se
+muestran en texto plano sin logotipo oficial ni imagen de marca.
+PASOS RECOMENDADOS
+📝  OPERACIONES
+ 🔴  ALTA ▶  EN PROGRESO
+5. Descripciones de procedimientos en página de
+ACTIVIDADES
+ESTATUS DEL CÓDIGO / BD
+Estructura Concluida. El panel administrativo y móvil de
+Actividades de Cocina está completo. Contiene 110
+procedimientos operativos precargados en el catálogo, pero la
+mayoría tiene la descripción y guías de elaboración pendientes.
+PASOS RECOMENDADOS
+📺  DISPOSITIVOS
+ 🔴  ALTA ✓  COMPLETADO
+6. Verificar tabletas piloto en Slauson
+ESTATUS DEL CÓDIGO / BD
+Completado e Integrado. Se verificaron físicamente las 4
+tabletas piloto en la cocina de Slauson durante la visita de campo.
+El software del Preparador de carne (Cooking Pace) se adaptó
+para una óptima legibilidad en tablets con un modo Kiosko
+simplificado monocromático, botón de Pantalla Completa
+destacado con badge TABLETA que bloquea la interfaz para evitar
+salidas accidentales, y visor estático sin JS para previsualizaciones
+rápidas.
+PASOS CONCLUIDOS
+Cargar los archivos finales de imágenes de menús para las 15
+tiendas activas.
+1
+Probar la visualización en pantalla completa en el navegador
+nativo de las Smart TVs de las tiendas.
+2
+Diseñar una plantilla HTML bilingüe elegante que contenga el
+logotipo y cabecera institucional.
+1
+Configurar llaves de verificación (SPF, DKIM, BIMI) en el servidor
+de correo para mostrar el logotipo automáticamente en la
+bandeja de entrada del empleado.
+2
+Revisar las 110 tareas operativas cargadas en la base de datos.1
+Redactar el paso a paso y especificaciones técnicas de cada tarea
+en el panel administrativo para su visualización en las tabletas de
+la cocina.
+2
+Monitorear el uso diario que dan los gerentes y taqueros a las
+pantallas. (Completado)
+✓
+Revisar la estabilidad de la red Wi-Fi y prevenir bloqueos o salidas
+accidentales de la aplicación con el modo Tableta Kiosko.
+(Completado)
+✓
+Recopilar retroalimentación directa y simplificar la UI (modo
+Básico vs Avanzado). (Completado)
+✓
+
+=================== PAGE 4 ===================
+💻  SISTEMAS
+ 🔴  ALTA ▶  EN PROGRESO
+7. App de Tacos Gavilán (Imitar King Taco)
+ESTATUS DEL CÓDIGO / BD
+Muy Avanzado. Creado el sistema de base de datos para la
+aplicación móvil (carritos de compra, puntos de recompensa,
+cupones y aviso de llegada). La aplicación para celulares cuenta
+con pantallas funcionales de login, menú de platillos, carrito y
+selector de ingredientes.
+PASOS RECOMENDADOS
+💻  SISTEMAS
+ 🔴  ALTA ▶  EN PROGRESO
+8. Sincronizador y clon de Basecamp
+ESTATUS DEL CÓDIGO / BD
+Altamente Avanzado. El sistema web está integrado con
+Basecamp. Las tablas internas sincronizan automáticamente
+proyectos, tableros de mensajes, listas de pendientes y
+comentarios bidireccionales.
+PASOS RECOMENDADOS
+💻  SISTEMAS
+ 🟡  MEDIA ▶  EN PROGRESO
+9. Página Web Oficial de Tacos El Gavilán
+ESTATUS DEL CÓDIGO / BD
+Avanzado. Toda la estructura visual y de contenidos del sitio web
+oficial está finalizada (exhibición de menú, ubicaciones de tiendas,
+y logotipos).
+PASOS RECOMENDADOS
+Vincular las pantallas del celular con la base de datos central y el
+sistema Toast de las sucursales.
+1
+Implementar las alertas de geolocalización para avisar a la cocina
+cuando el cliente se aproxima a recoger su pedido.
+2
+Conectar la pasarela de pagos seguros de Stripe para aceptar
+tarjetas.
+3
+Activar las actualizaciones automáticas periódicas (cron) en el
+servidor de internet.
+1
+Optimizar la velocidad de carga al sincronizar listas de tareas muy
+extensas.
+2
+Revisar el comportamiento visual en diferentes modelos de
+teléfonos celulares y optimizar buscadores.
+1
+Vincular los botones de ordenar con la app móvil y con los links de
+compra de Toast.
+2
+Publicar el sitio web en su dirección de internet oficial de manera
+permanente.
+3
+
+=================== PAGE 5 ===================
+Pendientes 7 Tareas
+📦  INVENTARIO
+ 🟡  MEDIA ⏳  PENDIENTE
+10. Determinar gasto en Salsa Bar
+ESTATUS DEL CÓDIGO / BD
+No Iniciado. Existe registro de mermas e ingredientes de la barra
+de salsas en los checklists históricos de los supervisores, pero el
+gasto no está cuantificado ni calculado en la fórmula financiera
+diaria de costo de alimentos (Food Cost).
+PASOS RECOMENDADOS
+📺  DISPOSITIVOS
+ 🟡  MEDIA ⏳  PENDIENTE
+11. Fotos y verificación Apple Business Connect
+(Slauson)
+ESTATUS DEL CÓDIGO / BD
+No Iniciado (Tarea Externa). Tarea operativa consistente en
+registrar la sucursal de Slauson, subir fotos del local y completar el
+proceso oficial para aparecer correctamente en los mapas de
+Apple Maps.
+PASOS RECOMENDADOS
+💻  SISTEMAS
+ 🟡  MEDIA ⏳  PENDIENTE
+12. Registro de proveedores y técnicos sin contraseña
+ESTATUS DEL CÓDIGO / BD
+No Iniciado. Planificado un portal simplificado de acceso rápido
+con códigos temporales para que técnicos de mantenimiento
+(refrigeración, gas, plomería) puedan subir fotos del trabajo
+realizado directamente al sistema sin necesidad de una cuenta
+permanente.
+PASOS RECOMENDADOS
+📦  INVENTARIO
+ 🟡  MEDIA ▶  EN PROGRESO
+13. Control de uniformes, gorras e inventario de ropa
+ESTATUS DEL CÓDIGO / BD
+Parcialmente Completado. Se implementó y desplegó en
+producción el tipo de orden de Uniformes en el panel de pedidos
+de inventario de las 15 tiendas, enlazado directamente a la
+plantilla de QuickBooks Recurring Transactions para
+sincronización automatizada. Queda pendiente el control interno
+de stock físico en bodega y el registro de asignación individual por
+empleado.
+PASOS RECOMENDADOS
+Crear una receta virtual para la barra de salsas (aguacates,
+jitomates, chiles, cebollas, condimentos y vasos desechables).
+1
+Monitorear el consumo promedio en sucursales para cargarlo de
+manera automática al costo de alimentos del día.
+2
+Tomar fotografías en alta resolución de la fachada e interiores del
+restaurante Slauson.
+1
+Enviar la documentación de propiedad del comercio al portal de
+Apple Business.
+2
+Diseñar el registro de folios de reparaciones y base de datos de
+proveedores independientes.
+1
+Crear el portal de acceso móvil rápido y el cargador de imágenes
+directo.
+2
+Desarrollar el flujo de pedidos de uniformes desde las sucursales a
+QuickBooks Bodega. (Completado)
+✓
+Crear el catálogo de artículos de ropa con sus respectivas tallas y
+existencias de almacén. (Pendiente)
+2
+Diseñar la pantalla para registrar la entrega de ropa a cada
+empleado de sucursal. (Pendiente)
+3
+
+=================== PAGE 6 ===================
+📝  OPERACIONES
+ 🔴  ALTA ⏳  PENDIENTE
+14. Manuales, videos y certificación de cocina
+ESTATUS DEL CÓDIGO / BD
+No Iniciado (Básico). El sistema cuenta con exámenes rápidos de
+desempeño para gerentes, pero falta crear la biblioteca digital
+interactiva de videos educativos con certificación oficial de
+cocina.
+PASOS RECOMENDADOS
+📝  OPERACIONES
+ 🟡  MEDIA ⏳  PENDIENTE
+15. Sección de Cultura Empresarial
+ESTATUS DEL CÓDIGO / BD
+No Iniciado. Sección informativa planificada para capacitar y
+familiarizar a los nuevos empleados con la filosofía corporativa,
+misión y valores de Tacos El Gavilán.
+PASOS RECOMENDADOS
+💻  SISTEMAS
+ 🔴  ALTA ⏳  PENDIENTE
+16. CLONAR Cohesion (app de contabilidad)
+ESTATUS DEL CÓDIGO / BD
+No Iniciado (Por evaluar). Desarrollo e integración de un clon
+contable de la plataforma Cohesión a solicitud de Raquel
+Velázquez, con vinculación y automatización hacia QuickBooks
+para la conciliación ágil de pólizas diarias.
+PASOS RECOMENDADOS
+PENDIENTEOperaciones / Operations
+18. Actualizar y Descargar Videos Musicales Regional
+Mexicano
+ESTATUS / STATUS
+Pendiente. Actualización y descarga de la biblioteca de videos
+musicales de Regional Mexicano para las pantallas de las
+sucursales. Se requiere obtener contenido actualizado (éxitos
+recientes, corridos, banda, norteñas) y preparar los archivos para
+reproducción en las TVs de los restaurantes.
+PASOS RECOMENDADOS
+Integrar reproductores de video con instructivos prácticos sobre el
+uso correcto de utensilios y armado de recetas.
+1
+Crear cuestionarios breves y generación automática de
+certificados digitales firmados al completar los módulos.
+2 Diseñar una sección visual atractiva para mostrar la historia de la
+empresa, metas grupales y filosofía de servicio.
+1
+Analizar el flujo de datos contables de Cohesión y mapear las
+transacciones y depósitos bancarios de las 15 tiendas.
+1
+Diseñar esquemas en Supabase para el almacenamiento
+estructurado de pólizas contables temporales.
+2
+Crear los endpoints API de integración con el SDK de QuickBooks
+para empujar las conciliaciones validadas.
+3
+Definir la lista de artistas y canciones de Regional Mexicano más
+populares y actualizados para el ambiente de los restaurantes.
+1
+Descargar los videos musicales en formato compatible con las TVs
+de las sucursales (MP4, resolución HD).
+2
+Organizar los archivos en carpetas por tienda y cargarlos en las
+USBs o sistemas de reproducción de cada sucursal.
+3
+
+=================== PAGE 7 ===================
+Reporte de Horas Trabajadas y Actualizaciones Total de Horas: 117.8 hrs
+Este desglose detallado incluye el registro diario de actividades de Julio 2026 para la justificación técnica de las horas de desarrollo
+directo en código, complementado con las actividades paralelas esenciales requeridas para la implementación y estabilidad de la
+plataforma TEG-M odernizado.
+Fecha / Date Horario / Time Slot Horas /
+Hrs
+Módulo Involucrado /
+Involved Module Descripción de Actividades (Español / English)
+01-Jul-2026 1:30 PM - 8:30 PM 7.0 INVENTARIO
+QUICKBOOKS
+- **Inventario (Pedidos Bodega)**: Rediseño completo de la interfaz del catálogo de pedidos
+simplificando de 4 pestañas a solo 2 (Orden Diaria y Configuración Semanal).
+- **Inventario**: Se añadió el valor de PAR Ideal directamente en la vista diaria con soporte
+para anulación de día base.
+- **Inventario**: Se implementó una lista histórica en base de datos para almacenar Estimates
+con borrado sincronizado en QuickBooks.
+- **QuickBooks**: Corrección de fecha de transacción (se asigna a la entrega al día siguiente en
+vez de creación).
+- **QuickBooks**: Se incluyó el UnitPrice y Amount real en cada línea para evitar montos en
+cero.
+- **QuickBooks**: Autoguardado de líneas de pedido antes de enviar a QuickBooks para
+prevenir envíos en blanco.
+- **QuickBooks**: Rediseño responsivo de modal de edición de Estimates pasados para
+modificar cantidades.
+- **QuickBooks**: Configuración para definir automáticamente la ubicación y clase como
+"Warehouse" y asignar dinámicamente el correo del gerente.
+- **Planificador**: Ajuste de zonas horarias para la regla de las 6:00 AM.
+- Inventory (Warehouse Orders): redesigned layout from 4 tabs to 2 tabs (Daily Order + Weekly
+Config).
+- Inventory: integrated Ideal PAR view with custom base day override option.
+- Inventory: created weekly estimates history database logs synced with QuickBooks.
+- QuickBooks: set transaction date to delivery date. Included UnitPrice and calculated line
+Amounts.
+- QuickBooks: auto-saves lines before submission to prevent empty orders. Coded a responsive
+modal to edit past estimates.
+- QuickBooks: defaulted Location/Class to Warehouse and set manager emails dynamically.
+- Schedules: solved timezone shifts for 6 AM rollover.
+
+=================== PAGE 8 ===================
+Fecha / Date Horario / Time Slot Horas /
+Hrs
+Módulo Involucrado /
+Involved Module Descripción de Actividades (Español / English)
+02-Jul-2026 9:30 AM - 11:00 PM 13.5 INVENTARIO
+SIDEBARCLIMA
+QUICKBOOKS
+RECETAS
+- **Impresión y Conteo Físico**: Desarrollo e integración del sistema de impresión del listado de
+pedidos para cocina, el cual genera automáticamente hojas de trabajo con los sobrantes
+sugeridos prellenados para agilizar el conteo diario a mano.
+- **Validación Anti-Errores (Flan/Cheesecake)**: Implementación de reglas de validación en
+tiempo real que obligan a los mánagers a capturar el conteo físico de Flan y Cheesecake antes
+de enviar datos a QuickBooks o generar el pedido (previene descuadres de postres externos).
+- **Plantillas y Sincronización QB**: Unificación de la plantilla de líquidos (bebidas) heredando
+Lynwood como sucursal maestra y automatización de la sincronización de catálogos diarios y
+semanales desde QuickBooks.
+- **Resiliencia de Telemetría Climatológica**: Reescritura del servicio del clima migrándolo al
+proveedor nacional NWS para estabilidad absoluta, configurando un historial de logs de 14 días
+para ajustar de forma predictiva el pace de carnes ante lluvias o calor extremo.
+- **Aislamiento Técnico Sandbox**: Separación del almacenamiento local de tokens de prueba
+de QuickBooks, evitando interferencias o sobreescritura accidental sobre las credenciales de
+producción en Supabase.
+- **Optimización de Pantallas (UX/UI)**: Remoción de menús laterales internos duplicados,
+ganando 20% de área útil. Solución definitiva al problema de doble scrollbar táctil en tabletas de
+cocina, y adición de barra superior de acciones rápidas (guardado, descarga e impresión).
+- **Menú Principal e i18n**: Reestructuración de la navegación (`AppSidebar`) renombrando
+módulos operativos ("Insumos de Bodega", "Orden diaria", "Recetas (Menú)") y colapso
+ordenado de secciones.
+- **Centro de Ayuda Integrado**: Creación de Info Modals interactivos junto a los títulos de
+página con guías paso a paso y glosarios de términos (PAR Ideal, PAR Real, Diferencial) para
+capacitación automática de mánagers.
+- Print & Paper Worksheets: built orders list print layouts with pre-filled suggested leftovers for
+kitchen worksheets.
+- Validation Guard: added real-time client validation requiring counts for Flan and Cheesecake
+before order submissions to prevent external dessert stock gaps.
+- Templates & QuickBooks Sync: unified liquids templates using Lynwood as master store, and
+automated daily/weekly sync rules from QuickBooks.
+- NWS Weather API: re-coded weather integrations using NWS for 100% uptime, logging 14-day
+history to adapt prep pace dynamically to weather events.
+- Sandbox Isolation: segregated local test tokens from production Supabase configurations to
+prevent billing service blockages.
+- UX/UI Layouts: removed redundant sub-menus, solved nested double scrollbars in tablet
+screens, and built a top quick-access actions bar.
+- Navigation Cleanup: restructured sidebar links, collapsed groups, renamed modules, and
+added Info Modals for user onboarding.
+03-Jul-2026 8:00 AM - 10:00 AM 2.0 INVENTARIO - **Validación de Postres**: Refinamiento técnico de las reglas de validación de Flan y
+Cheesecake para asegurar que se bloquee el envío únicamente en las órdenes del tipo diario
+(`daily`) y no afecte los pedidos de líquidos semanales.
+- Dessert Validation: refined validation boundaries for Flan and Cheesecake to restrict checks
+exclusively to daily orders without blocking weekly liquid orders.
+04-Jul-2026 1:30 PM - 8:00 PM 6.5 PLANIFICADOR
+INVENTARIO
+QUICKBOOKS
+- **Planificador (Conexión Gmail)**: Solución al error que dejaba a los mánagers atrapados en
+el modal de infracciones de turnos si no tenían Gmail vinculado. Se habilitaron botones bilingües
+interactivos de 'Cerrar' y 'Vincular Gmail' dentro del modal, atrapando con gracia los errores
+`GMAIL_AUTH_FAILED` y `GMAIL_NOT_CONNECTED`.
+- **Planificador**: Adición de botón con gradiente animado llamativo 'Vincular Gmail' en la
+cabecera del planificador para que gerentes como Alfonso vinculen su OAuth de Google
+fácilmente.
+- **Inventario (Órdenes Extraordinarias)**: Desarrollo de soporte para agregar artículos
+extraordinarios o de emergencia (no presentes en la plantilla regular) a la orden diaria.
+- **QuickBooks (Catálogos)**: Sincronización de plantillas desde "QBO Recurring Transactions"
+en lugar de estimados recientes, evitando que los pedidos especiales o modificados contaminen
+la plantilla base de la tienda.
+- Planner (Gmail Connect): resolved critical loop trapping managers in the violation modal when
+Gmail was disconnected. Coded close buttons and connect shortcut triggers, handling
+`GMAIL_AUTH_FAILED` gracefully.
+- Planner UI: created animated visual button in planner header to guide managers (like Alfonso)
+to complete Google OAuth setup.
+- Inventory (Emergency Items): added support for inserting extraordinary/emergency products
+into daily orders.
+- QuickBooks Template Sync: refactored sync rules to fetch catalog configurations from
+QuickBooks Recurring Transactions to prevent catalog pollution from past estimates.
+
+=================== PAGE 9 ===================
+Fecha / Date Horario / Time Slot Horas /
+Hrs
+Módulo Involucrado /
+Involved Module Descripción de Actividades (Español / English)
+07-Jul-2026 6:00 PM - 8:00 PM 2.0 INVENTARIO - **Historial y Sobrantes**: Creación de las pestañas **Historial** y **Sobrantes** con un
+selector y navegador de semanas unificado.
+- **Historial**: Tablero para auditar y buscar órdenes anteriores por fecha con cargador
+optimizado a través de Server Actions (`fetchHistoryData`) que evitan restricciones RLS de
+Supabase.
+- **Sobrantes**: Matriz interactiva de artículos contra días de la semana para auditar el
+desperdicio y sobrantes históricos de la tienda.
+- History & Leftovers Tabs: built History and Leftovers tabs with shared week navigator state.
+- History tab: created list to search past orders using server action (`fetchHistoryData`) to
+bypass database RLS constraints.
+- Leftovers tab: programmed interactive leftovers matrix (items x days of the week) to monitor
+waste logs.
+08-Jul-2026 10:00 AM - 3:05 PM 8.0 INVENTARIO
+QUICKBOOKS
+BASE DE DATOS
+- **Crisis de Producción QuickBooks OAuth** (10:00 AM - 11:30 AM): Los tokens de
+autenticación de QuickBooks expiraron en producción durante horario laboral, bloqueando la
+generación de PDFs de estimados. Diagnóstico profundo del flujo de refresh tokens, ejecución
+de script interactivo de re-autenticación, descubrimiento de credenciales DIFERENTES entre
+Vercel (producción) y localhost (sandbox) como causa raíz del fallo persistente. Actualización del
+callback en Vercel para mostrar errores verbosos detallados en lugar del genérico
+'Authentication Failed'.
+- **5 Bugs Críticos en Orden Diaria** (11:30 AM - 1:15 PM): (1) Corrección de `saveOrderDraft`
+para que no resetee el estado a 'draft' cuando ya existe un Estimate en QuickBooks. (2-3) Las
+funciones de edición y reenvío de pedidos ahora respetan la fecha `week_start_date` de la
+orden original en lugar de la semana activa del navegador. (4) Cantidades negativas imposibles:
+se forzó un mínimo de 0 cuando el sobrante excede el PAR. (5) Eliminación del viejo
+sincronizador de plantillas basado en Estimates recientes que marcaba incorrectamente
+artículos como descontinuados.
+- **Día Laboral 6:00 AM**: Creación de `getBusinessMonday()` para resolver el problema de
+que entre medianoche y las 5:59 AM los mánagers no podían capturar sobrantes ni generar
+órdenes porque el sistema saltaba a la semana siguiente prematuramente.
+- **Bugs Menores**: (M1) Conversión de `storeId` a string para evitar incompatibilidades entre
+tipo texto y numérico en la base de datos. (M4) Limpieza automática de listeners de mensajes
+del popup de QuickBooks si el mánager lo cierra. (M5) Preservación de artículos
+extraordinarios/emergencia al guardar bases de PAR diario.
+- **Migración Masiva de Datos - Sobrantes para 14 Tiendas** (2:30 PM - 3:05 PM): Importación
+masiva de datos históricos de sobrantes desde archivos Excel hacia la base de datos de
+Supabase para 14 sucursales (Rialto, West Covina, Azusa, Broadway, Central, Slauson,
+Hollywood, Santa Ana, La Puente, Huntington Park, Norwalk, Bell, Lynwood, Compton).
+Resolución de bug crítico de precedencia donde Buche, Carnitas y Chorizo se mapeaban
+erróneamente a items de Bodega en lugar de items de Restaurante. Corrección del mapeo de
+Onion/Cilantro Mixta para separar correctamente el producto a granel (1/4 lb) del de porción
+individual (1 oz).
+- **Investigación de Items Faltantes en QB Líquidos**: Búsqueda en QuickBooks Recurring
+Transactions para identificar que la plantilla correcta 'Orden liquidos presiona Use' tiene 31
+items, mientras que la vieja 'Bodega Liquidos' solo tiene 25. Restricción del filtro de
+sincronización para que solo tome la plantilla correcta y no contamine las órdenes diarias de
+comida.
+- **QuickBooks OAuth Production Crisis** (10:00 AM - 11:30 AM): QuickBooks auth tokens
+expired in production during business hours, blocking estimate PDF generation. Deep
+investigation of refresh token flow, interactive re-auth script execution, discovery of DIFFERENT
+credentials between Vercel (production) and localhost (sandbox) as root cause of persistent
+failure. Updated Vercel callback with verbose error diagnostics.
+- **5 Critical Bugs in Daily Orders** (11:30 AM - 1:15 PM): (1) Fixed `saveOrderDraft` to not reset
+status to 'draft' for orders with existing QB estimates. (2-3) Edit and resubmit functions now use
+order's original `week_start_date` instead of active browser week. (4) Clamped calculated_qty
+to 0 minimum when leftovers exceed PAR. (5) Removed legacy template sync that incorrectly
+marked items as discontinued.
+- **Business Day Boundary 6AM**: Created `getBusinessMonday()` helper so managers can
+capture leftovers and generate orders between midnight and 5:59 AM without the system
+jumping to the next week prematurely.
+- **Minor Bugs**: (M1) String conversion for storeId on leftover updates. (M4) Auto-cleanup of
+QB popup message listeners. (M5) Preserve extraordinary items when saving daily PAR bases.
+- **Mass Data Migration - Leftovers for 14 Stores** (2:30 PM - 3:05 PM): Bulk import of
+historical leftover data from Excel files to Supabase for 14 locations. Fixed critical precedence
+bug where Buche, Carnitas, Chorizo matched Bodega items instead of Restaurant items. Fixed
+Onion/Cilantro Mixta mapping to correctly separate bulk product (1/4 lb) from portion bag (1 oz).
+- **Missing Items Investigation in QB Liquids**: Searched QuickBooks Recurring Transactions to
+identify that correct template 'Orden liquidos presiona Use' has 31 items vs old 'Bodega Liquidos'
+with only 25. Restricted sync filter to use correct template exclusively.
+
+=================== PAGE 10 ===================
+Fecha / Date Horario / Time Slot Horas /
+Hrs
+Módulo Involucrado /
+Involved Module Descripción de Actividades (Español / English)
+09-Jul-2026 9:00 AM - 9:30 AM 1.5 INVENTARIO
+QUICKBOOKS
+- **Orden de Uniformes (Nuevo Tipo de Pedido)**: Implementación completa de un tercer tipo
+de orden ('uniformes') en el módulo de pedidos de inventario. Detección de la plantilla 'Orden
+UNIFORMES presiona Use' en QuickBooks Recurring Transactions, replicación a las 15 tiendas
+(43 artículos cada una), botón de acceso con título dinámico, prefijo [UNIFORMES] en memo de
+QB, etiqueta en hoja de impresión, y claves i18n en español/inglés.
+- **Corrección de Items Incorrectos**: El supervisor reportó que los items no correspondían a la
+orden de uniformes correcta. Se identificó y seleccionó la plantilla correcta separándola de
+plantillas con nombres similares.
+- **Arquitectura de Plantillas Compartidas**: Se documentó y codificó la lógica de que líquidos y
+uniformes usan UN solo template maestro para todas las tiendas (a diferencia de la orden diaria
+que tiene un template por tienda), rellenando dinámicamente campos de identificación como
+tienda, correo y domicilio.
+- **Uniforms Order Type (New)**: Full implementation of a third order type ('uniforms') in the
+inventory orders module. Detected 'Orden UNIFORMES presiona Use' template from
+QuickBooks Recurring Transactions, replicated to all 15 stores (43 items each), dynamic title
+button, [UNIFORMES] prefix in QB memo, print sheet label, and ES/EN i18n keys.
+- **Wrong Items Fix**: Supervisor reported mismatched items — identified and selected the
+correct template, separating it from similarly-named ones.
+- **Shared Template Architecture**: Documented and coded logic where liquids and uniforms
+use ONE master template for all stores (unlike daily orders with per-store templates),
+dynamically populating store identification fields like email and address.
+
+=================== PAGE 11 ===================
+Fecha / Date Horario / Time Slot Horas /
+Hrs
+Módulo Involucrado /
+Involved Module Descripción de Actividades (Español / English)
+10-Jul-2026 3:00 PM - 9:25 PM 10.0 ACTIVIDADES
+CAJA FUERTE
+INVENTARIO
+- **Visita Presencial a Sucursal Slauson** (6:00 PM - 9:30 PM): Visita de seguimiento en sitio
+para verificar el estado y funcionamiento de las tabletas piloto de cocina instaladas en la
+sucursal de Slauson. Revisión de conectividad, carga de módulos del sistema, y validación de la
+experiencia de usuario con el personal de la tienda.
+- **Guía de Uso de Uniformes**: Actualización del modal informativo de la página de órdenes
+para incluir la nueva sección de Uniformes (color violeta) con instrucciones paso a paso.
+- **Tablero de Actividades - Filtro por Tienda**: Corrección del bug donde la lista de
+reasignación de empleados mostraba nombres de TODAS las tiendas (ej. Roberto Velásquez
+aparecía en Slauson sin trabajar allí). Ahora solo muestra empleados del roster de la tienda
+seleccionada para ese día.
+- **Tablero de Actividades - ACTIVIDADES EXTRA 1-6**: Renombramiento de 'CIERRE 1' y
+'CIERRE 2' a 'ACTIVIDADES EXTRA 1' y '2', y adición de 4 slots nuevos (EXTRA 3, 4, 5, 6) en la
+sección de Cocina para asignar tareas adicionales.
+- **Módulo de Caja Fuerte (NUEVO)**: Desarrollo completo del módulo de conteo de caja fuerte
+para las sucursales. Incluye: formulario para registrar conteos de efectivo con desglose por
+denominación ($100, $50, $20, $10, $5, $1, monedas), cálculo automático del total, historial de
+conteos por tienda y fecha, APIs de creación/edición/eliminación, migración SQL para la tabla
+`safe_counts`, tipos TypeScript completos, entrada en el sidebar de navegación, y soporte
+bilingüe completo (116 claves i18n).
+- **Tablero de Actividades - Filtro por Día de la Semana**: Corrección del bug donde
+actividades exclusivas de ciertos días (ej. 'LAVAR FREIDORAS' solo viernes) aparecían en otros
+días. Se replicó la lógica de frecuencia del backend de notificaciones al frontend.
+- **Copiar Semana Anterior (por Día/Turno)**: Botón premium que permite clonar las
+asignaciones de actividades del mismo día y turno de la semana anterior, descartando las
+asignaciones actuales del turno activo y reemplazándolas con las clonadas.
+- **Clonar Semana Completa**: Botón que copia TODAS las asignaciones (ambos turnos, 7
+días) de la semana anterior de una sola vez, guardando directamente a la base de datos en una
+transacción única. Incluye diálogo de confirmación antes de ejecutar.
+- **Auditoría Profunda de Actividades**: (1) Filtro de `store_model` (Regular vs Drive-Thru) para
+paridad con el backend de notificaciones. (2) Eliminación de código muerto en operaciones de
+clonado. (3) Reemplazo de 5 strings hardcodeados en español por llamadas `t()` de i18n. (4)
+Adición de 4 claves i18n nuevas. (5) Hook `useLanguage()` en componente BoardSlot.
+- **On-Site Visit to Slauson Store** (6:00 PM - 9:30 PM): Follow-up field visit to verify the status
+and operation of the pilot kitchen tablets installed at the Slauson location. Reviewed
+connectivity, system module loading, and validated user experience with store staff.
+- **Uniforms Usage Guide**: Updated orders page info modal to include new Uniforms section
+(purple color) with step-by-step instructions.
+- **Activities Board - Store Filter**: Fixed bug where employee reassignment list showed names
+from ALL stores (e.g. Roberto Velásquez appeared at Slauson without working there). Now only
+shows employees from selected store's roster for that day.
+- **Activities Board - EXTRA ACTIVITIES 1-6**: Renamed 'CIERRE 1/2' to 'ACTIVIDADES EXTRA
+1/2' and added 4 new slots (EXTRA 3, 4, 5, 6) in the Kitchen section for additional task
+assignments.
+- **Safe Counts Module (NEW)**: Complete development of cash safe counting module for
+stores. Includes: cash count entry form with denomination breakdown ($100, $50, $20, $10, $5,
+$1, coins), automatic total calculation, count history by store and date, create/edit/delete APIs,
+SQL migration for `safe_counts` table, full TypeScript types, sidebar navigation entry, and
+complete bilingual support (116 i18n keys).
+- **Activities Board - Weekday Frequency Filter**: Fixed bug where day-exclusive activities (e.g.
+'WASH FRYERS' Friday-only) appeared on other days. Replicated notification backend
+frequency logic to frontend.
+- **Copy Previous Week (by Day/Shift)**: Premium button that clones activity assignments from
+the same day and shift of the previous week, discarding current active shift assignments and
+replacing with cloned ones.
+- **Clone Full Week**: Button that copies ALL assignments (both shifts, 7 days) of the previous
+week at once, saving directly to database in a single transaction. Includes confirmation dialog
+before execution.
+- **Deep Activities Audit**: (1) `store_model` filter (Regular vs Drive-Thru) for parity with
+notifications backend. (2) Dead code removal in clone operations. (3) Replaced 5 hardcoded
+Spanish strings with `t()` i18n calls. (4) Added 4 new i18n keys. (5) `useLanguage()` hook in
+BoardSlot component.
+
+=================== PAGE 12 ===================
+Fecha / Date Horario / Time Slot Horas /
+Hrs
+Módulo Involucrado /
+Involved Module Descripción de Actividades (Español / English)
+11-Jul-2026 10:19 AM - 1:46 PM 5.5 INVENTARIO
+QUICKBOOKS
+- **Rediseño Completo de Pestaña Sobrantes v2**: Nuevo layout con semáforo de colores
+(verde/ámbar/rojo) basado en el porcentaje sobrante vs PAR. PAR como etiqueta sutil, sobrante
+como número protágono grande en negrita, y porcentaje como pastilla coloreada. Fondo
+completo de celda con color de semáforo. Leyenda como pastillas limpias en vez de tarjetas
+voluminosas.
+- **PAR Ideal Inline**: Movimiento del PAR Ideal de tabla separada a columnas violeta
+integradas directamente al lado derecho de la cuadrícula de configuración semanal (7 columnas
+para diario, 1 para líquidos/uniformes).
+- **Bug Crítico: PAR Ideal excluía semana actual**: La función `recalculateParIdeal` usaba filtro
+`lt()` que excluía los datos de cierre de la semana actual del cálculo. Cambiado a `lte()`. Además,
+`executeWeekRollover` clonaba el PAR ANTES de recalcular — ahora recalcula PRIMERO y luego
+copia el PAR Ideal actualizado.
+- **Ventana de cálculo 8 → 4 semanas**: Reducción de la ventana de promedio del PAR Ideal de
+8 a 4 semanas para reaccionar más rápido a patrones recientes (ej. 2 Horchatas sobrantes el
+viernes ahora pesa 25% en vez de 12.5%).
+- **Ampliación de Umbrales PAR**: L-V: riesgo <20% (era <10%), ideal 20-60% (era 10-50%),
+exceso ≥ 60% (era ≥ 50%). Sáb: riesgo <15%, ideal 15-40%, exceso ≥ 40%. Filosofía: quedarse sin
+producto fuerza al gerente a ir a otra tienda lejana, lo cual es mucho más costoso que tener
+sobrante.
+- **Auditoría Integral del Módulo**: Eliminación de función muerta `getOrderHistory`.
+Corrección de anti-patrón `document.getElementById` de React para copiar PAR.
+Implementación de soporte bilingüe completo (50+ claves i18n) para alertas, confirmaciones,
+flujos de QuickBooks y modales de guía. Limpieza de dependencia de Supabase en React.
+- **Reglas de Redondeo Especiales**: Implementación de `ceiling_60` para Papelito Para Torta
+(charolas de 60 paquetes). Redondeo automático de ajustes manuales de PAR según reglas del
+item. Aplicación de reglas de redondeo durante el cálculo de promedios de PAR Ideal en el
+rollover semanal.
+- **Limpieza dinámica de datos legacy**: Aplicación automática de reglas de redondeo sobre el
+PAR Ideal y bases semanales al cargarlos de la base de datos, reparando registros viejos que no
+cumplían las reglas.
+- **Boost de Emergencia PAR (+10/15/20/25%)**: Dropdown en la pestaña de orden diaria que
+permite subir temporalmente el PAR de TODOS los productos para días especiales o de alta
+demanda. Las cantidades boosteadas respetan las reglas de redondeo y muestran una pastilla
+visual (+X%) bajo los valores de PAR en la tabla.
+- **Sobrantes Tab Redesign v2**: New traffic-light layout (green/amber/red) based on leftover
+% vs PAR. PAR as subtle label, leftover as bold protagonist number, percentage as colored pill
+badge. Full cell background with traffic-light color. Clean pill legend.
+- **PAR Ideal Inline**: Moved PAR Ideal from separate table to violet inline columns on the right
+side of weekly config grid.
+- **Critical Bug: PAR Ideal excluded current week**: `recalculateParIdeal` used `lt()` filter
+excluding closing week data. Changed to `lte()`. Also `executeWeekRollover` now recalculates
+FIRST then copies updated PAR Ideal.
+- **Calculation window 8 → 4 weeks**: Faster reaction to recent leftover patterns (e.g. 2
+Horchata leftovers on Friday now weighs 25% instead of 12.5%).
+- **PAR Threshold Widening**: M-F: risk <20% (was <10%), ideal 20-60% (was 10-50%), excess
+≥ 60% (was ≥ 50%). Sat: risk <15%, ideal 15-40%, excess ≥ 40%. Running out forces manager to
+drive to distant store for restock.
+- **Comprehensive Module Audit**: Dead `getOrderHistory` removal. React anti-pattern fix for
+PAR copy. Full i18n (50+ keys) for alerts, confirmations, QB flows, help modals. Supabase
+dependency cleanup.
+- **Special Rounding Rules**: `ceiling_60` for Papelito Para Torta (60-pack trays). Auto-round
+manual PAR adjustments. Enforce rounding during PAR Ideal rollover averages.
+- **Dynamic Legacy Data Cleanup**: Auto-apply rounding rules on fetched PAR Ideal and
+weekly bases to repair old database records.
+- **Emergency PAR Boost (+10/15/20/25%)**: Dropdown in daily order tab to temporarily
+increase PAR for ALL products on high-demand days. Boosted values respect rounding rules
+and show visual (+X%) pill badge.
+
+=================== PAGE 13 ===================
+Fecha / Date Horario / Time Slot Horas /
+Hrs
+Módulo Involucrado /
+Involved Module Descripción de Actividades (Español / English)
+14-Jul-2026 10:00 AM - 7:30 PM 9.5 TIENDAS
+GOOGLE MAPS
+BASE DE DATOS
+I18N
+- **Módulo de Tiendas (Integración Toast)**: Refactorización de `lib/toast-api.ts` y APIs de
+sincronización de empleados para enlazar dinámicamente las sucursales basadas en bases de
+datos en lugar de mapeos estáticos.
+- **Buscador de Direcciones (Geocoding)**: Creación de API segura en el backend que traduce
+direcciones en coordenadas geográficas usando Google Maps Geocoding (con respaldo
+automático a Nominatim/OSM).
+- **Google Maps con Satélite**: Migración completa de Leaflet a un componente nativo de
+**Google Maps** (`StoreMapPicker`), configurando la recuperación segura de la clave del
+servidor, la opción de arrastre de marcador (pin), visualización de pantalla completa,
+visualización de etiquetas de comercios y selector interactivo de vista tradicional/satélite.
+- **Configuración en Vercel**: Vinculación de la base de código local con el proyecto de Vercel
+`tacosgavilan` e inyección de las variables de entorno `GOOGLE_MAPS_API_KEY` y
+`GOOGLE_MAPS_KEY` en todos los ambientes (Production, Preview, Development) para
+despliegues sin interrupciones.
+- **Solución de Hydration Mismatch**: Corrección del error de desajuste de hidratación de
+Next.js al cargar el idioma preferido en `LanguageProvider` moviendo la lógica de
+`localStorage` a un hook `useEffect` del lado del cliente.
+- **Resolución de Error de Base de Datos (PATCH)**: Eliminación del campo inexistente `hours`
+del payload de guardado de tiendas en `app/tiendas/page.tsx`, solucionando el error
+`PGRST204` de PostgREST al guardar sucursales.
+- **Stores Module (Toast Integration)**: Refactored `lib/toast-api.ts` and employee sync
+endpoints to dynamically connect store locations via database queries instead of static lists.
+- **Backend Geocoding**: Created a secure backend API endpoint converting addresses to
+geographic coordinates using Google Maps Geocoding with automatic Nominatim fallback.
+- **Google Maps & Satellite View**: Replaced Leaflet with a native **Google Maps** view
+(`StoreMapPicker`), implementing secure key fetching, draggable pins, fullscreen controls,
+POI/business labels, and Roadmap/Satellite switching.
+- **Vercel Deploy Configuration**: Linked the project and uploaded
+`GOOGLE_MAPS_API_KEY` / `GOOGLE_MAPS_KEY` environments to all Vercel stages
+(Production, Preview, Development) for smooth deployment builds.
+- **Hydration Mismatch Fix**: Resolved Next.js client/server hydration errors in
+`LanguageProvider` by shifting `localStorage` reading logic into a client-side `useEffect` hook.
+- **Supabase PATCH Error Fix**: Removed nonexistent `hours` field from the store save
+payload, fixing Supabase `PGRST204` errors when editing location metadata.
+20-Jul-2026 12:45 PM - 2:45 PM 2.0 PLANIFICADOR
+I18N
+- **Envío de Horario Semanal Completo al Modificar Turnos**: Refactorización de la API de
+publicación de horarios (`/api/notifications/publish-schedule`) para que, al realizar un ajuste o
+modificación de un turno después de haber publicado la semana, se envíe el horario semanal
+completo y actualizado de los empleados afectados en lugar de solamente enviar la
+modificación aislada del turno editado. Esto evita confusiones entre el personal sobre sus demás
+días asignados.
+- **Full Weekly Schedule Delivery on Edit**: Refactored the schedule publishing API
+(`/api/notifications/publish-schedule`) so that when a shift is edited or adjusted post-publication,
+affected employees receive their entire updated weekly schedule instead of only the isolated
+edited shift. This avoids confusion regarding other scheduled days.
+
+=================== PAGE 14 ===================
+Fecha / Date Horario / Time Slot Horas /
+Hrs
+Módulo Involucrado /
+Involved Module Descripción de Actividades (Español / English)
+21-Jul-2026 2:58 PM - 9:23 PM 6.5 ACTIVIDADES
+NAVEGACIÓN
+ASISTENTE IA
+- **Eliminación Segura de Módulos Roles y Procedimientos**: Análisis exhaustivo de
+dependencias cruzadas (15+ búsquedas de grep, 3 subagentes de investigación en paralelo)
+para verificar que el Planificador, Breaks, Horarios, Auto-Schedule, Notificaciones, Checklists y
+Cron Jobs de Vercel NO dependan de los módulos Roles ni Procedimientos antes de proceder a
+eliminarlos.
+- **Eliminación de 3,797 Líneas de Código Obsoleto**: Borrado de `app/roles/page.tsx` (176 KB),
+`app/procedimientos/page.tsx`, y `app/api/roles/templates/route.ts`. Conservación segura de
+las API routes compartidas (`/api/roles`, `/api/roles/activities`, `/api/procedimientos`) y del
+componente `ProceduresTimeline` que el módulo Actividades sigue usando internamente.
+- **Actualización del Menú de Navegación**: Eliminación de las entradas 'Procedimientos' y
+'Roles' del sidebar (`AppSidebar.tsx`). Actualización de la barra de navegación inferior para
+móviles (`BottomTabBar.tsx`) redirigiendo de '/roles' a '/actividades' con label bilingüe.
+- **Sincronización del Asistente IA**: Actualización del prompt del asistente de soporte
+(`support-chat/route.ts`) para reflejar que Actividades es ahora el módulo unificado que
+reemplaza Roles y Procedimientos, incluyendo la descripción completa de sus sub-módulos
+(Catálogo, Configurar Posiciones, Asignación Diaria, Tablero, Checklists y Reportes).
+- **Verificación de TypeScript**: 0 errores confirmados con `tsc --noEmit` antes del commit.
+- **Safe Removal of Roles & Procedures Modules**: Exhaustive cross-dependency analysis (15+
+grep searches, 3 parallel research subagents) verifying that Planner, Breaks, Schedules, Auto-
+Schedule, Notifications, Checklists, and Vercel Cron Jobs do NOT depend on the Roles or
+Procedures modules before deletion.
+- **3,797 Lines of Legacy Code Removed**: Deleted `app/roles/page.tsx` (176 KB),
+`app/procedimientos/page.tsx`, and `app/api/roles/templates/route.ts`. Safely preserved
+shared API routes (`/api/roles`, `/api/roles/activities`, `/api/procedimientos`) and the
+`ProceduresTimeline` component still used internally by the Actividades module.
+- **Navigation Menu Update**: Removed 'Procedimientos' and 'Roles' entries from the sidebar
+(`AppSidebar.tsx`). Updated mobile bottom tab bar (`BottomTabBar.tsx`) redirecting '/roles' to
+'/actividades' with bilingual label.
+- **AI Assistant Sync**: Updated the support chat assistant prompt (`support-chat/route.ts`) to
+reflect Actividades as the unified module replacing Roles and Procedures, including full
+description of its sub-modules (Catalog, Configure Positions, Daily Assignment, Board,
+Checklists, and Reports).
+- **TypeScript Verification**: 0 errors confirmed via `tsc --noEmit` before commit.
+
+=================== PAGE 15 ===================
+Fecha / Date Horario / Time Slot Horas /
+Hrs
+Módulo Involucrado /
+Involved Module Descripción de Actividades (Español / English)
+24-Jul-2026 3:07 PM - 11:30 PM 8.5 USUARIOSTOAST
+BASE DE DATOS
+I18N
+- **Módulo de Usuarios - Promociones y Sincronización Directa Toast**: Implementación del
+flujo de mapeo directo de roles Toast hacia la tabla de usuarios del sistema (`users`).
+- **Escalera de Mando (Niveles 1-6)**: Configuración de reglas donde solo los niveles 3
+(Asistente), 4 (Manager), 5 (Supervisor) y 6 (Admin) generan cuenta en el sistema, mientras que
+los niveles 1 (Cocinero/Cajera) y 2 (Shift Leader) se alimentan directamente de Toast para el
+módulo Planificador.
+- **Detección Automática de Promociones y Degradaciones**: Creación del endpoint
+`/api/admin/users/sync-toast` (GET/POST) que analiza empleados en `toast_employees`,
+identifica nuevos puestos de Manager/Asistente y marca usuarios inactivos o degradados en
+Toast.
+- **Resolución de Conflictos de Sucursal (Managers vs Múltiples Asistentes)**: Restricción de la
+detección de conflicto de desactivación únicamente para Managers (1 por tienda). Se habilitó
+soporte para **múltiples Asistentes activos por sucursal (turno AM y turno PM)** en `UserModal`
+y `sync-toast/route.ts`, evitando desactivaciones accidentales entre asistentes como Cruz
+Castillo en Lynwood.
+- **Autocompletado de Usuarios desde Toast (Planificador)**: Integración en `UserModal` del
+selector '¿El usuario ya existe en Toast (Planificador)?' que autocompleta nombre, email,
+teléfono, rol y sucursal de forma automática.
+- **Normalización Robusta de Puestos Toast**: Implementación de `normalizeJobTitle()` que
+elimina puntos, espacios y mayúsculas para manejar variaciones como 'Asst Manager' vs 'Asst.
+Manager' vs 'ASST MANAGER'. Bug fix: 14 de 15 tiendas usaban 'Asst Manager' sin punto pero el
+código anterior solo buscaba 'Asst. Manager'.
+- **Triple Matching (toast_guid > Email > Nombre+Tienda)**: Estrategia de vinculación en 3
+niveles donde el GUID permanente tiene prioridad, seguido de coincidencia por correo y como
+respaldo nombre normalizado + tienda.
+- **Columna `toast_guid` en tabla `users`**: Migración DDL para agregar columna UNIQUE con
+índice. Permite vinculación permanente e inmutable entre empleados de Toast y cuentas del
+sistema, eliminando dependencia de correo electrónico.
+- **Migración de Datos Masiva**: Vinculación automática de 38 de 44 usuarios existentes
+(managers y asistentes) con su toast_guid de Toast, incluyendo 5 casos especiales de nombres
+distintos confirmados por la gerencia (Cael → Calel, Flores → Romero, etc.).
+- **Users Module - Direct Toast Promotion & Role Sync**: Implemented direct mapping from
+Toast job roles to system user profiles (`users` table).
+- **Command Ladder (Levels 1-6)**: Enforced business rule where only levels 3 (Assistant), 4
+(Manager), 5 (Supervisor), and 6 (Admin) get portal credentials, while levels 1 (Cook/Cashier) and
+2 (Shift Leader) are fed from Toast for the Planner module.
+- **Automatic Promotion & Demotion Detection**: Built `/api/admin/users/sync-toast`
+(GET/POST) endpoint detecting Toast Manager/Assistant promotions and flagging demoted or
+deleted employees.
+- **Store-Level Conflict Resolution (Managers vs Multi-Assistants)**: Restricted conflict auto-
+deactivation checks exclusively to Managers (1 per store). Added full support for **multiple
+active Assistants per store (AM Shift & PM Shift)** in `UserModal` and `sync-toast/route.ts`,
+preventing accidental deactivations between co-assistants (such as Cruz Castillo in Lynwood).
+- **Toast Employee Auto-Fill**: Integrated 'Does user exist in Toast (Planner)?' selector into
+`UserModal`, auto-populating full name, email, phone, role, and store.
+- **Robust Job Title Normalization**: Implemented `normalizeJobTitle()` to strip punctuation,
+collapse whitespace, and lowercase all titles. Fixed bug where 14 of 15 stores used 'Asst
+Manager' (no period) but old code only matched 'Asst. Manager'.
+- **Triple Matching Strategy (toast_guid > Email > Name+Store)**: 3-tier user linking where
+permanent GUID takes priority, followed by email match, and finally normalized name + store
+fuzzy match as fallback.
+- **`toast_guid` Column in `users` Table**: DDL migration adding UNIQUE column with index for
+permanent, immutable linkage between Toast employees and system user accounts.
+- **Bulk Data Migration**: Auto-linked 38 of 44 active managers/assistants to their Toast GUID,
+including 5 special confirmed name-variation cases (Cael → Calel, Flores → Romero, etc.).
+
+=================== PAGE 16 ===================
+Fecha / Date Horario / Time Slot Horas /
+Hrs
+Módulo Involucrado /
+Involved Module Descripción de Actividades (Español / English)
+26-Jul-2026 11:15 AM - 2:45 PM 3.5 INVENTARIO
+QUICKBOOKS
+BASE DE DATOS
+- **Auditoría e Investigación del Desplome de Food Cost**: Análisis profundo que identificó la
+caída del Food Cost a 26.8% en todas las sucursales el 25 de julio. Diagnóstico del bug de
+QuickBooks Sync que redujo a la mitad los precios de carnes clave (Pollo, Pastor, Lengua,
+Cabeza) al hacer fallback a `PurchaseCost` debido a `UnitPrice = 0` en QBO, y que evadió la
+Smart Price Protection por un bug de comparación en el límite del 50.0% exacto.
+- **Corrección de Smart Price Protection**: Modificación de la frontera de la validación
+(`dropPercent >= maxDrop`) para bloquear caídas de precio exactamente iguales al límite
+configurado en `app/api/inventory/sync-quickbooks/route.ts`.
+- **Restauración y Recálculo Automatizado de Precios**: Desarrollo y ejecución de script para
+revertir los precios erróneos del 24 de julio, restaurar los costos correctos en `inventory_items` e
+`inventory_price_history`, y regenerar la caché de costos diarios (`food_cost_daily_cache`) para
+el 24, 25 y 26 de julio, normalizando el food cost de ayer a su valor real de ~32.11%.
+- **Robustez de la Caché PMIX contra Pedidos Futuros**: Implementación de lógica
+autosanable en `lib/toast-pmix.ts` que ignora la caché y fuerza la descarga en vivo si
+`updated_at::date < business_date`, protegiendo la base de datos de datos incompletos por
+pedidos de catering pre-programados. Actualización de timestamps en `app/api/cron/sync-
+pmix/route.ts` y `scripts/rebuild-pmix.ts`.
+- **Food Cost Drop Audit**: Conducted deep investigation on the 26.8% food cost drop for July
+25. Identified QuickBooks Sync bug that halved key meat prices (Chicken, Pastor, Tongue, Head)
+due to a fallback to `PurchaseCost` when `UnitPrice = 0` in QBO. The drop was not blocked
+because of an boundary condition bug in Smart Price Protection (50.0% exact drop).
+- **Smart Price Protection Fix**: Modified the check boundary (`dropPercent >= maxDrop`) in
+`app/api/inventory/sync-quickbooks/route.ts` to block drop percentages exactly matching the
+threshold.
+- **Database Price Restoration & Recalculation**: Programmed and executed database repair
+script that deleted wrong history entries, restored correct prices in `inventory_items` and
+`inventory_price_history`, and rebuilt daily food cost cache for July 24, 25, and 26 (restoring July
+25 food cost to ~32.11%).
+- **Self-Healing PMIX Cache**: Coded defensive caching logic in `lib/toast-pmix.ts` to bypass
+and force live Toast fetch if `updated_at::date < business_date` (avoids stale/incomplete records
+from pre-scheduled catering orders). Implemented timestamps in `app/api/cron/sync-
+pmix/route.ts` and `scripts/rebuild-pmix.ts`.
+26-Jul-2026 3:00 PM - 5:00 PM 2.0 INVENTARIO
+QUICKBOOKS
+ARQUITECTURA
+- **Auto-Sync de Empaques desde QuickBooks**: Implementación de sincronización
+automática de tamaños de empaque (bolsas, cajas, cubetas) leyendo el campo Description de
+los Recurring Transactions de QuickBooks (ej: "(Bag of 5 lbs)"). El sistema ahora parsea
+automáticamente las descripciones para extraer `quantity_per_unit`, `order_unit_description` y
+`unit_measure`.
+- **Pre-Scan Inteligente**: Nuevo PASO 0 en el sync de QB que lee todas las
+RecurringTransactions ANTES del sync de precios para construir un mapa de empaques. Esto
+permite que el Smart Price Protection compare costo-por-libra (en vez de costo-por-bolsa)
+cuando detecta un cambio de empaque legítimo, permitiendo cambios que antes se bloqueaban
+erróneamente.
+- **Cascada Automática de PAR**: Cuando el empaque cambia (ej: bolsa de 10 lbs a 5 lbs), el
+sistema automáticamente multiplica el PAR de TODAS las tiendas por el factor inverso (×2.0)
+para mantener la misma cantidad total de producto. Aplica tanto a `inventory_weekly_bases`
+como a `inventory_par_ideal`.
+- **Invalidación de Caché Automática**: Cambios de precio o empaque ahora borran
+automáticamente la caché de `food_cost_daily_cache` de los últimos 3 días, forzando recálculo
+inmediato. También se agregó invalidación al editar recetas en `recipes/route.ts`.
+- **Documentación del Asistente IA**: Actualización del prompt del asistente de soporte y de las
+herramientas de chat para reflejar la nueva funcionalidad.
+- **Packaging Auto-Sync from QuickBooks**: Built automatic packaging size synchronization by
+reading the Description field from QB Recurring Transactions (e.g., "(Bag of 5 lbs)"). The system
+now automatically parses descriptions to extract `quantity_per_unit`, `order_unit_description`
+and `unit_measure`.
+- **Intelligent Pre-Scan**: New STEP 0 in QB sync reads all RecurringTransactions BEFORE the
+price sync to build a packaging map. This enables Smart Price Protection to compare cost-per-
+pound (instead of cost-per-bag) when it detects a legitimate packaging change, allowing
+updates that were previously blocked erroneously.
+- **Automatic PAR Cascade**: When packaging changes (e.g., bag from 10 lbs to 5 lbs), the
+system automatically multiplies PAR values across ALL stores by the inverse factor (×2.0) to
+maintain the same total product weight. Updates both `inventory_weekly_bases` and
+`inventory_par_ideal`.
+- **Automatic Cache Invalidation**: Price or packaging changes now automatically clear
+`food_cost_daily_cache` for the last 3 days, forcing immediate recalculation. Also added cache
+invalidation when editing recipes in `recipes/route.ts`.
+- **AI Assistant Documentation**: Updated support chat prompt and chat tools to reflect the
+new functionality.
+
+=================== PAGE 17 ===================
+Fecha / Date Horario / Time Slot Horas /
+Hrs
+Módulo Involucrado /
+Involved Module Descripción de Actividades (Español / English)
+27-Jul-2026 7:50 AM - 9:25 AM 1.5 INVENTARIO
+FOOD COST
+BASE DE DATOS
+- **Fix Bug Milaneza (FC 560% por 5 meses)**: Investigación profunda del spike de Food Cost al
+39.7%. Identificación del root cause: `quantity_per_unit` de Milaneza estaba en 2.6 (libras del
+paquete) en vez de 20 (piezas por paquete). El sistema cobraba $26.43 por pieza en vez de
+$1.32. Corrección de inventory_items y recetas (Plato Milanesa 4 → 3 pza).
+- **Fix Tortilla Nachos**: Cambio de `unit_measure` de 'oz' a 'pza' y `quantity_per_unit` de 4.5 a
+1 (bolsa individual). El costo de $1.26/porción es correcto.
+- **Scanner Profundo de 312 Recetas**: Auditoría completa de TODAS las recetas del sistema
+(897 líneas, 72 ingredientes). Resultado: 0 anomalías de costo activas después de las
+correcciones.
+- **Reconstrucción de Caché Histórica**: Purgado y recálculo completo de 207 días de
+food_cost_daily_cache (Dic 31 - Jul 25) en 18 minutos. Todos los datos ahora reflejan precios y
+configuraciones correctas.
+- **Sistema de Protección de 3 Capas**: (A) Validación post-save en recetas: detecta
+ingredientes >$15, costo total >$20, y mismatch de unidades pza ↔ lb. (B) Cron diario detecta
+items con FC >100% y los persiste en nueva tabla `food_cost_anomalies`. (C) Banner rojo en
+dashboard de Food Cost con botón "Resolver" por anomalía.
+- **Trigger PostgreSQL de Auto-Invalidación**: Trigger
+`trg_invalidate_fc_cache_on_inventory_change` que dispara automáticamente al cambiar
+`quantity_per_unit`, `purchase_unit_cost`, o `unit_measure` en inventory_items — sin importar si
+el cambio viene de QuickBooks, edición manual, o script. Borra caché de los últimos 3 días.
+- **Tabla food_cost_anomalies**: Nueva tabla en Supabase para persistir anomalías
+detectadas por el cron. Incluye severidad (warning/critical), estado de resolución, y fecha de
+detección.
+- **API de Anomalías**: Nuevo endpoint `/api/inventory/anomalies` (GET/PATCH) para servir y
+resolver anomalías desde el dashboard.
+- **Milaneza Bug Fix (FC 560% for 5 months)**: Deep investigation of Food Cost spike to 39.7%.
+Root cause: Milaneza's `quantity_per_unit` was 2.6 (bag weight in lbs) instead of 20 (pieces per
+bag). System charged $26.43/piece instead of $1.32. Fixed inventory_items and recipes (Plato
+Milanesa 4 → 3 pza).
+- **Tortilla Nachos Fix**: Changed `unit_measure` from 'oz' to 'pza' and `quantity_per_unit`
+from 4.5 to 1 (individual bag). Cost of $1.26/serving confirmed correct.
+- **Deep Scan of 312 Recipes**: Complete audit of ALL system recipes (897 lines, 72
+ingredients). Result: 0 active cost anomalies after corrections.
+- **Historical Cache Rebuild**: Purged and recalculated 207 days of food_cost_daily_cache
+(Dec 31 - Jul 25) in 18 minutes. All data now reflects correct prices and configurations.
+- **3-Layer Protection System**: (A) Post-save recipe validation: detects ingredients >$15, total
+cost >$20, and unit mismatches pza ↔ lb. (B) Daily cron detects items with FC >100% and persists
+them in new `food_cost_anomalies` table. (C) Red banner on Food Cost dashboard with per-
+anomaly "Resolve" button.
+- **PostgreSQL Auto-Invalidation Trigger**: `trg_invalidate_fc_cache_on_inventory_change`
+fires automatically when `quantity_per_unit`, `purchase_unit_cost`, or `unit_measure` changes in
+inventory_items — regardless of source (QB sync, manual edit, script). Deletes last 3 days of
+cache.
+- **food_cost_anomalies Table**: New Supabase table to persist cron-detected anomalies.
+Includes severity (warning/critical), resolution status, and detection timestamp.
+- **Anomalies API**: New `/api/inventory/anomalies` endpoint (GET/PATCH) to serve and
+resolve anomalies from the dashboard.
+
+=================== PAGE 18 ===================
+Fecha / Date Horario / Time Slot Horas /
+Hrs
+Módulo Involucrado /
+Involved Module Descripción de Actividades (Español / English)
+29-Jul-2026 7:50 AM - 8:35 AM 0.8INVENTARIO
+FOOD COST
+BASE DE DATOS
+- **Fix y Regla de Negocio Queso Fresco / Queso Tortas**: Configuración precisa de `Queso
+Tortas/platos/Desayuno` en 20 pza por paquete (`quantity_per_unit = 20`, `unit_measure =
+'pza'`). Actualización de recetas para usar 1 pza por torta y 1 pza por plato (desayunos o
+regulares), corrigiendo el costo de $13.12 a $0.164 por porción.
+- **Fix y Regla de Negocio Mulitas Con Queso**: Configuración de `Mulitas Con Queso` a 12
+pares/piezas por bolsa (`quantity_per_unit = 12`, `unit_measure = 'pza'`). Cada bolsa trae 12
+pares (24 tortillas), contadas como 12 unidades porque cada mulita usa 2 tortillas. Costo por
+mulita corregido de $3.76 a $0.313, bajando el Food Cost de Mulita Asada de 97.6% a 25.6%.
+- **Fix y Regla de Negocio Tortilla Nachos / Chips**: Vinculación de `Tortilla Nachos` como la
+bolsa individual de chips (`quantity_per_unit = 1`, `unit_measure = 'pza'`). Actualización de las
+recetas de Chips y Super Nachos Chorizo (de 5 oz a 1 pza), corrigiendo el costo de $6.30 a $1.26
+por bolsa y bajando el Food Cost de Chips del 250% al 37.2%.
+- **Protección Inmutable vs QuickBooks Sync**: Implementación del blindaje `isPieceItem` en
+`app/api/inventory/sync-quickbooks/route.ts`, que impide que la sincronización de QuickBooks
+cambie la unidad o la relación de piezas de insumos contados por pieza (pza/unit/dz) como
+Milaneza, Papelito Para Torta, Mulitas, Queso y Tortilla Nachos.
+- **Reconstrucción Completa de Caché de Julio (29 días)**: Purga y recalculación completa de
+los 29 días del mes de Julio para las 15 sucursales. El Food Cost del mes completo quedó
+perfectamente nivelado en un rango sano de 32.16% a 33.90%.
+- **Queso Fresco / Queso Tortas Fix & Business Rule**: Configured `Queso
+Tortas/platos/Desayuno` to 20 pcs per pack (`quantity_per_unit = 20`, `unit_measure = 'pza'`).
+Updated recipes to use 1 pc per torta and 1 pc per plate (breakfast or regular), correcting
+portion cost from $13.12 to $0.164.
+- **Mulitas Con Queso Fix & Business Rule**: Configured `Mulitas Con Queso` to 12 pairs/pieces
+per bag (`quantity_per_unit = 12`, `unit_measure = 'pza'`). Each bag contains 12 pairs (24
+tortillas), counted as 12 units since each mulita uses 2 tortillas. Portion cost corrected from $3.76
+to $0.313, reducing Mulita Asada Food Cost from 97.6% to 25.6%.
+- **Tortilla Nachos / Chips Fix & Business Rule**: Linked `Tortilla Nachos` as individual chips bag
+(`quantity_per_unit = 1`, `unit_measure = 'pza'`). Updated Chips and Super Nachos Chorizo
+recipes (from 5 oz to 1 pza), correcting portion cost from $6.30 to $1.26 per bag and dropping
+Chips Food Cost from 250% to 37.2%.
+- **Immutable Protection vs QuickBooks Sync**: Implemented `isPieceItem` guard in `sync-
+quickbooks/route.ts` preventing QuickBooks sync from overwriting unit measure or piece ratios
+for piece-count items (pza/unit/dz) like Milaneza, Papelito, Mulitas, Queso, and Tortilla Nachos.
+- **Full July Cache Rebuild (29 days)**: Purged and recalculated all 29 days of July for all 15
+stores. Full month Food Cost now cleanly leveled in healthy 32.16% to 33.90% range.
+31-Jul-2026 6:00 PM - 10:30 PM 4.5 PREPARADOR
+KDS
+BASE DE DATOS
+- **Reestructuración del Preparador (Cooking Pace)**: Transición de la proyección de carne de
+bloques de 30 minutos a bloques por periodos de tráfico pico (Peak Time Period Blocks:
+Apertura, Almuerzo, Pico PM) mostrando Lbs/Hr y Libras Totales por bloque. Ajuste dinámico
+del Periodo 1 según la hora de apertura real de la sucursal.
+- **Contraste y UX de Parrilla**: Aumento del contraste de las tarjetas de proyección y
+remoción de opacidad para lectura a distancia en cocina. Cálculo de velocidad real (Lbs/Hr)
+usando tiempo transcurrido en el periodo activo y visualización de total de libras reales.
+- **Selector de Historial y Calendario**: Incorporación de Date Picker interactivo para
+consultar proyecciones e historial de consumo de cualquier fecha pasada. Selector interactivo
+30 Min vs Tramos.
+- **Control de Sobrecocción (Máx. Charola)**: Integración de insignia visual ' 🔥  Máx. Charola'
+indicando la capacidad máxima de cada carne. Página estática autónoma
+`tabla_maximos_preparador.html` con CSS puro autónomo para 100% de compatibilidad al
+previsualizarse en iOS QuickLook/WhatsApp sin JS, accesible mediante la ruta
+`/inventory/preparador/tabla`.
+- **Guía Operativa KDS**: Modal interactivo de Guía Operativa y Tabla de Máximos accesible
+mediante botón 'VER GUÍA' con tema monocromático de alta legibilidad para ambiente rudo de
+cocina.
+- **Preparador (Cooking Pace) Restructuring**: Shifted meat projection displays from fixed 30-
+min increments to Peak Time Period Blocks showing dynamic Lbs/Hr and Total Period Lbs.
+Coded automatic store opening adjustments for Period 1.
+- **Grill Screen Contrast & UX**: Boosted text contrast and removed opacity elements on
+projection cards for long-range reading. Built dynamic consumption REAL/hr computing
+elapsed hours on current active block.
+- **Calendar Historial Picker**: Coded interactive Date Picker to query projection values and
+consumption logs for any historical calendar date. View switcher for 30 Min vs. Peak Periods.
+- **Overcooking Safety Limit (Max Tray)**: Added ' 🔥  Máx. Charola' capacity holding limit
+badge to cards. Created 100% self-contained Vanilla CSS static page
+`tabla_maximos_preparador.html` for JS-free previews on iOS QuickLook & WhatsApp,
+exposed via `/inventory/preparador/tabla`.
+- **Operational KDS Guide**: Built interactive 'VER GUÍA' modal mapping operational
+guidelines and maximum capacity tray charts, implementing high-contrast monochrome UI
+styling.
+ACTIVIDADES PARALELAS ESENCIALES / PARALLEL ESSENTIAL ACTIVITIES
+
+=================== PAGE 19 ===================
+P ruebas en Sucursal/Local 9.5 hrs
+Ejecución de servidores de desarrollo
+locales y emuladores móviles de la app.
+Pruebas táctiles, formatos de impresión,
+validación de flujos OAuth, y visitas
+presenciales a sucursales para
+verificación de tabletas piloto y módulos
+del sistema en campo (Slauson 10-Jul).
+Launching local testing servers and
+emulators. Tested print layouts, tablet
+scroll constraints, Google Workspace
+OAuth redirects, and on-site store visits
+for pilot tablet verification and system
+module field testing (Slauson 10-Jul).
+Monitoreo DB y QuickBooks
+AP I
+5.0
+hrs
+Monitoreo de bases de datos de
+inventario y respuestas de la API de
+QuickBooks y NWS. Auditorías de políticas
+RLS y flujos de RLS-bypass para
+historiales de orden.
+Monitoring databases, QuickBooks
+endpoints, and NWS logs. Configured
+Postgres RLS bypass functions for
+historical weekly matrix sheets.
+P lanificación y Diseño 3.0 hrs
+Investigación técnica para heredar
+configuraciones de QBO Recurring
+Transactions, diseño de matrices visuales
+de desperdicios y telemetría predictiva
+del clima.
+Scoping QuickBooks Recurring
+Transactions mapping, designing
+leftovers grids layouts, and planning
+weather pace telemetry formulas.
+RESUMEN DE ESFUERZO / SUMMARY OF EFFORT
+Actividades, P lanificador y Horarios / Activities &
+Scheduling
+31.5
+hrs
+Clon y Sincronizador de Basecamp / Basecamp
+Integration
+0.0
+hrs
+P rocedimientos, Fotos e Inspecciones / P rocedures &
+Camera Inspections
+0.0
+hrs
+P reparador de Carne y Cocina KDS / P rep Line &
+Kitchen KDS
+4.5
+hrs
+Inventario, P edidos y Sincronización QuickBooks /
+Inventory & QuickBooks
+81.8
+hrs
+Mantenimiento General y Soporte Técnico / General
+Maintenance & Support
+0.0
+hrs
+
+=================== PAGE 20 ===================
+🦅  Tacos El Gavilan · Informe Tecnológico Consolidado 2026 · Departamento de Sistemas

@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
 
     const supabase = await getSupabaseAdminClient()
     const now = new Date()
-    const todayStr = now.toISOString().split('T')[0]
+    const todayStr = now.toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
 
     let updatedCount = 0
     let historyCount = 0
@@ -155,7 +155,8 @@ export async function POST(request: NextRequest) {
     }
 
     // 4. Invalidar caché de Food Cost de los últimos 7 días para forzar recálculo
-    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+    const sevenDaysAgoDate = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
+    const sevenDaysAgo = sevenDaysAgoDate.toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
     await supabase
       .from('food_cost_daily_cache')
       .delete()

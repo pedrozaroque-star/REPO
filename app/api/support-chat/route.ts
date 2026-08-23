@@ -308,7 +308,11 @@ Food Cost % = (Total Ingredient Cost ÷ Net Sales) × 100
 - **Supervisor Inspections**: Supervisors visit stores and score them across categories (cleanliness, food safety, customer service, etc.). Scores are 0-100%.
 - **Checklists**: 5 types available — Apertura (Opening, 34 points), Cierre (Closing), Daily, Manager, Recorrido (Walkthrough), and Sobrante (Leftover). Each has specific checkpoint items.
 - **Temperature Logging**: During checklists, record equipment temperatures (fridges, grills, holding cabinets). Enter the reading in °F, the system validates against safe ranges.
-- **Discount Anomaly Radar**: In Admin → Auditoría Descuentos. Analyzes discount patterns to detect unusual activity (e.g., excessive employee discounts, unauthorized voids). Shows anomalies with severity levels.
+- **Auditoría de Descuentos & Detector de Doble Descuento**: In Admin → Auditoría Descuentos (\`/admin/auditoria-descuentos\`).
+  * **Detector de Doble Descuento**: Detecta de forma forense órdenes que combinan 2 o más TIPOS DIFERENTES de descuento en el mismo ticket (ej. Employee 50% + Cash Reward, Catering 25% + First Responder). Excluye automáticamente promociones legítimas de un solo tipo con múltiples platillos (ej. Taco Tuesday multi-item) y artefactos de reemplazo en Toast POS donde una cajera prueba varias opciones antes de aplicar la definitiva.
+  * **Regla Matemática del Descuento Real**: \`Total Real Discount = max(0, Subtotal Bruto - Subtotal Neto)\`. Previene falsos positivos y deduplica descuentos fantasma en Toast API (\`check.appliedDiscounts\` vs \`item.appliedDiscounts\`).
+  * **Radar de Riesgo C.O.R.E. (15 Días)**: Analiza el comportamiento de cajeras en los últimos 15 días para identificar frecuencias anómalas (>15 descuentos senior o >$100 acumulados por cajero), evaluando 5 causas operativas (Tráfico real de adultos mayores, Descuentos no solicitados / bolsillo, Descuentos para amigos/familiares, Modificador fantasma sin cobro, Error de capacitación POS).
+  * **Visor de Recibo en Tiempo Real**: Conecta con \`/api/toast-order-detail\` para renderizar el ticket idéntico a Toast POS (subtotal bruto, descuentos prorrateados por platillo, descuentos a nivel cheque, impuestos y pagos).
 
 ## INVENTORY & MENU
 - **Catálogo (Menu Catalog)**: All Toast menu items synced with prices, groups, and modifier options.

@@ -1,5 +1,19 @@
 'use client';
 
+/**
+ * @module app/procedimientos/imprimir/page.tsx
+ * @description Vista de impresión física y exportación a PDF del Manual de Operaciones / Catálogo de Procedimientos de Tacos Gavilan.
+ * @businessRules
+ *   - Respeta estrictamente el nombre oficial de la marca: "Tacos Gavilan" (sin "El").
+ *   - Filtra actividades por Turno (Apertura, Regular, Cierre), Modelo de Tienda (Regular, Drive-Thru, Ambos) y Día de la semana.
+ *   - Aplica normalización sin tildes para asegurar coincidencia de días como "Miércoles" y "Sábado".
+ * @dataFlow
+ *   - Consulta Supabase `operating_procedures` excluyendo `role === 'ROLES_MODULE'`.
+ *   - Recibe filtros vía URL query parameters (`shift`, `day`, `model`).
+ * @notes
+ *   - Diseñado con estilos `@media print` para salto de página limpio y contraste óptimo en papel.
+ */
+
 import { useEffect, useState, useMemo, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
@@ -89,9 +103,10 @@ function PrintProceduresContent() {
 
       // 3. Day filter
       if (filterDay === 'Diario') return true;
-      const freq = (p.frequency || '').toUpperCase();
-      if (freq === 'DIARIO') return true;
-      return freq.includes(filterDay.toUpperCase());
+      const normalize = (str: string) => str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase();
+      const freqNorm = normalize(p.frequency || '');
+      if (freqNorm === 'DIARIO') return true;
+      return freqNorm.includes(normalize(filterDay));
     });
   }, [procedures, filterShift, filterDay, filterModel]);
 

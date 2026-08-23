@@ -14,7 +14,7 @@
  */
 
 import { NextResponse } from 'next/server'
-import { getValidToken } from '@/lib/basecamp-api'
+import { getValidToken, basecampFetch } from '@/lib/basecamp-api'
 import { getServerUser } from '@/lib/auth-server'
 
 export const dynamic = 'force-dynamic'
@@ -38,41 +38,21 @@ export async function GET(request: Request) {
     // 2. Get valid Basecamp token
     const token = await getValidToken()
     const accountId = process.env.BASECAMP_ACCOUNT_ID
-    const userAgent = process.env.BASECAMP_USER_AGENT || 'SM-TEG-Sync (carlos@tacosgavilan.com)'
 
     if (!accountId) {
       return NextResponse.json({ error: 'Basecamp Account ID not configured' }, { status: 500 })
     }
 
-    // 3. Fetch Todo details from Basecamp
-    const todoUrl = `https://3.basecampapi.com/${accountId}/buckets/${projectId}/todos/${todoId}.json`
-    const todoRes = await fetch(todoUrl, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'User-Agent': userAgent,
-      },
-    })
-
-    if (!todoRes.ok) {
-      throw new Error(`Failed to fetch todo details from Basecamp: ${todoRes.statusText}`)
-    }
-
-    const todo = await todoRes.json()
+    // 3. Fetch Todo details from Basecamp with rate limiting and backoff
+    const todo = await basecampFetch<any>(`/buckets/${projectId}/todos/${todoId}.json`)
 
     // 4. Fetch Comments from Basecamp
-    const commentsUrl = `https://3.basecampapi.com/${accountId}/buckets/${projectId}/recordings/${todoId}/comments.json`
-    const commentsRes = await fetch(commentsUrl, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'User-Agent': userAgent,
-      },
-    })
-
-    let comments = []
-    if (commentsRes.ok) {
-      comments = await commentsRes.json()
-    } else {
-      console.warn(`[Todo Detail API] Failed to fetch comments for todo ${todoId}: ${commentsRes.statusText}`)
+    let comments: any[] = []
+    try {
+      const rawComments = await basecampFetch<any[]>(`/buckets/${projectId}/recordings/${todoId}/comments.json`)
+      comments = Array.isArray(rawComments) ? rawComments : []
+    } catch (commentErr: any) {
+      console.warn(`[Todo Detail API] Failed to fetch comments for todo ${todoId}:`, commentErr.message)
     }
 
     return NextResponse.json({

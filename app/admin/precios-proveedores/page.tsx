@@ -195,23 +195,25 @@ export default function SupplierPricesPage() {
       setIsLoadingInitial(true)
       const res = await fetch('/api/inventory/supplier-prices')
       const json = await res.json()
-      if (json.success) {
-        setSuppliers(json.suppliers || [])
-        setHistoryList(json.history || [])
-        setMappingsList(json.mappings || [])
+      if (!res.ok || !json.success) {
+        throw new Error(json.error || 'Error al conectar con el servidor')
+      }
 
-        // Seleccionar Viele & Sons por defecto
-        let targetId = selectedSupplierId
-        if (!targetId && json.suppliers?.length > 0) {
-          const viele = json.suppliers.find((s: Supplier) => s.supplier_code === 'VIELE')
-          targetId = viele ? viele.id : json.suppliers[0].id
-          setSelectedSupplierId(targetId)
-        }
+      setSuppliers(json.suppliers || [])
+      setHistoryList(json.history || [])
+      setMappingsList(json.mappings || [])
 
-        // Llenar el radar de inmediato con el catálogo base
-        if (json.mappings?.length > 0) {
-          buildInitialRadarFromMappings(json.mappings)
-        }
+      // Seleccionar Viele & Sons por defecto
+      let targetId = selectedSupplierId
+      if (!targetId && json.suppliers?.length > 0) {
+        const viele = json.suppliers.find((s: Supplier) => s.supplier_code === 'VIELE')
+        targetId = viele ? viele.id : json.suppliers[0].id
+        setSelectedSupplierId(targetId)
+      }
+
+      // Llenar el radar de inmediato con el catálogo base
+      if (json.mappings?.length > 0) {
+        buildInitialRadarFromMappings(json.mappings)
       }
     } catch (err: any) {
       console.error('Error loading initial data:', err)
@@ -474,13 +476,12 @@ export default function SupplierPricesPage() {
   }
 
   // Cálculos dinámicos para el modal de confirmación de aprobación
-  const itemsToApproveCount = selectedItems.size > 0
-    ? radarItems.filter(i => selectedItems.has(i.supplierSku) && i.masterItemId).length
-    : radarItems.filter(i => i.masterItemId && (i.status === 'increased' || i.status === 'decreased')).length
+  const itemsToApproveList = selectedItems.size > 0
+    ? radarItems.filter(i => selectedItems.has(i.supplierSku) && i.masterItemId)
+    : radarItems.filter(i => i.masterItemId && (i.status === 'increased' || i.status === 'decreased'))
 
-  const impactToApprove = selectedItems.size > 0
-    ? radarItems.filter(i => selectedItems.has(i.supplierSku) && i.masterItemId).reduce((sum, i) => sum + i.annualImpactUsd, 0)
-    : (radarSummary?.netAnnualImpactUsd || 0)
+  const itemsToApproveCount = itemsToApproveList.length
+  const impactToApprove = itemsToApproveList.reduce((sum, i) => sum + (i.annualImpactUsd || 0), 0)
 
   const activeSupplier = suppliers.find(s => s.id === selectedSupplierId)
 

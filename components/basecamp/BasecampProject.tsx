@@ -788,7 +788,7 @@ export default function BasecampProject({ project, navigateTo, saveProjects, pro
                                         {getInitials(line.author || 'U')}
                                     </div>
                                     <p className="text-slate-600 dark:text-slate-400 line-clamp-1 flex-1">
-                                        {(line.content || '').replace(/<[^>]*>/g, '').slice(0, 80)}
+                                        {((line.message || line.content || '')).replace(/<[^>]*>/g, '').slice(0, 80)}
                                     </p>
                                 </div>
                             ))
@@ -813,21 +813,20 @@ export default function BasecampProject({ project, navigateTo, saveProjects, pro
                         </h2>
                     </div>
                     <div className="flex-1 space-y-2">
+                        <MiniCalendar events={calendarEvents} t={t} />
                         {calendarEvents && calendarEvents.length > 0 ? (
-                            calendarEvents.slice(0, 4).map((evt: any) => (
-                                <div key={evt.id} className="flex items-center gap-2 text-sm">
-                                    <span className="w-2 h-2 rounded-full bg-blue-500 flex-shrink-0" />
-                                    <span className="text-slate-600 dark:text-slate-400 truncate flex-1 font-medium">{evt.title}</span>
-                                    <span className="text-[10px] text-slate-400 flex-shrink-0">
-                                        {new Date(evt.starts_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
-                                    </span>
-                                </div>
-                            ))
-                        ) : (
-                            <p className="text-sm text-slate-400 dark:text-slate-500 italic mt-4 text-center">
-                                {t('basecamp.no_events')}
-                            </p>
-                        )}
+                            <div className="pt-2 border-t border-slate-100 dark:border-slate-800 space-y-1">
+                                {calendarEvents.slice(0, 2).map((evt: any) => (
+                                    <div key={evt.id} className="flex items-center gap-2 text-xs">
+                                        <span className="w-1.5 h-1.5 rounded-full bg-red-500 flex-shrink-0" />
+                                        <span className="text-slate-600 dark:text-slate-400 truncate flex-1 font-medium">{evt.title}</span>
+                                        <span className="text-[10px] text-slate-400 flex-shrink-0">
+                                            {new Date(evt.starts_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                                        </span>
+                                    </div>
+                                ))}
+                            </div>
+                        ) : null}
                     </div>
                     <span className="text-xs font-black text-[#1D7DB5] mt-3 uppercase tracking-wider">{t('basecamp.view_schedule')} →</span>
                 </div>

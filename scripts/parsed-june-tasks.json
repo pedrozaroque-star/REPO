@@ -1,0 +1,198 @@
+[
+  {
+    "num": 1,
+    "title": "1. Inventario con reposición automática",
+    "category": "Operaciones",
+    "status": "progreso",
+    "statusLabel": "⚡ En Progreso",
+    "audit": "<strong>Muy Avanzado.</strong> El sistema calcula de manera inteligente el pedido sugerido de insumos para las tiendas restando el stock ideal contra el sobrante diario, con redondeos específicos para tortillas, papelitos y empaques.",
+    "steps": [
+      "Terminar de enlazar todos los códigos de insumos del sistema con el Excel de bodega.",
+      "Ajustar los mínimos de seguridad y redondeos para los insumos restantes.",
+      "Habilitar la generación automática de borradores de compra directos."
+    ]
+  },
+  {
+    "num": 2,
+    "title": "2. Inventario para Bodega y COGS (Viele &amp; Sons)",
+    "category": "Operaciones",
+    "status": "progreso",
+    "statusLabel": "⚡ En Progreso",
+    "audit": "<strong>Estructurado.</strong> Creado el catálogo en base de datos para diferenciar los insumos de uso interno del restaurante contra la mercancía que la Bodega revende. Sincronizado con los costos reales de QuickBooks.",
+    "steps": [
+      "Subir el listado completo de mercancías del proveedor Viele & Sons.",
+      "Confirmar que la actualización de precios de QuickBooks no altere los costos de insumos externos."
+    ]
+  },
+  {
+    "num": 3,
+    "title": "3. Configuración local de TVs de Menús",
+    "category": "Operaciones",
+    "status": "progreso",
+    "statusLabel": "⚡ En Progreso",
+    "audit": "<strong>Muy Avanzado.</strong> Diseñada la pantalla de administración para subir las imágenes de menús por tienda y la pantalla receptora en las televisiones de sucursal con actualización automática cada 2 minutos.",
+    "steps": [
+      "Cargar los archivos finales de imágenes de menús para las 15 tiendas activas.",
+      "Probar la visualización en pantalla completa en el navegador nativo de las Smart TVs de las tiendas."
+    ]
+  },
+  {
+    "num": 4,
+    "title": "4. Logotipo de marca en correos electrónicos",
+    "category": "Operaciones",
+    "status": "progreso",
+    "statusLabel": "⚡ En Progreso",
+    "audit": "<strong>Configuración Básica.</strong> El sistema ya envía correos institucionales utilizando el servidor de <em>tacosgavilan.com</em>, pero los mensajes se muestran en texto plano sin logotipo oficial ni imagen de marca.",
+    "steps": [
+      "Diseñar una plantilla HTML bilingüe elegante que contenga el logotipo y cabecera institucional.",
+      "Configurar llaves de verificación (SPF, DKIM, BIMI) en el servidor de correo para mostrar el logotipo automáticamente en la bandeja de entrada del empleado."
+    ]
+  },
+  {
+    "num": 5,
+    "title": "5. Descripciones de procedimientos en página de ACTIVIDADES",
+    "category": "Operaciones",
+    "status": "progreso",
+    "statusLabel": "⚡ En Progreso",
+    "audit": "<strong>Estructura Concluida.</strong> El panel administrativo y móvil de Actividades de Cocina está completo. Contiene 110 procedimientos operativos precargados en el catálogo, pero la mayoría tiene la descripción y guías de elaboración pendientes.",
+    "steps": [
+      "Revisar las 110 tareas operativas cargadas en la base de datos.",
+      "Redactar el paso a paso y especificaciones técnicas de cada tarea en el panel administrativo para su visualización en las tabletas de la cocina."
+    ]
+  },
+  {
+    "num": 6,
+    "title": "6. Verificar tabletas piloto en Slauson",
+    "category": "Operaciones",
+    "status": "progreso",
+    "statusLabel": "⚡ En Progreso",
+    "audit": "<strong>En Pruebas.</strong> Hay 4 tabletas instaladas físicamente en la cocina piloto de Slauson corriendo software especial (2 para el preparador de carne, 1 para tablero de roles y 1 para control inteligente de descansos).",
+    "steps": [
+      "Monitorear el uso diario que dan los gerentes y taqueros a las pantallas.",
+      "Revisar la estabilidad de la red Wi-Fi y prevenir bloqueos o salidas accidentales de la aplicación.",
+      "Recopilar retroalimentación directa del personal sobre la usabilidad de los botones."
+    ]
+  },
+  {
+    "num": 7,
+    "title": "7. App de Tacos Gavilán (Imitar King Taco)",
+    "category": "Operaciones",
+    "status": "progreso",
+    "statusLabel": "⚡ En Progreso",
+    "audit": "<strong>Muy Avanzado.</strong> Creado el sistema de base de datos para la aplicación móvil (carritos de compra, puntos de recompensa, cupones y aviso de llegada). La aplicación para celulares cuenta con pantallas funcionales de login, menú de platillos, carrito y selector de ingredientes.",
+    "steps": [
+      "Vincular las pantallas del celular con la base de datos central y el sistema Toast de las sucursales.",
+      "Implementar las alertas de geolocalización para avisar a la cocina cuando el cliente se aproxima a recoger su pedido.",
+      "Conectar la pasarela de pagos seguros de Stripe para aceptar tarjetas."
+    ]
+  },
+  {
+    "num": 8,
+    "title": "8. Sincronizador y clon de Basecamp",
+    "category": "Operaciones",
+    "status": "progreso",
+    "statusLabel": "⚡ En Progreso",
+    "audit": "<strong>Altamente Avanzado.</strong> El sistema web está integrado con Basecamp. Las tablas internas sincronizan automáticamente proyectos, tableros de mensajes, listas de pendientes y comentarios bidireccionales.",
+    "steps": [
+      "Activar las actualizaciones automáticas periódicas (cron) en el servidor de internet.",
+      "Optimizar la velocidad de carga al sincronizar listas de tareas muy extensas."
+    ]
+  },
+  {
+    "num": 9,
+    "title": "9. Página Web Oficial de Tacos El Gavilán",
+    "category": "Operaciones",
+    "status": "progreso",
+    "statusLabel": "⚡ En Progreso",
+    "audit": "<strong>Avanzado.</strong> Toda la estructura visual y de contenidos del sitio web oficial está finalizada (exhibición de menú, ubicaciones de tiendas, y logotipos).",
+    "steps": [
+      "Revisar el comportamiento visual en diferentes modelos de teléfonos celulares y optimizar buscadores.",
+      "Vincular los botones de ordenar con la app móvil y con los links de compra de Toast.",
+      "Publicar el sitio web en su dirección de internet oficial de manera permanente."
+    ]
+  },
+  {
+    "num": 10,
+    "title": "10. Determinar gasto en Salsa Bar",
+    "category": "Operaciones",
+    "status": "pendiente",
+    "statusLabel": "⏳ Pendiente",
+    "audit": "<strong>No Iniciado.</strong> Existe registro de mermas e ingredientes de la barra de salsas en los checklists históricos de los supervisores, pero el gasto no está cuantificado ni calculado en la fórmula financiera diaria de costo de alimentos (Food Cost).",
+    "steps": [
+      "Crear una receta virtual para la barra de salsas (aguacates, jitomates, chiles, cebollas, condimentos y vasos desechables).",
+      "Monitorear el consumo promedio en sucursales para cargarlo de manera automática al costo de alimentos del día."
+    ]
+  },
+  {
+    "num": 11,
+    "title": "11. Fotos y verificación Apple Business Connect (Slauson)",
+    "category": "Operaciones",
+    "status": "pendiente",
+    "statusLabel": "⏳ Pendiente",
+    "audit": "<strong>No Iniciado (Tarea Externa).</strong> Tarea operativa consistente en registrar la sucursal de Slauson, subir fotos del local y completar el proceso oficial para aparecer correctamente en los mapas de Apple Maps.",
+    "steps": [
+      "Tomar fotografías en alta resolución de la fachada e interiores del restaurante Slauson.",
+      "Enviar la documentación de propiedad del comercio al portal de Apple Business."
+    ]
+  },
+  {
+    "num": 12,
+    "title": "12. Registro de proveedores y técnicos sin contraseña",
+    "category": "Operaciones",
+    "status": "pendiente",
+    "statusLabel": "⏳ Pendiente",
+    "audit": "<strong>No Iniciado.</strong> Planificado un portal simplificado de acceso rápido con códigos temporales para que técnicos de mantenimiento (refrigeración, gas, plomería) puedan subir fotos del trabajo realizado directamente al sistema sin necesidad de una cuenta permanente.",
+    "steps": [
+      "Diseñar el registro de folios de reparaciones y base de datos de proveedores independientes.",
+      "Crear el portal de acceso móvil rápido y el cargador de imágenes directo."
+    ]
+  },
+  {
+    "num": 13,
+    "title": "13. Control de uniformes, gorras e inventario de ropa",
+    "category": "Operaciones",
+    "status": "pendiente",
+    "statusLabel": "⏳ Pendiente",
+    "audit": "<strong>No Iniciado.</strong> Módulo operativo pendiente de desarrollo para controlar las existencias de uniformes, gorras, camisas y chamarras que la bodega distribuye a los empleados del grupo.",
+    "steps": [
+      "Crear el catálogo de artículos de ropa con sus respectivas tallas y existencias de almacén.",
+      "Diseñar la pantalla para registrar la entrega de ropa a cada empleado de sucursal."
+    ]
+  },
+  {
+    "num": 14,
+    "title": "14. Manuales, videos y certificación de cocina",
+    "category": "Operaciones",
+    "status": "pendiente",
+    "statusLabel": "⏳ Pendiente",
+    "audit": "<strong>No Iniciado (Básico).</strong> El sistema cuenta con exámenes rápidos de desempeño para gerentes, pero falta crear la biblioteca digital interactiva de videos educativos con certificación oficial de cocina.",
+    "steps": [
+      "Integrar reproductores de video con instructivos prácticos sobre el uso correcto de utensilios y armado de recetas.",
+      "Crear cuestionarios breves y generación automática de certificados digitales firmados al completar los módulos."
+    ]
+  },
+  {
+    "num": 15,
+    "title": "15. Sección de Cultura Empresarial",
+    "category": "Operaciones",
+    "status": "pendiente",
+    "statusLabel": "⏳ Pendiente",
+    "audit": "<strong>No Iniciado.</strong> Sección informativa planificada para capacitar y familiarizar a los nuevos empleados con la filosofía corporativa, misión y valores de Tacos El Gavilán.",
+    "steps": [
+      "Diseñar una sección visual atractiva para mostrar la historia de la empresa, metas grupales y filosofía de servicio."
+    ]
+  },
+  {
+    "num": 17,
+    "title": "17. Módulo de Rendimiento y Telemetría de Drive-Thru (HME Zoom Nitro)",
+    "category": "Operaciones",
+    "status": "completado",
+    "statusLabel": "✓ Completado",
+    "audit": "",
+    "steps": [
+      "Configurado el proceso de descarga automática de datos de velocidad cada 2 minutos.",
+      "Creada la API de consulta rápida para el tablero de velocidades, reportes y búsquedas.",
+      "Vinculado el modal para abrir el ticket detallado de Toast al presionar órdenes con demora."
+    ]
+  }
+]

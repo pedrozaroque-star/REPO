@@ -1,3 +1,13 @@
+/**
+ * @module sync-meat-history
+ * @description Cron job que sincroniza el consumo histórico de carnes y preparaciones desde Toast API en bloques de 30 minutos.
+ * @businessRules
+ *   - Día laboral Gavilán: 6:00 AM a 5:59 AM del siguiente día (America/Los_Angeles).
+ *   - Proteínas rastreadas: ASADA, PASTOR, POLLO, CARNITAS, CABEZA, LENGUA, BUCHE, CHORIZO, CAFE, CHAMPURRADO, AGUACATE, GUACAMOLE, FRIJOL MOLIDO, ARROZ.
+ *   - Yield formula: rawLbs = (soldQty * portionQty in lbs) / yieldPct.
+ * @dataFlow Toast API /ordersBulk -> recipe lookup & yield -> meat_consumption_history table.
+ * @notes Se ejecutan lotes por minuto LA para balancear consumo de API Toast sin timeouts.
+ */
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
@@ -72,11 +82,11 @@ export async function GET(request: Request) {
 
         if (!inventoryData || !recipesData || !stores) throw new Error("Error obteniendo datos base de Supabase")
 
-        // @businessRule: Solo rastreamos carnes que requieren PREPARACIÓN ANTICIPADA en parrilla.
-        // Buche, Chorizo y Carnitas se cocinan AL MOMENTO bajo demanda, por lo que
-        // NO necesitan proyección de pace y están excluidos intencionalmente de esta lista.
-        // CARNITAS se rastrea aquí para datos de bodega pero se filtra del carousel de parrilla en el frontend.
-        const targetProteins = ['ASADA', 'PASTOR', 'POLLO', 'CARNITAS', 'CABEZA', 'LENGUA', 'CAFE', 'CHAMPURRADO', 'AGUACATE', 'GUACAMOLE', 'FRIJOL MOLIDO', 'ARROZ']
+        // @businessRule: Proteínas e insumos rastreados en historial de consumo.
+        // ASADA, PASTOR, POLLO, CABEZA, LENGUA requieren pace en parrilla.
+        // BUCHE, CHORIZO, CARNITAS se cocinan al momento pero se registran en historial.
+        // CAFE, CHAMPURRADO, AGUACATE, GUACAMOLE, FRIJOL MOLIDO, ARROZ son preparaciones de cocina trasera.
+        const targetProteins = ['ASADA', 'PASTOR', 'POLLO', 'CARNITAS', 'CABEZA', 'LENGUA', 'BUCHE', 'CHORIZO', 'CAFE', 'CHAMPURRADO', 'AGUACATE', 'GUACAMOLE', 'FRIJOL MOLIDO', 'ARROZ']
         const meatItems = inventoryData.filter(i => {
             const name = i.name.toUpperCase()
             return targetProteins.some(p => name.includes(p)) && !name.includes('SALSA')
@@ -248,7 +258,7 @@ export async function GET(request: Request) {
                                     for (const rData of rDataList) {
                                         const portionQty = Number(rData.quantity || 0)
                                         const unit = rData.unit
-                                        const yieldPct = Number(rData.yield_percent || 100) / 100
+                                        const yieldPct = (Number(rData.yield_percent) || 100) / 100
                                         
                                         let lbs = 0
                                         let total = soldQty * portionQty

@@ -1,3 +1,13 @@
+/**
+ * @module api/toast-order-detail
+ * @description Endpoint de consulta en tiempo real del detalle completo de una orden/ticket de Toast POS para auditoría forense.
+ * @businessRules
+ *   - Resuelve el detalle de selecciones (items), precios de menú, descuentos por platillo, descuentos por cheque y pagos aplicados.
+ *   - Mapeo dinámico de Dining Options mediante getDiningOptionsMap para traducir GUIDs de canal de venta.
+ * @dataFlow Client (AuditoriaDescuentos) -> /api/toast-order-detail?guid=...&storeId=... -> Toast POS API /orders/{guid} -> Client Modal
+ * @notes Utiliza getAuthToken() centralizado para reutilizar tokens en memoria y caché.
+ */
+
 import { NextResponse } from 'next/server'
 import { getAuthToken } from '@/lib/toast-api'
 

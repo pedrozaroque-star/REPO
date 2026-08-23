@@ -536,8 +536,9 @@ export async function getValidToken(): Promise<string> {
     try {
       const newTokens = await refreshAccessToken(tokenRow.refresh_token)
 
-      // Calculate new expiry (Basecamp typically returns expires_in in seconds)
-      const newExpiresAt = new Date(Date.now() + newTokens.expires_in * 1000).toISOString()
+      // Calculate new expiry (Basecamp typically returns expires_in in seconds, fallback to 14 days = 1209600s)
+      const expiresInSeconds = Number(newTokens.expires_in) > 0 ? Number(newTokens.expires_in) : 1209600
+      const newExpiresAt = new Date(Date.now() + expiresInSeconds * 1000).toISOString()
 
       // Update the token in DB
       const { error: updateError } = await supabase
@@ -594,7 +595,7 @@ function parseLinkHeader(linkHeader: string | null): string | null {
  * @param options - Standard RequestInit options
  * @returns Parsed JSON response
  */
-async function basecampFetch<T>(path: string, options?: RequestInit & { noPaginate?: boolean }): Promise<T> {
+export async function basecampFetch<T>(path: string, options?: RequestInit & { noPaginate?: boolean }): Promise<T> {
   const token = await getValidToken()
   const noPaginate = options?.noPaginate ?? false
 

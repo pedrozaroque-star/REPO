@@ -42,14 +42,20 @@ import {
 // Helpers
 // ============================================================================
 
-/** Calcula la fecha de negocio (business date). Si es antes de las 6 AM, se usa el día anterior. */
+/** Calcula la fecha de negocio (business date) en PST/PDT (America/Los_Angeles). Si es antes de las 6 AM, se usa el día anterior. */
 const getBusinessDate = (): string => {
   const now = new Date()
-  if (now.getHours() < 6) now.setDate(now.getDate() - 1)
-  const y = now.getFullYear()
-  const m = String(now.getMonth() + 1).padStart(2, '0')
-  const d = String(now.getDate()).padStart(2, '0')
-  return `${y}-${m}-${d}`
+  const laDateStr = now.toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
+  const laHour = parseInt(now.toLocaleTimeString('en-US', { hour: 'numeric', hour12: false, timeZone: 'America/Los_Angeles' }))
+  if (laHour < 6) {
+    const [y, m, d] = laDateStr.split('-').map(Number)
+    const prev = new Date(y, m - 1, d - 1)
+    const py = prev.getFullYear()
+    const pm = String(prev.getMonth() + 1).padStart(2, '0')
+    const pd = String(prev.getDate()).padStart(2, '0')
+    return `${py}-${pm}-${pd}`
+  }
+  return laDateStr
 }
 
 const formatCurrency = (val: number): string =>
@@ -285,6 +291,8 @@ function CajaFuerteContent() {
   const [reconciliationData, setReconciliationData] = useState<{ totalCollected: number; transactionCount: number; breakdown?: string; } | null>(null)
   const [reconciliationLoading, setReconciliationLoading] = useState(false)
   const [manualOverride, setManualOverride] = useState(false)
+  const manualOverrideRef = React.useRef(manualOverride)
+  manualOverrideRef.current = manualOverride
 
   // History state
   const [historyStoreId, setHistoryStoreId] = useState<string>('all')
@@ -347,7 +355,11 @@ function CajaFuerteContent() {
 
   // Fetch uniforms reconciliation
   useEffect(() => {
-    if (!form.store_id || !form.business_date) return;
+    if (!form.store_id || !form.business_date) {
+      setReconciliationData(null)
+      return
+    }
+    let isCancelled = false
     const fetchReconciliation = async () => {
       setReconciliationLoading(true)
       try {
@@ -355,21 +367,26 @@ function CajaFuerteContent() {
         const res = await fetch(`/api/inventory/uniforms/safe-reconciliation?storeId=${form.store_id}&businessDate=${form.business_date}`, {
           headers: token ? { Authorization: `Bearer ${token}` } : {},
         })
-        if (res.ok) {
+        if (res.ok && !isCancelled) {
           const data = await res.json()
           setReconciliationData(data)
-          if (data.totalCollected !== undefined && !manualOverride) {
+          if (data.totalCollected !== undefined && !manualOverrideRef.current) {
             setForm(prev => ({ ...prev, uniforms_amount: data.totalCollected }))
           }
         }
       } catch (err) {
         console.error('[CajaFuerte] Reconciliation fetch error:', err)
       } finally {
-        setReconciliationLoading(false)
+        if (!isCancelled) {
+          setReconciliationLoading(false)
+        }
       }
     }
     fetchReconciliation()
-  }, [form.store_id, form.business_date, manualOverride])
+    return () => {
+      isCancelled = true
+    }
+  }, [form.store_id, form.business_date])
 
   // Auto-select store for manager
   useEffect(() => {
@@ -391,6 +408,8 @@ function CajaFuerteContent() {
   }, [])
 
   const resetForm = useCallback(() => {
+    setManualOverride(false)
+    setReconciliationData(null)
     setForm({
       ...defaultForm,
       store_id: isManager && accessibleStores.length === 1 ? accessibleStores[0].id.toString() : '',
@@ -535,32 +554,39 @@ function CajaFuerteContent() {
   const exportCSV = useCallback(() => {
     if (historyData.length === 0) return
 
+    const includeStore = historyStoreId === 'all'
     const headers = [
+      ...(includeStore ? [t('safe.store')] : []),
       t('safe.business_date'), t('safe.time'), t('safe.counted_by'),
       t('safe.bills'), t('safe.change'), t('safe.drawers'),
-      'Uniforms', t('safe.total'), t('safe.difference')
+      t('safe.uniforms'), t('safe.total'), t('safe.difference')
     ]
-    const rows = historyData.map(r => [
-      r.business_date,
-      new Date(r.counted_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
-      r.counted_by_name || r.user?.full_name || '-',
-      r.bills_total?.toFixed(2),
-      (r.coins_total + r.loose_change)?.toFixed(2),
-      r.drawers_total?.toFixed(2),
-      r.uniforms_amount?.toFixed(2),
-      r.grand_total?.toFixed(2),
-      r.difference !== null && r.difference !== undefined ? r.difference.toFixed(2) : '-',
-    ])
+    const rows = historyData.map(r => {
+      const storeName = r.store_name || r.store?.name || '-'
+      const userName = r.counted_by_name || r.user?.full_name || '-'
+      return [
+        ...(includeStore ? [`"${storeName.replace(/"/g, '""')}"`] : []),
+        r.business_date,
+        new Date(r.counted_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+        `"${userName.replace(/"/g, '""')}"`,
+        r.bills_total?.toFixed(2),
+        (r.coins_total + r.loose_change)?.toFixed(2),
+        r.drawers_total?.toFixed(2),
+        r.uniforms_amount?.toFixed(2),
+        r.grand_total?.toFixed(2),
+        r.difference !== null && r.difference !== undefined ? r.difference.toFixed(2) : '-',
+      ]
+    })
 
     const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n')
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `caja-fuerte_${historyFrom}_${historyTo}.csv`
+    a.download = `caja-fuerte_${historyStoreId}_${historyFrom}_${historyTo}.csv`
     a.click()
     URL.revokeObjectURL(url)
-  }, [historyData, historyFrom, historyTo, t])
+  }, [historyData, historyStoreId, historyFrom, historyTo, t])
 
   // ─── Store name lookup ───
   const storeNameById = useCallback((id: string): string => {
@@ -872,13 +898,13 @@ function CajaFuerteContent() {
                   {reconciliationLoading ? (
                     <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
                       <div className="w-4 h-4 border-2 border-purple-500 border-t-transparent rounded-full animate-spin"></div>
-                      Consultando módulo...
+                      {t('safe.reconciliation_querying')}
                     </div>
                   ) : (reconciliationData && reconciliationData.totalCollected !== undefined) ? (
                     <div className="flex flex-col gap-1">
                       <div className="flex items-center gap-2 text-sm">
                         <span className="text-gray-600 dark:text-gray-300 bg-purple-100 dark:bg-purple-900/40 px-2 py-1 rounded-md border border-purple-200 dark:border-purple-700/50">
-                          Ventas Módulo: <strong>{formatCurrency(reconciliationData.totalCollected)}</strong>
+                          {t('safe.reconciliation_module_sales')} <strong>{formatCurrency(reconciliationData.totalCollected)}</strong>
                         </span>
                         {manualOverride && (
                           <button
@@ -888,7 +914,7 @@ function CajaFuerteContent() {
                             }}
                             className="text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 px-2 py-1 rounded-md transition-colors"
                           >
-                            Aplicar del Módulo
+                            {t('safe.reconciliation_apply_module')}
                           </button>
                         )}
                       </div>
@@ -1192,7 +1218,7 @@ function CajaFuerteContent() {
                                     <button
                                       onClick={() => setDeleteConfirm(row.id)}
                                       className="p-1.5 rounded-lg text-red-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 transition-all"
-                                      title="Delete"
+                                      title={t('safe.delete_count')}
                                     >
                                       <Trash2 className="w-4 h-4" />
                                     </button>
@@ -1213,7 +1239,7 @@ function CajaFuerteContent() {
                 {deleteConfirm && (
                   <ConfirmModal
                     open={!!deleteConfirm}
-                    title={t('safe.delete_confirm')}
+                    title={t('safe.delete_title')}
                     message={t('safe.delete_confirm')}
                     yesLabel={t('safe.confirm_yes')}
                     cancelLabel={t('safe.confirm_cancel')}
