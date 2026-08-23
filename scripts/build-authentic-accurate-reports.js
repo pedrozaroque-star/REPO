@@ -771,11 +771,11 @@ const augustRows = [
     },
     {
         date: '21-Ago-2026',
-        time: '6:09 AM - 8:30 AM & 7:15 PM - 9:20 PM',
-        hours: 4.36,
-        badges: ['Basecamp 4', 'Descansos IA', 'Alertas'],
-        descEs: '• <strong>Basecamp 4 (Dialog Card Modal)</strong>: Modal flotante con fondo desenfocado para abrir tareas de forma independiente.<br>• <strong>Descansos IA (Motor de Aprendizaje)</strong>: Optimización de sugerencias de descansos respetando la regla del Manager Jesús (salida temprana primero).<br>• <strong>Alertas Directivas</strong>: Despacho automático de notificaciones a directivos.',
-        descEn: '• <strong>Basecamp 4 (Dialog Card Modal)</strong>: Floating modal with blurred backdrop for task viewing.<br>• <strong>Breaks AI (Smart Engine)</strong>: Optimized break suggestions honoring early departure rules.<br>• <strong>Executive Alerts</strong>: Automated notification dispatch to managers.'
+        time: '6:09 AM - 8:30 AM & 11:30 AM - 1:45 PM & 4:30 PM - 5:30 PM & 7:15 PM - 9:30 PM',
+        hours: 7.85,
+        badges: ['Radar de Precios', 'Viele & Sons v3', 'Descansos IA', 'Basecamp 4'],
+        descEs: '• <strong>Radar de Precios (Alertas Ejecutivas & Despacho a Directivos)</strong>: Diseño y programación de la plantilla HTML ejecutiva para alertas de fluctuaciones de precios de Viele & Sons. Implementación del motor de despacho por correo a los 4 directivos (Roberto, Raquel, Gonzalo y Carlos) con métricas de impacto anual a nivel cadena ($ USD), enlaces directos a /admin/precios-proveedores y envío de correo oficial de presentación con PDF adjunto.<br>• <strong>Radar de Precios (Scraper Viele & Sons v3)</strong>: Blindaje del scraper de la API REST de Viele y manejo seguro de credenciales con fallback preventivo de errores.<br>• <strong>Descansos IA (Motor de Aprendizaje)</strong>: Auditoría y optimización de sugerencias de breaks respetando la regla operativa de salidas tempranas primero.<br>• <strong>Basecamp 4 (Dialog Card Modal)</strong>: Modal flotante con desenfoque de fondo para visualización y edición independiente de tareas.',
+        descEn: '• <strong>Price Radar (Executive Alerts & Management Dispatch)</strong>: Designed and implemented executive HTML email template for Viele & Sons price changes. Deployed automated email dispatch to 4 directors (Roberto, Raquel, Gonzalo, Carlos) with annual chain-wide financial impact ($ USD), direct links to /admin/precios-proveedores, and sent official presentation email with attached PDF.<br>• <strong>Price Radar (Viele & Sons v3 Scraper)</strong>: Hardened Viele REST API scraper and secured credential handling with graceful error fallbacks.<br>• <strong>Breaks AI (Learning Engine)</strong>: Audited and refined break suggestions honoring early-departure manager rules.<br>• <strong>Basecamp 4 (Dialog Card Modal)</strong>: Floating modal with blurred backdrop for standalone task viewing and editing.'
     },
     {
         date: '22-Ago-2026',
@@ -847,7 +847,7 @@ const augustConfig = {
     completedTasks: 12,
     inProgressTasks: 7,
     pendingTasks: 7,
-    totalHours: 98.76,
+    totalHours: 102.25,
     rows: augustRows,
     parallelActivities: [
         { title: 'Pruebas en Sucursal/Local', hours: 3.0, desc: 'Testing en cocina del modo tableta kiosko del Preparador, validación de sincronización PC-Tableta y geofencing de MilesIQ en las 15 tiendas.' },
@@ -860,8 +860,8 @@ const augustConfig = {
         { module: 'MilesIQ Supervisores & Geofencing GPS', hours: 16.0 },
         { module: 'Descansos Laborales (Labor Compliance AI)', hours: 12.5 },
         { module: 'Control de Uniformes & Caja Fuerte', hours: 11.5 },
-        { module: 'Radar de Precios Viele v3 & Auditoría COGS', hours: 8.0 },
-        { module: 'Mantenimiento General, Crons y Reportes', hours: 7.76 }
+        { module: 'Radar de Precios Viele v3 & Auditoría COGS', hours: 11.5 },
+        { module: 'Mantenimiento General, Crons y Reportes', hours: 7.75 }
     ],
     taskCardsHtml: renderTab2ForMonth(augustTasks, 'Agosto 2026')
 };
