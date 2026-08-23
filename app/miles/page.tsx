@@ -20,7 +20,7 @@ import {
   Car, Plus, MapPin, Calendar, DollarSign, Send, CheckCircle2,
   Clock, AlertCircle, Download, RefreshCw, Settings, Search,
   Filter, RotateCw, Trash2, Edit3, ShieldCheck, Mail, Users, FileSpreadsheet, Check,
-  Navigation, RotateCcw, Sparkles
+  Navigation, Sparkles
 } from 'lucide-react'
 import ProtectedRoute, { useAuth } from '@/components/ProtectedRoute'
 import SurpriseLoader from '@/components/SurpriseLoader'
@@ -129,41 +129,6 @@ function MilesIQContent() {
     setTimeout(() => setToast(null), 4500)
   }
 
-  // Quick 1-click return trip generator (Inverts origin & destination preserving original date)
-  const handleCreateReturnTrip = async (trip: TripRecord) => {
-    try {
-      const res = await fetch('/api/miles', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          supervisor_id: trip.supervisor_id || currentUser.id,
-          supervisor_name: trip.supervisor_name || currentUser.name,
-          supervisor_email: trip.supervisor_email || currentUser.email,
-          trip_date: trip.trip_date || getCaliforniaBusinessDate(),
-          origin_name: trip.destination_name,
-          destination_name: trip.origin_name,
-          distance_miles: Number(trip.distance_miles) || 0,
-          rate_per_mile: Number(trip.rate_per_mile) || currentRate,
-          purpose: trip.purpose || 'Business',
-          purpose_notes: `Viaje de regreso (${(trip.destination_name || '').replace('Tacos Gavilan ', '')} → ${(trip.origin_name || '').replace('Tacos Gavilan ', '')})`,
-          is_round_trip: false,
-          parking_amount: 0,
-          tolls_amount: 0,
-          status: 'pending'
-        })
-      })
-      const data = await res.json()
-      if (data.success) {
-        showToast(t('miles.return_trip_created'), 'success')
-        fetchInitialData()
-      } else {
-        showToast(data.error || t('miles.error_return_trip'), 'error')
-      }
-    } catch (err: any) {
-      showToast(err.message || t('miles.error_connection'), 'error')
-    }
-  }
-
   // 1-click Gap Resolver (Registers the omitted leg for that specific supervisor and date)
   const handleCreateGapTrip = async (gap: {
     origin: string
@@ -172,6 +137,7 @@ function MilesIQContent() {
     supName: string
     supEmail: string
     date: string
+    startTime?: string
     distance: number
     amount: number
   }) => {
@@ -184,6 +150,7 @@ function MilesIQContent() {
           supervisor_name: gap.supName || currentUser.name,
           supervisor_email: gap.supEmail || currentUser.email,
           trip_date: gap.date,
+          start_time: gap.startTime,
           origin_name: gap.origin,
           destination_name: gap.dest,
           distance_miles: gap.distance,
@@ -657,6 +624,18 @@ function MilesIQContent() {
       return 0
     }
 
+    const formatMinutesToTime = (totalMinutes: number): string => {
+      const m = Math.max(0, Math.min(1439, totalMinutes))
+      let hours = Math.floor(m / 60)
+      const minutes = m % 60
+      const ampm = hours >= 12 ? 'PM' : 'AM'
+      if (hours > 12) hours -= 12
+      if (hours === 0) hours = 12
+      const minStr = minutes < 10 ? `0${minutes}` : `${minutes}`
+      const hourStr = hours < 10 ? `0${hours}` : `${hours}`
+      return `${hourStr}:${minStr} ${ampm}`
+    }
+
     const getExactDistance = (orig: string, dest: string): number => {
       const normOrig = normalizeStoreName(orig)
       const normDest = normalizeStoreName(dest)
@@ -716,6 +695,7 @@ function MilesIQContent() {
         supName: string
         supEmail: string
         date: string
+        startTime?: string
         distance: number
         amount: number
       }[]
@@ -736,6 +716,7 @@ function MilesIQContent() {
         supName: string
         supEmail: string
         date: string
+        startTime?: string
         distance: number
         amount: number
       }[] = []
@@ -757,6 +738,20 @@ function MilesIQContent() {
           if (!alreadyLogged) {
             const dist = getExactDistance(origStore, destStore)
             const amt = parseFloat((dist * currentRate).toFixed(2))
+
+            // Compute interpolated timestamp between current and next trip
+            const minCurrent = parseTimeToMinutes(current.start_time, current.created_at)
+            const minNext = parseTimeToMinutes(next.start_time, next.created_at)
+
+            let estimatedStartTime = ''
+            if (minCurrent > 0 && minNext > minCurrent) {
+              const mid = Math.round((minCurrent + minNext) / 2)
+              estimatedStartTime = formatMinutesToTime(mid)
+            } else if (minCurrent > 0) {
+              estimatedStartTime = formatMinutesToTime(minCurrent + 25)
+            } else if (minNext > 25) {
+              estimatedStartTime = formatMinutesToTime(minNext - 25)
+            }
             
             if (!dayGaps.some(g => g.origin === origStore && g.dest === destStore)) {
               dayGaps.push({
@@ -766,6 +761,7 @@ function MilesIQContent() {
                 supName: item.supName,
                 supEmail: item.supEmail,
                 date: item.date,
+                startTime: estimatedStartTime,
                 distance: dist,
                 amount: amt
               })
@@ -1195,16 +1191,6 @@ function MilesIQContent() {
                             </td>
                             <td className="py-3.5 px-4 text-right whitespace-nowrap">
                               <div className="flex items-center justify-end gap-1">
-                                {/* Quick 1-click Return Trip */}
-                                <button
-                                  onClick={() => handleCreateReturnTrip(trip)}
-                                  title={t('miles.return_trip_btn')}
-                                  className="px-2 py-1 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 rounded-lg text-[11px] font-bold flex items-center gap-1 transition-colors border border-emerald-300/60 dark:border-emerald-700/60"
-                                >
-                                  <RotateCcw size={13} />
-                                  <span>{t('miles.return_trip_btn')}</span>
-                                </button>
-
                                 {(trip.status === 'pending' || isAdmin) && (
                                   <button
                                     onClick={() => handleOpenEditModal(trip)}
@@ -1309,15 +1295,6 @@ function MilesIQContent() {
                           {trip.status === 'paid' && (
                             <span className="px-2 py-0.5 rounded-md text-[9px] font-bold bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:text-blue-400">{t('miles.badge_paid')}</span>
                           )}
-                          {/* 1-click Return Trip */}
-                          <button
-                            onClick={() => handleCreateReturnTrip(trip)}
-                            title={t('miles.return_trip_btn')}
-                            className="p-1 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 rounded transition-colors"
-                          >
-                            <RotateCcw size={14} />
-                          </button>
-
                           {(trip.status === 'pending' || isAdmin) && (
                             <button
                               onClick={() => handleOpenEditModal(trip)}
