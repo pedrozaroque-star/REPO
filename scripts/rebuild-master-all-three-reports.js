@@ -378,11 +378,11 @@ const augustConfig = {
     monthName: 'Agosto',
     monthYear: 'Agosto 2026',
     monthNum: 8,
-    totalTasks: 26,
-    completedTasks: 18,
-    inProgressTasks: 6,
+    totalTasks: 27,
+    completedTasks: 20,
+    inProgressTasks: 5,
     pendingTasks: 2,
-    totalHours: 98.76,
+    totalHours: 104.01,
     rows: augustRows,
     parallelActivities: [
         { title: 'Pruebas en Sucursal/Local', hours: 3.0, desc: 'Testing en cocina del modo tableta kiosko del Preparador, validación de sincronización PC-Tableta y geofencing de MilesIQ en las 15 tiendas.' },
@@ -391,6 +391,7 @@ const augustConfig = {
     ],
     effortSummary: [
         { module: 'Preparador de Carne y Cocina KDS', hours: 24.5 },
+        { module: 'Módulo Asistentes & Checklists Operativos', hours: 18.5 },
         { module: 'Ventas Toast API & Conciliación Multitienda', hours: 18.5 },
         { module: 'MilesIQ Supervisores & Geofencing GPS', hours: 16.0 },
         { module: 'Descansos Laborales (Labor Compliance AI)', hours: 12.5 },

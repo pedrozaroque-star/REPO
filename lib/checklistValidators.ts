@@ -2,9 +2,9 @@
  * @module lib/checklistValidators
  * @description Funciones de validación para parámetros de control de calidad e inocuidad alimentaria en Tacos Gavilan.
  * @businessRules
- * - Refrigeración (Cold holding): 34°F - 41°F.
+ * - Alimentos y equipos fríos / Refrigeración (Cold holding): <= 40°F (40°F o menos).
  * - Congelación (Freezer): <= 32°F (óptimo 0°F).
- * - Mantenimiento caliente (Hot holding / Vaporeras): >= 165°F (mínimo ServSafe 140°F).
+ * - Mantenimiento caliente (Hot holding / Vaporeras): >= 140°F.
  * @notes Normaliza tildes y mayúsculas para coincidencia bilingüe exacta.
  */
 
@@ -23,7 +23,9 @@ export const getTempValidation = (questionText: string = '', value: number, sect
         normalized.includes('cold') ||
         normalized.includes('cooler') ||
         normalized.includes('walk-in') ||
-        normalized.includes('walking')
+        normalized.includes('walking') ||
+        normalized.includes('salsa') ||
+        normalized.includes('hiel')
     );
 
     const num = Number(value);
@@ -35,9 +37,9 @@ export const getTempValidation = (questionText: string = '', value: number, sect
     if (isFreezer) {
         isValid = num <= 32; // Congelador debe estar en punto de congelación o menor
     } else if (isRefrig) {
-        isValid = num >= 34 && num <= 41; // Rango de refrigeración seguro
+        isValid = num <= 40; // 40°F o menos es lo requerido para lo frío
     } else {
-        isValid = num >= 140; // Mantenimiento caliente seguro (norma salud >= 140°F, ideal >= 165°F)
+        isValid = num >= 140; // Mantenimiento caliente seguro (>= 140°F)
     }
 
     return { isValid, isRefrig, isFreezer };

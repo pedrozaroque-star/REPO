@@ -118,9 +118,9 @@ function TemperaturasContent() {
 
   const isValidTemp = (temp: number, type: 'cold' | 'hot'): boolean => {
     if (type === 'cold') {
-      return temp >= 34 && temp <= 41
+      return temp <= 40
     } else {
-      return temp >= 165
+      return temp >= 140
     }
   }
 
@@ -315,7 +315,7 @@ function TemperaturasContent() {
                             <div>
                               <h4 className="font-bold text-gray-900 dark:text-white">{item.text}</h4>
                               <span className="text-[10px] font-black uppercase tracking-widest opacity-40">
-                                {itemType === 'cold' ? 'Rango: 34-41°F' : 'Rango: ≥165°F'}
+                                {itemType === 'cold' ? 'Rango: ≤40°F' : 'Rango: ≥140°F'}
                               </span>
                             </div>
                           </div>

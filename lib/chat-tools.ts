@@ -885,7 +885,7 @@ async function queryChecklists(args: any): Promise<string> {
   // Assistant checklists
   if (!args.type || args.type !== 'manager') {
     let q = supabaseAdmin.from('assistant_checklists')
-      .select('id, store_id, checklist_type, checklist_date, shift, score, user_name, estatus_admin, estatus_supervisor')
+      .select('id, store_id, checklist_type, checklist_date, shift, score, user_name, estatus_manager, estatus_admin, estatus_supervisor')
       .gte('checklist_date', args.start_date).lte('checklist_date', args.end_date)
       .order('checklist_date', { ascending: false })
     const { data } = await q.limit(200)

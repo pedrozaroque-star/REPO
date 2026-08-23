@@ -179,24 +179,14 @@ const augustRowsUpdated = [
     },
     {
         date: '23-Ago-2026',
-        time: '12:00 AM - 1:15 AM & 6:30 AM - 8:30 AM',
-        hours: 3.25,
-        badges: ['MilesIQ (Filtro Supervisores)', 'Planificador Turnos Reales Lynwood', 'Auditoría Forense Multi-Chat'],
-        descEs: '• <strong>MilesIQ (Sincronización de Inspecciones & Filtro de Supervisores)</strong>: Filtrado estricto por supervisor activo, excluyendo evaluadores programados para septiembre (Ricardo y Estefani) y prevención de viajes redundantes cuando ya existe ruta multitienda.<br>• <strong>Planificador (Sincronización Dinámica de Turnos Reales)</strong>: Conexión con la tabla shifts de Supabase para extraer los 75 turnos exactos de Carlos Velazquez como General Manager de Lynwood #14 por día de la semana (Sábados 2-9 PM, Domingos 2-7 PM, Lunes 12-8 PM, Martes 2-10 PM, Miércoles OFF, Jueves 9 AM-5 PM, Viernes 2-9 PM) en la pista visual del Gantt.<br>• <strong>Auditoría Forense Multi-Chat Día por Día</strong>: Consolidación exhaustiva de todas las conversaciones concurrentes del mes de agosto, incorporando actividades de Tech Packs, Radar de Precios, Basecamp, Uniformes y Horarios.',
-        descEn: '• <strong>MilesIQ (Inspection Sync & Active Supervisor Filter)</strong>: Strictly filtered active store supervisors, excluding upcoming Sept 1 testers, and prevented redundant direct trips when multi-leg routes exist.<br>• <strong>Planner (Dynamic Manager Shifts Sync)</strong>: Connected Supabase shifts table to display Carlos Velazquez\'s exact 75 Lynwood #14 General Manager shift schedules per day of week on Gantt Track 1.<br>• <strong>Multi-Chat Day-by-Day Forensic Audit</strong>: Full consolidation of concurrent August conversation sessions, integrating Tech Packs, Price Radar, Basecamp, Uniforms, and Schedule activities.'
+        time: '12:00 AM - 1:15 AM & 6:30 AM - 8:30 AM & 10:15 AM - 12:15 PM',
+        hours: 5.25,
+        badges: ['MilesIQ (Filtro Supervisores)', 'Planificador Turnos Reales Lynwood', 'Checklists Temperaturas (≤40°F / ≥140°F)', 'Auditoría Multi-Chat'],
+        descEs: '• <strong>MilesIQ (Sincronización de Inspecciones & Filtro de Supervisores)</strong>: Filtrado estricto por supervisor activo, excluyendo evaluadores programados para septiembre (Ricardo y Estefani) y prevención de viajes redundantes cuando ya existe ruta multitienda.<br>• <strong>Planificador (Sincronización Dinámica de Turnos Reales)</strong>: Conexión con la tabla shifts de Supabase para extraer los 75 turnos exactos de Carlos Velazquez como General Manager de Lynwood #14 por día de la semana (Sábados 2-9 PM, Domingos 2-7 PM, Lunes 12-8 PM, Martes 2-10 PM, Miércoles OFF, Jueves 9 AM-5 PM, Viernes 2-9 PM) en la pista visual del Gantt.<br>• <strong>Checklists de Inocuidad y Temperaturas</strong>: Calibración de umbrales reglamentarios para equipos e insumos fríos (≤ 40°F) y mantenimiento caliente (≥ 140°F) en validadores y formularios de captura, integrando el campo estatus_manager en consultas del asistente de soporte.<br>• <strong>Auditoría Forense Multi-Chat Día por Día</strong>: Consolidación exhaustiva de todas las conversaciones concurrentes del mes de agosto, incorporando actividades de Tech Packs, Radar de Precios, Basecamp, Uniformes y Horarios.',
+        descEn: '• <strong>MilesIQ (Inspection Sync & Active Supervisor Filter)</strong>: Strictly filtered active store supervisors, excluding upcoming Sept 1 testers, and prevented redundant direct trips when multi-leg routes exist.<br>• <strong>Planner (Dynamic Manager Shifts Sync)</strong>: Connected Supabase shifts table to display Carlos Velazquez\'s exact 75 Lynwood #14 General Manager shift schedules per day of week on Gantt Track 1.<br>• <strong>Food Safety & Temperature Checklists</strong>: Calibrated regulatory thresholds for cold holding (≤ 40°F) and hot holding (≥ 140°F) across validators and entry forms, integrating estatus_manager in AI assistant queries.<br>• <strong>Multi-Chat Day-by-Day Forensic Audit</strong>: Full consolidation of concurrent August conversation sessions, integrating Tech Packs, Price Radar, Basecamp, Uniforms, and Schedule activities.'
     }
 ];
 
-// Read and update build-authentic-accurate-reports.js
-let buildScript = fs.readFileSync('scripts/build-authentic-accurate-reports.js', 'utf-8');
-
-// Replace augustRows
-buildScript = buildScript.replace(/const augustRows = \[[\s\S]*?\n\];/, `const augustRows = ${JSON.stringify(augustRowsUpdated, null, 4)};`);
-
-// Update augustConfig
-buildScript = buildScript.replace(/totalHours:\s*[\d\.]+,\s*rows:\s*augustRows,/, `totalHours: 105.50,\n    rows: augustRows,`);
-
-// Update effortSummary
 const effortSummaryUpdated = [
     { module: 'Preparador de Carne y Cocina KDS', hours: 24.5 },
     { module: 'MilesIQ Supervisores & Geofencing GPS', hours: 19.25 },
@@ -204,10 +194,14 @@ const effortSummaryUpdated = [
     { module: 'Descansos Laborales (Labor Compliance AI)', hours: 12.5 },
     { module: 'Radar de Precios Viele v3 & Auditoría COGS', hours: 11.5 },
     { module: 'Control de Uniformes & Caja Fuerte', hours: 11.5 },
-    { module: 'Mantenimiento General, Crons y Reportes', hours: 7.75 }
+    { module: 'Mantenimiento General, Crons y Reportes', hours: 9.75 }
 ];
 
-buildScript = buildScript.replace(/effortSummary:\s*\[[\s\S]*?\n\s*\],/, `effortSummary: ${JSON.stringify(effortSummaryUpdated, null, 8)},`);
+let buildScript = fs.readFileSync('scripts/build-authentic-accurate-reports.js', 'utf-8');
+
+buildScript = buildScript.replace(/const augustRows = \[[\s\S]*?\n\];/, `const augustRows = ${JSON.stringify(augustRowsUpdated, null, 4)};`);
+buildScript = buildScript.replace(/totalHours:\s*[\d\.]+,\s*rows:\s*augustRows,/, `totalHours: 107.50,\n    rows: augustRows,`);
+buildScript = buildScript.replace(/effortSummary:\s*\[[\s\S]*?\n\s*taskCardsHtml:\s*renderTab2ForMonth\(augustTasks,\s*'Agosto 2026'\)/, `effortSummary: ${JSON.stringify(effortSummaryUpdated, null, 8)},\n    taskCardsHtml: renderTab2ForMonth(augustTasks, 'Agosto 2026')`);
 
 fs.writeFileSync('scripts/build-authentic-accurate-reports.js', buildScript, 'utf-8');
-console.log('✅ Updated scripts/build-authentic-accurate-reports.js successfully!');
+console.log('✅ Updated scripts/build-authentic-accurate-reports.js with 107.50 hrs!');
