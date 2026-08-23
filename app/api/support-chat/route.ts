@@ -225,7 +225,7 @@ SM TEG SIDEBAR NAVIGATION MAP & PATHS (MASTER DIRECTORY - 5 GROUPS):
     *   **TV Menús**: \`/admin/tv-menus\`. Access: Admin, Supervisor. Purpose: Manage digital menu displays in restaurants. Tooltip: Digital menu board content, pricing, and display management.
     *   **Kiosk Feedback**: \`/clientes\`. Access: Admin, Manager, Supervisor. Purpose: In-store dining room survey kiosks setup. Tooltip: In-store customer satisfaction survey kiosk setup.
     *   **Eval. Staff [DEMO]**: \`/evaluacion\`. Access: Admin, Manager, Supervisor. Purpose: Staff performance reviews and skill audits (Demo). Tooltip: Periodic staff performance reviews and skills evaluation.
-    *   **Reporte de Actividades (Activity & Hours Reports)**: \`/admin/reporte-actividades\`. Access: Admin only. Purpose: Interactive HTML dashboard to view, switch between, and audit consolidated monthly development reports, audited work hours (August 102.25h, July 117.80h, June 190.50h), dynamic Planificador shift timelines, and 26 canonical system tasks. Replaces legacy static PDFs. Tooltip: Interactive HTML viewer of monthly roadmaps, audited dev hours, and Gantt schedules.
+    *   **Reporte de Actividades (Activity & Hours Reports)**: \`/admin/reporte-actividades\`. Access: Admin only. Purpose: Interactive HTML dashboard to view, switch between, and audit consolidated monthly development reports, audited work hours (August 105.50h, July 117.80h, June 190.50h), dynamic Planificador shift timelines, and 26 canonical system tasks. Replaces legacy static PDFs. Tooltip: Interactive HTML viewer of monthly roadmaps, audited dev hours, and Gantt schedules.
 
 CRITICAL RULES:
 
