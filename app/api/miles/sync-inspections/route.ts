@@ -295,8 +295,8 @@ export async function POST(req: NextRequest) {
 
         if (originName === destName) continue
 
-        // Check if this supervisor already logged this trip on this date
-        const alreadyExists = supExistingTrips.some(t => {
+        // 1. Check if this supervisor already logged a direct trip between these stores on this date
+        const directExists = supExistingTrips.some(t => {
           const normOrigin = (t.origin_name || '').toLowerCase()
           const normDest = (t.destination_name || '').toLowerCase()
           const checkOrigin = originName.toLowerCase()
@@ -305,7 +305,24 @@ export async function POST(req: NextRequest) {
                  (normDest.includes(checkDest) || checkDest.includes(normDest))
         })
 
-        if (alreadyExists) continue
+        if (directExists) continue
+
+        // 2. Multi-leg check: If supervisor already has logged trips departing from origin AND arriving at dest via intermediate stops
+        const alreadyDepartedOrigin = supExistingTrips.some(t => {
+          const normOrigin = (t.origin_name || '').toLowerCase()
+          const checkOrigin = originName.toLowerCase()
+          return (normOrigin.includes(checkOrigin) || checkOrigin.includes(normOrigin))
+        })
+
+        const alreadyArrivedDest = supExistingTrips.some(t => {
+          const normDest = (t.destination_name || '').toLowerCase()
+          const checkDest = destName.toLowerCase()
+          return (normDest.includes(checkDest) || checkDest.includes(normDest))
+        })
+
+        if (alreadyDepartedOrigin && alreadyArrivedDest) {
+          continue
+        }
 
         const distance = getDistance(originName, destName)
 
