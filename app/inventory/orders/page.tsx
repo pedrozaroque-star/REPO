@@ -726,12 +726,24 @@ export default function InventoryOrdersPage() {
             if (isLockedForCurrentWeek) {
                 // Día bloqueado: guardar solo para la PRÓXIMA semana
                 await saveSingleItemWeeklyBase(storeId, nextWeekMonday, nextBase as any)
+                // Restaurar bases de la semana actual con el valor original para no alterar cálculos/porcentajes de esta semana
+                const orig = originalBases[itemId]
+                if (orig) {
+                    setBases(prev => ({
+                        ...prev,
+                        [itemId]: { ...prev[itemId], [field]: (orig as any)[field] }
+                    }))
+                }
             } else {
                 // Día abierto: guardar en semana actual Y próxima
                 await Promise.all([
                     saveSingleItemWeeklyBase(storeId, activeMonday, currentBase as any),
                     saveSingleItemWeeklyBase(storeId, nextWeekMonday, currentBase as any)
                 ])
+                setOriginalBases(prev => ({
+                    ...prev,
+                    [itemId]: { ...(prev[itemId] || currentBase), [field]: (currentBase as any)[field] }
+                }))
             }
         } catch (err) {
             console.error('Error auto-saving PAR base on blur:', err)
@@ -2820,11 +2832,8 @@ export default function InventoryOrdersPage() {
                                                                             id={`input_${rowIndex}_${colIndex}`}
                                                                             type="number"
                                                                             placeholder=""
-                                                                            disabled={isLocked}
                                                                             className={`w-full p-2 text-center outline-none focus:bg-white focus:ring-2 text-sm transition-all rounded-lg ${
-                                                                                isLocked
-                                                                                ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
-                                                                                : isOver
+                                                                                isOver
                                                                                 ? 'bg-indigo-50/50 text-indigo-700 font-bold border-b-2 border-b-indigo-400 focus:ring-indigo-400'
                                                                                 : isUnder
                                                                                 ? 'bg-amber-50/50 text-amber-700 font-bold border-b-2 border-b-amber-400 focus:ring-amber-400'
