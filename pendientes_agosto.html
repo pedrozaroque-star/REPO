@@ -83,7 +83,7 @@
         <div class="stat-card">
             <div style="font-size: 24px;">⏱️</div>
             <div>
-                <div class="stat-val" style="color: #ea580c;">108.5 hrs</div>
+                <div class="stat-val" style="color: #ea580c;">112.0 hrs</div>
                 <div class="stat-lbl">Horas Agosto</div>
             </div>
         </div>
@@ -1726,8 +1726,21 @@
                 </div>
             </td>
             <td style="font-size: 12.5px; line-height: 1.5; color: #334155;">
-                <div class="es-desc" style="margin-bottom: 4px;">• <strong>Preparador de Carne (Auditoría Forense Integral Línea por Línea)</strong>: Blindaje del acelerador intradía contra divisiones por cero, calibración de proyecciones por tramos y sincronización con tablets de cocina.<br>• <strong>Caja Fuerte & Bóveda</strong>: Corrección del cálculo de fechas en zona horaria PST (America/Los_Angeles), limpieza de manualOverride al resetear formulario y eliminación de condición de carrera asíncrona en conciliación con ventas de uniformes.<br>• <strong>Pedidos de Bodega & Insumos</strong>: Auditoría exhaustiva de guardado parcial de estimates en QuickBooks y sincronización de PAR.<br>• <strong>Checklists de Inocuidad y Temperaturas</strong>: Calibración reglamentaria de umbrales para refrigeración y barras frías (≤ 40°F) y mantenimiento caliente (≥ 140°F) con integración de estatus_manager.<br>• <strong>MilesIQ (Sincronización de Inspecciones & Filtro de Supervisores)</strong>: Filtrado estricto por supervisor activo y prevención de rutas redundantes.<br>• <strong>Planificador & Gantt</strong>: Conexión dinámica con Supabase para reflejar los 75 turnos exactos de Carlos Velazquez en Lynwood #14 y resolución del caso borde de medianoche en el Gantt.</div>
                 <div class="en-desc" style="font-size: 11.5px; color: #64748b; font-style: italic; border-top: 1px dashed #e2e8f0; padding-top: 4px; margin-top: 4px;">• <strong>Prep Line (Comprehensive Line-by-Line Forensic Audit)</strong>: Hardened intraday accelerator against zero-division errors, calibrated period blocks, and synced kitchen tablets.<br>• <strong>Safe Management (PST Timezone & Race Conditions)</strong>: Fixed PST date calculations, cleared manualOverride on form resets, and resolved async race condition in uniform cash reconciliation.<br>• <strong>Bodega Orders & Warehouse PAR</strong>: Full audit of partial QuickBooks estimate saves and PAR auto-sync.<br>• <strong>Food Safety & Temperature Checklists</strong>: Calibrated regulatory thresholds for cold holding (≤ 40°F) and hot holding (≥ 140°F), adding estatus_manager field.<br>• <strong>MilesIQ (Inspection Sync & Active Supervisor Filter)</strong>: Filtered active supervisors and prevented redundant multi-leg direct routes.<br>• <strong>Planner & Gantt Sync</strong>: Live connection to Supabase shifts table to display Carlos Velazquez's exact 75 Lynwood #14 General Manager shift schedules and resolved midnight wrap-around on Gantt ruler.</div>
+            </td>
+        </tr>
+        <tr>
+            <td style="font-weight: 800; color: #0f172a; white-space: nowrap;">24-Ago-2026</td>
+            <td style="font-size: 12px; color: #475569; white-space: nowrap;">10:00 AM - 1:30 PM</td>
+            <td style="font-weight: 900; color: #ea580c; font-size: 14px; text-align: center;">3.5</td>
+            <td>
+                <div style="display: flex; gap: 4px; flex-wrap: wrap;">
+                    <span style="background: #f1f5f9; color: #0369a1; border: 1px solid #bae6fd; font-size: 10px; font-weight: 800; padding: 2px 6px; border-radius: 4px; text-transform: uppercase;">Reportes Operativos & Semanales</span><span style="background: #f1f5f9; color: #0369a1; border: 1px solid #bae6fd; font-size: 10px; font-weight: 800; padding: 2px 6px; border-radius: 4px; text-transform: uppercase;">Auditoría Forense</span><span style="background: #f1f5f9; color: #0369a1; border: 1px solid #bae6fd; font-size: 10px; font-weight: 800; padding: 2px 6px; border-radius: 4px; text-transform: uppercase;">Caché & Autenticación</span>
+                </div>
+            </td>
+            <td style="font-size: 12.5px; line-height: 1.5; color: #334155;">
+                <div class="es-desc" style="margin-bottom: 4px;">• <strong>Reportes Operativos & Semanales (Resolución de Bloqueo de Carga y Autenticación)</strong>: Corrección del bloqueo indefinido en el spinner de carga al consultar reportes semanales y mensuales. Se habilitó el soporte dual de autenticación en backend (Bearer Token y cookie <code>teg_token</code>) en <code>/api/reports/weekly-ops</code> y se blindó el ciclo de vida de <code>fetchReport</code> y <code>fetchMonthlyReport</code> con bloques <code>try/catch/finally</code> para asegurar la desactivación del estado de carga ante cualquier respuesta de red.<br>• <strong>Auditoría Exhaustiva de Ventas y Proyecciones</strong>: Deduplicación de metas en proyecciones horarias, cálculo de impuestos incluidos en descuentos de Toast POS, acotamiento de reembolsos de fechas cruzadas y pase de parámetros limpios.</div>
+                <div class="en-desc" style="font-size: 11.5px; color: #64748b; font-style: italic; border-top: 1px dashed #e2e8f0; padding-top: 4px; margin-top: 4px;">• <strong>Weekly & Monthly Operations Reports (Resolved Loading Spinner Freeze & Auth)</strong>: Fixed infinite spinner freeze on weekly ops and monthly reports by enabling dual authentication support (Bearer token and <code>teg_token</code> cookie) in <code>/api/reports/weekly-ops</code> and wrapping <code>fetchReport</code> and <code>fetchMonthlyReport</code> in resilient <code>try/catch/finally</code> blocks to reliably toggle off the loading state.<br>• <strong>Comprehensive Sales Audit & Projection Math</strong>: Deduplicated hourly projection multipliers on single-day ranges, corrected tax-inclusive discount deductions in Toast API, bounded cross-date refunds, and passed clean parameters.</div>
             </td>
         </tr>
     

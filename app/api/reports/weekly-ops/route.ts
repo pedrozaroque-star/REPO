@@ -38,11 +38,18 @@ export async function GET(request: Request) {
     try {
         // 🛡️ SECURITY CHECK 🛡️
         const authHeader = request.headers.get('Authorization')
-        if (!authHeader) {
+        const cookieHeader = request.headers.get('cookie') || ''
+        let token = authHeader ? authHeader.replace(/^Bearer\s+/i, '').trim() : ''
+
+        if (!token) {
+            const match = cookieHeader.match(/teg_token=([^;]+)/)
+            if (match) token = match[1]
+        }
+
+        if (!token) {
             return NextResponse.json({ error: 'Missing Authorization Header' }, { status: 401 })
         }
 
-        const token = authHeader.replace(/^Bearer\s+/i, '').trim()
         const user = verifyAuthToken(token)
         if (!user) {
             return NextResponse.json({ error: 'Invalid Token' }, { status: 401 })

@@ -265,54 +265,59 @@ export default function ReportesPage() {
     const fetchReport = React.useCallback(async () => {
         if (!weekDate || !selectedStore || stores.length === 0) return
         setLoading(true)
-        const supabase = await getSupabaseClient()
+        try {
+            const supabase = await getSupabaseClient()
 
-        // 2. Resolve Store GUID from numeric ID
-        let queryId = ''
-        if (selectedStore === 'all') {
-            queryId = 'all'
-        } else {
-            const storeObj = stores.find(s => String(s.id) === String(selectedStore))
-            if (!storeObj?.external_id) {
-                console.warn(`⚠️ [REPORT] Waiting for store external_id for '${storeObj?.name || 'Unknown'}'...`)
-                setLoading(false)
-                return
+            // 2. Resolve Store GUID from numeric ID
+            let queryId = ''
+            if (selectedStore === 'all') {
+                queryId = 'all'
+            } else {
+                const storeObj = stores.find(s => String(s.id) === String(selectedStore))
+                if (!storeObj?.external_id) {
+                    console.warn(`⚠️ [REPORT] Waiting for store external_id for '${storeObj?.name || 'Unknown'}'...`)
+                    setLoading(false)
+                    return
+                }
+                queryId = storeObj.external_id
             }
-            queryId = storeObj.external_id
-        }
 
-        // Calculate Sunday date (End of Week)
-        // ensure we start from MONDAY
-        const [y, m, tempD] = weekDate.split('-').map(Number)
-        const dateBase = new Date(Date.UTC(y, m - 1, tempD, 12, 0, 0))
-        const currentDay = dateBase.getUTCDay()
-        const distToMon = currentDay === 0 ? -6 : (1 - currentDay)
-        dateBase.setUTCDate(dateBase.getUTCDate() + distToMon)
+            // Calculate Sunday date (End of Week)
+            // ensure we start from MONDAY
+            const [y, m, tempD] = weekDate.split('-').map(Number)
+            const dateBase = new Date(Date.UTC(y, m - 1, tempD, 12, 0, 0))
+            const currentDay = dateBase.getUTCDay()
+            const distToMon = currentDay === 0 ? -6 : (1 - currentDay)
+            dateBase.setUTCDate(dateBase.getUTCDate() + distToMon)
 
-        // dateBase is now strictly Monday 12:00 PM. Format to YYYY-MM-DD
-        const startStr = dateBase.toISOString().split('T')[0]
-        const start = new Date(startStr + 'T00:00:00')
-        const end = new Date(start)
-        end.setDate(start.getDate() + 7)  // Extend by 7 days to fully cover Sunday midnight if needed, but normally +6 is correct for inclusive.
-        // Wait, inclusive LTE requires the date strictly.
-        // Pure UTC Calculation for End Date (Start + 6 days)
-        const [uY, uM, uD] = startStr.split('-').map(Number)
-        const utcStartObj = new Date(Date.UTC(uY, uM - 1, uD))
-        const utcEndObj = new Date(utcStartObj)
-        utcEndObj.setUTCDate(utcEndObj.getUTCDate() + 6)
+            // dateBase is now strictly Monday 12:00 PM. Format to YYYY-MM-DD
+            const startStr = dateBase.toISOString().split('T')[0]
+            const start = new Date(startStr + 'T00:00:00')
+            const end = new Date(start)
+            end.setDate(start.getDate() + 7)
+            
+            // Pure UTC Calculation for End Date (Start + 6 days)
+            const [uY, uM, uD] = startStr.split('-').map(Number)
+            const utcStartObj = new Date(Date.UTC(uY, uM - 1, uD))
+            const utcEndObj = new Date(utcStartObj)
+            utcEndObj.setUTCDate(utcEndObj.getUTCDate() + 6)
 
-        const endStr = utcEndObj.toISOString().split('T')[0]
+            const endStr = utcEndObj.toISOString().split('T')[0]
 
-        // Calculate 4 Weeks Lookback Date for Average Calc
-        const lookbackStart = new Date(start)
-        lookbackStart.setDate(start.getDate() - 35) // 5 Weeks back to be safe
-        const lookbackStr = lookbackStart.toISOString().split('T')[0]
+            // Calculate 4 Weeks Lookback Date for Average Calc
+            const lookbackStart = new Date(start)
+            lookbackStart.setDate(start.getDate() - 35) // 5 Weeks back to be safe
+            const lookbackStr = lookbackStart.toISOString().split('T')[0]
 
-        // --- API CALL (BYPASS RLS) ---
-        // Use Server-Side API to fetch data with Service Role Key to avoid RLS filtering drafts/unassigned shifts
-        const apiUrl = `/api/reports/weekly-ops?storeId=${queryId}&start=${startStr}&end=${endStr}&lookback=${lookbackStr}`
-        const apiResponse = await fetch(apiUrl)
-        const apiData = await apiResponse.json()
+            // --- API CALL (BYPASS RLS) ---
+            const token = typeof window !== 'undefined' ? localStorage.getItem('teg_token') : null
+            const apiUrl = `/api/reports/weekly-ops?storeId=${queryId}&start=${startStr}&end=${endStr}&lookback=${lookbackStr}`
+            const apiResponse = await fetch(apiUrl, {
+                headers: {
+                    'Authorization': `Bearer ${token || ''}`
+                }
+            })
+            const apiData = await apiResponse.json()
 
         if (apiData.error) throw new Error(apiData.error)
 
@@ -765,7 +770,11 @@ export default function ReportesPage() {
 
         setGridData(newGrid)
         setLaborLogData(weekLaborLog)
-        setLoading(false)
+        } catch (err: any) {
+            console.error("❌ [REPORT] Error loading weekly report:", err)
+        } finally {
+            setLoading(false)
+        }
     }, [selectedStore, weekDate, stores])
 
     useEffect(() => {
@@ -791,25 +800,26 @@ export default function ReportesPage() {
         const endStr = endOfMonth.toISOString().split('T')[0]
 
         setLoading(true)
-        const supabase = await getSupabaseClient()
-        // 2. Resolve Store Query
-        let salesData: any[] = []
+        try {
+            const supabase = await getSupabaseClient()
+            // 2. Resolve Store Query
+            let salesData: any[] = []
 
-        if (selectedStore === 'all') {
-            const { data, error } = await supabase
-                .from('sales_daily_cache')
-                .select('*')
-                .gte('business_date', startStr)
-                .lte('business_date', endStr)
+            if (selectedStore === 'all') {
+                const { data, error } = await supabase
+                    .from('sales_daily_cache')
+                    .select('*')
+                    .gte('business_date', startStr)
+                    .lte('business_date', endStr)
 
-            if (!error && data) salesData = data
-        } else {
-            const storeObj = stores.find(s => String(s.id) === String(selectedStore))
-            if (!storeObj?.external_id) {
-                setLoading(false)
-                return
-            }
-            const queryId = storeObj.external_id
+                if (!error && data) salesData = data
+            } else {
+                const storeObj = stores.find(s => String(s.id) === String(selectedStore))
+                if (!storeObj?.external_id) {
+                    setLoading(false)
+                    return
+                }
+                const queryId = storeObj.external_id
 
             // Fetch Sales Cache for Month
             const { data, error } = await supabase
@@ -945,7 +955,11 @@ export default function ReportesPage() {
             })
             return next
         })
-        setLoading(false)
+        } catch (err: any) {
+            console.error("❌ [REPORT] Error loading monthly report:", err)
+        } finally {
+            setLoading(false)
+        }
     }
 
     // Effect for Monthly
