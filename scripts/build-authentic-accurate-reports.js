@@ -866,18 +866,20 @@ const augustRows = [
         "descEn": "• <strong>Sales (Toast API & Bell Reconciliation $8,332.64)</strong>: Solved Bell sales discrepancy by handling cross-date party tray refunds and EBT items.<br>• <strong>Labor Breaks (Full LINE-BY-LINE Audit)</strong>: Fixed visual tooltip overlap on lunch/break logs and automated CA meal break violation auditing.<br>• <strong>Uniforms & Safe Box</strong>: Audited and locked 660 minimum stock DB records across all 15 stores with cash sale reconciliation.<br>• <strong>MilesIQ (GPS & PostgreSQL Generated Columns)</strong>: Guarded against Postgres 428C9 error by omitting computed columns in insertion payloads, route gap optimization, and 1-tap logging.<br>• <strong>Admin HTML Reports Viewer (/admin/reporte-actividades)</strong>: Built interactive Admin-exclusive viewer with month switching tabs, eliminating static PDFs.<br>• <strong>Unified Gantt Timelines</strong>: Recreated and synced 4 AM - 12 AM dual-track schedules across all 3 monthly reports."
     },
     {
-        "date": "23-Ago-2026",
-        "time": "12:00 AM - 1:15 AM & 6:30 AM - 8:30 AM & 10:15 AM - 12:15 PM",
-        "hours": 5.25,
-        "badges": [
-            "MilesIQ (Filtro Supervisores)",
-            "Planificador Turnos Reales Lynwood",
-            "Checklists Temperaturas (≤40°F / ≥140°F)",
-            "Auditoría Multi-Chat"
-        ],
-        "descEs": "• <strong>MilesIQ (Sincronización de Inspecciones & Filtro de Supervisores)</strong>: Filtrado estricto por supervisor activo, excluyendo evaluadores programados para septiembre (Ricardo y Estefani) y prevención de viajes redundantes cuando ya existe ruta multitienda.<br>• <strong>Planificador (Sincronización Dinámica de Turnos Reales)</strong>: Conexión con la tabla shifts de Supabase para extraer los 75 turnos exactos de Carlos Velazquez como General Manager de Lynwood #14 por día de la semana (Sábados 2-9 PM, Domingos 2-7 PM, Lunes 12-8 PM, Martes 2-10 PM, Miércoles OFF, Jueves 9 AM-5 PM, Viernes 2-9 PM) en la pista visual del Gantt.<br>• <strong>Checklists de Inocuidad y Temperaturas</strong>: Calibración de umbrales reglamentarios para equipos e insumos fríos (≤ 40°F) y mantenimiento caliente (≥ 140°F) en validadores y formularios de captura, integrando el campo estatus_manager en consultas del asistente de soporte.<br>• <strong>Auditoría Forense Multi-Chat Día por Día</strong>: Consolidación exhaustiva de todas las conversaciones concurrentes del mes de agosto, incorporando actividades de Tech Packs, Radar de Precios, Basecamp, Uniformes y Horarios.",
-        "descEn": "• <strong>MilesIQ (Inspection Sync & Active Supervisor Filter)</strong>: Strictly filtered active store supervisors, excluding upcoming Sept 1 testers, and prevented redundant direct trips when multi-leg routes exist.<br>• <strong>Planner (Dynamic Manager Shifts Sync)</strong>: Connected Supabase shifts table to display Carlos Velazquez's exact 75 Lynwood #14 General Manager shift schedules per day of week on Gantt Track 1.<br>• <strong>Food Safety & Temperature Checklists</strong>: Calibrated regulatory thresholds for cold holding (≤ 40°F) and hot holding (≥ 140°F) across validators and entry forms, integrating estatus_manager in AI assistant queries.<br>• <strong>Multi-Chat Day-by-Day Forensic Audit</strong>: Full consolidation of concurrent August conversation sessions, integrating Tech Packs, Price Radar, Basecamp, Uniforms, and Schedule activities."
-    }
+    "date": "23-Ago-2026",
+    "time": "12:00 AM - 1:15 AM & 6:30 AM - 8:30 AM & 9:30 AM - 12:30 PM",
+    "hours": 6.25,
+    "badges": [
+        "Preparador (Auditoría)",
+        "Caja Fuerte (PST & Sync)",
+        "Pedidos Bodega",
+        "Checklists Temperaturas (≤40°F / ≥140°F)",
+        "MilesIQ (Filtro Supervisores)",
+        "Planificador Turnos Lynwood"
+    ],
+    "descEs": "• <strong>Preparador de Carne (Auditoría Forense Integral Línea por Línea)</strong>: Blindaje del acelerador intradía contra divisiones por cero, calibración de proyecciones por tramos y sincronización con tablets de cocina.<br>• <strong>Caja Fuerte & Bóveda</strong>: Corrección del cálculo de fechas en zona horaria PST (America/Los_Angeles), limpieza de manualOverride al resetear formulario y eliminación de condición de carrera asíncrona en conciliación con ventas de uniformes.<br>• <strong>Pedidos de Bodega & Insumos</strong>: Auditoría exhaustiva de guardado parcial de estimates en QuickBooks y sincronización de PAR.<br>• <strong>Checklists de Inocuidad y Temperaturas</strong>: Calibración reglamentaria de umbrales para refrigeración y barras frías (≤ 40°F) y mantenimiento caliente (≥ 140°F) con integración de estatus_manager.<br>• <strong>MilesIQ (Sincronización de Inspecciones & Filtro de Supervisores)</strong>: Filtrado estricto por supervisor activo y prevención de rutas redundantes.<br>• <strong>Planificador & Gantt</strong>: Conexión dinámica con Supabase para reflejar los 75 turnos exactos de Carlos Velazquez en Lynwood #14 y resolución del caso borde de medianoche en el Gantt.",
+    "descEn": "• <strong>Prep Line (Comprehensive Line-by-Line Forensic Audit)</strong>: Hardened intraday accelerator against zero-division errors, calibrated period blocks, and synced kitchen tablets.<br>• <strong>Safe Management (PST Timezone & Race Conditions)</strong>: Fixed PST date calculations, cleared manualOverride on form resets, and resolved async race condition in uniform cash reconciliation.<br>• <strong>Bodega Orders & Warehouse PAR</strong>: Full audit of partial QuickBooks estimate saves and PAR auto-sync.<br>• <strong>Food Safety & Temperature Checklists</strong>: Calibrated regulatory thresholds for cold holding (≤ 40°F) and hot holding (≥ 140°F), adding estatus_manager field.<br>• <strong>MilesIQ (Inspection Sync & Active Supervisor Filter)</strong>: Filtered active supervisors and prevented redundant multi-leg direct routes.<br>• <strong>Planner & Gantt Sync</strong>: Live connection to Supabase shifts table to display Carlos Velazquez's exact 75 Lynwood #14 General Manager shift schedules and resolved midnight wrap-around on Gantt ruler."
+}
 ];
 
 // JUNE CONFIG: 17 tasks (1 Completada, 9 En Progreso, 7 Pendientes)
@@ -942,7 +944,7 @@ const augustConfig = {
     completedTasks: 12,
     inProgressTasks: 7,
     pendingTasks: 7,
-    totalHours: 107.50,
+    totalHours: 108.50,
     rows: augustRows,
     parallelActivities: [
         { title: 'Pruebas en Sucursal/Local', hours: 3.0, desc: 'Testing en cocina del modo tableta kiosko del Preparador, validación de sincronización PC-Tableta y geofencing de MilesIQ en las 15 tiendas.' },
@@ -950,13 +952,13 @@ const augustConfig = {
         { title: 'Planificación y Diseño', hours: 1.5, desc: 'Arquitectura de Tech Packs para uniformes, diseño del acelerador intradía de carne y estructura de las 26 tareas oficiales.' }
     ],
     effortSummary: [
-        { module: 'Preparador de Carne y Cocina KDS', hours: 24.5 },
+        { module: 'Preparador de Carne y Cocina KDS', hours: 25.5 },
         { module: 'MilesIQ Supervisores & Geofencing GPS', hours: 19.25 },
         { module: 'Ventas Toast API & Conciliación Multitienda', hours: 18.5 },
+        { module: 'Control de Uniformes & Caja Fuerte', hours: 12.5 },
         { module: 'Descansos Laborales (Labor Compliance AI)', hours: 12.5 },
         { module: 'Radar de Precios Viele v3 & Auditoría COGS', hours: 11.5 },
-        { module: 'Control de Uniformes & Caja Fuerte', hours: 11.5 },
-        { module: 'Mantenimiento General, Crons y Reportes', hours: 9.75 }
+        { module: 'Mantenimiento General, Crons y Reportes', hours: 8.75 }
     ],
     taskCardsHtml: renderTab2ForMonth(augustTasks, 'Agosto 2026')
 };
