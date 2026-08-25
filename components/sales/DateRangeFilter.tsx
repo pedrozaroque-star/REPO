@@ -25,9 +25,10 @@ interface DateRangeFilterProps {
     endDate: string
     onChange: (period: Period | string, start: string, end: string) => void
     className?: string
+    align?: 'left' | 'right'
 }
 
-export default function DateRangeFilter({ period, startDate, endDate, onChange, className }: DateRangeFilterProps) {
+export default function DateRangeFilter({ period, startDate, endDate, onChange, className, align = 'right' }: DateRangeFilterProps) {
     const { t, language } = useLanguage()
     const localeObj = language === 'es' ? es : enUS
     const [isOpen, setIsOpen] = useState(false)
@@ -320,7 +321,7 @@ export default function DateRangeFilter({ period, startDate, endDate, onChange, 
                     )}
 
                     {/* Desktop Dropdown */}
-                    <div className="hidden md:flex absolute top-full right-0 mt-2 z-50 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-2xl flex-col md:flex-row overflow-hidden animate-in fade-in zoom-in-95 duration-200 origin-top-right">
+                    <div className={`hidden md:flex absolute top-full ${align === 'left' ? 'left-0 origin-top-left' : 'right-0 origin-top-right'} mt-2 z-50 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-2xl flex-col md:flex-row overflow-hidden animate-in fade-in zoom-in-95 duration-200`}>
                         <div className="w-40 border-r border-slate-100 dark:border-slate-800 p-2 flex flex-col gap-1 bg-slate-50/50 dark:bg-slate-900/50">
                             {[
                                 { id: 'today', label: t('sales.today') },

@@ -1033,10 +1033,10 @@ function MilesIQContent() {
         {activeTab === 'trips' && (
           <div className="space-y-4">
             {/* Filter Bar */}
-            <div className="bg-white dark:bg-slate-900 p-3 sm:p-4 rounded-xl border border-slate-200 dark:border-slate-800 flex flex-col xl:flex-row gap-3 sm:gap-4 items-stretch xl:items-center justify-between shadow-xs">
-              <div className="flex flex-col md:flex-row items-stretch md:items-center gap-2.5 w-full xl:w-auto flex-wrap">
+            <div className="bg-white dark:bg-slate-900 p-3 sm:p-4 rounded-xl border border-slate-200 dark:border-slate-800 flex flex-col md:flex-row gap-3 items-stretch md:items-center justify-between shadow-xs">
+              <div className="flex flex-wrap items-center gap-2.5 w-full md:w-auto">
                 {/* Search Input */}
-                <div className="relative w-full md:w-56">
+                <div className="relative w-full sm:w-56 min-w-[180px]">
                   <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                   <input
                     type="text"
@@ -1047,60 +1047,59 @@ function MilesIQContent() {
                   />
                 </div>
 
-                {/* Professional Date Range & Presets Filter (Sales Module Style) */}
-                <div className="w-full md:w-auto">
+                {/* Professional Date Range & Presets Filter (Left-Aligned Desktop Dropdown) */}
+                <div className="relative">
                   <DateRangeFilter
                     period={period}
                     startDate={startDate}
                     endDate={endDate}
+                    align="left"
                     onChange={(p, s, e) => {
                       setPeriod(p as string)
                       setStartDate(s)
                       setEndDate(e)
                       setDateRange({ start: s, end: e })
                     }}
-                    className="w-full md:w-auto"
                   />
                 </div>
 
-                <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center sm:gap-2 w-full md:w-auto">
-                  <select
-                    value={statusFilter}
-                    onChange={e => setStatusFilter(e.target.value)}
-                    className="w-full sm:w-auto px-2.5 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold truncate cursor-pointer"
-                  >
-                    <option value="all">{t('miles.all_statuses')}</option>
-                    <option value="pending">{t('miles.status_pending')}</option>
-                    <option value="submitted_hr">{t('miles.status_submitted_hr')}</option>
-                    <option value="approved">{t('miles.status_approved')}</option>
-                    <option value="paid">{t('miles.status_paid')}</option>
-                  </select>
+                {/* Status Filter */}
+                <select
+                  value={statusFilter}
+                  onChange={e => setStatusFilter(e.target.value)}
+                  className="px-2.5 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold truncate cursor-pointer"
+                >
+                  <option value="all">{t('miles.all_statuses')}</option>
+                  <option value="pending">{t('miles.status_pending')}</option>
+                  <option value="submitted_hr">{t('miles.status_submitted_hr')}</option>
+                  <option value="approved">{t('miles.status_approved')}</option>
+                  <option value="paid">{t('miles.status_paid')}</option>
+                </select>
 
-                  {/* Supervisor Filter Dropdown (Admins only) */}
-                  {isAdmin && supervisorsList.length > 0 && (
-                    <select
-                      value={supervisorFilter}
-                      onChange={e => setSupervisorFilter(e.target.value)}
-                      className="w-full sm:w-auto px-2.5 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold text-blue-600 dark:text-blue-400 truncate cursor-pointer"
-                    >
-                      <option value="all">{t('miles.all_supervisors')}</option>
-                      {supervisorsList
-                        .filter(sup => {
-                          const isPreSept = getCaliforniaBusinessDate() < '2026-09-01'
-                          if (isPreSept && /estefani|ricardo/i.test(sup.name)) return false
-                          return true
-                        })
-                        .map(sup => (
-                          <option key={sup.id} value={sup.id}>
-                            {sup.name}
-                          </option>
-                        ))}
-                    </select>
-                  )}
-                </div>
+                {/* Supervisor Filter Dropdown (Admins only) */}
+                {isAdmin && supervisorsList.length > 0 && (
+                  <select
+                    value={supervisorFilter}
+                    onChange={e => setSupervisorFilter(e.target.value)}
+                    className="px-2.5 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold text-blue-600 dark:text-blue-400 truncate cursor-pointer"
+                  >
+                    <option value="all">{t('miles.all_supervisors')}</option>
+                    {supervisorsList
+                      .filter(sup => {
+                        const isPreSept = getCaliforniaBusinessDate() < '2026-09-01'
+                        if (isPreSept && /estefani|ricardo/i.test(sup.name)) return false
+                        return true
+                      })
+                      .map(sup => (
+                        <option key={sup.id} value={sup.id}>
+                          {sup.name}
+                        </option>
+                      ))}
+                  </select>
+                )}
               </div>
 
-              <div className="flex items-center justify-between sm:justify-end gap-2 text-xs text-slate-500 pt-1 xl:pt-0 border-t xl:border-t-0 border-slate-100 dark:border-slate-800">
+              <div className="flex items-center justify-between sm:justify-end gap-2 text-xs text-slate-500 pt-1 md:pt-0 border-t md:border-t-0 border-slate-100 dark:border-slate-800 shrink-0">
                 <span className="font-semibold text-slate-700 dark:text-slate-300">{filteredTrips.length} {t('miles.trips_found')}</span>
               </div>
             </div>
