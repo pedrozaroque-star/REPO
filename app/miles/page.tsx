@@ -856,162 +856,160 @@ function MilesIQContent() {
       </AnimatePresence>
 
       {/* Main Container */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 pt-6">
+      <div className="max-w-7xl mx-auto px-3 sm:px-6 pt-4 sm:pt-6 pb-28 sm:pb-12">
         {/* Header */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6 bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
-          <div>
-            <div className="flex items-center gap-2.5">
-              <div className="p-2.5 bg-blue-600/10 text-blue-600 dark:text-blue-400 rounded-xl">
-                <Car size={26} />
-              </div>
-              <div>
-                <h1 className="text-2xl font-black tracking-tight">MilesIQ</h1>
-                <p className="text-xs text-slate-500 dark:text-slate-400">
-                  {t('miles.subtitle')}
-                </p>
-              </div>
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4 sm:mb-6 bg-white dark:bg-slate-900 p-4 sm:p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 bg-blue-600/10 text-blue-600 dark:text-blue-400 rounded-xl shrink-0">
+              <Car size={26} />
+            </div>
+            <div>
+              <h1 className="text-xl sm:text-2xl font-black tracking-tight">MilesIQ</h1>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                {t('miles.subtitle')}
+              </p>
             </div>
           </div>
 
-          {/* Action buttons */}
-          <div className="flex items-center gap-2.5 flex-wrap">
+          {/* Action buttons: Responsive 2x2 grid on mobile, flex on desktop */}
+          <div className="grid grid-cols-2 sm:flex sm:items-center gap-2 sm:gap-2.5 w-full sm:w-auto">
             <button
               onClick={() => setIsQuickDriveOpen(true)}
-              className="px-4 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-xl text-xs font-black flex items-center gap-2 shadow-lg shadow-emerald-600/25 transition-all active:scale-[0.98]"
+              className="px-3 sm:px-4 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-xl text-xs font-black flex items-center justify-center gap-1.5 shadow-lg shadow-emerald-600/25 transition-all active:scale-[0.98]"
             >
-              <Navigation size={16} />
+              <Navigation size={15} />
               <span>{t('miles.quick_drive')}</span>
             </button>
 
             <button
               onClick={handleSyncInspections}
               disabled={syncingInspections}
-              className="px-3.5 py-2.5 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 rounded-xl text-xs font-bold flex items-center gap-2 transition-colors border border-emerald-300 dark:border-emerald-700"
+              className="px-3 sm:px-3.5 py-2.5 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-colors border border-emerald-300 dark:border-emerald-700"
               title={t('miles.sync_inspections_desc')}
             >
-              <ShieldCheck size={16} className={syncingInspections ? 'animate-spin' : ''} />
-              {syncingInspections ? t('miles.syncing_inspections') : t('miles.sync_inspections')}
+              <ShieldCheck size={15} className={syncingInspections ? 'animate-spin' : ''} />
+              <span className="truncate">{syncingInspections ? t('miles.syncing_inspections') : t('miles.sync_inspections')}</span>
             </button>
 
             <button
               onClick={handleExportCsv}
-              className="px-3.5 py-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold flex items-center gap-2 transition-colors border border-slate-300 dark:border-slate-700"
+              className="px-3 sm:px-3.5 py-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-colors border border-slate-300 dark:border-slate-700"
             >
-              <Download size={16} />
-              {t('miles.export_csv')}
+              <Download size={15} />
+              <span>{t('miles.export_csv')}</span>
             </button>
 
             <button
               onClick={handleOpenNewTripModal}
-              className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-lg shadow-blue-600/30 transition-all"
+              className="px-3 sm:px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-lg shadow-blue-600/30 transition-all"
             >
-              <Plus size={18} />
-              {t('miles.log_trip')}
+              <Plus size={16} />
+              <span>{t('miles.log_trip')}</span>
             </button>
           </div>
         </div>
 
         {/* Executive KPI Cards */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-          <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
-            <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 sm:gap-4 mb-4 sm:mb-6">
+          <div className="bg-white dark:bg-slate-900 p-3.5 sm:p-4 rounded-xl sm:rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs">
+            <span className="text-[11px] sm:text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider block">
               {t('miles.total_drives')}
             </span>
-            <div className="text-2xl font-black text-slate-900 dark:text-white mt-1">
+            <div className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white mt-0.5 sm:mt-1">
               {metrics.totalTrips}
             </div>
-            <span className="text-[11px] text-slate-400">
+            <span className="text-[10px] sm:text-[11px] text-slate-400 truncate block">
               {isAdmin ? t('miles.all_supervisors') : currentUser.name}
             </span>
           </div>
 
-          <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
-            <span className="text-xs font-bold text-blue-600 dark:text-blue-400 uppercase tracking-wider">
+          <div className="bg-white dark:bg-slate-900 p-3.5 sm:p-4 rounded-xl sm:rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs">
+            <span className="text-[11px] sm:text-xs font-bold text-blue-600 dark:text-blue-400 uppercase tracking-wider block">
               {t('miles.total_miles')}
             </span>
-            <div className="text-2xl font-black text-blue-600 dark:text-blue-400 mt-1">
-              {metrics.totalMiles.toFixed(2)} <span className="text-sm font-semibold">mi</span>
+            <div className="text-xl sm:text-2xl font-black text-blue-600 dark:text-blue-400 mt-0.5 sm:mt-1">
+              {metrics.totalMiles.toFixed(2)} <span className="text-xs sm:text-sm font-semibold">mi</span>
             </div>
-            <span className="text-[11px] text-slate-400">
+            <span className="text-[10px] sm:text-[11px] text-slate-400 truncate block">
               ${currentRate.toFixed(3)}/mi IRS rate
             </span>
           </div>
 
-          <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
-            <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">
+          <div className="bg-white dark:bg-slate-900 p-3.5 sm:p-4 rounded-xl sm:rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs">
+            <span className="text-[11px] sm:text-xs font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider block">
               {t('miles.reimbursement')}
             </span>
-            <div className="text-2xl font-black text-emerald-600 dark:text-emerald-400 mt-1">
-              ${metrics.totalReimbursement.toFixed(2)} <span className="text-sm font-semibold">USD</span>
+            <div className="text-xl sm:text-2xl font-black text-emerald-600 dark:text-emerald-400 mt-0.5 sm:mt-1">
+              ${metrics.totalReimbursement.toFixed(2)} <span className="text-xs sm:text-sm font-semibold">USD</span>
             </div>
-            <span className="text-[11px] text-slate-400">
+            <span className="text-[10px] sm:text-[11px] text-slate-400 truncate block">
               {t('miles.includes_tolls_parking')}
             </span>
           </div>
 
-          <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
-            <span className="text-xs font-bold text-purple-600 dark:text-purple-400 uppercase tracking-wider">
+          <div className="bg-white dark:bg-slate-900 p-3.5 sm:p-4 rounded-xl sm:rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs">
+            <span className="text-[11px] sm:text-xs font-bold text-purple-600 dark:text-purple-400 uppercase tracking-wider block">
               {t('miles.sent_to_hr')}
             </span>
-            <div className="text-2xl font-black text-purple-600 dark:text-purple-400 mt-1">
-              {metrics.hrCount} <span className="text-sm font-semibold">{t('miles.trips_unit')}</span>
+            <div className="text-xl sm:text-2xl font-black text-purple-600 dark:text-purple-400 mt-0.5 sm:mt-1">
+              {metrics.hrCount} <span className="text-xs sm:text-sm font-semibold">{t('miles.trips_unit')}</span>
             </div>
-            <span className="text-[11px] text-slate-400">
+            <span className="text-[10px] sm:text-[11px] text-slate-400 truncate block">
               {metrics.pendingCount} {t('miles.pending_dispatch')}
             </span>
           </div>
         </div>
 
         {/* Tab Navigation */}
-        <div className="flex border-b border-slate-200 dark:border-slate-800 mb-6 gap-2 overflow-x-auto">
+        <div className="flex border-b border-slate-200 dark:border-slate-800 mb-4 sm:mb-6 gap-1 sm:gap-2 overflow-x-auto no-scrollbar scrollbar-none pb-0.5">
           <button
             onClick={() => setActiveTab('trips')}
-            className={`px-4 py-3 text-sm font-bold border-b-2 flex items-center gap-2 transition-colors whitespace-nowrap ${
+            className={`px-3 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm font-bold border-b-2 flex items-center gap-1.5 sm:gap-2 transition-colors whitespace-nowrap shrink-0 ${
               activeTab === 'trips'
                 ? 'border-blue-600 text-blue-600 dark:text-blue-400'
                 : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
             }`}
           >
-            <Car size={18} />
-            {t('miles.tab_drive_log')}
+            <Car size={16} />
+            <span>{t('miles.tab_drive_log')}</span>
           </button>
 
           {isAdmin && (
             <>
               <button
                 onClick={() => setActiveTab('hr_dispatch')}
-                className={`px-4 py-3 text-sm font-bold border-b-2 flex items-center gap-2 transition-colors whitespace-nowrap ${
+                className={`px-3 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm font-bold border-b-2 flex items-center gap-1.5 sm:gap-2 transition-colors whitespace-nowrap shrink-0 ${
                   activeTab === 'hr_dispatch'
                     ? 'border-blue-600 text-blue-600 dark:text-blue-400'
                     : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
                 }`}
               >
-                <Mail size={18} />
-                {t('miles.tab_hr_dispatch')}
+                <Mail size={16} />
+                <span>{t('miles.tab_hr_dispatch')}</span>
               </button>
 
               <button
                 onClick={() => setActiveTab('history')}
-                className={`px-4 py-3 text-sm font-bold border-b-2 flex items-center gap-2 transition-colors whitespace-nowrap ${
+                className={`px-3 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm font-bold border-b-2 flex items-center gap-1.5 sm:gap-2 transition-colors whitespace-nowrap shrink-0 ${
                   activeTab === 'history'
                     ? 'border-blue-600 text-blue-600 dark:text-blue-400'
                     : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
                 }`}
               >
-                <FileSpreadsheet size={18} />
-                {t('miles.tab_history')}
+                <FileSpreadsheet size={16} />
+                <span>{t('miles.tab_history')}</span>
               </button>
 
               <button
                 onClick={() => setActiveTab('settings')}
-                className={`px-4 py-3 text-sm font-bold border-b-2 flex items-center gap-2 transition-colors whitespace-nowrap ${
+                className={`px-3 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm font-bold border-b-2 flex items-center gap-1.5 sm:gap-2 transition-colors whitespace-nowrap shrink-0 ${
                   activeTab === 'settings'
                     ? 'border-blue-600 text-blue-600 dark:text-blue-400'
                     : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
                 }`}
               >
-                <Settings size={18} />
-                {t('miles.tab_settings')}
+                <Settings size={16} />
+                <span>{t('miles.tab_settings')}</span>
               </button>
             </>
           )}
@@ -1021,10 +1019,10 @@ function MilesIQContent() {
         {activeTab === 'trips' && (
           <div className="space-y-4">
             {/* Filter Bar */}
-            <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 flex flex-col md:flex-row gap-4 items-center justify-between">
-              <div className="flex items-center gap-3 w-full md:w-auto">
-                <div className="relative flex-1 md:w-64">
-                  <Search size={16} className="absolute left-3 top-3 text-slate-400" />
+            <div className="bg-white dark:bg-slate-900 p-3 sm:p-4 rounded-xl border border-slate-200 dark:border-slate-800 flex flex-col md:flex-row gap-3 sm:gap-4 items-stretch md:items-center justify-between shadow-xs">
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 w-full md:w-auto">
+                <div className="relative w-full sm:w-64">
+                  <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                   <input
                     type="text"
                     placeholder={t('miles.search_placeholder')}
@@ -1034,43 +1032,45 @@ function MilesIQContent() {
                   />
                 </div>
 
-                <select
-                  value={statusFilter}
-                  onChange={e => setStatusFilter(e.target.value)}
-                  className="px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold"
-                >
-                  <option value="all">{t('miles.all_statuses')}</option>
-                  <option value="pending">{t('miles.status_pending')}</option>
-                  <option value="submitted_hr">{t('miles.status_submitted_hr')}</option>
-                  <option value="approved">{t('miles.status_approved')}</option>
-                  <option value="paid">{t('miles.status_paid')}</option>
-                </select>
-
-                {/* Supervisor Filter Dropdown (Admins only) */}
-                {isAdmin && supervisorsList.length > 0 && (
+                <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center sm:gap-2 w-full sm:w-auto">
                   <select
-                    value={supervisorFilter}
-                    onChange={e => setSupervisorFilter(e.target.value)}
-                    className="px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold text-blue-600 dark:text-blue-400"
+                    value={statusFilter}
+                    onChange={e => setStatusFilter(e.target.value)}
+                    className="w-full px-2.5 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold truncate"
                   >
-                    <option value="all">{t('miles.all_supervisors')}</option>
-                    {supervisorsList
-                      .filter(sup => {
-                        const isPreSept = getCaliforniaBusinessDate() < '2026-09-01'
-                        if (isPreSept && /estefani|ricardo/i.test(sup.name)) return false
-                        return true
-                      })
-                      .map(sup => (
-                        <option key={sup.id} value={sup.id}>
-                          {sup.name}
-                        </option>
-                      ))}
+                    <option value="all">{t('miles.all_statuses')}</option>
+                    <option value="pending">{t('miles.status_pending')}</option>
+                    <option value="submitted_hr">{t('miles.status_submitted_hr')}</option>
+                    <option value="approved">{t('miles.status_approved')}</option>
+                    <option value="paid">{t('miles.status_paid')}</option>
                   </select>
-                )}
+
+                  {/* Supervisor Filter Dropdown (Admins only) */}
+                  {isAdmin && supervisorsList.length > 0 && (
+                    <select
+                      value={supervisorFilter}
+                      onChange={e => setSupervisorFilter(e.target.value)}
+                      className="w-full px-2.5 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold text-blue-600 dark:text-blue-400 truncate"
+                    >
+                      <option value="all">{t('miles.all_supervisors')}</option>
+                      {supervisorsList
+                        .filter(sup => {
+                          const isPreSept = getCaliforniaBusinessDate() < '2026-09-01'
+                          if (isPreSept && /estefani|ricardo/i.test(sup.name)) return false
+                          return true
+                        })
+                        .map(sup => (
+                          <option key={sup.id} value={sup.id}>
+                            {sup.name}
+                          </option>
+                        ))}
+                    </select>
+                  )}
+                </div>
               </div>
 
-              <div className="flex items-center gap-2 text-xs text-slate-500">
-                <span>{filteredTrips.length} {t('miles.trips_found')}</span>
+              <div className="flex items-center justify-between sm:justify-end gap-2 text-xs text-slate-500 pt-1 md:pt-0 border-t md:border-t-0 border-slate-100 dark:border-slate-800">
+                <span className="font-semibold text-slate-700 dark:text-slate-300">{filteredTrips.length} {t('miles.trips_found')}</span>
               </div>
             </div>
 
@@ -1335,86 +1335,108 @@ function MilesIQContent() {
                   const tot = (m * r) + p + to
 
                   return (
-                    <div key={trip.id} className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-4 shadow-sm space-y-2.5">
-                      {/* Top Row: Date + Status + Actions */}
-                      <div className="flex items-center justify-between">
+                    <div key={trip.id} className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-4 shadow-xs space-y-3">
+                      {/* Top Row: Date/Time + Status Badge */}
+                      <div className="flex items-start justify-between gap-2">
                         <div>
-                          <div className="text-xs font-bold text-slate-900 dark:text-white">{trip.trip_date}</div>
-                          {trip.start_time && <div className="text-[10px] text-slate-400 font-medium">{trip.start_time}</div>}
+                          <div className="text-xs font-black text-slate-900 dark:text-white">{trip.trip_date}</div>
+                          {trip.start_time && <div className="text-[10px] text-slate-400 font-semibold mt-0.5">{trip.start_time}</div>}
                         </div>
-                        <div className="flex items-center gap-1">
+                        <div>
                           {trip.status === 'submitted_hr' && (
-                            <span className="px-2 py-0.5 rounded-md text-[9px] font-bold bg-purple-100 text-purple-700 dark:bg-purple-950/60 dark:text-purple-400">{t('miles.badge_submitted_hr')}</span>
+                            <span className="px-2.5 py-1 rounded-md text-[10px] font-bold bg-purple-100 text-purple-700 dark:bg-purple-950/60 dark:text-purple-400 border border-purple-200 dark:border-purple-800">{t('miles.badge_submitted_hr')}</span>
                           )}
                           {trip.status === 'pending' && (
-                            <span className="px-2 py-0.5 rounded-md text-[9px] font-bold bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-400">{t('miles.badge_pending')}</span>
+                            <span className="px-2.5 py-1 rounded-md text-[10px] font-bold bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-400 border border-amber-200 dark:border-amber-800">{t('miles.badge_pending')}</span>
                           )}
                           {trip.status === 'approved' && (
-                            <span className="px-2 py-0.5 rounded-md text-[9px] font-bold bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-400">{t('miles.badge_approved')}</span>
+                            <span className="px-2.5 py-1 rounded-md text-[10px] font-bold bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800">{t('miles.badge_approved')}</span>
                           )}
                           {trip.status === 'paid' && (
-                            <span className="px-2 py-0.5 rounded-md text-[9px] font-bold bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:text-blue-400">{t('miles.badge_paid')}</span>
-                          )}
-                          <button
-                            onClick={() => handleReturnTrip(trip)}
-                            title={t('miles.return_trip_btn')}
-                            className="p-1 text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-950/40 rounded transition-colors"
-                          >
-                            <RotateCcw size={14} />
-                          </button>
-                          {(trip.status === 'pending' || isAdmin) && (
-                            <button
-                              onClick={() => handleOpenEditModal(trip)}
-                              title={t('miles.edit_trip')}
-                              className="p-1 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 rounded transition-colors"
-                            >
-                              <Edit3 size={14} />
-                            </button>
-                          )}
-                          {isAdmin && trip.status === 'pending' && (
-                            <button onClick={() => handleUpdateStatus(trip.id, 'approved')} className="p-1 text-emerald-600 rounded">
-                              <CheckCircle2 size={14} />
-                            </button>
-                          )}
-                          {(trip.status === 'pending' || isAdmin) && (
-                            <button onClick={() => handleDeleteTrip(trip.id)} className="p-1 text-red-500 rounded">
-                              <Trash2 size={14} />
-                            </button>
+                            <span className="px-2.5 py-1 rounded-md text-[10px] font-bold bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:text-blue-400 border border-blue-200 dark:border-blue-800">{t('miles.badge_paid')}</span>
                           )}
                         </div>
                       </div>
 
-                      {/* Route */}
-                      <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-800 dark:text-slate-200">
-                        <MapPin size={12} className="text-emerald-500 shrink-0" />
-                        <span className="truncate">{trip.origin_name?.replace('Tacos Gavilan ', '')}</span>
-                        <span className="text-slate-400 shrink-0">→</span>
-                        <span className="truncate">{trip.destination_name?.replace('Tacos Gavilan ', '')}</span>
+                      {/* Route Box */}
+                      <div className="bg-slate-50 dark:bg-slate-800/60 p-2.5 rounded-xl border border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-1.5 text-xs font-bold text-slate-800 dark:text-slate-200 min-w-0">
+                          <MapPin size={13} className="text-emerald-500 shrink-0" />
+                          <span className="truncate">{trip.origin_name?.replace('Tacos Gavilan ', '')}</span>
+                          <span className="text-slate-400 shrink-0">→</span>
+                          <span className="truncate">{trip.destination_name?.replace('Tacos Gavilan ', '')}</span>
+                        </div>
                         {trip.is_round_trip && (
-                          <span className="text-[9px] bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:text-blue-400 px-1 py-0.5 rounded font-black shrink-0">
+                          <span className="text-[9px] bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:text-blue-400 px-1.5 py-0.5 rounded font-black shrink-0">
                             {t('miles.badge_round_trip')}
                           </span>
                         )}
                       </div>
 
                       {/* Supervisor + Purpose */}
-                      <div className="flex items-center justify-between text-[11px]">
-                        <span className="text-slate-500 dark:text-slate-400 font-medium">{trip.supervisor_name}</span>
-                        <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-400">
+                      <div className="flex items-center justify-between text-[11px] gap-2">
+                        <span className="text-slate-600 dark:text-slate-400 font-semibold truncate">
+                          👤 {trip.supervisor_name}
+                        </span>
+                        <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-400 shrink-0">
                           {trip.purpose || 'Business'}
                         </span>
                       </div>
 
-                      {/* Bottom: Miles + Amount */}
-                      <div className="flex items-center justify-between pt-1 border-t border-slate-100 dark:border-slate-800">
-                        <div className="text-xs">
-                          <span className="font-bold text-blue-600 dark:text-blue-400">{m.toFixed(2)} mi</span>
-                          <span className="text-slate-400 mx-1">×</span>
-                          <span className="text-slate-500">${r.toFixed(3)}</span>
+                      {trip.purpose_notes && (
+                        <p className="text-[10px] text-slate-400 dark:text-slate-500 italic truncate">
+                          📝 {trip.purpose_notes}
+                        </p>
+                      )}
+
+                      {/* Bottom Row: Money & Generous Touch Target Action Buttons */}
+                      <div className="flex items-center justify-between pt-2.5 border-t border-slate-100 dark:border-slate-800">
+                        <div>
+                          <div className="text-[10px] text-slate-400 font-medium">
+                            <span className="font-bold text-blue-600 dark:text-blue-400">{m.toFixed(2)} mi</span> × ${r.toFixed(3)}
+                          </div>
+                          <div className="text-base font-black text-emerald-600 dark:text-emerald-400">
+                            ${tot.toFixed(2)} <span className="text-[10px] font-bold text-slate-400">USD</span>
+                          </div>
                         </div>
-                        <span className="text-sm font-black text-emerald-600 dark:text-emerald-400">
-                          ${tot.toFixed(2)}
-                        </span>
+
+                        {/* Action Buttons */}
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            onClick={() => handleReturnTrip(trip)}
+                            title={t('miles.return_trip_btn')}
+                            className="w-8 h-8 flex items-center justify-center text-purple-600 bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/50 dark:hover:bg-purple-900/50 rounded-lg transition-colors border border-purple-200 dark:border-purple-800"
+                          >
+                            <RotateCcw size={15} />
+                          </button>
+                          {(trip.status === 'pending' || isAdmin) && (
+                            <button
+                              onClick={() => handleOpenEditModal(trip)}
+                              title={t('miles.edit_trip')}
+                              className="w-8 h-8 flex items-center justify-center text-blue-600 bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/50 dark:hover:bg-blue-900/50 rounded-lg transition-colors border border-blue-200 dark:border-blue-800"
+                            >
+                              <Edit3 size={15} />
+                            </button>
+                          )}
+                          {isAdmin && trip.status === 'pending' && (
+                            <button
+                              onClick={() => handleUpdateStatus(trip.id, 'approved')}
+                              title={t('miles.approve_trip')}
+                              className="w-8 h-8 flex items-center justify-center text-emerald-600 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/50 dark:hover:bg-emerald-900/50 rounded-lg transition-colors border border-emerald-200 dark:border-emerald-800"
+                            >
+                              <CheckCircle2 size={15} />
+                            </button>
+                          )}
+                          {(trip.status === 'pending' || isAdmin) && (
+                            <button
+                              onClick={() => handleDeleteTrip(trip.id)}
+                              title={t('miles.delete_trip')}
+                              className="w-8 h-8 flex items-center justify-center text-red-500 bg-red-50 hover:bg-red-100 dark:bg-red-950/50 dark:hover:bg-red-900/50 rounded-lg transition-colors border border-red-200 dark:border-red-800"
+                            >
+                              <Trash2 size={15} />
+                            </button>
+                          )}
+                        </div>
                       </div>
                     </div>
                   )
