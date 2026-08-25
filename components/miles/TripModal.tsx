@@ -342,6 +342,16 @@ export default function TripModal({
       }
 
       await onSave(payload)
+
+      // Sync active store in localStorage for the passive GPS tracker
+      if (selectedSupervisorId === currentUser.id && tripDate === getCaliforniaBusinessDate()) {
+        const finalActiveStore = isRoundTrip ? originName : destinationName
+        if (finalActiveStore) {
+          localStorage.setItem('teg_supervisor_active_store', finalActiveStore)
+          localStorage.setItem('teg_supervisor_active_store_date', getCaliforniaBusinessDate())
+        }
+      }
+
       onClose()
       return true
     } catch (err) {

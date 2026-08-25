@@ -168,15 +168,15 @@ export async function POST(req: NextRequest) {
       hour12: true
     })
 
-    // 4. Check for duplicate trip by THIS supervisor in the last 15 minutes
-    const fifteenMinsAgo = new Date(Date.now() - 15 * 60 * 1000).toISOString()
+    // 4. Check for duplicate trip by THIS supervisor in the last 60 minutes (LA traffic window)
+    const sixtyMinsAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString()
     let dupQuery = supabase
       .from('supervisor_mileage_trips')
       .select('id, origin_name, destination_name, created_at')
       .eq('trip_date', targetDate)
       .eq('origin_name', originName)
       .eq('destination_name', currentStore)
-      .gte('created_at', fifteenMinsAgo)
+      .gte('created_at', sixtyMinsAgo)
 
     if (supervisor_id) {
       dupQuery = dupQuery.eq('supervisor_id', supervisor_id)
@@ -212,8 +212,12 @@ export async function POST(req: NextRequest) {
         }
       }
 
+      // Ensure valid UUID or null to prevent PostgreSQL invalid syntax error
+      const isUuid = resolvedSupervisorId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(resolvedSupervisorId)
+      const validSupervisorId = isUuid ? resolvedSupervisorId : null
+
       const newTrip = {
-        supervisor_id: resolvedSupervisorId || supervisor_name,
+        supervisor_id: validSupervisorId,
         supervisor_name: supervisor_name,
         supervisor_email: supervisor_email || 'supervisor@tacosgavilan.com',
         trip_date: targetDate,

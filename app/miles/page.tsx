@@ -687,6 +687,8 @@ function MilesIQContent() {
     trips.forEach(t => {
       if (!isAdmin && !isOwnTrip(t)) return
       if (supervisorFilter !== 'all' && t.supervisor_id !== supervisorFilter && t.supervisor_name !== supervisorFilter) return
+      if (startDate && t.trip_date < startDate) return
+      if (endDate && t.trip_date > endDate) return
       
       // Ricardo Velazquez y Estefani Duran inician el 1 de Septiembre 2026
       if (t.trip_date < '2026-09-01' && /estefani|ricardo/i.test(t.supervisor_name || '')) return
@@ -747,14 +749,16 @@ function MilesIQContent() {
         const current = sorted[i]
         const next = sorted[i + 1]
         
-        const origStore = current.destination_name
+        const origStore = current.is_round_trip ? current.origin_name : current.destination_name
         const destStore = next.origin_name
 
         if (origStore && destStore && origStore !== destStore) {
+          const normOrig = normalizeStoreName(origStore)
+          const normDest = normalizeStoreName(destStore)
           const alreadyLogged = dayTrips.some(
             t =>
-              (t.origin_name === origStore && t.destination_name === destStore) ||
-              (t.is_round_trip && t.origin_name === destStore && t.destination_name === origStore)
+              (normalizeStoreName(t.origin_name) === normOrig && normalizeStoreName(t.destination_name) === normDest) ||
+              (t.is_round_trip && normalizeStoreName(t.origin_name) === normDest && normalizeStoreName(t.destination_name) === normOrig)
           )
 
           if (!alreadyLogged) {

@@ -35,6 +35,7 @@ import {
   normalizeStoreName,
   haversineDistanceMiles
 } from '@/lib/store-coordinates'
+import { getCaliforniaBusinessDate } from '@/lib/business-date'
 
 interface QuickDriveModalProps {
   isOpen: boolean
@@ -88,6 +89,7 @@ export default function QuickDriveModal({
         if (closest && closest.name) {
           setOriginStore(closest.name)
           localStorage.setItem('teg_supervisor_active_store', closest.name)
+          localStorage.setItem('teg_supervisor_active_store_date', getCaliforniaBusinessDate())
         }
         setIsLocating(false)
       },
@@ -110,7 +112,7 @@ export default function QuickDriveModal({
     setIsSaving(destinationName)
 
     try {
-      // 1. Guardar el viaje en la base de datos a través de checkin
+      // 1. Guardar el viaje en la base de datos a través de checkin con la fecha contable actual
       const res = await fetch('/api/miles/checkin', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -119,6 +121,7 @@ export default function QuickDriveModal({
           supervisor_name: currentUser.name,
           supervisor_email: currentUser.email,
           previous_store_name: originStore,
+          previous_store_date: getCaliforniaBusinessDate(),
           store_name: destinationName,
           auto_create_trip: true,
           source: 'quick_drive_modal'
@@ -128,6 +131,7 @@ export default function QuickDriveModal({
       const data = await res.json()
       if (data.success) {
         localStorage.setItem('teg_supervisor_active_store', destinationName)
+        localStorage.setItem('teg_supervisor_active_store_date', getCaliforniaBusinessDate())
         setSuccessMessage(`¡Viaje guardado! (${data.distance_miles || ''} mi • $${data.total_reimbursement || ''} USD)`)
         if (onTripLogged) onTripLogged()
       } else {
@@ -147,7 +151,12 @@ export default function QuickDriveModal({
           navUrl = `https://www.google.com/maps/dir/?api=1&destination=${destCoords.lat},${destCoords.lng}&travelmode=driving&dir_action=navigate`
         }
 
-        window.open(navUrl, '_blank')
+        const isIOS = typeof navigator !== 'undefined' && /iPad|iPhone|iPod/.test(navigator.userAgent)
+        if (isIOS) {
+          window.location.href = navUrl
+        } else {
+          window.open(navUrl, '_blank')
+        }
       }
 
       setTimeout(() => {
