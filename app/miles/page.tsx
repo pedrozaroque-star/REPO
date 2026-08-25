@@ -27,6 +27,7 @@ import SurpriseLoader from '@/components/SurpriseLoader'
 import { useLanguage } from '@/lib/i18n'
 import TripModal from '@/components/miles/TripModal'
 import QuickDriveModal from '@/components/miles/QuickDriveModal'
+import DateRangeFilter from '@/components/sales/DateRangeFilter'
 import { getCaliforniaBusinessDate, getCaliforniaDate, getCaliforniaTime } from '@/lib/business-date'
 import { CANONICAL_STORE_COORDINATES, haversineDistanceMiles, normalizeStoreName } from '@/lib/store-coordinates'
 
@@ -110,6 +111,14 @@ function MilesIQContent() {
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [supervisorFilter, setSupervisorFilter] = useState<string>('all')
   const [searchTerm, setSearchTerm] = useState<string>('')
+  const [period, setPeriod] = useState<string>('month')
+  const [startDate, setStartDate] = useState<string>(() => {
+    const today = getCaliforniaBusinessDate()
+    return `${today.slice(0, 7)}-01`
+  })
+  const [endDate, setEndDate] = useState<string>(() => {
+    return getCaliforniaBusinessDate()
+  })
   const [dateRange, setDateRange] = useState<{ start: string; end: string }>(() => {
     const today = getCaliforniaBusinessDate()
     const firstDay = `${today.slice(0, 7)}-01`
@@ -545,12 +554,14 @@ function MilesIQContent() {
     setIsModalOpen(true)
   }
 
-  // Filtered trips list
+  // Filtered trips list (dynamically filtered by Supervisor, Status, Date Range, and Search Term)
   const filteredTrips = useMemo(() => {
     return trips.filter(t => {
       if (!isAdmin && !isOwnTrip(t)) return false
       if (supervisorFilter !== 'all' && t.supervisor_id !== supervisorFilter && t.supervisor_name !== supervisorFilter) return false
       if (statusFilter !== 'all' && t.status !== statusFilter) return false
+      if (startDate && t.trip_date < startDate) return false
+      if (endDate && t.trip_date > endDate) return false
       if (searchTerm) {
         const term = searchTerm.toLowerCase()
         const matchName = (t.supervisor_name || '').toLowerCase().includes(term)
@@ -561,30 +572,29 @@ function MilesIQContent() {
       }
       return true
     })
-  }, [trips, statusFilter, supervisorFilter, searchTerm, isAdmin, currentUser])
+  }, [trips, statusFilter, supervisorFilter, startDate, endDate, searchTerm, isAdmin, currentUser])
 
-  // Summary Metrics
+  // Summary Metrics (dynamically computed from active filtered trips)
   const metrics = useMemo(() => {
-    const userTrips = isAdmin ? trips : trips.filter(isOwnTrip)
-    const totalMiles = userTrips.reduce((s, t) => s + (Number(t.distance_miles) || 0), 0)
-    const totalReimbursement = userTrips.reduce((s, t) => {
+    const totalMiles = filteredTrips.reduce((s, t) => s + (Number(t.distance_miles) || 0), 0)
+    const totalReimbursement = filteredTrips.reduce((s, t) => {
       const m = Number(t.distance_miles) || 0
-      const r = Number(t.rate_per_mile) || 0.76
+      const r = Number(t.rate_per_mile) || currentRate
       const p = Number(t.parking_amount) || 0
       const to = Number(t.tolls_amount) || 0
       return s + (m * r) + p + to
     }, 0)
-    const pendingCount = userTrips.filter(t => t.status === 'pending').length
-    const hrCount = userTrips.filter(t => t.status === 'submitted_hr' || t.status === 'paid').length
+    const pendingCount = filteredTrips.filter(t => t.status === 'pending').length
+    const hrCount = filteredTrips.filter(t => t.status === 'submitted_hr' || t.status === 'paid').length
 
     return {
-      totalTrips: userTrips.length,
+      totalTrips: filteredTrips.length,
       totalMiles,
       totalReimbursement,
       pendingCount,
       hrCount
     }
-  }, [trips, isAdmin, currentUser])
+  }, [filteredTrips, currentRate])
 
   // Summaries per supervisor for HR dispatch tab (Filtered by selected date range)
   const supervisorSummaries = useMemo(() => {
@@ -919,7 +929,11 @@ function MilesIQContent() {
               {metrics.totalTrips}
             </div>
             <span className="text-[10px] sm:text-[11px] text-slate-400 truncate block">
-              {isAdmin ? t('miles.all_supervisors') : currentUser.name}
+              {isAdmin 
+                ? (supervisorFilter !== 'all' 
+                    ? (supervisorsList.find(s => String(s.id) === String(supervisorFilter) || s.name === supervisorFilter)?.name || supervisorFilter)
+                    : t('miles.all_supervisors')) 
+                : currentUser.name}
             </span>
           </div>
 
@@ -1019,9 +1033,10 @@ function MilesIQContent() {
         {activeTab === 'trips' && (
           <div className="space-y-4">
             {/* Filter Bar */}
-            <div className="bg-white dark:bg-slate-900 p-3 sm:p-4 rounded-xl border border-slate-200 dark:border-slate-800 flex flex-col md:flex-row gap-3 sm:gap-4 items-stretch md:items-center justify-between shadow-xs">
-              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 w-full md:w-auto">
-                <div className="relative w-full sm:w-64">
+            <div className="bg-white dark:bg-slate-900 p-3 sm:p-4 rounded-xl border border-slate-200 dark:border-slate-800 flex flex-col xl:flex-row gap-3 sm:gap-4 items-stretch xl:items-center justify-between shadow-xs">
+              <div className="flex flex-col md:flex-row items-stretch md:items-center gap-2.5 w-full xl:w-auto flex-wrap">
+                {/* Search Input */}
+                <div className="relative w-full md:w-56">
                   <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                   <input
                     type="text"
@@ -1032,11 +1047,27 @@ function MilesIQContent() {
                   />
                 </div>
 
-                <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center sm:gap-2 w-full sm:w-auto">
+                {/* Professional Date Range & Presets Filter (Sales Module Style) */}
+                <div className="w-full md:w-auto">
+                  <DateRangeFilter
+                    period={period}
+                    startDate={startDate}
+                    endDate={endDate}
+                    onChange={(p, s, e) => {
+                      setPeriod(p as string)
+                      setStartDate(s)
+                      setEndDate(e)
+                      setDateRange({ start: s, end: e })
+                    }}
+                    className="w-full md:w-auto"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center sm:gap-2 w-full md:w-auto">
                   <select
                     value={statusFilter}
                     onChange={e => setStatusFilter(e.target.value)}
-                    className="w-full px-2.5 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold truncate"
+                    className="w-full sm:w-auto px-2.5 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold truncate cursor-pointer"
                   >
                     <option value="all">{t('miles.all_statuses')}</option>
                     <option value="pending">{t('miles.status_pending')}</option>
@@ -1050,7 +1081,7 @@ function MilesIQContent() {
                     <select
                       value={supervisorFilter}
                       onChange={e => setSupervisorFilter(e.target.value)}
-                      className="w-full px-2.5 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold text-blue-600 dark:text-blue-400 truncate"
+                      className="w-full sm:w-auto px-2.5 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold text-blue-600 dark:text-blue-400 truncate cursor-pointer"
                     >
                       <option value="all">{t('miles.all_supervisors')}</option>
                       {supervisorsList
@@ -1069,7 +1100,7 @@ function MilesIQContent() {
                 </div>
               </div>
 
-              <div className="flex items-center justify-between sm:justify-end gap-2 text-xs text-slate-500 pt-1 md:pt-0 border-t md:border-t-0 border-slate-100 dark:border-slate-800">
+              <div className="flex items-center justify-between sm:justify-end gap-2 text-xs text-slate-500 pt-1 xl:pt-0 border-t xl:border-t-0 border-slate-100 dark:border-slate-800">
                 <span className="font-semibold text-slate-700 dark:text-slate-300">{filteredTrips.length} {t('miles.trips_found')}</span>
               </div>
             </div>
@@ -1500,30 +1531,22 @@ function MilesIQContent() {
               </div>
 
               {/* Date Period Filters */}
-              <div className="space-y-3">
+              <div className="space-y-2">
                 <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider">
                   {t('miles.payroll_period')}
                 </label>
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <span className="text-[10px] text-slate-400 block mb-1">{t('miles.from')}</span>
-                    <input
-                      type="date"
-                      value={dateRange.start}
-                      onChange={e => setDateRange(prev => ({ ...prev, start: e.target.value }))}
-                      className="w-full px-2.5 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-xs font-semibold"
-                    />
-                  </div>
-                  <div>
-                    <span className="text-[10px] text-slate-400 block mb-1">{t('miles.to')}</span>
-                    <input
-                      type="date"
-                      value={dateRange.end}
-                      onChange={e => setDateRange(prev => ({ ...prev, end: e.target.value }))}
-                      className="w-full px-2.5 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-xs font-semibold"
-                    />
-                  </div>
-                </div>
+                <DateRangeFilter
+                  period={period}
+                  startDate={startDate}
+                  endDate={endDate}
+                  onChange={(p, s, e) => {
+                    setPeriod(p as string)
+                    setStartDate(s)
+                    setEndDate(e)
+                    setDateRange({ start: s, end: e })
+                  }}
+                  className="w-full"
+                />
               </div>
 
               {/* Recurrent Recipient Email Selector */}
