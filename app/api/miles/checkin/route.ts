@@ -81,13 +81,15 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // If still no origin, look up last inspection destination today
+    // If still no origin, look up last inspection destination TODAY (strictly within current business date)
     if (!originName || originName === currentStore) {
+      const prevDay = new Date(new Date(targetDate).getTime() - 24 * 60 * 60 * 1000).toISOString().split('T')[0]
       let lastInspQuery = supabase
         .from('supervisor_inspections')
-        .select('store_id, created_at')
+        .select('store_id, inspection_date, created_at')
+        .gte('created_at', `${prevDay}T00:00:00.000Z`)
         .order('created_at', { ascending: false })
-        .limit(2)
+        .limit(10)
 
       if (supervisor_name) {
         lastInspQuery = lastInspQuery.ilike('supervisor_name', `%${supervisor_name}%`)
@@ -95,18 +97,26 @@ export async function POST(req: NextRequest) {
 
       const { data: lastInsps } = await lastInspQuery
       if (lastInsps && lastInsps.length > 0) {
-        // Fetch stores mapping
-        const { data: allStores } = await supabase.from('stores').select('id, name')
-        const storeMap: Record<string, string> = {}
-        allStores?.forEach(s => {
-          storeMap[String(s.id)] = normalizeStoreName(s.name)
+        // Filter strictly for today's business date
+        const todayInsps = lastInsps.filter(insp => {
+          const bDate = getCaliforniaBusinessDate(insp.created_at || insp.inspection_date)
+          return bDate === targetDate
         })
 
-        for (const insp of lastInsps) {
-          const inspStoreName = storeMap[String(insp.store_id)]
-          if (inspStoreName && inspStoreName !== currentStore) {
-            originName = inspStoreName
-            break
+        if (todayInsps.length > 0) {
+          // Fetch stores mapping
+          const { data: allStores } = await supabase.from('stores').select('id, name')
+          const storeMap: Record<string, string> = {}
+          allStores?.forEach(s => {
+            storeMap[String(s.id)] = normalizeStoreName(s.name)
+          })
+
+          for (const insp of todayInsps) {
+            const inspStoreName = storeMap[String(insp.store_id)]
+            if (inspStoreName && inspStoreName !== currentStore) {
+              originName = inspStoreName
+              break
+            }
           }
         }
       }

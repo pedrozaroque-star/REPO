@@ -96,13 +96,15 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // If no prior trip, check previous inspection today
+      // If no prior trip today, check previous inspection TODAY (strictly within current business date)
       if (!previousStoreName) {
+        const prevDay = new Date(new Date(targetDate).getTime() - 24 * 60 * 60 * 1000).toISOString().split('T')[0]
         let prevInspQuery = supabase
           .from('supervisor_inspections')
-          .select('store_id, created_at')
+          .select('store_id, inspection_date, created_at')
+          .gte('created_at', `${prevDay}T00:00:00.000Z`)
           .order('created_at', { ascending: false })
-          .limit(2)
+          .limit(10)
 
         if (supervisorName) {
           prevInspQuery = prevInspQuery.ilike('supervisor_name', `%${supervisorName}%`)
@@ -110,7 +112,13 @@ export async function POST(req: NextRequest) {
 
         const { data: prevInsps } = await prevInspQuery
         if (prevInsps) {
-          for (const insp of prevInsps) {
+          // Strictly filter for inspections on TODAY's California business date
+          const todayInsps = prevInsps.filter(insp => {
+            const bDate = getCaliforniaBusinessDate(insp.created_at || insp.inspection_date)
+            return bDate === targetDate
+          })
+
+          for (const insp of todayInsps) {
             const name = storeMap[String(insp.store_id)]
             if (name && name !== destinationName) {
               previousStoreName = name
@@ -118,6 +126,17 @@ export async function POST(req: NextRequest) {
             }
           }
         }
+      }
+
+      // Regla de Negocio e IRS: Si no hay tienda previa HOY, esta es la 1ª parada del día (viene de casa).
+      // El trayecto Casa → Tienda 1 es traslado personal (commuting) no reembolsable.
+      if (!previousStoreName || previousStoreName === destinationName) {
+        return NextResponse.json({
+          success: true,
+          created: 0,
+          is_first_stop: true,
+          message: `Primera inspección del día en ${destinationName}. Sin viaje previo entre tiendas (traslado desde casa).`
+        })
       }
 
       // If we found an origin different from destination, log the trip
