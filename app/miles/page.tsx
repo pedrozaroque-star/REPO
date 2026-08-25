@@ -1180,8 +1180,15 @@ function MilesIQContent() {
 
                         return (
                           <tr key={trip.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
-                            <td className="py-3.5 px-4 font-semibold text-slate-900 dark:text-white whitespace-nowrap">
-                              {trip.trip_date} {trip.start_time && <span className="text-[11px] text-slate-400 font-normal">({trip.start_time})</span>}
+                            <td className="py-3.5 px-4 whitespace-nowrap">
+                              <div className="font-bold text-slate-900 dark:text-white text-xs">
+                                {trip.trip_date}
+                              </div>
+                              {trip.start_time && (
+                                <div className="text-[11px] text-slate-400 font-medium mt-0.5">
+                                  {trip.start_time}
+                                </div>
+                              )}
                             </td>
                             <td className="py-3.5 px-4 font-medium text-slate-700 dark:text-slate-300">
                               {trip.supervisor_name}
@@ -1331,9 +1338,9 @@ function MilesIQContent() {
                     <div key={trip.id} className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-4 shadow-sm space-y-2.5">
                       {/* Top Row: Date + Status + Actions */}
                       <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-bold text-slate-900 dark:text-white">{trip.trip_date}</span>
-                          {trip.start_time && <span className="text-[10px] text-slate-400">({trip.start_time})</span>}
+                        <div>
+                          <div className="text-xs font-bold text-slate-900 dark:text-white">{trip.trip_date}</div>
+                          {trip.start_time && <div className="text-[10px] text-slate-400 font-medium">{trip.start_time}</div>}
                         </div>
                         <div className="flex items-center gap-1">
                           {trip.status === 'submitted_hr' && (
