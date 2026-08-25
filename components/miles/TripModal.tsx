@@ -992,15 +992,17 @@ export default function TripModal({
                 {t('common.cancel')}
               </button>
 
-              <button
-                type="button"
-                disabled={saving}
-                onClick={handleSaveAndNavigate}
-                className="px-4 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-xl text-xs sm:text-sm font-bold shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-1.5 transition-all disabled:opacity-50"
-              >
-                {saving ? <RotateCw size={15} className="animate-spin" /> : <Navigation size={15} />}
-                <span>{t('miles.save_and_navigate')}</span>
-              </button>
+              {!editingTrip && (
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={handleSaveAndNavigate}
+                  className="px-4 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-xl text-xs sm:text-sm font-bold shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-1.5 transition-all disabled:opacity-50"
+                >
+                  {saving ? <RotateCw size={15} className="animate-spin" /> : <Navigation size={15} />}
+                  <span>{t('miles.save_and_navigate')}</span>
+                </button>
+              )}
 
               <button
                 type="submit"
