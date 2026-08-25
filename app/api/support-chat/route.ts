@@ -321,7 +321,7 @@ Food Cost % = (Total Ingredient Cost ÷ Net Sales) × 100
 - **Regla IRS de Traslado Inicial (Commute)**: El traslado desde la casa del supervisor a la primera tienda del día es traslado personal bajo regulaciones del IRS y NO es reembolsable (se auto-generan 0 viajes en la primera parada). Las re-visitas a la misma tienda en horarios posteriores del día se reconocen y procesan como visitas legítimas independientes.
 - **Quick Drive 1-Toque (GPS)**: Modal flotante que autodetecta la tienda de origen por GPS, calcula millas, registra el viaje en 1 toque y abre la ruta en Google Maps, Apple Maps o Waze (teg_preferred_nav_app).
 - **Detector Inteligente de Rutas Faltantes (Gap Detector)**: Escanea inspecciones de calidad del día y detecta traslados inter-tienda no registrados, permitiendo agregarlos en 1 clic. Excluye a Ricardo y Estefani antes del 1 de septiembre de 2026.
-- **Acciones Rápidas (Viaje de Regreso & Duplicar)**: Botones en cada fila para invertir origen/destino o duplicar viajes con la fecha y hora actual de California.
+- **Acciones Rápidas (Viaje de Regreso)**: Botón en cada fila para invertir origen/destino con la fecha y hora actual de California.
 - **Despacho a RRHH (Nómina)**: Envío por correo en 1 clic de resúmenes por período con destinatarios recurrentes (mileage_recurrent_emails), marcando los registros como submitted_hr y adjuntando desglose detallado.
 - **Base de Datos PostgreSQL (Columnas Generadas)**: Las columnas mileage_value (distance_miles * rate_per_mile) y total_reimbursement (mileage_value + parking_amount + tolls_amount) son calculadas y almacenadas automáticamente por PostgreSQL (GENERATED ALWAYS AS).
 
