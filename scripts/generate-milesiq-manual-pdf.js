@@ -1,0 +1,628 @@
+const puppeteer = require('puppeteer');
+const fs = require('fs');
+const path = require('path');
+
+const htmlContent = `<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Manual de Operaciones MilesIQ — Tacos Gavilan</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Plus+Jakarta+Sans:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+    <style>
+        @page {
+            size: Letter;
+            margin: 0.35in 0.45in 0.35in 0.45in;
+        }
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+        }
+        body {
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            color: #1e293b;
+            background-color: #ffffff;
+            line-height: 1.45;
+            font-size: 12px;
+        }
+        .page {
+            page-break-after: always;
+            position: relative;
+            padding-bottom: 10px;
+        }
+        .page:last-child {
+            page-break-after: avoid;
+        }
+        
+        /* Typography */
+        h1, h2, h3, h4 {
+            font-family: 'Plus Jakarta Sans', 'Inter', sans-serif;
+            font-weight: 800;
+            color: #0f172a;
+            letter-spacing: -0.02em;
+        }
+        
+        /* Header / Brand */
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 2px solid #e2e8f0;
+            padding-bottom: 10px;
+            margin-bottom: 16px;
+        }
+        .brand-logo {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .brand-badge {
+            background: linear-gradient(135deg, #ea580c, #c2410c);
+            color: white;
+            padding: 6px 12px;
+            border-radius: 8px;
+            font-weight: 900;
+            font-size: 15px;
+            letter-spacing: 0.5px;
+            box-shadow: 0 4px 10px rgba(234, 88, 12, 0.25);
+        }
+        .brand-text h1 {
+            font-size: 17px;
+            color: #0f172a;
+            line-height: 1.1;
+        }
+        .brand-text p {
+            font-size: 11px;
+            color: #64748b;
+            font-weight: 600;
+        }
+        .doc-meta {
+            text-align: right;
+            font-size: 11px;
+            color: #64748b;
+        }
+        .doc-meta strong {
+            color: #0f172a;
+            font-weight: 700;
+        }
+        .rate-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: #ecfdf5;
+            border: 1.5px solid #a7f3d0;
+            color: #047857;
+            padding: 2px 8px;
+            border-radius: 9999px;
+            font-weight: 800;
+            font-size: 11px;
+            margin-top: 3px;
+        }
+
+        /* Banner Hero */
+        .hero {
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+            color: white;
+            border-radius: 12px;
+            padding: 16px 20px;
+            margin-bottom: 16px;
+            box-shadow: 0 6px 18px rgba(15, 23, 42, 0.12);
+        }
+        .hero h2 {
+            color: #ffffff;
+            font-size: 18px;
+            margin-bottom: 4px;
+        }
+        .hero p {
+            color: #cbd5e1;
+            font-size: 11.5px;
+            max-width: 95%;
+            line-height: 1.4;
+        }
+        .hero-stats {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 10px;
+            margin-top: 12px;
+            padding-top: 12px;
+            border-top: 1px solid rgba(255, 255, 255, 0.12);
+        }
+        .hero-stat-card {
+            background: rgba(255, 255, 255, 0.07);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            padding: 8px;
+            border-radius: 8px;
+            text-align: center;
+        }
+        .hero-stat-num {
+            font-size: 15px;
+            font-weight: 900;
+            color: #38bdf8;
+            font-family: 'Plus Jakarta Sans', sans-serif;
+        }
+        .hero-stat-num.green { color: #34d399; }
+        .hero-stat-num.orange { color: #fb923c; }
+        .hero-stat-lbl {
+            font-size: 9.5px;
+            color: #94a3b8;
+            text-transform: uppercase;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+            margin-top: 2px;
+        }
+
+        /* Section Layout */
+        .section-title {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 14px;
+            color: #0f172a;
+            border-bottom: 2px solid #f1f5f9;
+            padding-bottom: 6px;
+            margin-top: 14px;
+            margin-bottom: 10px;
+        }
+        .section-title .icon-badge {
+            background: #eff6ff;
+            color: #2563eb;
+            width: 24px;
+            height: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 800;
+        }
+
+        /* Cards Grid */
+        .grid-3 {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+            margin-bottom: 12px;
+        }
+        .grid-2 {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+            margin-bottom: 12px;
+        }
+        .method-card {
+            background: #ffffff;
+            border: 1.5px solid #e2e8f0;
+            border-radius: 10px;
+            padding: 12px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.02);
+        }
+        .method-card.highlight {
+            border-color: #3b82f6;
+            background: #f8fafc;
+            box-shadow: 0 4px 10px rgba(59, 130, 246, 0.07);
+        }
+        .method-badge {
+            display: inline-block;
+            font-size: 9px;
+            font-weight: 800;
+            text-transform: uppercase;
+            padding: 2px 6px;
+            border-radius: 4px;
+            margin-bottom: 6px;
+        }
+        .badge-auto { background: #dcfce7; color: #15803d; border: 1px solid #86efac; }
+        .badge-quick { background: #e0f2fe; color: #0369a1; border: 1px solid #7dd3fc; }
+        .badge-manual { background: #fef3c7; color: #b45309; border: 1px solid #fde68a; }
+        
+        .method-card h4 {
+            font-size: 12px;
+            color: #0f172a;
+            margin-bottom: 4px;
+        }
+        .method-card p {
+            font-size: 10.5px;
+            color: #475569;
+            line-height: 1.4;
+        }
+
+        /* Callout Box */
+        .callout {
+            background: #fff7ed;
+            border-left: 4px solid #ea580c;
+            border-radius: 8px;
+            padding: 10px 14px;
+            margin: 10px 0;
+        }
+        .callout.info {
+            background: #eff6ff;
+            border-left-color: #2563eb;
+        }
+        .callout.success {
+            background: #f0fdf4;
+            border-left-color: #16a34a;
+        }
+        .callout h5 {
+            font-size: 11.5px;
+            font-weight: 800;
+            color: #9a3412;
+            margin-bottom: 2px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .callout.info h5 { color: #1e40af; }
+        .callout.success h5 { color: #166534; }
+        .callout p {
+            font-size: 11px;
+            color: #431407;
+            line-height: 1.35;
+        }
+        .callout.info p { color: #1e3a8a; }
+        .callout.success p { color: #14532d; }
+
+        /* Step List */
+        .step-list {
+            margin: 8px 0;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+        .step-item {
+            display: flex;
+            gap: 8px;
+            align-items: flex-start;
+        }
+        .step-num {
+            background: #0f172a;
+            color: white;
+            font-size: 10px;
+            font-weight: 800;
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            margin-top: 1px;
+        }
+        .step-text {
+            font-size: 11px;
+            color: #334155;
+            line-height: 1.4;
+        }
+        .step-text strong {
+            color: #0f172a;
+        }
+
+        /* Table */
+        .guide-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 10px 0;
+            font-size: 11px;
+        }
+        .guide-table th {
+            background: #f8fafc;
+            color: #475569;
+            font-weight: 800;
+            text-align: left;
+            padding: 6px 8px;
+            border-bottom: 2px solid #e2e8f0;
+            text-transform: uppercase;
+            font-size: 9.5px;
+            letter-spacing: 0.5px;
+        }
+        .guide-table td {
+            padding: 6px 8px;
+            border-bottom: 1px solid #f1f5f9;
+            color: #334155;
+            vertical-align: middle;
+        }
+        .guide-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        /* Action Buttons Showcase */
+        .action-demo {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 3px 6px;
+            border-radius: 5px;
+            font-size: 10.5px;
+            font-weight: 700;
+        }
+        .action-edit {
+            background: #eff6ff;
+            color: #2563eb;
+            border: 1px solid #bfdbfe;
+        }
+        .action-delete {
+            background: #fef2f2;
+            color: #dc2626;
+            border: 1px solid #fecaca;
+        }
+
+        /* Footer */
+        .page-footer {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-top: 1px solid #e2e8f0;
+            padding-top: 8px;
+            margin-top: 14px;
+            font-size: 9.5px;
+            color: #94a3b8;
+            font-weight: 600;
+        }
+        .page-footer strong {
+            color: #64748b;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- ==================== PÁGINA 1 ==================== -->
+    <div class="page">
+        <!-- Header -->
+        <div class="header">
+            <div class="brand-logo">
+                <div class="brand-badge">TG</div>
+                <div class="brand-text">
+                    <h1>TACOS GAVILAN</h1>
+                    <p>Sistema Operativo Digital • Módulo MilesIQ</p>
+                </div>
+            </div>
+            <div class="doc-meta">
+                <div><strong>Manual Oficial para Supervisores</strong></div>
+                <div>Versión 2.4 • Agosto 2026</div>
+                <div class="rate-pill">💵 Tarifa Oficial IRS: $0.760 / Milla</div>
+            </div>
+        </div>
+
+        <!-- Hero Card -->
+        <div class="hero">
+            <h2>🚗 Guía Práctica de MilesIQ para Supervisores de Zona</h2>
+            <p>MilesIQ es tu herramienta digital para respaldar automáticamente todos tus recorridos entre sucursales durante tus jornadas de supervisión y enviarlos a Nómina para tu reembolso de millas con exactitud matemática.</p>
+            
+            <div class="hero-stats">
+                <div class="hero-stat-card">
+                    <div class="hero-stat-num">$0.760</div>
+                    <div class="hero-stat-lbl">Por Milla Recorrida</div>
+                </div>
+                <div class="hero-stat-card">
+                    <div class="hero-stat-num green">100% Auto</div>
+                    <div class="hero-stat-lbl">Con tus Auditorías</div>
+                </div>
+                <div class="hero-stat-card">
+                    <div class="hero-stat-num orange">15 Tiendas</div>
+                    <div class="hero-stat-lbl">+ Bodega y Central</div>
+                </div>
+                <div class="hero-stat-card">
+                    <div class="hero-stat-num">1-Toque</div>
+                    <div class="hero-stat-lbl">Despacho a RRHH</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Sección 1: ¿Cómo se registran tus viajes? -->
+        <div class="section-title">
+            <div class="icon-badge">1</div>
+            <h3>Las 3 Formas de Registrar tus Recorridos</h3>
+        </div>
+
+        <div class="grid-3">
+            <div class="method-card highlight">
+                <span class="method-badge badge-auto">✨ Modo Automático (Recomendado)</span>
+                <h4>Al Guardar tus Inspecciones</h4>
+                <p>No tienes que hacer nada extra. Cuando realizas tu auditoría de calidad en una tienda y le das <strong>"Guardar Inspección"</strong>, el sistema detecta de qué tienda venías y te calcula el viaje automáticamente en segundo plano.</p>
+            </div>
+
+            <div class="method-card">
+                <span class="method-badge badge-quick">🚗 1-Toque al Subir al Auto</span>
+                <h4>Botón "Ir a Tienda" (Quick Drive)</h4>
+                <p>Al salir hacia tu siguiente sucursal, toca el botón verde <strong>"🚗 Ir a Tienda"</strong>. Elige tu destino: el sistema registra el viaje y de inmediato abre <strong>Google Maps, Waze o Apple Maps</strong> para guiarte en el tráfico.</p>
+            </div>
+
+            <div class="method-card">
+                <span class="method-badge badge-manual">📝 Registro Manual</span>
+                <h4>Botón "+ Registrar Viaje"</h4>
+                <p>Para registrar viajes que no fueron entre tiendas habituales (por ejemplo compras en <strong>Home Depot, Costco, Banco, Clínica o Trámites</strong>) o para capturar un viaje pasado que olvidaste registrar.</p>
+            </div>
+        </div>
+
+        <!-- Sección 2: Regla Fiscal Importante -->
+        <div class="section-title">
+            <div class="icon-badge">2</div>
+            <h3>Regla Fiscal del IRS: Tu Primer Traslado del Día</h3>
+        </div>
+
+        <div class="callout">
+            <h5>⚠️ Regla de Traslado Personal (Commute de Casa a la Tienda #1)</h5>
+            <p>Bajo las regulaciones fiscales del IRS y las políticas de Tacos Gavilan, el traslado desde tu hogar hasta la primera sucursal que visitas en la mañana es un <strong>traslado personal de ida al trabajo (Commuting)</strong> y por ley no genera reembolso de millas. A partir de que llegas a tu primera tienda, <strong>el 100% de tus traslados entre sucursales a lo largo del día sí son totalmente reembolsables</strong>.</p>
+        </div>
+
+        <div class="callout success">
+            <h5>🎯 Re-visitas en la Misma Tienda (Múltiples Paradas)</h5>
+            <p>Si visitas una tienda por la mañana (ej. Lynwood a las 8:00 AM), luego vas a South Gate a las 11:00 AM y por la tarde regresas a Lynwood a las 4:00 PM para dar seguimiento, <strong>el sistema reconoce cada traslado por separado y te reembolsa ambos viajes</strong> sin descartarlos.</p>
+        </div>
+
+        <!-- Footer Página 1 -->
+        <div class="page-footer">
+            <div><strong>Tacos Gavilan</strong> • Manual de Operaciones MilesIQ</div>
+            <div>Página 1 de 2</div>
+        </div>
+    </div>
+
+    <!-- ==================== PÁGINA 2 ==================== -->
+    <div class="page">
+        <!-- Header Página 2 -->
+        <div class="header">
+            <div class="brand-logo">
+                <div class="brand-badge">TG</div>
+                <div class="brand-text">
+                    <h1>MANUAL OPERATIVO MILESIQ</h1>
+                    <p>Gestión de Viajes, Filtros y Despacho a Nómina / RRHH</p>
+                </div>
+            </div>
+            <div class="doc-meta">
+                <div><strong>Tacos Gavilan</strong> • Supervisión</div>
+                <div>Horario Operativo: <strong>6:00 AM a 5:59 AM</strong></div>
+            </div>
+        </div>
+
+        <!-- Sección 3: El Tablero Principal y las Tarjetas -->
+        <div class="section-title">
+            <div class="icon-badge">3</div>
+            <h3>Tus 4 Tarjetas de Control Financiero (KPIs)</h3>
+        </div>
+
+        <p style="font-size: 11px; color: #475569; margin-bottom: 8px;">
+            En la parte superior de tu pantalla siempre tienes a la vista tus acumulados en tiempo real. Al cambiar el selector de fechas, estas tarjetas se recalculan instantáneamente:
+        </p>
+
+        <table class="guide-table">
+            <thead>
+                <tr>
+                    <th style="width: 25%;">Tarjeta</th>
+                    <th style="width: 25%;">Qué Muestra</th>
+                    <th>¿Para Qué Sirve?</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>🚗 Viajes Registrados</strong></td>
+                    <td>Número de recorridos</td>
+                    <td>Ver cuántos traslados has completado en el día, semana o mes seleccionado.</td>
+                </tr>
+                <tr>
+                    <td><strong>🛣️ Millas Totales</strong></td>
+                    <td>Suma en millas (ej. 45.20 mi)</td>
+                    <td>La distancia acumulada calculada con la ruta oficial y factor de tráfico de LA (1.33x).</td>
+                </tr>
+                <tr>
+                    <td><strong>💵 Reembolso Acumulado</strong></td>
+                    <td>Total en dólares ($ USD)</td>
+                    <td>El dinero exacto que se te pagará ($0.760 por milla + casetas o estacionamientos si hubo).</td>
+                </tr>
+                <tr>
+                    <td><strong>📤 Enviados a RRHH</strong></td>
+                    <td>Viajes ya despachados</td>
+                    <td>Control de cuáles viajes ya fueron enviados al departamento de nómina.</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <!-- Sección 4: Acciones Limpias en la Tabla -->
+        <div class="section-title">
+            <div class="icon-badge">4</div>
+            <h3>Acciones Rápidas en Cada Fila de tu Historial</h3>
+        </div>
+
+        <p style="font-size: 11px; color: #475569; margin-bottom: 6px;">
+            Para mantener tu pantalla despejada y sin botones innecesarios, cada fila de viaje cuenta exclusivamente con dos opciones:
+        </p>
+
+        <div class="grid-2">
+            <div class="method-card">
+                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
+                    <span class="action-demo action-edit">✏️ Editar</span>
+                    <strong style="font-size: 12px; color: #0f172a;">Modificar Viaje</strong>
+                </div>
+                <p>Toca este botón si necesitas corregir la hora de salida, agregar notas explicativas o registrar gastos extra como <strong>estacionamiento o casetas de peaje</strong>.</p>
+            </div>
+
+            <div class="method-card">
+                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
+                    <span class="action-demo action-delete">🗑️ Eliminar</span>
+                    <strong style="font-size: 12px; color: #0f172a;">Borrar Viaje</strong>
+                </div>
+                <p>Toca este botón para eliminar un registro si lo creaste por equivocación o fue una prueba. Te pedirá confirmación antes de borrar.</p>
+            </div>
+        </div>
+
+        <!-- Sección 5: Cómo Enviar tu Reporte a Nómina / RRHH -->
+        <div class="section-title">
+            <div class="icon-badge">5</div>
+            <h3>Cómo Despachar tu Reporte a Recursos Humanos</h3>
+        </div>
+
+        <div class="step-list">
+            <div class="step-item">
+                <div class="step-num">1</div>
+                <div class="step-text">Entra a la pestaña <strong>"Despacho a RRHH"</strong> en la parte superior de MilesIQ.</div>
+            </div>
+            <div class="step-item">
+                <div class="step-num">2</div>
+                <div class="step-text">Selecciona el período que deseas enviar (por ejemplo, <em>"Esta Semana"</em> o <em>"Esta Quincena"</em>).</div>
+            </div>
+            <div class="step-item">
+                <div class="step-num">3</div>
+                <div class="step-text">Revisa el resumen en pantalla con el total de millas y el monto a reembolsar.</div>
+            </div>
+            <div class="step-item">
+                <div class="step-num">4</div>
+                <div class="step-text">Presiona el botón azul <strong>"Enviar Reporte a RRHH"</strong>. El sistema enviará un correo corporativo formal a nómina con todo el desglose y marcará tus viajes como <em>"Enviado a RRHH"</em>.</div>
+            </div>
+        </div>
+
+        <!-- Callout Detector de Rutas Faltantes -->
+        <div class="callout info" style="margin-top: 10px;">
+            <h5>💡 Detector Inteligente de Rutas Faltantes (Gap Detector)</h5>
+            <p>Si durante el día hiciste visitas pero olvidaste registrar el traslado, al entrar a MilesIQ verás una tarjeta azul con el mensaje: <em>"Detectamos un recorrido de Tienda A a Tienda B que no está en tu registro"</em>. Con solo tocar <strong>"+ Agregar al Registro"</strong>, el viaje queda guardado al instante.</p>
+        </div>
+
+        <!-- Footer Página 2 -->
+        <div class="page-footer">
+            <div><strong>Tacos Gavilan</strong> • Soporte Operativo y Nómina</div>
+            <div>Página 2 de 2</div>
+        </div>
+    </div>
+
+</body>
+</html>`;
+
+(async () => {
+    console.log('🚀 Generando Manual de MilesIQ en PDF...');
+    
+    // Save HTML
+    const htmlPath = path.resolve(__dirname, '../public/manual_milesiq_supervisores.html');
+    fs.writeFileSync(htmlPath, htmlContent, 'utf-8');
+    console.log('✅ HTML guardado en:', htmlPath);
+
+    // Launch Puppeteer
+    const browser = await puppeteer.launch({
+        headless: 'new',
+        args: ['--no-sandbox', '--disable-setuid-sandbox']
+    });
+
+    const page = await browser.newPage();
+    await page.setViewport({ width: 1280, height: 1800 });
+
+    await page.goto(`file:///${htmlPath.replace(/\\/g, '/')}`, { waitUntil: 'networkidle0', timeout: 30000 });
+    await page.evaluate(() => document.fonts.ready);
+
+    const pdfPath = path.resolve('c:/Users/pedro/Desktop/Manual_MilesIQ_Supervisores_TEG.pdf');
+
+    await page.pdf({
+        path: pdfPath,
+        format: 'Letter',
+        printBackground: true,
+        scale: 0.95,
+        margin: {
+            top: '0.3in',
+            right: '0.35in',
+            bottom: '0.3in',
+            left: '0.35in'
+        }
+    });
+
+    await browser.close();
+    console.log('🎉 Manual PDF para Supervisores compilado con éxito en el Escritorio: ' + pdfPath);
+})();
