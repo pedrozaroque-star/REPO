@@ -122,15 +122,20 @@ export async function POST(req: NextRequest) {
 
       // If we found an origin different from destination, log the trip
       if (previousStoreName && previousStoreName !== destinationName) {
-        // Check if created within last 20 mins for this supervisor
-        const twentyMinsAgo = new Date(Date.now() - 20 * 60 * 1000).toISOString()
+        // Regla: Ricardo Velazquez y Estefani Duran inician el 1 de Septiembre 2026
+        if (targetDate < '2026-09-01' && /estefani|ricardo/i.test(supervisorName || '')) {
+          return NextResponse.json({
+            success: true,
+            created: 0,
+            message: `Supervisor ${supervisorName} inicia registro de millas el 1 de Septiembre 2026.`
+          })
+        }
+
+        // Check if ANY trip between previousStoreName and destinationName ALREADY exists today for this supervisor
         let dupQuery = supabase
           .from('supervisor_mileage_trips')
-          .select('id')
+          .select('id, origin_name, destination_name, start_time')
           .eq('trip_date', targetDate)
-          .eq('origin_name', previousStoreName)
-          .eq('destination_name', destinationName)
-          .gte('created_at', twentyMinsAgo)
 
         if (supervisorId) {
           dupQuery = dupQuery.eq('supervisor_id', supervisorId)
@@ -138,9 +143,26 @@ export async function POST(req: NextRequest) {
           dupQuery = dupQuery.ilike('supervisor_name', `%${supervisorName}%`)
         }
 
-        const { data: dup } = await dupQuery.limit(1)
+        const { data: existingSupervisorTrips } = await dupQuery
 
-        if (!dup || dup.length === 0) {
+        // 1. Direct trip check: Did the supervisor already log this trip today?
+        const alreadyLoggedDirect = (existingSupervisorTrips || []).some(t => {
+          const normOrig = (t.origin_name || '').toLowerCase()
+          const normDest = (t.destination_name || '').toLowerCase()
+          const checkOrig = previousStoreName.toLowerCase()
+          const checkDest = destinationName.toLowerCase()
+          return (normOrig.includes(checkOrig) || checkOrig.includes(normOrig)) &&
+                 (normDest.includes(checkDest) || checkDest.includes(normDest))
+        })
+
+        // 2. Arrival check: Did the supervisor already log a trip that ARRIVED at destinationName today?
+        const alreadyArrivedAtDest = (existingSupervisorTrips || []).some(t => {
+          const normDest = (t.destination_name || '').toLowerCase()
+          const checkDest = destinationName.toLowerCase()
+          return normDest.includes(checkDest) || checkDest.includes(normDest)
+        })
+
+        if (!alreadyLoggedDirect && !alreadyArrivedAtDest) {
           const dist = getDistance(previousStoreName, destinationName)
           const nowLa = new Date()
           const startTime = nowLa.toLocaleTimeString('en-US', {
