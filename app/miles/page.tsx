@@ -20,7 +20,7 @@ import {
   Car, Plus, MapPin, Calendar, DollarSign, Send, CheckCircle2,
   Clock, AlertCircle, Download, RefreshCw, Settings, Search,
   Filter, RotateCw, Trash2, Edit3, ShieldCheck, Mail, Users, FileSpreadsheet, Check,
-  Navigation, Sparkles, RotateCcw
+  Navigation, Sparkles
 } from 'lucide-react'
 import ProtectedRoute, { useAuth } from '@/components/ProtectedRoute'
 import SurpriseLoader from '@/components/SurpriseLoader'
@@ -525,34 +525,6 @@ function MilesIQContent() {
     if (t.supervisor_name && currentUser.name && t.supervisor_name.toLowerCase() === currentUser.name.toLowerCase()) return true
     return false
   }, [currentUser])
-
-  // Return Trip Handler (creates a new trip inverting origin and destination)
-  const handleReturnTrip = (trip: TripRecord) => {
-    setEditingTrip({
-      id: '',
-      supervisor_id: trip.supervisor_id,
-      supervisor_name: trip.supervisor_name,
-      supervisor_email: trip.supervisor_email,
-      trip_date: getCaliforniaBusinessDate(),
-      start_time: getCaliforniaTime(),
-      origin_type: trip.destination_type || 'store',
-      origin_name: trip.destination_name,
-      destination_type: trip.origin_type || 'store',
-      destination_name: trip.origin_name,
-      is_round_trip: false,
-      purpose: trip.purpose || 'Business',
-      purpose_notes: `Retorno de ${trip.destination_name} a ${trip.origin_name}`,
-      distance_miles: trip.distance_miles,
-      rate_per_mile: currentRate,
-      mileage_value: parseFloat((trip.distance_miles * currentRate).toFixed(2)),
-      parking_amount: 0,
-      tolls_amount: 0,
-      total_reimbursement: parseFloat((trip.distance_miles * currentRate).toFixed(2)),
-      status: 'pending',
-      created_at: new Date().toISOString()
-    })
-    setIsModalOpen(true)
-  }
 
   // Filtered trips list (dynamically filtered by Supervisor, Status, Date Range, and Search Term)
   const filteredTrips = useMemo(() => {
@@ -1273,14 +1245,7 @@ function MilesIQContent() {
                               )}
                             </td>
                             <td className="py-3.5 px-4 text-right whitespace-nowrap">
-                              <div className="flex items-center justify-end gap-1">
-                                <button
-                                  onClick={() => handleReturnTrip(trip)}
-                                  title={t('miles.return_trip_btn')}
-                                  className="p-1.5 text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-950/40 rounded-lg transition-colors"
-                                >
-                                  <RotateCcw size={16} />
-                                </button>
+                              <div className="flex items-center justify-end gap-1.5">
                                 {(trip.status === 'pending' || isAdmin) && (
                                   <button
                                     onClick={() => handleOpenEditModal(trip)}
@@ -1288,15 +1253,6 @@ function MilesIQContent() {
                                     className="p-1.5 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 rounded-lg transition-colors"
                                   >
                                     <Edit3 size={16} />
-                                  </button>
-                                )}
-                                {isAdmin && trip.status === 'pending' && (
-                                  <button
-                                    onClick={() => handleUpdateStatus(trip.id, 'approved')}
-                                    title={t('miles.approve_trip')}
-                                    className="p-1.5 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 rounded-lg transition-colors"
-                                  >
-                                    <CheckCircle2 size={16} />
                                   </button>
                                 )}
                                 {(trip.status === 'pending' || isAdmin) && (
@@ -1432,13 +1388,6 @@ function MilesIQContent() {
 
                         {/* Action Buttons */}
                         <div className="flex items-center gap-1.5">
-                          <button
-                            onClick={() => handleReturnTrip(trip)}
-                            title={t('miles.return_trip_btn')}
-                            className="w-8 h-8 flex items-center justify-center text-purple-600 bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/50 dark:hover:bg-purple-900/50 rounded-lg transition-colors border border-purple-200 dark:border-purple-800"
-                          >
-                            <RotateCcw size={15} />
-                          </button>
                           {(trip.status === 'pending' || isAdmin) && (
                             <button
                               onClick={() => handleOpenEditModal(trip)}
@@ -1446,15 +1395,6 @@ function MilesIQContent() {
                               className="w-8 h-8 flex items-center justify-center text-blue-600 bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/50 dark:hover:bg-blue-900/50 rounded-lg transition-colors border border-blue-200 dark:border-blue-800"
                             >
                               <Edit3 size={15} />
-                            </button>
-                          )}
-                          {isAdmin && trip.status === 'pending' && (
-                            <button
-                              onClick={() => handleUpdateStatus(trip.id, 'approved')}
-                              title={t('miles.approve_trip')}
-                              className="w-8 h-8 flex items-center justify-center text-emerald-600 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/50 dark:hover:bg-emerald-900/50 rounded-lg transition-colors border border-emerald-200 dark:border-emerald-800"
-                            >
-                              <CheckCircle2 size={15} />
                             </button>
                           )}
                           {(trip.status === 'pending' || isAdmin) && (

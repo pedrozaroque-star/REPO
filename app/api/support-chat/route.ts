@@ -172,7 +172,6 @@ MODULES OVERVIEW & BUSINESS RULES:
     * **Auto-Sincronización Inmediata en Inspecciones**: Al guardar una inspección de calidad en InspectionForm, el sistema auto-genera el viaje desde la tienda previa a la tienda inspeccionada.
     * **Soporte de Re-visitas y Múltiples Paradas**: El motor cronológico en /api/miles/sync-inspections permite visitas repetidas a una misma tienda en horarios distintos (ej. regreso por la tarde) sin descartarlas como duplicados.
     * **Detector Inteligente de Rutas Faltantes (Gap Detector Banner)**: Analiza la secuencia de viajes y resalta traslados intermedios omitidos con botón de 1 clic (+ Agregar al Registro).
-    * **Botón de 1 Clic "Regreso" (Return Trip)**: Permite duplicar e invertir cualquier ruta con 1 toque en la tabla DriveLog y tarjetas móviles.
     * **Despacho y Liquidación a RRHH**: Bitácora histórica de envíos y despacho de resúmenes consolidados de nómina directamente a RRHH vía correo electrónico utilizando la cuenta activa del usuario en sesión. Mantiene catálogo de correos recurrentes de RRHH. Subtotal filtrado dinámico en DriveLog.
 14. **AUDITING**: Full KPI auditing (actual vs targets).
 15. **LA BODEGA (Central Warehouse)**: The central warehouse (La Bodega) buys from external providers (QuickBooks sync maps purchase prices to inventory_items.purchase_unit_cost) and sells to stores. Items have \`is_bodega: true\` (warehouse-only) or \`is_bodega: false\` (restaurant-level). Recipes use unit cost = \`inventory_items.purchase_unit_cost / quantity_per_unit\`.
@@ -321,7 +320,6 @@ Food Cost % = (Total Ingredient Cost ÷ Net Sales) × 100
 - **Regla IRS de Traslado Inicial (Commute)**: El traslado desde la casa del supervisor a la primera tienda del día es traslado personal bajo regulaciones del IRS y NO es reembolsable (se auto-generan 0 viajes en la primera parada). Las re-visitas a la misma tienda en horarios posteriores del día se reconocen y procesan como visitas legítimas independientes.
 - **Quick Drive 1-Toque (GPS)**: Modal flotante que autodetecta la tienda de origen por GPS, calcula millas, registra el viaje en 1 toque y abre la ruta en Google Maps, Apple Maps o Waze (teg_preferred_nav_app).
 - **Detector Inteligente de Rutas Faltantes (Gap Detector)**: Escanea inspecciones de calidad del día y detecta traslados inter-tienda no registrados, permitiendo agregarlos en 1 clic. Excluye a Ricardo y Estefani antes del 1 de septiembre de 2026.
-- **Acciones Rápidas (Viaje de Regreso)**: Botón en cada fila para invertir origen/destino con la fecha y hora actual de California.
 - **Despacho a RRHH (Nómina)**: Envío por correo en 1 clic de resúmenes por período con destinatarios recurrentes (mileage_recurrent_emails), marcando los registros como submitted_hr y adjuntando desglose detallado.
 - **Base de Datos PostgreSQL (Columnas Generadas)**: Las columnas mileage_value (distance_miles * rate_per_mile) y total_reimbursement (mileage_value + parking_amount + tolls_amount) son calculadas y almacenadas automáticamente por PostgreSQL (GENERATED ALWAYS AS).
 
