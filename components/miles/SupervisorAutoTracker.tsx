@@ -193,7 +193,7 @@ export default function SupervisorAutoTracker() {
               <CheckCircle2 className="w-5 h-5 text-white" />
             </div>
             <div className="min-w-0">
-              <h5 className="text-xs font-black">¡Recorrido guardado en MilesIQ!</h5>
+              <h5 className="text-xs font-black">{t('miles.trip_saved')}</h5>
               <p className="text-[11px] text-emerald-100 truncate">{justSaved}</p>
             </div>
           </motion.div>
@@ -237,8 +237,11 @@ export default function SupervisorAutoTracker() {
             </div>
 
             <p className="text-xs text-slate-600 dark:text-slate-300 mb-3">
-              Detectamos tu traslado desde <strong className="text-slate-900 dark:text-slate-100">{detectedArrival.origin_name}</strong> por{' '}
-              <strong className="text-emerald-600 dark:text-emerald-400">{detectedArrival.distance_miles} mi</strong> (~${detectedArrival.total_reimbursement} USD).
+              {t('miles.arrival_toast_desc')
+                .replace('{store}', detectedArrival.destination_name)
+                .replace('{from}', detectedArrival.origin_name)
+                .replace('{miles}', String(detectedArrival.distance_miles))
+                .replace('{amount}', String(detectedArrival.total_reimbursement))}
             </p>
 
             <div className="flex items-center gap-2 mb-3">

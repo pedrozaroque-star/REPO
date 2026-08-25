@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS supervisor_mileage_trips (
     odometer_start NUMERIC(10,2),
     odometer_end NUMERIC(10,2),
     distance_miles NUMERIC(10,2) NOT NULL CHECK (distance_miles >= 0),
-    rate_per_mile NUMERIC(6,3) NOT NULL DEFAULT 0.725,
+    rate_per_mile NUMERIC(6,3) NOT NULL DEFAULT 0.760,
     mileage_value NUMERIC(10,2) GENERATED ALWAYS AS (distance_miles * rate_per_mile) STORED,
     parking_amount NUMERIC(10,2) DEFAULT 0.00,
     tolls_amount NUMERIC(10,2) DEFAULT 0.00,
@@ -80,7 +80,7 @@ CREATE TABLE IF NOT EXISTS store_distances (
 -- 5. Configuración de tarifa global
 CREATE TABLE IF NOT EXISTS supervisor_mileage_settings (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    current_rate_per_mile NUMERIC(6,3) DEFAULT 0.725,
+    current_rate_per_mile NUMERIC(6,3) DEFAULT 0.760,
     updated_at TIMESTAMPTZ DEFAULT NOW(),
     updated_by TEXT
 );
@@ -116,7 +116,7 @@ VALUES
 ON CONFLICT (email) DO NOTHING;
 
 INSERT INTO supervisor_mileage_settings (id, current_rate_per_mile)
-VALUES ('00000000-0000-0000-0000-000000000001', 0.725)
+VALUES ('00000000-0000-0000-0000-000000000001', 0.760)
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO store_distances (origin_name, destination_name, distance_miles, notes)

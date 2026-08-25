@@ -14,20 +14,20 @@
  * @notes 100% bilingual i18n support using useLanguage().
  */
 
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Car, Plus, MapPin, Calendar, DollarSign, Send, CheckCircle2,
   Clock, AlertCircle, Download, RefreshCw, Settings, Search,
   Filter, RotateCw, Trash2, Edit3, ShieldCheck, Mail, Users, FileSpreadsheet, Check,
-  Navigation, Sparkles
+  Navigation, Sparkles, Copy, RotateCcw
 } from 'lucide-react'
 import ProtectedRoute, { useAuth } from '@/components/ProtectedRoute'
 import SurpriseLoader from '@/components/SurpriseLoader'
 import { useLanguage } from '@/lib/i18n'
 import TripModal from '@/components/miles/TripModal'
 import QuickDriveModal from '@/components/miles/QuickDriveModal'
-import { getCaliforniaBusinessDate, getCaliforniaDate } from '@/lib/business-date'
+import { getCaliforniaBusinessDate, getCaliforniaDate, getCaliforniaTime } from '@/lib/business-date'
 import { CANONICAL_STORE_COORDINATES, haversineDistanceMiles, normalizeStoreName } from '@/lib/store-coordinates'
 
 interface TripRecord {
@@ -37,7 +37,10 @@ interface TripRecord {
   supervisor_email: string
   trip_date: string
   start_time?: string
+  end_time?: string
+  origin_type?: 'store' | 'custom'
   origin_name: string
+  destination_type?: 'store' | 'custom'
   destination_name: string
   is_round_trip: boolean
   purpose: 'Business' | 'Personal' | 'Commute'
@@ -51,7 +54,13 @@ interface TripRecord {
   tolls_amount: number
   total_reimbursement: number
   status: 'draft' | 'pending' | 'approved' | 'submitted_hr' | 'paid' | 'rejected'
+  hr_submission_id?: string
+  hr_submitted_at?: string
+  approved_by?: string
+  approved_at?: string
+  rejection_reason?: string
   created_at: string
+  updated_at?: string
 }
 
 interface RecurrentEmail {
@@ -501,11 +510,67 @@ function MilesIQContent() {
   }
 
   // Helper to check if a trip belongs to the current user
-  const isOwnTrip = (t: TripRecord) => {
+  const isOwnTrip = useCallback((t: TripRecord) => {
     if (t.supervisor_id === currentUser.id) return true
     if (t.supervisor_email && currentUser.email && t.supervisor_email.toLowerCase() === currentUser.email.toLowerCase()) return true
     if (t.supervisor_name && currentUser.name && t.supervisor_name.toLowerCase() === currentUser.name.toLowerCase()) return true
     return false
+  }, [currentUser])
+
+  // Return Trip Handler (creates a new trip inverting origin and destination)
+  const handleReturnTrip = (trip: TripRecord) => {
+    setEditingTrip({
+      id: '',
+      supervisor_id: trip.supervisor_id,
+      supervisor_name: trip.supervisor_name,
+      supervisor_email: trip.supervisor_email,
+      trip_date: getCaliforniaBusinessDate(),
+      start_time: getCaliforniaTime(),
+      origin_type: trip.destination_type || 'store',
+      origin_name: trip.destination_name,
+      destination_type: trip.origin_type || 'store',
+      destination_name: trip.origin_name,
+      is_round_trip: false,
+      purpose: trip.purpose || 'Business',
+      purpose_notes: `Retorno de ${trip.destination_name} a ${trip.origin_name}`,
+      distance_miles: trip.distance_miles,
+      rate_per_mile: currentRate,
+      mileage_value: parseFloat((trip.distance_miles * currentRate).toFixed(2)),
+      parking_amount: 0,
+      tolls_amount: 0,
+      total_reimbursement: parseFloat((trip.distance_miles * currentRate).toFixed(2)),
+      status: 'pending',
+      created_at: new Date().toISOString()
+    })
+    setIsModalOpen(true)
+  }
+
+  // Duplicate Trip Handler (clones the trip with current time)
+  const handleDuplicateTrip = (trip: TripRecord) => {
+    setEditingTrip({
+      id: '',
+      supervisor_id: trip.supervisor_id,
+      supervisor_name: trip.supervisor_name,
+      supervisor_email: trip.supervisor_email,
+      trip_date: getCaliforniaBusinessDate(),
+      start_time: getCaliforniaTime(),
+      origin_type: trip.origin_type || 'store',
+      origin_name: trip.origin_name,
+      destination_type: trip.destination_type || 'store',
+      destination_name: trip.destination_name,
+      is_round_trip: trip.is_round_trip,
+      purpose: trip.purpose || 'Business',
+      purpose_notes: trip.purpose_notes,
+      distance_miles: trip.distance_miles,
+      rate_per_mile: currentRate,
+      mileage_value: parseFloat((trip.distance_miles * currentRate).toFixed(2)),
+      parking_amount: trip.parking_amount || 0,
+      tolls_amount: trip.tolls_amount || 0,
+      total_reimbursement: parseFloat(((trip.distance_miles * currentRate) + (trip.parking_amount || 0) + (trip.tolls_amount || 0)).toFixed(2)),
+      status: 'pending',
+      created_at: new Date().toISOString()
+    })
+    setIsModalOpen(true)
   }
 
   // Filtered trips list
@@ -1019,7 +1084,7 @@ function MilesIQContent() {
                     <option value="all">{t('miles.all_supervisors')}</option>
                     {supervisorsList
                       .filter(sup => {
-                        const isPreSept = new Date().toISOString() < '2026-09-01T00:00:00.000Z'
+                        const isPreSept = getCaliforniaBusinessDate() < '2026-09-01'
                         if (isPreSept && /estefani|ricardo/i.test(sup.name)) return false
                         return true
                       })
@@ -1200,6 +1265,20 @@ function MilesIQContent() {
                             </td>
                             <td className="py-3.5 px-4 text-right whitespace-nowrap">
                               <div className="flex items-center justify-end gap-1">
+                                <button
+                                  onClick={() => handleReturnTrip(trip)}
+                                  title={t('miles.return_trip_btn')}
+                                  className="p-1.5 text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-950/40 rounded-lg transition-colors"
+                                >
+                                  <RotateCcw size={16} />
+                                </button>
+                                <button
+                                  onClick={() => handleDuplicateTrip(trip)}
+                                  title={t('miles.duplicate_trip_btn')}
+                                  className="p-1.5 text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"
+                                >
+                                  <Copy size={16} />
+                                </button>
                                 {(trip.status === 'pending' || isAdmin) && (
                                   <button
                                     onClick={() => handleOpenEditModal(trip)}
@@ -1291,7 +1370,7 @@ function MilesIQContent() {
                           <span className="text-xs font-bold text-slate-900 dark:text-white">{trip.trip_date}</span>
                           {trip.start_time && <span className="text-[10px] text-slate-400">({trip.start_time})</span>}
                         </div>
-                        <div className="flex items-center gap-1.5">
+                        <div className="flex items-center gap-1">
                           {trip.status === 'submitted_hr' && (
                             <span className="px-2 py-0.5 rounded-md text-[9px] font-bold bg-purple-100 text-purple-700 dark:bg-purple-950/60 dark:text-purple-400">{t('miles.badge_submitted_hr')}</span>
                           )}
@@ -1304,6 +1383,20 @@ function MilesIQContent() {
                           {trip.status === 'paid' && (
                             <span className="px-2 py-0.5 rounded-md text-[9px] font-bold bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:text-blue-400">{t('miles.badge_paid')}</span>
                           )}
+                          <button
+                            onClick={() => handleReturnTrip(trip)}
+                            title={t('miles.return_trip_btn')}
+                            className="p-1 text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-950/40 rounded transition-colors"
+                          >
+                            <RotateCcw size={14} />
+                          </button>
+                          <button
+                            onClick={() => handleDuplicateTrip(trip)}
+                            title={t('miles.duplicate_trip_btn')}
+                            className="p-1 text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800 rounded transition-colors"
+                          >
+                            <Copy size={14} />
+                          </button>
                           {(trip.status === 'pending' || isAdmin) && (
                             <button
                               onClick={() => handleOpenEditModal(trip)}

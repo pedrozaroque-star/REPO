@@ -44,10 +44,10 @@ export async function GET(req: NextRequest) {
     const rows = (trips || []).map(t => {
       const miles = Number(t.distance_miles) || 0
       const rate = Number(t.rate_per_mile) || 0.76
-      const val = miles * rate
+      const val = t.mileage_value !== undefined && t.mileage_value !== null ? Number(t.mileage_value) : miles * rate
       const parking = Number(t.parking_amount) || 0
       const tolls = Number(t.tolls_amount) || 0
-      const total = val + parking + tolls
+      const total = t.total_reimbursement !== undefined && t.total_reimbursement !== null ? Number(t.total_reimbursement) : val + parking + tolls
 
       return [
         `"${t.trip_date || ''}"`,

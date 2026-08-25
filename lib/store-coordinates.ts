@@ -267,12 +267,26 @@ export function findClosestStore(
 }
 
 /**
- * Normaliza el nombre de una tienda a su versión completa oficial
+ * Normaliza el nombre de una tienda a su versión completa oficial de forma insensible a mayúsculas y acentos
  */
 export function normalizeStoreName(name: string): string {
   if (!name) return ''
-  const trimmed = name.trim()
-  if (trimmed === 'Bodega Central' || trimmed === 'Oficina Corporativa') return trimmed
-  if (trimmed.startsWith('Tacos Gavilan')) return trimmed
-  return `Tacos Gavilan ${trimmed}`
+  const clean = name.trim().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  const lower = clean.toLowerCase()
+
+  if (lower === 'bodega central' || lower === 'bodega' || lower === 'warehouse') return 'Bodega Central'
+  if (lower === 'oficina corporativa' || lower === 'corporativo' || lower === 'office') return 'Oficina Corporativa'
+
+  // Match against known canonical stores
+  for (const [fullName, loc] of Object.entries(CANONICAL_STORE_COORDINATES)) {
+    const locClean = loc.shortName.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    const fullClean = fullName.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    if (lower === locClean || lower === fullClean || lower === `tacos gavilan ${locClean}`) {
+      return fullName
+    }
+  }
+
+  // Fallback: strip any legacy "Tacos El Gavilan" prefix and attach official brand prefix
+  const withoutPrefix = clean.replace(/^tacos\s+(el\s+)?gavilan\s+/i, '').trim()
+  return withoutPrefix ? `Tacos Gavilan ${withoutPrefix}` : clean
 }
