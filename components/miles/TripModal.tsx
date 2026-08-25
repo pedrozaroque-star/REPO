@@ -94,8 +94,10 @@ export default function TripModal({
   const [startTime, setStartTime] = useState<string>(getCaliforniaTime())
   const [originType, setOriginType] = useState<'store' | 'bodega' | 'office' | 'home' | 'custom'>('store')
   const [originName, setOriginName] = useState<string>('Tacos Gavilan LA Central')
+  const [originMode, setOriginMode] = useState<'store' | 'custom'>('store')
   const [destinationType, setDestinationType] = useState<'store' | 'bodega' | 'office' | 'home' | 'custom'>('store')
   const [destinationName, setDestinationName] = useState<string>('Tacos Gavilan LA Broadway')
+  const [destMode, setDestMode] = useState<'store' | 'custom'>('store')
   const [isRoundTrip, setIsRoundTrip] = useState<boolean>(false)
   const [purpose, setPurpose] = useState<'Business' | 'Personal' | 'Commute'>('Business')
   const [purposeNotes, setPurposeNotes] = useState<string>('')
@@ -150,13 +152,20 @@ export default function TripModal({
     if (!isOpen) return
 
     if (editingTrip) {
+      const origName = editingTrip.origin_name || 'Tacos Gavilan LA Central'
+      const dstName = editingTrip.destination_name || 'Tacos Gavilan LA Broadway'
+      const isOrigCustom = editingTrip.origin_type === 'custom' || !availableLocations.includes(origName)
+      const isDestCustom = editingTrip.destination_type === 'custom' || !availableLocations.includes(dstName)
+
       setSelectedSupervisorId(editingTrip.supervisor_id || currentUser.id)
       setTripDate(editingTrip.trip_date || getCaliforniaBusinessDate())
       setStartTime(editingTrip.start_time || '')
-      setOriginType(editingTrip.origin_type || 'store')
-      setOriginName(editingTrip.origin_name || 'Tacos Gavilan LA Central')
-      setDestinationType(editingTrip.destination_type || 'store')
-      setDestinationName(editingTrip.destination_name || 'Tacos Gavilan LA Broadway')
+      setOriginType(isOrigCustom ? 'custom' : (editingTrip.origin_type || 'store'))
+      setOriginName(origName)
+      setOriginMode(isOrigCustom ? 'custom' : 'store')
+      setDestinationType(isDestCustom ? 'custom' : (editingTrip.destination_type || 'store'))
+      setDestinationName(dstName)
+      setDestMode(isDestCustom ? 'custom' : 'store')
       setIsRoundTrip(Boolean(editingTrip.is_round_trip))
       setPurpose(editingTrip.purpose || 'Business')
       setPurposeNotes(editingTrip.purpose_notes || '')
@@ -171,8 +180,10 @@ export default function TripModal({
       setStartTime(getCaliforniaTime())
       setOriginType('store')
       setOriginName('Tacos Gavilan Lynwood')
+      setOriginMode('store')
       setDestinationType('store')
       setDestinationName('Tacos Gavilan South Gate')
+      setDestMode('store')
       setIsRoundTrip(false)
       setPurpose('Business')
       setPurposeNotes('')
@@ -539,73 +550,221 @@ export default function TripModal({
                 </div>
               )}
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {/* Origin */}
                 <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="block text-xs font-medium text-slate-600 dark:text-slate-400">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400">
                       {t('miles.origin_start')}
                     </label>
-                    <button
-                      type="button"
-                      onClick={() => detectClosestStore('origin')}
-                      disabled={detectingGps !== null}
-                      title={t('miles.detect_gps_origin')}
-                      className="text-[10px] font-bold text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 bg-blue-50 dark:bg-blue-950/60 px-2 py-0.5 rounded border border-blue-200 dark:border-blue-800"
-                    >
-                      {detectingGps === 'origin' ? (
-                        <RotateCw size={10} className="animate-spin" />
-                      ) : (
-                        <LocateFixed size={10} />
-                      )}
-                      {t('miles.detect_gps_origin')}
-                    </button>
+                    <div className="flex items-center gap-1 bg-slate-200/70 dark:bg-slate-700/70 p-0.5 rounded-lg text-[10px] font-bold">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setOriginMode('store')
+                          setOriginType('store')
+                          if (!availableLocations.includes(originName)) {
+                            setOriginName('Tacos Gavilan Lynwood')
+                          }
+                        }}
+                        className={`px-2 py-0.5 rounded-md transition-all ${
+                          originMode === 'store'
+                            ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-xs'
+                            : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+                        }`}
+                      >
+                        🏪 {t('miles.store_location')}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setOriginMode('custom')
+                          setOriginType('custom')
+                          if (availableLocations.includes(originName)) {
+                            setOriginName('Home Depot')
+                          }
+                        }}
+                        className={`px-2 py-0.5 rounded-md transition-all ${
+                          originMode === 'custom'
+                            ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-xs'
+                            : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+                        }`}
+                      >
+                        📍 {t('miles.custom_location')}
+                      </button>
+                    </div>
                   </div>
-                  <select
-                    value={originName}
-                    onChange={e => setOriginName(e.target.value)}
-                    className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
-                  >
-                    {availableLocations.map(loc => (
-                      <option key={`orig-${loc}`} value={loc}>
-                        {loc}
-                      </option>
-                    ))}
-                  </select>
+
+                  {originMode === 'store' ? (
+                    <div className="space-y-1.5">
+                      <select
+                        value={originName}
+                        onChange={e => setOriginName(e.target.value)}
+                        className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-sm font-medium focus:ring-2 focus:ring-blue-500"
+                      >
+                        {availableLocations.map(loc => (
+                          <option key={`orig-${loc}`} value={loc}>
+                            {loc}
+                          </option>
+                        ))}
+                      </select>
+                      <div className="flex justify-end">
+                        <button
+                          type="button"
+                          onClick={() => detectClosestStore('origin')}
+                          disabled={detectingGps !== null}
+                          title={t('miles.detect_gps_origin')}
+                          className="text-[10px] font-bold text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 bg-blue-50 dark:bg-blue-950/60 px-2 py-0.5 rounded border border-blue-200 dark:border-blue-800"
+                        >
+                          {detectingGps === 'origin' ? (
+                            <RotateCw size={10} className="animate-spin" />
+                          ) : (
+                            <LocateFixed size={10} />
+                          )}
+                          {t('miles.detect_gps_origin')}
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <input
+                        type="text"
+                        placeholder={t('miles.custom_place_placeholder')}
+                        value={originName}
+                        onChange={e => setOriginName(e.target.value)}
+                        className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-blue-300 dark:border-blue-700 rounded-lg text-sm font-semibold text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 shadow-xs"
+                        required
+                      />
+                      <div className="flex flex-wrap gap-1">
+                        {[
+                          { name: 'Home Depot', tag: 'Mantenimiento' },
+                          { name: 'Restaurant Depot / Costco', tag: 'Suministros' },
+                          { name: 'Banco (Wells Fargo / Chase)', tag: 'Depósito' },
+                          { name: 'Clínica / Salubridad', tag: 'Salubridad' }
+                        ].map(p => (
+                          <button
+                            key={`orig-chip-${p.name}`}
+                            type="button"
+                            onClick={() => {
+                              setOriginName(p.name)
+                              if (!purposeNotes) setPurposeNotes(p.tag)
+                            }}
+                            className="text-[10px] font-medium bg-slate-100 dark:bg-slate-800 hover:bg-blue-50 dark:hover:bg-blue-900/30 text-slate-700 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 px-2 py-0.5 rounded border border-slate-200 dark:border-slate-700 transition-colors"
+                          >
+                            {p.name.split(' ')[0]} {p.name.includes('Home') ? '🛠️' : p.name.includes('Costco') ? '🛒' : p.name.includes('Banco') ? '🏦' : '🏥'}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* Destination */}
                 <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="block text-xs font-medium text-slate-600 dark:text-slate-400">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400">
                       {t('miles.destination_end')}
                     </label>
-                    <button
-                      type="button"
-                      onClick={() => detectClosestStore('dest')}
-                      disabled={detectingGps !== null}
-                      title={t('miles.detect_gps_dest')}
-                      className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 hover:underline flex items-center gap-1 bg-emerald-50 dark:bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-200 dark:border-emerald-800"
-                    >
-                      {detectingGps === 'dest' ? (
-                        <RotateCw size={10} className="animate-spin" />
-                      ) : (
-                        <LocateFixed size={10} />
-                      )}
-                      {t('miles.detect_gps_dest')}
-                    </button>
+                    <div className="flex items-center gap-1 bg-slate-200/70 dark:bg-slate-700/70 p-0.5 rounded-lg text-[10px] font-bold">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setDestMode('store')
+                          setDestinationType('store')
+                          if (!availableLocations.includes(destinationName)) {
+                            setDestinationName('Tacos Gavilan South Gate')
+                          }
+                        }}
+                        className={`px-2 py-0.5 rounded-md transition-all ${
+                          destMode === 'store'
+                            ? 'bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 shadow-xs'
+                            : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+                        }`}
+                      >
+                        🏪 {t('miles.store_location')}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setDestMode('custom')
+                          setDestinationType('custom')
+                          if (availableLocations.includes(destinationName)) {
+                            setDestinationName('Home Depot')
+                          }
+                        }}
+                        className={`px-2 py-0.5 rounded-md transition-all ${
+                          destMode === 'custom'
+                            ? 'bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 shadow-xs'
+                            : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+                        }`}
+                      >
+                        📍 {t('miles.custom_location')}
+                      </button>
+                    </div>
                   </div>
-                  <select
-                    value={destinationName}
-                    onChange={e => setDestinationName(e.target.value)}
-                    className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
-                  >
-                    {availableLocations.map(loc => (
-                      <option key={`dest-${loc}`} value={loc}>
-                        {loc}
-                      </option>
-                    ))}
-                  </select>
+
+                  {destMode === 'store' ? (
+                    <div className="space-y-1.5">
+                      <select
+                        value={destinationName}
+                        onChange={e => setDestinationName(e.target.value)}
+                        className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-sm font-medium focus:ring-2 focus:ring-blue-500"
+                      >
+                        {availableLocations.map(loc => (
+                          <option key={`dest-${loc}`} value={loc}>
+                            {loc}
+                          </option>
+                        ))}
+                      </select>
+                      <div className="flex justify-end">
+                        <button
+                          type="button"
+                          onClick={() => detectClosestStore('dest')}
+                          disabled={detectingGps !== null}
+                          title={t('miles.detect_gps_dest')}
+                          className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 hover:underline flex items-center gap-1 bg-emerald-50 dark:bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-200 dark:border-emerald-800"
+                        >
+                          {detectingGps === 'dest' ? (
+                            <RotateCw size={10} className="animate-spin" />
+                          ) : (
+                            <LocateFixed size={10} />
+                          )}
+                          {t('miles.detect_gps_dest')}
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <input
+                        type="text"
+                        placeholder={t('miles.custom_place_placeholder')}
+                        value={destinationName}
+                        onChange={e => setDestinationName(e.target.value)}
+                        className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-emerald-300 dark:border-emerald-700 rounded-lg text-sm font-semibold text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-emerald-500 shadow-xs"
+                        required
+                      />
+                      <div className="flex flex-wrap gap-1">
+                        {[
+                          { name: 'Home Depot', tag: 'Mantenimiento' },
+                          { name: 'Restaurant Depot / Costco', tag: 'Suministros' },
+                          { name: 'Banco (Wells Fargo / Chase)', tag: 'Depósito' },
+                          { name: 'Clínica / Salubridad', tag: 'Salubridad' }
+                        ].map(p => (
+                          <button
+                            key={`dest-chip-${p.name}`}
+                            type="button"
+                            onClick={() => {
+                              setDestinationName(p.name)
+                              if (!purposeNotes) setPurposeNotes(p.tag)
+                            }}
+                            className="text-[10px] font-medium bg-slate-100 dark:bg-slate-800 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 text-slate-700 dark:text-slate-300 hover:text-emerald-600 dark:hover:text-emerald-400 px-2 py-0.5 rounded border border-slate-200 dark:border-slate-700 transition-colors"
+                          >
+                            {p.name.split(' ')[0]} {p.name.includes('Home') ? '🛠️' : p.name.includes('Costco') ? '🛒' : p.name.includes('Banco') ? '🏦' : '🏥'}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -777,6 +936,25 @@ export default function TripModal({
                   onChange={e => setPurposeNotes(e.target.value)}
                   className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
                 />
+                <div className="flex flex-wrap items-center gap-1.5 pt-1.5">
+                  <span className="text-[10px] font-bold text-slate-400">{t('miles.quick_purposes')}</span>
+                  {[
+                    { label: t('miles.tag_maintenance'), text: 'Mantenimiento y reparación' },
+                    { label: t('miles.tag_supplies'), text: 'Suministros de emergencia' },
+                    { label: t('miles.tag_bank'), text: 'Depósito bancario / Caja fuerte' },
+                    { label: t('miles.tag_health'), text: 'Trámite de salubridad / Clínica' },
+                    { label: t('miles.tag_inspection'), text: 'Auditoría de calidad' }
+                  ].map((tag, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => setPurposeNotes(prev => prev ? `${prev} - ${tag.text}` : tag.text)}
+                      className="text-[10px] font-medium bg-slate-100 dark:bg-slate-800 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 text-slate-700 dark:text-slate-300 hover:text-emerald-600 dark:hover:text-emerald-400 px-2 py-0.5 rounded border border-slate-200 dark:border-slate-700 transition-colors"
+                    >
+                      {tag.label}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
 
