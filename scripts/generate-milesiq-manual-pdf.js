@@ -194,6 +194,12 @@ const htmlContent = `<!DOCTYPE html>
             gap: 10px;
             margin-bottom: 12px;
         }
+        .grid-4 {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 8px;
+            margin-bottom: 12px;
+        }
         .method-card {
             background: #ffffff;
             border: 1.5px solid #e2e8f0;
@@ -265,39 +271,31 @@ const htmlContent = `<!DOCTYPE html>
         .callout.info p { color: #1e3a8a; }
         .callout.success p { color: #14532d; }
 
-        /* Step List */
-        .step-list {
-            margin: 8px 0;
-            display: flex;
-            flex-direction: column;
-            gap: 6px;
+        /* Status Pills & Cards */
+        .status-card {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 8px 10px;
+            text-align: center;
         }
-        .step-item {
-            display: flex;
-            gap: 8px;
-            align-items: flex-start;
-        }
-        .step-num {
-            background: #0f172a;
-            color: white;
-            font-size: 10px;
+        .status-pill {
+            display: inline-block;
+            font-size: 9.5px;
             font-weight: 800;
-            width: 18px;
-            height: 18px;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            flex-shrink: 0;
-            margin-top: 1px;
+            padding: 2px 7px;
+            border-radius: 5px;
+            margin-bottom: 4px;
         }
-        .step-text {
-            font-size: 11px;
-            color: #334155;
-            line-height: 1.4;
-        }
-        .step-text strong {
-            color: #0f172a;
+        .pill-pending { background: #fef3c7; color: #b45309; border: 1px solid #fde68a; }
+        .pill-submitted { background: #ede9fe; color: #6d28d9; border: 1px solid #ddd6fe; }
+        .pill-approved { background: #dcfce7; color: #15803d; border: 1px solid #86efac; }
+        .pill-paid { background: #dbeafe; color: #1d4ed8; border: 1px solid #bfdbfe; }
+        
+        .status-desc {
+            font-size: 10px;
+            color: #475569;
+            line-height: 1.3;
         }
 
         /* Table */
@@ -389,7 +387,7 @@ const htmlContent = `<!DOCTYPE html>
         <!-- Hero Card -->
         <div class="hero">
             <h2>🚗 Guía Práctica de MilesIQ para Supervisores de Zona</h2>
-            <p>MilesIQ es tu herramienta digital para respaldar automáticamente todos tus recorridos entre sucursales durante tus jornadas de supervisión y enviarlos a Nómina para tu reembolso de millas con exactitud matemática.</p>
+            <p>MilesIQ es tu herramienta digital para respaldar automáticamente todos tus recorridos entre sucursales durante tus jornadas de supervisión para que Administración liquide tus millas en nómina con exactitud matemática.</p>
             
             <div class="hero-stats">
                 <div class="hero-stat-card">
@@ -405,8 +403,8 @@ const htmlContent = `<!DOCTYPE html>
                     <div class="hero-stat-lbl">+ Bodega y Central</div>
                 </div>
                 <div class="hero-stat-card">
-                    <div class="hero-stat-num">1-Toque</div>
-                    <div class="hero-stat-lbl">Despacho a RRHH</div>
+                    <div class="hero-stat-num">En Nómina</div>
+                    <div class="hero-stat-lbl">Reembolso Directo</div>
                 </div>
             </div>
         </div>
@@ -468,7 +466,7 @@ const htmlContent = `<!DOCTYPE html>
                 <div class="brand-badge">TG</div>
                 <div class="brand-text">
                     <h1>MANUAL OPERATIVO MILESIQ</h1>
-                    <p>Gestión de Viajes, Filtros y Despacho a Nómina / RRHH</p>
+                    <p>Gestión de Recorridos, Estados de Viaje y Liquidación en Nómina</p>
                 </div>
             </div>
             <div class="doc-meta">
@@ -514,7 +512,7 @@ const htmlContent = `<!DOCTYPE html>
                 <tr>
                     <td><strong>📤 Enviados a RRHH</strong></td>
                     <td>Viajes ya despachados</td>
-                    <td>Control de cuáles viajes ya fueron enviados al departamento de nómina.</td>
+                    <td>Control de cuáles viajes ya fueron procesados por Administración para nómina.</td>
                 </tr>
             </tbody>
         </table>
@@ -547,33 +545,37 @@ const htmlContent = `<!DOCTYPE html>
             </div>
         </div>
 
-        <!-- Sección 5: Cómo Enviar tu Reporte a Nómina / RRHH -->
+        <!-- Sección 5: Estados de los Viajes y Flujo de Nómina -->
         <div class="section-title">
             <div class="icon-badge">5</div>
-            <h3>Cómo Despachar tu Reporte a Recursos Humanos</h3>
+            <h3>Estados de tus Viajes y Proceso de Pago en Nómina</h3>
         </div>
 
-        <div class="step-list">
-            <div class="step-item">
-                <div class="step-num">1</div>
-                <div class="step-text">Entra a la pestaña <strong>"Despacho a RRHH"</strong> en la parte superior de MilesIQ.</div>
+        <p style="font-size: 11px; color: #475569; margin-bottom: 8px;">
+            <strong>Tú solo te encargas de registrar tus recorridos</strong>. La Administración revisa tus millas periódicamente y se encarga de enviarlas a Recursos Humanos. Puedes seguir el progreso de cada viaje por sus etiquetas de estado:
+        </p>
+
+        <div class="grid-4">
+            <div class="status-card">
+                <span class="status-pill pill-pending">Pendiente</span>
+                <div class="status-desc">Viaje registrado por ti, listo para ser revisado por Administración.</div>
             </div>
-            <div class="step-item">
-                <div class="step-num">2</div>
-                <div class="step-text">Selecciona el período que deseas enviar (por ejemplo, <em>"Esta Semana"</em> o <em>"Esta Quincena"</em>).</div>
+            <div class="status-card">
+                <span class="status-pill pill-submitted">Enviado a RRHH</span>
+                <div class="status-desc">Incluido en el reporte oficial enviado a Nómina / Recursos Humanos.</div>
             </div>
-            <div class="step-item">
-                <div class="step-num">3</div>
-                <div class="step-text">Revisa el resumen en pantalla con el total de millas y el monto a reembolsar.</div>
+            <div class="status-card">
+                <span class="status-pill pill-approved">Aprobado</span>
+                <div class="status-desc">Revisado y autorizado formalmente para liquidación.</div>
             </div>
-            <div class="step-item">
-                <div class="step-num">4</div>
-                <div class="step-text">Presiona el botón azul <strong>"Enviar Reporte a RRHH"</strong>. El sistema enviará un correo corporativo formal a nómina con todo el desglose y marcará tus viajes como <em>"Enviado a RRHH"</em>.</div>
+            <div class="status-card">
+                <span class="status-pill pill-paid">Pagado</span>
+                <div class="status-desc">Reembolso depositado exitosamente en tu cheque de nómina.</div>
             </div>
         </div>
 
         <!-- Callout Detector de Rutas Faltantes -->
-        <div class="callout info" style="margin-top: 10px;">
+        <div class="callout info" style="margin-top: 8px;">
             <h5>💡 Detector Inteligente de Rutas Faltantes (Gap Detector)</h5>
             <p>Si durante el día hiciste visitas pero olvidaste registrar el traslado, al entrar a MilesIQ verás una tarjeta azul con el mensaje: <em>"Detectamos un recorrido de Tienda A a Tienda B que no está en tu registro"</em>. Con solo tocar <strong>"+ Agregar al Registro"</strong>, el viaje queda guardado al instante.</p>
         </div>
@@ -589,7 +591,7 @@ const htmlContent = `<!DOCTYPE html>
 </html>`;
 
 (async () => {
-    console.log('🚀 Generando Manual de MilesIQ en PDF...');
+    console.log('🚀 Compilando Manual de MilesIQ para Supervisores en PDF...');
     
     // Save HTML
     const htmlPath = path.resolve(__dirname, '../public/manual_milesiq_supervisores.html');
@@ -609,19 +611,41 @@ const htmlContent = `<!DOCTYPE html>
     await page.evaluate(() => document.fonts.ready);
 
     const pdfPath = path.resolve('c:/Users/pedro/Desktop/Manual_MilesIQ_Supervisores_TEG.pdf');
+    let targetPdf = pdfPath;
 
-    await page.pdf({
-        path: pdfPath,
-        format: 'Letter',
-        printBackground: true,
-        scale: 0.95,
-        margin: {
-            top: '0.3in',
-            right: '0.35in',
-            bottom: '0.3in',
-            left: '0.35in'
+    try {
+        await page.pdf({
+            path: targetPdf,
+            format: 'Letter',
+            printBackground: true,
+            scale: 0.95,
+            margin: {
+                top: '0.3in',
+                right: '0.35in',
+                bottom: '0.3in',
+                left: '0.35in'
+            }
+        });
+    } catch (e) {
+        if (e.code === 'EBUSY') {
+            targetPdf = path.resolve('c:/Users/pedro/Desktop/Manual_MilesIQ_Supervisores_Actualizado.pdf');
+            console.log('⚠️ El archivo principal está abierto. Guardando en:', targetPdf);
+            await page.pdf({
+                path: targetPdf,
+                format: 'Letter',
+                printBackground: true,
+                scale: 0.95,
+                margin: {
+                    top: '0.3in',
+                    right: '0.35in',
+                    bottom: '0.3in',
+                    left: '0.35in'
+                }
+            });
+        } else {
+            throw e;
         }
-    });
+    }
 
     await browser.close();
     console.log('🎉 Manual PDF para Supervisores compilado con éxito en el Escritorio: ' + pdfPath);
