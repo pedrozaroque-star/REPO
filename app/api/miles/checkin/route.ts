@@ -31,6 +31,7 @@ export async function POST(req: NextRequest) {
       store_name,
       store_id,
       previous_store_name,
+      previous_store_date,
       latitude,
       longitude,
       auto_create_trip = false,
@@ -55,7 +56,11 @@ export async function POST(req: NextRequest) {
     const ratePerMile = Number(settings?.[0]?.current_rate_per_mile) || 0.76
 
     // 2. Determine previous store (origin)
-    let originName = previous_store_name ? normalizeStoreName(previous_store_name) : ''
+    // Only accept client-provided previous_store_name if it strictly belongs to today's business date
+    let originName = ''
+    if (previous_store_name && (!previous_store_date || previous_store_date === targetDate)) {
+      originName = normalizeStoreName(previous_store_name)
+    }
 
     // If no previous store provided, look up the supervisor's last trip destination today
     if (!originName || originName === currentStore) {

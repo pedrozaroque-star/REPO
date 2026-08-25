@@ -21,6 +21,7 @@ import { Car, MapPin, CheckCircle2, X, Sparkles, Navigation } from 'lucide-react
 import { useAuth } from '@/components/ProtectedRoute'
 import { useLanguage } from '@/lib/i18n'
 import { findClosestStore, normalizeStoreName } from '@/lib/store-coordinates'
+import { getCaliforniaBusinessDate } from '@/lib/business-date'
 
 interface DetectedArrival {
   origin_name: string
@@ -70,10 +71,13 @@ export default function SupervisorAutoTracker() {
         if (!closest || !closest.name || closest.distanceMiles > 0.35) return
 
         const currentStore = normalizeStoreName(closest.name)
+        const today = getCaliforniaBusinessDate()
+        const storedDate = localStorage.getItem('teg_supervisor_active_store_date')
         const previousStore = localStorage.getItem('teg_supervisor_active_store')
+        const isSameBusinessDay = storedDate === today
 
-        // If at a new store different from last recorded store
-        if (previousStore && previousStore !== currentStore) {
+        // If at a new store different from last recorded store ON THE SAME BUSINESS DAY
+        if (isSameBusinessDay && previousStore && previousStore !== currentStore) {
           const autoSavePref = localStorage.getItem('teg_miles_auto_log_enabled') === 'true'
 
           try {
@@ -85,6 +89,7 @@ export default function SupervisorAutoTracker() {
                 supervisor_name: user.name || 'Supervisor',
                 supervisor_email: user.email,
                 previous_store_name: previousStore,
+                previous_store_date: storedDate,
                 store_name: currentStore,
                 latitude: pos.coords.latitude,
                 longitude: pos.coords.longitude,
@@ -95,6 +100,7 @@ export default function SupervisorAutoTracker() {
 
             const data = await res.json()
             localStorage.setItem('teg_supervisor_active_store', currentStore)
+            localStorage.setItem('teg_supervisor_active_store_date', today)
 
             if (data.trip_created) {
               setJustSaved(`${previousStore} → ${currentStore}`)
@@ -112,8 +118,9 @@ export default function SupervisorAutoTracker() {
             console.warn('Auto tracker checkin error:', e)
           }
         } else {
-          // Just update current store if not set
+          // First store of the day or same store: Just update current store and business date
           localStorage.setItem('teg_supervisor_active_store', currentStore)
+          localStorage.setItem('teg_supervisor_active_store_date', today)
         }
       },
       err => {
