@@ -678,17 +678,28 @@ export default function RonosLaborAuditPage() {
         const res = await fetch('/api/ronos/sync', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ syncChain: true })
+          body: JSON.stringify({ syncChain: true, syncSimplify: true })
         })
         const json = await res.json()
         if (json.success) {
           setChainData(json.data)
         }
+      } else if (activeTab === 'payroll') {
+        const res = await fetch('/api/ronos/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ companyId: selectedCompanyId, weekId: selectedWeekId, syncSimplify: true })
+        })
+        const json = await res.json()
+        if (json.success) {
+          const periodId = payrollBiWeekly ? (selectedBiWeeklyPeriod || biWeeklyPeriods[0]?.id || '') : selectedWeekId
+          await fetchPayroll(selectedCompanyId, periodId, payrollBiWeekly)
+        }
       } else {
         const res = await fetch('/api/ronos/sync', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ companyId: selectedCompanyId, weekId: selectedWeekId })
+          body: JSON.stringify({ companyId: selectedCompanyId, weekId: selectedWeekId, syncSimplify: true })
         })
         const json = await res.json()
         if (json.success) {
@@ -2102,6 +2113,19 @@ export default function RonosLaborAuditPage() {
                   </div>
                 </div>
               )}
+
+              {/* Simplify HR Sync Live Status Banner */}
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-3.5 rounded-2xl bg-gradient-to-r from-emerald-500/10 via-teal-500/10 to-blue-500/10 border border-emerald-500/30 dark:border-emerald-500/20 text-xs">
+                <div className="flex items-center gap-2.5 text-emerald-800 dark:text-emerald-300 font-medium">
+                  <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+                  <span>
+                    <strong>{t('ronos.simplify_synced_title')}:</strong> {t('ronos.simplify_synced_desc')}
+                  </span>
+                </div>
+                <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 font-semibold text-[11px]">
+                  <span>{t('ronos.audit_perfect_match')}</span>
+                </div>
+              </div>
             </div>
 
             {/* Filter Bar */}

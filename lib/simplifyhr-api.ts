@@ -106,6 +106,43 @@ export interface SimplifyHrEmployeeRecord {
   compensationHistory: SimplifyHrCompensationChange[]
   jobHistory: SimplifyHrJobHistoryEntry[]
   directDeposit: SimplifyHrDirectDepositInfo[]
+  // Campos nuevos descubiertos en exploración del API
+  address?: {
+    line1?: string
+    line2?: string
+    city?: string
+    state?: string
+    zipCode?: string
+    display?: string
+  }
+  ssn?: string // Masked: "XXX-XX-1234"
+  createdDate?: string
+  modifiedDate?: string
+  createdBy?: string // Email de quien creó el registro (ej: "jennifer@cingularhr.com")
+  emergencyContact?: Array<{
+    name?: string
+    relationship?: string
+    phoneNumber?: string
+    email?: string
+  }>
+  totalYearlyHours?: Array<{ year?: number; hours?: number }>
+  timeOff?: Array<{
+    type?: string
+    startDate?: string
+    endDate?: string
+    hours?: number
+    status?: string
+  }>
+  availableTimeOff?: Array<{
+    type?: string // 'Unpaid', 'Sick', 'Vacation', etc.
+    usedHours?: number
+    availableHours?: number
+    totalHours?: number
+  }>
+  noOfPendingTimeOffRequest?: number
+  timeOffPolicies?: Array<{ id?: string; name?: string; type?: string }>
+  timeOffPoliciesType?: string
+  versionKey?: number
 }
 
 export interface SimplifyHrSiteInfo {
@@ -120,13 +157,117 @@ export interface SimplifyHrSiteInfo {
   ronosCompanyId?: number
   referenceSiteId?: string
   departments: Array<{ id: string; name: string; description?: string }>
+  // Campos nuevos descubiertos en exploración del API
+  siteManagers?: Array<{
+    firstName: string
+    lastName: string
+    emailAddress?: string
+    workPhoneNumber?: string
+    workPhoneExt?: string
+  }>
+  address?: {
+    line1?: string
+    line2?: string
+    city?: string
+    state?: string
+    zipCode?: string
+    display?: string
+  }
+  phoneNumber?: string
+  phoneNumberExt?: string | null
+  payPeriodStartDay?: string   // "Monday"
+  payPeriodEndDay?: string     // "Sunday"
+  payRollStartDate?: string    // ISO date
+  standardPayDaylag?: number   // Days lag for pay (e.g. 5)
+  parentId?: string
+  parentType?: string          // "Region"
+  ronosDepartmentMappings?: Array<{
+    departmentId: string
+    ronosDepartmentId: number
+    ronosDepartmentName: string
+  }>
+  ronosSyncStatus?: string     // "synced"
+  ronosLastSyncAttempt?: string
+  assignedHrRepId?: string
+  assignedSafetyCoordinatorId?: string
+  assignedHrProxyIds?: string[]
+  timeOffPolicies?: Array<{ id?: string; name?: string; type?: string }>
+}
+
+export interface SimplifyHrPaystub {
+  id: string
+  invoiceId?: string          // ID de la factura de Cingular — permite cruzar con invoices
+  invoiceItemId?: string
+  batchId?: string
+  userId: string
+  eorId?: string              // Employer of Record entity ID
+  siteId?: string
+  assignmentId?: string
+  checkDate?: string
+  periodStart?: string
+  periodEnd?: string
+  grossWages?: number         // Salario bruto del periodo
+  netPay?: number             // Pago neto (post-tax)
+  earnings?: Array<{
+    type?: string              // 'Regular', 'Overtime', 'Salary', 'Sick Pay', 'Mileage Non-Tax'
+    hours?: number
+    rate?: number
+    amount?: number
+  }>
+  employeeTaxes?: Array<{
+    type?: string              // 'FIT', 'FICA', 'SIT', 'SDI'
+    amount?: number
+  }>
+  employerTaxes?: Array<{
+    type?: string
+    amount?: number
+  }>
+  deductions?: Array<{
+    type?: string
+    amount?: number
+  }>
+  ytdGrossWages?: number      // Acumulado anual - Bruto
+  ytdNetPay?: number          // Acumulado anual - Neto
+  ytdFederalTax?: number
+  ytdStateTax?: number
+}
+
+/**
+ * Obtiene los recibos de nómina (paystubs) de un empleado por su userId.
+ * Incluye el invoiceId de Cingular para cruce con facturas.
+ */
+export async function getEmployeePaystubs(userId: string, limit = 10): Promise<SimplifyHrPaystub[]> {
+  try {
+    const result = await callSimplifyHrApi<any>('payroll/paystubs', {
+      params: { userId, limit }
+    })
+    // El API retorna { paystubs: [...] } o directamente un array
+    const stubs = Array.isArray(result) ? result : (result?.paystubs || [])
+    return stubs
+  } catch (err: any) {
+    console.warn(`No se pudieron obtener paystubs para userId=${userId}: ${err.message}`)
+    return []
+  }
+}
+
+/**
+ * Obtiene el detalle completo de un recibo de nómina (paystub) por su ID.
+ * Incluye: grossWages, netPay, earnings, taxes, deductions, YTD accumulators.
+ */
+export async function getPaystubDetail(paystubId: string): Promise<SimplifyHrPaystub | null> {
+  try {
+    return await callSimplifyHrApi<SimplifyHrPaystub>(`payroll/paystubs/${paystubId}`)
+  } catch (err: any) {
+    console.warn(`No se pudo obtener detalle del paystub ${paystubId}: ${err.message}`)
+    return null
+  }
 }
 
 // In-Memory Token Cache
 let cachedAuthSession: SimplifyHrAuthSession | null = null
 
-const DEFAULT_USER = process.env.SIMPLIFYHR_USER || 'Carlos.Velazquez@tacosgavilan.com'
-const DEFAULT_PASS = process.env.SIMPLIFYHR_PASS || '100Prechivas.com'
+const DEFAULT_USER = process.env.SIMPLIFYHR_USER || 'raquel@tacosgavilan.com'
+const DEFAULT_PASS = process.env.SIMPLIFYHR_PASS || 'Canasta@323'
 const BASE_API = 'https://prod.simplifyhros.com'
 
 /**
@@ -290,7 +431,21 @@ export async function getSimplifyHrEmployeeDetails(employeeId: string): Promise<
     isRonosSynced: raw.isRonosSynced ?? true,
     compensationHistory: raw.compensationHistory || [],
     jobHistory: raw.jobHistory || [],
-    directDeposit: raw.directDeposit || []
+    directDeposit: raw.directDeposit || [],
+    // Campos nuevos — dirección, SSN, auditoría, contactos de emergencia, PTO
+    address: raw.address || undefined,
+    ssn: raw.ssn || undefined,
+    createdDate: raw.createdDate || undefined,
+    modifiedDate: raw.modifiedDate || undefined,
+    createdBy: raw.createdBy || undefined,
+    emergencyContact: raw.emergencyContact || [],
+    totalYearlyHours: raw.totalYearlyHours || [],
+    timeOff: raw.timeOff || [],
+    availableTimeOff: raw.availableTimeOff || [],
+    noOfPendingTimeOffRequest: raw.noOfPendingTimeOffRequest ?? 0,
+    timeOffPolicies: raw.timeOffPolicies || [],
+    timeOffPoliciesType: raw.timeOffPoliciesType || undefined,
+    versionKey: raw.versionKey ?? undefined
   }
 }
 
@@ -366,5 +521,317 @@ export async function extractAllSimplifyHrSalaries(
     salaryCount: salaryEmployees.length,
     averageHourlyRate: avgHourly,
     employees: results.sort((a, b) => a.fullName.localeCompare(b.fullName))
+  }
+}
+
+/**
+ * Mapeo de Company ID de RONOS a Site ID de Simplify HR OS
+ */
+export const RONOS_TO_SIMPLIFY_SITE_MAP: Record<number, string> = {
+  34: '657a2e35555bf12601f56284',  // Lynwood
+  26: '657a2e19555bf12601f560f2',  // Hollywood
+  29: '657a2e1b555bf12601f5610a',  // Bell
+  30: '657a2e1d555bf12601f5611c',  // Broadway
+  31: '657a2e1e555bf12601f56132',  // LA Central
+  27: '657a2e20555bf12601f5614c',  // Huntington Park (Santa Fe HP en Simplify HR)
+  328: '657a2e23555bf12601f5616c', // Slauson
+  33: '657a2e26555bf12601f56194',  // South Gate
+  290: '657a2e28555bf12601f561ba', // Vernon / La Bodega (Almacén Central)
+  24: '657a2e2c555bf12601f561e6',  // Azusa
+  32: '657a2e2f555bf12601f5621c',  // Downey
+  37: '657a2e32555bf12601f5624e',  // La Puente
+  292: '657a2e38555bf12601f562c4', // Norwalk
+  25: '657a2e3c555bf12601f5630e',  // Rialto
+  35: '657a2e40555bf12601f56352',  // Santa Ana
+  36: '657a2e43555bf12601f563a0',  // West Covina
+}
+
+// In-Memory Rate Cache para acceso ultra-rápido en tiempo de cálculo
+let cachedSimplifyRates: Map<string, { payRate: number; billRate: number; otPayRate?: number | null; isSalaried: boolean; jobTitle: string }> | null = null
+let lastRatesSyncTime = 0
+
+/**
+ * Sincroniza y extrae las tarifas de Simplify HR OS para una tienda o todos los sitios disponibles
+ */
+export async function syncSimplifyHrRates(ronosCompanyId?: number): Promise<{
+  success: boolean
+  syncedCount: number
+  siteId: string
+  rates: Record<string, { payRate: number; billRate: number; otPayRate?: number | null; isSalaried: boolean; jobTitle: string }>
+}> {
+  try {
+    const siteId = (ronosCompanyId && RONOS_TO_SIMPLIFY_SITE_MAP[ronosCompanyId])
+      ? RONOS_TO_SIMPLIFY_SITE_MAP[ronosCompanyId]
+      : '657a2e35555bf12601f56284'
+
+    const data = await extractAllSimplifyHrSalaries(siteId, 5)
+    
+    if (!cachedSimplifyRates) {
+      cachedSimplifyRates = new Map()
+    }
+
+    const ratesObj: Record<string, { payRate: number; billRate: number; otPayRate?: number | null; isSalaried: boolean; jobTitle: string }> = {}
+
+    for (const emp of data.employees) {
+      const normName = emp.fullName.toLowerCase().trim().replace(/\s+/g, ' ')
+      const isSalaried = emp.payType === 'Yearly' || emp.payRate > 1000
+      const hourlyPay = isSalaried ? Math.round((emp.payRate / 2080) * 100) / 100 : emp.payRate
+      const billRate = Math.round(hourlyPay * 1.25976 * 100) / 100
+
+      const rateInfo = {
+        payRate: hourlyPay,
+        billRate,
+        otPayRate: emp.otPayRate,
+        isSalaried,
+        jobTitle: emp.title || emp.jobPosition || 'Employee'
+      }
+
+      cachedSimplifyRates.set(normName, rateInfo)
+      if (emp.employeeID) {
+        cachedSimplifyRates.set(`id:${emp.employeeID}`, rateInfo)
+      }
+      ratesObj[normName] = rateInfo
+    }
+
+    // Persistir salarios en Supabase (toast_employees y ronos_employee_mappings) en segundo plano
+    try {
+      const { supabaseAdmin } = await import('./supabase')
+      for (const emp of data.employees) {
+        const isSalaried = emp.payType === 'Yearly' || emp.payRate > 1000
+        const hourlyPay = isSalaried ? Math.round((emp.payRate / 2080) * 100) / 100 : emp.payRate
+        const parts = emp.fullName.trim().split(/\s+/)
+        const fName = parts[0]
+        const lName = parts.slice(1).join(' ')
+
+        // 1. Actualizar en toast_employees
+        const { data: existingToast } = await supabaseAdmin
+          .from('toast_employees')
+          .select('id, first_name, last_name, wage_data')
+          .ilike('first_name', `%${fName}%`)
+          .ilike('last_name', `%${parts[parts.length - 1]}%`)
+          .limit(2)
+
+        if (existingToast && existingToast.length > 0) {
+          for (const te of existingToast) {
+            const newWageData = [
+              {
+                wage: hourlyPay,
+                job_guid: 'simplify-hr-sync',
+                pay_type: emp.payType,
+                synced_from: 'simplify_hr',
+                synced_at: new Date().toISOString()
+              }
+            ]
+            await supabaseAdmin.from('toast_employees').update({ wage_data: newWageData }).eq('id', te.id)
+          }
+        }
+
+        // 2. Actualizar en ronos_employee_mappings
+        const { data: existingMap } = await supabaseAdmin
+          .from('ronos_employee_mappings')
+          .select('id, notes')
+          .ilike('ronos_full_name', `%${fName}%`)
+          .ilike('ronos_full_name', `%${parts[parts.length - 1]}%`)
+          .limit(2)
+
+        if (existingMap && existingMap.length > 0) {
+          for (const mapRow of existingMap) {
+            const notesObj = {
+              simplify_pay_rate: hourlyPay,
+              simplify_bill_rate: Math.round(hourlyPay * 1.25976 * 100) / 100,
+              is_salaried: isSalaried,
+              job_title: emp.title || emp.jobPosition || 'Employee',
+              synced_at: new Date().toISOString()
+            }
+            await supabaseAdmin.from('ronos_employee_mappings').update({ notes: JSON.stringify(notesObj) }).eq('id', mapRow.id)
+          }
+        }
+      }
+    } catch (dbErr: any) {
+      console.warn('Advertencia al persistir salarios en Supabase:', dbErr?.message)
+    }
+
+    lastRatesSyncTime = Date.now()
+
+    return {
+      success: true,
+      syncedCount: data.employees.length,
+      siteId,
+      rates: ratesObj
+    }
+  } catch (err: any) {
+    console.error('Error sincronizando tarifas de Simplify HR:', err.message)
+    return {
+      success: false,
+      syncedCount: 0,
+      siteId: '',
+      rates: {}
+    }
+  }
+}
+
+/**
+ * Consulta la tarifa en vivo o en caché de Simplify HR para un empleado
+ */
+export function getSimplifyHrRateForEmployee(nameOrId: string): { payRate: number; billRate: number; otPayRate?: number | null; isSalaried: boolean; jobTitle: string } | null {
+  if (!cachedSimplifyRates) return null
+  const key = nameOrId.toLowerCase().trim().replace(/\s+/g, ' ')
+  return cachedSimplifyRates.get(key) || cachedSimplifyRates.get(`id:${nameOrId}`) || null
+}
+
+/**
+ * Sincroniza las tarifas de TODAS las 16 tiendas de Tacos Gavilan desde Simplify HR OS
+ * usando las credenciales corporativas de Raquel (shr_hrproxy).
+ * Extrae los salarios reales, calcula las tarifas de facturación Cingular, y persiste todo en Supabase.
+ * 
+ * @returns Resumen de la sincronización con conteos por tienda y totales
+ */
+export async function syncAllStoresSimplifyHrRates(): Promise<{
+  success: boolean
+  totalSynced: number
+  totalStores: number
+  storeResults: Array<{
+    ronosCompanyId: number
+    storeName: string
+    siteId: string
+    employeeCount: number
+    success: boolean
+    error?: string
+  }>
+  allRates: Record<string, { payRate: number; billRate: number; otPayRate?: number | null; isSalaried: boolean; jobTitle: string; storeName: string }>
+}> {
+  const storeResults: Array<{
+    ronosCompanyId: number
+    storeName: string
+    siteId: string
+    employeeCount: number
+    success: boolean
+    error?: string
+  }> = []
+
+  const allRates: Record<string, { payRate: number; billRate: number; otPayRate?: number | null; isSalaried: boolean; jobTitle: string; storeName: string }> = {}
+
+  // Mapeo de RONOS company IDs a nombres legibles
+  const STORE_NAMES: Record<number, string> = {
+    34: 'Lynwood', 26: 'Hollywood', 29: 'Bell', 30: 'Broadway',
+    31: 'LA Central', 27: 'Huntington Park', 328: 'Slauson',
+    33: 'South Gate', 290: 'Vernon (Bodega)', 24: 'Azusa',
+    32: 'Downey', 37: 'La Puente', 292: 'Norwalk',
+    25: 'Rialto', 35: 'Santa Ana', 36: 'West Covina'
+  }
+
+   if (!cachedSimplifyRates) {
+    cachedSimplifyRates = new Map()
+  }
+
+  let totalSynced = 0
+  const storeEntries = Object.entries(RONOS_TO_SIMPLIFY_SITE_MAP)
+
+  // Procesar tiendas en paralelo (4 tiendas simultáneas, cada una con 15 llamadas concurrentes)
+  const STORE_BATCH_SIZE = 4
+  for (let si = 0; si < storeEntries.length; si += STORE_BATCH_SIZE) {
+    const storeBatch = storeEntries.slice(si, si + STORE_BATCH_SIZE)
+
+    const batchResults = await Promise.allSettled(
+      storeBatch.map(async ([companyIdStr, siteId]) => {
+        const companyId = Number(companyIdStr)
+        const storeName = STORE_NAMES[companyId] || `Company ${companyId}`
+
+        try {
+          console.log(`📡 Extrayendo salarios de ${storeName}...`)
+          const data = await extractAllSimplifyHrSalaries(siteId, 15) // 15 llamadas concurrentes por tienda
+
+          for (const emp of data.employees) {
+            if (!emp.payRate || emp.payRate <= 0) continue
+
+            const normName = emp.fullName.toLowerCase().trim().replace(/\s+/g, ' ')
+            const isSalaried = emp.payType === 'Yearly' || emp.payRate > 1000
+            const hourlyPay = isSalaried ? Math.round((emp.payRate / 2080) * 100) / 100 : emp.payRate
+            const billRate = Math.round(hourlyPay * 1.25976 * 100) / 100
+            const otBillRate = isSalaried ? billRate : Math.round(hourlyPay * 1.5 * 1.25976 * 100) / 100
+
+            const rateInfo = {
+              payRate: hourlyPay,
+              billRate,
+              otPayRate: emp.otPayRate || (isSalaried ? null : hourlyPay * 1.5),
+              isSalaried,
+              jobTitle: emp.title || emp.jobPosition || 'Employee',
+              storeName
+            }
+
+            cachedSimplifyRates!.set(normName, rateInfo)
+            allRates[normName] = rateInfo
+          }
+
+          console.log(`  ✅ ${storeName}: ${data.employees.length} empleados (${data.hourlyCount} hourly, ${data.salaryCount} salaried)`)
+          return { ronosCompanyId: companyId, storeName, siteId, employeeCount: data.employees.length, success: true as const }
+        } catch (err: any) {
+          console.error(`  ❌ Error en ${storeName}: ${err.message}`)
+          return { ronosCompanyId: companyId, storeName, siteId, employeeCount: 0, success: false as const, error: err.message }
+        }
+      })
+    )
+
+    // Recolectar resultados del batch
+    for (const result of batchResults) {
+      if (result.status === 'fulfilled') {
+        storeResults.push(result.value)
+        totalSynced += result.value.employeeCount
+      } else {
+        console.error('Store batch error:', result.reason)
+      }
+    }
+  }
+
+  // Persistir en Supabase — actualizar toast_employees y ronos_employee_mappings
+  try {
+    const { supabaseAdmin } = await import('./supabase')
+    let persistedCount = 0
+
+    for (const [normName, rate] of Object.entries(allRates)) {
+      const parts = normName.split(' ')
+      const fName = parts[0]
+      const lName = parts[parts.length - 1]
+
+      // Buscar en toast_employees por nombre
+      const { data: matches } = await supabaseAdmin
+        .from('toast_employees')
+        .select('id')
+        .ilike('first_name', `%${fName}%`)
+        .ilike('last_name', `%${lName}%`)
+        .limit(3)
+
+      if (matches && matches.length > 0) {
+        for (const match of matches) {
+          await supabaseAdmin.from('toast_employees').update({
+            wage_data: [{
+              wage: rate.payRate,
+              job_guid: 'simplify-hr-sync',
+              pay_type: rate.isSalaried ? 'Yearly' : 'Hourly',
+              bill_rate: rate.billRate,
+              ot_bill_rate: rate.otPayRate ? Math.round(rate.otPayRate * 1.25976 * 100) / 100 : null,
+              synced_from: 'simplify_hr_raquel',
+              synced_at: new Date().toISOString(),
+              store: rate.storeName
+            }]
+          }).eq('id', match.id)
+          persistedCount++
+        }
+      }
+    }
+
+    console.log(`\n💾 Persistidos ${persistedCount} registros de toast_employees en Supabase`)
+  } catch (dbErr: any) {
+    console.warn('⚠️ Error persistiendo en Supabase:', dbErr?.message)
+  }
+
+  lastRatesSyncTime = Date.now()
+
+  return {
+    success: storeResults.every(r => r.success),
+    totalSynced,
+    totalStores: storeResults.length,
+    storeResults,
+    allRates
   }
 }

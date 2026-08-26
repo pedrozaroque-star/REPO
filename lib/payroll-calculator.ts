@@ -26,6 +26,7 @@
 
 import { supabaseAdmin } from './supabase'
 import { RONOS_STORES_MAP, getRonosStoreAudit } from './ronos-api'
+import { getSimplifyHrRateForEmployee } from './simplifyhr-api'
 
 export const CINGULAR_HOURLY_MARKUP_FACTOR = 1.25976 // ~25.98% markup factor
 export const DEFAULT_BASE_HOURLY_RATE = 16.90 // California QSR baseline
@@ -184,6 +185,30 @@ export const CINGULAR_RATE_OVERRIDES: Record<string, { payRate: number; billRate
   'yesenia catarina vasquez huinac': { payRate: 18.42, billRate: 23.21, otBillRate: 34.82 },
   'yesenia vasquez': { payRate: 18.42, billRate: 23.21, otBillRate: 34.82 },
 
+  // Sucursal Azusa (TEG - Azusa #4 / Company ID: 24 / TEGA-0009)
+  'lucia reyes rubi': { payRate: 33.80, billRate: 42.08 }, // GM $70,304/yr ($33.80/hr -> $2,704.00 bi-weekly / $3,366.40 billed)
+  'lucia reyes': { payRate: 33.80, billRate: 42.08 },
+  'yadira sanchez': { payRate: 20.90, billRate: 26.33, otBillRate: 39.50 },
+  'abraham lopez morales': { payRate: 20.90, billRate: 26.33, otBillRate: 39.50 },
+  'abraham lopez': { payRate: 20.90, billRate: 26.33, otBillRate: 39.50 },
+  'jacob antonio jacinto': { payRate: 20.90, billRate: 26.33, otBillRate: 39.50 },
+  'jacob jacinto': { payRate: 20.90, billRate: 26.33, otBillRate: 39.50 },
+  'antonio lorenzo': { payRate: 18.90, billRate: 23.81, otBillRate: 35.72 },
+  'antonio lorenzo martinez': { payRate: 18.90, billRate: 23.81, otBillRate: 35.72 },
+  'isaias moreno': { payRate: 18.40, billRate: 23.18, otBillRate: 34.77 },
+  'ramon ruesga': { payRate: 18.15, billRate: 22.87, otBillRate: 34.31 },
+  'deysi rosales valdivia': { payRate: 17.90, billRate: 22.55, otBillRate: 33.83 },
+  'deysi valdivia': { payRate: 17.90, billRate: 22.55, otBillRate: 33.83 },
+  'belgine martinez': { payRate: 16.90, billRate: 21.29, otBillRate: 31.94 },
+  'julieta lopez': { payRate: 16.90, billRate: 21.29, otBillRate: 31.94 },
+  'lucy valenzuela': { payRate: 16.90, billRate: 21.29, otBillRate: 31.94 },
+  'luis miguel tetatzin temeca': { payRate: 16.90, billRate: 21.29, otBillRate: 31.94 },
+  'luis miguel tetatzin': { payRate: 16.90, billRate: 21.29, otBillRate: 31.94 },
+  'miguel jimenez': { payRate: 16.90, billRate: 21.29, otBillRate: 31.94 },
+  'valentina lopez': { payRate: 16.90, billRate: 21.29, otBillRate: 31.94 },
+  'jenifer janet brandon salvatierra': { payRate: 16.90, billRate: 21.29, otBillRate: 31.94 },
+  'jenifer blandon': { payRate: 16.90, billRate: 21.29, otBillRate: 31.94 },
+
   // Sucursal Slauson (TEG - Slauson #7 / Company ID: 328)
   'jesus ramos': { payRate: 35.65, billRate: 44.38 }, // General Manager (Salaried)
   'alfonso alarcon': { payRate: 23.43, billRate: 29.52, otBillRate: 44.28 },
@@ -222,6 +247,17 @@ export const CINGULAR_RATE_OVERRIDES: Record<string, { payRate: number; billRate
 }
 
 /**
+ * Empleados que Cingular factura bajo otra entidad/tienda aunque ponchen en la sucursal
+ * indicada en RONOS. Se excluyen del cálculo de la tienda donde poncharon.
+ * Clave = ronosCompanyId, Valor = lista de fragmentos de nombre normalizados (lowercase)
+ */
+const CINGULAR_EMPLOYEE_EXCLUSIONS: Record<number, string[]> = {
+  // Azusa (#4 / TEGA / Company 24): Arnoldo y Ricardo son facturados por Cingular
+  // bajo otra entidad, no aparecen en invoice TEGA-0009
+  24: ['arnoldo balladares', 'ricardo joel escobar'],
+}
+
+/**
  * Determina si un colaborador es asalariado (Exempt) o por hora (Non-Exempt)
  */
 export function isEmployeeSalaried(jobTitle?: string, fullName?: string): boolean {
@@ -245,7 +281,8 @@ export function isEmployeeSalaried(jobTitle?: string, fullName?: string): boolea
     name.includes('jovana garcia') ||
     name.includes('carlos velazquez') ||
     name.includes('jesus ramos') ||
-    name.includes('aaron hernandez')
+    name.includes('aaron hernandez') ||
+    name.includes('lucia reyes')
   ) {
     return true
   }
@@ -269,7 +306,19 @@ export async function calculateCingularPayrollReport(
     ronosName: `Store #${ronosCompanyId}`
   }
 
-  // 1. Obtener tarjetas de tiempo de Supabase
+  // 1. Obtener rango de fechas de las semanas
+  const { data: wWeeks } = await supabaseAdmin
+    .from('ronos_work_weeks')
+    .select('start_date, end_date')
+    .in('week_id', weekIds)
+    .order('start_date', { ascending: true })
+
+  const periodStartDate = wWeeks && wWeeks[0]?.start_date ? wWeeks[0].start_date.substring(0, 10) : ''
+  const periodEndDate = wWeeks && wWeeks.length > 0 && wWeeks[wWeeks.length - 1]?.end_date
+    ? wWeeks[wWeeks.length - 1].end_date.substring(0, 10)
+    : ''
+
+  // 2. Obtener tarjetas de tiempo de Supabase
   let { data: timecards, error: tErr } = await supabaseAdmin
     .from('ronos_employee_timecards_cache')
     .select('*')
@@ -316,9 +365,9 @@ export async function calculateCingularPayrollReport(
 
   if (toastEmps && Array.isArray(toastEmps)) {
     toastEmps.forEach(te => {
-      const fName = (te.first_name || '').trim().toLowerCase()
-      const lName = (te.last_name || '').trim().toLowerCase()
-      const normalizedName = `${fName} ${lName}`.trim()
+      const fName = (te.first_name || '').trim().toLowerCase().replace(/\s+/g, ' ')
+      const lName = (te.last_name || '').trim().toLowerCase().replace(/\s+/g, ' ')
+      const normalizedName = `${fName} ${lName}`.trim().replace(/\s+/g, ' ')
       if (Array.isArray(te.wage_data) && te.wage_data.length > 0) {
         const w = Number(te.wage_data[0]?.wage)
         if (w > 0) {
@@ -334,6 +383,32 @@ export async function calculateCingularPayrollReport(
         }
       }
     })
+  }
+
+  // 2b. Detectar empleados que Cingular factura en otra entidad/tienda
+  // Hay dos fuentes:
+  //  A) CINGULAR_EMPLOYEE_EXCLUSIONS: Empleados verificados manualmente que Cingular no incluye
+  //     en la factura de esta tienda (ej: los factura bajo otra razón social o sucursal)
+  //  B) ronos_employee_mappings: Empleados mapeados a otra tienda en nuestro sistema
+  const transferredOutUserIds = new Set<number>()
+
+  // Fuente A: Exclusiones verificadas por nombre (Cingular los factura en otra entidad)
+  const storeExclusions = CINGULAR_EMPLOYEE_EXCLUSIONS[ronosCompanyId] || []
+
+  // Fuente B: Mapeos en otras tiendas desde ronos_employee_mappings
+  const { data: allMappings } = await supabaseAdmin
+    .from('ronos_employee_mappings')
+    .select('ronos_employee_user_id, ronos_company_id, ronos_full_name')
+
+  if (allMappings && allMappings.length > 0) {
+    const thisStoreUserIds = new Set((timecards || []).map(tc => tc.employee_user_id).filter(Boolean))
+    for (const m of allMappings) {
+      const uid = m.ronos_employee_user_id
+      if (!uid) continue
+      if (m.ronos_company_id !== ronosCompanyId && thisStoreUserIds.has(uid)) {
+        transferredOutUserIds.add(uid)
+      }
+    }
   }
 
   // 3. Agrupar horas por colaborador para el periodo (semana simple o bisemanal)
@@ -360,6 +435,10 @@ export async function calculateCingularPayrollReport(
     const cardName = (card.full_name || `${card.first_name || ''} ${card.last_name || ''}`).toLowerCase()
     // Omitir colaborador fantasma/placeholder del sistema RONOS
     if (cardName.includes('manager default')) return
+    // Fix #1a: Omitir empleados transferidos por UID (detectados vía ronos_employee_mappings)
+    if (transferredOutUserIds.has(uId)) return
+    // Fix #1b: Omitir empleados excluidos por nombre (Cingular los factura en otra entidad)
+    if (storeExclusions.some(excl => cardName.includes(excl))) return
 
     let agg = empAggregation.get(uId)
     if (!agg) {
@@ -397,25 +476,49 @@ export async function calculateCingularPayrollReport(
   const employeeItems: CingularEmployeePayrollItem[] = []
 
   empAggregation.forEach((agg, uId) => {
-    const normName = agg.fullName.toLowerCase()
+    const normName = agg.fullName.toLowerCase().trim().replace(/\s+/g, ' ')
     const detectedTitle = titleMap.get(normName) || agg.jobTitle || 'Crew'
     const salaried = isEmployeeSalaried(detectedTitle, agg.fullName)
 
-    // Determinar Pay Rate & Bill Rate (Prioridad: Registros Verificados Cingular -> Toast Wage Data -> Default)
+    // Determinar Pay Rate & Bill Rate (Prioridad: Simplify HR Live Rates -> Registros Verificados Cingular -> Toast Wage Data -> Default)
     let payRate = 0
     let billRate = 0
     let otBillRate = 0
 
-    // Buscar en tarifas conocidas de Cingular
-    for (const [key, val] of Object.entries(CINGULAR_RATE_OVERRIDES)) {
-      if (normName.includes(key) || key.includes(normName)) {
-        payRate = val.payRate
-        billRate = val.billRate
-        otBillRate = val.otBillRate || 0
-        break
+    // 1. Buscar en tarifas maestras verificadas de Cingular (calibradas contra invoice real)
+    // Fix #3: Primero buscar coincidencia exacta para evitar falsos positivos
+    const exactOverride = CINGULAR_RATE_OVERRIDES[normName]
+    if (exactOverride) {
+      payRate = exactOverride.payRate
+      billRate = exactOverride.billRate
+      otBillRate = exactOverride.otBillRate || 0
+    }
+    // Si no hay exacta, buscar coincidencia parcial con longitud mínima de 8 caracteres
+    if (payRate <= 0) {
+      for (const [key, val] of Object.entries(CINGULAR_RATE_OVERRIDES)) {
+        if (key.length < 8) continue // Evitar matches con nombres muy cortos (ej: "jose")
+        if (normName.includes(key) || key.includes(normName)) {
+          payRate = val.payRate
+          billRate = val.billRate
+          otBillRate = val.otBillRate || 0
+          break
+        }
       }
     }
 
+    // 2. Buscar en Simplify HR OS (Tarifas Reales del PEO — fallback para tiendas sin override)
+    if (payRate <= 0) {
+      const simplifyRate = getSimplifyHrRateForEmployee(normName) || (agg.pin ? getSimplifyHrRateForEmployee(agg.pin) : null)
+      if (simplifyRate && simplifyRate.payRate > 0) {
+        payRate = simplifyRate.payRate
+        billRate = simplifyRate.billRate
+        if (simplifyRate.otPayRate) {
+          otBillRate = Number((simplifyRate.otPayRate * 1.25976).toFixed(2))
+        }
+      }
+    }
+
+    // 3. Buscar en Toast Wage Data
     if (payRate <= 0) {
       payRate = wageMap.get(normName) || 0
     }
@@ -495,13 +598,23 @@ export async function calculateCingularPayrollReport(
       }
     } else {
       agg.rawCards.forEach(card => {
-        const cReg = Number((card.regular_hours || 0).toFixed(2))
+        let cReg = Number((card.regular_hours || 0).toFixed(2))
         const cOt = Number((card.overtime_hours || 0).toFixed(2))
         const cDt = Number((card.double_time_hours || 0).toFixed(2))
         const cMeal = Number((card.meal_penalty_count || 0).toFixed(2))
         const cSick = Number((card.sick_hours || 0).toFixed(2))
         const cVac = Number((card.vacation_hours || 0).toFixed(2))
         const cHol = Number((card.holiday_hours || 0).toFixed(2))
+
+        // Fix #2: Cuando un empleado tiene horas de Sick Pay >= horas regulares y no tiene OT/DT,
+        // Cingular trata el Sick Pay como reemplazo de las horas regulares (no las suma).
+        // Observado en invoice TEGA-0009: Jenifer tenía 11.26 hrs regulares + 16 hrs sick en RONOS,
+        // pero Cingular solo facturó las 16 hrs de sick, omitiendo las 11.26 regulares.
+        // Regla: Si sick >= regular Y no hay OT ni DT, las regulares son cubiertas por el sick.
+        if (cSick > 0 && cSick >= cReg && cOt === 0 && cDt === 0) {
+          cReg = 0
+        }
+
         const cOther = cMeal + cSick + cVac + cHol
 
         regHrs += cReg
@@ -627,8 +740,8 @@ export async function calculateCingularPayrollReport(
     storeCode: storeMeta.tegCode,
     storeName: storeMeta.tegName,
     ronosCompanyId,
-    periodStartDate: '',
-    periodEndDate: '',
+    periodStartDate,
+    periodEndDate,
     isBiWeekly,
     totalEmployees,
     salariedCount,

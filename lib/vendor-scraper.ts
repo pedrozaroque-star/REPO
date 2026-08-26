@@ -95,15 +95,15 @@ async function syncVieleViaCurl(user: string, pass: string): Promise<VieleApiRes
       '-o', process.platform === 'win32' ? 'NUL' : '/dev/null'
     ])
 
-    // 3. GET API v3 Order Entry JSON
+    // 3. GET API v3 Order Guide JSON (87 items de Tacos Gavilan)
     const { stdout } = await execFileAsync(curlBin, [
       '-s',
       '-b', cookieFile,
-      'https://shop.vieleandsons.com/api/v3/order_entry',
+      'https://shop.vieleandsons.com/api/v3/order_guide',
       '-H', 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
       '-H', 'Accept: application/json, text/javascript, */*; q=0.01',
       '-H', 'X-Requested-With: XMLHttpRequest',
-      '-H', 'Referer: https://shop.vieleandsons.com/orderentry/',
+      '-H', 'Referer: https://shop.vieleandsons.com/orderguide_new/',
       '--connect-timeout', '10',
       '--max-time', '25'
     ])
@@ -127,7 +127,7 @@ async function syncVieleViaCurl(user: string, pass: string): Promise<VieleApiRes
  */
 async function syncVieleViaFetch(user: string, pass: string): Promise<VieleApiResponse> {
   const LOGIN_URL = 'https://shop.vieleandsons.com/login/'
-  const DATA_API_URL = 'https://shop.vieleandsons.com/api/v3/order_entry'
+  const DATA_API_URL = 'https://shop.vieleandsons.com/api/v3/order_guide'
 
   // Paso 1: GET sesión
   const initialRes = await fetch(LOGIN_URL, {
@@ -176,7 +176,7 @@ async function syncVieleViaFetch(user: string, pass: string): Promise<VieleApiRe
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
       'Accept': 'application/json, text/javascript, */*; q=0.01',
       'X-Requested-With': 'XMLHttpRequest',
-      'Referer': 'https://shop.vieleandsons.com/orderentry/',
+      'Referer': 'https://shop.vieleandsons.com/orderguide_new/',
       'Cookie': cookieJar,
     },
     signal: AbortSignal.timeout(15000)
