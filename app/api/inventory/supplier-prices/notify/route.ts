@@ -24,14 +24,15 @@ export async function POST(request: NextRequest) {
       supplierName = 'Viele & Sons',
       supplierCode = 'VIELE',
       increases = [],
+      decreases = [],
       netAnnualImpactUsd = 0,
       recipients = DEFAULT_PRICE_ALERT_RECIPIENTS
     } = body
 
-    if (!increases || increases.length === 0) {
+    if ((!increases || increases.length === 0) && (!decreases || decreases.length === 0)) {
       return NextResponse.json({
         success: false,
-        error: 'No se enviaron insumos con aumento de precio.'
+        error: 'No se enviaron variaciones de precios (aumentos ni rebajas) para notificar.'
       }, { status: 400 })
     }
 
@@ -41,6 +42,7 @@ export async function POST(request: NextRequest) {
       detectedAt: new Date(),
       sourceType: 'manual_review',
       increases,
+      decreases,
       netAnnualImpactUsd,
       recipients,
       isTest: false
@@ -57,7 +59,8 @@ export async function POST(request: NextRequest) {
       success: true,
       messageId: emailResult.messageId,
       recipients: emailResult.recipients,
-      totalItemsNotified: increases.length,
+      totalIncreasesNotified: increases.length,
+      totalDecreasesNotified: decreases.length,
       netAnnualImpactUsd
     })
   } catch (error: any) {

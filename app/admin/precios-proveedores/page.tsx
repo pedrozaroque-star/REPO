@@ -485,11 +485,13 @@ export default function SupplierPricesPage() {
 
   const activeSupplier = suppliers.find(s => s.id === selectedSupplierId)
 
-  // Disparo manual de alerta por correo a directivos
+  // Disparo manual de alerta por correo a directivos (Aumentos y/o Rebajas de Precios)
   const handleSendEmailAlert = async () => {
     const increases = radarItems.filter(i => i.status === 'increased')
-    if (increases.length === 0) {
-      setErrorMessage(language === 'en' ? 'No price increases detected to notify.' : 'No se detectaron aumentos de precio para notificar.')
+    const decreases = radarItems.filter(i => i.status === 'decreased')
+
+    if (increases.length === 0 && decreases.length === 0) {
+      setErrorMessage(language === 'en' ? 'No price changes (increases or drops) detected to notify.' : 'No se detectaron variaciones de precio (aumentos ni rebajas) para notificar.')
       return
     }
 
@@ -510,7 +512,20 @@ export default function SupplierPricesPage() {
         annualImpactUsd: i.annualImpactUsd
       }))
 
-      const netAnnual = payloadIncreases.reduce((sum, item) => sum + item.annualImpactUsd, 0)
+      const payloadDecreases = decreases.map(i => ({
+        supplierSku: i.supplierSku,
+        description: i.masterItemName || i.description,
+        packUnit: i.packUnit,
+        packQuantity: i.packQuantity,
+        previousCasePrice: i.currentCasePrice,
+        newCasePrice: i.newCasePrice,
+        diffAmount: i.diffAmount,
+        changePercent: i.changePercent,
+        annualVolume: i.annualEstimatedCases || ESTIMATED_ANNUAL_VOLUMES[i.supplierSku] || DEFAULT_ANNUAL_VOLUME,
+        annualImpactUsd: i.annualImpactUsd
+      }))
+
+      const netAnnual = [...payloadIncreases, ...payloadDecreases].reduce((sum, item) => sum + item.annualImpactUsd, 0)
 
       const res = await fetch('/api/inventory/supplier-prices/notify', {
         method: 'POST',
@@ -519,6 +534,7 @@ export default function SupplierPricesPage() {
           supplierName: activeSupplier?.name || 'Viele & Sons',
           supplierCode: activeSupplier?.supplier_code || 'VIELE',
           increases: payloadIncreases,
+          decreases: payloadDecreases,
           netAnnualImpactUsd: netAnnual
         })
       })
@@ -861,27 +877,44 @@ export default function SupplierPricesPage() {
                     />
                   </div>
 
-                  {/* Botón de Enviar Alerta por Correo a Directivos */}
-                  {radarItems.some(i => i.status === 'increased') && (
-                    <button
-                      onClick={handleSendEmailAlert}
-                      disabled={isSendingEmail}
-                      className="flex items-center gap-2 px-4 py-2 bg-red-50 hover:bg-red-100 dark:bg-red-950/40 dark:hover:bg-red-900/60 border border-red-200 dark:border-red-800/60 text-red-700 dark:text-red-300 rounded-xl text-xs font-bold shadow-xs transition-all shrink-0 cursor-pointer disabled:opacity-50"
-                      title={language === 'en' ? 'Send email alert to Roberto, Raquel, Gonzalo & Carlos' : 'Enviar alerta por correo a Roberto, Raquel, Gonzalo y Carlos'}
-                    >
-                      {isSendingEmail ? (
-                        <>
-                          <RefreshCw size={14} className="animate-spin text-red-600 dark:text-red-400" />
-                          <span>{language === 'en' ? 'Sending...' : 'Enviando Alerta...'}</span>
-                        </>
-                      ) : (
-                        <>
-                          <Mail size={15} className="text-red-600 dark:text-red-400" />
-                          <span>{language === 'en' ? 'Email Executives (4)' : '📧 Notificar a Directivos (4)'}</span>
-                        </>
-                      )}
-                    </button>
-                  )}
+                  {/* Botón de Enviar Alerta por Correo a Directivos (Aumentos y/o Ahorros) */}
+                  {radarItems.some(i => i.status === 'increased' || i.status === 'decreased') && (() => {
+                    const hasInc = radarItems.some(i => i.status === 'increased')
+                    const hasDec = radarItems.some(i => i.status === 'decreased')
+                    const isOnlyDec = !hasInc && hasDec
+                    const isOnlyInc = hasInc && !hasDec
+
+                    const btnClass = isOnlyDec
+                      ? "flex items-center gap-2 px-4 py-2 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/60 border border-emerald-200 dark:border-emerald-800/60 text-emerald-700 dark:text-emerald-300 rounded-xl text-xs font-bold shadow-xs transition-all shrink-0 cursor-pointer disabled:opacity-50"
+                      : "flex items-center gap-2 px-4 py-2 bg-red-50 hover:bg-red-100 dark:bg-red-950/40 dark:hover:bg-red-900/60 border border-red-200 dark:border-red-800/60 text-red-700 dark:text-red-300 rounded-xl text-xs font-bold shadow-xs transition-all shrink-0 cursor-pointer disabled:opacity-50"
+
+                    const btnText = isOnlyDec
+                      ? (language === 'en' ? '🎉 Email Savings (4)' : '🎉 Notificar Ahorros (4)')
+                      : isOnlyInc
+                      ? (language === 'en' ? '🚨 Email Increases (4)' : '🚨 Notificar Aumentos (4)')
+                      : (language === 'en' ? '📧 Email Alerts & Savings (4)' : '📧 Notificar Alertas & Ahorros (4)')
+
+                    return (
+                      <button
+                        onClick={handleSendEmailAlert}
+                        disabled={isSendingEmail}
+                        className={btnClass}
+                        title={language === 'en' ? 'Send price variations email to Roberto, Raquel, Gonzalo & Carlos' : 'Enviar reporte de variaciones por correo a Roberto, Raquel, Gonzalo y Carlos'}
+                      >
+                        {isSendingEmail ? (
+                          <>
+                            <RefreshCw size={14} className="animate-spin" />
+                            <span>{language === 'en' ? 'Sending...' : 'Enviando...'}</span>
+                          </>
+                        ) : (
+                          <>
+                            <Mail size={15} />
+                            <span>{btnText}</span>
+                          </>
+                        )}
+                      </button>
+                    )
+                  })()}
 
                   {/* Botón de Aprobar Precios */}
                   <button

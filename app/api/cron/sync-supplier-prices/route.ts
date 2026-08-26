@@ -114,6 +114,7 @@ async function handleSync(request: NextRequest) {
     let netAnnualImpactUsd = 0
     const historyInserts: any[] = []
     const increasesForEmail: PriceIncreaseItem[] = []
+    const decreasesForEmail: PriceIncreaseItem[] = []
     const todayStr = new Date().toISOString().split('T')[0]
 
     for (const parsed of scrapeResult.items) {
@@ -178,7 +179,21 @@ async function handleSync(request: NextRequest) {
       } else if (diffAmount < -0.009) {
         totalDecreases++
         const annualVol = ESTIMATED_ANNUAL_VOLUMES[parsed.supplierSku] || DEFAULT_ANNUAL_VOLUME
-        netAnnualImpactUsd += diffAmount * annualVol
+        const annualImpact = diffAmount * annualVol
+        netAnnualImpactUsd += annualImpact
+
+        decreasesForEmail.push({
+          supplierSku: parsed.supplierSku,
+          description: mapping?.supplier_description || parsed.description || masterItem.name,
+          packUnit: mapping?.pack_unit || parsed.packUnit,
+          packQuantity: packQty,
+          previousCasePrice: currentCasePrice,
+          newCasePrice: newCasePrice,
+          diffAmount,
+          changePercent,
+          annualVolume: annualVol,
+          annualImpactUsd: Number(annualImpact.toFixed(2))
+        })
 
         const dedupeKey = `${parsed.supplierSku}|${newCasePrice.toFixed(2)}`
         if (recentCronSet.has(dedupeKey)) {
@@ -211,17 +226,18 @@ async function handleSync(request: NextRequest) {
       console.log(`[Cron:SyncSupplierPrices] ℹ️ ${totalSkippedDuplicates} variaciones ya registradas previamente, sin duplicados insertados.`)
     }
 
-    // 7. Enviar Alerta por Correo a Directivos si se detectaron aumentos
+    // 7. Enviar Alerta por Correo a Directivos si se detectaron variaciones (Aumentos o Rebajas de Precio)
     let emailAlertSent = false
     let emailMessageId: string | undefined
-    if (increasesForEmail.length > 0) {
-      console.log(`[Cron:SyncSupplierPrices] 📧 Enviando alerta de aumentos (${increasesForEmail.length} items) a la directiva...`)
+    if (increasesForEmail.length > 0 || decreasesForEmail.length > 0) {
+      console.log(`[Cron:SyncSupplierPrices] 📧 Enviando alerta de precios (${increasesForEmail.length} aumentos, ${decreasesForEmail.length} rebajas) a la directiva...`)
       const emailResult = await sendSupplierPriceAlertEmail({
         supplierName: 'Viele & Sons',
         supplierCode: 'VIELE',
         detectedAt: new Date(),
         sourceType: 'cron_auto',
         increases: increasesForEmail,
+        decreases: decreasesForEmail,
         netAnnualImpactUsd
       })
       emailAlertSent = emailResult.success
