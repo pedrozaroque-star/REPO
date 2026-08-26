@@ -406,6 +406,21 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                 {
                     name: (
                         <div className="flex items-center gap-2">
+                            <span>{t('items.ronos') || 'Auditoría RONOS (Labor)'}</span>
+                            <span className="text-[10px] bg-amber-100 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 border border-amber-300 dark:border-amber-700 px-1.5 py-0.5 rounded font-black tracking-widest">NUEVO</span>
+                        </div>
+                    ),
+                    plainName: 'Auditoría RONOS (Labor)',
+                    path: '/admin/ronos',
+                    icon: <Clock size={20} />,
+                    roles: ['admin', 'manager', 'supervisor'],
+                    tooltip: language === 'en'
+                        ? 'Live timecard audit, time clock camera photos, meal penalty leakage & 15-store compliance (Auditoría de ponchadas, fotos y multas Cingular HR)'
+                        : 'Auditoría en vivo de ponchadas, fotos de reloj checador, penalizaciones de lunch y cumplimiento Cingular HR'
+                },
+                {
+                    name: (
+                        <div className="flex items-center gap-2">
                             <span>{t('items.self_scheduling')}</span>
                             <span className="text-[10px] bg-purple-100 dark:bg-purple-950/60 text-purple-600 dark:text-purple-400 border border-purple-300 dark:border-purple-700 px-1.5 py-0.5 rounded font-black tracking-widest">BETA</span>
                         </div>

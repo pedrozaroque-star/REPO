@@ -10,7 +10,7 @@ with open(source, "r", encoding="utf-8") as f:
 # Replace general headers and stats
 content = content.replace("Julio 2026", "Agosto 2026")
 content = content.replace("Horas Julio", "Horas Agosto")
-content = content.replace("117.8", "16.5")
+content = content.replace("117.8", "19.5")
 
 # Replace table body using regex
 content = re.sub(r"<tbody>.*?</tbody>", """<tbody>
@@ -83,6 +83,18 @@ content = re.sub(r"<tbody>.*?</tbody>", """<tbody>
                                     <div class="lang-split">
                                          <div class="es-desc">- **Horarios (Notificaciones de Violaciones)**: Habilitación de notificaciones por correo electrónico para violaciones de ALMUERZO (LUNCH breaks), alertando automáticamente cuando un empleado no toma su descanso de comida requerido dentro del período establecido.</div>
                                          <div class="en-desc">- **Schedules (Violation Notifications)**: Enabled email notifications for LUNCH break violations, automatically alerting when an employee fails to take their required meal break within the established period.</div>
+                                    </div>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td><strong>24-Aug-2026</strong></td>
+                                <td>10:30 PM - 12:30 AM</td>
+                                <td style="text-align: center; font-weight: 700;">3.0</td>
+                                <td><span class="table-badge-module">Horarios Móvil</span> <span class="table-badge-module">Auditoría Exhaustiva</span> <span class="table-badge-module">QA & Suite</span></td>
+                                <td>
+                                    <div class="lang-split">
+                                         <div class="es-desc">- **Horarios (Replicación Inteligente)**: Corrección del umbral de detección de semanas incompletas al 50% para permitir copiar horarios incluso cuando existan turnos parciales o adelantados (caso Azusa).<br>- **Horarios (Versión Móvil Dedicada)**: Diseño e implementación de interfaz táctil responsiva optimizada para teléfonos de supervisores: selector de semanas (Semana 1 vs Semana 2), pestañas de filtro por sucursal con semáforo en vivo, carrusel de 7 días con indicadores de cobertura AM/PM, tarjeta maestra de turno de supervisor y tarjetas verticales de colaboradores con botón de asignación/edición.<br>- **Auditoría Exhaustiva Línea por Línea (4 Zonas Paralelas)**: Auditoría minuciosa de las 2,345 líneas del componente: corrección de desajustes de formato de tiempo en presets (`HH:mm:ss` vs `HH:mm`), protección con encadenamiento opcional para roles nulos/indefinidos, validación de seguridad `canEdit` en replicación masiva, persistencia de orden de empleados en `localStorage`, corrección del cálculo del comodín del supervisor entre tiendas y consolidación de estatus AM/PM para vista unificada.<br>- **Pruebas Automatizadas y Simulación en Vivo**: Creación y ejecución de suite de pruebas automatizadas (11/11 tests superados al 100%) incluyendo prueba de inserción real (smoke test) en base de datos.</div>
+                                         <div class="en-desc">- **Schedules (Smart Replication)**: Fixed incomplete week detection threshold to 50% allowing schedule replication even when partial or advanced shifts exist (Azusa case).<br>- **Schedules (Dedicated Mobile UI)**: Designed and implemented touch-optimized responsive interface for supervisors on mobile: week switcher (Week 1 vs Week 2), store filter tabs with live status dots, 7-day carousel with AM/PM coverage indicators, supervisor master shift card, and vertical employee cards with 1-tap shift assignment.<br>- **Line-by-Line Exhaustive Audit (4 Parallel Zones)**: Thorough audit of all 2,345 lines: fixed time format mismatch in presets (HH:mm:ss vs HH:mm), added optional chaining protection for null/undefined user roles, added canEdit security validation on mass replication, persisted employee order in localStorage, fixed multi-store supervisor wildcard availability chain, and consolidated AM/PM status for multi-store view.<br>- **Automated Tests & Runtime Simulation**: Created and executed live test suite (11/11 tests passed 100%) including live database mutation smoke test.</div>
                                     </div>
                                 </td>
                             </tr>

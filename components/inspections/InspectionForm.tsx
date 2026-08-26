@@ -709,13 +709,25 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
       },
       (error) => {
         setValidatingLocation(false)
-        console.error(error)
+        console.error('Geolocation error:', error)
         let msg = t('inspections.form.alerts.location_error')
         
+        const isIOS = typeof navigator !== 'undefined' && (/iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1))
+        
         if (error.code === 1) {
-          msg = '🛑 PERMISO DE GPS DENEGADO 🛑\n\nPor políticas de la empresa, la ubicación es OBLIGATORIA.\n\n¿Cómo arreglarlo en tu celular?\n1. Toca el ícono de "Candado" o "Configuración" a la izquierda de la dirección de esta página (arriba).\n2. Ve a "Permisos" o "Configuración de sitios".\n3. En "Ubicación", selecciona "Permitir".\n4. Refresca la página.\n\n✅ Tu captura se guarda automáticamente, no perderás nada al refrescar.'
+          if (isIOS) {
+            msg = language === 'en'
+              ? '🛑 GPS PERMISSION DENIED ON IPHONE 🛑\n\nBy company policy, GPS location is MANDATORY to verify you are at the store.\n\n📱 How to enable it on your iPhone:\n\nOPTION 1 (In Safari):\n1. Tap the "aA" icon in the address bar (top or bottom).\n2. Tap "Website Settings".\n3. In "Location", select "Allow".\n4. Tap "Done" and refresh the page.\n\nOPTION 2 (In iPhone Settings):\n1. Open Settings ⚙️ on your iPhone.\n2. Go to "Privacy & Security" ➔ "Location Services".\n3. Ensure "Location Services" is ON.\n4. Tap "Safari Websites" ➔ Select "While Using the App" with "Precise Location" ON.\n5. Return here and tap "VALIDATE LOCATION".\n\n✅ Your data is saved automatically.'
+              : '🛑 PERMISO DE GPS DENEGADO EN IPHONE 🛑\n\nPor políticas de la empresa, la ubicación GPS es OBLIGATORIA para verificar que estás en la sucursal.\n\n📱 ¿Cómo activarlo en tu iPhone?\n\nOPCIÓN 1 (En Safari):\n1. Toca el botón "aA" en la barra de direcciones (arriba o abajo).\n2. Toca "Configuración del sitio web".\n3. En "Ubicación", selecciona "Permitir".\n4. Toca "Listo" y recarga la página.\n\nOPCIÓN 2 (En Ajustes del iPhone):\n1. Abre Ajustes ⚙️ en tu iPhone.\n2. Ve a "Privacidad y seguridad" ➔ "Localización".\n3. Verifica que "Localización" esté ACTIVADA.\n4. Baja a "Sitios web de Safari" ➔ Elige "Al usar la app" con "Ubicación precisa" ACTIVADA.\n5. Vuelve aquí y toca "VALIDAR UBICACIÓN".\n\n✅ Tu avance está guardado automáticamente, no perderás nada.'
+          } else {
+            msg = language === 'en'
+              ? '🛑 GPS PERMISSION DENIED 🛑\n\nBy company policy, GPS location is MANDATORY to verify you are at the store.\n\n📱 How to enable it on Android / Chrome:\n1. Tap the "Lock" or "Tune" icon on the address bar.\n2. Go to "Permissions" or "Site settings".\n3. In "Location", select "Allow".\n4. Refresh the page.\n\n✅ Your data is saved automatically, you will not lose anything.'
+              : '🛑 PERMISO DE GPS DENEGADO 🛑\n\nPor políticas de la empresa, la ubicación GPS es OBLIGATORIA para verificar que estás en la sucursal.\n\n¿Cómo activarlo en tu celular?\n1. Toca el ícono de "Candado" o "Configuración" a la izquierda de la dirección de esta página (arriba).\n2. Ve a "Permisos" o "Configuración de sitios".\n3. En "Ubicación", selecciona "Permitir".\n4. Refresca la página.\n\n✅ Tu captura se guarda automáticamente, no perderás nada al refrescar.'
+          }
         } else if (error.code === 2) {
-          msg = '🛑 UBICACIÓN NO DISPONIBLE 🛑\n\nTu celular no pudo encontrar tu ubicación GPS. Asegúrate de tener la "Ubicación" encendida en los ajustes principales de tu teléfono y sal a un área despejada.'
+          msg = language === 'en'
+            ? '🛑 LOCATION UNAVAILABLE 🛑\n\nYour phone could not retrieve your GPS coordinates. Ensure Location Services is enabled in phone settings and step into an open area.'
+            : '🛑 UBICACIÓN NO DISPONIBLE 🛑\n\nTu celular no pudo encontrar tu ubicación GPS. Asegúrate de tener la "Ubicación" encendida en los ajustes principales de tu teléfono y sal a un área despejada.'
         } else if (error.code === 3) {
           msg = t('inspections.form.alerts.gps_timeout')
         }

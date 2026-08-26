@@ -1,12 +1,18 @@
+import dotenv from 'dotenv';
+dotenv.config({ path: '.env.local' });
 
-import { getSupabaseClient } from '../lib/supabase'
-import 'dotenv/config'
+import { supabaseAdmin } from '../lib/supabase';
 
 async function checkStores() {
-    const supabase = await getSupabaseClient()
-    const { data: stores, error } = await supabase.from('stores').select('*')
-    if (error) console.error(error)
-    else console.log(JSON.stringify(stores.map(s => ({ name: s.name, id: s.id, guid: s.external_id })), null, 2))
+  const { data: stores, error } = await supabaseAdmin
+    .from('stores')
+    .select('*');
+
+  console.log('Stores error:', error);
+  console.log(`Total stores: ${stores?.length}`);
+  for (const s of (stores || [])) {
+    console.log(s);
+  }
 }
 
-checkStores()
+checkStores().catch(console.error);

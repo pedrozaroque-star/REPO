@@ -1,3 +1,27 @@
+/**
+ * @module HorariosPage
+ * @description Módulo de Planificación y Control de Horarios para Supervisores y Dirección (Shift Scheduling & Store Coverage Matrix).
+ * Permite visualizar el estado de cobertura de tiendas (Semáforo AM/PM), programar turnos con presets rápidos o personalizados,
+ * replicar semanas anteriores con umbral inteligente del 50%, reordenar colaboradores y gestionar la cobertura quincenal.
+ * Incluye experiencia responsiva adaptada con vista táctil dedicada para dispositivos móviles (Day-by-Day Touch Cards)
+ * y matriz quincenal completa para computadoras de escritorio.
+ * 
+ * @businessRules
+ * 1. Cobertura de Bloques: AM (00:00 - 17:00) y PM (17:00 - 05:59 AM día siguiente).
+ * 2. Regla de 4 Horas Mínimas: Para cubrir un bloque, el turno debe intersectar al menos 240 minutos de dicho bloque.
+ * 3. Comodín Finito del Supervisor: El turno del supervisor puede cubrir una falta de personal en una tienda, pero es un recurso finito diario.
+ * 4. Replicación Inteligente: Si una tienda tiene < 50% de los turnos respecto a la semana anterior, se ofrece replicación respetando turnos existentes (upsert).
+ * 5. Roles permitidos: Admin y Supervisor.
+ * 
+ * @dataFlow
+ * - Supabase tables: `schedules` (turnos), `users` (colaboradores activos), `stores` (sucursales y asignación de supervisores).
+ * - Sincronización en tiempo real vía `loadGlobalData` y filtros locales en `filterLocalData`.
+ * 
+ * @notes
+ * - La vista de escritorio conserva la tabla quincenal completa (14 días con drag & drop).
+ * - La vista móvil ofrece navegación por pestañas de tiendas, carrusel de 7 días con semáforo, y tarjetas táctiles de colaboradores.
+ */
+
 'use client'
 
 import React, { useState, useEffect, Suspense, useRef, useMemo } from 'react'
@@ -10,7 +34,7 @@ import {
     X, Clock, Coffee, Sun, Sunrise, Moon, MoonStar,
     Calendar, User, Save, Trash2, ArrowRight, Sparkles, Zap, Store,
     ChevronLeft, ChevronRight, ShieldCheck, AlertTriangle, AlertCircle,
-    Briefcase, Activity, ShieldAlert
+    Briefcase, Activity, ShieldAlert, CheckCircle2, Edit3, Plus, Users, Check
 } from 'lucide-react'
 import SurpriseLoader from '@/components/SurpriseLoader'
 import { useLanguage } from '@/lib/i18n'
@@ -393,9 +417,35 @@ function ScheduleManager() {
     const [loading, setLoading] = useState(true)
     const [editingShift, setEditingShift] = useState<any>(null);
     const [selectedDayIndex, setSelectedDayIndex] = useState(0); // For Mobile View switching
+    const [mobileActiveStoreId, setMobileActiveStoreId] = useState<string>('all');
+    const [mobileWeekTab, setMobileWeekTab] = useState<'w1' | 'w2'>('w1');
 
-    // Estado para mantener el orden de los empleados por tienda
-    const [employeeOrderMap, setEmployeeOrderMap] = useState<Record<string, string[]>>({})
+    // Estado para mantener el orden de los empleados por tienda (persistido en localStorage)
+    const [employeeOrderMap, setEmployeeOrderMap] = useState<Record<string, string[]>>(() => {
+        if (typeof window !== 'undefined') {
+            try {
+                const saved = localStorage.getItem('teg_schedule_employee_order');
+                return saved ? JSON.parse(saved) : {};
+            } catch (e) {
+                return {};
+            }
+        }
+        return {};
+    });
+
+    const updateEmployeeOrder = (updater: (prev: Record<string, string[]>) => Record<string, string[]>) => {
+        setEmployeeOrderMap(prev => {
+            const next = updater(prev);
+            if (typeof window !== 'undefined') {
+                try {
+                    localStorage.setItem('teg_schedule_employee_order', JSON.stringify(next));
+                } catch (e) {
+                    console.error("Error saving employee order", e);
+                }
+            }
+            return next;
+        });
+    };
 
     // --- ESTADOS PARA DRAG & DROP (COPIAR) ---
     const [isDragging, setIsDragging] = useState(false);
@@ -420,7 +470,11 @@ function ScheduleManager() {
             setAllSchedules(sData || [])
             const { data: uData } = await supabase.from('users').select('id, full_name, role, store_id').eq('is_active', true)
             setAllUsers(uData || [])
-        } catch (e) { console.error(e) } finally { setLoading(false) }
+        } catch (e) {
+            console.error("Error loading global data", e)
+        } finally {
+            setLoading(false)
+        }
     }
 
     const filterLocalData = () => {
@@ -434,25 +488,29 @@ function ScheduleManager() {
         const filteredUsers = allUsers.filter(u => {
             const isTargetStore = targetStoreIds.includes(String(u.store_id));
             const isSelectedSup = String(u.id) === String(selectedSupervisorId);
-            const isAdmin = u.role.toLowerCase().includes('admin');
+            const userRole = (u.role || '').toLowerCase();
+            const isAdmin = userRole.includes('admin');
 
             // Mostrar si es de la tienda y NO es admin, O si es el supervisor seleccionado específicamente
             return (isTargetStore && !isAdmin) || isSelectedSup;
         }).sort((a, b) => {
+            const roleA = (a.role || '').toLowerCase();
+            const roleB = (b.role || '').toLowerCase();
+
             // 1. Supervisor siempre arriba
-            const isSupA = a.role.toLowerCase().includes('sup') || String(a.id) === String(selectedSupervisorId);
-            const isSupB = b.role.toLowerCase().includes('sup') || String(b.id) === String(selectedSupervisorId);
+            const isSupA = roleA.includes('sup') || String(a.id) === String(selectedSupervisorId);
+            const isSupB = roleB.includes('sup') || String(b.id) === String(selectedSupervisorId);
             if (isSupA && !isSupB) return -1;
             if (!isSupA && isSupB) return 1;
 
             // 2. Managers después
-            const isManagerA = ['manager', 'gerente'].some(r => a.role.toLowerCase().includes(r));
-            const isManagerB = ['manager', 'gerente'].some(r => b.role.toLowerCase().includes(r));
+            const isManagerA = ['manager', 'gerente'].some(r => roleA.includes(r));
+            const isManagerB = ['manager', 'gerente'].some(r => roleB.includes(r));
             if (isManagerA && !isManagerB) return -1;
             if (!isManagerA && isManagerB) return 1;
 
             // 3. Alfabético
-            return a.full_name.localeCompare(b.full_name);
+            return (a.full_name || '').localeCompare(b.full_name || '');
         });
         setLocalUsers(filteredUsers);
 
@@ -477,7 +535,7 @@ function ScheduleManager() {
             });
 
             // Solo actualizar si no existe el orden previo para estas tiendas
-            setEmployeeOrderMap(prev => {
+            updateEmployeeOrder(prev => {
                 const newMap = { ...prev };
                 Object.keys(orderByStore).forEach(storeId => {
                     if (!newMap[storeId]) {
@@ -497,7 +555,6 @@ function ScheduleManager() {
         setDraggingRowUser(userId);
         // Efecto visual ghost
         e.dataTransfer.effectAllowed = "move";
-        // Hack para esconder el ghost image default si quisiéramos, pero por ahora está bien
     };
 
     const handleRowDrop = (e: React.DragEvent, targetUserId: string, storeId: string) => {
@@ -510,7 +567,7 @@ function ScheduleManager() {
             return;
         }
 
-        setEmployeeOrderMap(prev => {
+        updateEmployeeOrder(prev => {
             const currentOrder = prev[storeId] ? [...prev[storeId]] : [];
 
             // Si no hay orden previo, inicializarlo con los usuarios actuales en su orden default
@@ -549,7 +606,7 @@ function ScheduleManager() {
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                className="fixed inset-0 z-[200] bg-black/40 flex flex-col items-center justify-center p-4"
+                className="fixed inset-0 z-[200] bg-black/40 hidden md:flex flex-col items-center justify-center p-4"
             >
                 <div className="relative w-full max-w-[1600px] h-full pointer-events-none">
 
@@ -824,7 +881,7 @@ function ScheduleManager() {
     };
 
     const handleReplicateWeek = async () => {
-        if (replicationCandidates.length === 0) return;
+        if (!canEdit || replicationCandidates.length === 0) return;
         setReplicationLoading(true);
         try {
             const supabase = await getSupabase();
@@ -878,7 +935,7 @@ function ScheduleManager() {
             // 3. Insertar con Upsert para evitar conflictos de clave única
             const { error: insertError } = await supabase
                 .from('schedules')
-                .upsert(newShifts, { onConflict: 'user_id, date' });
+                .upsert(newShifts, { onConflict: 'user_id,date' });
 
             if (insertError) {
                 console.error("Error detailed (JSON):", JSON.stringify(insertError));
@@ -990,7 +1047,7 @@ function ScheduleManager() {
                 start_time: sourceShift.start_time,
                 end_time: sourceShift.end_time,
                 role: targetUser.role
-            }, { onConflict: 'user_id, date' });
+            }, { onConflict: 'user_id,date' });
         }
     };
 
@@ -1023,7 +1080,7 @@ function ScheduleManager() {
 
             // 3. Preparar nuevos registros (Ajustar fecha +7 días)
             const newSchedules = lastWeekData.map(s => {
-                const oldDate = new Date(s.date + 'T00:00:00');
+                const oldDate = new Date(s.date + 'T12:00:00');
                 const newDate = addDays(oldDate, 7);
                 const { id, created_at, ...rest } = s; // Eliminar campos autogenerados
                 return {
@@ -1035,7 +1092,7 @@ function ScheduleManager() {
             // 4. Upsert masivo
             const { error: upsertError } = await supabase
                 .from('schedules')
-                .upsert(newSchedules, { onConflict: 'user_id, date' });
+                .upsert(newSchedules, { onConflict: 'user_id,date' });
 
             if (upsertError) throw upsertError;
 
@@ -1059,7 +1116,7 @@ function ScheduleManager() {
         const isDelete = !editingShift.start || !editingShift.end;
 
         let labelToSave = 'Custom';
-        const preset = PRESETS.find(p => p.start === editingShift.start && p.end === editingShift.end);
+        const preset = PRESETS.find(p => p.start === editingShift.start?.slice(0, 5) && p.end === editingShift.end?.slice(0, 5));
         if (preset) labelToSave = preset.label;
         else if (editingShift.presetId === 'visita') labelToSave = 'Visita Sup.';
 
@@ -1085,7 +1142,7 @@ function ScheduleManager() {
         setEditingShift(null);
 
         if (isDelete) await supabase.from('schedules').delete().match({ user_id: editingShift.userId, date: dateStr })
-        else await supabase.from('schedules').upsert(newEntry, { onConflict: 'user_id, date' })
+        else await supabase.from('schedules').upsert(newEntry, { onConflict: 'user_id,date' })
     }
 
     const openEditModal = (user: any, date: Date, currentShift: any, storeId?: string) => {
@@ -1222,9 +1279,9 @@ function ScheduleManager() {
         supervisorsList.forEach((sup: any) => {
             // Asegurar que progress se detecte si hay mezcla de tiendas OK y EMPTY
             if (!sup.overallStatus) sup.overallStatus = 'empty';
-            // if (sup.stats.progress > 0 || (sup.stats.ok > 0 && sup.stats.empty > 0)) sup.overallStatus = 'progress'; // ELIMINADO POR SOLICITUD
             if (sup.stats.bad > 0) sup.overallStatus = 'bad';
-            if (sup.stats.ok === sup.stores.length) sup.overallStatus = 'ok';
+            if (sup.stores.length > 0 && sup.stats.ok === sup.stores.length) sup.overallStatus = 'ok';
+            else if (sup.stores.length === 0) sup.overallStatus = 'empty';
             const badIssues = sup.issues.filter((i: any) => i.type === 'bad');
             const emptyIssues = sup.issues.filter((i: any) => i.type === 'empty');
             sup.alertLines = [];
@@ -1373,21 +1430,113 @@ function ScheduleManager() {
             ? stores.filter(s => String(s.supervisor_id) === String(selectedSupervisorId))
             : [stores.find(s => String(s.id) === String(selectedStoreId))].filter(Boolean);
 
+        // Día activo para la vista móvil
+        const currentMobileDay = weekDays[selectedDayIndex] || weekDays[0];
+        const currentMobileDateStr = formatDateISO(currentMobileDay);
+
+        // Supervisor activo (si aplica)
+        const supervisorUser = selectedSupervisorId ? (
+            localUsers.find(u => String(u.id) === String(selectedSupervisorId)) ||
+            allUsers.find(u => String(u.id) === String(selectedSupervisorId))
+        ) : null;
+
+        const currentSupShift = supervisorUser ? allSchedules.find(s =>
+            String(s.user_id) === String(supervisorUser.id) && s.date === currentMobileDateStr
+        ) : null;
+
+        // Tiendas visibles en móvil (según tab de tienda)
+        const visibleMobileStores = mobileActiveStoreId === 'all'
+            ? targetStores
+            : targetStores.filter(s => String(s.id) === String(mobileActiveStoreId));
+
+        // 7 días para el tab de semana móvil activa
+        const mobileDaysToShow = mobileWeekTab === 'w1' ? weekDays.slice(0, 7) : weekDays.slice(7, 14);
+        const mobileWeekOffset = mobileWeekTab === 'w1' ? 0 : 7;
+
+        // Mapa de estatus de todas las tiendas del día móvil considerando la prioridad real del supervisor
+        const mobileStoreDayStatusMap = (() => {
+            const map = new Map<string, any>();
+            let tempSupAvailable = { am: true, pm: true };
+
+            for (const store of targetStores) {
+                const sUsers = localUsers.filter(u => String(u.store_id) === String(store.id) && String(u.id) !== String(selectedSupervisorId));
+                const sUserIds = new Set(sUsers.map(u => String(u.id)));
+                const sShifts = allSchedules.filter(s => String(s.store_id) === String(store.id) && sUserIds.has(String(s.user_id)));
+                const valShifts = sShifts.filter(s => String(s.user_id) !== String(selectedSupervisorId));
+
+                const status = calculateDailyStatus(
+                    t,
+                    currentMobileDateStr,
+                    valShifts,
+                    sUsers,
+                    currentSupShift,
+                    tempSupAvailable.am,
+                    tempSupAvailable.pm
+                );
+
+                if (status.usedSupAM) tempSupAvailable.am = false;
+                if (status.usedSupPM) tempSupAvailable.pm = false;
+
+                map.set(String(store.id), status);
+            }
+            return map;
+        })();
+
+        // Estatus de tienda para el día móvil seleccionado
+        const getMobileStoreDayStatus = (store: any) => {
+            return mobileStoreDayStatusMap.get(String(store.id)) || calculateDailyStatus(t, currentMobileDateStr, [], [], currentSupShift, false, false);
+        };
+
+        // Estatus de cada día para el carrusel de 7 días
+        const mobileDayStatuses = mobileDaysToShow.map((day) => {
+            const dateStr = formatDateISO(day);
+            const supShift = supervisorUser ? allSchedules.find(s => String(s.user_id) === String(supervisorUser.id) && s.date === dateStr) : null;
+
+            if (targetStores.length === 0) return { status: 'empty', label: t('schedule.empty') };
+
+            const storesToEval = mobileActiveStoreId === 'all'
+                ? targetStores
+                : targetStores.filter(s => String(s.id) === String(mobileActiveStoreId));
+
+            let hasBad = false;
+            let hasOk = false;
+            let hasEmpty = false;
+            let tempSupAvailable = { am: true, pm: true };
+
+            for (const store of storesToEval) {
+                const sUsers = localUsers.filter(u => String(u.store_id) === String(store.id) && String(u.id) !== String(selectedSupervisorId));
+                const sUserIds = new Set(sUsers.map(u => String(u.id)));
+                const sShifts = allSchedules.filter(s => String(s.store_id) === String(store.id) && sUserIds.has(String(s.user_id)));
+                const valShifts = sShifts.filter(s => String(s.user_id) !== String(selectedSupervisorId));
+
+                const status = calculateDailyStatus(t, dateStr, valShifts, sUsers, supShift, tempSupAvailable.am, tempSupAvailable.pm);
+                if (status.usedSupAM) tempSupAvailable.am = false;
+                if (status.usedSupPM) tempSupAvailable.pm = false;
+
+                if (status.status === 'bad') hasBad = true;
+                if (status.status === 'ok' || status.status === 'ok-sup') hasOk = true;
+                if (status.status === 'empty') hasEmpty = true;
+            }
+
+            const dayStatus = hasBad ? 'bad' : ((hasOk && !hasEmpty) ? 'ok' : 'empty');
+            return { status: dayStatus, date: day };
+        });
+
         return (
             <div className="h-full flex flex-col">
-                {/* TARJETA UNIFICADA: Header + Tabla */}
+                {/* TARJETA UNIFICADA: Header + Contenido (Desktop y Móvil) */}
                 <div className="bg-white dark:bg-slate-900 shadow-sm border-b border-gray-200 dark:border-slate-800 flex flex-col flex-1 overflow-hidden">
-                    {/* HEADER DEL PLANIFICADOR (parte de la tarjeta) */}
-                    <div className="bg-white dark:bg-slate-900 border-b border-gray-200 dark:border-slate-800 p-4 px-6 flex-none flex items-center justify-between">
-                        <div className="flex items-center gap-4">
-                            <button onClick={() => setViewMode('dashboard')} className="w-10 h-10 flex items-center justify-center rounded-full bg-gray-50 dark:bg-slate-800 text-gray-600 dark:text-slate-300 hover:bg-black dark:hover:bg-white hover:text-white dark:hover:text-black transition-all border border-gray-200 dark:border-slate-700">←</button>
+                    {/* HEADER DEL PLANIFICADOR (Responsivo) */}
+                    <div className="bg-white dark:bg-slate-900 border-b border-gray-200 dark:border-slate-800 p-3 sm:p-4 px-4 sm:px-6 flex-none flex flex-wrap items-center justify-between gap-3">
+                        <div className="flex items-center gap-3">
+                            <button onClick={() => setViewMode('dashboard')} className="w-9 h-9 sm:w-10 sm:h-10 flex items-center justify-center rounded-full bg-gray-50 dark:bg-slate-800 text-gray-600 dark:text-slate-300 hover:bg-black dark:hover:bg-white hover:text-white dark:hover:text-black transition-all border border-gray-200 dark:border-slate-700">←</button>
                             <div>
-                                <h2 className="text-2xl font-black text-gray-900 dark:text-white">{t('schedule.organizer')}</h2>
-                                <p className="text-sm text-gray-500 dark:text-slate-400 font-medium tracking-tight">{t('schedule.organizer_subtitle')}</p>
+                                <h2 className="text-xl sm:text-2xl font-black text-gray-900 dark:text-white">{t('schedule.organizer')}</h2>
+                                <p className="text-xs sm:text-sm text-gray-500 dark:text-slate-400 font-medium tracking-tight">{t('schedule.organizer_subtitle')}</p>
                             </div>
                         </div>
-                        <div className="flex items-center gap-4">
-                            {/* Leyenda de colores */}
+                        <div className="flex items-center gap-2 sm:gap-4 w-full sm:w-auto justify-between sm:justify-end">
+                            {/* Leyenda de colores (Desktop only) */}
                             <div className="hidden md:flex items-center gap-2 mr-4 border-r border-gray-200 dark:border-slate-700 pr-4">
                                 <span className="text-xs font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest mr-1">{t('schedule.status_label')}</span>
                                 <span className="px-4 py-2 rounded-md text-xs font-black bg-emerald-500 text-white shadow-sm">{t('schedule.covered')}</span>
@@ -1398,8 +1547,308 @@ function ScheduleManager() {
                         </div>
                     </div>
 
-                    {/* AREA DE TABLA CON SCROLL INTERNO */}
-                    <div className="flex-1 overflow-auto custom-scrollbar relative">
+                    {/* ========================================================================= */}
+                    {/* 📱 1. VISTA MÓVIL DEDICADA (block lg:hidden)                              */}
+                    {/* ========================================================================= */}
+                    <div className="block lg:hidden flex-1 overflow-y-auto custom-scrollbar p-3 space-y-3 pb-24">
+                        {/* A. SELECTOR DE SEMANA 1 vs SEMANA 2 */}
+                        <div className="flex items-center bg-slate-100 dark:bg-slate-800 p-1 rounded-xl gap-1">
+                            <button
+                                onClick={() => {
+                                    setMobileWeekTab('w1');
+                                    if (selectedDayIndex >= 7) setSelectedDayIndex(selectedDayIndex - 7);
+                                }}
+                                className={`flex-1 py-2 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${mobileWeekTab === 'w1' ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-sm' : 'text-gray-500 dark:text-slate-400'}`}
+                            >
+                                <Calendar size={14} />
+                                <span>{t('schedule.week_1')}</span>
+                                <span className="text-[10px] opacity-70 font-normal">({format(weekDays[0], 'MMM d', { locale: localeObj })} - {format(weekDays[6], 'MMM d', { locale: localeObj })})</span>
+                            </button>
+                            <button
+                                onClick={() => {
+                                    setMobileWeekTab('w2');
+                                    if (selectedDayIndex < 7) setSelectedDayIndex(selectedDayIndex + 7);
+                                }}
+                                className={`flex-1 py-2 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${mobileWeekTab === 'w2' ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-sm' : 'text-gray-500 dark:text-slate-400'}`}
+                            >
+                                <Calendar size={14} />
+                                <span>{t('schedule.week_2')}</span>
+                                <span className="text-[10px] opacity-70 font-normal">({format(weekDays[7], 'MMM d', { locale: localeObj })} - {format(weekDays[13], 'MMM d', { locale: localeObj })})</span>
+                            </button>
+                        </div>
+
+                        {/* B. SELECTOR DE TIENDA (Si hay más de 1 tienda en la vista) */}
+                        {targetStores.length > 1 && (
+                            <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-1">
+                                <button
+                                    onClick={() => setMobileActiveStoreId('all')}
+                                    className={`px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-all flex items-center gap-1.5 ${mobileActiveStoreId === 'all' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-white dark:bg-slate-800 text-gray-700 dark:text-slate-300 border border-gray-200 dark:border-slate-700'}`}
+                                >
+                                    <Users size={12} />
+                                    <span>{t('schedule.all_stores')} ({targetStores.length})</span>
+                                </button>
+                                {targetStores.map(store => {
+                                    const storeStatus = getMobileStoreDayStatus(store);
+                                    return (
+                                        <button
+                                            key={store.id}
+                                            onClick={() => setMobileActiveStoreId(String(store.id))}
+                                            className={`px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-all flex items-center gap-1.5 ${mobileActiveStoreId === String(store.id) ? 'bg-indigo-600 text-white shadow-sm' : 'bg-white dark:bg-slate-800 text-gray-700 dark:text-slate-300 border border-gray-200 dark:border-slate-700'}`}
+                                        >
+                                            <span className={`w-2 h-2 rounded-full ${storeStatus.status === 'ok' || storeStatus.status === 'ok-sup' ? 'bg-emerald-400' : storeStatus.status === 'bad' ? 'bg-red-500 animate-pulse' : 'bg-gray-300'}`}></span>
+                                            <span>{formatStoreName(store.name)}</span>
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        )}
+
+                        {/* C. CARRUSEL DE 7 DÍAS CON SEMÁFORO */}
+                        <div className="grid grid-cols-7 gap-1">
+                            {mobileDaysToShow.map((day, idx) => {
+                                const actualDayIndex = mobileWeekOffset + idx;
+                                const isSelected = selectedDayIndex === actualDayIndex;
+                                const statusInfo = mobileDayStatuses[idx];
+
+                                return (
+                                    <button
+                                        key={idx}
+                                        onClick={() => setSelectedDayIndex(actualDayIndex)}
+                                        className={`flex flex-col items-center justify-center p-2 rounded-xl border transition-all text-center ${isSelected ? 'bg-indigo-600 border-indigo-600 text-white shadow-md shadow-indigo-100 dark:shadow-none' : 'bg-white dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-700 dark:text-slate-300 hover:border-indigo-200'}`}
+                                    >
+                                        <span className={`text-[10px] font-bold uppercase tracking-wider ${isSelected ? 'text-indigo-100' : 'text-gray-400 dark:text-slate-500'}`}>
+                                            {format(day, 'EEE', { locale: localeObj }).slice(0, 3)}
+                                        </span>
+                                        <span className="text-base font-black leading-tight my-0.5">
+                                            {day.getDate()}
+                                        </span>
+                                        <div className="mt-1">
+                                            {statusInfo.status === 'ok' ? (
+                                                <div className={`w-2.5 h-2.5 rounded-full ${isSelected ? 'bg-emerald-300' : 'bg-emerald-500'}`}></div>
+                                            ) : statusInfo.status === 'bad' ? (
+                                                <div className={`w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse ${isSelected ? 'ring-2 ring-white' : ''}`}></div>
+                                            ) : (
+                                                <div className={`w-2.5 h-2.5 rounded-full ${isSelected ? 'bg-indigo-400' : 'bg-gray-200 dark:bg-slate-600'}`}></div>
+                                            )}
+                                        </div>
+                                    </button>
+                                );
+                            })}
+                        </div>
+
+                        {/* D. BANNER RESUMEN DEL DÍA SELECCIONADO */}
+                        <div className="bg-white dark:bg-slate-800/80 rounded-2xl p-4 border border-gray-200 dark:border-slate-700 shadow-sm space-y-3">
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <span className="text-xs font-black uppercase tracking-wider text-indigo-600 dark:text-indigo-400">
+                                        {format(currentMobileDay, 'EEEE, d MMMM', { locale: localeObj })}
+                                    </span>
+                                    <h3 className="text-lg font-black text-gray-900 dark:text-white">
+                                        {mobileActiveStoreId === 'all' ? t('schedule.all_stores') : formatStoreName(targetStores.find(s => String(s.id) === mobileActiveStoreId)?.name || '')}
+                                    </h3>
+                                </div>
+                                {canEdit && targetStores.length === 1 && (
+                                    <button
+                                        onClick={copyFromLastWeek}
+                                        className="px-3 py-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-300 text-xs font-bold flex items-center gap-1 hover:bg-indigo-100 transition-colors"
+                                    >
+                                        <Sparkles size={12} />
+                                        <span>{t('schedule.quick_copy')}</span>
+                                    </button>
+                                )}
+                            </div>
+
+                            {/* Badges de Cobertura AM / PM */}
+                            <div className="grid grid-cols-2 gap-2 pt-1">
+                                {(() => {
+                                    if (mobileActiveStoreId === 'all') {
+                                        // Consolidar cobertura AM y PM de todas las tiendas de la vista
+                                        let allCoveredAM = targetStores.length > 0;
+                                        let allCoveredPM = targetStores.length > 0;
+                                        for (const store of targetStores) {
+                                            const st = getMobileStoreDayStatus(store);
+                                            if (st.missingAM) allCoveredAM = false;
+                                            if (st.missingPM) allCoveredPM = false;
+                                        }
+                                        return (
+                                            <>
+                                                <div className={`p-2.5 rounded-xl border flex items-center gap-2 ${allCoveredAM ? 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300' : 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800 text-red-700 dark:text-red-300'}`}>
+                                                    <Sun size={16} className="shrink-0" />
+                                                    <div className="min-w-0">
+                                                        <p className="text-[10px] font-bold uppercase tracking-wider opacity-75">{t('schedule.am_block')}</p>
+                                                        <p className="text-xs font-black truncate">{allCoveredAM ? t('schedule.covered') : t('schedule.missing')}</p>
+                                                    </div>
+                                                </div>
+                                                <div className={`p-2.5 rounded-xl border flex items-center gap-2 ${allCoveredPM ? 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300' : 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800 text-red-700 dark:text-red-300'}`}>
+                                                    <Moon size={16} className="shrink-0" />
+                                                    <div className="min-w-0">
+                                                        <p className="text-[10px] font-bold uppercase tracking-wider opacity-75">{t('schedule.pm_block')}</p>
+                                                        <p className="text-xs font-black truncate">{allCoveredPM ? t('schedule.covered') : t('schedule.missing')}</p>
+                                                    </div>
+                                                </div>
+                                            </>
+                                        );
+                                    }
+
+                                    const activeStoreObj = targetStores.find(s => String(s.id) === mobileActiveStoreId) || targetStores[0];
+                                    const storeStatus = activeStoreObj ? getMobileStoreDayStatus(activeStoreObj) : { missingAM: true, missingPM: true, status: 'empty' };
+
+                                    return (
+                                        <>
+                                            <div className={`p-2.5 rounded-xl border flex items-center gap-2 ${!storeStatus.missingAM ? 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300' : 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800 text-red-700 dark:text-red-300'}`}>
+                                                <Sun size={16} className="shrink-0" />
+                                                <div className="min-w-0">
+                                                    <p className="text-[10px] font-bold uppercase tracking-wider opacity-75">{t('schedule.am_block')}</p>
+                                                    <p className="text-xs font-black truncate">{!storeStatus.missingAM ? t('schedule.covered') : t('schedule.missing')}</p>
+                                                </div>
+                                            </div>
+                                            <div className={`p-2.5 rounded-xl border flex items-center gap-2 ${!storeStatus.missingPM ? 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300' : 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800 text-red-700 dark:text-red-300'}`}>
+                                                <Moon size={16} className="shrink-0" />
+                                                <div className="min-w-0">
+                                                    <p className="text-[10px] font-bold uppercase tracking-wider opacity-75">{t('schedule.pm_block')}</p>
+                                                    <p className="text-xs font-black truncate">{!storeStatus.missingPM ? t('schedule.covered') : t('schedule.missing')}</p>
+                                                </div>
+                                            </div>
+                                        </>
+                                    );
+                                })()}
+                            </div>
+                        </div>
+
+                        {/* E. FILA DEL SUPERVISOR (ZONA MAESTRA MÓVIL) */}
+                        {supervisorUser && (
+                            <div
+                                onClick={() => openEditModal(supervisorUser, currentMobileDay, currentSupShift)}
+                                className="bg-indigo-50/80 dark:bg-indigo-900/30 rounded-2xl p-4 border border-indigo-200 dark:border-indigo-800 shadow-sm cursor-pointer transition-all hover:bg-indigo-100/70"
+                            >
+                                <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-11 h-11 rounded-xl bg-indigo-600 flex items-center justify-center text-white font-black text-lg shadow-md shadow-indigo-200 dark:shadow-none">
+                                            👑
+                                        </div>
+                                        <div>
+                                            <div className="flex items-center gap-1.5">
+                                                <span className="text-xs font-black text-indigo-700 dark:text-indigo-300 uppercase tracking-widest">{t('schedule.supervisor_shift_for_day')}</span>
+                                            </div>
+                                            <h4 className="text-base font-black text-gray-900 dark:text-white leading-tight">{supervisorUser.full_name}</h4>
+                                        </div>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        {currentSupShift ? (
+                                            <span className="px-3 py-1 rounded-lg bg-indigo-600 text-white text-xs font-black">
+                                                {formatTime12h(currentSupShift.start_time?.slice(0, 5))} - {formatTime12h(currentSupShift.end_time?.slice(0, 5))}
+                                            </span>
+                                        ) : (
+                                            <span className="px-3 py-1 rounded-lg bg-white dark:bg-slate-800 text-gray-500 dark:text-slate-400 text-xs font-bold border border-dashed border-gray-300 dark:border-slate-600">
+                                                {t('schedule.off')}
+                                            </span>
+                                        )}
+                                        <Edit3 size={16} className="text-indigo-500" />
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* F. LISTA DE COLABORADORES POR TIENDA */}
+                        <div className="space-y-4">
+                            {visibleMobileStores.map(currentStore => {
+                                const storeUsers = localUsers.filter(u =>
+                                    String(u.store_id) === String(currentStore.id) &&
+                                    String(u.id) !== String(selectedSupervisorId)
+                                );
+                                const storeUserIds = new Set(storeUsers.map(u => String(u.id)));
+                                const storeSchedules = allSchedules.filter(s =>
+                                    String(s.store_id) === String(currentStore.id) &&
+                                    storeUserIds.has(String(s.user_id))
+                                );
+                                const storeStatus = getMobileStoreDayStatus(currentStore);
+
+                                return (
+                                    <div key={currentStore.id} className="space-y-2.5">
+                                        {/* Cabecera de la Tienda */}
+                                        <div className="flex items-center justify-between px-1">
+                                            <div className="flex items-center gap-2">
+                                                <Store size={18} className="text-gray-500" />
+                                                <h4 className="text-base font-black uppercase tracking-tight text-gray-900 dark:text-white">
+                                                    {formatStoreName(currentStore.name)}
+                                                </h4>
+                                                <span className="text-xs font-medium text-gray-400">({storeUsers.length})</span>
+                                            </div>
+                                            <span className={`text-[11px] font-black px-2.5 py-0.5 rounded-full ${storeStatus.status === 'ok' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' : storeStatus.status === 'bad' ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 animate-pulse' : 'bg-gray-100 text-gray-500'}`}>
+                                                {storeStatus.label}
+                                            </span>
+                                        </div>
+
+                                        {/* Tarjetas de Colaboradores */}
+                                        <div className="space-y-2">
+                                            {storeUsers.map(user => {
+                                                const currentShift = storeSchedules.find(s =>
+                                                    String(s.user_id) === String(user.id) &&
+                                                    s.date === currentMobileDateStr &&
+                                                    String(s.store_id) === String(currentStore.id)
+                                                );
+                                                const userRole = (user.role || '').toLowerCase();
+                                                const isManager = ['manager', 'gerente'].some(r => userRole.includes(r));
+                                                const preset = currentShift ? PRESETS.find(p => p.start === currentShift.start_time?.slice(0, 5) && p.end === currentShift.end_time?.slice(0, 5)) : null;
+
+                                                return (
+                                                    <motion.div
+                                                        key={user.id}
+                                                        whileTap={{ scale: 0.98 }}
+                                                        onClick={() => openEditModal(user, currentMobileDay, currentShift, String(currentStore.id))}
+                                                        className={`p-3.5 rounded-2xl border transition-all cursor-pointer bg-white dark:bg-slate-900 shadow-sm flex items-center justify-between gap-3 ${currentShift ? 'border-gray-200 dark:border-slate-700' : 'border-dashed border-gray-300 dark:border-slate-700 bg-gray-50/50 dark:bg-slate-800/30'}`}
+                                                    >
+                                                        <div className="flex items-center gap-3 min-w-0">
+                                                            {/* Avatar */}
+                                                            <div className={`w-11 h-11 rounded-xl flex items-center justify-center text-base font-black text-white shrink-0 shadow-sm ${isManager ? 'bg-gradient-to-br from-indigo-500 to-purple-600' : 'bg-gradient-to-br from-gray-400 to-gray-500'}`}>
+                                                                {(user.full_name || '').substring(0, 1).toUpperCase()}
+                                                            </div>
+                                                            {/* Info */}
+                                                            <div className="min-w-0">
+                                                                <h5 className="font-bold text-gray-900 dark:text-white text-sm truncate">
+                                                                    {user.full_name}
+                                                                </h5>
+                                                                <span className="text-[10px] font-medium text-gray-400 uppercase tracking-wider block">
+                                                                    {user.role}
+                                                                </span>
+                                                            </div>
+                                                        </div>
+
+                                                        {/* Turno / Botón de Acción */}
+                                                        <div className="shrink-0 flex items-center gap-2">
+                                                            {currentShift ? (
+                                                                <div className={`px-3 py-1.5 rounded-xl text-xs font-bold flex flex-col items-end ${preset ? preset.color : 'bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-200'}`}>
+                                                                    <span className="font-black text-xs">
+                                                                        {formatTime12h(currentShift.start_time?.slice(0, 5))} - {formatTime12h(currentShift.end_time?.slice(0, 5))}
+                                                                    </span>
+                                                                    <span className="text-[10px] opacity-75 font-medium">
+                                                                        {currentShift.shift_label || 'Custom'}
+                                                                    </span>
+                                                                </div>
+                                                            ) : (
+                                                                <div className="px-3 py-1.5 rounded-xl border border-dashed border-gray-300 dark:border-slate-600 text-gray-400 text-xs font-medium flex items-center gap-1">
+                                                                    <MoonStar size={12} />
+                                                                    <span>{t('schedule.off')}</span>
+                                                                </div>
+                                                            )}
+                                                            <div className="w-8 h-8 rounded-lg bg-gray-100 dark:bg-slate-800 flex items-center justify-center text-gray-500">
+                                                                <Edit3 size={14} />
+                                                            </div>
+                                                        </div>
+                                                    </motion.div>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+
+                    {/* ========================================================================= */}
+                    {/* 🖥️ 2. VISTA ESCRITORIO MATRIZ QUINCENAL (hidden lg:block)                 */}
+                    {/* ========================================================================= */}
+                    <div className="hidden lg:block flex-1 overflow-auto custom-scrollbar relative">
                         <table className="w-full text-sm border-separate border-spacing-0">
                             {/* THEAD STICKY: Incluye headers de fechas Y fila de supervisor */}
                             <thead className="sticky top-0 z-[20] shadow-sm ring-1 ring-black/5 dark:ring-white/5">
@@ -1421,12 +1870,7 @@ function ScheduleManager() {
 
                                         if (targetStores.length > 0) {
                                             // SIMULACIÓN EXACTA DE PRIORIDAD: Iterar todas las tiendas en orden
-                                            // para ver si alguna queda descubierta tras consumir al supervisor.
                                             let tempSupAvailable = { am: true, pm: true };
-
-                                            // Verificar si el supervisor ya "trabaja" ese día para saber si tiene capacidad inicial
-                                            // La capacidad real depende del turno (getShiftCoverage ya lo maneja dentro de calculateDailyStatus)
-                                            // Pero aquí solo pasamos los flags "Available". El "supShift" se pasa completo.
 
                                             let hasOk = false;
                                             let hasEmpty = false;
@@ -1500,7 +1944,7 @@ function ScheduleManager() {
                                                 let cardClass = "bg-transparent hover:bg-white/50 border border-transparent";
 
                                                 if (currentShift) {
-                                                    const preset = PRESETS.find(p => p.start === currentShift.start_time && p.end === currentShift.end_time);
+                                                    const preset = PRESETS.find(p => p.start === currentShift.start_time?.slice(0, 5) && p.end === currentShift.end_time?.slice(0, 5));
                                                     const color = preset ? preset.color : 'bg-indigo-100 text-indigo-900 group-hover:bg-indigo-200';
                                                     cardClass = `${color} shadow-sm group-hover:shadow-md transform transition-all duration-200 ${canEdit ? 'hover:-translate-y-1' : ''}`;
                                                     cardContent = (
@@ -1533,48 +1977,39 @@ function ScheduleManager() {
                                 })()}
                             </thead>
                             <tbody className="divide-y divide-gray-100 dark:divide-slate-800 bg-white dark:bg-slate-900">
-                                {/* 2. ITERAR POR TIENDAS (SIN REPETIR SUPERVISOR) */}
                                 {(() => {
-                                    // Inicializar mapa de uso del supervisor por día
-                                    // Key: DateString, Value: { amUsed: boolean, pmUsed: boolean }
                                     const dailySupUsage = new Map<string, { amUsed: boolean, pmUsed: boolean }>();
 
                                     return targetStores.map((currentStore: any) => {
-                                        // Filtrar datos por tienda
                                         const storeUsers = localUsers.filter(u =>
                                             String(u.store_id) === String(currentStore.id) &&
                                             String(u.id) !== String(selectedSupervisorId)
                                         );
                                         const storeUserIds = new Set(storeUsers.map(u => String(u.id)));
 
-                                        // Filtrar datos por tienda y SOLO usuarios activos en esta vista
                                         const storeSchedules = allSchedules.filter(s =>
                                             String(s.store_id) === String(currentStore.id) &&
                                             storeUserIds.has(String(s.user_id))
                                         );
 
-                                        // Excluir al supervisor para la validación de cobertura de tienda
                                         const validationSchedules = storeSchedules.filter(s => String(s.user_id) !== String(selectedSupervisorId));
 
                                         const dailyStatuses = weekDays.map(d => {
                                             const dateStr = formatDateISO(d);
                                             const supShift = allSchedules.find(s => String(s.user_id) === String(selectedSupervisorId) && s.date === dateStr);
 
-                                            // Obtener estado de uso actual para este día
                                             const usage = dailySupUsage.get(dateStr) || { amUsed: false, pmUsed: false };
 
-                                            // Calcular estatus pasando disponibilidad (Solo disponible si NO se ha usado)
                                             const result = calculateDailyStatus(
                                                 t,
                                                 dateStr,
                                                 validationSchedules,
                                                 storeUsers,
                                                 supShift,
-                                                !usage.amUsed, // Available AM
-                                                !usage.pmUsed  // Available PM
+                                                !usage.amUsed,
+                                                !usage.pmUsed
                                             );
 
-                                            // Actualizar uso global si esta tienda consumió el recurso
                                             if (result.usedSupAM || result.usedSupPM) {
                                                 dailySupUsage.set(dateStr, {
                                                     amUsed: usage.amUsed || result.usedSupAM,
@@ -1582,7 +2017,7 @@ function ScheduleManager() {
                                                 });
                                             }
 
-                                            return result; // Retorna el objeto extendido con status
+                                            return result;
                                         });
 
                                         return (
@@ -1619,13 +2054,11 @@ function ScheduleManager() {
                                                 </tr>
 
                                                 {/* FILAS DE USUARIOS */}
-                                                {/* FILAS DE USUARIOS - SIN REORDER POR ESTABILIDAD VISUAL */}
                                                 {
                                                     (() => {
                                                         const storeId = String(currentStore.id);
                                                         const currentOrder = employeeOrderMap[storeId] || [];
 
-                                                        // Ordenar usuarios según el orden guardado (si existe) o mantener default
                                                         let usersToShow = [...storeUsers];
                                                         if (currentOrder.length > 0) {
                                                             usersToShow.sort((a, b) => {
@@ -1640,21 +2073,23 @@ function ScheduleManager() {
 
                                                         return usersToShow.map(user => {
                                                             const isDraggingThisRow = draggingRowUser === String(user.id);
+                                                            const userRole = (user.role || '').toLowerCase();
+                                                            const isManager = ['manager', 'gerente'].some(r => userRole.includes(r));
                                                             return (
                                                                 <tr
                                                                     key={`${currentStore.id}-${user.id}`}
                                                                     className={`group hover:bg-gray-50 dark:hover:bg-slate-800/50 transition-colors ${canEdit ? 'cursor-move' : ''} ${isDraggingThisRow ? 'opacity-40 bg-gray-100' : ''}`}
                                                                     draggable={canEdit}
                                                                     onDragStart={(e) => handleRowDragStart(e, String(user.id))}
-                                                                    onDragOver={(e) => { e.preventDefault(); }} // Necesario para permitir Drop
+                                                                    onDragOver={(e) => { e.preventDefault(); }}
                                                                     onDrop={(e) => handleRowDrop(e, String(user.id), String(currentStore.id))}
                                                                 >
                                                                     <td className="p-2 sticky left-0 z-[10] bg-white dark:bg-slate-900 group-hover:bg-gray-50 dark:group-hover:bg-slate-800/50 border-r border-gray-200 dark:border-slate-800 transition-colors shadow-[4px_0_4px_-2px_rgba(0,0,0,0.05)]">
                                                                         <div className="flex items-center gap-3">
                                                                             <div className={`w-12 h-12 rounded-lg flex items-center justify-center text-lg font-black text-white shadow-md
-                                                                        ${['manager'].some(r => user.role.toLowerCase().includes(r))
+                                                                        ${isManager
                                                                                     ? 'bg-gradient-to-br from-indigo-500 to-purple-600' : 'bg-gradient-to-br from-gray-400 to-gray-500'}`}>
-                                                                                {user.full_name.substring(0, 1).toUpperCase()}
+                                                                                {(user.full_name || '').substring(0, 1).toUpperCase()}
                                                                             </div>
                                                                             <div className="flex flex-col">
                                                                                 <span className="font-medium text-gray-900 dark:text-white text-lg flex items-center gap-1">
@@ -1678,7 +2113,7 @@ function ScheduleManager() {
                                                                             let cardClass = "bg-transparent hover:bg-gray-100 border border-transparent";
 
                                                                             if (currentShift) {
-                                                                                const preset = PRESETS.find(p => p.start === currentShift.start_time && p.end === currentShift.end_time);
+                                                                                const preset = PRESETS.find(p => p.start === currentShift.start_time?.slice(0, 5) && p.end === currentShift.end_time?.slice(0, 5));
                                                                                 const color = preset ? preset.color : 'bg-slate-100 text-slate-700 group-hover:bg-slate-200';
                                                                                 cardClass = `${color} shadow-sm group-hover:shadow-md transform transition-all duration-200 ${canEdit ? 'hover:-translate-y-1' : ''}`;
                                                                                 cardContent = (
@@ -1692,7 +2127,6 @@ function ScheduleManager() {
                                                                                     </div>
                                                                                 );
                                                                             } else if (dayStatus.status === 'bad') {
-                                                                                // SOLO Marcar espacios vacíos si hay un ERROR de cobertura (Falta AM o PM)
                                                                                 cardClass = "bg-red-50/50 border-2 border-dashed border-red-200 hover:bg-red-100 hover:border-red-300 animate-pulse";
                                                                                 cardContent = <div className="w-1.5 h-1.5 rounded-full bg-red-200 group-hover:bg-red-300"></div>;
                                                                             }
@@ -1701,7 +2135,6 @@ function ScheduleManager() {
                                                                                 <td
                                                                                     key={day.toISOString()}
                                                                                     className={`p-1 h-[65px] last:border-0 align-middle ${idx === 6 ? 'border-r-4 border-slate-300 dark:border-slate-600' : 'border-r border-gray-200 dark:border-slate-800'}`}
-                                                                                    // PASAR EL ID DE LA TIENDA ACTUAL AL ABRIR EL MODAL
                                                                                     onMouseDown={(e) => handleCellMouseDown(e, user, day, currentShift, String(currentStore.id))}
                                                                                     onMouseEnter={() => handleCellMouseEnter(user, day)}
                                                                                 >
@@ -1937,14 +2370,15 @@ function ScheduleManager() {
                                 <div className="flex gap-3">
                                     <button
                                         onClick={dismissReplication}
-                                        className="flex-1 py-3 px-4 rounded-xl font-bold text-gray-500 dark:text-slate-400 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors"
+                                        disabled={replicationLoading}
+                                        className="flex-1 py-3 px-4 rounded-xl font-bold text-gray-500 dark:text-slate-400 hover:bg-gray-50 dark:hover:bg-slate-800 disabled:opacity-50 transition-colors"
                                     >
                                         {t('schedule.no_thanks')}
                                     </button>
                                     <button
                                         onClick={handleReplicateWeek}
                                         disabled={replicationLoading}
-                                        className="flex-1 py-3 px-4 rounded-xl font-bold bg-indigo-600 text-white hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-all flex items-center justify-center gap-2"
+                                        className="flex-1 py-3 px-4 rounded-xl font-bold bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 shadow-lg shadow-indigo-200 transition-all flex items-center justify-center gap-2"
                                     >
                                         {replicationLoading ? t('schedule.copying') : t('schedule.yes_copy')}
                                     </button>

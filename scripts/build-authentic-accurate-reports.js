@@ -866,20 +866,46 @@ const augustRows = [
         "descEn": "• <strong>Sales (Toast API & Bell Reconciliation $8,332.64)</strong>: Solved Bell sales discrepancy by handling cross-date party tray refunds and EBT items.<br>• <strong>Labor Breaks (Full LINE-BY-LINE Audit)</strong>: Fixed visual tooltip overlap on lunch/break logs and automated CA meal break violation auditing.<br>• <strong>Uniforms & Safe Box</strong>: Audited and locked 660 minimum stock DB records across all 15 stores with cash sale reconciliation.<br>• <strong>MilesIQ (GPS & PostgreSQL Generated Columns)</strong>: Guarded against Postgres 428C9 error by omitting computed columns in insertion payloads, route gap optimization, and 1-tap logging.<br>• <strong>Admin HTML Reports Viewer (/admin/reporte-actividades)</strong>: Built interactive Admin-exclusive viewer with month switching tabs, eliminating static PDFs.<br>• <strong>Unified Gantt Timelines</strong>: Recreated and synced 4 AM - 12 AM dual-track schedules across all 3 monthly reports."
     },
     {
-    "date": "23-Ago-2026",
-    "time": "12:00 AM - 1:15 AM & 6:30 AM - 8:30 AM & 9:30 AM - 12:30 PM",
-    "hours": 6.25,
-    "badges": [
-        "Preparador (Auditoría)",
-        "Caja Fuerte (PST & Sync)",
-        "Pedidos Bodega",
-        "Checklists Temperaturas (≤40°F / ≥140°F)",
-        "MilesIQ (Filtro Supervisores)",
-        "Planificador Turnos Lynwood"
-    ],
-    "descEs": "• <strong>Preparador de Carne (Auditoría Forense Integral Línea por Línea)</strong>: Blindaje del acelerador intradía contra divisiones por cero, calibración de proyecciones por tramos y sincronización con tablets de cocina.<br>• <strong>Caja Fuerte & Bóveda</strong>: Corrección del cálculo de fechas en zona horaria PST (America/Los_Angeles), limpieza de manualOverride al resetear formulario y eliminación de condición de carrera asíncrona en conciliación con ventas de uniformes.<br>• <strong>Pedidos de Bodega & Insumos</strong>: Auditoría exhaustiva de guardado parcial de estimates en QuickBooks y sincronización de PAR.<br>• <strong>Checklists de Inocuidad y Temperaturas</strong>: Calibración reglamentaria de umbrales para refrigeración y barras frías (≤ 40°F) y mantenimiento caliente (≥ 140°F) con integración de estatus_manager.<br>• <strong>MilesIQ (Sincronización de Inspecciones & Filtro de Supervisores)</strong>: Filtrado estricto por supervisor activo y prevención de rutas redundantes.<br>• <strong>Planificador & Gantt</strong>: Conexión dinámica con Supabase para reflejar los 75 turnos exactos de Carlos Velazquez en Lynwood #14 y resolución del caso borde de medianoche en el Gantt.",
-    "descEn": "• <strong>Prep Line (Comprehensive Line-by-Line Forensic Audit)</strong>: Hardened intraday accelerator against zero-division errors, calibrated period blocks, and synced kitchen tablets.<br>• <strong>Safe Management (PST Timezone & Race Conditions)</strong>: Fixed PST date calculations, cleared manualOverride on form resets, and resolved async race condition in uniform cash reconciliation.<br>• <strong>Bodega Orders & Warehouse PAR</strong>: Full audit of partial QuickBooks estimate saves and PAR auto-sync.<br>• <strong>Food Safety & Temperature Checklists</strong>: Calibrated regulatory thresholds for cold holding (≤ 40°F) and hot holding (≥ 140°F), adding estatus_manager field.<br>• <strong>MilesIQ (Inspection Sync & Active Supervisor Filter)</strong>: Filtered active supervisors and prevented redundant multi-leg direct routes.<br>• <strong>Planner & Gantt Sync</strong>: Live connection to Supabase shifts table to display Carlos Velazquez's exact 75 Lynwood #14 General Manager shift schedules and resolved midnight wrap-around on Gantt ruler."
-}
+        "date": "23-Ago-2026",
+        "time": "12:00 AM - 1:15 AM & 6:30 AM - 8:30 AM & 9:30 AM - 12:30 PM & 10:00 PM - 10:30 PM",
+        "hours": 6.75,
+        "badges": [
+            "Preparador (Auditoría)",
+            "Caja Fuerte (PST & Sync)",
+            "Pedidos Bodega (PAR Lock)",
+            "Checklists Temperaturas (≤40°F / ≥140°F)",
+            "MilesIQ (Filtro Supervisores)",
+            "Planificador Turnos Lynwood"
+        ],
+        "descEs": "• <strong>Preparador de Carne (Auditoría Forense Integral Línea por Línea)</strong>: Blindaje del acelerador intradía contra divisiones por cero, calibración de proyecciones por tramos y sincronización con tablets de cocina.<br>• <strong>Caja Fuerte & Bóveda</strong>: Corrección del cálculo de fechas en zona horaria PST (America/Los_Angeles), limpieza de manualOverride al resetear formulario y eliminación de condición de carrera asíncrona en conciliación con ventas de uniformes.<br>• <strong>Pedidos de Bodega & Insumos</strong>: Habilitación de edición de PAR en días bloqueados con reflejo en la semana siguiente y badge de estatus; auditoría exhaustiva de guardado parcial de estimates en QuickBooks.<br>• <strong>Checklists de Inocuidad y Temperaturas</strong>: Calibración reglamentaria de umbrales para refrigeración y barras frías (≤ 40°F) y mantenimiento caliente (≥ 140°F) con integración de estatus_manager.<br>• <strong>MilesIQ (Sincronización de Inspecciones & Filtro de Supervisores)</strong>: Filtrado estricto por supervisor activo y prevención de rutas redundantes.<br>• <strong>Planificador & Gantt</strong>: Conexión dinámica con Supabase para reflejar los 75 turnos exactos de Carlos Velazquez en Lynwood #14 y resolución del caso borde de medianoche en el Gantt.",
+        "descEn": "• <strong>Prep Line (Comprehensive Line-by-Line Forensic Audit)</strong>: Hardened intraday accelerator against zero-division errors, calibrated period blocks, and synced kitchen tablets.<br>• <strong>Safe Management (PST Timezone & Race Conditions)</strong>: Fixed PST date calculations, cleared manualOverride on form resets, and resolved async race condition in uniform cash reconciliation.<br>• <strong>Bodega Orders & Warehouse PAR</strong>: Enabled PAR editing on locked days with next-week reflection and status badge; full audit of partial QuickBooks estimate saves.<br>• <strong>Food Safety & Temperature Checklists</strong>: Calibrated regulatory thresholds for cold holding (≤ 40°F) and hot holding (≥ 140°F), adding estatus_manager field.<br>• <strong>MilesIQ (Inspection Sync & Active Supervisor Filter)</strong>: Filtered active supervisors and prevented redundant multi-leg direct routes.<br>• <strong>Planner & Gantt Sync</strong>: Live connection to Supabase shifts table to display Carlos Velazquez's exact 75 Lynwood #14 General Manager shift schedules and resolved midnight wrap-around on Gantt ruler."
+    },
+    {
+        "date": "24-Ago-2026",
+        "time": "1:15 PM - 1:30 PM & 7:00 PM - 11:15 PM",
+        "hours": 4.5,
+        "badges": [
+            "Ventas Reportes Auth",
+            "RONOS HR API Conector",
+            "Asistencia Biométrica & Mapeo",
+            "Simplify Payroll Sync"
+        ],
+        "descEs": "• <strong>Ventas & Reportes Operativos</strong>: Corrección de autenticación y carga resiliente en reportes de ventas operativos y semanales.<br>• <strong>Módulo RONOS HR (Conector Oficial & Scraping Biométrico)</strong>: Creación de la arquitectura de conexión contra el portal de RONOS (lib/ronos-api.ts), autenticación segura y extracción de ponchadas de reloj, fotografías biométricas y turnos de empleados en las 15 tiendas.<br>• <strong>Asistencia & Violaciones</strong>: Detección automática de faltas, retardos, violaciones de lunch breaks bajo normativa de California y dobles descansos.<br>• <strong>Mapeo de Empleados</strong>: Motor de sincronización automática de perfiles entre RONOS, Toast POS y el Planificador de Tacos Gavilan.",
+        "descEn": "• <strong>Sales & Operational Reports</strong>: Fixed authentication and resilient loading in daily and weekly sales dashboards.<br>• <strong>RONOS HR Module (Official Connector & Biometric Scraping)</strong>: Built core connection engine to RONOS portal (lib/ronos-api.ts), secure auth, and ingestion of clock-ins, biometric photos, and store punches across all 15 branches.<br>• <strong>Attendance & Violations</strong>: Automated detection of absences, tardiness, California meal break violations, and split lunches.<br>• <strong>Employee Mapping</strong>: Auto-mapping engine between RONOS, Toast POS, and Tacos Gavilan Shift Planner."
+    },
+    {
+        "date": "25-Ago-2026",
+        "time": "7:00 AM - 1:45 PM & 3:20 PM - 6:45 PM",
+        "hours": 10.17,
+        "badges": [
+            "RONOS & Simplify Nómina",
+            "Auditoría Invoices Cingular",
+            "Markup % & Salarios Managers",
+            "MilesIQ GPS Bugfix Rialto"
+        ],
+        "descEs": "• <strong>RONOS & Simplify (Motor de Conciliación de Nómina Cingular HR)</strong>: Algoritmo de cruce de Pay Rate vs Bill Rate y cálculo de margen de markup exacto (26.0% y 25.98%). Fórmulas de cálculo al centavo para salarios de General Managers y Supervisores, desglosando Sick Pay y Vacaciones ($3,033.40 para Carlos Velazquez en Lynwood).<br>• <strong>Auditoría de Facturas Reales PDF</strong>: Conciliación automatizada de facturas de Cingular HR para West Covina, Bell, Slauson, Lynwood y Broadway contra ponchadas reales de RONOS.<br>• <strong>Detección de Transferencias Multitienda</strong>: Algoritmo cronológico de detección de empleados transferidos entre sucursales (Adriana Reyes, Tiare Alor) según fecha de actividad.<br>• <strong>Caché Permanente en Supabase</strong>: Almacenamiento histórico en base de datos para carga instantánea de 2022 a la fecha.<br>• <strong>MilesIQ (Auditoría Línea por Línea & Bugfix Rialto)</strong>: Resolución de bloqueo en app de iPhone para supervisora Estefani al iniciar ruta en Rialto, auditoría de geofences y aislamiento de notificaciones push.",
+        "descEn": "• <strong>RONOS & Simplify (Cingular HR Payroll Audit Engine)</strong>: Pay Rate vs Bill Rate matching engine and exact markup margin calculation (26.0% & 25.98%). Cent-perfect wage formulas for General Managers and Supervisors with Sick Pay & Vacation breakdown ($3,033.40 for Carlos Velazquez at Lynwood).<br>• <strong>Real PDF Invoice Auditing</strong>: Automated audit of Cingular HR invoices for West Covina, Bell, Slauson, Lynwood, and Broadway against real RONOS punches.<br>• <strong>Multi-Store Transfer Detector</strong>: Chronological employee transfer detector between branches based on punch activity dates.<br>• <strong>Permanent Supabase Cache</strong>: Database caching from 2022 to present for instant UI loading.<br>• <strong>MilesIQ (Line-by-Line Audit & Rialto Bugfix)</strong>: Resolved iPhone app flow lock for supervisor Estefani starting routes at Rialto, audited geofences, and isolated push alerts."
+    }
 ];
 
 // JUNE CONFIG: 17 tasks (1 Completada, 9 En Progreso, 7 Pendientes)
@@ -935,31 +961,56 @@ const julyConfig = {
     taskCardsHtml: renderTab2ForMonth(julyTasks, 'Julio 2026')
 };
 
-// AUGUST CONFIG: 26 tasks (12 Completadas, 7 En Progreso, 7 Pendientes)
+// AUGUST CONFIG: 27 tasks (16 Completadas, 8 En Progreso, 3 Pendientes)
 const augustConfig = {
     monthName: 'Agosto',
     monthYear: 'Agosto 2026',
     monthNum: 8,
-    totalTasks: 26,
-    completedTasks: 12,
-    inProgressTasks: 7,
-    pendingTasks: 7,
-    totalHours: 108.50,
+    totalTasks: 27,
+    completedTasks: 16,
+    inProgressTasks: 8,
+    pendingTasks: 3,
+    totalHours: 123.67,
     rows: augustRows,
     parallelActivities: [
         { title: 'Pruebas en Sucursal/Local', hours: 3.0, desc: 'Testing en cocina del modo tableta kiosko del Preparador, validación de sincronización PC-Tableta y geofencing de MilesIQ en las 15 tiendas.' },
         { title: 'Monitoreo DB y APIs', hours: 2.5, desc: 'Auditoría de API v3 Viele & Sons (Radar de Precios), endpoints de conciliación de Ventas Toast y cálculo IRS de millas.' },
-        { title: 'Planificación y Diseño', hours: 1.5, desc: 'Arquitectura de Tech Packs para uniformes, diseño del acelerador intradía de carne y estructura de las 26 tareas oficiales.' }
+        { title: 'Planificación y Diseño', hours: 1.5, desc: 'Arquitectura de Tech Packs para uniformes, diseño del acelerador intradía de carne y estructura de las 27 tareas oficiales.' }
     ],
     effortSummary: [
-        { module: 'Preparador de Carne y Cocina KDS', hours: 25.5 },
-        { module: 'MilesIQ Supervisores & Geofencing GPS', hours: 19.25 },
-        { module: 'Ventas Toast API & Conciliación Multitienda', hours: 18.5 },
-        { module: 'Control de Uniformes & Caja Fuerte', hours: 12.5 },
-        { module: 'Descansos Laborales (Labor Compliance AI)', hours: 12.5 },
-        { module: 'Radar de Precios Viele v3 & Auditoría COGS', hours: 11.5 },
-        { module: 'Mantenimiento General, Crons y Reportes', hours: 8.75 }
-    ],
+        {
+                "module": "Preparador de Carne y Cocina KDS",
+                "hours": 25.5
+        },
+        {
+                "module": "MilesIQ Supervisores & Geofencing GPS",
+                "hours": 19.25
+        },
+        {
+                "module": "Ventas Toast API & Conciliación Multitienda",
+                "hours": 18.5
+        },
+        {
+                "module": "Módulo RONOS HR & Simplify Payroll Audit",
+                "hours": 14.67
+        },
+        {
+                "module": "Control de Uniformes & Caja Fuerte",
+                "hours": 12.5
+        },
+        {
+                "module": "Descansos Laborales (Labor Compliance AI)",
+                "hours": 12.5
+        },
+        {
+                "module": "Radar de Precios Viele v3 & Auditoría COGS",
+                "hours": 11.5
+        },
+        {
+                "module": "Mantenimiento General, Crons y Reportes",
+                "hours": 9.33
+        }
+],
     taskCardsHtml: renderTab2ForMonth(augustTasks, 'Agosto 2026')
 };
 

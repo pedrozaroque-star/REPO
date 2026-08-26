@@ -14,6 +14,8 @@ import { supabaseAdmin } from '@/lib/supabase'
 import { calculateIngredientCost, type InventoryCostData } from '@/lib/inventory/recipe-calculations'
 import { generateSmartForecast } from '@/lib/intelligence'
 import { scheduleBreaksWithDemand } from '@/lib/breaks-engine'
+import { getRonosStoreAudit, getRonosChainWideAudit, RONOS_STORES_MAP } from '@/lib/ronos-api'
+import { calculateCingularPayrollReport } from '@/lib/payroll-calculator'
 
 const clean = (name: string) => (name || '').replace(/^Tacos Gavilan\s+/i, '').trim()
 const fmt$ = (n: number) => '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -325,6 +327,29 @@ export const TOOL_DECLARATIONS = [
         search_text: { type: 'STRING', description: 'Optional keyword to search in descriptions or item names' }
       }
     }
+  },
+  {
+    name: 'query_ronos_labor_audit',
+    description: 'Query live labor compliance, meal penalty violations, broken timecards, overtime, and punch clock photos from RONOS API (Cingular HR) for any store or chain-wide.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        store_name: { type: 'STRING', description: 'Store name filter (e.g. "Lynwood", "Central", "Slauson", "Bodega", or "all" / "chain")' },
+        week_id: { type: 'NUMBER', description: 'Optional work week ID' }
+      }
+    }
+  },
+  {
+    name: 'calculate_cingular_payroll',
+    description: 'Calculate and reconcile official Cingular HR payroll, gross pay (TOT PAY), 25.98% markup fee, and total invoiced amount (TOT BILL) with exact exempt/non-exempt breakdown and PTO (sick/vacation) for any Tacos Gavilan store.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        store_name: { type: 'STRING', description: 'Store name (e.g. "West Covina", "Lynwood", "Central", "Slauson")' },
+        week_ids: { type: 'ARRAY', items: { type: 'NUMBER' }, description: 'Array of 1 or 2 week IDs (e.g. [154246, 154247] for biweekly)' },
+        is_biweekly: { type: 'BOOLEAN', description: 'Whether to calculate for biweekly period (2 weeks) or single week' }
+      }
+    }
   }
 ]
 
@@ -332,6 +357,8 @@ export const TOOL_DECLARATIONS = [
 export async function executeTool(name: string, args: any): Promise<string> {
   try {
     switch (name) {
+      case 'calculate_cingular_payroll': return await calculateCingularPayrollTool(args)
+      case 'query_ronos_labor_audit': return await queryRonosLaborAudit(args)
       case 'query_supplier_prices': return await querySupplierPrices(args)
       case 'query_supervisor_mileage': return await querySupervisorMileage(args)
       case 'query_sales': return await querySales(args)
@@ -1717,5 +1744,96 @@ async function querySupplierPrices(args: { supplier_name?: string; sku?: string;
 
   return `📊 **Supplier Item Catalog & Prices (Radar de Precios):**\nTotal Matches: ${filtered.length}\n\n| SKU | Description | Pack | Master Item | Price / Unit Cost | Supplier |\n|---|---|---|---|---|---|\n${summary}`
 }
+
+async function queryRonosLaborAudit(args: any): Promise<string> {
+  const storeInput = (args.store_name || '').toLowerCase().trim()
+
+  if (storeInput === 'all' || storeInput === 'chain' || storeInput === 'todas') {
+    const chainAudit = await getRonosChainWideAudit()
+    const storeRows = chainAudit.stores.map(st => {
+      return `| ${st.storeName} | ${st.activeEmployees} | ${st.totalHours}h | ${st.overtimeHours}h | ${st.mealPenalties} multas | $${st.penaltyCostUsd} | ${st.complianceScore}% |`
+    }).join('\n')
+
+    return `🛡️ **Auditoría Corporativa RONOS (15 Tiendas + Bodega):**
+- **Tiendas Auditadas**: ${chainAudit.totalStores}
+- **Personal Activo**: ${chainAudit.totalActiveEmployees} colaboradores
+- **Horas Totales**: ${chainAudit.totalChainHours} hrs (OT/DT: ${chainAudit.totalOvertimeHours} hrs)
+- **Meal Penalties Totales**: ${chainAudit.totalMealPenalties} violaciones de 5ta hora
+- **Fuga Financiera por Penalizaciones**: $${chainAudit.totalPenaltyCostUsd} USD
+- **Costo Horas Extras**: $${chainAudit.totalOvertimeCostUsd} USD
+
+| Sucursal | Activos | Horas | OT | Meal Penalties | Fuga ($ USD) | Cumplimiento |
+|---|---|---|---|---|---|---|
+${storeRows}`
+  }
+
+  // Find store by name
+  let targetCompanyId = 34 // Default: Lynwood
+  const matched = RONOS_STORES_MAP.find(st =>
+    st.tegName.toLowerCase().includes(storeInput) ||
+    st.tegCode.toLowerCase().includes(storeInput) ||
+    st.ronosName.toLowerCase().includes(storeInput)
+  )
+  if (matched) {
+    targetCompanyId = matched.ronosCompanyId
+  }
+
+  const audit = await getRonosStoreAudit(targetCompanyId, args.week_id)
+
+  const topViolators = audit.employees
+    .filter(e => e.totalViolationsCount > 0 || e.mealPenaltyCount > 0 || e.brokenHours)
+    .slice(0, 10)
+    .map(e => {
+      const issues = []
+      if (e.mealPenaltyCount > 0) issues.push(`${e.mealPenaltyCount} Meal Penalty (5ta hora)`)
+      if (e.brokenHours) issues.push(`Ponchada Incompleta`)
+      return `- **${e.fullName}** (PIN: ${e.pin}): ${e.totalWeeklyHours} hrs (${e.overtimeHours}h OT) ➔ ${issues.join(', ')} | Fuga: $${e.totalEstimatedPenaltyCostUsd}`
+    }).join('\n')
+
+  return `⏱️ **Auditoría Laboral RONOS — ${audit.storeName}:**
+- **Semana**: #${audit.weekId} (${audit.startDate.substring(0, 10)} al ${audit.endDate.substring(0, 10)})
+- **Colaboradores**: ${audit.activeEmployeesCount} activos de ${audit.totalEmployees} registrados
+- **Horas Totales**: ${audit.totalChainHours}h (Regulares: ${audit.totalRegularHours}h | Overtime: ${audit.totalOvertimeHours}h)
+- **Meal Penalties (Violaciones 5ta hora)**: ${audit.totalMealPenaltiesCount} multas ($${audit.totalEstimatedPenaltyCostUsd} USD)
+- **Tarjetas Incompletas (Broken)**: ${audit.totalBrokenTimecardsCount}
+- **Índice de Cumplimiento Legal**: ${audit.complianceScorePercent}%
+
+${topViolators ? `🚨 **Colaboradores con Alertas de Nómina:**\n${topViolators}` : '✅ *No se detectaron penalizaciones ni anomalías en esta sucursal.*'}`
+}
+
+async function calculateCingularPayrollTool(args: any): Promise<string> {
+  const storeInput = (args.store_name || '').toLowerCase()
+  let targetCompanyId = 34 // Default Lynwood
+  const matched = RONOS_STORES_MAP.find(st =>
+    st.tegName.toLowerCase().includes(storeInput) ||
+    st.tegCode.toLowerCase().includes(storeInput) ||
+    st.ronosName.toLowerCase().includes(storeInput)
+  )
+  if (matched) {
+    targetCompanyId = matched.ronosCompanyId
+  }
+
+  const isBiWeekly = args.is_biweekly !== false
+  const weekIds: number[] = Array.isArray(args.week_ids) && args.week_ids.length > 0 ? args.week_ids : []
+
+  const report = await calculateCingularPayrollReport(targetCompanyId, weekIds, isBiWeekly)
+
+  const topEmployees = report.employees.slice(0, 10).map(e =>
+    `- **${e.fullName}** (${e.isSalaried ? 'Asalariado/Exempt' : 'Por Hora/Non-Exempt'} - ${e.jobTitle}): ${e.totalHours}h (Reg: ${e.regularHours}h, OT: ${e.overtimeHours}h, Sick: ${e.sickHours}h, Vac: ${e.vacationHours}h) ➔ Salario: $${e.totalGrossPay.toFixed(2)} | Facturado: $${e.totalInvoicedAmount.toFixed(2)} (Fee: +$${e.cingularFeeAmount.toFixed(2)})`
+  ).join('\n')
+
+  return `💼 **Reporte de Nómina & Facturación Cingular HR (PEO) — ${report.storeName} (${report.storeCode}):**
+- **Periodo**: ${report.isBiWeekly ? 'Bisemanal (2 semanas / Ciclo de Factura)' : 'Semanal Individual'}
+- **Personal en Nómina**: ${report.totalEmployees} colaboradores (${report.salariedCount} Asalariados Exempt / ${report.hourlyCount} Por Hora Non-Exempt)
+- **Horas Totales**: **${report.totalHours} hrs** (Regulares: ${report.totalRegularHours}h | Asalariadas: ${report.totalSalaryHours}h | Overtime: ${report.totalOvertimeHours}h | Enfermedad: ${report.totalSickHours}h | Vacaciones: ${report.totalVacationHours}h)
+- **Salarios Brutos (TOT PAY)**: **$${report.totalGrossPay.toLocaleString('en-US', { minimumFractionDigits: 2 })}**
+- **Facturación Total Cingular (TOT BILL)**: **$${report.totalInvoicedAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}**
+- **Margen Cingular (Cingular Fee)**: **$${report.totalCingularFee.toLocaleString('en-US', { minimumFractionDigits: 2 })}** (Markup Efectivo: **${report.effectiveMarkupPercentage}%**)
+
+📋 **Desglose de Colaboradores (Muestra):**
+${topEmployees}
+${report.employees.length > 10 ? `\n*... y ${report.employees.length - 10} colaboradores adicionales en nómina.*` : ''}`
+}
+
 
 
