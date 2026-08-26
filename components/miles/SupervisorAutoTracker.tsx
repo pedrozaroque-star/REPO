@@ -41,16 +41,14 @@ export default function SupervisorAutoTracker() {
   const [autoLogEnabled, setAutoLogEnabled] = useState(false)
   const lastCheckTimestamp = useRef<number>(0)
 
-  const isSupervisorOrAdmin = user && (
-    (user.role || '').toLowerCase() === 'supervisor' ||
-    (user.role || '').toLowerCase() === 'admin'
-  )
+  const isFieldSupervisor = user && (user.role || '').toLowerCase() === 'supervisor'
 
   // Load autoLog preference
   useEffect(() => {
+    if (!isFieldSupervisor) return
     const pref = localStorage.getItem('teg_miles_auto_log_enabled')
     if (pref === 'true') setAutoLogEnabled(true)
-  }, [])
+  }, [isFieldSupervisor])
 
   const handleToggleAutoLog = (enabled: boolean) => {
     setAutoLogEnabled(enabled)
@@ -58,7 +56,7 @@ export default function SupervisorAutoTracker() {
   }
 
   const performLocationCheck = async () => {
-    if (!isSupervisorOrAdmin || !navigator.geolocation) return
+    if (!isFieldSupervisor || !navigator.geolocation) return
 
     // Throttle checks to at least 90 seconds apart unless forced
     const now = Date.now()
@@ -132,7 +130,7 @@ export default function SupervisorAutoTracker() {
 
   // Check on mount, window focus and periodic interval
   useEffect(() => {
-    if (!isSupervisorOrAdmin) return
+    if (!isFieldSupervisor) return
 
     performLocationCheck()
 
@@ -149,7 +147,11 @@ export default function SupervisorAutoTracker() {
       document.removeEventListener('visibilitychange', handleVisibilityChange)
       clearInterval(interval)
     }
-  }, [isSupervisorOrAdmin, user])
+  }, [isFieldSupervisor, user])
+
+  if (!isFieldSupervisor) {
+    return null
+  }
 
   const handleConfirmTrip = async () => {
     if (!detectedArrival || !user) return
@@ -183,7 +185,7 @@ export default function SupervisorAutoTracker() {
     }
   }
 
-  if (!isSupervisorOrAdmin) return null
+  if (!isFieldSupervisor) return null
 
   return (
     <>
