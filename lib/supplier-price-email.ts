@@ -7,7 +7,7 @@
  *
  * @businessRules
  *   - Destinatarios oficiales: roberto@tacosgavilan.com, raquel@tacosgavilan.com, gonzalo@tacosgavilan.com, carlos@tacosgavilan.com.
- *   - Se envía automáticamente desde el Cron semanal de los lunes a las 6:00 AM si hay aumentos O reducciones.
+ *   - Se envía automáticamente desde el Cron de lunes a viernes a las 6:00 AM si hay aumentos O reducciones.
  *   - Se puede enviar manualmente desde la interfaz de usuario (/admin/precios-proveedores).
  *   - Si hay rebajas (precios bajan): Muestra plantilla verde esmeralda con el cálculo de ahorro anual en $ USD para las 15 tiendas.
  *   - Si hay aumentos (precios suben): Muestra plantilla roja con el dinero en riesgo anual en $ USD.
@@ -126,7 +126,7 @@ export function generatePriceAlertEmailHtml(options: PriceAlertEmailOptions): st
   })
 
   const sourceLabel = sourceType === 'cron_auto' 
-    ? 'Revisión Automática Programada (Lunes 6:00 AM)' 
+    ? 'Revisión Automática Programada (Lunes a Viernes 6:00 AM)' 
     : 'Revisión en Vivo desde el Tablero SM TEG'
 
   const hasIncreases = increases.length > 0

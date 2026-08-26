@@ -1,10 +1,10 @@
 /**
  * @module app/api/cron/sync-supplier-prices/route
  * @description Cron job automatizado para sincronización periódica de precios de distribuidores (Viele & Sons).
- *   - Se ejecuta los lunes a las 6:00 AM (inicio de semana laboral).
+ *   - Se ejecuta de lunes a viernes a las 6:00 AM (inicio de cada día laboral, 5 veces por semana).
  *   - Conecta a la API del portal de Viele & Sons y extrae el catálogo de precios vigentes.
  *   - Compara los costos contra los insumos maestros en Supabase.
- *   - Si detecta aumentos o reducciones de precio, registra auditoría inmutable en supplier_price_history.
+ *   - Si detecta aumentos o reducciones de precio, registra auditoría inmutable en supplier_price_history y despacha alertas a directivos.
  *
  * @businessRules
  *   - Autentica con credenciales corporativas (VIELE_PORTAL_USER / VIELE_PORTAL_PASS).
