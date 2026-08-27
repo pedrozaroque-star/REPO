@@ -383,10 +383,28 @@ export function isEmployeeSalaried(jobTitle?: string, fullName?: string, payRate
  * Calcula la nómina y proyección exacta de facturación Cingular HR para una sucursal y semana(s)
  */
 export async function calculateCingularPayrollReport(
-  ronosCompanyId: number,
-  weekIds: number[],
-  isBiWeekly = true
+  companyIdOrParams: number | { ronosCompanyId: number; weekIds: (number | string)[]; isBiWeekly?: boolean; biWeekly?: boolean; useLiveRates?: boolean },
+  rawWeekIds?: (number | string)[] | string | number,
+  isBiWeeklyParam = true
 ): Promise<CingularInvoiceSummaryReport> {
+  let ronosCompanyId = 0
+  let rawWeeks: (number | string)[] = []
+  let isBiWeekly = isBiWeeklyParam
+
+  if (typeof companyIdOrParams === 'object' && companyIdOrParams !== null) {
+    ronosCompanyId = Number(companyIdOrParams.ronosCompanyId)
+    rawWeeks = Array.isArray(companyIdOrParams.weekIds) ? companyIdOrParams.weekIds : [companyIdOrParams.weekIds].filter(Boolean)
+    isBiWeekly = companyIdOrParams.isBiWeekly ?? companyIdOrParams.biWeekly ?? true
+  } else {
+    ronosCompanyId = Number(companyIdOrParams)
+    rawWeeks = Array.isArray(rawWeekIds) ? rawWeekIds : typeof rawWeekIds === 'string' ? rawWeekIds.split(',').map(s => s.trim()) : typeof rawWeekIds === 'number' ? [rawWeekIds] : []
+    isBiWeekly = isBiWeeklyParam
+  }
+
+  const weekIds: number[] = rawWeeks
+    .map(w => Number(w))
+    .filter(n => !isNaN(n) && n > 0)
+
   const storeMeta = RONOS_STORES_MAP.find(s => s.ronosCompanyId === ronosCompanyId) || {
     tegStoreId: 0,
     tegCode: 'UNKNOWN',
