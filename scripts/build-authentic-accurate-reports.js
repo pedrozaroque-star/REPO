@@ -895,8 +895,8 @@ const augustRows = [
     },
     {
         "date": "25-Ago-2026",
-        "time": "7:00 AM - 1:45 PM & 3:20 PM - 6:45 PM",
-        "hours": 10.17,
+        "time": "7:00 AM - 1:45 PM & 3:20 PM - 7:30 PM",
+        "hours": 11,
         "badges": [
             "RONOS & Simplify Nómina",
             "Auditoría Invoices Cingular",
@@ -905,6 +905,19 @@ const augustRows = [
         ],
         "descEs": "• <strong>RONOS & Simplify (Motor de Conciliación de Nómina Cingular HR)</strong>: Algoritmo de cruce de Pay Rate vs Bill Rate y cálculo de margen de markup exacto (26.0% y 25.98%). Fórmulas de cálculo al centavo para salarios de General Managers y Supervisores, desglosando Sick Pay y Vacaciones ($3,033.40 para Carlos Velazquez en Lynwood).<br>• <strong>Auditoría de Facturas Reales PDF</strong>: Conciliación automatizada de facturas de Cingular HR para West Covina, Bell, Slauson, Lynwood y Broadway contra ponchadas reales de RONOS.<br>• <strong>Detección de Transferencias Multitienda</strong>: Algoritmo cronológico de detección de empleados transferidos entre sucursales (Adriana Reyes, Tiare Alor) según fecha de actividad.<br>• <strong>Caché Permanente en Supabase</strong>: Almacenamiento histórico en base de datos para carga instantánea de 2022 a la fecha.<br>• <strong>MilesIQ (Auditoría Línea por Línea & Bugfix Rialto)</strong>: Resolución de bloqueo en app de iPhone para supervisora Estefani al iniciar ruta en Rialto, auditoría de geofences y aislamiento de notificaciones push.",
         "descEn": "• <strong>RONOS & Simplify (Cingular HR Payroll Audit Engine)</strong>: Pay Rate vs Bill Rate matching engine and exact markup margin calculation (26.0% & 25.98%). Cent-perfect wage formulas for General Managers and Supervisors with Sick Pay & Vacation breakdown ($3,033.40 for Carlos Velazquez at Lynwood).<br>• <strong>Real PDF Invoice Auditing</strong>: Automated audit of Cingular HR invoices for West Covina, Bell, Slauson, Lynwood, and Broadway against real RONOS punches.<br>• <strong>Multi-Store Transfer Detector</strong>: Chronological employee transfer detector between branches based on punch activity dates.<br>• <strong>Permanent Supabase Cache</strong>: Database caching from 2022 to present for instant UI loading.<br>• <strong>MilesIQ (Line-by-Line Audit & Rialto Bugfix)</strong>: Resolved iPhone app flow lock for supervisor Estefani starting routes at Rialto, audited geofences, and isolated push alerts."
+    },
+    {
+        "date": "26-Ago-2026",
+        "time": "12:00 AM - 1:45 AM & 11:45 AM - 5:15 PM",
+        "hours": 7.25,
+        "badges": [
+            "Radar Precios (Alertas Ahorro & Cron 5D)",
+            "RONOS & Simplify Admin Creds",
+            "Invoices Azusa y La Puente",
+            "Viele Scraper Optimizado (1.15s)"
+        ],
+        "descEs": "• <strong>Radar de Precios (Alertas de Ahorro por Bajada de Precios & Cron 5 Días)</strong>: Implementación del sistema de alertas ejecutivas por correo ante bajadas de precios para resaltar ahorros directos para la empresa (petición de Roberto Velazquez). Configuración del cron de revisión automática a 5 días por semana (Lunes a Viernes 6:00 AM PST).<br>• <strong>Radar de Precios (Scraper Optimizado & Homologación de Códigos)</strong>: Optimización del scraper de la API de Viele con respuesta ultra-rápida (1.15s) y mapeo automático de códigos de reemplazo de insumos (EL4LID a KDL76PP).<br>• <strong>RONOS & Simplify (Credenciales Administrativas & Extracción Batch)</strong>: Conexión con credenciales administrativas corporativas para extracción masiva de perfiles, salarios reales de supervisores/gerentes y paystubs históricos.<br>• <strong>Auditoría de Invoices Multitienda</strong>: Conciliación matemática de facturas PDF de Cingular HR para las sucursales de Azusa (invoice-TEGA-0009.pdf) y La Puente (invoice-TEGL-0022.pdf).",
+        "descEn": "• <strong>Price Radar (Savings Alerts on Price Drops & 5-Day Cron)</strong>: Implemented executive email alerts for price decreases to highlight company savings (requested by Roberto Velazquez). Configured automated cron to run 5 days a week (Mon-Fri 6:00 AM PST).<br>• <strong>Price Radar (Optimized Scraper & Item Code Remapping)</strong>: Accelerated Viele API live scraper to 1.15s response time and remapped vendor replacement codes (EL4LID to KDL76PP).<br>• <strong>RONOS & Simplify (Admin Credentials & Batch Extraction)</strong>: Integrated corporate admin credentials for bulk extraction of employee master profiles, active supervisor/manager salaries, and historical paystubs.<br>• <strong>Multi-Store Invoice Auditing</strong>: Cent-perfect mathematical reconciliation of Cingular HR PDF invoices for Azusa (invoice-TEGA-0009.pdf) and La Puente (invoice-TEGL-0022.pdf)."
     }
 ];
 
@@ -970,7 +983,7 @@ const augustConfig = {
     completedTasks: 16,
     inProgressTasks: 8,
     pendingTasks: 3,
-    totalHours: 123.67,
+    totalHours: 131.75,
     rows: augustRows,
     parallelActivities: [
         { title: 'Pruebas en Sucursal/Local', hours: 3.0, desc: 'Testing en cocina del modo tableta kiosko del Preparador, validación de sincronización PC-Tableta y geofencing de MilesIQ en las 15 tiendas.' },
@@ -987,12 +1000,16 @@ const augustConfig = {
                 "hours": 19.25
         },
         {
+                "module": "Módulo RONOS HR & Simplify Payroll Audit",
+                "hours": 18.75
+        },
+        {
                 "module": "Ventas Toast API & Conciliación Multitienda",
                 "hours": 18.5
         },
         {
-                "module": "Módulo RONOS HR & Simplify Payroll Audit",
-                "hours": 14.67
+                "module": "Radar de Precios Viele v3, Scraper & Alertas de Ahorro",
+                "hours": 14.5
         },
         {
                 "module": "Control de Uniformes & Caja Fuerte",
@@ -1003,12 +1020,8 @@ const augustConfig = {
                 "hours": 12.5
         },
         {
-                "module": "Radar de Precios Viele v3 & Auditoría COGS",
-                "hours": 11.5
-        },
-        {
                 "module": "Mantenimiento General, Crons y Reportes",
-                "hours": 9.33
+                "hours": 9.5
         }
 ],
     taskCardsHtml: renderTab2ForMonth(augustTasks, 'Agosto 2026')

@@ -433,8 +433,8 @@ export async function calculateCingularPayrollReport(
     const uId = card.employee_user_id
     if (!uId) return
     const cardName = (card.full_name || `${card.first_name || ''} ${card.last_name || ''}`).toLowerCase()
-    // Omitir colaborador fantasma/placeholder del sistema RONOS
-    if (cardName.includes('manager default')) return
+    // Omitir tarjeta/cuenta técnica de control de tableta (PIN 1111 o placeholders 'manager default' / 'manager [tienda]')
+    if (card.pin === '1111' || cardName.includes('manager default') || cardName.startsWith('manager ')) return
     // Fix #1a: Omitir empleados transferidos por UID (detectados vía ronos_employee_mappings)
     if (transferredOutUserIds.has(uId)) return
     // Fix #1b: Omitir empleados excluidos por nombre (Cingular los factura en otra entidad)
