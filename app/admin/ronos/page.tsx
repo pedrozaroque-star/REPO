@@ -777,7 +777,7 @@ export default function RonosLaborAuditPage() {
 
   // Expand / Collapse All
   const toggleAllEmployees = (expand: boolean) => {
-    if (!storeData) return
+    if (!storeData?.employees) return
     const newState: Record<number, boolean> = {}
     storeData.employees.forEach(emp => {
       newState[emp.employeeUserId] = expand
@@ -1721,7 +1721,7 @@ export default function RonosLaborAuditPage() {
                 <p className="text-slate-800 dark:text-slate-200 font-bold">{t('ronos.chain_auditing_live')}</p>
                 <p className="text-xs text-slate-500 mt-1">{t('ronos.chain_auditing_desc')}</p>
               </div>
-            ) : !chainData || chainData.stores.length === 0 ? (
+            ) : !chainData?.stores || chainData.stores.length === 0 ? (
               <div className="p-12 text-center rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs">
                 <Building2 className="w-8 h-8 text-slate-400 mx-auto mb-3" />
                 <p className="text-slate-800 dark:text-slate-200 font-bold">{t('ronos.empty_title')}</p>
@@ -2192,110 +2192,112 @@ export default function RonosLaborAuditPage() {
                   ))}
                 </div>
               ) : payrollData ? (
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                  <div className="p-4 rounded-2xl bg-emerald-50/70 dark:bg-slate-950 border border-emerald-200 dark:border-emerald-500/20 text-center">
-                    <span className="text-xs font-semibold text-emerald-800 dark:text-emerald-400 block mb-1">
-                      {t('ronos.kpi_total_invoiced')}
-                    </span>
-                    <span className="text-2xl font-black text-emerald-700 dark:text-emerald-300">
-                      ${payrollData.totalInvoicedAmount?.toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                    </span>
-                    <span className="text-[11px] text-slate-500 dark:text-slate-400 block mt-1">
-                      Facturación Total Cingular HR
-                    </span>
-                  </div>
+                <>
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div className="p-4 rounded-2xl bg-emerald-50/70 dark:bg-slate-950 border border-emerald-200 dark:border-emerald-500/20 text-center">
+                      <span className="text-xs font-semibold text-emerald-800 dark:text-emerald-400 block mb-1">
+                        {t('ronos.kpi_total_invoiced')}
+                      </span>
+                      <span className="text-2xl font-black text-emerald-700 dark:text-emerald-300">
+                        ${payrollData.totalInvoicedAmount?.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                      </span>
+                      <span className="text-[11px] text-slate-500 dark:text-slate-400 block mt-1">
+                        Facturación Total Cingular HR
+                      </span>
+                    </div>
 
-                  <div className="p-4 rounded-2xl bg-blue-50/70 dark:bg-slate-950 border border-blue-200 dark:border-blue-500/20 text-center">
-                    <span className="text-xs font-semibold text-blue-800 dark:text-blue-400 block mb-1">
-                      {t('ronos.kpi_gross_pay')}
-                    </span>
-                    <span className="text-2xl font-black text-blue-700 dark:text-blue-300">
-                      ${payrollData.totalGrossPay?.toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                    </span>
-                    <span className="text-[11px] text-slate-500 dark:text-slate-400 block mt-1">
-                      {payrollData.salariedCount} Asalariados • {payrollData.hourlyCount} Por Hora
-                    </span>
-                  </div>
+                    <div className="p-4 rounded-2xl bg-blue-50/70 dark:bg-slate-950 border border-blue-200 dark:border-blue-500/20 text-center">
+                      <span className="text-xs font-semibold text-blue-800 dark:text-blue-400 block mb-1">
+                        {t('ronos.kpi_gross_pay')}
+                      </span>
+                      <span className="text-2xl font-black text-blue-700 dark:text-blue-300">
+                        ${payrollData.totalGrossPay?.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                      </span>
+                      <span className="text-[11px] text-slate-500 dark:text-slate-400 block mt-1">
+                        {payrollData.salariedCount ?? 0} Asalariados • {payrollData.hourlyCount ?? 0} Por Hora
+                      </span>
+                    </div>
 
-                  <div className="p-4 rounded-2xl bg-amber-50/70 dark:bg-slate-950 border border-amber-200 dark:border-amber-500/20 text-center">
-                    <span className="text-xs font-semibold text-amber-800 dark:text-amber-400 block mb-1">
-                      {t('ronos.kpi_cingular_fee')}
-                    </span>
-                    <span className="text-2xl font-black text-amber-700 dark:text-amber-300">
-                      ${payrollData.totalCingularFee?.toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                    </span>
-                    <span className="text-[11px] text-slate-500 dark:text-slate-400 block mt-1">
-                      Markup Efectivo: {payrollData.effectiveMarkupPercentage}%
-                    </span>
-                  </div>
+                    <div className="p-4 rounded-2xl bg-amber-50/70 dark:bg-slate-950 border border-amber-200 dark:border-amber-500/20 text-center">
+                      <span className="text-xs font-semibold text-amber-800 dark:text-amber-400 block mb-1">
+                        {t('ronos.kpi_cingular_fee')}
+                      </span>
+                      <span className="text-2xl font-black text-amber-700 dark:text-amber-300">
+                        ${payrollData.totalCingularFee?.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                      </span>
+                      <span className="text-[11px] text-slate-500 dark:text-slate-400 block mt-1">
+                        Markup Efectivo: {payrollData.effectiveMarkupPercentage}%
+                      </span>
+                    </div>
 
-                  <div className="p-4 rounded-2xl bg-purple-50/70 dark:bg-slate-950 border border-purple-200 dark:border-purple-500/20 text-center">
-                    <span className="text-xs font-semibold text-purple-800 dark:text-purple-400 block mb-1">
-                      {t('ronos.kpi_period_hours')}
-                    </span>
-                    <span className="text-2xl font-black text-purple-700 dark:text-purple-300">
-                      {payrollData.totalHours} <span className="text-sm font-normal">hrs</span>
-                    </span>
-                    <span className="text-[11px] text-slate-500 dark:text-slate-400 block mt-1">
-                      Reg: {payrollData.totalRegularHours}h | Sal: {payrollData.totalSalaryHours}h | OT: {payrollData.totalOvertimeHours}h | Sick: {payrollData.totalSickHours}h | Vac: {payrollData.totalVacationHours}h
-                    </span>
-                  </div>
-                </div>
-              ) : null}
-
-              {/* Panel Ejecutivo de Auditoría y Conciliación PEO (Simplify HR vs Cingular Invoice) */}
-              <div className="rounded-2xl p-4 bg-gradient-to-r from-emerald-500/10 via-teal-500/10 to-amber-500/10 border border-emerald-500/30 dark:border-emerald-500/20 shadow-xs flex flex-col gap-3">
-                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 border-b border-emerald-500/20 pb-3">
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-3 h-3 rounded-full bg-emerald-500 animate-pulse" />
-                    <div>
-                      <h4 className="font-bold text-slate-900 dark:text-white text-sm">
-                        {t('ronos.audit_panel_title')}
-                      </h4>
-                      <p className="text-xs text-slate-600 dark:text-slate-400">
-                        {t('ronos.audit_panel_subtitle')}
-                      </p>
+                    <div className="p-4 rounded-2xl bg-purple-50/70 dark:bg-slate-950 border border-purple-200 dark:border-purple-500/20 text-center">
+                      <span className="text-xs font-semibold text-purple-800 dark:text-purple-400 block mb-1">
+                        {t('ronos.kpi_period_hours')}
+                      </span>
+                      <span className="text-2xl font-black text-purple-700 dark:text-purple-300">
+                        {payrollData.totalHours} <span className="text-sm font-normal">hrs</span>
+                      </span>
+                      <span className="text-[11px] text-slate-500 dark:text-slate-400 block mt-1">
+                        Reg: {payrollData.totalRegularHours}h | Sal: {payrollData.totalSalaryHours}h | OT: {payrollData.totalOvertimeHours}h | Sick: {payrollData.totalSickHours}h | Vac: {payrollData.totalVacationHours}h
+                      </span>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="px-2.5 py-1 rounded-lg bg-emerald-500/20 text-emerald-800 dark:text-emerald-300 font-bold text-xs">
-                      {payrollData.reconciliationPercentage || 100}% {t('ronos.audit_reconciled_rate')}
-                    </span>
-                    {(payrollData.auditSavingsAmount || 0) > 0 && (
-                      <span className="px-2.5 py-1 rounded-lg bg-amber-500/20 text-amber-800 dark:text-amber-300 font-bold text-xs">
-                        +${payrollData.auditSavingsAmount.toFixed(2)} Ahorro Favorable (0% Markup)
-                      </span>
-                    )}
-                  </div>
-                </div>
 
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-                  <div className="bg-white/80 dark:bg-slate-900/80 p-2.5 rounded-xl border border-emerald-200/60 dark:border-emerald-900/40">
-                    <span className="text-slate-500 block text-[11px]">Cuadres Exactos</span>
-                    <span className="font-bold text-emerald-700 dark:text-emerald-400 text-sm">
-                      {payrollData.exactMatchesCount || payrollData.employees?.length} / {payrollData.employees?.length} colab.
-                    </span>
+                  {/* Panel Ejecutivo de Auditoría y Conciliación PEO (Simplify HR vs Cingular Invoice) */}
+                  <div className="rounded-2xl p-4 bg-gradient-to-r from-emerald-500/10 via-teal-500/10 to-amber-500/10 border border-emerald-500/30 dark:border-emerald-500/20 shadow-xs flex flex-col gap-3">
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 border-b border-emerald-500/20 pb-3">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-3 h-3 rounded-full bg-emerald-500 animate-pulse" />
+                        <div>
+                          <h4 className="font-bold text-slate-900 dark:text-white text-sm">
+                            {t('ronos.audit_panel_title')}
+                          </h4>
+                          <p className="text-xs text-slate-600 dark:text-slate-400">
+                            {t('ronos.audit_panel_subtitle')}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="px-2.5 py-1 rounded-lg bg-emerald-500/20 text-emerald-800 dark:text-emerald-300 font-bold text-xs">
+                          {payrollData.reconciliationPercentage ?? 100}% {t('ronos.audit_reconciled_rate')}
+                        </span>
+                        {(payrollData.auditSavingsAmount || 0) > 0 && (
+                          <span className="px-2.5 py-1 rounded-lg bg-amber-500/20 text-amber-800 dark:text-amber-300 font-bold text-xs">
+                            +${payrollData.auditSavingsAmount.toFixed(2)} Ahorro Favorable (0% Markup)
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                      <div className="bg-white/80 dark:bg-slate-900/80 p-2.5 rounded-xl border border-emerald-200/60 dark:border-emerald-900/40">
+                        <span className="text-slate-500 block text-[11px]">Cuadres Exactos</span>
+                        <span className="font-bold text-emerald-700 dark:text-emerald-400 text-sm">
+                          {payrollData.exactMatchesCount ?? payrollData.employees?.length ?? 0} / {payrollData.employees?.length ?? 0} colab.
+                        </span>
+                      </div>
+                      <div className="bg-white/80 dark:bg-slate-900/80 p-2.5 rounded-xl border border-amber-200/60 dark:border-amber-900/40">
+                        <span className="text-slate-500 block text-[11px]">Observaciones PEO</span>
+                        <span className="font-bold text-amber-700 dark:text-amber-400 text-sm">
+                          {payrollData.auditAlertsCount ?? 0} caso(s)
+                        </span>
+                      </div>
+                      <div className="bg-white/80 dark:bg-slate-900/80 p-2.5 rounded-xl border border-blue-200/60 dark:border-blue-900/40">
+                        <span className="text-slate-500 block text-[11px]">Permisos Pagados (PTO)</span>
+                        <span className="font-bold text-blue-700 dark:text-blue-400 text-sm">
+                          {(payrollData.totalSickHours || 0) + (payrollData.totalVacationHours || 0)} hrs pagadas
+                        </span>
+                      </div>
+                      <div className="bg-white/80 dark:bg-slate-900/80 p-2.5 rounded-xl border border-purple-200/60 dark:border-purple-900/40">
+                        <span className="text-slate-500 block text-[11px]">Personal Asalariado</span>
+                        <span className="font-bold text-purple-700 dark:text-purple-400 text-sm">
+                          {payrollData.salariedCount ?? 0} GM (80h fijas)
+                        </span>
+                      </div>
+                    </div>
                   </div>
-                  <div className="bg-white/80 dark:bg-slate-900/80 p-2.5 rounded-xl border border-amber-200/60 dark:border-amber-900/40">
-                    <span className="text-slate-500 block text-[11px]">Observaciones PEO</span>
-                    <span className="font-bold text-amber-700 dark:text-amber-400 text-sm">
-                      {payrollData.auditAlertsCount || 0} caso(s)
-                    </span>
-                  </div>
-                  <div className="bg-white/80 dark:bg-slate-900/80 p-2.5 rounded-xl border border-blue-200/60 dark:border-blue-900/40">
-                    <span className="text-slate-500 block text-[11px]">Permisos Pagados (PTO)</span>
-                    <span className="font-bold text-blue-700 dark:text-blue-400 text-sm">
-                      {(payrollData.totalSickHours || 0) + (payrollData.totalVacationHours || 0)} hrs pagadas
-                    </span>
-                  </div>
-                  <div className="bg-white/80 dark:bg-slate-900/80 p-2.5 rounded-xl border border-purple-200/60 dark:border-purple-900/40">
-                    <span className="text-slate-500 block text-[11px]">Personal Asalariado</span>
-                    <span className="font-bold text-purple-700 dark:text-purple-400 text-sm">
-                      {payrollData.salariedCount} GM (80h fijas)
-                    </span>
-                  </div>
-                </div>
-              </div>
+                </>
+              ) : null}
             </div>
 
             {/* Filter Bar & Audit Pills */}
@@ -2358,7 +2360,7 @@ export default function RonosLaborAuditPage() {
                         : 'bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/60'
                     }`}
                   >
-                    ℹ️ Permisos PTO ({payrollData.employees.filter((e: any) => e.auditStatus === 'pto').length})
+                    ℹ️ Permisos PTO ({payrollData?.employees ? payrollData.employees.filter((e: any) => e.auditStatus === 'pto').length : 0})
                   </button>
                 )}
               </div>
