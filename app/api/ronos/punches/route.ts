@@ -28,6 +28,9 @@ export async function GET(request: Request) {
     const ronosCompanyId = companyIdParam ? parseInt(companyIdParam, 10) : 34 // Default: Lynwood
     const weekId = weekIdParam ? parseInt(weekIdParam, 10) : undefined
 
+    const startDateParam = searchParams.get('startDate') || undefined
+    const forceLive = searchParams.get('force') === 'true'
+
     // 1. Listado de tiendas disponibles
     if (mode === 'stores') {
       return NextResponse.json({
@@ -47,7 +50,7 @@ export async function GET(request: Request) {
 
     // 3. Consolidado general de toda la cadena (15 tiendas + Bodega)
     if (mode === 'chain') {
-      const chainAudit = await getRonosChainWideAudit()
+      const chainAudit = await getRonosChainWideAudit(weekId, startDateParam, forceLive)
       return NextResponse.json({
         success: true,
         data: chainAudit

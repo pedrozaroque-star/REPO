@@ -59,7 +59,7 @@ export async function POST(request: Request) {
 
     // 2. Sincronización de RONOS (Tarjetas de tiempo, horas y ponchadas)
     if (syncChain) {
-      const chainAudit = await getRonosChainWideAudit()
+      const chainAudit = await getRonosChainWideAudit(weekId, undefined, true)
       const durationMs = Date.now() - startTime
       return NextResponse.json({
         success: true,

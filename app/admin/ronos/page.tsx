@@ -368,8 +368,8 @@ export default function RonosLaborAuditPage() {
 
   // 2. Manejo de Cambio de Pestaña
   useEffect(() => {
-    if (activeTab === 'chain' && !chainData) {
-      fetchChainAudit()
+    if (activeTab === 'chain') {
+      fetchChainAudit(selectedWeekId)
     }
     if (activeTab === 'mapping') {
       fetchMappings(selectedCompanyId)
@@ -439,11 +439,18 @@ export default function RonosLaborAuditPage() {
   }
 
   // Fetch Chain Level Data
-  const fetchChainAudit = async () => {
+  const fetchChainAudit = async (weekId?: number, forceLive: boolean = false) => {
     setLoading(true)
     setError(null)
     try {
-      const res = await fetch('/api/ronos/punches?mode=chain')
+      const selectedWeek = weeks.find(w => w.weekId === weekId)
+      const startDate = selectedWeek?.startDate?.substring(0, 10) || ''
+      let url = `/api/ronos/punches?mode=chain`
+      if (weekId) url += `&weekId=${weekId}`
+      if (startDate) url += `&startDate=${startDate}`
+      if (forceLive) url += `&force=true`
+
+      const res = await fetch(url)
       const json = await res.json()
 
       if (!res.ok || !json.success) {
@@ -705,7 +712,7 @@ export default function RonosLaborAuditPage() {
         const res = await fetch('/api/ronos/sync', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ syncChain: true, syncSimplify: true })
+          body: JSON.stringify({ syncChain: true, weekId: selectedWeekId, syncSimplify: true })
         })
         const json = await res.json()
         if (json.success) {
@@ -1133,9 +1140,14 @@ export default function RonosLaborAuditPage() {
               <select
                 value={selectedWeekId || ''}
                 onChange={(e) => {
-                  setSelectedWeekId(Number(e.target.value))
-                  if (activeTab === 'payroll') {
-                    fetchPayroll(selectedCompanyId, Number(e.target.value), false)
+                  const newWeekId = Number(e.target.value)
+                  setSelectedWeekId(newWeekId)
+                  if (activeTab === 'store') {
+                    fetchStoreAudit(selectedCompanyId, newWeekId)
+                  } else if (activeTab === 'chain') {
+                    fetchChainAudit(newWeekId)
+                  } else if (activeTab === 'payroll') {
+                    fetchPayroll(selectedCompanyId, newWeekId, false)
                   }
                 }}
                 disabled={loading}
@@ -1677,22 +1689,35 @@ export default function RonosLaborAuditPage() {
             </div>
 
             {/* Stores Leaderboard Table */}
-            <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 overflow-hidden shadow-xs">
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-sm">
-                  <thead className="bg-slate-100/90 dark:bg-slate-950/80 text-xs uppercase text-slate-600 dark:text-slate-400 border-b border-slate-200 dark:border-slate-800 font-bold tracking-wider">
-                    <tr>
-                      <th className="py-4 px-4"># Tienda</th>
-                      <th className="py-4 px-4">Sucursal</th>
-                      <th className="py-4 px-4 text-center">Personal Activo</th>
-                      <th className="py-4 px-4 text-center">Horas Totales</th>
-                      <th className="py-4 px-4 text-center">Overtime (OT)</th>
-                      <th className="py-4 px-4 text-center">Meal Penalties</th>
-                      <th className="py-4 px-4 text-center">Fuga Penalties ($ USD)</th>
-                      <th className="py-4 px-4 text-center">Cumplimiento Legal</th>
-                      <th className="py-4 px-4 text-center">Acción</th>
-                    </tr>
-                  </thead>
+            {loading ? (
+              <div className="p-12 text-center rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs">
+                <RefreshCw className="w-8 h-8 text-amber-500 animate-spin mx-auto mb-3" />
+                <p className="text-slate-800 dark:text-slate-200 font-bold">Auditando las 16 Ubicaciones en Vivo...</p>
+                <p className="text-xs text-slate-500 mt-1">Extrayendo ponchadas, horas extras y multas de comida de todas las sucursales...</p>
+              </div>
+            ) : !chainData || chainData.stores.length === 0 ? (
+              <div className="p-12 text-center rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs">
+                <Building2 className="w-8 h-8 text-slate-400 mx-auto mb-3" />
+                <p className="text-slate-800 dark:text-slate-200 font-bold">Sin datos para la semana seleccionada</p>
+                <p className="text-xs text-slate-500 mt-1">Presiona "Sincronizar en Vivo" para cargar las 16 sucursales.</p>
+              </div>
+            ) : (
+              <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 overflow-hidden shadow-xs">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-sm">
+                    <thead className="bg-slate-100/90 dark:bg-slate-950/80 text-xs uppercase text-slate-600 dark:text-slate-400 border-b border-slate-200 dark:border-slate-800 font-bold tracking-wider">
+                      <tr>
+                        <th className="py-4 px-4"># Tienda</th>
+                        <th className="py-4 px-4">Sucursal</th>
+                        <th className="py-4 px-4 text-center">Personal Activo</th>
+                        <th className="py-4 px-4 text-center">Horas Totales</th>
+                        <th className="py-4 px-4 text-center">Overtime (OT)</th>
+                        <th className="py-4 px-4 text-center">Meal Penalties</th>
+                        <th className="py-4 px-4 text-center">Fuga Penalties ($ USD)</th>
+                        <th className="py-4 px-4 text-center">Cumplimiento Legal</th>
+                        <th className="py-4 px-4 text-center">Acción</th>
+                      </tr>
+                    </thead>
                   <tbody className="divide-y divide-slate-200 dark:divide-slate-800/60">
                     {chainData?.stores?.map((st, idx) => {
                       const isHighPenalty = st.mealPenalties > 5
@@ -1767,6 +1792,7 @@ export default function RonosLaborAuditPage() {
                 </table>
               </div>
             </div>
+          )}
           </div>
         )}
 
