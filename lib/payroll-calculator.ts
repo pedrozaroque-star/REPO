@@ -268,38 +268,84 @@ function safeNum(val: any, fallback = 0): number {
 
 /**
  * Determina si un colaborador es asalariado (Exempt) o por hora (Non-Exempt)
+ * Arquitectura en cascada multicapa:
+ * 1. Descalificación inmediata de asistentes, líderes y personal operativo.
+ * 2. Umbral legal salarial de California ($30.00/h ≈ $62,400/año).
+ * 3. Validación de Gerentes Generales (GMs) y Directivos Oficiales.
+ * 4. Títulos manageriales ejecutivos exentos.
  */
-export function isEmployeeSalaried(jobTitle?: string, fullName?: string): boolean {
+export function isEmployeeSalaried(jobTitle?: string, fullName?: string, payRate?: number): boolean {
   if (!jobTitle && !fullName) return false
   const title = (jobTitle || '').toLowerCase().trim()
   const name = (fullName || '').toLowerCase().trim()
 
-  // 1. Verificación por Nombres de GMs / Directivos conocidos
+  // 1. Descalificación Inmediata: Asistentes, Mandos Medios y Personal Operativo
+  // En Tacos Gavilan y bajo la ley de California (IWC Order 5), todo asistente, líder o personal de línea es Por Hora (Non-Exempt)
+  if (
+    title.includes('asst') ||
+    title.includes('assistant') ||
+    title.includes('asistente') ||
+    title.includes('subgerente') ||
+    title.includes('shift') ||
+    title.includes('lead') ||
+    title.includes('lider') ||
+    title.includes('crew') ||
+    title.includes('taquero') ||
+    title.includes('cajero') ||
+    title.includes('cocinero') ||
+    title.includes('cook') ||
+    title.includes('cashier') ||
+    title.includes('dishwasher') ||
+    title.includes('driver') ||
+    title.includes('chofer') ||
+    title.includes('bodega') ||
+    title.includes('warehouse') ||
+    title.includes('colaborador') ||
+    title.includes('team')
+  ) {
+    return false
+  }
+
+  // 2. Umbral Salarial Legal de California ($30.00/h)
+  // Cualquier colaborador con tarifa base menor a $30/h es legalmente Por Hora (Non-Exempt)
+  if (payRate !== undefined && payRate > 0 && payRate < 30.00) {
+    return false
+  }
+
+  // 3. Verificación por Nombres de Gerentes Generales (GMs) y Directivos Oficiales
   if (
     name.includes('jovana garcia') ||
     name.includes('carlos velazquez') ||
     name.includes('jesus ramos') ||
     name.includes('aaron hernandez') ||
     name.includes('aaron chay') ||
-    name.includes('lucia reyes')
+    name.includes('lucia reyes') ||
+    name.includes('benjamin nunez') ||
+    name.includes('alfonso carrillo') ||
+    name.includes('bernabe ramirez') ||
+    name.includes('julio valadez') ||
+    name.includes('marco salgado') ||
+    name.includes('marco antonio salgado') ||
+    name.includes('erick martinez') ||
+    name.includes('jesus olivares') ||
+    name.includes('eloy velazquez')
   ) {
     return true
   }
 
-  // 2. Verificación por Títulos Manageriales Exentos
-  const isManager = (
+  // 4. Verificación por Títulos Manageriales Exentos Reales
+  const isExemptManager = (
     title.includes('general manager') ||
     title.includes('gerente general') ||
-    title.includes('store manager') ||
     title.includes('district manager') ||
     title.includes('area manager') ||
     title.includes('area supervisor') ||
-    title.includes('supervisor') ||
-    (title.includes('gerente') && !title.includes('asistente') && !title.includes('subgerente') && !title.includes('turno')) ||
-    (title.includes('manager') && !title.includes('assistant') && !title.includes('asistente') && !title.includes('shift') && !title.includes('lead'))
+    title.includes('store manager') ||
+    title === 'manager' ||
+    (title.includes('gerente') && !title.includes('asistente') && !title.includes('subgerente') && !title.includes('turno'))
   )
 
-  return isManager
+  return isExemptManager
 }
 
 /**
@@ -490,7 +536,6 @@ export async function calculateCingularPayrollReport(
   empAggregation.forEach((agg, uId) => {
     const normName = agg.fullName.toLowerCase().trim().replace(/\s+/g, ' ')
     const detectedTitle = titleMap.get(normName) || agg.jobTitle || 'Crew'
-    const salaried = isEmployeeSalaried(detectedTitle, agg.fullName)
 
     // Determinar Pay Rate & Bill Rate (Prioridad: Simplify HR Live Rates -> Registros Verificados Cingular -> Toast Wage Data -> Default)
     let payRate = 0
@@ -524,11 +569,6 @@ export async function calculateCingularPayrollReport(
       if (simplifyRate && simplifyRate.payRate > 0) {
         payRate = simplifyRate.payRate
         billRate = simplifyRate.billRate
-        // NOTA: otPayRate de Simplify HR es la tarifa de pago al EMPLEADO por OT (≈ payRate × 1.5)
-        // pero Cingular SIEMPRE factura OT como billRate × 1.5 en el invoice.
-        // NO usar otPayRate para calcular el otBillRate — el fallback en línea 543 lo calcula correctamente.
-        // Bug encontrado: Kiara Cortes, otPayRate=$27.70 → otBillRate=$34.90, pero invoice usa $35.85 (23.90×1.5)
-        // Diff: $0.95/hr × 15.88 OT hrs = $15.09 de error.
       }
     }
 
@@ -538,6 +578,9 @@ export async function calculateCingularPayrollReport(
       const lName = (agg.lastName || '').toLowerCase().trim()
       payRate = wageMap.get(normName) || (fName && lName ? wageMap.get(`${fName}|${lName}`) : 0) || 0
     }
+
+    // 4. Determinar clasificación Salaried vs Hourly con arquitectura multicapa
+    const salaried = isEmployeeSalaried(detectedTitle, agg.fullName, payRate)
 
     if (payRate <= 0) {
       // Salarios estándar según rol si no está en Toast ni en Cingular
