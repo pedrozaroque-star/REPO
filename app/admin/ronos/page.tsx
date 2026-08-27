@@ -957,72 +957,114 @@ export default function RonosLaborAuditPage() {
           </div>
         </div>
 
-        {/* 3 Tab Navigation */}
-        <div className="flex items-center gap-2 mt-6 border-b border-slate-200 dark:border-slate-800/80 overflow-x-auto pb-1 sm:pb-0">
+        {/* Main Tab Navigation - Executive Segmented Card Tabs */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-6 p-2 bg-slate-200/80 dark:bg-slate-900/90 rounded-2xl border border-slate-300/80 dark:border-slate-800 shadow-inner">
           {/* Tab 1: Store */}
           <button
+            type="button"
             onClick={() => setActiveTab('store')}
-            className={`flex items-center gap-2 px-4 sm:px-5 py-3 font-semibold text-sm transition-all border-b-2 cursor-pointer whitespace-nowrap ${
+            className={`flex items-center gap-3.5 p-3.5 rounded-xl font-bold transition-all text-left cursor-pointer border ${
               activeTab === 'store'
-                ? 'border-amber-500 text-amber-600 dark:text-amber-400 bg-amber-500/10'
-                : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 hover:border-slate-300 dark:hover:border-slate-700'
+                ? 'bg-white dark:bg-slate-800 text-slate-950 dark:text-white shadow-md border-amber-500/40 dark:border-amber-500/40 ring-2 ring-amber-500/20'
+                : 'bg-transparent border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-white/60 dark:hover:bg-slate-800/60'
             }`}
           >
-            <Building2 className="w-4 h-4" />
-            <span>{t('ronos.tab_store')}</span>
-            {storeData && (
-              <span className="text-xs px-2 py-0.5 rounded-full bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-medium">
-                {storeData.storeName}
+            <div className={`p-2.5 rounded-xl transition-colors ${
+              activeTab === 'store'
+                ? 'bg-amber-500 text-slate-950 shadow-sm'
+                : 'bg-slate-300/70 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
+            }`}>
+              <Building2 className="w-5 h-5" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <span className="block font-black text-sm text-slate-900 dark:text-white tracking-tight truncate">
+                {t('ronos.tab_store')}
               </span>
-            )}
+              <span className="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 truncate mt-0.5">
+                {storeData?.storeName ? `Tienda ${storeData.storeName}` : 'Horas y fotos'}
+              </span>
+            </div>
           </button>
 
           {/* Tab 2: Chain */}
           <button
+            type="button"
             onClick={() => setActiveTab('chain')}
-            className={`flex items-center gap-2 px-4 sm:px-5 py-3 font-semibold text-sm transition-all border-b-2 cursor-pointer whitespace-nowrap ${
+            className={`flex items-center gap-3.5 p-3.5 rounded-xl font-bold transition-all text-left cursor-pointer border ${
               activeTab === 'chain'
-                ? 'border-amber-500 text-amber-600 dark:text-amber-400 bg-amber-500/10'
-                : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 hover:border-slate-300 dark:hover:border-slate-700'
+                ? 'bg-white dark:bg-slate-800 text-slate-950 dark:text-white shadow-md border-amber-500/40 dark:border-amber-500/40 ring-2 ring-amber-500/20'
+                : 'bg-transparent border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-white/60 dark:hover:bg-slate-800/60'
             }`}
           >
-            <ShieldAlert className="w-4 h-4" />
-            <span>{t('ronos.tab_chain')}</span>
-            <span className="text-xs px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-300 font-semibold">
-              15 Tiendas + Bodega
-            </span>
+            <div className={`p-2.5 rounded-xl transition-colors ${
+              activeTab === 'chain'
+                ? 'bg-amber-500 text-slate-950 shadow-sm'
+                : 'bg-slate-300/70 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
+            }`}>
+              <ShieldAlert className="w-5 h-5" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <span className="block font-black text-sm text-slate-900 dark:text-white tracking-tight truncate">
+                {t('ronos.tab_chain')}
+              </span>
+              <span className="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 truncate mt-0.5">
+                16 Ubicaciones (Cadena)
+              </span>
+            </div>
           </button>
 
-          {/* Tab 3: Employee Mapping (RONOS ↔ Toast) */}
+          {/* Tab 3: Mapping */}
           <button
+            type="button"
             onClick={() => setActiveTab('mapping')}
-            className={`flex items-center gap-2 px-4 sm:px-5 py-3 font-semibold text-sm transition-all border-b-2 cursor-pointer whitespace-nowrap ${
+            className={`flex items-center gap-3.5 p-3.5 rounded-xl font-bold transition-all text-left cursor-pointer border ${
               activeTab === 'mapping'
-                ? 'border-amber-500 text-amber-600 dark:text-amber-400 bg-amber-500/10'
-                : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 hover:border-slate-300 dark:hover:border-slate-700'
+                ? 'bg-white dark:bg-slate-800 text-slate-950 dark:text-white shadow-md border-amber-500/40 dark:border-amber-500/40 ring-2 ring-amber-500/20'
+                : 'bg-transparent border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-white/60 dark:hover:bg-slate-800/60'
             }`}
           >
-            <LinkIcon className="w-4 h-4" />
-            <span>{t('ronos.tab_mapping')}</span>
-            <span className="text-xs px-2 py-0.5 rounded-full bg-blue-500/15 text-blue-700 dark:text-blue-300 font-semibold">
-              Toast & Correos
-            </span>
+            <div className={`p-2.5 rounded-xl transition-colors ${
+              activeTab === 'mapping'
+                ? 'bg-amber-500 text-slate-950 shadow-sm'
+                : 'bg-slate-300/70 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
+            }`}>
+              <LinkIcon className="w-5 h-5" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <span className="block font-black text-sm text-slate-900 dark:text-white tracking-tight truncate">
+                {t('ronos.tab_mapping')}
+              </span>
+              <span className="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 truncate mt-0.5">
+                Toast & Correos
+              </span>
+            </div>
           </button>
 
-          {/* Tab 4: Facturación Cingular & Nómina */}
+          {/* Tab 4: Payroll */}
           <button
+            type="button"
             onClick={() => setActiveTab('payroll')}
-            className={`flex items-center gap-2 px-4 sm:px-5 py-3 font-semibold text-sm transition-all border-b-2 cursor-pointer whitespace-nowrap ${
+            className={`flex items-center gap-3.5 p-3.5 rounded-xl font-bold transition-all text-left cursor-pointer border ${
               activeTab === 'payroll'
-                ? 'border-amber-500 text-amber-600 dark:text-amber-400 bg-amber-500/10'
-                : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 hover:border-slate-300 dark:hover:border-slate-700'
+                ? 'bg-white dark:bg-slate-800 text-slate-950 dark:text-white shadow-md border-emerald-500/40 dark:border-emerald-500/40 ring-2 ring-emerald-500/20'
+                : 'bg-transparent border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-white/60 dark:hover:bg-slate-800/60'
             }`}
           >
-            <DollarSign className="w-4 h-4 text-emerald-500" />
-            <span>{t('ronos.tab_payroll')}</span>
-            <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 font-semibold">
-              PEO Markup 25.98%
-            </span>
+            <div className={`p-2.5 rounded-xl transition-colors ${
+              activeTab === 'payroll'
+                ? 'bg-emerald-600 text-white shadow-sm'
+                : 'bg-slate-300/70 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
+            }`}>
+              <DollarSign className="w-5 h-5" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <span className="block font-black text-sm text-slate-900 dark:text-white tracking-tight truncate">
+                {t('ronos.tab_payroll')}
+              </span>
+              <span className="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 truncate mt-0.5">
+                Facturas Cingular & Nómina
+              </span>
+            </div>
           </button>
         </div>
       </div>
@@ -1053,28 +1095,22 @@ export default function RonosLaborAuditPage() {
             <select
               value={selectedCompanyId}
               onChange={(e) => handleStoreChange(Number(e.target.value))}
-              disabled={loading || mappingLoading}
+              disabled={loading || payrollLoading}
               className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-sm text-slate-900 dark:text-white font-medium focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 shadow-xs cursor-pointer"
             >
-              {stores.length > 0 ? (
-                stores.map(st => (
-                  <option key={st.ronosCompanyId} value={st.ronosCompanyId}>
-                    {st.tegName} {st.isBodega ? '(Bodega Central)' : `(Tienda #${st.tegStoreId})`}
-                  </option>
-                ))
-              ) : (
-                <option value={34}>Lynwood (Tienda #14)</option>
-              )}
+              {stores.map(store => (
+                <option key={store.ronosCompanyId} value={store.ronosCompanyId}>
+                  {store.tegName} (Tienda #{store.tegStoreId})
+                </option>
+              ))}
             </select>
           </div>
 
-          {/* Work Week / Bi-Weekly Selector */}
+          {/* Week Selector */}
           <div>
             <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
               <Calendar className="w-3.5 h-3.5 text-amber-500" />
-              {activeTab === 'payroll' && payrollBiWeekly
-                ? 'Periodo Bisemanal Cingular (2 Semanas)'
-                : t('ronos.select_week')}
+              {t('ronos.select_week')} {activeTab === 'payroll' && payrollBiWeekly && '(Bisemanal Cingular)'}
             </label>
             {activeTab === 'payroll' && payrollBiWeekly ? (
               <select
@@ -1135,24 +1171,24 @@ export default function RonosLaborAuditPage() {
         {/* ═══════════════════════════════════════════════════════════════════════════ */}
         {activeTab === 'store' && (
           <>
-            {/* KPI Cards Grid */}
+            {/* KPI Cards Grid - Clean Modern Corporate */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               {/* Card 1: Horas Totales */}
-              <div className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs relative overflow-hidden">
+              <div className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
                     {t('ronos.kpi_total_hours')}
                   </span>
-                  <div className="p-2 bg-blue-500/10 text-blue-600 dark:text-blue-400 rounded-lg">
+                  <div className="p-2 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl">
                     <Clock className="w-5 h-5" />
                   </div>
                 </div>
                 <div className="mt-3">
-                  <div className="text-3xl font-extrabold text-slate-900 dark:text-white">
-                    {storeData?.totalChainHours || 0} <span className="text-sm font-normal text-slate-500 dark:text-slate-400">hrs</span>
+                  <div className="text-3xl font-black text-slate-900 dark:text-white tracking-tight">
+                    {storeData?.totalChainHours || 0} <span className="text-sm font-semibold text-slate-500">hrs</span>
                   </div>
-                  <div className="text-xs text-slate-500 dark:text-slate-400 mt-1 flex items-center gap-2">
-                    <span>Reg: <strong className="text-slate-700 dark:text-slate-200">{storeData?.totalRegularHours || 0}h</strong></span>
+                  <div className="text-xs text-slate-500 dark:text-slate-400 mt-1.5 flex items-center gap-2 font-medium">
+                    <span>Reg: <strong className="text-slate-800 dark:text-slate-200">{storeData?.totalRegularHours || 0}h</strong></span>
                     <span>•</span>
                     <span>OT/DT: <strong className="text-amber-600 dark:text-amber-400">{((storeData?.totalOvertimeHours || 0) + (storeData?.totalDoubleTimeHours || 0)).toFixed(2)}h</strong></span>
                   </div>
@@ -1160,61 +1196,61 @@ export default function RonosLaborAuditPage() {
               </div>
 
               {/* Card 2: Meal Penalty Fugas */}
-              <div className="p-5 rounded-2xl bg-rose-50/70 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-500/30 shadow-xs relative overflow-hidden">
+              <div className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-rose-700 dark:text-rose-400 uppercase tracking-wider">
+                  <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
                     {t('ronos.kpi_meal_penalties')}
                   </span>
-                  <div className="p-2 bg-rose-500/10 text-rose-600 dark:text-rose-400 rounded-lg">
+                  <div className={`p-2 rounded-xl ${(storeData?.totalMealPenaltiesCount || 0) > 0 ? 'bg-rose-100 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'}`}>
                     <AlertTriangle className="w-5 h-5" />
                   </div>
                 </div>
                 <div className="mt-3">
-                  <div className="text-3xl font-extrabold text-rose-600 dark:text-rose-400">
-                    {storeData?.totalMealPenaltiesCount || 0} <span className="text-sm font-normal text-rose-500 dark:text-slate-400">multas</span>
+                  <div className={`text-3xl font-black tracking-tight ${(storeData?.totalMealPenaltiesCount || 0) > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-slate-900 dark:text-white'}`}>
+                    {storeData?.totalMealPenaltiesCount || 0} <span className="text-sm font-semibold text-slate-500">multas</span>
                   </div>
-                  <div className="text-xs text-rose-700 dark:text-rose-300/80 mt-1 font-medium">
-                    Fuga Cingular HR: <strong>${storeData?.totalEstimatedPenaltyCostUsd || 0} USD</strong>
+                  <div className="text-xs text-slate-500 dark:text-slate-400 mt-1.5 font-medium">
+                    Fuga Cingular HR: <strong className={(storeData?.totalMealPenaltiesCount || 0) > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-slate-800 dark:text-slate-200'}>${storeData?.totalEstimatedPenaltyCostUsd || 0} USD</strong>
                   </div>
                 </div>
               </div>
 
               {/* Card 3: Overtime Cost */}
-              <div className="p-5 rounded-2xl bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-500/30 shadow-xs relative overflow-hidden">
+              <div className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-amber-700 dark:text-amber-400 uppercase tracking-wider">
+                  <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
                     {t('ronos.kpi_overtime_cost')}
                   </span>
-                  <div className="p-2 bg-amber-500/10 text-amber-600 dark:text-amber-400 rounded-lg">
+                  <div className="p-2 bg-slate-100 dark:bg-slate-800 text-amber-600 dark:text-amber-400 rounded-xl">
                     <DollarSign className="w-5 h-5" />
                   </div>
                 </div>
                 <div className="mt-3">
-                  <div className="text-3xl font-extrabold text-amber-600 dark:text-amber-400">
-                    ${storeData?.totalEstimatedOvertimeCostUsd || 0} <span className="text-sm font-normal text-amber-700 dark:text-slate-400">USD</span>
+                  <div className="text-3xl font-black text-slate-900 dark:text-white tracking-tight">
+                    ${storeData?.totalEstimatedOvertimeCostUsd || 0} <span className="text-sm font-semibold text-slate-500">USD</span>
                   </div>
-                  <div className="text-xs text-amber-700 dark:text-amber-300/80 mt-1 font-medium">
-                    Horas Extras: <strong>{storeData?.totalOvertimeHours || 0}h OT</strong> / {storeData?.totalDoubleTimeHours || 0}h DT
+                  <div className="text-xs text-slate-500 dark:text-slate-400 mt-1.5 font-medium">
+                    Horas Extras: <strong className="text-amber-600 dark:text-amber-400">{storeData?.totalOvertimeHours || 0}h OT</strong> / {storeData?.totalDoubleTimeHours || 0}h DT
                   </div>
                 </div>
               </div>
 
               {/* Card 4: Compliance Score */}
-              <div className="p-5 rounded-2xl bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-500/30 shadow-xs relative overflow-hidden">
+              <div className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-emerald-700 dark:text-emerald-400 uppercase tracking-wider">
+                  <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
                     {t('ronos.kpi_compliance_score')}
                   </span>
-                  <div className="p-2 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 rounded-lg">
+                  <div className="p-2 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 rounded-xl">
                     <CheckCircle2 className="w-5 h-5" />
                   </div>
                 </div>
                 <div className="mt-3">
-                  <div className="text-3xl font-extrabold text-emerald-600 dark:text-emerald-400">
+                  <div className="text-3xl font-black text-emerald-600 dark:text-emerald-400 tracking-tight">
                     {storeData?.complianceScorePercent || 100}%
                   </div>
-                  <div className="text-xs text-slate-600 dark:text-slate-400 mt-1 flex items-center justify-between font-medium">
-                    <span>Incompletas (Broken): <strong className="text-amber-600 dark:text-amber-300">{storeData?.totalBrokenTimecardsCount || 0}</strong></span>
+                  <div className="text-xs text-slate-500 dark:text-slate-400 mt-1.5 font-medium flex items-center justify-between">
+                    <span>Incompletas (Broken): <strong className="text-slate-800 dark:text-slate-200">{storeData?.totalBrokenTimecardsCount || 0}</strong></span>
                   </div>
                 </div>
               </div>
@@ -1330,7 +1366,7 @@ export default function RonosLaborAuditPage() {
                         className="p-4 sm:p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 cursor-pointer select-none"
                       >
                         <div className="flex items-center gap-3.5">
-                          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-500/20 to-amber-600/10 border border-amber-500/30 flex items-center justify-center text-amber-700 dark:text-amber-400 font-bold text-sm">
+                          <div className="w-10 h-10 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-800 dark:text-slate-200 font-bold text-sm shadow-xs">
                             {emp.firstName?.[0] || 'E'}{emp.lastName?.[0] || ''}
                           </div>
 
@@ -1339,10 +1375,10 @@ export default function RonosLaborAuditPage() {
                               <h3 className="text-base font-bold text-slate-900 dark:text-white tracking-tight">
                                 {emp.fullName}
                               </h3>
-                              <span className="text-xs px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-mono">
+                              <span className="text-xs px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 font-mono">
                                 PIN: {emp.pin}
                               </span>
-                              <span className="text-xs px-2 py-0.5 rounded-md bg-amber-50 dark:bg-slate-800/80 text-amber-800 dark:text-amber-300/80 border border-amber-200 dark:border-amber-500/20 font-medium">
+                              <span className="text-xs px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 font-semibold">
                                 {emp.jobTitle || 'Colaborador'}
                               </span>
 
