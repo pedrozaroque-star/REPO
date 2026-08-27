@@ -62,6 +62,7 @@ import {
   RotateCw,
   Building2,
   ShieldAlert,
+  BarChart3,
   Calendar,
   Lock,
   Unlock,
@@ -1001,14 +1002,14 @@ export default function RonosLaborAuditPage() {
                 ? 'bg-amber-500 text-slate-950 shadow-sm'
                 : 'bg-slate-300/70 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
             }`}>
-              <ShieldAlert className="w-5 h-5" />
+              <BarChart3 className="w-5 h-5" />
             </div>
             <div className="min-w-0 flex-1">
               <span className="block font-black text-sm text-slate-900 dark:text-white tracking-tight truncate">
                 {t('ronos.tab_chain')}
               </span>
               <span className="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 truncate mt-0.5">
-                16 Ubicaciones (Cadena)
+                Comparativo de 16 tiendas
               </span>
             </div>
           </button>
@@ -1641,31 +1642,35 @@ export default function RonosLaborAuditPage() {
             <div className="p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs">
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
-                  <h2 className="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                    <ShieldAlert className="w-6 h-6 text-amber-600 dark:text-amber-400" />
+                  <h2 className="text-xl font-black text-slate-900 dark:text-white flex items-center gap-2.5">
+                    <BarChart3 className="w-6 h-6 text-amber-500" />
                     {t('ronos.chain_title')}
                   </h2>
-                  <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">
-                    Auditoría consolidada de cumplimiento laboral y costos de nómina para todas las unidades de Tacos Gavilan.
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-2xl">
+                    {t('ronos.chain_subtitle')}
                   </p>
                 </div>
 
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                   <div className="bg-slate-50 dark:bg-slate-950 p-3 rounded-xl border border-slate-200 dark:border-slate-800 text-center">
                     <span className="text-[11px] text-slate-500 dark:text-slate-400 block font-semibold">{t('ronos.chain_stores_count')}</span>
-                    <span className="text-lg font-bold text-slate-900 dark:text-white">{chainData?.totalStores || 16}</span>
+                    <span className="text-lg font-black text-slate-900 dark:text-white">{chainData?.totalStores || 16}</span>
                   </div>
                   <div className="bg-slate-50 dark:bg-slate-950 p-3 rounded-xl border border-slate-200 dark:border-slate-800 text-center">
                     <span className="text-[11px] text-slate-500 dark:text-slate-400 block font-semibold">{t('ronos.chain_active_employees')}</span>
-                    <span className="text-lg font-bold text-slate-900 dark:text-white">{chainData?.totalActiveEmployees || 0}</span>
+                    <span className="text-lg font-black text-slate-900 dark:text-white">{chainData?.totalActiveEmployees || 0}</span>
                   </div>
-                  <div className="bg-rose-50 dark:bg-slate-950 p-3 rounded-xl border border-rose-200 dark:border-rose-500/20 text-center">
-                    <span className="text-[11px] text-rose-700 dark:text-rose-400 block font-semibold">{t('ronos.chain_total_penalties')}</span>
-                    <span className="text-lg font-bold text-rose-700 dark:text-rose-400">{chainData?.totalMealPenalties || 0}</span>
+                  <div className="bg-slate-50 dark:bg-slate-950 p-3 rounded-xl border border-slate-200 dark:border-slate-800 text-center">
+                    <span className="text-[11px] text-slate-500 dark:text-slate-400 block font-semibold">{t('ronos.chain_total_penalties')}</span>
+                    <span className={`text-lg font-black ${(chainData?.totalMealPenalties || 0) > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-slate-900 dark:text-white'}`}>
+                      {chainData?.totalMealPenalties || 0}
+                    </span>
                   </div>
-                  <div className="bg-rose-50 dark:bg-slate-950 p-3 rounded-xl border border-rose-200 dark:border-rose-500/20 text-center">
-                    <span className="text-[11px] text-rose-700 dark:text-rose-400 block font-semibold">{t('ronos.chain_penalty_leakage')}</span>
-                    <span className="text-lg font-bold text-rose-700 dark:text-rose-400">${chainData?.totalPenaltyCostUsd || 0}</span>
+                  <div className="bg-slate-50 dark:bg-slate-950 p-3 rounded-xl border border-slate-200 dark:border-slate-800 text-center">
+                    <span className="text-[11px] text-slate-500 dark:text-slate-400 block font-semibold">{t('ronos.chain_penalty_leakage')}</span>
+                    <span className={`text-lg font-black ${(chainData?.totalPenaltyCostUsd || 0) > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-slate-900 dark:text-white'}`}>
+                      ${chainData?.totalPenaltyCostUsd || 0}
+                    </span>
                   </div>
                 </div>
               </div>
