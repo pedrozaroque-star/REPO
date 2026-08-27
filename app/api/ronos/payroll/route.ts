@@ -34,11 +34,16 @@ export async function GET(request: Request) {
       weekIds = weekIdsParam.split(',').map(id => parseInt(id.trim(), 10)).filter(Boolean)
     }
 
-    // Si no se pasaron weekIds, tomar las 2 semanas más recientes para periodo bisemanal
+    // Si no se pasaron weekIds, tomar las 2 semanas cerradas más recientes para periodo bisemanal
     if (weekIds.length === 0) {
       const weeks = await getRonosWeeks(ronosCompanyId)
       if (weeks.length > 0) {
-        weekIds = isBiWeekly && weeks.length >= 2 ? [weeks[0].weekId, weeks[1].weekId] : [weeks[0].weekId]
+        const startIndex = (weeks.length > 0 && new Date(weeks[0]?.endDate || '').getTime() > Date.now()) ? 1 : 0
+        if (isBiWeekly && weeks.length >= startIndex + 2) {
+          weekIds = [weeks[startIndex + 1].weekId, weeks[startIndex].weekId]
+        } else {
+          weekIds = [weeks[startIndex].weekId]
+        }
       }
     }
 

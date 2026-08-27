@@ -1802,7 +1802,59 @@ ${topViolators ? `🚨 **Colaboradores con Alertas de Nómina:**\n${topViolators
 }
 
 async function calculateCingularPayrollTool(args: any): Promise<string> {
-  const storeInput = (args.store_name || '').toLowerCase()
+  const storeInput = (args.store_name || '').toLowerCase().trim()
+  const isBiWeekly = args.is_biweekly !== false
+  const weekIds: number[] = Array.isArray(args.week_ids) && args.week_ids.length > 0 ? args.week_ids : []
+
+  // Consulta consolidada para toda la cadena (15 tiendas + Bodega Central)
+  if (storeInput === 'all' || storeInput === 'chain' || storeInput === 'todas' || storeInput === 'cadena' || storeInput === '') {
+    let grandGross = 0, grandBill = 0, grandFee = 0, grandHours = 0, grandEmps = 0
+    const storeSummaries: Array<{ name: string; emps: number; hours: number; gross: number; bill: number; fee: number }> = []
+
+    for (const store of RONOS_STORES_MAP) {
+      try {
+        const report = await calculateCingularPayrollReport(store.ronosCompanyId, weekIds, isBiWeekly)
+        grandGross += report.totalGrossPay
+        grandBill += report.totalInvoicedAmount
+        grandFee += report.totalCingularFee
+        grandHours += report.totalHours
+        grandEmps += report.totalEmployees
+        storeSummaries.push({
+          name: report.storeName,
+          emps: report.totalEmployees,
+          hours: report.totalHours,
+          gross: report.totalGrossPay,
+          bill: report.totalInvoicedAmount,
+          fee: report.totalCingularFee
+        })
+      } catch (err: any) {
+        console.warn(`Error calculating payroll for ${store.tegName}:`, err?.message)
+      }
+    }
+
+    const sortedStores = storeSummaries.sort((a, b) => b.bill - a.bill)
+    const storeRows = sortedStores.map((st, i) =>
+      `| ${i + 1}. ${st.name} | ${st.emps} | ${st.hours.toFixed(0)}h | $${st.gross.toLocaleString('en-US', { minimumFractionDigits: 2 })} | **$${st.bill.toLocaleString('en-US', { minimumFractionDigits: 2 })}** | $${st.fee.toLocaleString('en-US', { minimumFractionDigits: 2 })} |`
+    ).join('\n')
+
+    const effectiveMarkup = grandGross > 0 ? ((grandFee / grandGross) * 100).toFixed(2) : '25.98'
+
+    return `💼 **Proyección Consolidada de Nómina & Facturas Cingular HR — Toda la Empresa (15 Sucursales + Bodega Central):**
+- **Periodo**: ${isBiWeekly ? 'Bisemanal (2 Semanas / Ciclo de Factura Oficial)' : 'Semanal Individual'}
+- **Ubicaciones Calculadas**: ${storeSummaries.length} centros de trabajo
+- **Colaboradores en Nómina**: **${grandEmps} colaboradores**
+- **Horas Totales Trabajadas**: **${grandHours.toLocaleString('en-US', { minimumFractionDigits: 2 })} hrs**
+- **Salario Bruto Acumulado (TOT PAY)**: **$${grandGross.toLocaleString('en-US', { minimumFractionDigits: 2 })}**
+- **Facturación Proyectada Cingular (TOT BILL)**: **$${grandBill.toLocaleString('en-US', { minimumFractionDigits: 2 })}**
+- **Comisión / Fee Cingular Total**: **$${grandFee.toLocaleString('en-US', { minimumFractionDigits: 2 })}** (Markup Efectivo: **${effectiveMarkup}%**)
+- **Proyección Mensual Estimada (2 Quincenas)**: **$${(grandBill * 2).toLocaleString('en-US', { minimumFractionDigits: 2 })}**
+
+| # Ubicación | Personal | Horas | Salario Bruto | Facturado Cingular | Fee PEO |
+|---|---|---|---|---|---|
+${storeRows}`
+  }
+
+  // Consulta individual por sucursal
   let targetCompanyId = 34 // Default Lynwood
   const matched = RONOS_STORES_MAP.find(st =>
     st.tegName.toLowerCase().includes(storeInput) ||
@@ -1812,9 +1864,6 @@ async function calculateCingularPayrollTool(args: any): Promise<string> {
   if (matched) {
     targetCompanyId = matched.ronosCompanyId
   }
-
-  const isBiWeekly = args.is_biweekly !== false
-  const weekIds: number[] = Array.isArray(args.week_ids) && args.week_ids.length > 0 ? args.week_ids : []
 
   const report = await calculateCingularPayrollReport(targetCompanyId, weekIds, isBiWeekly)
 

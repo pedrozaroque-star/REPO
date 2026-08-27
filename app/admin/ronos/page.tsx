@@ -359,16 +359,12 @@ export default function RonosLaborAuditPage() {
     sendError: null
   })
 
-  // 1. Initial Load: Fetch Store Audit & Payroll
+  // 1. Carga Inicial al Montar Componente
   useEffect(() => {
-    fetchStoreAudit(selectedCompanyId, selectedWeekId)
-    if (activeTab === 'payroll') {
-      const periodId = selectedBiWeeklyPeriod || (biWeeklyPeriods[0]?.id || '')
-      fetchPayroll(selectedCompanyId, payrollBiWeekly ? periodId : selectedWeekId, payrollBiWeekly)
-    }
-  }, [selectedCompanyId, selectedWeekId])
+    fetchStoreAudit(selectedCompanyId)
+  }, [])
 
-  // 2. Tab Change Handling
+  // 2. Manejo de Cambio de Pestaña
   useEffect(() => {
     if (activeTab === 'chain' && !chainData) {
       fetchChainAudit()
@@ -376,11 +372,24 @@ export default function RonosLaborAuditPage() {
     if (activeTab === 'mapping') {
       fetchMappings(selectedCompanyId)
     }
-    if (activeTab === 'payroll') {
+    if (activeTab === 'payroll' && !payrollData) {
       const periodId = selectedBiWeeklyPeriod || (biWeeklyPeriods[0]?.id || '')
       fetchPayroll(selectedCompanyId, payrollBiWeekly ? periodId : selectedWeekId, payrollBiWeekly)
     }
-  }, [activeTab, selectedCompanyId])
+  }, [activeTab])
+
+  // Cambio de tienda global: limpia estados previos y carga los datos de la nueva tienda
+  const handleStoreChange = async (newCompanyId: number) => {
+    setSelectedCompanyId(newCompanyId)
+    setSelectedWeekId(undefined)
+    setSelectedBiWeeklyPeriod('')
+    setStoreData(null)
+    setPayrollData(null)
+    await fetchStoreAudit(newCompanyId, undefined)
+    if (activeTab === 'mapping') {
+      fetchMappings(newCompanyId)
+    }
+  }
 
   // Fetch Store Level Data
   const fetchStoreAudit = async (companyId: number, weekId?: number) => {
@@ -398,11 +407,27 @@ export default function RonosLaborAuditPage() {
       }
 
       setStoreData(json.data)
-      if (json.weeks) setWeeks(json.weeks)
-      if (json.stores) setStores(json.stores)
-      if (!selectedWeekId && json.data?.weekId) {
-        setSelectedWeekId(json.data.weekId)
+      if (json.weeks && Array.isArray(json.weeks)) {
+        setWeeks(json.weeks)
+        if (!weekId && json.weeks.length > 0) {
+          setSelectedWeekId(json.weeks[0].weekId)
+        }
+
+        // Si estamos en la pestaña de nómina o se cambió de tienda, calcular el periodo predeterminado de esta tienda
+        const wList = json.weeks
+        const sIdx = (wList.length > 0 && new Date(wList[0]?.endDate || '').getTime() > Date.now()) ? 1 : 0
+        let targetPeriod = ''
+        if (payrollBiWeekly && wList.length >= sIdx + 2) {
+          targetPeriod = `${wList[sIdx + 1].weekId},${wList[sIdx].weekId}`
+        } else if (wList.length > 0) {
+          targetPeriod = `${wList[sIdx]?.weekId || wList[0]?.weekId}`
+        }
+        setSelectedBiWeeklyPeriod(targetPeriod)
+        if (activeTab === 'payroll') {
+          fetchPayroll(companyId, targetPeriod, payrollBiWeekly)
+        }
       }
+      if (json.stores) setStores(json.stores)
     } catch (err: any) {
       console.error('Fetch store audit error:', err)
       setError(err.message || 'Error de conexión con RONOS API')
@@ -839,12 +864,12 @@ export default function RonosLaborAuditPage() {
     // Agregar la semana en curso al final como opción si está en progreso
     if (startIndex === 1 && weeks.length > 0) {
       const w0 = weeks[0]
-      periods.unshift({
+      periods.push({
         id: `${w0.weekId}`,
         weekIds: [w0.weekId, w0.weekId],
         startDate: w0.startDate?.substring(0, 10),
         endDate: w0.endDate?.substring(0, 10),
-        label: `Semana en Curso (${w0.startDate?.substring(0, 10)} al ${w0.endDate?.substring(0, 10)}) • Sem #${w0.weekId}`
+        label: `Semana en Curso (${w0.startDate?.substring(0, 10)} al ${w0.endDate?.substring(0, 10)}) • Sem #${w0.weekId} (En progreso)`
       })
     }
 
@@ -1026,7 +1051,7 @@ export default function RonosLaborAuditPage() {
             </label>
             <select
               value={selectedCompanyId}
-              onChange={(e) => setSelectedCompanyId(Number(e.target.value))}
+              onChange={(e) => handleStoreChange(Number(e.target.value))}
               disabled={loading || mappingLoading}
               className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-sm text-slate-900 dark:text-white font-medium focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 shadow-xs cursor-pointer"
             >
@@ -1685,7 +1710,7 @@ export default function RonosLaborAuditPage() {
                           <td className="py-3.5 px-4 text-center">
                             <button
                               onClick={() => {
-                                setSelectedCompanyId(st.ronosCompanyId)
+                                handleStoreChange(st.ronosCompanyId)
                                 setActiveTab('store')
                               }}
                               className="px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-amber-500 hover:text-slate-950 dark:bg-slate-800 dark:hover:bg-amber-500 text-slate-800 dark:text-slate-200 text-xs font-semibold transition-all cursor-pointer shadow-xs"
@@ -2062,7 +2087,17 @@ export default function RonosLaborAuditPage() {
               </div>
 
               {/* 4 KPI Summary Cards */}
-              {payrollData && (
+              {payrollLoading ? (
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                  {[1, 2, 3, 4].map(i => (
+                    <div key={i} className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-center animate-pulse">
+                      <div className="h-3.5 bg-slate-200 dark:bg-slate-800 rounded w-28 mx-auto mb-3" />
+                      <div className="h-7 bg-slate-300 dark:bg-slate-700 rounded w-36 mx-auto mb-2" />
+                      <div className="h-2.5 bg-slate-200 dark:bg-slate-800 rounded w-44 mx-auto" />
+                    </div>
+                  ))}
+                </div>
+              ) : payrollData ? (
                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                   <div className="p-4 rounded-2xl bg-emerald-50/70 dark:bg-slate-950 border border-emerald-200 dark:border-emerald-500/20 text-center">
                     <span className="text-xs font-semibold text-emerald-800 dark:text-emerald-400 block mb-1">
@@ -2112,7 +2147,7 @@ export default function RonosLaborAuditPage() {
                     </span>
                   </div>
                 </div>
-              )}
+              ) : null}
 
               {/* Simplify HR Sync Live Status Banner */}
               <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-3.5 rounded-2xl bg-gradient-to-r from-emerald-500/10 via-teal-500/10 to-blue-500/10 border border-emerald-500/30 dark:border-emerald-500/20 text-xs">

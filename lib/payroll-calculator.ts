@@ -258,36 +258,48 @@ const CINGULAR_EMPLOYEE_EXCLUSIONS: Record<number, string[]> = {
 }
 
 /**
+ * Helper de parseo numérico seguro
+ */
+function safeNum(val: any, fallback = 0): number {
+  if (val === null || val === undefined || val === '') return fallback
+  const n = Number(val)
+  return isNaN(n) || !isFinite(n) ? fallback : n
+}
+
+/**
  * Determina si un colaborador es asalariado (Exempt) o por hora (Non-Exempt)
  */
 export function isEmployeeSalaried(jobTitle?: string, fullName?: string): boolean {
   if (!jobTitle && !fullName) return false
-  const title = (jobTitle || '').toLowerCase()
-  const name = (fullName || '').toLowerCase()
+  const title = (jobTitle || '').toLowerCase().trim()
+  const name = (fullName || '').toLowerCase().trim()
 
-  // General Manager o Supervisor -> Asalariados
-  if (
-    title.includes('general manager') ||
-    title.includes('gerente general') ||
-    title.includes('supervisor') ||
-    title.includes('district manager') ||
-    (title === 'manager' && !title.includes('assistant') && !title.includes('asistente') && !title.includes('shift'))
-  ) {
-    return true
-  }
-
-  // Casos conocidos corporativos
+  // 1. Verificación por Nombres de GMs / Directivos conocidos
   if (
     name.includes('jovana garcia') ||
     name.includes('carlos velazquez') ||
     name.includes('jesus ramos') ||
     name.includes('aaron hernandez') ||
+    name.includes('aaron chay') ||
     name.includes('lucia reyes')
   ) {
     return true
   }
 
-  return false
+  // 2. Verificación por Títulos Manageriales Exentos
+  const isManager = (
+    title.includes('general manager') ||
+    title.includes('gerente general') ||
+    title.includes('store manager') ||
+    title.includes('district manager') ||
+    title.includes('area manager') ||
+    title.includes('area supervisor') ||
+    title.includes('supervisor') ||
+    (title.includes('gerente') && !title.includes('asistente') && !title.includes('subgerente') && !title.includes('turno')) ||
+    (title.includes('manager') && !title.includes('assistant') && !title.includes('asistente') && !title.includes('shift') && !title.includes('lead'))
+  )
+
+  return isManager
 }
 
 /**
@@ -462,14 +474,14 @@ export async function calculateCingularPayrollReport(
     }
 
     agg.rawCards.push(card)
-    agg.totalHours += Number(card.total_weekly_hours || 0)
-    agg.regularHours += Number(card.regular_hours || 0)
-    agg.overtimeHours += Number(card.overtime_hours || 0)
-    agg.doubleTimeHours += Number(card.double_time_hours || 0)
-    agg.mealPenalties += Number(card.meal_penalty_count || 0)
-    agg.sickHours += Number(card.sick_hours || 0)
-    agg.vacationHours += Number(card.vacation_hours || 0)
-    agg.holidayHours += Number(card.holiday_hours || 0)
+    agg.totalHours += safeNum(card.total_weekly_hours)
+    agg.regularHours += safeNum(card.regular_hours)
+    agg.overtimeHours += safeNum(card.overtime_hours)
+    agg.doubleTimeHours += safeNum(card.double_time_hours)
+    agg.mealPenalties += safeNum(card.meal_penalty_count)
+    agg.sickHours += safeNum(card.sick_hours)
+    agg.vacationHours += safeNum(card.vacation_hours)
+    agg.holidayHours += safeNum(card.holiday_hours)
   })
 
   // 4. Calcular importes exactos empleado por empleado
@@ -512,15 +524,19 @@ export async function calculateCingularPayrollReport(
       if (simplifyRate && simplifyRate.payRate > 0) {
         payRate = simplifyRate.payRate
         billRate = simplifyRate.billRate
-        if (simplifyRate.otPayRate) {
-          otBillRate = Number((simplifyRate.otPayRate * 1.25976).toFixed(2))
-        }
+        // NOTA: otPayRate de Simplify HR es la tarifa de pago al EMPLEADO por OT (≈ payRate × 1.5)
+        // pero Cingular SIEMPRE factura OT como billRate × 1.5 en el invoice.
+        // NO usar otPayRate para calcular el otBillRate — el fallback en línea 543 lo calcula correctamente.
+        // Bug encontrado: Kiara Cortes, otPayRate=$27.70 → otBillRate=$34.90, pero invoice usa $35.85 (23.90×1.5)
+        // Diff: $0.95/hr × 15.88 OT hrs = $15.09 de error.
       }
     }
 
     // 3. Buscar en Toast Wage Data
     if (payRate <= 0) {
-      payRate = wageMap.get(normName) || 0
+      const fName = (agg.firstName || '').toLowerCase().trim()
+      const lName = (agg.lastName || '').toLowerCase().trim()
+      payRate = wageMap.get(normName) || (fName && lName ? wageMap.get(`${fName}|${lName}`) : 0) || 0
     }
 
     if (payRate <= 0) {
@@ -713,7 +729,7 @@ export async function calculateCingularPayrollReport(
   })
 
   // Ordenar alfabéticamente
-  employeeItems.sort((a, b) => a.fullName.localeCompare(b.fullName, 'es', { sensitivity: 'base' }))
+  employeeItems.sort((a, b) => (a.fullName || '').localeCompare(b.fullName || '', 'es', { sensitivity: 'base' }))
 
   // 5. Totales generales del reporte
   const totalEmployees = employeeItems.length
