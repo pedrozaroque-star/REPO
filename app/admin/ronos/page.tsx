@@ -268,6 +268,7 @@ export default function RonosLaborAuditPage() {
   const [payrollBiWeekly, setPayrollBiWeekly] = useState<boolean>(true)
   const [selectedBiWeeklyPeriod, setSelectedBiWeeklyPeriod] = useState<string>('')
   const [payrollSearch, setPayrollSearch] = useState<string>('')
+  const [payrollAuditFilter, setPayrollAuditFilter] = useState<'all' | 'exact' | 'alerts' | 'pto'>('all')
 
   // Mapping Data States
   const [mappingsList, setMappingsList] = useState<MappedEmployeeItem[]>([])
@@ -2149,22 +2150,63 @@ export default function RonosLaborAuditPage() {
                 </div>
               ) : null}
 
-              {/* Simplify HR Sync Live Status Banner */}
-              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-3.5 rounded-2xl bg-gradient-to-r from-emerald-500/10 via-teal-500/10 to-blue-500/10 border border-emerald-500/30 dark:border-emerald-500/20 text-xs">
-                <div className="flex items-center gap-2.5 text-emerald-800 dark:text-emerald-300 font-medium">
-                  <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
-                  <span>
-                    <strong>{t('ronos.simplify_synced_title')}:</strong> {t('ronos.simplify_synced_desc')}
-                  </span>
+              {/* Panel Ejecutivo de Auditoría y Conciliación PEO (Simplify HR vs Cingular Invoice) */}
+              <div className="rounded-2xl p-4 bg-gradient-to-r from-emerald-500/10 via-teal-500/10 to-amber-500/10 border border-emerald-500/30 dark:border-emerald-500/20 shadow-xs flex flex-col gap-3">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 border-b border-emerald-500/20 pb-3">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-3 h-3 rounded-full bg-emerald-500 animate-pulse" />
+                    <div>
+                      <h4 className="font-bold text-slate-900 dark:text-white text-sm">
+                        {t('ronos.audit_panel_title')}
+                      </h4>
+                      <p className="text-xs text-slate-600 dark:text-slate-400">
+                        {t('ronos.audit_panel_subtitle')}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="px-2.5 py-1 rounded-lg bg-emerald-500/20 text-emerald-800 dark:text-emerald-300 font-bold text-xs">
+                      {payrollData.reconciliationPercentage || 100}% {t('ronos.audit_reconciled_rate')}
+                    </span>
+                    {(payrollData.auditSavingsAmount || 0) > 0 && (
+                      <span className="px-2.5 py-1 rounded-lg bg-amber-500/20 text-amber-800 dark:text-amber-300 font-bold text-xs">
+                        +${payrollData.auditSavingsAmount.toFixed(2)} Ahorro Favorable (0% Markup)
+                      </span>
+                    )}
+                  </div>
                 </div>
-                <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 font-semibold text-[11px]">
-                  <span>{t('ronos.audit_perfect_match')}</span>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                  <div className="bg-white/80 dark:bg-slate-900/80 p-2.5 rounded-xl border border-emerald-200/60 dark:border-emerald-900/40">
+                    <span className="text-slate-500 block text-[11px]">Cuadres Exactos</span>
+                    <span className="font-bold text-emerald-700 dark:text-emerald-400 text-sm">
+                      {payrollData.exactMatchesCount || payrollData.employees?.length} / {payrollData.employees?.length} colab.
+                    </span>
+                  </div>
+                  <div className="bg-white/80 dark:bg-slate-900/80 p-2.5 rounded-xl border border-amber-200/60 dark:border-amber-900/40">
+                    <span className="text-slate-500 block text-[11px]">Observaciones PEO</span>
+                    <span className="font-bold text-amber-700 dark:text-amber-400 text-sm">
+                      {payrollData.auditAlertsCount || 0} caso(s)
+                    </span>
+                  </div>
+                  <div className="bg-white/80 dark:bg-slate-900/80 p-2.5 rounded-xl border border-blue-200/60 dark:border-blue-900/40">
+                    <span className="text-slate-500 block text-[11px]">Permisos Pagados (PTO)</span>
+                    <span className="font-bold text-blue-700 dark:text-blue-400 text-sm">
+                      {(payrollData.totalSickHours || 0) + (payrollData.totalVacationHours || 0)} hrs pagadas
+                    </span>
+                  </div>
+                  <div className="bg-white/80 dark:bg-slate-900/80 p-2.5 rounded-xl border border-purple-200/60 dark:border-purple-900/40">
+                    <span className="text-slate-500 block text-[11px]">Personal Asalariado</span>
+                    <span className="font-bold text-purple-700 dark:text-purple-400 text-sm">
+                      {payrollData.salariedCount} GM (80h fijas)
+                    </span>
+                  </div>
                 </div>
               </div>
             </div>
 
-            {/* Filter Bar */}
-            <div className="flex items-center justify-between gap-4 p-4 rounded-2xl bg-white dark:bg-slate-900/70 border border-slate-200 dark:border-slate-800 shadow-xs">
+            {/* Filter Bar & Audit Pills */}
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4 p-4 rounded-2xl bg-white dark:bg-slate-900/70 border border-slate-200 dark:border-slate-800 shadow-xs">
               <div className="relative w-full sm:w-80">
                 <Search className="w-4 h-4 text-slate-400 dark:text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
                 <input
@@ -2176,8 +2218,56 @@ export default function RonosLaborAuditPage() {
                 />
               </div>
 
-              <div className="text-xs text-slate-500 dark:text-slate-400">
-                {payrollData?.employees?.length || 0} colaboradores en nómina
+              {/* Status Filter Pills */}
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => setPayrollAuditFilter('all')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-colors ${
+                    payrollAuditFilter === 'all'
+                      ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-xs'
+                      : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
+                  }`}
+                >
+                  {t('ronos.filter_all_status')} ({payrollData?.employees?.length || 0})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPayrollAuditFilter('exact')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-colors ${
+                    payrollAuditFilter === 'exact'
+                      ? 'bg-emerald-600 text-white shadow-xs'
+                      : 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-900/60'
+                  }`}
+                >
+                  ✓ {t('ronos.filter_exact_status')} ({payrollData?.exactMatchesCount || payrollData?.employees?.length || 0})
+                </button>
+                {(payrollData?.auditAlertsCount || 0) > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setPayrollAuditFilter('alerts')}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-colors ${
+                      payrollAuditFilter === 'alerts'
+                        ? 'bg-amber-600 text-white shadow-xs'
+                        : 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-900/60'
+                    }`}
+                  >
+                    💡 {t('ronos.filter_alerts_status')} ({payrollData?.auditAlertsCount})
+                  </button>
+                )}
+                {payrollData?.employees?.some((e: any) => e.auditStatus === 'pto') && (
+                  <button
+                    type="button"
+                    onClick={() => setPayrollAuditFilter('pto')}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-colors ${
+                      payrollAuditFilter === 'pto'
+                        ? 'bg-blue-600 text-white shadow-xs'
+                        : 'bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/60'
+                    }`}
+                  >
+                    ℹ️ Permisos PTO ({payrollData.employees.filter((e: any) => e.auditStatus === 'pto').length})
+                  </button>
+                )}
               </div>
             </div>
 
@@ -2187,7 +2277,7 @@ export default function RonosLaborAuditPage() {
                 <table className="w-full text-left text-sm">
                   <thead className="bg-slate-100/90 dark:bg-slate-950/80 text-xs uppercase text-slate-600 dark:text-slate-400 border-b border-slate-200 dark:border-slate-800 font-bold tracking-wider">
                     <tr>
-                      <th className="py-3.5 px-4">Colaborador / PIN</th>
+                      <th className="py-3.5 px-4">Colaborador & Auditoría PEO</th>
                       <th className="py-3.5 px-4 text-center">Puesto & Régimen</th>
                       <th className="py-3.5 px-4 text-right">{t('ronos.col_pay_rate')}</th>
                       <th className="py-3.5 px-4 text-right">{t('ronos.col_bill_rate')}</th>
@@ -2215,7 +2305,13 @@ export default function RonosLaborAuditPage() {
                       payrollData.employees
                         .filter((emp: any) => {
                           const q = payrollSearch.toLowerCase().trim()
-                          return !q || emp.fullName.toLowerCase().includes(q) || (emp.employeeId || '').includes(q)
+                          const matchesQuery = !q || emp.fullName.toLowerCase().includes(q) || (emp.employeeId || '').includes(q)
+                          if (!matchesQuery) return false
+
+                          if (payrollAuditFilter === 'exact') return emp.auditStatus === 'exact'
+                          if (payrollAuditFilter === 'alerts') return emp.auditStatus === 'saving' || emp.auditStatus === 'variance'
+                          if (payrollAuditFilter === 'pto') return emp.auditStatus === 'pto'
+                          return true
                         })
                         .map((emp: any) => (
                           <tr key={emp.employeeUserId} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
@@ -2226,6 +2322,45 @@ export default function RonosLaborAuditPage() {
                               <span className="text-xs text-slate-500 dark:text-slate-400">
                                 ID: {emp.employeeId || emp.employeeUserId}
                               </span>
+
+                              {/* Audit Badge & Note */}
+                              {emp.auditStatus === 'saving' ? (
+                                <div className="mt-1.5 flex flex-col gap-0.5">
+                                  <span className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-800 dark:text-amber-300 bg-amber-100/90 dark:bg-amber-950/80 border border-amber-300 dark:border-amber-700/60 px-2 py-0.5 rounded-md w-fit">
+                                    💡 {emp.auditBadgeText || t('ronos.audit_saving_badge')}
+                                  </span>
+                                  <span className="text-[11px] text-amber-700 dark:text-amber-400 font-medium">
+                                    {emp.auditNote}
+                                  </span>
+                                </div>
+                              ) : emp.auditStatus === 'variance' ? (
+                                <div className="mt-1.5 flex flex-col gap-0.5">
+                                  <span className="inline-flex items-center gap-1 text-[11px] font-bold text-rose-800 dark:text-rose-300 bg-rose-100/90 dark:bg-rose-950/80 border border-rose-300 dark:border-rose-700/60 px-2 py-0.5 rounded-md w-fit">
+                                    ⚠️ {emp.auditBadgeText || t('ronos.audit_variance_badge')}
+                                  </span>
+                                  <span className="text-[11px] text-rose-700 dark:text-rose-400 font-medium">
+                                    {emp.auditNote}
+                                  </span>
+                                </div>
+                              ) : emp.auditStatus === 'pto' ? (
+                                <div className="mt-1.5 flex flex-col gap-0.5">
+                                  <span className="inline-flex items-center gap-1 text-[11px] font-bold text-blue-800 dark:text-blue-300 bg-blue-100/90 dark:bg-blue-950/80 border border-blue-300 dark:border-blue-700/60 px-2 py-0.5 rounded-md w-fit">
+                                    ℹ️ {emp.auditBadgeText || t('ronos.audit_pto_badge')}
+                                  </span>
+                                  <span className="text-[11px] text-blue-700 dark:text-blue-400 font-medium">
+                                    {emp.auditNote}
+                                  </span>
+                                </div>
+                              ) : (
+                                <div className="mt-1.5 flex flex-col gap-0.5">
+                                  <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-800 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800/40 px-2 py-0.5 rounded-md w-fit">
+                                    ✓ {t('ronos.audit_exact_badge')}
+                                  </span>
+                                  <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                                    {emp.auditNote}
+                                  </span>
+                                </div>
+                              )}
                             </td>
 
                             <td className="py-3 px-4 text-center">

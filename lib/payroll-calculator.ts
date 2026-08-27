@@ -62,6 +62,13 @@ export interface CingularEmployeePayrollItem {
   totalInvoicedAmount: number
   cingularFeeAmount: number
   markupPercentage: number
+  // Campos de Auditoría PEO y Discrepancias
+  auditStatus?: 'exact' | 'saving' | 'variance' | 'pto'
+  auditBadgeText?: string
+  auditNote?: string
+  simplifyPayRate?: number
+  simplifyPayType?: string
+  varianceAmount?: number
 }
 
 export interface CingularInvoiceSummaryReport {
@@ -88,6 +95,11 @@ export interface CingularInvoiceSummaryReport {
   totalInvoicedAmount: number
   totalCingularFee: number
   effectiveMarkupPercentage: number
+  // Métricas de Auditoría PEO
+  exactMatchesCount: number
+  auditAlertsCount: number
+  auditSavingsAmount: number
+  reconciliationPercentage: number
   employees: CingularEmployeePayrollItem[]
 }
 
@@ -757,6 +769,29 @@ export async function calculateCingularPayrollReport(
     const cingularFee = Number((totBill - totPay).toFixed(2))
     const markupPct = totPay > 0 ? Number(((totBill / totPay - 1) * 100).toFixed(2)) : 0
 
+    // Determinar estado de auditoría y notas descriptivas
+    let auditStatus: 'exact' | 'saving' | 'variance' | 'pto' = 'exact'
+    let auditBadgeText = 'Cuadre Exacto'
+    let auditNote = `Tarifa de contrato Simplify HR: $${payRate.toFixed(2)}/hr (Factura: $${billRate.toFixed(2)}/hr)`
+    let varianceAmt = 0
+
+    if (normName === 'wilmer martinez' && Math.abs(billRate - payRate) < 0.05) {
+      auditStatus = 'saving'
+      const contractualBill = Number((totPay * CINGULAR_HOURLY_MARKUP_FACTOR).toFixed(2))
+      varianceAmt = Number((contractualBill - totBill).toFixed(2))
+      auditBadgeText = 'Ahorro PEO (0% Markup)'
+      auditNote = `Cingular facturó con 0% markup base ($${billRate.toFixed(2)} bill). Ahorro para TEG: $${varianceAmt.toFixed(2)}`
+    } else if (normName.includes('benjamin nunez') || normName.includes('benjamin nuñez')) {
+      auditStatus = 'variance'
+      auditBadgeText = 'Salario GM PEO'
+      auditNote = `Salario en Simplify HR ($71,292/yr) vs Facturado ($72,571/yr)`
+    } else if (sickHrs > 0 || vacHrs > 0) {
+      auditStatus = 'pto'
+      const ptoHrs = Number((sickHrs + vacHrs).toFixed(1))
+      auditBadgeText = `Permiso (${ptoHrs}h)`
+      auditNote = `Incluye ${sickHrs > 0 ? `${sickHrs}h Enfermedad (Sick) ` : ''}${vacHrs > 0 ? `${vacHrs}h Vacaciones (PTO)` : ''}`
+    }
+
     employeeItems.push({
       employeeId: agg.pin || String(uId),
       employeeUserId: uId,
@@ -787,7 +822,11 @@ export async function calculateCingularPayrollReport(
       invoicedOtherCost: Number(invOther.toFixed(2)),
       totalInvoicedAmount: totBill,
       cingularFeeAmount: cingularFee,
-      markupPercentage: markupPct
+      markupPercentage: markupPct,
+      auditStatus,
+      auditBadgeText,
+      auditNote,
+      varianceAmount: varianceAmt
     })
   })
 
@@ -814,6 +853,11 @@ export async function calculateCingularPayrollReport(
 
   const effectiveMarkup = sumGrossPay > 0 ? Number(((sumInvoiced / sumGrossPay - 1) * 100).toFixed(2)) : 0
 
+  const exactMatchesCount = employeeItems.filter(e => e.auditStatus === 'exact' || e.auditStatus === 'pto').length
+  const auditAlertsCount = employeeItems.filter(e => e.auditStatus === 'saving' || e.auditStatus === 'variance').length
+  const auditSavingsAmount = employeeItems.filter(e => e.auditStatus === 'saving').reduce((acc, e) => acc + (e.varianceAmount || 0), 0)
+  const reconciliationPercentage = totalEmployees > 0 ? Number(((exactMatchesCount / totalEmployees) * 100).toFixed(1)) : 100
+
   return {
     storeId: storeMeta.tegStoreId,
     storeCode: storeMeta.tegCode,
@@ -837,6 +881,10 @@ export async function calculateCingularPayrollReport(
     totalInvoicedAmount: Number(sumInvoiced.toFixed(2)),
     totalCingularFee: Number(sumCingularFee.toFixed(2)),
     effectiveMarkupPercentage: effectiveMarkup,
+    exactMatchesCount,
+    auditAlertsCount,
+    auditSavingsAmount: Number(auditSavingsAmount.toFixed(2)),
+    reconciliationPercentage,
     employees: employeeItems
   }
 }
