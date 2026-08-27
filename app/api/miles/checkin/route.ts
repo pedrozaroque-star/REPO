@@ -200,25 +200,25 @@ export async function POST(req: NextRequest) {
 
     // 5. If auto_create_trip is true, insert the trip directly into supervisor_mileage_trips
     if (auto_create_trip) {
-      let resolvedSupervisorId = supervisor_id
-      if (!resolvedSupervisorId && (supervisor_name || supervisor_email)) {
+      let finalSupervisorId = supervisor_id ? String(supervisor_id) : ''
+      if (!finalSupervisorId && (supervisor_name || supervisor_email)) {
         const { data: matchedUser } = await supabase
           .from('users')
           .select('id')
           .or(`email.eq.${supervisor_email || ''},full_name.ilike.%${supervisor_name || ''}%`)
           .limit(1)
         if (matchedUser && matchedUser[0]?.id) {
-          resolvedSupervisorId = String(matchedUser[0].id)
+          finalSupervisorId = String(matchedUser[0].id)
         }
       }
 
-      // Ensure valid UUID or null to prevent PostgreSQL invalid syntax error
-      const isUuid = resolvedSupervisorId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(resolvedSupervisorId)
-      const validSupervisorId = isUuid ? resolvedSupervisorId : null
+      if (!finalSupervisorId) {
+        finalSupervisorId = '0'
+      }
 
       const newTrip = {
-        supervisor_id: validSupervisorId,
-        supervisor_name: supervisor_name,
+        supervisor_id: finalSupervisorId,
+        supervisor_name: supervisor_name || 'Supervisor',
         supervisor_email: supervisor_email || 'supervisor@tacosgavilan.com',
         trip_date: targetDate,
         start_time: startTime,

@@ -311,7 +311,29 @@ export function isEmployeeSalaried(jobTitle?: string, fullName?: string, payRate
   const title = (jobTitle || '').toLowerCase().trim()
   const name = (fullName || '').toLowerCase().trim()
 
-  // 1. Descalificación Inmediata: Asistentes, Mandos Medios y Personal Operativo
+  // 1. Verificación por Nombres de Gerentes Generales (GMs) y Directivos Oficiales (Precedencia Absoluta)
+  if (
+    name.includes('jovana garcia') ||
+    name.includes('carlos velazquez') ||
+    name.includes('jesus ramos') ||
+    name.includes('aaron hernandez') ||
+    name.includes('aaron chay') ||
+    name.includes('lucia reyes') ||
+    name.includes('benjamin nunez') ||
+    name.includes('benjamin nuñez') ||
+    name.includes('alfonso carrillo') ||
+    name.includes('bernabe ramirez') ||
+    name.includes('julio valadez') ||
+    name.includes('marco salgado') ||
+    name.includes('marco antonio salgado') ||
+    name.includes('erick martinez') ||
+    name.includes('jesus olivares') ||
+    name.includes('eloy velazquez')
+  ) {
+    return true
+  }
+
+  // 2. Descalificación Inmediata: Asistentes, Mandos Medios y Personal Operativo
   // En Tacos Gavilan y bajo la ley de California (IWC Order 5), todo asistente, líder o personal de línea es Por Hora (Non-Exempt)
   if (
     title.includes('asst') ||
@@ -330,43 +352,22 @@ export function isEmployeeSalaried(jobTitle?: string, fullName?: string, payRate
     title.includes('dishwasher') ||
     title.includes('driver') ||
     title.includes('chofer') ||
-    title.includes('bodega') ||
-    title.includes('warehouse') ||
+    (title.includes('bodega') && !title.includes('manager') && !title.includes('supervisor') && !title.includes('gerente')) ||
+    (title.includes('warehouse') && !title.includes('manager') && !title.includes('supervisor') && !title.includes('gerente')) ||
     title.includes('colaborador') ||
     title.includes('team')
   ) {
     return false
   }
 
-  // 2. Umbral Salarial Legal de California ($30.00/h)
+  // 3. Umbral Salarial Legal de California ($30.00/h)
   // Cualquier colaborador con tarifa base menor a $30/h es legalmente Por Hora (Non-Exempt)
   if (payRate !== undefined && payRate > 0 && payRate < 30.00) {
     return false
   }
 
-  // 3. Verificación por Nombres de Gerentes Generales (GMs) y Directivos Oficiales
-  if (
-    name.includes('jovana garcia') ||
-    name.includes('carlos velazquez') ||
-    name.includes('jesus ramos') ||
-    name.includes('aaron hernandez') ||
-    name.includes('aaron chay') ||
-    name.includes('lucia reyes') ||
-    name.includes('benjamin nunez') ||
-    name.includes('alfonso carrillo') ||
-    name.includes('bernabe ramirez') ||
-    name.includes('julio valadez') ||
-    name.includes('marco salgado') ||
-    name.includes('marco antonio salgado') ||
-    name.includes('erick martinez') ||
-    name.includes('jesus olivares') ||
-    name.includes('eloy velazquez')
-  ) {
-    return true
-  }
-
   // 4. Verificación por Títulos Manageriales Exentos Reales
-  const isExemptManager = (
+  return (
     title.includes('general manager') ||
     title.includes('gerente general') ||
     title.includes('district manager') ||
@@ -376,8 +377,6 @@ export function isEmployeeSalaried(jobTitle?: string, fullName?: string, payRate
     title === 'manager' ||
     (title.includes('gerente') && !title.includes('asistente') && !title.includes('subgerente') && !title.includes('turno'))
   )
-
-  return isExemptManager
 }
 
 /**

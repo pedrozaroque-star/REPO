@@ -166,6 +166,7 @@ export default function SupervisorAutoTracker() {
           supervisor_name: user.name || 'Supervisor',
           supervisor_email: user.email,
           previous_store_name: detectedArrival.origin_name,
+          previous_store_date: getCaliforniaBusinessDate(),
           store_name: detectedArrival.destination_name,
           auto_create_trip: true,
           source: 'arrival_toast_confirm'
@@ -173,10 +174,14 @@ export default function SupervisorAutoTracker() {
       })
 
       const data = await res.json()
-      if (data.success) {
+      if (data.success || data.trip_created || data.already_logged) {
+        localStorage.setItem('teg_supervisor_active_store', detectedArrival.destination_name)
+        localStorage.setItem('teg_supervisor_active_store_date', getCaliforniaBusinessDate())
         setJustSaved(`${detectedArrival.origin_name} → ${detectedArrival.destination_name}`)
         setDetectedArrival(null)
         setTimeout(() => setJustSaved(null), 5000)
+      } else {
+        console.error('Error logging drive:', data.error || data.message)
       }
     } catch (e) {
       console.error('Error confirming trip:', e)

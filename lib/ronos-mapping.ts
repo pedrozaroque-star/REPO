@@ -26,7 +26,7 @@
  */
 
 import { supabaseAdmin } from './supabase'
-import { callRonosApi, RONOS_STORES_MAP, getRonosWeeks } from './ronos-api'
+import { callRonosApi, RONOS_STORES_MAP, getRonosWeeks, mapConcurrent } from './ronos-api'
 
 // ==========================================
 // CACHÉ EN MEMORIA PARA DETECCIÓN DE TRASLADOS
@@ -58,8 +58,10 @@ export async function refreshTransferCache(ronosCompanyId: number, zeroHoursUser
 
   const otherStores = RONOS_STORES_MAP.filter(s => s.ronosCompanyId !== ronosCompanyId && !s.isBodega)
 
-  const crossStoreResults = await Promise.allSettled(
-    otherStores.map(async (store) => {
+  const crossStoreResults = await mapConcurrent(
+    otherStores,
+    4,
+    async (store) => {
       try {
         const weeks = await getRonosWeeks(store.ronosCompanyId)
         if (!weeks[0]) return { store, employees: [] as any[] }
@@ -81,13 +83,14 @@ export async function refreshTransferCache(ronosCompanyId: number, zeroHoursUser
             payType: 0,
             internalSalariedRules: false
           })
-          allEmployees.push(...(weekData.results || []))
+          const rawEmps = Array.isArray(weekData) ? weekData : (weekData?.results || weekData?.data || weekData?.employees || [])
+          allEmployees.push(...rawEmps)
         }
         return { store, employees: allEmployees }
       } catch {
         return { store, employees: [] as any[] }
       }
-    })
+    }
   )
 
   // Construir mapa: employeeUserId → { storeName, hours }
@@ -95,8 +98,8 @@ export async function refreshTransferCache(ronosCompanyId: number, zeroHoursUser
   const zeroHoursSet = new Set(zeroHoursUserIds)
 
   crossStoreResults.forEach(result => {
-    if (result.status !== 'fulfilled' || !result.value) return
-    const { store, employees } = result.value
+    if (!result) return
+    const { store, employees } = result
     employees.forEach((emp: any) => {
       const uId = Number(emp.employeeUserId || emp.userId)
       // Solo nos interesan los IDs que tienen 0 horas en la tienda origen

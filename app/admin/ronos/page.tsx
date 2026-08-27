@@ -137,6 +137,10 @@ interface DailyRecord {
   clockOutPhoto?: string
   punches: AtomicPunch[]
   violations: ComplianceViolation[]
+  vacationHours?: number
+  sickHours?: number
+  holidayHours?: number
+  bereavementHours?: number
 }
 
 interface EmployeeTimecard {
@@ -381,15 +385,17 @@ export default function RonosLaborAuditPage() {
   }, [activeTab])
 
   // Cambio de tienda global: limpia estados previos y carga los datos de la nueva tienda
-  const handleStoreChange = async (newCompanyId: number) => {
+  const handleStoreChange = async (newCompanyId: number, targetWeekId?: number) => {
     setSelectedCompanyId(newCompanyId)
-    setSelectedWeekId(undefined)
+    setSelectedWeekId(targetWeekId)
     setSelectedBiWeeklyPeriod('')
     setStoreData(null)
     setPayrollData(null)
-    await fetchStoreAudit(newCompanyId, undefined)
+    await fetchStoreAudit(newCompanyId, targetWeekId)
     if (activeTab === 'mapping') {
       fetchMappings(newCompanyId)
+    } else if (activeTab === 'chain') {
+      fetchChainAudit(targetWeekId)
     }
   }
 
@@ -547,12 +553,16 @@ export default function RonosLaborAuditPage() {
     try {
       if (isUnlinking) {
         // Eliminar mapeo explícito
-        await fetch(`/api/ronos/mappings?ronosUserId=${item.ronosEmployeeUserId}&companyId=${selectedCompanyId}`, {
+        const res = await fetch(`/api/ronos/mappings?ronosUserId=${item.ronosEmployeeUserId}&companyId=${selectedCompanyId}`, {
           method: 'DELETE'
         })
+        if (!res.ok) {
+          const errJson = await res.json().catch(() => ({}))
+          throw new Error(errJson.error || 'Error al desvincular mapeo')
+        }
       } else {
         // Guardar mapeo (Toast o Inactivo)
-        await fetch('/api/ronos/mappings', {
+        const res = await fetch('/api/ronos/mappings', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -570,6 +580,10 @@ export default function RonosLaborAuditPage() {
             isConfirmed: true
           })
         })
+        if (!res.ok) {
+          const errJson = await res.json().catch(() => ({}))
+          throw new Error(errJson.error || 'Error al guardar mapeo')
+        }
       }
 
       // Refrescar lista de mapeos y auditoría de tienda
@@ -582,31 +596,33 @@ export default function RonosLaborAuditPage() {
     }
   }
 
-  // Auto-Map All High Confidence
+  // Auto-Map All High Confidence (Parallelized with Promise.allSettled)
   const handleAutoMapAll = async () => {
     setMappingLoading(true)
     try {
       const unmappedOrAuto = mappingsList.filter(m => m.mappingType === 'auto' && m.toastEmployeeId && !m.isConfirmed)
-      for (const item of unmappedOrAuto) {
-        await fetch('/api/ronos/mappings', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            ronosEmployeeUserId: item.ronosEmployeeUserId,
-            ronosEmployeeId: item.ronosEmployeeId,
-            ronosCompanyId: selectedCompanyId,
-            ronosFullName: item.ronosFullName,
-            ronosPin: item.ronosPin,
-            ronosJobTitle: item.ronosJobTitle,
-            toastEmployeeId: item.toastEmployeeId,
-            toastGuid: item.toastGuid,
-            toastFullName: item.toastFullName,
-            toastEmail: item.toastEmail,
-            mappingType: 'auto',
-            isConfirmed: true
+      await Promise.allSettled(
+        unmappedOrAuto.map(item =>
+          fetch('/api/ronos/mappings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              ronosEmployeeUserId: item.ronosEmployeeUserId,
+              ronosEmployeeId: item.ronosEmployeeId,
+              ronosCompanyId: selectedCompanyId,
+              ronosFullName: item.ronosFullName,
+              ronosPin: item.ronosPin,
+              ronosJobTitle: item.ronosJobTitle,
+              toastEmployeeId: item.toastEmployeeId,
+              toastGuid: item.toastGuid,
+              toastFullName: item.toastFullName,
+              toastEmail: item.toastEmail,
+              mappingType: 'auto',
+              isConfirmed: true
+            })
           })
-        })
-      }
+        )
+      )
       await fetchMappings(selectedCompanyId)
       fetchStoreAudit(selectedCompanyId, selectedWeekId)
     } catch (err) {
@@ -729,6 +745,9 @@ export default function RonosLaborAuditPage() {
           const periodId = payrollBiWeekly ? (selectedBiWeeklyPeriod || biWeeklyPeriods[0]?.id || '') : selectedWeekId
           await fetchPayroll(selectedCompanyId, periodId, payrollBiWeekly)
         }
+      } else if (activeTab === 'mapping') {
+        await handleRefreshTransfers()
+        await fetchMappings(selectedCompanyId)
       } else {
         const res = await fetch('/api/ronos/sync', {
           method: 'POST',
@@ -813,7 +832,7 @@ export default function RonosLaborAuditPage() {
       }
 
       return true
-    }).sort((a, b) => a.fullName.localeCompare(b.fullName, 'es', { sensitivity: 'base' }))
+    }).sort((a, b) => (a.fullName || '').localeCompare(b.fullName || '', 'es', { sensitivity: 'base' }))
   }, [storeData, searchTerm, filterType])
 
   // Filtered Mappings for Tab 3
@@ -853,7 +872,7 @@ export default function RonosLaborAuditPage() {
     }> = []
 
     // Si la semana 0 es la semana en curso (termina en el futuro o activa), los periodos cerrados inician en index 1
-    const startIndex = (weeks.length > 0 && (weeks[0]?.weekId === 155973 || new Date(weeks[0]?.endDate || '').getTime() > Date.now())) ? 1 : 0
+    const startIndex = (weeks.length > 0 && new Date(weeks[0]?.endDate || '').getTime() > Date.now()) ? 1 : 0
 
     // Agregar primero el periodo bisemanal cerrado más reciente (ej. 10 al 23 de agosto)
     for (let i = startIndex; i < weeks.length - 1; i += 2) {
@@ -905,7 +924,7 @@ export default function RonosLaborAuditPage() {
         emp.doubleTimeHours,
         emp.mealPenaltyCount,
         emp.brokenHours ? 'SI' : 'NO',
-        `$${emp.totalEstimatedPenaltyCostUsd.toFixed(2)}`
+        `$${(emp.totalEstimatedPenaltyCostUsd ?? 0).toFixed(2)}`
       ].join(','))
     })
 
@@ -1259,8 +1278,14 @@ export default function RonosLaborAuditPage() {
                   </div>
                 </div>
                 <div className="mt-3">
-                  <div className="text-3xl font-black text-emerald-600 dark:text-emerald-400 tracking-tight">
-                    {storeData?.complianceScorePercent || 100}%
+                  <div className={`text-3xl font-black tracking-tight ${
+                    (storeData?.complianceScorePercent ?? 100) >= 90
+                      ? 'text-emerald-600 dark:text-emerald-400'
+                      : (storeData?.complianceScorePercent ?? 100) >= 75
+                      ? 'text-amber-600 dark:text-amber-400'
+                      : 'text-rose-600 dark:text-rose-400'
+                  }`}>
+                    {storeData?.complianceScorePercent ?? 100}%
                   </div>
                   <div className="text-xs text-slate-500 dark:text-slate-400 mt-1.5 font-medium flex items-center justify-between">
                     <span>Incompletas (Broken): <strong className="text-slate-800 dark:text-slate-200">{storeData?.totalBrokenTimecardsCount || 0}</strong></span>
@@ -1497,7 +1522,8 @@ export default function RonosLaborAuditPage() {
                             <div className="space-y-3">
                               {emp.days.map((day, dIdx) => {
                                 const hasDayPunches = day.punches && day.punches.length > 0
-                                if (!hasDayPunches && day.totalHours === 0) return null
+                                const hasPTO = (day.vacationHours || 0) > 0 || (day.sickHours || 0) > 0 || (day.holidayHours || 0) > 0 || (day.bereavementHours || 0) > 0
+                                if (!hasDayPunches && day.totalHours === 0 && !hasPTO) return null
 
                                 return (
                                   <div
@@ -1692,14 +1718,14 @@ export default function RonosLaborAuditPage() {
             {loading ? (
               <div className="p-12 text-center rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs">
                 <RefreshCw className="w-8 h-8 text-amber-500 animate-spin mx-auto mb-3" />
-                <p className="text-slate-800 dark:text-slate-200 font-bold">Auditando las 16 Ubicaciones en Vivo...</p>
-                <p className="text-xs text-slate-500 mt-1">Extrayendo ponchadas, horas extras y multas de comida de todas las sucursales...</p>
+                <p className="text-slate-800 dark:text-slate-200 font-bold">{t('ronos.chain_auditing_live')}</p>
+                <p className="text-xs text-slate-500 mt-1">{t('ronos.chain_auditing_desc')}</p>
               </div>
             ) : !chainData || chainData.stores.length === 0 ? (
               <div className="p-12 text-center rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs">
                 <Building2 className="w-8 h-8 text-slate-400 mx-auto mb-3" />
-                <p className="text-slate-800 dark:text-slate-200 font-bold">Sin datos para la semana seleccionada</p>
-                <p className="text-xs text-slate-500 mt-1">Presiona "Sincronizar en Vivo" para cargar las 16 sucursales.</p>
+                <p className="text-slate-800 dark:text-slate-200 font-bold">{t('ronos.empty_title')}</p>
+                <p className="text-xs text-slate-500 mt-1">{t('ronos.empty_desc')}</p>
               </div>
             ) : (
               <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 overflow-hidden shadow-xs">
@@ -1707,15 +1733,15 @@ export default function RonosLaborAuditPage() {
                   <table className="w-full text-left text-sm">
                     <thead className="bg-slate-100/90 dark:bg-slate-950/80 text-xs uppercase text-slate-600 dark:text-slate-400 border-b border-slate-200 dark:border-slate-800 font-bold tracking-wider">
                       <tr>
-                        <th className="py-4 px-4"># Tienda</th>
-                        <th className="py-4 px-4">Sucursal</th>
-                        <th className="py-4 px-4 text-center">Personal Activo</th>
-                        <th className="py-4 px-4 text-center">Horas Totales</th>
-                        <th className="py-4 px-4 text-center">Overtime (OT)</th>
-                        <th className="py-4 px-4 text-center">Meal Penalties</th>
-                        <th className="py-4 px-4 text-center">Fuga Penalties ($ USD)</th>
-                        <th className="py-4 px-4 text-center">Cumplimiento Legal</th>
-                        <th className="py-4 px-4 text-center">Acción</th>
+                        <th className="py-4 px-4">{t('ronos.col_store_num')}</th>
+                        <th className="py-4 px-4">{t('ronos.col_store_name')}</th>
+                        <th className="py-4 px-4 text-center">{t('ronos.col_active_staff')}</th>
+                        <th className="py-4 px-4 text-center">{t('ronos.chain_total_hours')}</th>
+                        <th className="py-4 px-4 text-center">{t('ronos.kpi_overtime_hours')}</th>
+                        <th className="py-4 px-4 text-center">{t('ronos.kpi_meal_penalties')}</th>
+                        <th className="py-4 px-4 text-center">{t('ronos.kpi_estimated_leakage')}</th>
+                        <th className="py-4 px-4 text-center">{t('ronos.col_compliance_legal')}</th>
+                        <th className="py-4 px-4 text-center">{t('ronos.col_action')}</th>
                       </tr>
                     </thead>
                   <tbody className="divide-y divide-slate-200 dark:divide-slate-800/60">
@@ -1751,7 +1777,7 @@ export default function RonosLaborAuditPage() {
                                 ? 'bg-rose-100 dark:bg-rose-500/20 text-rose-800 dark:text-rose-300 border border-rose-200 dark:border-rose-500/40 animate-pulse'
                                 : 'bg-amber-100 dark:bg-amber-500/20 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-500/30'
                             }`}>
-                              {st.mealPenalties} multas
+                              {st.mealPenalties} {t('ronos.label_penalties_count')}
                             </span>
                           </td>
                           <td className="py-3.5 px-4 text-center font-bold text-rose-600 dark:text-rose-400">
@@ -1777,12 +1803,12 @@ export default function RonosLaborAuditPage() {
                           <td className="py-3.5 px-4 text-center">
                             <button
                               onClick={() => {
-                                handleStoreChange(st.ronosCompanyId)
+                                handleStoreChange(st.ronosCompanyId, selectedWeekId)
                                 setActiveTab('store')
                               }}
                               className="px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-amber-500 hover:text-slate-950 dark:bg-slate-800 dark:hover:bg-amber-500 text-slate-800 dark:text-slate-200 text-xs font-semibold transition-all cursor-pointer shadow-xs"
                             >
-                              Ver Tienda
+                              {t('ronos.btn_view_store')}
                             </button>
                           </td>
                         </tr>
@@ -1829,15 +1855,15 @@ export default function RonosLaborAuditPage() {
               {/* Stats Bar */}
               <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mt-6">
                 <div className="p-3 bg-slate-50 dark:bg-slate-950 rounded-xl border border-slate-200 dark:border-slate-800 text-center">
-                  <span className="text-[11px] text-slate-500 dark:text-slate-400 block font-semibold">Total Empleados RONOS</span>
+                  <span className="text-[11px] text-slate-500 dark:text-slate-400 block font-semibold">{t('ronos.stat_total_ronos')}</span>
                   <span className="text-lg font-bold text-slate-900 dark:text-white">{mappingStats.totalRonos}</span>
                 </div>
                 <div className="p-3 bg-emerald-50 dark:bg-slate-950 rounded-xl border border-emerald-200 dark:border-emerald-500/20 text-center">
-                  <span className="text-[11px] text-emerald-700 dark:text-emerald-400 block font-semibold">Auto-Vinculados</span>
+                  <span className="text-[11px] text-emerald-700 dark:text-emerald-400 block font-semibold">{t('ronos.stat_auto_matched')}</span>
                   <span className="text-lg font-bold text-emerald-700 dark:text-emerald-400">{mappingStats.autoMatched}</span>
                 </div>
                 <div className="p-3 bg-blue-50 dark:bg-slate-950 rounded-xl border border-blue-200 dark:border-blue-500/20 text-center">
-                  <span className="text-[11px] text-blue-700 dark:text-blue-400 block font-semibold">Vinculados Manualmente</span>
+                  <span className="text-[11px] text-blue-700 dark:text-blue-400 block font-semibold">{t('ronos.stat_manually_matched')}</span>
                   <span className="text-lg font-bold text-blue-700 dark:text-blue-400">{mappingStats.manuallyMatched}</span>
                 </div>
                 <div className="p-3 bg-slate-100 dark:bg-slate-950 rounded-xl border border-slate-300 dark:border-slate-700 text-center">
@@ -1845,7 +1871,7 @@ export default function RonosLaborAuditPage() {
                   <span className="text-lg font-bold text-slate-700 dark:text-slate-300">{mappingStats.inactive}</span>
                 </div>
                 <div className="p-3 bg-amber-50 dark:bg-slate-950 rounded-xl border border-amber-200 dark:border-amber-500/20 text-center">
-                  <span className="text-[11px] text-amber-700 dark:text-amber-400 block font-semibold">Pendientes / Sin Vincular</span>
+                  <span className="text-[11px] text-amber-700 dark:text-amber-400 block font-semibold">{t('ronos.stat_unmapped_count')}</span>
                   <span className="text-lg font-bold text-amber-700 dark:text-amber-400">{mappingStats.unmapped}</span>
                 </div>
               </div>
@@ -1857,14 +1883,14 @@ export default function RonosLaborAuditPage() {
                 <Search className="w-4 h-4 text-slate-400 dark:text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
                 <input
                   type="text"
-                  placeholder="Buscar por nombre RONOS, Toast o PIN..."
+                  placeholder={t('ronos.search_mapping_placeholder')}
                   value={mappingSearch}
                   onChange={(e) => setMappingSearch(e.target.value)}
                   className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-xl pl-10 pr-4 py-2 text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:border-amber-500 shadow-xs"
                 />
               </div>
 
-              <div className="flex items-center gap-2 w-full sm:w-auto">
+              <div className="flex items-center gap-2 w-full sm:w-auto flex-wrap">
                 <button
                   onClick={() => setMappingFilter('all')}
                   className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
@@ -1873,7 +1899,7 @@ export default function RonosLaborAuditPage() {
                       : 'bg-slate-100 dark:bg-slate-950 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800'
                   }`}
                 >
-                  Todos ({mappingsList.length})
+                  {t('ronos.filter_all_label')} ({mappingsList.length})
                 </button>
                 <button
                   onClick={() => setMappingFilter('unmapped')}
@@ -1884,7 +1910,7 @@ export default function RonosLaborAuditPage() {
                   }`}
                 >
                   <AlertCircle className="w-3.5 h-3.5" />
-                  Sin Vincular ({mappingsList.filter(m => m.mappingType === 'unmapped').length})
+                  {t('ronos.filter_unmapped_label')} ({mappingsList.filter(m => m.mappingType === 'unmapped').length})
                 </button>
                 <button
                   onClick={() => setMappingFilter('matched')}
@@ -1895,7 +1921,7 @@ export default function RonosLaborAuditPage() {
                   }`}
                 >
                   <UserCheck className="w-3.5 h-3.5" />
-                  Vinculados ({mappingsList.filter(m => m.mappingType === 'auto' || m.mappingType === 'manual').length})
+                  {t('ronos.filter_matched_label')} ({mappingsList.filter(m => m.mappingType === 'auto' || m.mappingType === 'manual').length})
                 </button>
                 <button
                   onClick={() => setMappingFilter('inactive')}
@@ -1921,7 +1947,7 @@ export default function RonosLaborAuditPage() {
                   title={lastTransferScan ? `Último escaneo: ${new Date(lastTransferScan).toLocaleTimeString('es-MX')}` : 'Escanear ponchadas en todas las tiendas'}
                 >
                   <RefreshCw className={`w-3.5 h-3.5 ${refreshingTransfers ? 'animate-spin' : ''}`} />
-                  {refreshingTransfers ? 'Escaneando 15 tiendas...' : '🔍 Escanear Traslados'}
+                  {refreshingTransfers ? t('ronos.scanning_transfers') : t('ronos.btn_scan_transfers')}
                 </button>
               </div>
             </div>
@@ -1932,12 +1958,12 @@ export default function RonosLaborAuditPage() {
                 <table className="w-full text-left text-sm">
                   <thead className="bg-slate-100/90 dark:bg-slate-950/80 text-xs uppercase text-slate-600 dark:text-slate-400 border-b border-slate-200 dark:border-slate-800 font-bold tracking-wider">
                     <tr>
-                      <th className="py-3.5 px-4">Colaborador en RONOS</th>
-                      <th className="py-3.5 px-4">PIN / Puesto</th>
-                      <th className="py-3.5 px-4 text-center">Estado de Mapeo</th>
-                      <th className="py-3.5 px-4">Colaborador Vinculado en Toast (Misma Tienda)</th>
-                      <th className="py-3.5 px-4">Correo Verificado (Toast)</th>
-                      <th className="py-3.5 px-4 text-center">Acción</th>
+                      <th className="py-3.5 px-4">{t('ronos.col_ronos_employee')}</th>
+                      <th className="py-3.5 px-4">{t('ronos.col_pin_job')}</th>
+                      <th className="py-3.5 px-4 text-center">{t('ronos.col_mapping_status')}</th>
+                      <th className="py-3.5 px-4">{t('ronos.col_toast_linked_emp')}</th>
+                      <th className="py-3.5 px-4">{t('ronos.col_verified_email')}</th>
+                      <th className="py-3.5 px-4 text-center">{t('ronos.col_action')}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200 dark:divide-slate-800/60">
@@ -2054,7 +2080,7 @@ export default function RonosLaborAuditPage() {
                               )}
                             </td>
 
-                            <td className="py-3 px-4 text-center">
+                            <td className="py-3 px-4">
                               {isSaving ? (
                                 <RefreshCw className="w-4 h-4 animate-spin text-amber-500 mx-auto" />
                               ) : isInactive ? (
@@ -2069,7 +2095,7 @@ export default function RonosLaborAuditPage() {
                                   onClick={() => handleSaveSingleMapping(item, '')}
                                   className="text-[11px] px-2 py-1 rounded bg-slate-100 hover:bg-rose-100 dark:bg-slate-800 dark:hover:bg-rose-950/40 text-slate-600 hover:text-rose-700 dark:text-slate-400 dark:hover:text-rose-300 transition-colors cursor-pointer"
                                 >
-                                  Desvincular
+                                  {t('ronos.btn_unlink')}
                                 </button>
                               ) : (
                                 <button
@@ -2077,7 +2103,7 @@ export default function RonosLaborAuditPage() {
                                   className="text-[11px] px-2.5 py-1 rounded-lg bg-rose-50 hover:bg-rose-100 dark:bg-slate-800 dark:hover:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-500/20 font-semibold transition-colors cursor-pointer inline-flex items-center gap-1"
                                 >
                                   <UserX className="w-3 h-3" />
-                                  {item.transferredToStore ? `Inactivo (${item.transferredToStore})` : t('ronos.btn_mark_inactive')}
+                                  {item.transferredToStore ? `${t('ronos.transferred_to_badge')} ${item.transferredToStore}` : t('ronos.btn_mark_inactive')}
                                 </button>
                               )}
                             </td>
@@ -2125,7 +2151,7 @@ export default function RonosLaborAuditPage() {
                           : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                       }`}
                     >
-                      Bisemanal (2 Semanas - Invoice)
+                      {t('ronos.period_biweekly')}
                     </button>
                     <button
                       onClick={() => {
@@ -2138,7 +2164,7 @@ export default function RonosLaborAuditPage() {
                           : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                       }`}
                     >
-                      Semana Individual
+                      {t('ronos.period_single_week')}
                     </button>
                   </div>
 
@@ -2205,7 +2231,7 @@ export default function RonosLaborAuditPage() {
 
                   <div className="p-4 rounded-2xl bg-purple-50/70 dark:bg-slate-950 border border-purple-200 dark:border-purple-500/20 text-center">
                     <span className="text-xs font-semibold text-purple-800 dark:text-purple-400 block mb-1">
-                      Horas del Periodo
+                      {t('ronos.kpi_period_hours')}
                     </span>
                     <span className="text-2xl font-black text-purple-700 dark:text-purple-300">
                       {payrollData.totalHours} <span className="text-sm font-normal">hrs</span>
@@ -2345,13 +2371,13 @@ export default function RonosLaborAuditPage() {
                   <thead className="bg-slate-100/90 dark:bg-slate-950/80 text-xs uppercase text-slate-600 dark:text-slate-400 border-b border-slate-200 dark:border-slate-800 font-bold tracking-wider">
                     <tr>
                       <th className="py-3.5 px-4">Colaborador & Auditoría PEO</th>
-                      <th className="py-3.5 px-4 text-center">Puesto & Régimen</th>
+                      <th className="py-3.5 px-4 text-center">{t('ronos.col_type')}</th>
                       <th className="py-3.5 px-4 text-right">{t('ronos.col_pay_rate')}</th>
                       <th className="py-3.5 px-4 text-right">{t('ronos.col_bill_rate')}</th>
-                      <th className="py-3.5 px-4 text-right">Salario Bruto (TOT PAY)</th>
-                      <th className="py-3.5 px-4 text-right">Facturado (TOT BILL)</th>
+                      <th className="py-3.5 px-4 text-right">{t('ronos.col_gross_pay')}</th>
+                      <th className="py-3.5 px-4 text-right">{t('ronos.col_invoiced_bill')}</th>
                       <th className="py-3.5 px-4 text-right">{t('ronos.col_markup_fee')}</th>
-                      <th className="py-3.5 px-4 text-center">Horas Desglosadas</th>
+                      <th className="py-3.5 px-4 text-center">{t('ronos.col_hours_breakdown')}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200 dark:divide-slate-800/60">
@@ -2438,7 +2464,7 @@ export default function RonosLaborAuditPage() {
                                     : 'bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300 border border-blue-300 dark:border-blue-500/30'
                                 }`}
                               >
-                                {emp.isSalaried ? '👑 ASALARIADO (EXEMPT)' : '⏰ POR HORA (NON-EXEMPT)'}
+                                {emp.isSalaried ? t('ronos.badge_exempt_salaried') : t('ronos.badge_non_exempt_hourly')}
                               </span>
                               <span className="text-[11px] text-slate-500 dark:text-slate-400 block mt-0.5">
                                 {emp.jobTitle}
@@ -2446,23 +2472,23 @@ export default function RonosLaborAuditPage() {
                             </td>
 
                             <td className="py-3 px-4 text-right font-medium text-slate-700 dark:text-slate-300">
-                              ${emp.payRate.toFixed(2)}/h
+                              ${(emp.payRate ?? 0).toFixed(2)}/h
                             </td>
 
                             <td className="py-3 px-4 text-right font-semibold text-emerald-700 dark:text-emerald-400">
-                              ${emp.billRate.toFixed(2)}/h
+                              ${(emp.billRate ?? 0).toFixed(2)}/h
                             </td>
 
                             <td className="py-3 px-4 text-right font-bold text-slate-900 dark:text-white">
-                              ${emp.totalGrossPay.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                              ${(emp.totalGrossPay ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
                             </td>
 
                             <td className="py-3 px-4 text-right font-bold text-emerald-600 dark:text-emerald-400">
-                              ${emp.totalInvoicedAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                              ${(emp.totalInvoicedAmount ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
                             </td>
 
                             <td className="py-3 px-4 text-right text-xs font-medium text-amber-600 dark:text-amber-400">
-                              +${emp.cingularFeeAmount.toFixed(2)} ({emp.markupPercentage}%)
+                              +${(emp.cingularFeeAmount ?? 0).toFixed(2)} ({emp.markupPercentage ?? 25.98}%)
                             </td>
 
                             <td className="py-3 px-4 text-center">

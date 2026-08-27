@@ -219,7 +219,7 @@ const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
 /**
  * Ejecutor con límite de concurrencia (Concurrency Pool)
  */
-async function mapConcurrent<T, R>(items: T[], concurrency: number, fn: (item: T, index: number) => Promise<R>): Promise<R[]> {
+export async function mapConcurrent<T, R>(items: T[], concurrency: number, fn: (item: T, index: number) => Promise<R>): Promise<R[]> {
   const results: R[] = new Array(items.length)
   let currentIndex = 0
 
@@ -410,9 +410,7 @@ export async function callRonosApi<T = any>(endpoint: string, payload: any = {},
         continue
       }
 
-      if (attempt === maxRetries) {
-        throw new Error(`Error en RONOS API [${endpoint}] tras ${maxRetries} intentos: ${err.message}`)
-      }
+      throw err
     }
   }
 
@@ -858,9 +856,18 @@ export async function getRonosStoreAudit(
 
             const analysis = analyzeDayCompliance(wd.punches, wd.date || wd.startTime, dayTotalHours)
 
+            let dayHasMealPenalty = false
             analysis.violations.forEach((v) => {
-              empViolationsCount++
-              empPenaltyCost += v.estimatedCostUsd
+              if (v.type.startsWith('MEAL_PENALTY')) {
+                if (!dayHasMealPenalty) {
+                  dayHasMealPenalty = true
+                  empViolationsCount++
+                  empPenaltyCost += v.estimatedCostUsd
+                }
+              } else {
+                empViolationsCount++
+                empPenaltyCost += v.estimatedCostUsd
+              }
             })
 
             return {
@@ -959,7 +966,7 @@ export async function getRonosStoreAudit(
         holidayHours: empHolidayHours,
         bereavementHours: empBereavementHours,
         unpaidLeaveHours: empUnpaidHours,
-        mealPenaltyCount: safeNum(emp.mealPenalty || emp.mealPenaltyCount),
+        mealPenaltyCount: days.reduce((count, d) => count + (d.violations.some(v => v.type.startsWith('MEAL_PENALTY')) ? 1 : 0), 0) || safeNum(emp.mealPenalty),
         brokenHours: broken,
         lockTimecard: !!emp.locktimecard,
         days,
@@ -986,12 +993,11 @@ export async function getRonosStoreAudit(
 
   employeeTimecards.forEach((emp) => {
     emp.days.forEach((d) => {
-      d.violations.forEach((v) => {
-        if (v.type.startsWith('MEAL_PENALTY')) {
-          totalMealPenaltiesCount++
-          totalEstimatedPenaltyCostUsd += v.estimatedCostUsd
-        }
-      })
+      const dayMealViolations = d.violations.filter(v => v.type.startsWith('MEAL_PENALTY'))
+      if (dayMealViolations.length > 0) {
+        totalMealPenaltiesCount += 1
+        totalEstimatedPenaltyCostUsd += (dayMealViolations[0]?.estimatedCostUsd || ESTIMATED_HOURLY_RATE)
+      }
     })
   })
 
@@ -1157,7 +1163,7 @@ export async function getRonosChainWideAudit(
           const { data: cached } = await supabaseAdmin
             .from('ronos_employee_timecards_cache')
             .select('regular_hours, overtime_hours, double_time_hours, meal_penalty_count, broken_hours')
-            .eq('ronos_company_id', store.ronosCompanyId)
+            .eq('company_id', store.ronosCompanyId)
             .eq('week_id', storeWeekId)
 
           if (cached && cached.length > 0) {
