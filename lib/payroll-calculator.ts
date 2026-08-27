@@ -209,6 +209,26 @@ export const CINGULAR_RATE_OVERRIDES: Record<string, { payRate: number; billRate
   'jenifer janet brandon salvatierra': { payRate: 16.90, billRate: 21.29, otBillRate: 31.94 },
   'jenifer blandon': { payRate: 16.90, billRate: 21.29, otBillRate: 31.94 },
 
+  // Sucursal La Puente (TEG - La Puente #15 / Company ID: 37 / TEGL-0022)
+  'benjamin nunez': { payRate: 34.89, billRate: 43.43 }, // General Manager ($72,571/yr -> $2,791.00 pay / $3,474.40 billed)
+  'benjamin nuñez': { payRate: 34.89, billRate: 43.43 },
+  'wilmer martinez': { payRate: 22.97, billRate: 22.97, otBillRate: 34.46 }, // Caso especial: Facturado con 0% markup en billRate base por Cingular
+  'josue martinez': { payRate: 22.47, billRate: 28.31, otBillRate: 42.47 },
+  'araceli rojas': { payRate: 22.43, billRate: 28.26, otBillRate: 42.39 },
+  'adelfo castro': { payRate: 21.93, billRate: 27.63, otBillRate: 41.45 },
+  'danilo ical': { payRate: 21.93, billRate: 27.63, otBillRate: 41.45 },
+  'leonela castro': { payRate: 21.43, billRate: 27.00, otBillRate: 40.50 },
+  'maria castro': { payRate: 20.97, billRate: 26.42, otBillRate: 39.63 },
+  'gustavo juan': { payRate: 18.97, billRate: 23.90, otBillRate: 35.85 },
+  'kiara sheccid cortes diaz': { payRate: 18.97, billRate: 23.90, otBillRate: 35.85 },
+  'kiara cortes': { payRate: 18.97, billRate: 23.90, otBillRate: 35.85 },
+  'gustavo arizaga': { payRate: 18.47, billRate: 23.27, otBillRate: 34.91 },
+  'guillermo ibarra': { payRate: 18.47, billRate: 23.27, otBillRate: 34.91 },
+  'filemon ortega ruiz': { payRate: 18.47, billRate: 23.27, otBillRate: 34.91 },
+  'filemon ortega': { payRate: 18.47, billRate: 23.27, otBillRate: 34.91 },
+  'fabiola ruso': { payRate: 18.47, billRate: 23.27, otBillRate: 34.91 },
+  'heriberto nava': { payRate: 18.47, billRate: 23.27, otBillRate: 34.91 },
+
   // Sucursal Slauson (TEG - Slauson #7 / Company ID: 328)
   'jesus ramos': { payRate: 35.65, billRate: 44.38 }, // General Manager (Salaried)
   'alfonso alarcon': { payRate: 23.43, billRate: 29.52, otBillRate: 44.28 },
