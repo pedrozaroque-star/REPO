@@ -197,13 +197,17 @@ function MilesIQContent() {
   const handleSyncInspections = async () => {
     setSyncingInspections(true)
     try {
+      const selectedSup = supervisorsList.find(s => String(s.id) === String(supervisorFilter) || s.name === supervisorFilter)
+      const targetSupName = !isAdmin ? currentUser.name : (selectedSup?.name || (supervisorFilter !== 'all' ? supervisorFilter : undefined))
+      const targetSupId = !isAdmin ? currentUser.id : (selectedSup?.id || (supervisorFilter !== 'all' ? supervisorFilter : undefined))
+
       const res = await fetch('/api/miles/sync-inspections', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           date: dateRange.end || getCaliforniaBusinessDate(),
-          supervisor_name: !isAdmin ? currentUser.name : (supervisorFilter !== 'all' ? supervisorFilter : undefined),
-          supervisor_id: !isAdmin ? currentUser.id : undefined
+          supervisor_name: targetSupName,
+          supervisor_id: targetSupId
         })
       })
       const data = await res.json()
@@ -363,6 +367,8 @@ function MilesIQContent() {
       if (json.success) {
         showToast(t('miles.trip_deleted'), 'warning')
         setTrips(prev => prev.filter(t => t.id !== id))
+      } else {
+        showToast(json.error || t('miles.error_save'), 'error')
       }
     } catch (err: any) {
       showToast(err.message, 'error')
@@ -514,13 +520,14 @@ function MilesIQContent() {
 
   // Export CSV
   const handleExportCsv = () => {
-    const url = `/api/miles/export?start_date=${dateRange.start}&end_date=${dateRange.end}&status=${statusFilter}`
+    const supParam = !isAdmin ? currentUser.id : (supervisorFilter !== 'all' ? supervisorFilter : '')
+    const url = `/api/miles/export?start_date=${dateRange.start}&end_date=${dateRange.end}&status=${statusFilter}${supParam ? `&supervisor_id=${encodeURIComponent(supParam)}` : ''}`
     window.open(url, '_blank')
   }
 
   // Helper to check if a trip belongs to the current user
   const isOwnTrip = useCallback((t: TripRecord) => {
-    if (t.supervisor_id === currentUser.id) return true
+    if (String(t.supervisor_id) === String(currentUser.id)) return true
     if (t.supervisor_email && currentUser.email && t.supervisor_email.toLowerCase() === currentUser.email.toLowerCase()) return true
     if (t.supervisor_name && currentUser.name && t.supervisor_name.toLowerCase() === currentUser.name.toLowerCase()) return true
     return false
@@ -530,7 +537,12 @@ function MilesIQContent() {
   const filteredTrips = useMemo(() => {
     return trips.filter(t => {
       if (!isAdmin && !isOwnTrip(t)) return false
-      if (supervisorFilter !== 'all' && t.supervisor_id !== supervisorFilter && t.supervisor_name !== supervisorFilter) return false
+      if (supervisorFilter !== 'all') {
+        const selectedSup = supervisorsList.find(s => String(s.id) === String(supervisorFilter) || s.name === supervisorFilter)
+        const matchId = String(t.supervisor_id) === String(supervisorFilter) || (selectedSup && String(t.supervisor_id) === String(selectedSup.id))
+        const matchName = t.supervisor_name === supervisorFilter || (selectedSup && t.supervisor_name?.toLowerCase() === selectedSup.name.toLowerCase())
+        if (!matchId && !matchName) return false
+      }
       if (statusFilter !== 'all' && t.status !== statusFilter) return false
       if (startDate && t.trip_date < startDate) return false
       if (endDate && t.trip_date > endDate) return false
@@ -544,7 +556,7 @@ function MilesIQContent() {
       }
       return true
     })
-  }, [trips, statusFilter, supervisorFilter, startDate, endDate, searchTerm, isAdmin, currentUser])
+  }, [trips, statusFilter, supervisorFilter, startDate, endDate, searchTerm, isAdmin, currentUser, supervisorsList])
 
   // Summary Metrics (dynamically computed from active filtered trips)
   const metrics = useMemo(() => {
@@ -686,7 +698,12 @@ function MilesIQContent() {
 
     trips.forEach(t => {
       if (!isAdmin && !isOwnTrip(t)) return
-      if (supervisorFilter !== 'all' && t.supervisor_id !== supervisorFilter && t.supervisor_name !== supervisorFilter) return
+      if (supervisorFilter !== 'all') {
+        const selectedSup = supervisorsList.find(s => String(s.id) === String(supervisorFilter) || s.name === supervisorFilter)
+        const matchId = String(t.supervisor_id) === String(supervisorFilter) || (selectedSup && String(t.supervisor_id) === String(selectedSup.id))
+        const matchName = t.supervisor_name === supervisorFilter || (selectedSup && t.supervisor_name?.toLowerCase() === selectedSup.name.toLowerCase())
+        if (!matchId && !matchName) return
+      }
       if (startDate && t.trip_date < startDate) return
       if (endDate && t.trip_date > endDate) return
       

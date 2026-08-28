@@ -12,7 +12,7 @@
  * @dataFlow Component state -> API POST/PUT /api/miles -> Parent callback.
  */
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   X, Car, MapPin, ArrowRight, RotateCw, DollarSign, Gauge,
@@ -146,12 +146,14 @@ export default function TripModal({
   ]
 
   const availableLocations = stores.length > 0 ? stores.map(s => s.name) : storePresets
+  const isInitialEditLoadRef = useRef(false)
 
   // Synchronize state when modal opens or editingTrip changes
   useEffect(() => {
     if (!isOpen) return
 
     if (editingTrip) {
+      isInitialEditLoadRef.current = true
       const origName = editingTrip.origin_name || 'Tacos Gavilan LA Central'
       const dstName = editingTrip.destination_name || 'Tacos Gavilan LA Broadway'
       const isOrigCustom = editingTrip.origin_type === 'custom' || !availableLocations.includes(origName)
@@ -171,10 +173,12 @@ export default function TripModal({
       setPurposeNotes(editingTrip.purpose_notes || '')
       setOdometerStart(editingTrip.odometer_start !== null && editingTrip.odometer_start !== undefined ? String(editingTrip.odometer_start) : '')
       setOdometerEnd(editingTrip.odometer_end !== null && editingTrip.odometer_end !== undefined ? String(editingTrip.odometer_end) : '')
-      setDistanceMiles(Number(editingTrip.distance_miles) || 0)
+      const baseMiles = Number(editingTrip.distance_miles) || 0
+      setDistanceMiles(editingTrip.is_round_trip ? parseFloat((baseMiles / 2).toFixed(2)) : baseMiles)
       setParkingAmount(Number(editingTrip.parking_amount) || 0)
       setTollsAmount(Number(editingTrip.tolls_amount) || 0)
     } else {
+      isInitialEditLoadRef.current = false
       setSelectedSupervisorId(currentUser.id)
       setTripDate(getCaliforniaBusinessDate())
       setStartTime(getCaliforniaTime())
@@ -208,6 +212,11 @@ export default function TripModal({
   // Auto-calculate distance when origin/destination change or matrix matches
   useEffect(() => {
     if (!originName || !destinationName) return
+
+    if (isInitialEditLoadRef.current) {
+      isInitialEditLoadRef.current = false
+      return
+    }
 
     // If odometer end and start are valid, calculate from odometer
     if (odometerStart && odometerEnd) {
@@ -308,7 +317,7 @@ export default function TripModal({
     if (!distanceMiles || distanceMiles <= 0) return false
 
     // Find targeted supervisor profile if selected
-    const targetSupervisor = supervisors.find(s => s.id === selectedSupervisorId) || {
+    const targetSupervisor = supervisors.find(s => String(s.id) === String(selectedSupervisorId)) || {
       id: currentUser.id,
       name: currentUser.name,
       email: currentUser.email
@@ -344,7 +353,7 @@ export default function TripModal({
       await onSave(payload)
 
       // Sync active store in localStorage for the passive GPS tracker
-      if (selectedSupervisorId === currentUser.id && tripDate === getCaliforniaBusinessDate()) {
+      if (String(selectedSupervisorId) === String(currentUser.id) && tripDate === getCaliforniaBusinessDate()) {
         const finalActiveStore = isRoundTrip ? originName : destinationName
         if (finalActiveStore) {
           localStorage.setItem('teg_supervisor_active_store', finalActiveStore)
