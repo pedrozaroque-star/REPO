@@ -28,6 +28,23 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       supervisor_id, supervisor_name, supervisor_email
     } = body
 
+    // Protect immutable trips: block full edits on submitted_hr / paid trips (status-only changes are allowed for admin workflows)
+    const isStatusOnlyUpdate = status !== undefined && Object.keys(body).filter(k => body[k] !== undefined && k !== 'status' && k !== 'id').length === 0
+    if (!isStatusOnlyUpdate) {
+      const { data: existingTrip } = await supabase
+        .from('supervisor_mileage_trips')
+        .select('status')
+        .eq('id', id)
+        .single()
+
+      if (existingTrip && (existingTrip.status === 'submitted_hr' || existingTrip.status === 'paid')) {
+        return NextResponse.json(
+          { error: 'No se pueden editar viajes que ya han sido enviados a Recursos Humanos o pagados.' },
+          { status: 403 }
+        )
+      }
+    }
+
     const updateData: any = { updated_at: new Date().toISOString() }
     
     if (status !== undefined) updateData.status = status
@@ -45,7 +62,13 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     if (purpose_notes !== undefined) updateData.purpose_notes = purpose_notes
     if (odometer_start !== undefined) updateData.odometer_start = odometer_start
     if (odometer_end !== undefined) updateData.odometer_end = odometer_end
-    if (distance_miles !== undefined) updateData.distance_miles = distance_miles
+
+    // Apply round-trip distance doubling (same logic as POST handler)
+    if (distance_miles !== undefined) {
+      const roundTrip = is_round_trip !== undefined ? Boolean(is_round_trip) : false
+      updateData.distance_miles = roundTrip ? Number(distance_miles) * 2 : Number(distance_miles)
+    }
+
     if (rate_per_mile !== undefined) updateData.rate_per_mile = rate_per_mile
     if (parking_amount !== undefined) updateData.parking_amount = parking_amount
     if (tolls_amount !== undefined) updateData.tolls_amount = tolls_amount
