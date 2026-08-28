@@ -220,6 +220,7 @@ const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
  * Ejecutor con límite de concurrencia (Concurrency Pool)
  */
 export async function mapConcurrent<T, R>(items: T[], concurrency: number, fn: (item: T, index: number) => Promise<R>): Promise<R[]> {
+  if (!items || !Array.isArray(items) || items.length === 0) return []
   const results: R[] = new Array(items.length)
   let currentIndex = 0
 
@@ -338,13 +339,13 @@ export async function getRonosAuthToken(forceRefresh = false): Promise<string> {
         cachedSession = null
         if (attempt < maxRetries) {
           const delay = Math.pow(2, attempt - 1) * 1000 + Math.random() * 500
-          console.warn(`[RONOS Auth] Intento ${attempt}/${maxRetries} fallido (${err.message}). Reintentando en ${Math.round(delay)}ms...`)
+          console.warn(`[RONOS Auth] Intento ${attempt}/${maxRetries} fallido (${err?.message || String(err)}). Reintentando en ${Math.round(delay)}ms...`)
           await sleep(delay)
         }
       }
     }
 
-    throw new Error(`Error fatal en autenticación RONOS tras ${maxRetries} intentos: ${lastError?.message}`)
+    throw new Error(`Error fatal en autenticación RONOS tras ${maxRetries} intentos: ${lastError?.message || String(lastError)}`)
   })()
 
   try {
@@ -402,10 +403,10 @@ export async function callRonosApi<T = any>(endpoint: string, payload: any = {},
         throw new Error(`Respuesta inválida (no-JSON) de RONOS API [${endpoint}]: ${rawText.substring(0, 150)}`)
       }
     } catch (err: any) {
-      const isNetworkError = err.name === 'AbortError' || err.message?.includes('fetch failed') || err.message?.includes('network')
+      const isNetworkError = err?.name === 'AbortError' || err?.message?.includes('fetch failed') || err?.message?.includes('network')
       if (isNetworkError && attempt < maxRetries) {
         const delay = Math.pow(2, attempt - 1) * 1000 + Math.random() * 500
-        console.warn(`[RONOS Network Error] en [${endpoint}]: ${err.message}. Reintento ${attempt}/${maxRetries} en ${Math.round(delay)}ms...`)
+        console.warn(`[RONOS Network Error] en [${endpoint}]: ${err?.message || String(err)}. Reintento ${attempt}/${maxRetries} en ${Math.round(delay)}ms...`)
         await sleep(delay)
         continue
       }
@@ -459,13 +460,19 @@ export async function getRonosWeeks(ronosCompanyId: number): Promise<RonosWorkWe
       companyId: ronosCompanyId
     })
 
-    const weeksArray: any[] = Array.isArray(rawWeeks) ? rawWeeks : (rawWeeks?.results || rawWeeks?.data || [])
+    const weeksArray: any[] = Array.isArray(rawWeeks)
+      ? rawWeeks
+      : Array.isArray(rawWeeks?.results)
+        ? rawWeeks.results
+        : Array.isArray(rawWeeks?.data)
+          ? rawWeeks.data
+          : []
 
     const normalized: RonosWorkWeek[] = weeksArray.map((w: any) => ({
-      weekId: safeNum(w.weekId || w.id || w.WeekId),
-      companyId: safeNum(w.companyId || w.CompanyId, ronosCompanyId),
-      startDate: String(w.startDate || w.start_date || w.StartDate || ''),
-      endDate: String(w.endDate || w.end_date || w.EndDate || '')
+      weekId: safeNum(w?.weekId || w?.id || w?.WeekId),
+      companyId: safeNum(w?.companyId || w?.CompanyId, ronosCompanyId),
+      startDate: String(w?.startDate || w?.start_date || w?.StartDate || ''),
+      endDate: String(w?.endDate || w?.end_date || w?.EndDate || '')
     })).filter(w => w.weekId > 0)
 
     if (normalized.length > 0) {
@@ -477,17 +484,20 @@ export async function getRonosWeeks(ronosCompanyId: number): Promise<RonosWorkWe
         end_date: w.endDate
       }))
 
-      supabaseAdmin
-        .from('ronos_work_weeks')
-        .upsert(rowsToUpsert, { onConflict: 'week_id' })
-        .then(({ error }: any) => {
-          if (error) console.warn('[RONOS Weeks] Error guardando caché en Supabase:', error.message)
-        })
+      Promise.resolve(
+        supabaseAdmin
+          .from('ronos_work_weeks')
+          .upsert(rowsToUpsert, { onConflict: 'week_id' })
+      ).then(({ error }: any) => {
+        if (error) console.warn('[RONOS Weeks] Error guardando caché en Supabase:', error?.message || error)
+      }).catch((err: any) => {
+        console.warn('[RONOS Weeks] Excepción guardando caché en Supabase:', err?.message || err)
+      })
     }
 
     return normalized
   } catch (apiErr: any) {
-    console.error(`[RONOS Weeks] Error crítico consultando semanas para compañía ${ronosCompanyId}:`, apiErr.message)
+    console.error(`[RONOS Weeks] Error crítico consultando semanas para compañía ${ronosCompanyId}:`, apiErr?.message || String(apiErr))
     return []
   }
 }
@@ -530,9 +540,10 @@ export function analyzeDayCompliance(
     }
   }
 
-  const sorted = [...punches].sort((a, b) => {
-    const timeA = safeTimestamp(a.localTime || a.punchTime)
-    const timeB = safeTimestamp(b.localTime || b.punchTime)
+  const validPunches = (punches || []).filter(Boolean)
+  const sorted = [...validPunches].sort((a, b) => {
+    const timeA = safeTimestamp(a?.localTime || a?.punchTime)
+    const timeB = safeTimestamp(b?.localTime || b?.punchTime)
     return timeA - timeB
   })
 
@@ -544,27 +555,27 @@ export function analyzeDayCompliance(
 
   sorted.forEach((p) => {
     let typeName = 'PUNCH'
-    const pType = safeNum(p.punchType)
+    const pType = safeNum(p?.punchType)
 
     if (pType === 1) {
       if (!inPunch) {
         inPunch = p
         typeName = 'CLOCK IN'
       } else if (currentMealStart) {
-        const startMs = safeTimestamp(currentMealStart.localTime || currentMealStart.punchTime)
-        const endMs = safeTimestamp(p.localTime || p.punchTime)
+        const startMs = safeTimestamp(currentMealStart?.localTime || currentMealStart?.punchTime)
+        const endMs = safeTimestamp(p?.localTime || p?.punchTime)
         const duration = (startMs > 0 && endMs > startMs) ? Math.max(0, Math.round((endMs - startMs) / 60000)) : 0
 
-        const inTimeMs = safeTimestamp(inPunch.localTime || inPunch.punchTime)
+        const inTimeMs = safeTimestamp(inPunch?.localTime || inPunch?.punchTime)
         const hoursWorkedBefore = (inTimeMs > 0 && startMs > inTimeMs) ? (startMs - inTimeMs) / (1000 * 60 * 60) : 0
 
         mealCount++
         mealBreaks.push({
           index: mealCount,
-          startTime: currentMealStart.localTime || currentMealStart.punchTime,
-          startPhoto: currentMealStart.photoURL,
-          endTime: p.localTime || p.punchTime,
-          endPhoto: p.photoURL,
+          startTime: currentMealStart?.localTime || currentMealStart?.punchTime,
+          startPhoto: currentMealStart?.photoURL,
+          endTime: p?.localTime || p?.punchTime,
+          endPhoto: p?.photoURL,
           durationMinutes: duration,
           hoursWorkedBeforeMeal: Number(hoursWorkedBefore.toFixed(2))
         })
@@ -584,25 +595,25 @@ export function analyzeDayCompliance(
     }
 
     parsedPunches.push({
-      punchId: safeNum(p.punchId),
-      employeeId: safeNum(p.employeeId),
-      workWeekId: safeNum(p.workWeekId),
-      assignmentId: p.assignmentId,
+      punchId: safeNum(p?.punchId),
+      employeeId: safeNum(p?.employeeId),
+      workWeekId: safeNum(p?.workWeekId),
+      assignmentId: p?.assignmentId,
       punchType: pType,
       punchTypeName: typeName,
-      punchTime: p.punchTime || '',
-      localTime: p.localTime || p.punchTime || '',
-      localTimeWithoutOffset: p.localTimeWithoutOffset,
-      photoURL: p.photoURL,
-      addedPunch: !!p.addedPunch,
-      offline: !!p.offline
+      punchTime: p?.punchTime || '',
+      localTime: p?.localTime || p?.punchTime || '',
+      localTimeWithoutOffset: p?.localTimeWithoutOffset,
+      photoURL: p?.photoURL,
+      addedPunch: !!p?.addedPunch,
+      offline: !!p?.offline
     })
   })
 
   if (currentMealStart) {
     mealCount++
-    const inTimeMs = inPunch ? safeTimestamp(inPunch.localTime || inPunch.punchTime) : 0
-    const startMs = safeTimestamp(currentMealStart.localTime || currentMealStart.punchTime)
+    const inTimeMs = inPunch ? safeTimestamp(inPunch?.localTime || inPunch?.punchTime) : 0
+    const startMs = safeTimestamp(currentMealStart?.localTime || currentMealStart?.punchTime)
     const hoursWorkedBefore = (inTimeMs > 0 && startMs > inTimeMs) ? (startMs - inTimeMs) / (1000 * 60 * 60) : 0
 
     mealBreaks.push({
@@ -735,6 +746,9 @@ export async function getRonosStoreAudit(
   }
 
   const selectedWeek = targetWeekId ? weeks.find(w => w.weekId === targetWeekId) || weeks[0] : weeks[0]
+  if (!selectedWeek) {
+    throw new Error(`No se encontró semana válida para ${storeMeta.ronosName}`)
+  }
   const weekId = safeNum(selectedWeek.weekId)
   const isCurrentWeek = weeks[0]?.weekId === weekId
 
@@ -760,7 +774,13 @@ export async function getRonosStoreAudit(
 
   const rawEmployees: any[] = Array.isArray(weekData)
     ? weekData
-    : (weekData?.results || weekData?.employees || weekData?.data || [])
+    : Array.isArray(weekData?.results)
+      ? weekData.results
+      : Array.isArray(weekData?.employees)
+        ? weekData.employees
+        : Array.isArray(weekData?.data)
+          ? weekData.data
+          : []
 
   let storeExternalId: string | undefined = undefined
   try {
@@ -786,6 +806,7 @@ export async function getRonosStoreAudit(
 
     if (savedMappings && Array.isArray(savedMappings)) {
       savedMappings.forEach((m: any) => {
+        if (!m) return
         const empUid = safeNum(m.ronos_employee_user_id)
         if (empUid > 0) {
           savedMappingsMap.set(empUid, m)
@@ -801,15 +822,17 @@ export async function getRonosStoreAudit(
 
   let allToastEmployees: ToastEmployeeCandidate[] = []
   try {
-    allToastEmployees = await getAllToastEmployees(storeExternalId)
+    allToastEmployees = (await getAllToastEmployees(storeExternalId)) || []
   } catch (err) {
     console.warn('[RONOS Audit] Error consultando empleados Toast:', err)
+    allToastEmployees = []
   }
 
   const employeeTimecards: RonosEmployeeTimecard[] = await mapConcurrent(
     rawEmployees,
     MAX_CONCURRENT_CALLS,
     async (emp) => {
+      if (!emp) return null as any
       const empUserId = safeNum(emp.employeeUserId || emp.userId || emp.id)
       const empId = safeNum(emp.employeeId || emp.empId)
       const weeklyHours = safeNum(emp.totalWeeklyHour || emp.totalWeeklyHours || emp.totalHours)
@@ -836,17 +859,17 @@ export async function getRonosStoreAudit(
 
           const workDays: any[] = Array.isArray(userWeek?.workDays) ? userWeek.workDays : []
 
-          days = workDays.map((wd: any) => {
-            const dayTotalHours = safeNum(wd.totalHours)
-            const dayRegHours = safeNum(wd.regularHours)
-            const dayOtHours = safeNum(wd.overtimeHours)
-            const dayDtHours = safeNum(wd.doubleTimeHours)
-            const dayLunchHours = safeNum(wd.lunchHours)
-            const dayVacHours = safeNum(wd.vacationHours)
-            const daySickHours = safeNum(wd.sickHours)
-            const dayHolHours = safeNum(wd.holidayHours)
-            const dayBereaveHours = safeNum(wd.bereavementHours)
-            const dayUnpaidHours = safeNum(wd.unpaidtimeHours)
+          days = (workDays || []).filter(Boolean).map((wd: any) => {
+            const dayTotalHours = safeNum(wd?.totalHours)
+            const dayRegHours = safeNum(wd?.regularHours)
+            const dayOtHours = safeNum(wd?.overtimeHours)
+            const dayDtHours = safeNum(wd?.doubleTimeHours)
+            const dayLunchHours = safeNum(wd?.lunchHours)
+            const dayVacHours = safeNum(wd?.vacationHours)
+            const daySickHours = safeNum(wd?.sickHours)
+            const dayHolHours = safeNum(wd?.holidayHours)
+            const dayBereaveHours = safeNum(wd?.bereavementHours)
+            const dayUnpaidHours = safeNum(wd?.unpaidtimeHours)
 
             empVacationHours += dayVacHours
             empSickHours += daySickHours
@@ -854,25 +877,25 @@ export async function getRonosStoreAudit(
             empBereavementHours += dayBereaveHours
             empUnpaidHours += dayUnpaidHours
 
-            const analysis = analyzeDayCompliance(wd.punches, wd.date || wd.startTime, dayTotalHours)
+            const analysis = analyzeDayCompliance(wd?.punches, wd?.date || wd?.startTime, dayTotalHours)
 
             let dayHasMealPenalty = false
             analysis.violations.forEach((v) => {
-              if (v.type.startsWith('MEAL_PENALTY')) {
+              if (v?.type?.startsWith('MEAL_PENALTY')) {
                 if (!dayHasMealPenalty) {
                   dayHasMealPenalty = true
                   empViolationsCount++
-                  empPenaltyCost += v.estimatedCostUsd
+                  empPenaltyCost += safeNum(v?.estimatedCostUsd, 0)
                 }
               } else {
                 empViolationsCount++
-                empPenaltyCost += v.estimatedCostUsd
+                empPenaltyCost += safeNum(v?.estimatedCostUsd, 0)
               }
             })
 
             return {
-              date: wd.date || wd.startTime || '',
-              dayName: wd.dayName || wd.dayOfWeek || '',
+              date: wd?.date || wd?.startTime || '',
+              dayName: wd?.dayName || wd?.dayOfWeek || '',
               totalHours: dayTotalHours,
               regularHours: dayRegHours,
               overtimeHours: dayOtHours,
@@ -884,7 +907,7 @@ export async function getRonosStoreAudit(
               holidayHours: dayHolHours,
               bereavementHours: dayBereaveHours,
               unpaidtimeHours: dayUnpaidHours,
-              isVacation: dayVacHours > 0 || !!wd.vacation,
+              isVacation: dayVacHours > 0 || !!wd?.vacation,
               isSick: daySickHours > 0 || !!wd.sick,
               isHoliday: dayHolHours > 0 || !!wd.holiday,
               mealBreaks: analysis.mealBreaks,
@@ -992,11 +1015,11 @@ export async function getRonosStoreAudit(
   let totalEstimatedPenaltyCostUsd = 0
 
   employeeTimecards.forEach((emp) => {
-    emp.days.forEach((d) => {
-      const dayMealViolations = d.violations.filter(v => v.type.startsWith('MEAL_PENALTY'))
+    emp?.days?.forEach((d) => {
+      const dayMealViolations = (d?.violations || []).filter(v => v?.type?.startsWith('MEAL_PENALTY'))
       if (dayMealViolations.length > 0) {
         totalMealPenaltiesCount += 1
-        totalEstimatedPenaltyCostUsd += (dayMealViolations[0]?.estimatedCostUsd || ESTIMATED_HOURLY_RATE)
+        totalEstimatedPenaltyCostUsd += safeNum(dayMealViolations[0]?.estimatedCostUsd, ESTIMATED_HOURLY_RATE)
       }
     })
   })
@@ -1011,8 +1034,8 @@ export async function getRonosStoreAudit(
     storeName: storeMeta.tegName,
     ronosCompanyId,
     weekId,
-    startDate: selectedWeek.startDate,
-    endDate: selectedWeek.endDate,
+    startDate: selectedWeek?.startDate || '',
+    endDate: selectedWeek?.endDate || '',
     totalEmployees: rawEmployees.length,
     activeEmployeesCount,
     totalChainHours: Number(totalChainHours.toFixed(2)),
@@ -1061,7 +1084,7 @@ export async function getRonosStoreAudit(
         .from('ronos_employee_timecards_cache')
         .upsert(timecardsToCache, { onConflict: 'company_id,week_id,employee_user_id' })
       if (error) {
-        console.warn('[RONOS Cache Upsert Error]:', error.message)
+        console.warn('[RONOS Cache Upsert Error]:', error?.message || error)
       }
     }
   } catch (err: any) {
@@ -1134,7 +1157,7 @@ export async function getRonosChainWideAudit(
     if (lynwoodWeeks.length > 0) {
       const isWeek0Future = new Date(lynwoodWeeks[0]?.endDate || '').getTime() > Date.now()
       const defaultWeek = isWeek0Future && lynwoodWeeks.length > 1 ? lynwoodWeeks[1] : lynwoodWeeks[0]
-      resolvedStartDate = defaultWeek.startDate?.substring(0, 10)
+      resolvedStartDate = defaultWeek?.startDate ? defaultWeek.startDate.substring(0, 10) : undefined
     }
   }
 
@@ -1156,6 +1179,8 @@ export async function getRonosChainWideAudit(
           matchingWeek = isWeek0Future && weeks.length > 1 ? weeks[1] : weeks[0]
         }
 
+        if (!matchingWeek?.weekId) return null
+
         const storeWeekId = matchingWeek.weekId
 
         // Verificar si tenemos datos completos en caché
@@ -1175,15 +1200,19 @@ export async function getRonosChainWideAudit(
             let activeCount = 0
 
             cached.forEach((r: any) => {
-              const h = Number(r.regular_hours || 0) + Number(r.overtime_hours || 0) + Number(r.double_time_hours || 0)
+              if (!r) return
+              const reg = safeNum(r?.regular_hours)
+              const ot = safeNum(r?.overtime_hours)
+              const dt = safeNum(r?.double_time_hours)
+              const h = reg + ot + dt
               if (h > 0) {
                 activeCount++
                 storeHours += h
-                storeOt += Number(r.overtime_hours || 0)
-                storeDt += Number(r.double_time_hours || 0)
+                storeOt += ot
+                storeDt += dt
               }
-              storePenalties += Number(r.meal_penalty_count || 0)
-              if (r.broken_hours) storeBroken++
+              storePenalties += safeNum(r?.meal_penalty_count)
+              if (r?.broken_hours) storeBroken++
             })
 
             const penaltyCost = storePenalties * ESTIMATED_HOURLY_RATE
@@ -1233,7 +1262,7 @@ export async function getRonosChainWideAudit(
     }
   )
 
-  const validStores = storeAudits.filter((s): s is NonNullable<typeof s> => s !== null)
+  const validStores = storeAudits.filter((s): s is NonNullable<typeof s> => Boolean(s))
 
   const totalChainEmployees = validStores.reduce((acc, s) => acc + s.activeEmployees, 0)
   const totalChainHours = validStores.reduce((acc, s) => acc + s.totalHours, 0)

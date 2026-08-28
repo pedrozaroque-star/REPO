@@ -408,16 +408,19 @@ export default function RonosLaborAuditPage() {
       if (weekId) url += `&weekId=${weekId}`
 
       const res = await fetch(url)
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({}))
+        throw new Error(errBody?.error || `Error de red con RONOS (${res.status})`)
+      }
       const json = await res.json()
-
-      if (!res.ok || !json.success) {
-        throw new Error(json.error || 'Error al obtener datos de RONOS')
+      if (!json?.success) {
+        throw new Error(json?.error || 'Error al obtener datos de RONOS')
       }
 
       setStoreData(json.data)
       if (json.weeks && Array.isArray(json.weeks)) {
         setWeeks(json.weeks)
-        if (!weekId && json.weeks.length > 0) {
+        if (!weekId && json.weeks.length > 0 && json.weeks[0]?.weekId != null) {
           setSelectedWeekId(json.weeks[0].weekId)
         }
 
@@ -425,7 +428,7 @@ export default function RonosLaborAuditPage() {
         const wList = json.weeks
         const sIdx = (wList.length > 0 && new Date(wList[0]?.endDate || '').getTime() > Date.now()) ? 1 : 0
         let targetPeriod = ''
-        if (payrollBiWeekly && wList.length >= sIdx + 2) {
+        if (payrollBiWeekly && wList.length >= sIdx + 2 && wList[sIdx + 1]?.weekId != null && wList[sIdx]?.weekId != null) {
           targetPeriod = `${wList[sIdx + 1].weekId},${wList[sIdx].weekId}`
         } else if (wList.length > 0) {
           targetPeriod = `${wList[sIdx]?.weekId || wList[0]?.weekId}`
@@ -435,10 +438,10 @@ export default function RonosLaborAuditPage() {
           fetchPayroll(companyId, targetPeriod, payrollBiWeekly)
         }
       }
-      if (json.stores) setStores(json.stores)
+      if (Array.isArray(json.stores)) setStores(json.stores)
     } catch (err: any) {
       console.error('Fetch store audit error:', err)
-      setError(err.message || 'Error de conexión con RONOS API')
+      setError(err?.message || 'Error de conexión con RONOS API')
     } finally {
       setLoading(false)
     }
@@ -457,16 +460,19 @@ export default function RonosLaborAuditPage() {
       if (forceLive) url += `&force=true`
 
       const res = await fetch(url)
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({}))
+        throw new Error(errBody?.error || `Error al obtener auditoría corporativa (${res.status})`)
+      }
       const json = await res.json()
-
-      if (!res.ok || !json.success) {
-        throw new Error(json.error || 'Error al obtener auditoría corporativa')
+      if (!json?.success) {
+        throw new Error(json?.error || 'Error al obtener auditoría corporativa')
       }
 
       setChainData(json.data)
     } catch (err: any) {
       console.error('Fetch chain audit error:', err)
-      setError(err.message || 'Error de conexión con RONOS API')
+      setError(err?.message || 'Error de conexión con RONOS API')
     } finally {
       setLoading(false)
     }
@@ -489,8 +495,9 @@ export default function RonosLaborAuditPage() {
         url += `&weekIds=${selectedWeekId}`
       }
       const res = await fetch(url)
-      const json = await res.json()
-      if (json.success && json.data) {
+      if (!res.ok) throw new Error(`Error de nómina (${res.status})`)
+      const json = await res.json().catch(() => ({}))
+      if (json?.success && json?.data) {
         setPayrollData(json.data)
       }
     } catch (err: any) {
@@ -505,10 +512,11 @@ export default function RonosLaborAuditPage() {
     setMappingLoading(true)
     try {
       const res = await fetch(`/api/ronos/mappings?companyId=${companyId}`)
-      const json = await res.json()
-      if (json.success && json.data) {
-        setMappingsList(json.data.mappings || [])
-        setToastCandidates(json.data.toastCandidates || [])
+      if (!res.ok) throw new Error(`Error al obtener mapeos (${res.status})`)
+      const json = await res.json().catch(() => ({}))
+      if (json?.success && json?.data) {
+        setMappingsList(Array.isArray(json.data.mappings) ? json.data.mappings : [])
+        setToastCandidates(Array.isArray(json.data.toastCandidates) ? json.data.toastCandidates : [])
         setMappingStats(json.data.stats || { totalRonos: 0, autoMatched: 0, manuallyMatched: 0, inactive: 0, unmapped: 0 })
       }
     } catch (err: any) {
@@ -528,8 +536,9 @@ export default function RonosLaborAuditPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ronosCompanyId: selectedCompanyId })
       })
-      const json = await res.json()
-      if (json.success) {
+      if (!res.ok) throw new Error(`Error en refresh de traslados (${res.status})`)
+      const json = await res.json().catch(() => ({}))
+      if (json?.success) {
         setLastTransferScan(json.cachedAt)
         // Recargar mappings para reflejar los nuevos traslados
         await fetchMappings(selectedCompanyId)
@@ -543,11 +552,12 @@ export default function RonosLaborAuditPage() {
 
   // Save Mapping (Manual, Inactive, or Unlink)
   const handleSaveSingleMapping = async (item: MappedEmployeeItem, selectedToastId: string) => {
+    if (!item) return
     setSavingMappingId(item.ronosEmployeeUserId)
 
     const isInactive = selectedToastId === '__INACTIVE__'
     const isUnlinking = selectedToastId === ''
-    const toastMatch = (!isInactive && !isUnlinking) ? toastCandidates.find(t => t.id === selectedToastId) : null
+    const toastMatch = (!isInactive && !isUnlinking && Array.isArray(toastCandidates)) ? toastCandidates.find(t => t?.id === selectedToastId) ?? null : null
     const mappingType: 'auto' | 'manual' | 'inactive' | 'unmapped' = isInactive ? 'inactive' : toastMatch ? 'manual' : 'unmapped'
 
     try {
@@ -588,7 +598,7 @@ export default function RonosLaborAuditPage() {
 
       // Refrescar lista de mapeos y auditoría de tienda
       await fetchMappings(selectedCompanyId)
-      fetchStoreAudit(selectedCompanyId, selectedWeekId)
+      await fetchStoreAudit(selectedCompanyId, selectedWeekId)
     } catch (err) {
       console.error('Error saving mapping:', err)
     } finally {
@@ -624,7 +634,7 @@ export default function RonosLaborAuditPage() {
         )
       )
       await fetchMappings(selectedCompanyId)
-      fetchStoreAudit(selectedCompanyId, selectedWeekId)
+      await fetchStoreAudit(selectedCompanyId, selectedWeekId)
     } catch (err) {
       console.error('Error auto-mapping all:', err)
     } finally {
@@ -634,9 +644,11 @@ export default function RonosLaborAuditPage() {
 
   // Open Warning Email Modal
   const openEmailModal = async (emp: EmployeeTimecard, day?: DailyRecord, violation?: ComplianceViolation) => {
+    if (!emp) return
+    const mealCount = emp.mealPenaltyCount ?? 0
     const targetDate = day?.date || storeData?.startDate || new Date().toISOString()
-    const targetViolTitle = violation?.title || (emp.mealPenaltyCount > 0 ? 'Violación 5ta Hora (Meal Penalty)' : 'Incumplimiento de Horario')
-    const targetViolDesc = violation?.description || (emp.mealPenaltyCount > 0 ? `Turno con ${emp.mealPenaltyCount} penalización(es) de comida registradas en la semana.` : 'Irregularidad en registro de ponchadas.')
+    const targetViolTitle = violation?.title || (mealCount > 0 ? 'Violación 5ta Hora (Meal Penalty)' : 'Incumplimiento de Horario')
+    const targetViolDesc = violation?.description || (mealCount > 0 ? `Turno con ${mealCount} penalización(es) de comida registradas en la semana.` : 'Irregularidad en registro de ponchadas.')
 
     setEmailModal({
       isOpen: true,
@@ -653,7 +665,7 @@ export default function RonosLaborAuditPage() {
       lunchStartTime: day?.lunchStartTime,
       lunchEndTime: day?.lunchEndTime,
       clockOutTime: day?.clockOutTime,
-      totalHoursWorked: day?.totalHours || emp.totalWeeklyHours,
+      totalHoursWorked: day?.totalHours ?? emp?.totalWeeklyHours ?? 0,
       additionalNotes: '',
       escalera: null,
       isSending: false,
@@ -664,8 +676,9 @@ export default function RonosLaborAuditPage() {
     // Cargar escalera de mando para la tienda
     try {
       const res = await fetch(`/api/ronos/notify-violation?companyId=${selectedCompanyId}`)
-      const json = await res.json()
-      if (json.success && json.escalera) {
+      if (!res.ok) throw new Error(`Error al cargar escalera (${res.status})`)
+      const json = await res.json().catch(() => ({}))
+      if (json?.success && json?.escalera) {
         setEmailModal(prev => ({ ...prev, escalera: json.escalera }))
       }
     } catch (err) {
@@ -707,15 +720,19 @@ export default function RonosLaborAuditPage() {
         })
       })
 
-      const json = await res.json()
-      if (!res.ok || !json.success) {
-        throw new Error(json.error || 'Error al despachar el correo de aviso laboral')
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({}))
+        throw new Error(errBody?.error || `Error en servidor de correo (${res.status})`)
+      }
+      const json = await res.json().catch(() => ({}))
+      if (!json?.success) {
+        throw new Error(json?.error || 'Error al despachar el correo de aviso laboral')
       }
 
       setEmailModal(prev => ({ ...prev, isSending: false, sendSuccess: true }))
     } catch (err: any) {
       console.error('Send warning email error:', err)
-      setEmailModal(prev => ({ ...prev, isSending: false, sendError: err.message || 'Error al enviar correo' }))
+      setEmailModal(prev => ({ ...prev, isSending: false, sendError: err?.message || 'Error al enviar correo' }))
     }
   }
 
@@ -730,8 +747,9 @@ export default function RonosLaborAuditPage() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ syncChain: true, weekId: selectedWeekId, syncSimplify: true })
         })
-        const json = await res.json()
-        if (json.success) {
+        if (!res.ok) throw new Error(`Error en sincronización (${res.status})`)
+        const json = await res.json().catch(() => ({}))
+        if (json?.success) {
           setChainData(json.data)
         }
       } else if (activeTab === 'payroll') {
@@ -740,8 +758,9 @@ export default function RonosLaborAuditPage() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ companyId: selectedCompanyId, weekId: selectedWeekId, syncSimplify: true })
         })
-        const json = await res.json()
-        if (json.success) {
+        if (!res.ok) throw new Error(`Error en sincronización nómina (${res.status})`)
+        const json = await res.json().catch(() => ({}))
+        if (json?.success) {
           const periodId = payrollBiWeekly ? (selectedBiWeeklyPeriod || biWeeklyPeriods[0]?.id || '') : selectedWeekId
           await fetchPayroll(selectedCompanyId, periodId, payrollBiWeekly)
         }
@@ -754,14 +773,15 @@ export default function RonosLaborAuditPage() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ companyId: selectedCompanyId, weekId: selectedWeekId, syncSimplify: true })
         })
-        const json = await res.json()
-        if (json.success) {
+        if (!res.ok) throw new Error(`Error en sincronización tienda (${res.status})`)
+        const json = await res.json().catch(() => ({}))
+        if (json?.success) {
           setStoreData(json.data)
         }
       }
     } catch (err: any) {
       console.error('Sync live error:', err)
-      setError(err.message || 'Error en sincronización en vivo')
+      setError(err?.message || 'Error en sincronización en vivo')
     } finally {
       setSyncing(false)
     }
@@ -777,10 +797,10 @@ export default function RonosLaborAuditPage() {
 
   // Expand / Collapse All
   const toggleAllEmployees = (expand: boolean) => {
-    if (!storeData?.employees) return
+    if (!Array.isArray(storeData?.employees)) return
     const newState: Record<number, boolean> = {}
     storeData.employees.forEach(emp => {
-      newState[emp.employeeUserId] = expand
+      if (emp?.employeeUserId != null) newState[emp.employeeUserId] = expand
     })
     setExpandedEmployees(newState)
   }
@@ -808,43 +828,46 @@ export default function RonosLaborAuditPage() {
 
   // Filtered Employees for Tab 1
   const filteredEmployees = useMemo(() => {
-    if (!storeData || !storeData.employees) return []
+    if (!Array.isArray(storeData?.employees)) return []
+    const query = (searchTerm || '').toLowerCase().trim()
 
     return storeData.employees.filter(emp => {
-      const query = searchTerm.toLowerCase().trim()
+      if (!emp) return false
       const matchSearch =
         !query ||
-        emp.fullName.toLowerCase().includes(query) ||
+        (emp.fullName || '').toLowerCase().includes(query) ||
         (emp.pin || '').includes(query) ||
-        (emp.jobTitle && emp.jobTitle.toLowerCase().includes(query)) ||
-        (emp.toastEmail && emp.toastEmail.toLowerCase().includes(query))
+        Boolean(emp.jobTitle && emp.jobTitle.toLowerCase().includes(query)) ||
+        Boolean(emp.toastEmail && emp.toastEmail.toLowerCase().includes(query))
 
       if (!matchSearch) return false
 
       if (filterType === 'violations') {
-        return emp.totalViolationsCount > 0 || emp.mealPenaltyCount > 0
+        return (emp.totalViolationsCount ?? 0) > 0 || (emp.mealPenaltyCount ?? 0) > 0
       }
       if (filterType === 'broken') {
-        return emp.brokenHours
+        return Boolean(emp.brokenHours)
       }
       if (filterType === 'active') {
-        return emp.totalWeeklyHours > 0
+        return (emp.totalWeeklyHours ?? 0) > 0
       }
 
       return true
-    }).sort((a, b) => (a.fullName || '').localeCompare(b.fullName || '', 'es', { sensitivity: 'base' }))
+    }).sort((a, b) => (a?.fullName || '').localeCompare(b?.fullName || '', 'es', { sensitivity: 'base' }))
   }, [storeData, searchTerm, filterType])
 
   // Filtered Mappings for Tab 3
   const filteredMappings = useMemo(() => {
+    if (!Array.isArray(mappingsList)) return []
+    const query = (mappingSearch || '').toLowerCase().trim()
     return mappingsList.filter(item => {
-      const query = mappingSearch.toLowerCase().trim()
+      if (!item) return false
       const matchSearch =
         !query ||
-        item.ronosFullName.toLowerCase().includes(query) ||
+        (item.ronosFullName || '').toLowerCase().includes(query) ||
         (item.ronosPin || '').includes(query) ||
-        (item.toastFullName && item.toastFullName.toLowerCase().includes(query)) ||
-        (item.toastEmail && item.toastEmail.toLowerCase().includes(query))
+        Boolean(item.toastFullName && item.toastFullName.toLowerCase().includes(query)) ||
+        Boolean(item.toastEmail && item.toastEmail.toLowerCase().includes(query))
 
       if (mappingFilter === 'unmapped') {
         return item.mappingType === 'unmapped'
@@ -906,23 +929,24 @@ export default function RonosLaborAuditPage() {
 
   // Export to CSV
   const handleExportCSV = () => {
-    if (!storeData || !storeData.employees) return
+    if (!Array.isArray(storeData?.employees)) return
 
     const rows: string[] = []
     rows.push(['ID Empleado', 'Nombre RONOS', 'PIN', 'Puesto', 'Correo Toast Vinculado', 'Horas Totales', 'Horas Regulares', 'Overtime (OT)', 'Double Time (DT)', 'Penalizaciones Meal', 'Broken Timecard', 'Fuga Estimada USD'].join(','))
 
     storeData.employees.forEach(emp => {
+      if (!emp) return
       rows.push([
-        emp.employeeUserId,
-        `"${emp.fullName}"`,
-        emp.pin,
+        emp.employeeUserId ?? '',
+        `"${emp.fullName || ''}"`,
+        emp.pin || '',
         `"${emp.jobTitle || 'Team Member'}"`,
         `"${emp.toastEmail || 'Sin Vincular'}"`,
-        emp.totalWeeklyHours,
-        emp.regularHours,
-        emp.overtimeHours,
-        emp.doubleTimeHours,
-        emp.mealPenaltyCount,
+        (emp.totalWeeklyHours ?? 0),
+        (emp.regularHours ?? 0),
+        (emp.overtimeHours ?? 0),
+        (emp.doubleTimeHours ?? 0),
+        (emp.mealPenaltyCount ?? 0),
         emp.brokenHours ? 'SI' : 'NO',
         `$${(emp.totalEstimatedPenaltyCostUsd ?? 0).toFixed(2)}`
       ].join(','))
@@ -932,7 +956,7 @@ export default function RonosLaborAuditPage() {
     const encodedUri = encodeURI(csvContent)
     const link = document.createElement('a')
     link.setAttribute('href', encodedUri)
-    link.setAttribute('download', `Auditoria_RONOS_${storeData.storeCode}_Semana_${storeData.weekId}.csv`)
+    link.setAttribute('download', `Auditoria_RONOS_${storeData?.storeCode || 'TIENDA'}_Semana_${storeData?.weekId || 'ACTUAL'}.csv`)
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
@@ -1338,7 +1362,7 @@ export default function RonosLaborAuditPage() {
                   }`}
                 >
                   <AlertTriangle className="w-3.5 h-3.5" />
-                  Con Violaciones ({storeData?.employees?.filter(e => e.totalViolationsCount > 0 || e.mealPenaltyCount > 0).length || 0})
+                  Con Violaciones ({(storeData?.employees || []).filter(e => e && ((e.totalViolationsCount ?? 0) > 0 || (e.mealPenaltyCount ?? 0) > 0)).length})
                 </button>
                 <button
                   onClick={() => setFilterType('broken')}
@@ -1348,7 +1372,7 @@ export default function RonosLaborAuditPage() {
                       : 'bg-amber-50 dark:bg-slate-950 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-500/20 hover:bg-amber-100 dark:hover:bg-amber-500/10'
                   }`}
                 >
-                  Incompletas ({storeData?.employees?.filter(e => e.brokenHours).length || 0})
+                  Incompletas ({(storeData?.employees || []).filter(e => e?.brokenHours).length})
                 </button>
 
                 <div className="h-5 w-px bg-slate-200 dark:bg-slate-800 mx-1 hidden sm:block" />
@@ -1486,21 +1510,21 @@ export default function RonosLaborAuditPage() {
                           <div className="text-right">
                             <span className="text-xs text-slate-500 dark:text-slate-400 block font-medium">Total Semanal</span>
                             <span className="text-lg font-bold text-slate-900 dark:text-white">
-                              {emp.totalWeeklyHours.toFixed(2)} <span className="text-xs font-normal text-slate-500 dark:text-slate-400">hrs</span>
+                              {(emp.totalWeeklyHours ?? 0).toFixed(2)} <span className="text-xs font-normal text-slate-500 dark:text-slate-400">hrs</span>
                             </span>
                           </div>
 
                           <div className="text-right">
                             <span className="text-xs text-slate-500 dark:text-slate-400 block font-medium">Regulares</span>
                             <span className="text-sm font-semibold text-slate-700 dark:text-slate-300">
-                              {emp.regularHours.toFixed(2)}h
+                              {(emp.regularHours ?? 0).toFixed(2)}h
                             </span>
                           </div>
 
                           <div className="text-right">
                             <span className="text-xs text-slate-500 dark:text-slate-400 block font-medium">Overtime</span>
                             <span className={`text-sm font-semibold ${emp.overtimeHours > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-slate-400 dark:text-slate-500'}`}>
-                              {emp.overtimeHours.toFixed(2)}h
+                              {(emp.overtimeHours ?? 0).toFixed(2)}h
                             </span>
                           </div>
 
@@ -2199,7 +2223,7 @@ export default function RonosLaborAuditPage() {
                         {t('ronos.kpi_total_invoiced')}
                       </span>
                       <span className="text-2xl font-black text-emerald-700 dark:text-emerald-300">
-                        ${payrollData.totalInvoicedAmount?.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                        ${(payrollData.totalInvoicedAmount ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
                       </span>
                       <span className="text-[11px] text-slate-500 dark:text-slate-400 block mt-1">
                         Facturación Total Cingular HR
@@ -2211,7 +2235,7 @@ export default function RonosLaborAuditPage() {
                         {t('ronos.kpi_gross_pay')}
                       </span>
                       <span className="text-2xl font-black text-blue-700 dark:text-blue-300">
-                        ${payrollData.totalGrossPay?.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                        ${(payrollData.totalGrossPay ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
                       </span>
                       <span className="text-[11px] text-slate-500 dark:text-slate-400 block mt-1">
                         {payrollData.salariedCount ?? 0} Asalariados • {payrollData.hourlyCount ?? 0} Por Hora
@@ -2223,10 +2247,10 @@ export default function RonosLaborAuditPage() {
                         {t('ronos.kpi_cingular_fee')}
                       </span>
                       <span className="text-2xl font-black text-amber-700 dark:text-amber-300">
-                        ${payrollData.totalCingularFee?.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                        ${(payrollData.totalCingularFee ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
                       </span>
                       <span className="text-[11px] text-slate-500 dark:text-slate-400 block mt-1">
-                        Markup Efectivo: {payrollData.effectiveMarkupPercentage}%
+                        Markup Efectivo: {payrollData.effectiveMarkupPercentage ?? 0}%
                       </span>
                     </div>
 
@@ -2235,10 +2259,10 @@ export default function RonosLaborAuditPage() {
                         {t('ronos.kpi_period_hours')}
                       </span>
                       <span className="text-2xl font-black text-purple-700 dark:text-purple-300">
-                        {payrollData.totalHours} <span className="text-sm font-normal">hrs</span>
+                        {payrollData.totalHours ?? 0} <span className="text-sm font-normal">hrs</span>
                       </span>
                       <span className="text-[11px] text-slate-500 dark:text-slate-400 block mt-1">
-                        Reg: {payrollData.totalRegularHours}h | Sal: {payrollData.totalSalaryHours}h | OT: {payrollData.totalOvertimeHours}h | Sick: {payrollData.totalSickHours}h | Vac: {payrollData.totalVacationHours}h
+                        Reg: {payrollData.totalRegularHours ?? 0}h | Sal: {payrollData.totalSalaryHours ?? 0}h | OT: {payrollData.totalOvertimeHours ?? 0}h | Sick: {payrollData.totalSickHours ?? 0}h | Vac: {payrollData.totalVacationHours ?? 0}h
                       </span>
                     </div>
                   </div>
@@ -2400,7 +2424,7 @@ export default function RonosLaborAuditPage() {
                       payrollData.employees
                         .filter((emp: any) => {
                           const q = payrollSearch.toLowerCase().trim()
-                          const matchesQuery = !q || emp.fullName.toLowerCase().includes(q) || (emp.employeeId || '').includes(q)
+                          const matchesQuery = !q || (emp.fullName || '').toLowerCase().includes(q) || (emp.employeeId || '').includes(q)
                           if (!matchesQuery) return false
 
                           if (payrollAuditFilter === 'exact') return emp.auditStatus === 'exact'
@@ -2637,7 +2661,7 @@ export default function RonosLaborAuditPage() {
                   </p>
                   <div className="mt-2 text-slate-600 dark:text-slate-400 flex items-center gap-4">
                     <span>Fecha: <strong>{emailModal.violationDate?.substring(0, 10)}</strong></span>
-                    {emailModal.totalHoursWorked && (
+                    {typeof emailModal.totalHoursWorked === 'number' && emailModal.totalHoursWorked > 0 && (
                       <span>Horas: <strong>{emailModal.totalHoursWorked.toFixed(2)}h</strong></span>
                     )}
                   </div>

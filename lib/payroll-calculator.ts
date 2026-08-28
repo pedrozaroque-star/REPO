@@ -308,8 +308,8 @@ function safeNum(val: any, fallback = 0): number {
  */
 export function isEmployeeSalaried(jobTitle?: string, fullName?: string, payRate?: number): boolean {
   if (!jobTitle && !fullName) return false
-  const title = (jobTitle || '').toLowerCase().trim()
-  const name = (fullName || '').toLowerCase().trim()
+  const title = String(jobTitle || '').toLowerCase().trim()
+  const name = String(fullName || '').toLowerCase().trim()
 
   // 1. Verificación por Nombres de Gerentes Generales (GMs) y Directivos Oficiales (Precedencia Absoluta)
   if (
@@ -420,9 +420,9 @@ export async function calculateCingularPayrollReport(
     .in('week_id', weekIds)
     .order('start_date', { ascending: true })
 
-  const periodStartDate = wWeeks && wWeeks[0]?.start_date ? wWeeks[0].start_date.substring(0, 10) : ''
-  const periodEndDate = wWeeks && wWeeks.length > 0 && wWeeks[wWeeks.length - 1]?.end_date
-    ? wWeeks[wWeeks.length - 1].end_date.substring(0, 10)
+  const periodStartDate = Array.isArray(wWeeks) && wWeeks[0]?.start_date ? String(wWeeks[0].start_date).substring(0, 10) : ''
+  const periodEndDate = Array.isArray(wWeeks) && wWeeks.length > 0 && wWeeks[wWeeks.length - 1]?.end_date
+    ? String(wWeeks[wWeeks.length - 1].end_date).substring(0, 10)
     : ''
 
   // 2. Obtener tarjetas de tiempo de Supabase
@@ -437,7 +437,7 @@ export async function calculateCingularPayrollReport(
   }
 
   // Si faltan semanas en la caché de Supabase, sincronizarlas automáticamente en tiempo real
-  const cachedWeekIds = new Set((timecards || []).map(tc => tc.week_id))
+  const cachedWeekIds = new Set((timecards || []).filter(Boolean).map(tc => tc?.week_id).filter((id): id is number => typeof id === 'number' && !isNaN(id)))
   const missingWeeks = weekIds.filter(wId => !cachedWeekIds.has(wId))
 
   if (missingWeeks.length > 0) {
@@ -470,10 +470,11 @@ export async function calculateCingularPayrollReport(
   const wageMap = new Map<string, number>()
   const titleMap = new Map<string, string>()
 
-  if (toastEmps && Array.isArray(toastEmps)) {
+  if (Array.isArray(toastEmps) && toastEmps.length > 0) {
     toastEmps.forEach(te => {
-      const fName = (te.first_name || '').trim().toLowerCase().replace(/\s+/g, ' ')
-      const lName = (te.last_name || '').trim().toLowerCase().replace(/\s+/g, ' ')
+      if (!te) return
+      const fName = String(te.first_name || '').trim().toLowerCase().replace(/\s+/g, ' ')
+      const lName = String(te.last_name || '').trim().toLowerCase().replace(/\s+/g, ' ')
       const normalizedName = `${fName} ${lName}`.trim().replace(/\s+/g, ' ')
       if (Array.isArray(te.wage_data) && te.wage_data.length > 0) {
         const w = Number(te.wage_data[0]?.wage)
@@ -483,7 +484,7 @@ export async function calculateCingularPayrollReport(
         }
       }
       if (Array.isArray(te.job_references) && te.job_references.length > 0) {
-        const title = te.job_references[0]?.title || te.job_references[0]?.name || ''
+        const title = String(te.job_references[0]?.title || te.job_references[0]?.name || '')
         if (title) {
           titleMap.set(normalizedName, title)
           if (fName && lName) titleMap.set(`${fName}|${lName}`, title)
@@ -507,9 +508,10 @@ export async function calculateCingularPayrollReport(
     .from('ronos_employee_mappings')
     .select('ronos_employee_user_id, ronos_company_id, ronos_full_name')
 
-  if (allMappings && allMappings.length > 0) {
-    const thisStoreUserIds = new Set((timecards || []).map(tc => tc.employee_user_id).filter(Boolean))
+  if (Array.isArray(allMappings) && allMappings.length > 0) {
+    const thisStoreUserIds = new Set((timecards || []).map(tc => tc?.employee_user_id).filter(Boolean))
     for (const m of allMappings) {
+      if (!m) continue
       const uid = m.ronos_employee_user_id
       if (!uid) continue
       if (m.ronos_company_id !== ronosCompanyId && thisStoreUserIds.has(uid)) {
@@ -537,11 +539,12 @@ export async function calculateCingularPayrollReport(
   }>()
 
   ;(timecards || []).forEach(card => {
+    if (!card) return
     const uId = card.employee_user_id
     if (!uId) return
-    const cardName = (card.full_name || `${card.first_name || ''} ${card.last_name || ''}`).toLowerCase()
+    const cardName = String(card.full_name || `${card.first_name || ''} ${card.last_name || ''}`).toLowerCase()
     // Omitir tarjeta/cuenta técnica de control de tableta (PIN 1111 o placeholders 'manager default' / 'manager [tienda]')
-    if (card.pin === '1111' || cardName.includes('manager default') || cardName.startsWith('manager ')) return
+    if (String(card.pin || '') === '1111' || cardName.includes('manager default') || cardName.startsWith('manager ')) return
     // Fix #1a: Omitir empleados transferidos por UID (detectados vía ronos_employee_mappings)
     if (transferredOutUserIds.has(uId)) return
     // Fix #1b: Omitir empleados excluidos por nombre (Cingular los factura en otra entidad)
@@ -551,11 +554,11 @@ export async function calculateCingularPayrollReport(
     if (!agg) {
       agg = {
         rawCards: [],
-        fullName: card.full_name || `${card.first_name || ''} ${card.last_name || ''}`.trim(),
-        firstName: card.first_name || '',
-        lastName: card.last_name || '',
-        pin: card.pin || '',
-        jobTitle: card.job_title || '',
+        fullName: String(card.full_name || `${card.first_name || ''} ${card.last_name || ''}`.trim()),
+        firstName: String(card.first_name || ''),
+        lastName: String(card.last_name || ''),
+        pin: String(card.pin || ''),
+        jobTitle: String(card.job_title || ''),
         totalHours: 0,
         regularHours: 0,
         overtimeHours: 0,
@@ -583,8 +586,8 @@ export async function calculateCingularPayrollReport(
   const employeeItems: CingularEmployeePayrollItem[] = []
 
   empAggregation.forEach((agg, uId) => {
-    const normName = agg.fullName.toLowerCase().trim().replace(/\s+/g, ' ')
-    const detectedTitle = titleMap.get(normName) || agg.jobTitle || 'Crew'
+    const normName = String(agg?.fullName || '').toLowerCase().trim().replace(/\s+/g, ' ')
+    const detectedTitle = String(titleMap.get(normName) || agg?.jobTitle || 'Crew')
 
     // Determinar Pay Rate & Bill Rate (Prioridad: Simplify HR Live Rates -> Registros Verificados Cingular -> Toast Wage Data -> Default)
     let payRate = 0
@@ -623,8 +626,8 @@ export async function calculateCingularPayrollReport(
 
     // 3. Buscar en Toast Wage Data
     if (payRate <= 0) {
-      const fName = (agg.firstName || '').toLowerCase().trim()
-      const lName = (agg.lastName || '').toLowerCase().trim()
+      const fName = String(agg.firstName || '').toLowerCase().trim()
+      const lName = String(agg.lastName || '').toLowerCase().trim()
       payRate = wageMap.get(normName) || (fName && lName ? wageMap.get(`${fName}|${lName}`) : 0) || 0
     }
 
@@ -679,15 +682,15 @@ export async function calculateCingularPayrollReport(
     if (salaried) {
       const baseSalHrs = isBiWeekly ? 80.0 : 40.0
       const totalPto = agg.sickHours + agg.vacationHours + agg.holidayHours
-      sickHrs = Number(agg.sickHours.toFixed(2))
-      vacHrs = Number(agg.vacationHours.toFixed(2))
-      holHrs = Number(agg.holidayHours.toFixed(2))
+      sickHrs = Number(safeNum(agg.sickHours).toFixed(2))
+      vacHrs = Number(safeNum(agg.vacationHours).toFixed(2))
+      holHrs = Number(safeNum(agg.holidayHours).toFixed(2))
 
       if (totalPto > 0) {
         // Obligación legal de California (LC § 246): Desglose de PTO en el talón de pago (Paystub)
         // La tarifa horaria equivalente se redondea a 2 decimales hacia arriba ($37.925 -> $37.93)
-        const roundedHourlyPay = Number(payRate.toFixed(2))
-        const roundedHourlyBill = Number(billRate.toFixed(2))
+        const roundedHourlyPay = Number(safeNum(payRate).toFixed(2))
+        const roundedHourlyBill = Number(safeNum(billRate).toFixed(2))
         salHrs = Math.max(0, baseSalHrs - totalPto)
 
         grossReg = Number((salHrs * roundedHourlyPay).toFixed(2))
@@ -706,13 +709,14 @@ export async function calculateCingularPayrollReport(
       }
     } else {
       agg.rawCards.forEach(card => {
-        let cReg = Number((card.regular_hours || 0).toFixed(2))
-        const cOt = Number((card.overtime_hours || 0).toFixed(2))
-        const cDt = Number((card.double_time_hours || 0).toFixed(2))
-        const cMeal = Number((card.meal_penalty_count || 0).toFixed(2))
-        const cSick = Number((card.sick_hours || 0).toFixed(2))
-        const cVac = Number((card.vacation_hours || 0).toFixed(2))
-        const cHol = Number((card.holiday_hours || 0).toFixed(2))
+        if (!card) return
+        let cReg = Number(safeNum(card.regular_hours).toFixed(2))
+        const cOt = Number(safeNum(card.overtime_hours).toFixed(2))
+        const cDt = Number(safeNum(card.double_time_hours).toFixed(2))
+        const cMeal = Number(safeNum(card.meal_penalty_count).toFixed(2))
+        const cSick = Number(safeNum(card.sick_hours).toFixed(2))
+        const cVac = Number(safeNum(card.vacation_hours).toFixed(2))
+        const cHol = Number(safeNum(card.holiday_hours).toFixed(2))
 
         // Fix #2: Cuando un empleado tiene horas de Sick Pay >= horas regulares y no tiene OT/DT,
         // Cingular trata el Sick Pay como reemplazo de las horas regulares (no las suma).
@@ -759,23 +763,23 @@ export async function calculateCingularPayrollReport(
       })
 
       // Round aggregated values
-      regHrs = Number(regHrs.toFixed(2))
-      otHrs = Number(otHrs.toFixed(2))
-      dtHrs = Number(dtHrs.toFixed(2))
-      mealHrs = Number(mealHrs.toFixed(2))
-      sickHrs = Number(sickHrs.toFixed(2))
-      vacHrs = Number(vacHrs.toFixed(2))
-      holHrs = Number(holHrs.toFixed(2))
-      grossReg = Number(grossReg.toFixed(2))
-      grossOt = Number(grossOt.toFixed(2))
-      grossDt = Number(grossDt.toFixed(2))
-      grossOther = Number(grossOther.toFixed(2))
-      totPay = Number(totPay.toFixed(2))
-      invReg = Number(invReg.toFixed(2))
-      invOt = Number(invOt.toFixed(2))
-      invDt = Number(invDt.toFixed(2))
-      invOther = Number(invOther.toFixed(2))
-      totBill = Number(totBill.toFixed(2))
+      regHrs = Number(safeNum(regHrs).toFixed(2))
+      otHrs = Number(safeNum(otHrs).toFixed(2))
+      dtHrs = Number(safeNum(dtHrs).toFixed(2))
+      mealHrs = Number(safeNum(mealHrs).toFixed(2))
+      sickHrs = Number(safeNum(sickHrs).toFixed(2))
+      vacHrs = Number(safeNum(vacHrs).toFixed(2))
+      holHrs = Number(safeNum(holHrs).toFixed(2))
+      grossReg = Number(safeNum(grossReg).toFixed(2))
+      grossOt = Number(safeNum(grossOt).toFixed(2))
+      grossDt = Number(safeNum(grossDt).toFixed(2))
+      grossOther = Number(safeNum(grossOther).toFixed(2))
+      totPay = Number(safeNum(totPay).toFixed(2))
+      invReg = Number(safeNum(invReg).toFixed(2))
+      invOt = Number(safeNum(invOt).toFixed(2))
+      invDt = Number(safeNum(invDt).toFixed(2))
+      invOther = Number(safeNum(invOther).toFixed(2))
+      totBill = Number(safeNum(totBill).toFixed(2))
     }
 
     const totalCalculatedHours = salHrs + regHrs + otHrs + dtHrs + mealHrs + sickHrs + vacHrs + holHrs
@@ -789,7 +793,7 @@ export async function calculateCingularPayrollReport(
     // Determinar estado de auditoría y notas descriptivas
     let auditStatus: 'exact' | 'saving' | 'variance' | 'pto' = 'exact'
     let auditBadgeText = 'Cuadre Exacto'
-    let auditNote = `Tarifa de contrato Simplify HR: $${payRate.toFixed(2)}/hr (Factura: $${billRate.toFixed(2)}/hr)`
+    let auditNote = `Tarifa de contrato Simplify HR: $${safeNum(payRate).toFixed(2)}/hr (Factura: $${safeNum(billRate).toFixed(2)}/hr)`
     let varianceAmt = 0
 
     if (normName === 'wilmer martinez' && Math.abs(billRate - payRate) < 0.05) {
@@ -797,14 +801,14 @@ export async function calculateCingularPayrollReport(
       const contractualBill = Number((totPay * CINGULAR_HOURLY_MARKUP_FACTOR).toFixed(2))
       varianceAmt = Number((contractualBill - totBill).toFixed(2))
       auditBadgeText = 'Ahorro PEO (0% Markup)'
-      auditNote = `Cingular facturó con 0% markup base ($${billRate.toFixed(2)} bill). Ahorro para TEG: $${varianceAmt.toFixed(2)}`
+      auditNote = `Cingular facturó con 0% markup base ($${safeNum(billRate).toFixed(2)} bill). Ahorro para TEG: $${safeNum(varianceAmt).toFixed(2)}`
     } else if (normName.includes('benjamin nunez') || normName.includes('benjamin nuñez')) {
       auditStatus = 'variance'
       auditBadgeText = 'Salario GM PEO'
       auditNote = `Salario en Simplify HR ($71,292/yr) vs Facturado ($72,571/yr)`
     } else if (sickHrs > 0 || vacHrs > 0) {
       auditStatus = 'pto'
-      const ptoHrs = Number((sickHrs + vacHrs).toFixed(1))
+      const ptoHrs = Number(safeNum(sickHrs + vacHrs).toFixed(1))
       auditBadgeText = `Permiso (${ptoHrs}h)`
       auditNote = `Incluye ${sickHrs > 0 ? `${sickHrs}h Enfermedad (Sick) ` : ''}${vacHrs > 0 ? `${vacHrs}h Vacaciones (PTO)` : ''}`
     }
@@ -817,9 +821,9 @@ export async function calculateCingularPayrollReport(
       fullName: agg.fullName,
       jobTitle: detectedTitle,
       isSalaried: salaried,
-      siteName: `TEG - ${storeMeta.tegName}`,
-      payRate: Number(payRate.toFixed(2)),
-      billRate: Number(billRate.toFixed(2)),
+      siteName: `TEG - ${storeMeta?.tegName || 'Desconocida'}`,
+      payRate: Number(safeNum(payRate).toFixed(2)),
+      billRate: Number(safeNum(billRate).toFixed(2)),
       regularHours: regHrs,
       salaryHours: salHrs,
       overtimeHours: otHrs,
@@ -827,16 +831,16 @@ export async function calculateCingularPayrollReport(
       mealPenaltyHours: mealHrs,
       sickHours: sickHrs,
       vacationHours: vacHrs,
-      totalHours: Number(totalCalculatedHours.toFixed(2)),
-      grossRegularPay: Number(grossReg.toFixed(2)),
-      grossOvertimePay: Number(grossOt.toFixed(2)),
-      grossDoubleTimePay: Number(grossDt.toFixed(2)),
-      grossOtherPay: Number(grossOther.toFixed(2)),
+      totalHours: Number(safeNum(totalCalculatedHours).toFixed(2)),
+      grossRegularPay: Number(safeNum(grossReg).toFixed(2)),
+      grossOvertimePay: Number(safeNum(grossOt).toFixed(2)),
+      grossDoubleTimePay: Number(safeNum(grossDt).toFixed(2)),
+      grossOtherPay: Number(safeNum(grossOther).toFixed(2)),
       totalGrossPay: totPay,
-      invoicedRegularCost: Number(invReg.toFixed(2)),
-      invoicedOvertimeCost: Number(invOt.toFixed(2)),
-      invoicedDoubleTimeCost: Number(invDt.toFixed(2)),
-      invoicedOtherCost: Number(invOther.toFixed(2)),
+      invoicedRegularCost: Number(safeNum(invReg).toFixed(2)),
+      invoicedOvertimeCost: Number(safeNum(invOt).toFixed(2)),
+      invoicedDoubleTimeCost: Number(safeNum(invDt).toFixed(2)),
+      invoicedOtherCost: Number(safeNum(invOther).toFixed(2)),
       totalInvoicedAmount: totBill,
       cingularFeeAmount: cingularFee,
       markupPercentage: markupPct,
@@ -848,32 +852,32 @@ export async function calculateCingularPayrollReport(
   })
 
   // Ordenar alfabéticamente
-  employeeItems.sort((a, b) => (a.fullName || '').localeCompare(b.fullName || '', 'es', { sensitivity: 'base' }))
+  employeeItems.sort((a, b) => String(a?.fullName || '').localeCompare(String(b?.fullName || ''), 'es', { sensitivity: 'base' }))
 
   // 5. Totales generales del reporte
   const totalEmployees = employeeItems.length
   const salariedCount = employeeItems.filter(e => e.isSalaried).length
   const hourlyCount = employeeItems.filter(e => !e.isSalaried).length
 
-  const sumGrossPay = employeeItems.reduce((acc, e) => acc + e.totalGrossPay, 0)
-  const sumInvoiced = employeeItems.reduce((acc, e) => acc + e.totalInvoicedAmount, 0)
-  const sumCingularFee = employeeItems.reduce((acc, e) => acc + e.cingularFeeAmount, 0)
+  const sumGrossPay = employeeItems.reduce((acc, e) => acc + safeNum(e?.totalGrossPay), 0)
+  const sumInvoiced = employeeItems.reduce((acc, e) => acc + safeNum(e?.totalInvoicedAmount), 0)
+  const sumCingularFee = employeeItems.reduce((acc, e) => acc + safeNum(e?.cingularFeeAmount), 0)
 
-  const sumTotalHours = employeeItems.reduce((acc, e) => acc + e.totalHours, 0)
-  const sumRegHours = employeeItems.reduce((acc, e) => acc + e.regularHours, 0)
-  const sumSalHours = employeeItems.reduce((acc, e) => acc + e.salaryHours, 0)
-  const sumOtHours = employeeItems.reduce((acc, e) => acc + e.overtimeHours, 0)
-  const sumDtHours = employeeItems.reduce((acc, e) => acc + e.doubleTimeHours, 0)
-  const sumMealHours = employeeItems.reduce((acc, e) => acc + e.mealPenaltyHours, 0)
-  const sumSickHours = employeeItems.reduce((acc, e) => acc + e.sickHours, 0)
-  const sumVacHours = employeeItems.reduce((acc, e) => acc + e.vacationHours, 0)
+  const sumTotalHours = employeeItems.reduce((acc, e) => acc + safeNum(e?.totalHours), 0)
+  const sumRegHours = employeeItems.reduce((acc, e) => acc + safeNum(e?.regularHours), 0)
+  const sumSalHours = employeeItems.reduce((acc, e) => acc + safeNum(e?.salaryHours), 0)
+  const sumOtHours = employeeItems.reduce((acc, e) => acc + safeNum(e?.overtimeHours), 0)
+  const sumDtHours = employeeItems.reduce((acc, e) => acc + safeNum(e?.doubleTimeHours), 0)
+  const sumMealHours = employeeItems.reduce((acc, e) => acc + safeNum(e?.mealPenaltyHours), 0)
+  const sumSickHours = employeeItems.reduce((acc, e) => acc + safeNum(e?.sickHours), 0)
+  const sumVacHours = employeeItems.reduce((acc, e) => acc + safeNum(e?.vacationHours), 0)
 
-  const effectiveMarkup = sumGrossPay > 0 ? Number(((sumInvoiced / sumGrossPay - 1) * 100).toFixed(2)) : 0
+  const effectiveMarkup = sumGrossPay > 0 ? Number(safeNum((sumInvoiced / sumGrossPay - 1) * 100).toFixed(2)) : 0
 
   const exactMatchesCount = employeeItems.filter(e => e.auditStatus === 'exact' || e.auditStatus === 'pto').length
   const auditAlertsCount = employeeItems.filter(e => e.auditStatus === 'saving' || e.auditStatus === 'variance').length
-  const auditSavingsAmount = employeeItems.filter(e => e.auditStatus === 'saving').reduce((acc, e) => acc + (e.varianceAmount || 0), 0)
-  const reconciliationPercentage = totalEmployees > 0 ? Number(((exactMatchesCount / totalEmployees) * 100).toFixed(1)) : 100
+  const auditSavingsAmount = employeeItems.filter(e => e.auditStatus === 'saving').reduce((acc, e) => acc + safeNum(e?.varianceAmount), 0)
+  const reconciliationPercentage = totalEmployees > 0 ? Number(safeNum((exactMatchesCount / totalEmployees) * 100).toFixed(1)) : 100
 
   return {
     storeId: storeMeta.tegStoreId,
@@ -886,21 +890,21 @@ export async function calculateCingularPayrollReport(
     totalEmployees,
     salariedCount,
     hourlyCount,
-    totalHours: Number(sumTotalHours.toFixed(2)),
-    totalRegularHours: Number(sumRegHours.toFixed(2)),
-    totalSalaryHours: Number(sumSalHours.toFixed(2)),
-    totalOvertimeHours: Number(sumOtHours.toFixed(2)),
-    totalDoubleTimeHours: Number(sumDtHours.toFixed(2)),
-    totalMealPenaltyHours: Number(sumMealHours.toFixed(2)),
-    totalSickHours: Number(sumSickHours.toFixed(2)),
-    totalVacationHours: Number(sumVacHours.toFixed(2)),
-    totalGrossPay: Number(sumGrossPay.toFixed(2)),
-    totalInvoicedAmount: Number(sumInvoiced.toFixed(2)),
-    totalCingularFee: Number(sumCingularFee.toFixed(2)),
+    totalHours: Number(safeNum(sumTotalHours).toFixed(2)),
+    totalRegularHours: Number(safeNum(sumRegHours).toFixed(2)),
+    totalSalaryHours: Number(safeNum(sumSalHours).toFixed(2)),
+    totalOvertimeHours: Number(safeNum(sumOtHours).toFixed(2)),
+    totalDoubleTimeHours: Number(safeNum(sumDtHours).toFixed(2)),
+    totalMealPenaltyHours: Number(safeNum(sumMealHours).toFixed(2)),
+    totalSickHours: Number(safeNum(sumSickHours).toFixed(2)),
+    totalVacationHours: Number(safeNum(sumVacHours).toFixed(2)),
+    totalGrossPay: Number(safeNum(sumGrossPay).toFixed(2)),
+    totalInvoicedAmount: Number(safeNum(sumInvoiced).toFixed(2)),
+    totalCingularFee: Number(safeNum(sumCingularFee).toFixed(2)),
     effectiveMarkupPercentage: effectiveMarkup,
     exactMatchesCount,
     auditAlertsCount,
-    auditSavingsAmount: Number(auditSavingsAmount.toFixed(2)),
+    auditSavingsAmount: Number(safeNum(auditSavingsAmount).toFixed(2)),
     reconciliationPercentage,
     employees: employeeItems
   }
@@ -931,46 +935,47 @@ export function generateCingularSummaryCSV(report: CingularInvoiceSummaryReport)
     'VAC'
   ]
 
-  const rows = report.employees.map(e => [
+  const employees = Array.isArray(report?.employees) ? report.employees : []
+  const rows = employees.map(e => [
     `"${e.employeeId}"`,
     `"${e.firstName}"`,
     `"${e.lastName}"`,
     `"${e.siteName}"`,
     `"${e.isSalaried ? 'SALARIED (EXEMPT)' : 'HOURLY (NON-EXEMPT)'}"`,
-    e.payRate.toFixed(2),
-    e.totalGrossPay.toFixed(2),
-    e.billRate.toFixed(2),
-    e.totalInvoicedAmount.toFixed(2),
-    e.cingularFeeAmount.toFixed(2),
-    e.totalHours.toFixed(2),
-    e.regularHours.toFixed(2),
-    e.salaryHours.toFixed(2),
-    e.overtimeHours.toFixed(2),
-    e.doubleTimeHours.toFixed(2),
-    e.mealPenaltyHours.toFixed(2),
-    e.sickHours.toFixed(2),
-    e.vacationHours.toFixed(2)
+    safeNum(e?.payRate).toFixed(2),
+    safeNum(e?.totalGrossPay).toFixed(2),
+    safeNum(e?.billRate).toFixed(2),
+    safeNum(e?.totalInvoicedAmount).toFixed(2),
+    safeNum(e?.cingularFeeAmount).toFixed(2),
+    safeNum(e?.totalHours).toFixed(2),
+    safeNum(e?.regularHours).toFixed(2),
+    safeNum(e?.salaryHours).toFixed(2),
+    safeNum(e?.overtimeHours).toFixed(2),
+    safeNum(e?.doubleTimeHours).toFixed(2),
+    safeNum(e?.mealPenaltyHours).toFixed(2),
+    safeNum(e?.sickHours).toFixed(2),
+    safeNum(e?.vacationHours).toFixed(2)
   ])
 
   const totalsRow = [
     '"TOTALS"',
     '""',
     '""',
-    `"${report.storeName}"`,
-    `"${report.salariedCount} Salaried / ${report.hourlyCount} Hourly"`,
+    `"${report?.storeName || ''}"`,
+    `"${safeNum(report?.salariedCount)} Salaried / ${safeNum(report?.hourlyCount)} Hourly"`,
     '""',
-    report.totalGrossPay.toFixed(2),
+    safeNum(report?.totalGrossPay).toFixed(2),
     '""',
-    report.totalInvoicedAmount.toFixed(2),
-    report.totalCingularFee.toFixed(2),
-    report.totalHours.toFixed(2),
-    report.totalRegularHours.toFixed(2),
-    report.totalSalaryHours.toFixed(2),
-    report.totalOvertimeHours.toFixed(2),
-    report.totalDoubleTimeHours.toFixed(2),
-    report.totalMealPenaltyHours.toFixed(2),
-    report.totalSickHours.toFixed(2),
-    report.totalVacationHours.toFixed(2)
+    safeNum(report?.totalInvoicedAmount).toFixed(2),
+    safeNum(report?.totalCingularFee).toFixed(2),
+    safeNum(report?.totalHours).toFixed(2),
+    safeNum(report?.totalRegularHours).toFixed(2),
+    safeNum(report?.totalSalaryHours).toFixed(2),
+    safeNum(report?.totalOvertimeHours).toFixed(2),
+    safeNum(report?.totalDoubleTimeHours).toFixed(2),
+    safeNum(report?.totalMealPenaltyHours).toFixed(2),
+    safeNum(report?.totalSickHours).toFixed(2),
+    safeNum(report?.totalVacationHours).toFixed(2)
   ]
 
   return [headers.join(','), ...rows.map(r => r.join(',')), totalsRow.join(',')].join('\n')
