@@ -908,8 +908,8 @@ const augustRows = [
     },
     {
         "date": "26-Ago-2026",
-        "time": "12:00 AM - 1:45 AM & 11:45 AM - 5:15 PM",
-        "hours": 7.25,
+        "time": "12:00 AM - 1:45 AM & 11:45 AM - 5:15 PM & 7:00 PM - 10:30 PM",
+        "hours": 10.75,
         "badges": [
             "Radar Precios (Alertas Ahorro & Cron 5D)",
             "RONOS & Simplify Admin Creds",
@@ -918,6 +918,32 @@ const augustRows = [
         ],
         "descEs": "• <strong>Radar de Precios (Alertas de Ahorro por Bajada de Precios & Cron 5 Días)</strong>: Implementación del sistema de alertas ejecutivas por correo ante bajadas de precios para resaltar ahorros directos para la empresa (petición de Roberto Velazquez). Configuración del cron de revisión automática a 5 días por semana (Lunes a Viernes 6:00 AM PST).<br>• <strong>Radar de Precios (Scraper Optimizado & Homologación de Códigos)</strong>: Optimización del scraper de la API de Viele con respuesta ultra-rápida (1.15s) y mapeo automático de códigos de reemplazo de insumos (EL4LID a KDL76PP).<br>• <strong>RONOS & Simplify (Credenciales Administrativas & Extracción Batch)</strong>: Conexión con credenciales administrativas corporativas para extracción masiva de perfiles, salarios reales de supervisores/gerentes y paystubs históricos.<br>• <strong>Auditoría de Invoices Multitienda</strong>: Conciliación matemática de facturas PDF de Cingular HR para las sucursales de Azusa (invoice-TEGA-0009.pdf) y La Puente (invoice-TEGL-0022.pdf).",
         "descEn": "• <strong>Price Radar (Savings Alerts on Price Drops & 5-Day Cron)</strong>: Implemented executive email alerts for price decreases to highlight company savings (requested by Roberto Velazquez). Configured automated cron to run 5 days a week (Mon-Fri 6:00 AM PST).<br>• <strong>Price Radar (Optimized Scraper & Item Code Remapping)</strong>: Accelerated Viele API live scraper to 1.15s response time and remapped vendor replacement codes (EL4LID to KDL76PP).<br>• <strong>RONOS & Simplify (Admin Credentials & Batch Extraction)</strong>: Integrated corporate admin credentials for bulk extraction of employee master profiles, active supervisor/manager salaries, and historical paystubs.<br>• <strong>Multi-Store Invoice Auditing</strong>: Cent-perfect mathematical reconciliation of Cingular HR PDF invoices for Azusa (invoice-TEGA-0009.pdf) and La Puente (invoice-TEGL-0022.pdf)."
+    },
+    {
+        "date": "27-Ago-2026",
+        "time": "5:30 AM - 8:45 AM & 5:30 PM - 11:45 PM",
+        "hours": 9.5,
+        "badges": [
+            "RONOS Motor Invoices 16 Tiendas",
+            "La Bodega Horas & Nómina",
+            "Simplify Bugfixes & Resiliencia",
+            "Rediseño UI Pestañas RONOS"
+        ],
+        "descEs": "• <strong>RONOS & Simplify (Motor de Pre-Cálculo de Invoices a Nivel Cadena)</strong>: Algoritmo automatizado para pre-calcular las facturas quincenales de las 16 sucursales (incluyendo La Bodega) antes de la emisión de Cingular HR, contrastando punches reales contra nómina procesada.<br>• <strong>La Bodega (Horas & Personal)</strong>: Integración de personal de almacén central y resolución de fórmulas de cálculo para personal con esquemas especiales.<br>• <strong>Auditoría Integral Línea por Línea</strong>: Auditoría exhaustiva de app/admin/ronos/page.tsx (2,728 líneas), lib/simplifyhr-api.ts (843 líneas) y lib/ronos-api.ts (1,006 líneas), eliminando fallos en runtime por propiedades nulas.<br>• <strong>Rediseño UI & Usabilidad</strong>: Simplificación de la interfaz visual de RONOS, modernización del sistema de navegación por pestañas y clarificación de métricas de cumplimiento de descansos.",
+        "descEn": "• <strong>RONOS & Simplify (Chain-Wide Invoice Pre-Calculation Engine)</strong>: Automated algorithm to pre-calculate bi-weekly invoices across all 16 locations (including Warehouse) prior to Cingular HR billing, benchmarking actual punches against payroll.<br>• <strong>Warehouse (Staff & Hours)</strong>: Integrated central warehouse staff and resolved specialized pay calculations.<br>• <strong>Comprehensive Line-by-Line Audit</strong>: Full audit of app/admin/ronos/page.tsx (2,728 lines), lib/simplifyhr-api.ts (843 lines), and lib/ronos-api.ts (1,006 lines), eliminating runtime null crashes.<br>• <strong>UI Redesign & Usability</strong>: Streamlined RONOS visual interface, modern tab navigation, and clear break compliance metrics."
+    },
+    {
+        "date": "28-Ago-2026",
+        "time": "12:30 AM - 1:30 AM & 6:30 AM - 9:55 AM",
+        "hours": 4.42,
+        "badges": [
+            "MilesIQ Auditoría Línea por Línea",
+            "Validación Decimales Millas",
+            "Null-Safety Blindaje Total",
+            "Estabilidad RONOS & Simplify"
+        ],
+        "descEs": "• <strong>MilesIQ (Auditoría Forense Integral Línea por Línea)</strong>: Auditoría profunda de TripModal.tsx, SupervisorAutoTracker.tsx, QuickDriveModal.tsx, endpoints de API (/api/miles) y lógica de geofencing, blindando todos los escenarios de registro de viajes.<br>• <strong>MilesIQ (Validación de Decimales)</strong>: Corrección de validación estricta de números decimales en la captura de millas que impedía a supervisores guardar recorridos con fracciones.<br>• <strong>RONOS & Simplify (Blindaje Null-Safety Extremo)</strong>: Aplicación de protecciones null-safe completas en lib/payroll-calculator.ts (978 líneas), lib/ronos-api.ts (1,262 líneas) y app/admin/ronos/page.tsx (2,756 líneas) garantizando cero fallos en producción.",
+        "descEn": "• <strong>MilesIQ (Comprehensive Line-by-Line Forensic Audit)</strong>: Deep audit across TripModal.tsx, SupervisorAutoTracker.tsx, QuickDriveModal.tsx, API routes (/api/miles), and geofencing logic, securing all trip capture scenarios.<br>• <strong>MilesIQ (Decimal Miles Validation)</strong>: Fixed decimal parsing and validation in trip logging modal preventing supervisor trip saves with fractional miles.<br>• <strong>RONOS & Simplify (Total Null-Safety Hardening)</strong>: Applied full null-safe guards across lib/payroll-calculator.ts (978 lines), lib/ronos-api.ts (1,262 lines), and app/admin/ronos/page.tsx (2,756 lines), ensuring rock-solid runtime stability."
     }
 ];
 
@@ -983,7 +1009,7 @@ const augustConfig = {
     completedTasks: 16,
     inProgressTasks: 8,
     pendingTasks: 3,
-    totalHours: 131.75,
+    totalHours: 149.17,
     rows: augustRows,
     parallelActivities: [
         { title: 'Pruebas en Sucursal/Local', hours: 3.0, desc: 'Testing en cocina del modo tableta kiosko del Preparador, validación de sincronización PC-Tableta y geofencing de MilesIQ en las 15 tiendas.' },
@@ -992,16 +1018,16 @@ const augustConfig = {
     ],
     effortSummary: [
         {
+                "module": "Módulo RONOS HR & Simplify Payroll Audit",
+                "hours": 28.5
+        },
+        {
                 "module": "Preparador de Carne y Cocina KDS",
                 "hours": 25.5
         },
         {
                 "module": "MilesIQ Supervisores & Geofencing GPS",
-                "hours": 19.25
-        },
-        {
-                "module": "Módulo RONOS HR & Simplify Payroll Audit",
-                "hours": 18.75
+                "hours": 23.5
         },
         {
                 "module": "Ventas Toast API & Conciliación Multitienda",
@@ -1021,7 +1047,7 @@ const augustConfig = {
         },
         {
                 "module": "Mantenimiento General, Crons y Reportes",
-                "hours": 9.5
+                "hours": 13.92
         }
 ],
     taskCardsHtml: renderTab2ForMonth(augustTasks, 'Agosto 2026')
