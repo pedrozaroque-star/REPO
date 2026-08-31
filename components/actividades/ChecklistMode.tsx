@@ -266,12 +266,61 @@ export default function ChecklistMode({ onClose }: ChecklistModeProps) {
     }
   }, [selectedStore, businessDate])
 
+  const fetchProcedures = useCallback(async () => {
+    const { data } = await supabase
+      .from('operating_procedures')
+      .select('id, start_time, duration_minutes, activity, shift_type, frequency, role, description, overrides, store_model, shift')
+      .order('start_time', { ascending: true })
+    if (data) {
+      const filtered = data.filter((p: Procedure) => p.role !== 'ROLES_MODULE')
+      setProcedures(filtered)
+    }
+  }, [])
+
   useEffect(() => {
     if (selectedStore) {
       setLoading(true)
       fetchCompletions().finally(() => setLoading(false))
     }
   }, [selectedStore, fetchCompletions])
+
+  // ─── Supabase Realtime Live Sync for Tablet Checklist ────────────────────
+  useEffect(() => {
+    let debounceTimer: NodeJS.Timeout | null = null
+
+    const triggerRefresh = () => {
+      if (debounceTimer) clearTimeout(debounceTimer)
+      debounceTimer = setTimeout(() => {
+        fetchProcedures()
+        fetchCompletions()
+      }, 500)
+    }
+
+    const channel = supabase
+      .channel('checklist-mode-realtime')
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'operating_procedures',
+      }, triggerRefresh)
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'checklist_completions',
+      }, triggerRefresh)
+      .subscribe()
+
+    const heartbeat = setInterval(() => {
+      fetchProcedures()
+      fetchCompletions()
+    }, 3 * 60 * 1000)
+
+    return () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      clearInterval(heartbeat)
+      supabase.removeChannel(channel)
+    }
+  }, [fetchProcedures, fetchCompletions])
 
   // ─── Filter procedures ──────────────────────────────────────────────────
   const filteredProcedures = useMemo(() => {

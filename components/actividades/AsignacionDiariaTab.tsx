@@ -849,6 +849,64 @@ export default function AsignacionDiariaTab() {
     fetchPositionActivities();
   }, [fetchStores, fetchPositionActivities]);
 
+  // ── Supabase Realtime Subscription & Live Tablet Auto-Sync ──
+  // Ensures that when managers update activities, procedures, assignments or shifts,
+  // the tablet board updates INSTANTLY without manual human intervention.
+  useEffect(() => {
+    let debounceTimer: NodeJS.Timeout | null = null;
+
+    const triggerRefresh = () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        // Refresco silencioso en segundo plano sin bloquear la UI con spinner
+        fetchPositionActivities();
+        if (selectedStoreGuid) {
+          fetchAssignments();
+          fetchShifts();
+        }
+      }, 500);
+    };
+
+    const channel = supabase
+      .channel('actividades-tablero-realtime')
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'position_activities',
+      }, triggerRefresh)
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'operating_procedures',
+      }, triggerRefresh)
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'station_assignments',
+      }, triggerRefresh)
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'shifts',
+      }, triggerRefresh)
+      .subscribe();
+
+    // Heartbeat de respaldo cada 3 minutos por si hay desconexiones temporales de red
+    const heartbeat = setInterval(() => {
+      fetchPositionActivities();
+      if (selectedStoreGuid) {
+        fetchAssignments();
+        fetchShifts();
+      }
+    }, 3 * 60 * 1000);
+
+    return () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      clearInterval(heartbeat);
+      supabase.removeChannel(channel);
+    };
+  }, [selectedStoreGuid, fetchPositionActivities, fetchAssignments, fetchShifts]);
+
   // ── When store or date changes ──
   useEffect(() => {
     if (!selectedStoreGuid) return;

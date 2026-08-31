@@ -62,27 +62,77 @@ export default function BodegaPWA() {
         return laDateStr
     }
 
-    const todayLAStr = getLAEffectiveBusinessDate()
-    const [selectedDate, setSelectedDate] = useState<string>(todayLAStr)
-    const effectiveDateRef = useRef<string>(todayLAStr)
+    const initialToday = getLAEffectiveBusinessDate()
+    const [currentBusinessDate, setCurrentBusinessDate] = useState<string>(initialToday)
+    const [selectedDate, setSelectedDate] = useState<string>(initialToday)
+    const effectiveDateRef = useRef<string>(initialToday)
+    const lastActivityTimeRef = useRef<number>(Date.now())
 
-    // Automatic Date Rollover Effect (Checks every 30 seconds for 6:00 AM shift start)
+    // User activity tracker (touch/click resets inactivity timer)
+    const recordUserActivity = () => {
+        lastActivityTimeRef.current = Date.now()
+    }
+
+    // Automatic Date Rollover Effect (Checks every 10 seconds, on screen wake-up, and on window focus)
     useEffect(() => {
-        const checkDateRollover = () => {
-            const currentEffectiveDate = getLAEffectiveBusinessDate()
-            setSelectedDate(prevDate => {
-                if (!prevDate || prevDate === effectiveDateRef.current) {
-                    return currentEffectiveDate
-                }
-                return prevDate
-            })
-            effectiveDateRef.current = currentEffectiveDate
+        const checkDateRollover = (forceToday = false) => {
+            const freshBusinessDate = getLAEffectiveBusinessDate()
+            setCurrentBusinessDate(freshBusinessDate)
+            
+            const prevEffective = effectiveDateRef.current
+            const dayChanged = freshBusinessDate !== prevEffective
+
+            if (dayChanged || forceToday) {
+                console.log(`[Bodega] Business date shifted: ${prevEffective} -> ${freshBusinessDate}`)
+                effectiveDateRef.current = freshBusinessDate
+                setSelectedDate(freshBusinessDate)
+                setActiveIndex(0) // Reset carousel to current active interval
+            }
+        }
+
+        // Inactivity auto-return: if viewing a past date but idle for > 2 minutes, return to TODAY
+        const checkInactivityReturn = () => {
+            const now = Date.now()
+            const isIdle = (now - lastActivityTimeRef.current) > 120000 // 2 minutes
+            const freshBusinessDate = getLAEffectiveBusinessDate()
+            if (isIdle && selectedDate !== freshBusinessDate) {
+                console.log(`[Bodega] Idle on past date. Auto-returning to current date: ${freshBusinessDate}`)
+                checkDateRollover(true)
+            }
         }
 
         checkDateRollover()
-        const interval = setInterval(checkDateRollover, 30000)
-        return () => clearInterval(interval)
-    }, [])
+        const intervalId = setInterval(() => {
+            checkDateRollover()
+            checkInactivityReturn()
+        }, 10000)
+
+        // Wake-up / Screen unlock / Tab active listeners
+        const handleWakeUp = () => {
+            console.log("[Bodega] Screen woke up or tab focused -> Re-checking date & sync...")
+            checkDateRollover()
+        }
+
+        window.addEventListener('focus', handleWakeUp)
+        window.addEventListener('online', handleWakeUp)
+        const onVisibilityChange = () => {
+            if (document.visibilityState === 'visible') handleWakeUp()
+        }
+        document.addEventListener('visibilitychange', onVisibilityChange)
+
+        // Global touch/click listener to record activity
+        window.addEventListener('touchstart', recordUserActivity, { passive: true })
+        window.addEventListener('mousedown', recordUserActivity, { passive: true })
+
+        return () => {
+            clearInterval(intervalId)
+            window.removeEventListener('focus', handleWakeUp)
+            window.removeEventListener('online', handleWakeUp)
+            document.removeEventListener('visibilitychange', onVisibilityChange)
+            window.removeEventListener('touchstart', recordUserActivity)
+            window.removeEventListener('mousedown', recordUserActivity)
+        }
+    }, [selectedDate, storeId])
 
     const getDowFromDate = (dateStr: string) => {
         const [y, m, d] = dateStr.split('-').map(Number)
@@ -92,7 +142,7 @@ export default function BodegaPWA() {
     }
 
     const businessDow = getDowFromDate(selectedDate)
-    const isToday = selectedDate === todayLAStr
+    const isToday = selectedDate === currentBusinessDate
     const [viewMode, setViewMode] = useState<'30min' | 'tramos'>('30min')
     const [cardDisplayMode, setCardDisplayMode] = useState<'manual' | 'basic' | 'advanced'>('manual')
     const [manualWeeklySchedule, setManualWeeklySchedule] = useState<Record<string, number>>({})
@@ -741,17 +791,28 @@ export default function BodegaPWA() {
                                 <input 
                                     type="date" 
                                     value={selectedDate}
-                                    max={todayLAStr}
-                                    onChange={e => setSelectedDate(e.target.value)}
+                                    max={currentBusinessDate}
+                                    onChange={e => {
+                                        setSelectedDate(e.target.value)
+                                        recordUserActivity()
+                                    }}
                                     className="bg-transparent font-bold text-sm text-white outline-none cursor-pointer"
                                 />
-                                {!isToday && (
+                                {!isToday ? (
                                     <button 
-                                        onClick={() => setSelectedDate(todayLAStr)}
+                                        onClick={() => {
+                                            setSelectedDate(currentBusinessDate)
+                                            recordUserActivity()
+                                        }}
                                         className="text-xs bg-blue-600 hover:bg-blue-700 text-white font-bold px-2 py-0.5 rounded transition-colors shrink-0 cursor-pointer"
                                     >
                                         {t('prep.today')}
                                     </button>
+                                ) : (
+                                    <span className="flex items-center gap-1 text-[10px] font-black text-emerald-400 bg-emerald-950/60 border border-emerald-800 px-2 py-0.5 rounded-full shrink-0">
+                                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                                        {t('prep.today')}
+                                    </span>
                                 )}
                             </div>
                         </>

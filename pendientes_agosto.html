@@ -2084,6 +2084,21 @@
                 <div class="en-desc" style="font-size: 11.5px; color: #64748b; font-style: italic; border-top: 1px dashed #e2e8f0; padding-top: 4px; margin-top: 4px;">• <strong>MilesIQ (Comprehensive Line-by-Line Forensic Audit)</strong>: Deep audit across TripModal.tsx, SupervisorAutoTracker.tsx, QuickDriveModal.tsx, API routes (/api/miles), and geofencing logic, securing all trip capture scenarios.<br>• <strong>MilesIQ (Decimal Miles Validation)</strong>: Fixed decimal parsing and validation in trip logging modal preventing supervisor trip saves with fractional miles.<br>• <strong>RONOS & Simplify (Total Null-Safety Hardening)</strong>: Applied full null-safe guards across lib/payroll-calculator.ts (978 lines), lib/ronos-api.ts (1,262 lines), and app/admin/ronos/page.tsx (2,756 lines), ensuring rock-solid runtime stability.</div>
             </td>
         </tr>
+
+        <tr>
+            <td style="font-weight: 800; color: #0f172a; white-space: nowrap;">31-Ago-2026</td>
+            <td style="font-size: 12px; color: #475569; white-space: nowrap;">12:45 PM - 1:45 PM</td>
+            <td style="font-weight: 900; color: #ea580c; font-size: 14px; text-align: center;">1.0</td>
+            <td>
+                <div style="display: flex; gap: 4px; flex-wrap: wrap;">
+                    <span style="background: #f1f5f9; color: #0369a1; border: 1px solid #bae6fd; font-size: 10px; font-weight: 800; padding: 2px 6px; border-radius: 4px; text-transform: uppercase;">Preparador Tablet Auto-Update</span><span style="background: #f1f5f9; color: #0369a1; border: 1px solid #bae6fd; font-size: 10px; font-weight: 800; padding: 2px 6px; border-radius: 4px; text-transform: uppercase;">Screen Wake-Up Sync</span><span style="background: #f1f5f9; color: #0369a1; border: 1px solid #bae6fd; font-size: 10px; font-weight: 800; padding: 2px 6px; border-radius: 4px; text-transform: uppercase;">Inactivity Auto-Return</span>
+                </div>
+            </td>
+            <td style="font-size: 12.5px; line-height: 1.5; color: #334155;">
+                <div class="es-desc" style="margin-bottom: 4px;">• <strong>Preparador (Arquitectura de Auto-Actualización 24/7 en Tablets de Cocina)</strong>: Implementación del sistema de 5 pilares para sincronización automática sin intervención manual en las tabletas de parrilla y bodega. Detección de despertar de pantalla (visibilitychange y focus) al encender la tableta, monitoreo cada 10s del cambio de fecha contable a las 6:00 AM PST, re-centrado automático del carrusel en el horario matutino y retorno automático a la fecha de hoy tras 2 minutos de inactividad si se consultó un día histórico.<br>• <strong>Bodega & Cocina Trasera</strong>: Sincronización idéntica en la tableta de almacén con reseteo de intervalo activo a las 6 AM.</div>
+                <div class="en-desc" style="font-size: 11.5px; color: #64748b; font-style: italic; border-top: 1px dashed #e2e8f0; padding-top: 4px; margin-top: 4px;">• <strong>Prep Line (24/7 Kitchen Tablet Auto-Update Architecture)</strong>: Implemented 5-pillar auto-sync system without requiring manual reloads on grill and warehouse tablets. Screen wake-up detection (visibilitychange & focus) on tablet power-on, 10s business date rollover check at 6:00 AM PST, automatic carousel morning re-centering, and 2-minute inactivity auto-return to live date if historical day was viewed.<br>• <strong>Warehouse & Back Kitchen</strong>: Mirrored identical synchronization on warehouse tablet with active interval reset at 6 AM.</div>
+            </td>
+        </tr>
     
                 </tbody>
             </table>
