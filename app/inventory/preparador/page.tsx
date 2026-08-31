@@ -16,7 +16,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { useLanguage } from '@/lib/i18n'
-import { BellRing, ChefHat, Clock, AlertTriangle, Send, UtensilsCrossed, PackageOpen, X, Loader2, Play, Maximize, Minimize, HelpCircle, CheckCircle2, TrendingDown, Calendar, FileText, BookOpen } from 'lucide-react'
+import { BellRing, ChefHat, Clock, AlertTriangle, Send, UtensilsCrossed, PackageOpen, X, Loader2, Play, Maximize, Minimize, HelpCircle, CheckCircle2, TrendingDown, Calendar, FileText, BookOpen, Sun, Zap } from 'lucide-react'
 import { useAuth } from '@/components/ProtectedRoute'
 import { createClient } from '@/lib/supabase-client'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -181,10 +181,42 @@ export default function PreparadorPage() {
     const [currentBucketIndex, setCurrentBucketIndex] = useState(0)
     const hasInitializedRef = useRef(false)
 
-    // Touch handlers for Carousel
     const [touchStart, setTouchStart] = useState<number | null>(null)
     const [touchEnd, setTouchEnd] = useState<number | null>(null)
     const [showInfoModal, setShowInfoModal] = useState(false)
+    const [wakeToast, setWakeToast] = useState(false)
+
+    // Manual/Explicit Tablet Wake-up & Shift Start Handler
+    const handleWakeUpTablet = async () => {
+        recordUserActivity()
+        const freshBusinessDate = getLAEffectiveBusinessDate()
+        setCurrentBusinessDate(freshBusinessDate)
+        setSelectedDate(freshBusinessDate)
+        effectiveDateRef.current = freshBusinessDate
+        hasInitializedRef.current = false // Re-centers carousel to current live interval
+        
+        // Clear previous day's real consumptions and force refresh
+        setRealMeatData([])
+        localStorage.removeItem(`prep_real_meat_${storeId}`)
+        
+        // Request wake lock to keep screen active
+        try {
+            if ('wakeLock' in navigator) {
+                await (navigator as any).wakeLock.request('screen')
+            }
+        } catch (e) {}
+
+        // Unlock audio context for alerts
+        try {
+            const au = new Audio('/sounds/success.mp3')
+            au.volume = 0.2
+            au.play().catch(() => {})
+        } catch (e) {}
+
+        // Trigger visual success confirmation
+        setWakeToast(true)
+        setTimeout(() => setWakeToast(false), 3500)
+    }
 
     // Manual Overrides & Weekly Schedule State
     const [manualOverrides, setManualOverrides] = useState<Record<string, number>>({})
@@ -966,6 +998,21 @@ export default function PreparadorPage() {
         <div ref={containerRef} className={`flex flex-col overflow-hidden bg-slate-100 dark:bg-slate-950 transition-all ${isFullscreen ? 'fixed inset-0 z-[9999] h-screen w-screen' : 'h-[calc(100vh-64px)]'}`}>
             <audio ref={cookAlarmRef} src="/sounds/alarm.mp3" preload="auto" loop className="hidden" />
 
+            {/* Toast Alerta Despertar Tableta */}
+            <AnimatePresence>
+                {wakeToast && (
+                    <motion.div 
+                        initial={{ opacity: 0, y: -40, scale: 0.95 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, y: -40, scale: 0.95 }}
+                        className="fixed top-4 left-1/2 -translate-x-1/2 z-[999999] bg-gradient-to-r from-emerald-600 to-teal-700 text-white px-6 py-3.5 rounded-2xl font-black text-sm md:text-base shadow-2xl flex items-center gap-3 border-2 border-emerald-300 backdrop-blur-md"
+                    >
+                        <CheckCircle2 size={24} className="text-emerald-200 shrink-0" />
+                        <span>{t('prep.tabletAwakeSuccess')}</span>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
             {/* Modal Alerta de Cocción */}
             <AnimatePresence>
                 {showCookAlert && (
@@ -1007,8 +1054,8 @@ export default function PreparadorPage() {
             </AnimatePresence>
 
             {/* Header / Navbar */}
-            <div className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 p-3 md:p-4 flex justify-between items-center shrink-0 shadow-sm">
-                <div className="flex items-center gap-3">
+            <div className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 p-3 md:p-4 flex justify-between items-center shrink-0 shadow-sm relative">
+                <div className="flex items-center gap-2 md:gap-3">
                     <button 
                         onClick={toggleFullscreen} 
                         className="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 px-3 py-2 rounded-xl font-bold text-xs transition-colors cursor-pointer border border-slate-200 dark:border-slate-700 shadow-xs"
@@ -1016,6 +1063,14 @@ export default function PreparadorPage() {
                     >
                         {isFullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
                         <span className="font-extrabold uppercase">{isFullscreen ? t('prep.exit') : t('prep.tablet')}</span>
+                    </button>
+                    <button 
+                        onClick={handleWakeUpTablet}
+                        className="flex items-center gap-2 bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 hover:from-amber-400 hover:to-orange-500 text-white font-black px-3.5 py-2 rounded-xl text-xs md:text-sm shadow-md shadow-orange-500/20 active:scale-95 transition-all cursor-pointer border border-amber-300/30"
+                        title={t('prep.wakeUpTabletDesc')}
+                    >
+                        <Sun size={18} className="animate-spin text-amber-100" style={{ animationDuration: '10s' }} />
+                        <span className="tracking-wide uppercase">{t('prep.wakeUpTablet')}</span>
                     </button>
                     <div>
                         <h1 className="font-black text-lg md:text-xl text-slate-800 dark:text-white uppercase tracking-wider">{t('prep.title')}</h1>
@@ -1147,6 +1202,10 @@ export default function PreparadorPage() {
                             </div>
                         </div>
                         <div className="flex items-center gap-2 shrink-0 ml-2">
+                            <button onClick={handleWakeUpTablet} title={t('prep.wakeUpTabletDesc')} className="bg-amber-500 hover:bg-amber-600 text-white px-3 md:px-4 py-2 md:py-3 rounded-xl text-sm md:text-base font-black transition-colors shrink-0 shadow-sm flex items-center gap-1.5 cursor-pointer">
+                                <Zap size={16} />
+                                <span className="hidden sm:inline">{t('prep.syncShift')}</span>
+                            </button>
                             <button onClick={() => setShowGuideModal(true)} className="bg-red-600 hover:bg-red-700 text-white px-3 md:px-5 py-2 md:py-3 rounded-xl text-sm md:text-base font-black transition-colors shrink-0 shadow-sm flex items-center gap-1.5 cursor-pointer">
                                 <BookOpen size={16} />
                                 <span>{t('prep.viewGuide')}</span>

@@ -12,7 +12,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { AlertOctagon, CheckCircle2, Volume2, VolumeX, Store, Loader2, Play, Clock, Maximize, Minimize, HelpCircle, X, Calendar } from 'lucide-react'
+import { AlertOctagon, CheckCircle2, Volume2, VolumeX, Store, Loader2, Play, Clock, Maximize, Minimize, HelpCircle, X, Calendar, Sun, Zap } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { createClient } from '@/lib/supabase-client'
 import { useAuth } from '@/components/ProtectedRoute'
@@ -477,7 +477,9 @@ export default function BodegaPWA() {
         return () => clearInterval(int)
     }, [meatData, viewMode, storeId])
 
-    const startSystem = () => {
+    const [wakeToast, setWakeToast] = useState(false)
+
+    const startSystem = async () => {
         // Unlock audio context trick
         if (audioRef.current) {
             audioRef.current.play().then(() => {
@@ -485,7 +487,46 @@ export default function BodegaPWA() {
                 audioRef.current!.currentTime = 0
             }).catch(e => console.error("Audio unlock err:", e))
         }
+        
+        // Request wake lock to keep screen active
+        try {
+            if ('wakeLock' in navigator) {
+                await (navigator as any).wakeLock.request('screen')
+            }
+        } catch (e) {}
+
+        const freshDate = getLAEffectiveBusinessDate()
+        setCurrentBusinessDate(freshDate)
+        setSelectedDate(freshDate)
+        effectiveDateRef.current = freshDate
+        setActiveIndex(0)
         setSystemStarted(true)
+    }
+
+    const handleWakeUpTablet = async () => {
+        recordUserActivity()
+        const freshDate = getLAEffectiveBusinessDate()
+        setCurrentBusinessDate(freshDate)
+        setSelectedDate(freshDate)
+        effectiveDateRef.current = freshDate
+        setActiveIndex(0)
+
+        // Request wake lock to keep screen active
+        try {
+            if ('wakeLock' in navigator) {
+                await (navigator as any).wakeLock.request('screen')
+            }
+        } catch (e) {}
+
+        // Unlock sound
+        try {
+            const au = new Audio('/sounds/success.mp3')
+            au.volume = 0.2
+            au.play().catch(() => {})
+        } catch (e) {}
+
+        setWakeToast(true)
+        setTimeout(() => setWakeToast(false), 3500)
     }
 
     // Main Logic: Load existing pending & Listen for Realtime inserts
@@ -703,9 +744,10 @@ export default function BodegaPWA() {
                     
                     <button 
                         onClick={startSystem}
-                        className="w-full py-6 rounded-2xl bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 text-2xl font-black text-white shadow-[0_10px_40px_rgba(220,38,38,0.4)] transition-all active:scale-95 flex items-center justify-center gap-3"
+                        className="w-full py-6 rounded-2xl bg-gradient-to-r from-amber-500 via-orange-500 to-red-600 hover:from-amber-400 hover:to-orange-500 text-2xl font-black text-white shadow-[0_10px_40px_rgba(245,158,11,0.4)] transition-all active:scale-95 flex items-center justify-center gap-3 cursor-pointer border border-amber-300/40"
                     >
-                        <Play fill="currentColor" /> {t('prep.startSystem')}
+                        <Sun size={32} className="animate-spin text-amber-100" style={{ animationDuration: '10s' }} /> 
+                        {t('prep.wakeUpTablet')}
                     </button>
                     
                     {/* Elemento oculto para precargar el audio de la alarma */}
@@ -721,6 +763,21 @@ export default function BodegaPWA() {
     return (
         <div ref={containerRef} className={`flex flex-col overflow-hidden transition-colors duration-500 ${hasAlert ? 'bg-red-950' : 'bg-slate-950'} ${isFullscreen ? 'fixed inset-0 z-[9999] h-screen w-screen' : 'h-screen'}`}>
             <audio ref={audioRef} src="/sounds/alarm.mp3" preload="auto" className="hidden" />
+
+            {/* Toast Alerta Despertar Tableta */}
+            <AnimatePresence>
+                {wakeToast && (
+                    <motion.div 
+                        initial={{ opacity: 0, y: -40, scale: 0.95 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, y: -40, scale: 0.95 }}
+                        className="fixed top-4 left-1/2 -translate-x-1/2 z-[999999] bg-gradient-to-r from-emerald-600 to-teal-700 text-white px-6 py-3.5 rounded-2xl font-black text-sm md:text-base shadow-2xl flex items-center gap-3 border-2 border-emerald-300 backdrop-blur-md"
+                    >
+                        <CheckCircle2 size={24} className="text-emerald-200 shrink-0" />
+                        <span>{t('prep.tabletAwakeSuccess')}</span>
+                    </motion.div>
+                )}
+            </AnimatePresence>
 
             {/* Header / StatusBar */}
             <div className={`p-4 flex flex-col md:flex-row gap-4 justify-between items-center transition-colors shadow-sm shrink-0 ${hasAlert ? 'bg-red-900 border-b border-red-800' : 'bg-slate-900 border-b border-slate-800'}`}>
@@ -819,7 +876,15 @@ export default function BodegaPWA() {
                     )}
                 </div>
 
-                <div className="flex items-center gap-4 md:gap-6 w-full md:w-auto justify-center md:justify-end">
+                <div className="flex items-center gap-3 md:gap-5 w-full md:w-auto justify-center md:justify-end">
+                    <button 
+                        onClick={handleWakeUpTablet}
+                        className="flex items-center gap-2 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-500 text-white font-black px-3.5 py-2 rounded-xl text-xs md:text-sm shadow-md shadow-amber-500/20 active:scale-95 transition-all cursor-pointer border border-amber-300/30"
+                        title={t('prep.wakeUpTabletDesc')}
+                    >
+                        <Sun size={18} className="text-amber-100 animate-spin" style={{ animationDuration: '10s' }} />
+                        <span className="tracking-wide uppercase">{t('prep.wakeUpTablet')}</span>
+                    </button>
                     <button 
                         onClick={toggleFullscreen}
                         className={`p-3 rounded-full transition-colors ${isFullscreen ? 'bg-white/20 text-white' : 'bg-white/10 text-white hover:bg-white/20'}`}
