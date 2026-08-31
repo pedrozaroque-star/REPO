@@ -87,4 +87,4 @@ const augustConfig = {
 buildScript = buildScript.replace(/\/\/ JUNE CONFIG[\s\S]*?\/\/ WRITE REPORTS/, `${configsBlock}\n// WRITE REPORTS`);
 
 fs.writeFileSync('scripts/build-authentic-accurate-reports.js', buildScript, 'utf-8');
-console.log('✅ Rebuilt clean scripts/build-authentic-accurate-reports.js with full configs!');
+console.log('✅ Rebuilt clean scripts/build-authentic-accurate-reports.js with full configs (152.25h)!');

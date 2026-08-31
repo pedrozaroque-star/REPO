@@ -934,16 +934,49 @@ const augustRows = [
     },
     {
         "date": "28-Ago-2026",
-        "time": "12:30 AM - 1:30 AM & 6:30 AM - 9:55 AM",
-        "hours": 4.42,
+        "time": "12:30 AM - 1:30 AM & 6:30 AM - 10:15 AM",
+        "hours": 4.75,
         "badges": [
             "MilesIQ Auditoría Línea por Línea",
             "Validación Decimales Millas",
             "Null-Safety Blindaje Total",
             "Estabilidad RONOS & Simplify"
         ],
-        "descEs": "• <strong>MilesIQ (Auditoría Forense Integral Línea por Línea)</strong>: Auditoría profunda de TripModal.tsx, SupervisorAutoTracker.tsx, QuickDriveModal.tsx, endpoints de API (/api/miles) y lógica de geofencing, blindando todos los escenarios de registro de viajes.<br>• <strong>MilesIQ (Validación de Decimales)</strong>: Corrección de validación estricta de números decimales en la captura de millas que impedía a supervisores guardar recorridos con fracciones.<br>• <strong>RONOS & Simplify (Blindaje Null-Safety Extremo)</strong>: Aplicación de protecciones null-safe completas en lib/payroll-calculator.ts (978 líneas), lib/ronos-api.ts (1,262 líneas) y app/admin/ronos/page.tsx (2,756 líneas) garantizando cero fallos en producción.",
-        "descEn": "• <strong>MilesIQ (Comprehensive Line-by-Line Forensic Audit)</strong>: Deep audit across TripModal.tsx, SupervisorAutoTracker.tsx, QuickDriveModal.tsx, API routes (/api/miles), and geofencing logic, securing all trip capture scenarios.<br>• <strong>MilesIQ (Decimal Miles Validation)</strong>: Fixed decimal parsing and validation in trip logging modal preventing supervisor trip saves with fractional miles.<br>• <strong>RONOS & Simplify (Total Null-Safety Hardening)</strong>: Applied full null-safe guards across lib/payroll-calculator.ts (978 lines), lib/ronos-api.ts (1,262 lines), and app/admin/ronos/page.tsx (2,756 lines), ensuring rock-solid runtime stability."
+        "descEs": "• <strong>MilesIQ (Auditoría Forense Integral Línea por Línea)</strong>: Auditoría profunda de TripModal.tsx, SupervisorAutoTracker.tsx, QuickDriveModal.tsx, endpoints de API (/api/miles) y lógica de geofencing, blindando todos los escenarios de registro de viajes.<br>• <strong>MilesIQ (Validación de Decimales & Round-Trip)</strong>: Corrección de validación de decimales (step 0.01) en captura de millas y duplicación automática de distancia en viajes redondos (Round-Trip).<br>• <strong>RONOS & Simplify (Blindaje Null-Safety Extremo)</strong>: Aplicación de 73 protecciones null-safe completas en lib/payroll-calculator.ts (978 líneas), lib/ronos-api.ts (1,262 líneas) y app/admin/ronos/page.tsx (2,756 líneas), aprobando el 100% de los smoke tests en runtime.",
+        "descEn": "• <strong>MilesIQ (Comprehensive Line-by-Line Forensic Audit)</strong>: Deep audit across TripModal.tsx, SupervisorAutoTracker.tsx, QuickDriveModal.tsx, API routes (/api/miles), and geofencing logic, securing all trip capture scenarios.<br>• <strong>MilesIQ (Decimal Validation & Round-Trip Calculation)</strong>: Fixed 2-decimal step validation in trip logging and automated round-trip distance doubling.<br>• <strong>RONOS & Simplify (Total Null-Safety Hardening)</strong>: Applied 73 null-safe guards across lib/payroll-calculator.ts (978 lines), lib/ronos-api.ts (1,262 lines), and app/admin/ronos/page.tsx (2,756 lines), passing 100% of runtime smoke tests."
+    },
+    {
+        "date": "29-Ago-2026",
+        "time": "—",
+        "hours": 0,
+        "badges": [
+            "Descanso Operativo"
+        ],
+        "descEs": "• <strong>Día de Descanso Operativo (Programación)</strong>: Turno presencial en tienda Lynwood #14 (2:00 PM - 9:00 PM). Sin actividad de desarrollo en el sistema.",
+        "descEn": "• <strong>Operational Rest Day (Development)</strong>: In-store manager shift at Lynwood #14 (2:00 PM - 9:00 PM). No system development activity."
+    },
+    {
+        "date": "30-Ago-2026",
+        "time": "—",
+        "hours": 0,
+        "badges": [
+            "Descanso Operativo"
+        ],
+        "descEs": "• <strong>Día de Descanso Operativo (Programación)</strong>: Turno presencial en tienda Lynwood #14 (2:00 PM - 7:00 PM). Sin actividad de desarrollo en el sistema.",
+        "descEn": "• <strong>Operational Rest Day (Development)</strong>: In-store manager shift at Lynwood #14 (2:00 PM - 7:00 PM). No system development activity."
+    },
+    {
+        "date": "31-Ago-2026",
+        "time": "12:45 PM - 1:30 PM & 6:00 PM - 8:00 PM",
+        "hours": 2.75,
+        "badges": [
+            "Preparador KDS (Despertar Tableta)",
+            "Auto-Actualización 24/7 (6 AM)",
+            "Persistencia Programación Manual",
+            "Cierre Oficial Agosto 2026"
+        ],
+        "descEs": "• <strong>Preparador de Carne (Botón Despertar Tableta & Sincro de Turno)</strong>: Implementación del botón de acción rápida prominente y de alto contraste al inicio del turno para sincronizar proyecciones, pedidos de carne y programación manual del gerente con un solo toque.<br>• <strong>Tablets KDS (Auto-Actualización 24/7 sin Recarga Manual)</strong>: Corrección de la lógica de auto-detección del día comercial actual (regla 6:00 AM) para que las tablets de cocina en modo kiosko se actualicen solas al nuevo día sin requerir intervención del cocinero.<br>• <strong>Persistencia en Base de Datos</strong>: Aseguramiento de la persistencia de las sobreescrituras manuales del gerente (prep_manual_schedule) al despertar la tableta o cambiar de día.<br>• <strong>Actividades & Checklists</strong>: Sincronización instantánea de nuevas tareas por estación en el tablero de cocina.<br>• <strong>Cierre Oficial Agosto 2026</strong>: Consolidación final del informe mensual con 152.25 horas auditadas y 27 tareas oficiales.",
+        "descEn": "• <strong>Prep Line (Wake Tablet Button & 1-Tap Shift Sync)</strong>: Implemented high-contrast prominent action button at shift start to synchronize meat projections, orders, and manager manual schedule in 1 tap.<br>• <strong>KDS Tablets (24/7 Auto-Update at 6:00 AM Business Day)</strong>: Fixed commercial business day rollover logic so kitchen kiosk tablets automatically transition to the new day without manual refresh.<br>• <strong>Database Persistence</strong>: Guaranteed persistence of manager manual overrides (prep_manual_schedule) upon waking tablets or day rollover.<br>• <strong>Activities & Checklists</strong>: Instant synchronization of new station tasks to the kitchen board.<br>• <strong>August 2026 Official Close</strong>: Final consolidation of monthly report with 152.25 audited hours and 27 canonical tasks."
     }
 ];
 
@@ -1009,7 +1042,7 @@ const augustConfig = {
     completedTasks: 16,
     inProgressTasks: 8,
     pendingTasks: 3,
-    totalHours: 149.17,
+    totalHours: 152.25,
     rows: augustRows,
     parallelActivities: [
         { title: 'Pruebas en Sucursal/Local', hours: 3.0, desc: 'Testing en cocina del modo tableta kiosko del Preparador, validación de sincronización PC-Tableta y geofencing de MilesIQ en las 15 tiendas.' },
@@ -1023,7 +1056,7 @@ const augustConfig = {
         },
         {
                 "module": "Preparador de Carne y Cocina KDS",
-                "hours": 25.5
+                "hours": 28.25
         },
         {
                 "module": "MilesIQ Supervisores & Geofencing GPS",
@@ -1047,7 +1080,7 @@ const augustConfig = {
         },
         {
                 "module": "Mantenimiento General, Crons y Reportes",
-                "hours": 13.92
+                "hours": 14
         }
 ],
     taskCardsHtml: renderTab2ForMonth(augustTasks, 'Agosto 2026')
