@@ -79,6 +79,59 @@ interface StoreDistance {
   notes?: string
 }
 
+// Converts 12h AM/PM strings (e.g. "09:30 AM", "02:15 PM") or timestamps into 0-1439 minutes of the day
+function parseTimeToMinutes(timeStr?: string, createdAt?: string): number {
+  if (timeStr && timeStr.trim()) {
+    const match = timeStr.trim().match(/^(\d{1,2}):(\d{2})\s*(AM|PM)?$/i)
+    if (match) {
+      let hours = parseInt(match[1], 10)
+      const minutes = parseInt(match[2], 10)
+      const ampm = match[3]?.toUpperCase()
+      if (ampm === 'PM' && hours < 12) hours += 12
+      if (ampm === 'AM' && hours === 12) hours = 0
+      return hours * 60 + minutes
+    }
+  }
+  if (createdAt) {
+    const d = new Date(createdAt)
+    if (!isNaN(d.getTime())) {
+      try {
+        const laTimeStr = d.toLocaleTimeString('en-US', {
+          timeZone: 'America/Los_Angeles',
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: true
+        })
+        const match = laTimeStr.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)?$/i)
+        if (match) {
+          let hours = parseInt(match[1], 10)
+          const minutes = parseInt(match[2], 10)
+          const ampm = match[3]?.toUpperCase()
+          if (ampm === 'PM' && hours < 12) hours += 12
+          if (ampm === 'AM' && hours === 12) hours = 0
+          return hours * 60 + minutes
+        }
+      } catch {
+        // fallback
+      }
+      return d.getHours() * 60 + d.getMinutes()
+    }
+  }
+  return 0
+}
+
+function formatMinutesToTime(totalMinutes: number): string {
+  const m = Math.max(0, Math.min(1439, totalMinutes))
+  let hours = Math.floor(m / 60)
+  const minutes = m % 60
+  const ampm = hours >= 12 ? 'PM' : 'AM'
+  if (hours > 12) hours -= 12
+  if (hours === 0) hours = 12
+  const minStr = minutes < 10 ? `0${minutes}` : `${minutes}`
+  const hourStr = hours < 10 ? `0${hours}` : `${hours}`
+  return `${hourStr}:${minStr} ${ampm}`
+}
+
 export default function MilesIQPage() {
   return (
     <ProtectedRoute allowedRoles={['admin', 'supervisor']}>
@@ -533,29 +586,44 @@ function MilesIQContent() {
     return false
   }, [currentUser])
 
-  // Filtered trips list (dynamically filtered by Supervisor, Status, Date Range, and Search Term)
+  // Filtered trips list (dynamically filtered by Supervisor, Status, Date Range, Search Term, and sorted chronologically)
   const filteredTrips = useMemo(() => {
-    return trips.filter(t => {
-      if (!isAdmin && !isOwnTrip(t)) return false
-      if (supervisorFilter !== 'all') {
-        const selectedSup = supervisorsList.find(s => String(s.id) === String(supervisorFilter) || s.name === supervisorFilter)
-        const matchId = String(t.supervisor_id) === String(supervisorFilter) || (selectedSup && String(t.supervisor_id) === String(selectedSup.id))
-        const matchName = t.supervisor_name === supervisorFilter || (selectedSup && t.supervisor_name?.toLowerCase() === selectedSup.name.toLowerCase())
-        if (!matchId && !matchName) return false
-      }
-      if (statusFilter !== 'all' && t.status !== statusFilter) return false
-      if (startDate && t.trip_date < startDate) return false
-      if (endDate && t.trip_date > endDate) return false
-      if (searchTerm) {
-        const term = searchTerm.toLowerCase()
-        const matchName = (t.supervisor_name || '').toLowerCase().includes(term)
-        const matchOrig = (t.origin_name || '').toLowerCase().includes(term)
-        const matchDest = (t.destination_name || '').toLowerCase().includes(term)
-        const matchNotes = (t.purpose_notes || '').toLowerCase().includes(term)
-        if (!matchName && !matchOrig && !matchDest && !matchNotes) return false
-      }
-      return true
-    })
+    return trips
+      .filter(t => {
+        if (!isAdmin && !isOwnTrip(t)) return false
+        if (supervisorFilter !== 'all') {
+          const selectedSup = supervisorsList.find(s => String(s.id) === String(supervisorFilter) || s.name === supervisorFilter)
+          const matchId = String(t.supervisor_id) === String(supervisorFilter) || (selectedSup && String(t.supervisor_id) === String(selectedSup.id))
+          const matchName = t.supervisor_name === supervisorFilter || (selectedSup && t.supervisor_name?.toLowerCase() === selectedSup.name.toLowerCase())
+          if (!matchId && !matchName) return false
+        }
+        if (statusFilter !== 'all' && t.status !== statusFilter) return false
+        if (startDate && t.trip_date < startDate) return false
+        if (endDate && t.trip_date > endDate) return false
+        if (searchTerm) {
+          const term = searchTerm.toLowerCase()
+          const matchName = (t.supervisor_name || '').toLowerCase().includes(term)
+          const matchOrig = (t.origin_name || '').toLowerCase().includes(term)
+          const matchDest = (t.destination_name || '').toLowerCase().includes(term)
+          const matchNotes = (t.purpose_notes || '').toLowerCase().includes(term)
+          if (!matchName && !matchOrig && !matchDest && !matchNotes) return false
+        }
+        return true
+      })
+      .sort((a, b) => {
+        // 1. Primary: Sort by trip_date descending (newest dates on top)
+        if (a.trip_date !== b.trip_date) {
+          return b.trip_date.localeCompare(a.trip_date)
+        }
+        // 2. Secondary: Sort by start_time / created_at descending (latest trip of the day on top, earliest at bottom)
+        const minA = parseTimeToMinutes(a.start_time, a.created_at)
+        const minB = parseTimeToMinutes(b.start_time, b.created_at)
+        if (minA !== minB) {
+          return minB - minA
+        }
+        // 3. Fallback: created_at descending
+        return (b.created_at || '').localeCompare(a.created_at || '')
+      })
   }, [trips, statusFilter, supervisorFilter, startDate, endDate, searchTerm, isAdmin, currentUser, supervisorsList])
 
   // Summary Metrics (dynamically computed from active filtered trips)
@@ -633,40 +701,6 @@ function MilesIQContent() {
 
   // Intelligent Route Gap Detector (Grouped by Supervisor and Date with Exact Canonical Distances)
   const detectedRouteGapsGrouped = useMemo(() => {
-    // Converts 12h AM/PM strings (e.g. "09:30 AM", "02:15 PM") or timestamps into 0-1439 minutes of the day
-    const parseTimeToMinutes = (timeStr?: string, createdAt?: string): number => {
-      if (timeStr && timeStr.trim()) {
-        const match = timeStr.trim().match(/^(\d{1,2}):(\d{2})\s*(AM|PM)?$/i)
-        if (match) {
-          let hours = parseInt(match[1], 10)
-          const minutes = parseInt(match[2], 10)
-          const ampm = match[3]?.toUpperCase()
-          if (ampm === 'PM' && hours < 12) hours += 12
-          if (ampm === 'AM' && hours === 12) hours = 0
-          return hours * 60 + minutes
-        }
-      }
-      if (createdAt) {
-        const d = new Date(createdAt)
-        if (!isNaN(d.getTime())) {
-          return d.getHours() * 60 + d.getMinutes()
-        }
-      }
-      return 0
-    }
-
-    const formatMinutesToTime = (totalMinutes: number): string => {
-      const m = Math.max(0, Math.min(1439, totalMinutes))
-      let hours = Math.floor(m / 60)
-      const minutes = m % 60
-      const ampm = hours >= 12 ? 'PM' : 'AM'
-      if (hours > 12) hours -= 12
-      if (hours === 0) hours = 12
-      const minStr = minutes < 10 ? `0${minutes}` : `${minutes}`
-      const hourStr = hours < 10 ? `0${hours}` : `${hours}`
-      return `${hourStr}:${minStr} ${ampm}`
-    }
-
     const getExactDistance = (orig: string, dest: string): number => {
       const normOrig = normalizeStoreName(orig)
       const normDest = normalizeStoreName(dest)
