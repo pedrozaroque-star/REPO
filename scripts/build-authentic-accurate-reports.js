@@ -632,8 +632,8 @@ const augustRows = [
     },
     {
         "date": "03-Ago-2026",
-        "time": "4:42 PM - 7:04 PM & 9:30 PM - 11:10 PM",
-        "hours": 3.92,
+        "time": "4:42 PM - 7:04 PM & 8:32 PM - 9:46 PM",
+        "hours": 4.6,
         "badges": [
             "Inventario",
             "QuickBooks"
@@ -655,8 +655,8 @@ const augustRows = [
     },
     {
         "date": "05-Ago-2026",
-        "time": "2:15 PM - 3:53 PM",
-        "hours": 1.64,
+        "time": "11:40 AM - 12:51 PM & 3:58 PM - 4:14 PM",
+        "hours": 2.45,
         "badges": [
             "Preparador",
             "Reportes"
@@ -666,8 +666,8 @@ const augustRows = [
     },
     {
         "date": "06-Ago-2026",
-        "time": "12:30 PM - 1:45 PM & 9:30 PM - 10:00 PM",
-        "hours": 1.75,
+        "time": "9:58 AM - 11:38 AM & 2:44 PM - 2:45 PM",
+        "hours": 2.69,
         "badges": [
             "Preparador",
             "Base de Datos"
@@ -677,8 +677,8 @@ const augustRows = [
     },
     {
         "date": "07-Ago-2026",
-        "time": "2:30 PM - 5:02 PM",
-        "hours": 2.54,
+        "time": "11:28 AM - 1:48 PM",
+        "hours": 2.83,
         "badges": [
             "Horarios",
             "Descansos IA"
@@ -699,8 +699,8 @@ const augustRows = [
     },
     {
         "date": "09-Ago-2026",
-        "time": "11:00 AM - 1:45 PM",
-        "hours": 2.74,
+        "time": "2:07 PM - 3:12 PM & 5:38 PM - 6:30 PM & 7:30 PM - 7:33 PM",
+        "hours": 3.5,
         "badges": [
             "Preparador",
             "Telemetría"
@@ -710,8 +710,8 @@ const augustRows = [
     },
     {
         "date": "10-Ago-2026",
-        "time": "4:15 PM - 6:33 PM",
-        "hours": 2.3,
+        "time": "4:01 PM - 5:31 PM & 6:37 PM - 6:52 PM",
+        "hours": 2.75,
         "badges": [
             "Actividades",
             "Descansos IA",
@@ -722,8 +722,8 @@ const augustRows = [
     },
     {
         "date": "11-Ago-2026",
-        "time": "9:15 AM - 10:30 AM & 6:45 PM - 8:41 PM",
-        "hours": 3.18,
+        "time": "9:17 AM - 9:26 AM & 11:10 AM - 11:21 AM & 3:17 PM - 3:17 PM & 4:56 PM - 5:44 PM & 6:48 PM - 7:51 PM",
+        "hours": 4.68,
         "badges": [
             "Caja Fuerte",
             "Uniformes",
@@ -734,8 +734,8 @@ const augustRows = [
     },
     {
         "date": "12-Ago-2026",
-        "time": "10:30 AM - 1:45 PM & 7:00 PM - 8:05 PM",
-        "hours": 4.33,
+        "time": "10:57 AM - 11:14 AM & 1:08 PM - 1:24 PM & 5:10 PM - 5:39 PM & 7:24 PM - 8:24 PM & 10:35 PM - 11:32 PM",
+        "hours": 5.48,
         "badges": [
             "Uniformes Bodega",
             "Tech Packs Desechables"
@@ -745,8 +745,8 @@ const augustRows = [
     },
     {
         "date": "13-Ago-2026",
-        "time": "8:45 AM - 10:00 AM & 4:30 PM - 8:00 PM & 8:15 PM - 9:45 PM",
-        "hours": 6.45,
+        "time": "8:31 AM - 9:41 AM & 11:01 AM - 12:40 PM & 2:17 PM - 2:27 PM & 4:06 PM - 4:43 PM & 5:43 PM - 7:22 PM",
+        "hours": 7.76,
         "badges": [
             "MilesIQ Supervisores",
             "Champurrado Forecast"
@@ -766,8 +766,8 @@ const augustRows = [
     },
     {
         "date": "15-Ago-2026",
-        "time": "3:00 PM - 5:30 PM & 7:30 PM - 9:56 PM",
-        "hours": 4.94,
+        "time": "4:11 PM - 9:15 PM",
+        "hours": 5.57,
         "badges": [
             "Uniformes Stock",
             "Análisis Viele 87 CSV"
@@ -777,8 +777,8 @@ const augustRows = [
     },
     {
         "date": "16-Ago-2026",
-        "time": "12:00 PM - 4:15 PM & 6:30 PM - 9:15 PM",
-        "hours": 6.96,
+        "time": "12:37 PM - 3:50 PM & 4:37 PM - 5:04 PM & 7:07 PM - 7:18 PM & 8:24 PM - 8:40 PM & 4:14 AM - 5:59 AM",
+        "hours": 8.37,
         "badges": [
             "MilesIQ GPS",
             "Uniformes Store Lock",
@@ -789,8 +789,8 @@ const augustRows = [
     },
     {
         "date": "17-Ago-2026",
-        "time": "4:45 AM - 5:45 AM & 2:30 PM - 5:56 PM",
-        "hours": 4.43,
+        "time": "6:00 AM - 6:11 AM & 12:52 PM - 3:41 PM & 8:04 PM - 8:13 PM",
+        "hours": 4.65,
         "badges": [
             "Radar de Precios Viele 87",
             "Planificador Violaciones Cron",
@@ -801,8 +801,8 @@ const augustRows = [
     },
     {
         "date": "18-Ago-2026",
-        "time": "11:00 AM - 1:30 PM & 5:00 PM - 7:53 PM",
-        "hours": 5.39,
+        "time": "11:00 AM - 11:07 AM & 12:58 PM - 1:19 PM & 2:24 PM - 6:32 PM",
+        "hours": 6.1,
         "badges": [
             "Radar de Precios Scraper Viele v3",
             "Cron Semanal",
@@ -814,8 +814,8 @@ const augustRows = [
     },
     {
         "date": "19-Ago-2026",
-        "time": "9:44 AM - 12:30 PM & 3:15 PM - 5:11 PM",
-        "hours": 4.7,
+        "time": "9:44 AM - 12:52 PM & 2:54 PM - 3:34 PM & 4:20 PM - 5:22 PM",
+        "hours": 6.33,
         "badges": [
             "Actividades & Checklists",
             "Control de Uniformes & Caja Fuerte",
@@ -882,8 +882,8 @@ const augustRows = [
     },
     {
         "date": "24-Ago-2026",
-        "time": "1:15 PM - 1:30 PM & 7:00 PM - 11:15 PM",
-        "hours": 4.5,
+        "time": "1:19 PM - 1:24 PM & 7:01 PM - 11:08 PM",
+        "hours": 5.2,
         "badges": [
             "Ventas Reportes Auth",
             "RONOS HR API Conector",
@@ -895,8 +895,8 @@ const augustRows = [
     },
     {
         "date": "25-Ago-2026",
-        "time": "7:00 AM - 1:45 PM & 3:20 PM - 7:30 PM",
-        "hours": 11,
+        "time": "7:03 AM - 6:51 PM",
+        "hours": 12.3,
         "badges": [
             "RONOS & Simplify Nómina",
             "Auditoría Invoices Cingular",
@@ -1043,7 +1043,7 @@ const augustConfig = {
     completedTasks: 16,
     inProgressTasks: 8,
     pendingTasks: 3,
-    totalHours: 154.50,
+    totalHours: 168.99,
     rows: augustRows,
     parallelActivities: [
         { title: 'Pruebas en Sucursal/Local', hours: 3.0, desc: 'Testing en cocina del modo tableta kiosko del Preparador, validación de sincronización PC-Tableta y geofencing de MilesIQ en las 15 tiendas.' },
@@ -1053,35 +1053,35 @@ const augustConfig = {
     effortSummary: [
         {
                 "module": "Módulo RONOS HR & Simplify Payroll Audit",
-                "hours": 28.5
+                "hours": 31.5
         },
         {
                 "module": "Preparador de Carne y Cocina KDS",
-                "hours": 28.25
+                "hours": 30.5
         },
         {
                 "module": "MilesIQ Supervisores & Geofencing GPS",
-                "hours": 23.5
+                "hours": 25
         },
         {
                 "module": "Ventas Toast API & Conciliación Multitienda",
-                "hours": 18.5
+                "hours": 20.5
         },
         {
                 "module": "Radar de Precios Viele v3, Scraper & Alertas de Ahorro",
-                "hours": 16.75
+                "hours": 18.5
         },
         {
                 "module": "Mantenimiento General, Crons y Reportes",
-                "hours": 14
+                "hours": 15.5
         },
         {
                 "module": "Control de Uniformes & Caja Fuerte",
-                "hours": 12.5
+                "hours": 14
         },
         {
                 "module": "Descansos Laborales (Labor Compliance AI)",
-                "hours": 12.5
+                "hours": 13.5
         }
 ],
     taskCardsHtml: renderTab2ForMonth(augustTasks, 'Agosto 2026')
