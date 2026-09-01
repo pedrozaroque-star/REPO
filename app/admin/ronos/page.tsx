@@ -44,6 +44,7 @@
 'use client'
 
 import React, { useState, useEffect, useMemo } from 'react'
+import ProtectedRoute from '@/components/ProtectedRoute'
 import { useLanguage } from '@/lib/i18n'
 import {
   Users,
@@ -251,7 +252,7 @@ interface MappedEmployeeItem {
   transferredToStore?: string | null
 }
 
-export default function RonosLaborAuditPage() {
+function RonosLaborAuditContent() {
   const { t, language } = useLanguage()
 
   // Tab: 'store' | 'chain' | 'mapping' | 'payroll'
@@ -2775,5 +2776,13 @@ export default function RonosLaborAuditPage() {
         </div>
       )}
     </div>
+  )
+}
+
+export default function RonosLaborAuditPage() {
+  return (
+    <ProtectedRoute allowedRoles={['admin']}>
+      <RonosLaborAuditContent />
+    </ProtectedRoute>
   )
 }

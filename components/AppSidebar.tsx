@@ -337,7 +337,7 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                     plainName: 'Radar de Precios',
                     path: '/admin/precios-proveedores',
                     icon: <Calculator size={20} />,
-                    roles: ['admin', 'manager', 'supervisor'],
+                    roles: ['admin'],
                     tooltip: language === 'en'
                         ? 'Smart supplier price intake, inflation detection, and 15-store COGS audit (Radar de precios e impacto en recetas)'
                         : 'Ingesta inteligente de precios de proveedores, detección de aumentos y auditoría de COGS'
@@ -413,7 +413,7 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                     plainName: 'Auditoría RONOS (Labor)',
                     path: '/admin/ronos',
                     icon: <Clock size={20} />,
-                    roles: ['admin', 'manager', 'supervisor'],
+                    roles: ['admin'],
                     tooltip: language === 'en'
                         ? 'Live timecard audit, time clock camera photos, meal penalty leakage & 15-store compliance (Auditoría de ponchadas, fotos y multas Cingular HR)'
                         : 'Auditoría en vivo de ponchadas, fotos de reloj checador, penalizaciones de lunch y cumplimiento Cingular HR'
