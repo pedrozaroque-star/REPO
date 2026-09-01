@@ -244,6 +244,9 @@ async function handleSync(request: NextRequest) {
     // no es una propuesta que requiere autorización. El correo es INFORMATIVO, no de aprobación.
     // Esto garantiza que Food Cost, recetas y reportes financieros reflejen la realidad.
     let autoApprovedCount = 0
+    const nowIso = new Date().toISOString()
+    const inventoryHistoryInserts: any[] = []
+
     for (const parsed of scrapeResult.items) {
       const mapping = mappingMap.get(parsed.supplierSku)
       const masterItem = mapping?.inventory_items
@@ -254,24 +257,42 @@ async function handleSync(request: NextRequest) {
       const diff = Number((newCasePrice - currentCasePrice).toFixed(2))
 
       if (Math.abs(diff) > 0.009 && newCasePrice > 0) {
+        const packQtyNum = Number(mapping.pack_quantity) || 1
         const { error: updateErr } = await supabase
           .from('inventory_items')
           .update({
             purchase_unit_cost: newCasePrice,
-            updated_at: new Date().toISOString()
+            updated_at: nowIso
           })
           .eq('id', masterItem.id)
 
-        if (!updateErr) autoApprovedCount++
+        if (!updateErr) {
+          autoApprovedCount++
+          // Registrar en inventory_price_history para "La Máquina del Tiempo" de Food Cost
+          // Esto garantiza que cualquier reporte de fechas pasadas use el costo que estaba vigente en ese momento.
+          inventoryHistoryInserts.push({
+            inventory_item_id: masterItem.id,
+            purchase_unit_cost: newCasePrice,
+            quantity_per_unit: packQtyNum,
+            effective_date: nowIso
+          })
+        }
       }
     }
+
+    if (inventoryHistoryInserts.length > 0) {
+      await supabase.from('inventory_price_history').insert(inventoryHistoryInserts)
+      console.log(`[Cron:SyncSupplierPrices] 🕰️ ${inventoryHistoryInserts.length} registros guardados en inventory_price_history para auditoría histórica de Food Cost.`)
+    }
+
     if (autoApprovedCount > 0) {
       console.log(`[Cron:SyncSupplierPrices] ✅ Auto-aprobados ${autoApprovedCount} precios en inventory_items (reflejan costo real del proveedor).`)
 
-      // Invalidar caché de Food Cost de los últimos 7 días para recalcular con precios actualizados
-      const sevenDaysAgoStr = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
-      await supabase.from('food_cost_daily_cache').delete().gte('business_date', sevenDaysAgoStr)
-      console.log(`[Cron:SyncSupplierPrices] 🗑️ Caché de Food Cost invalidado desde ${sevenDaysAgoStr} para recálculo.`)
+      // Invalidar caché de Food Cost del día de hoy en adelante para recalcular con precios actualizados
+      // Las fechas anteriores quedan INTACTAS con sus costos históricos reales.
+      const todayStr = new Date().toISOString().split('T')[0]
+      await supabase.from('food_cost_daily_cache').delete().gte('business_date', todayStr)
+      console.log(`[Cron:SyncSupplierPrices] 🗑️ Caché de Food Cost invalidado a partir de ${todayStr} para recálculo. Fechas pasadas permanecen intactas.`)
     }
 
     // 7. Enviar Alerta por Correo a Directivos si se detectaron variaciones (Aumentos o Rebajas de Precio)
