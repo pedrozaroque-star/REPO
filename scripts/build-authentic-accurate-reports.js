@@ -457,6 +457,25 @@ const augustTasks = catalog26.map(t => {
     };
 });
 
+// 4. BUILD SEPTEMBER TASKS (27 Tasks: 16 Comp, 8 Prog, 3 Pend)
+const septemberTasks = catalog26.map(t => {
+    let status = 'pendiente';
+    let statusLabel = '⏳ Pendiente';
+    if ([1, 2, 3, 4, 5, 6, 8, 13, 17, 18, 19, 20, 21, 22, 23, 27].includes(t.num)) {
+        status = 'completado';
+        statusLabel = '✓ Completado';
+    } else if ([7, 15, 24, 25, 26].includes(t.num)) {
+        status = 'progreso';
+        statusLabel = '⚡ En Progreso';
+    }
+    return {
+        ...t,
+        status,
+        statusLabel,
+        audit: t.auditSeptember || t.auditAugust
+    };
+});
+
 function renderTaskCard(task) {
     const isCompleted = task.status === 'completado';
     const isProgress = task.status === 'progreso';
@@ -471,7 +490,7 @@ function renderTaskCard(task) {
         boxClass = 'gray-box';
     }
 
-    const stepsHtml = task.steps.map((step, idx) => `
+    const stepsHtml = (task.steps || []).map((step, idx) => `
         <div class="step-item" style="display: flex; align-items: flex-start; gap: 8px; font-size: 12px; line-height: 1.4; color: #334155;">
             <span class="step-number" style="width: 18px; height: 18px; border-radius: 50%; background: #e2e8f0; font-size: 10px; font-weight: 800; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; color: #334155;">${idx + 1}</span>
             <span>${step}</span>
@@ -1088,51 +1107,48 @@ const augustConfig = {
     taskCardsHtml: renderTab2ForMonth(augustTasks, 'Agosto 2026')
 };
 
+// SEPTEMBER CONFIG: 27 tasks (16 Completadas, 8 En Progreso, 3 Pendientes)
+const septemberData = JSON.parse(fs.readFileSync('scripts/september_full_data.json', 'utf-8'));
+const septemberConfig = {
+    monthName: 'Septiembre',
+    monthYear: 'Septiembre 2026',
+    monthNum: 9,
+    totalTasks: 27,
+    completedTasks: 16,
+    inProgressTasks: 8,
+    pendingTasks: 3,
+    totalHours: septemberData.totalHours,
+    rows: septemberData.rows,
+    parallelActivities: [
+        { title: 'Pruebas en Sucursal/Local', hours: 0.0, desc: 'Pruebas operativas programadas para septiembre en cocina KDS y reloj checador de tienda.' },
+        { title: 'Monitoreo DB y APIs', hours: 0.5, desc: 'Auditoría matutina de cron Viele & Sons (6:00 AM PST) y monitoreo de conexión de paystubs en RONOS.' },
+        { title: 'Planificación y Diseño', hours: 0.5, desc: 'Planificación del ciclo de septiembre y arquitectura de la versión SM TEG v2.6.0.' }
+    ],
+    effortSummary: septemberData.effort,
+    taskCardsHtml: renderTab2ForMonth(septemberTasks, 'Septiembre 2026')
+};
+
 // WRITE REPORTS
 fs.writeFileSync('pendientes.html', buildReportHtml(juneConfig), 'utf-8');
 fs.writeFileSync('pendientes_julio.html', buildReportHtml(julyConfig), 'utf-8');
 fs.writeFileSync('pendientes_agosto.html', buildReportHtml(augustConfig), 'utf-8');
+fs.writeFileSync('pendientes_septiembre.html', buildReportHtml(septemberConfig), 'utf-8');
 
-console.log('✅ 3 reportes reconstruidos con estatus históricos 100% auténticos!');
+console.log('✅ 4 reportes (Junio, Julio, Agosto, Septiembre) construidos con estatus históricos 100% auténticos!');
 
 (async () => {
-    console.log('📸 Tomando capturas de pantalla de junio, julio y agosto...');
+    console.log('📸 Tomando capturas de pantalla de los reportes...');
     const browser = await puppeteer.launch({ headless: 'new' });
     const page = await browser.newPage();
     await page.setViewport({ width: 1300, height: 1200 });
 
-    // June Tab 2
-    const juneUrl = `file:///${path.resolve('pendientes.html').replace(/\\/g, '/')}`;
-    await page.goto(juneUrl, { waitUntil: 'networkidle0' });
+    // September Tab 2
+    const sepUrl = `file:///${path.resolve('pendientes_septiembre.html').replace(/\\/g, '/')}`;
+    await page.goto(sepUrl, { waitUntil: 'networkidle0' });
     await page.click('label[for="tab-pendientes"]');
     await new Promise(r => setTimeout(r, 400));
-    await page.screenshot({ path: 'C:/Users/pedro/.gemini/antigravity/brain/72f704bf-fc24-425d-8dbd-e2a211289a28/june_tab2_exact_status.png', clip: { x: 0, y: 0, width: 1300, height: 1100 } });
+    await page.screenshot({ path: 'C:/Users/pedro/.gemini/antigravity/brain/72f704bf-fc24-425d-8dbd-e2a211289a28/september_tab2_exact_status.png', clip: { x: 0, y: 0, width: 1300, height: 1100 } });
 
-    // July Tab 2
-    const julyUrl = `file:///${path.resolve('pendientes_julio.html').replace(/\\/g, '/')}`;
-    await page.goto(julyUrl, { waitUntil: 'networkidle0' });
-    await page.click('label[for="tab-pendientes"]');
-    await new Promise(r => setTimeout(r, 400));
-    await page.screenshot({ path: 'C:/Users/pedro/.gemini/antigravity/brain/72f704bf-fc24-425d-8dbd-e2a211289a28/july_tab2_exact_status.png', clip: { x: 0, y: 0, width: 1300, height: 1100 } });
-
-    // August Tab 2
-    const augUrl = `file:///${path.resolve('pendientes_agosto.html').replace(/\\/g, '/')}`;
-    await page.goto(augUrl, { waitUntil: 'networkidle0' });
-    await page.click('label[for="tab-pendientes"]');
-    await new Promise(r => setTimeout(r, 400));
-    await page.screenshot({ path: 'C:/Users/pedro/.gemini/antigravity/brain/72f704bf-fc24-425d-8dbd-e2a211289a28/august_tab2_exact_status.png', clip: { x: 0, y: 0, width: 1300, height: 1100 } });
-
-    // Recompile Desktop PDF
-    await page.click('label[for="tab-reporte"]');
-    await new Promise(r => setTimeout(r, 400));
-    await page.pdf({
-        path: 'c:/Users/pedro/Desktop/Reporte_Agosto_2026_TEG.pdf',
-        format: 'Letter',
-        printBackground: true,
-        scale: 0.82,
-        margin: { top: '0.3in', right: '0.3in', bottom: '0.3in', left: '0.3in' }
-    });
-
-    console.log('🎉 Screenshots capturadas y PDF recompilado!');
+    console.log('🎉 Screenshots capturadas exitosamente!');
     await browser.close();
 })();

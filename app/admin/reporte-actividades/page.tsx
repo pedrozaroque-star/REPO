@@ -30,7 +30,7 @@ import {
 } from 'lucide-react';
 
 interface ReportMonthOption {
-    id: 'agosto' | 'julio' | 'junio';
+    id: 'septiembre' | 'agosto' | 'julio' | 'junio';
     label: string;
     sublabel: string;
     hours: string;
@@ -41,13 +41,22 @@ interface ReportMonthOption {
 
 const MONTHS_CATALOG: ReportMonthOption[] = [
     {
+        id: 'septiembre',
+        label: 'Septiembre 2026',
+        sublabel: 'En Curso • SM TEG v2.6.0',
+        hours: '1.75 hrs',
+        tasks: '27 Tareas',
+        badgeColor: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-300 border-emerald-300 dark:border-emerald-700',
+        activeBorderColor: 'border-emerald-500 bg-emerald-50/60 dark:bg-emerald-950/30'
+    },
+    {
         id: 'agosto',
         label: 'Agosto 2026',
         sublabel: 'Planificador Gantt & 27 Tareas',
         hours: '169.50 hrs',
         tasks: '27 Tareas',
-        badgeColor: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-300 border-emerald-300 dark:border-emerald-700',
-        activeBorderColor: 'border-emerald-500 bg-emerald-50/60 dark:bg-emerald-950/30'
+        badgeColor: 'bg-teal-100 text-teal-800 dark:bg-teal-950/80 dark:text-teal-300 border-teal-300 dark:border-teal-700',
+        activeBorderColor: 'border-teal-500 bg-teal-50/60 dark:bg-teal-950/30'
     },
     {
         id: 'julio',
@@ -71,7 +80,7 @@ const MONTHS_CATALOG: ReportMonthOption[] = [
 
 function ReporteActividadesContent() {
     const { t, language } = useLanguage();
-    const [selectedMonth, setSelectedMonth] = useState<'agosto' | 'julio' | 'junio'>('agosto');
+    const [selectedMonth, setSelectedMonth] = useState<'septiembre' | 'agosto' | 'julio' | 'junio'>('septiembre');
     const [isRefreshing, setIsRefreshing] = useState(false);
     const iframeRef = useRef<HTMLIFrameElement>(null);
 

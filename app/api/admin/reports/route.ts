@@ -20,15 +20,17 @@ export const dynamic = 'force-dynamic';
 export async function GET(request: NextRequest) {
     try {
         const { searchParams } = new URL(request.url);
-        const month = (searchParams.get('month') || 'agosto').toLowerCase().trim();
+        const month = (searchParams.get('month') || 'septiembre').toLowerCase().trim();
 
-        let filename = 'pendientes_agosto.html';
-        if (month === 'julio' || month === 'july' || month === '07') {
+        let filename = 'pendientes_septiembre.html';
+        if (month === 'agosto' || month === 'august' || month === '08') {
+            filename = 'pendientes_agosto.html';
+        } else if (month === 'julio' || month === 'july' || month === '07') {
             filename = 'pendientes_julio.html';
         } else if (month === 'junio' || month === 'june' || month === '06') {
             filename = 'pendientes.html';
         } else {
-            filename = 'pendientes_agosto.html';
+            filename = 'pendientes_septiembre.html';
         }
 
         const filePath = path.join(process.cwd(), filename);

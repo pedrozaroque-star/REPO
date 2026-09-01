@@ -1,0 +1,276 @@
+{
+  "totalHours": 1.75,
+  "rows": [
+    {
+      "date": "01-Sep-2026",
+      "time": "2:00 AM - 3:45 AM",
+      "hours": 1.75,
+      "badges": [
+        "Soporte IA Natural",
+        "Versionado v2.6.0",
+        "Reportes Septiembre"
+      ],
+      "descEs": "• <strong>Soporte IA (Chatbot Natural & Cero Jerga Técnica)</strong>: Reestructuración integral del prompt y tono del asistente para eliminar toda la jerga técnica (SQL, bases de datos, crons, endpoints) y adaptar el lenguaje a gerentes y supervisores de restaurante en tono 100% humano y cálido.<br>• <strong>Contador de Versiones UI (v2.6.0)</strong>: Centralización del sistema de versionado en lib/version.ts y despliegue automático de la nueva versión oficial SM TEG v2.6.0 (Septiembre 2026 • Producción).<br>• <strong>Reportes Mensuales (Pestaña Septiembre 2026)</strong>: Creación y activación de la nueva pestaña y reporte de Septiembre 2026 en el visualizador /admin/reporte-actividades, generando el entorno de pendientes y horas para el nuevo mes.",
+      "descEn": "• <strong>AI Support (Natural Chatbot & Zero Tech Jargon)</strong>: Comprehensive overhaul of assistant prompt and persona, removing all programming jargon (SQL, databases, crons) in favor of 100% human, warm, restaurant operational language for store managers and staff.<br>• <strong>UI Version Counter (v2.6.0)</strong>: Centralized automated versioning system in lib/version.ts and rolled out canonical SM TEG v2.6.0 (September 2026 • Production).<br>• <strong>Monthly Reports (September 2026 Tab)</strong>: Created and activated the new September 2026 tab and standalone report in /admin/reporte-actividades to track the new month's roadmap."
+    }
+  ],
+  "effort": [
+    {
+      "module": "Mantenimiento General, Crons y Reportes",
+      "hours": 0.75
+    },
+    {
+      "module": "Soporte IA & Asistente Conversacional",
+      "hours": 0.5
+    },
+    {
+      "module": "Contador de Versiones UI & Navegación",
+      "hours": 0.5
+    }
+  ],
+  "tasks": [
+    {
+      "num": 1,
+      "title": "Módulo de Preparador de Carne y Proyecciones en Tiempo Real",
+      "status": "Completado",
+      "statusClass": "status-completed",
+      "statusLabel": "Completado e Implementado (Agosto 2026)",
+      "timeEstimate": "25.5 hrs",
+      "desc": "Motor de proyección de carne por tramos de hora pico (Apertura, Almuerzo, Medio Día, Cena, Cierre), vista tableta kiosko para cocina, acelerador intradía en vivo contra ventas de Toast y cálculo de charola máxima."
+    },
+    {
+      "num": 2,
+      "title": "Módulo de Control de Uniformes y Stock Mínimo",
+      "status": "Completado",
+      "statusClass": "status-completed",
+      "statusLabel": "Completado e Implementado (Agosto 2026)",
+      "timeEstimate": "12.5 hrs",
+      "desc": "Control de inventario de uniformes por tienda, editor individual de tallas, transferencias, deducciones por daño, stock mínimo asegurado (660 registros en BD) y conciliación con Caja Fuerte."
+    },
+    {
+      "num": 3,
+      "title": "Radar de Precios de Insumos y Scraper Viele & Sons v3",
+      "status": "Completado",
+      "statusClass": "status-completed",
+      "statusLabel": "Completado e Implementado (Agosto 2026)",
+      "timeEstimate": "11.5 hrs",
+      "desc": "Monitoreo automatizado de fluctuaciones de precios en catálogo de 87 productos Viele & Sons, alertas ejecutivas por correo a 4 directivos con impacto financiero ($ USD) y cálculo dinámico de Food Cost."
+    },
+    {
+      "num": 4,
+      "title": "Módulo MilesIQ (Rastreo GPS y Millaje de Supervisores)",
+      "status": "Completado",
+      "statusClass": "status-completed",
+      "statusLabel": "Completado e Implementado (Agosto 2026)",
+      "timeEstimate": "19.25 hrs",
+      "desc": "Registro de viajes intertienda con navegación 1-toque (Google/Apple Maps/Waze), tarifa IRS ($0.760/mi), geofencing de 15 tiendas, detector de rutas omitidas (Gap Detector) y sincronización con inspecciones."
+    },
+    {
+      "num": 5,
+      "title": "Conciliación de Ventas Toast API y Descuentos Cruzados",
+      "status": "Completado",
+      "statusClass": "status-completed",
+      "statusLabel": "Completado e Implementado (Agosto 2026)",
+      "timeEstimate": "18.5 hrs",
+      "desc": "Conciliación de ventas netas al centavo para las 15 tiendas, soporte de reembolsos de fechas cruzadas (Cross-Date Refunds de Party Trays), partidas EBT y reportes financieros sin caché desactualizado."
+    },
+    {
+      "num": 6,
+      "title": "Motor de Inteligencia Artificial para Descansos Laborales (Labor Compliance)",
+      "status": "Completado",
+      "statusClass": "status-completed",
+      "statusLabel": "Completado e Implementado (Agosto 2026)",
+      "timeEstimate": "12.5 hrs",
+      "desc": "Auditoría estricta bajo ley laboral de California (almuerzos antes de la 5ta hora), prioridad para turnos de salida temprana, adición/eliminación manual (<= 6h) y alertas por correo de violaciones."
+    },
+    {
+      "num": 7,
+      "title": "Módulo RONOS HR, Asistencia Biométrica y Auditoría de Nómina Cingular / Simplify",
+      "status": "Completado",
+      "statusClass": "status-completed",
+      "statusLabel": "Completado e Implementado en Producción (Agosto 2026)",
+      "timeEstimate": "14.67 hrs",
+      "desc": "Conector de API RONOS, ingesta biométrica de ponchadas y fotos, mapeo Toast/Planificador, cruce de Pay Rate vs Bill Rate, cálculo exacto de markup (26.0% / 25.98%), auditoría de facturas PDF de Cingular y sueldos de gerentes/supervisores con desglose de Sick Pay."
+    },
+    {
+      "num": 8,
+      "title": "Auditoría y Módulo de Caja Fuerte (Cortes e Historial)",
+      "status": "Completado",
+      "statusClass": "status-completed",
+      "statusLabel": "Completado e Implementado (Agosto 2026)",
+      "timeEstimate": "6.0 hrs",
+      "desc": "Edición de registros históricos de corte de caja, cálculo de fechas en zona horaria PST, reseteo seguro de formularios y conciliación de flujo de efectivo de uniformes."
+    },
+    {
+      "num": 9,
+      "title": "Sincronización de Pedidos de Bodega y PAR Semanal con QuickBooks",
+      "status": "Completado",
+      "statusClass": "status-completed",
+      "statusLabel": "Completado e Implementado (Agosto 2026)",
+      "timeEstimate": "7.0 hrs",
+      "desc": "Guardado seguro de presupuestos (sparse: false) en QuickBooks, sincronización de PAR semanal para líquidos y uniformes, y edición de PAR en días bloqueados para la semana entrante."
+    },
+    {
+      "num": 10,
+      "title": "Checklists Operativos de Inocuidad y Calibración de Temperaturas",
+      "status": "Completado",
+      "statusClass": "status-completed",
+      "statusLabel": "Completado e Implementado (Agosto 2026)",
+      "timeEstimate": "4.5 hrs",
+      "desc": "Calibración de umbrales reglamentarios ServSafe para refrigeración/salsas (<= 40°F) y vaporeras calientes (>= 140°F), soporte estatus_manager y auditoría de selectores de empleados."
+    },
+    {
+      "num": 11,
+      "title": "Visor Interactivo HTML de Reportes y Planificador Gantt Dual",
+      "status": "Completado",
+      "statusClass": "status-completed",
+      "statusLabel": "Completado e Implementado (Agosto 2026)",
+      "timeEstimate": "5.5 hrs",
+      "desc": "Visor exclusivo para administradores (/admin/reporte-actividades), pistas visuales de 4 AM a 12 AM con turnos de tienda Lynwood vs desarrollo TEG y resolución del wrap-around de medianoche."
+    },
+    {
+      "num": 12,
+      "title": "Telemetría de Drive-Thru y Tiempos de Servicio",
+      "status": "Completado",
+      "statusClass": "status-completed",
+      "statusLabel": "Completado (Junio 2026)",
+      "timeEstimate": "85.0 hrs",
+      "desc": "Integración de sensores de velocidad de servicio en ventanilla y autoservicio."
+    },
+    {
+      "num": 13,
+      "title": "Clon de Basecamp 3 y Mensajería Interna",
+      "status": "Completado",
+      "statusClass": "status-completed",
+      "statusLabel": "Completado (Junio 2026)",
+      "timeEstimate": "42.0 hrs",
+      "desc": "Módulo de comunicación corporativa con selector de vistas Cards/List y sincronización."
+    },
+    {
+      "num": 14,
+      "title": "Procedimientos, Fotos e Inspecciones de Tienda",
+      "status": "En Progreso",
+      "statusClass": "status-in-progress",
+      "statusLabel": "En Progreso (85% Avanzado)",
+      "timeEstimate": "37.0 hrs",
+      "desc": "Captura fotográfica de auditorías y ordenamiento cronológico de inspecciones."
+    },
+    {
+      "num": 15,
+      "title": "Pronóstico Estacional de Champurrado a 5 Años",
+      "status": "Completado",
+      "statusClass": "status-completed",
+      "statusLabel": "Completado (Agosto 2026)",
+      "timeEstimate": "6.45 hrs",
+      "desc": "Motor predictivo en /api/inventory/champurrado-forecast con conversión de 8 lbs/galón."
+    },
+    {
+      "num": 16,
+      "title": "Sincronización Móvil de Calendarios (.ics) para Empleados",
+      "status": "Completado",
+      "statusClass": "status-completed",
+      "statusLabel": "Completado (Agosto 2026)",
+      "timeEstimate": "3.5 hrs",
+      "desc": "Exportación instantánea de turnos de trabajo a Google Calendar, Apple Calendar y Outlook."
+    },
+    {
+      "num": 17,
+      "title": "Tech Packs y Especificaciones Técnicas RFQ para Proveedores",
+      "status": "Completado",
+      "statusClass": "status-completed",
+      "statusLabel": "Completado (Agosto 2026)",
+      "timeEstimate": "9.0 hrs",
+      "desc": "Documentación técnica de 43 productos desechables, menudeo de insumos y reportes PDF de compras."
+    },
+    {
+      "num": 18,
+      "title": "Módulo de Recetas y Costeo de Platillos",
+      "status": "En Progreso",
+      "statusClass": "status-in-progress",
+      "statusLabel": "En Progreso (75% Avanzado)",
+      "timeEstimate": "22.0 hrs",
+      "desc": "Estructuración de recetas maestras y descomposición de ingredientes para Food Cost."
+    },
+    {
+      "num": 19,
+      "title": "Kiosko de Encuestas de Clientes (Dining Room Feedback)",
+      "status": "En Progreso",
+      "statusClass": "status-in-progress",
+      "statusLabel": "En Progreso (60% Avanzado)",
+      "timeEstimate": "18.0 hrs",
+      "desc": "Módulo interactivo de satisfacción al cliente en salón (/clientes)."
+    },
+    {
+      "num": 20,
+      "title": "TV Menús Digitales para Restaurantes",
+      "status": "En Progreso",
+      "statusClass": "status-in-progress",
+      "statusLabel": "En Progreso (70% Avanzado)",
+      "timeEstimate": "16.0 hrs",
+      "desc": "Gestión de tableros de precios y promociones dinámicas en pantallas de sucursal."
+    },
+    {
+      "num": 21,
+      "title": "Evaluación de Desempeño de Personal (Staff Evaluation)",
+      "status": "En Progreso",
+      "statusClass": "status-in-progress",
+      "statusLabel": "En Progreso (50% Avanzado)",
+      "timeEstimate": "14.0 hrs",
+      "desc": "Módulo de auditoría de habilidades y revisiones periódicas de colaboradores."
+    },
+    {
+      "num": 22,
+      "title": "Planificador Semanal de Turnos con Inteligencia Artificial",
+      "status": "En Progreso",
+      "statusClass": "status-in-progress",
+      "statusLabel": "En Progreso (80% Avanzado)",
+      "timeEstimate": "24.0 hrs",
+      "desc": "Asignación automática de horarios respetando disponibilidad, roles y presupuesto laboral."
+    },
+    {
+      "num": 23,
+      "title": "Soporte y Asistente IA (TEG Assistant Chatbot)",
+      "status": "Completado",
+      "statusClass": "status-completed",
+      "statusLabel": "Completado y Sincronizado Continuamente",
+      "timeEstimate": "12.0 hrs",
+      "desc": "Asistente inteligente con 100% de conocimiento del ecosistema en tiempo real."
+    },
+    {
+      "num": 24,
+      "title": "Mantenimiento General, Crons Automáticos y Base de Datos Supabase",
+      "status": "Completado",
+      "statusClass": "status-completed",
+      "statusLabel": "Completado y en Ejecución Continua",
+      "timeEstimate": "18.0 hrs",
+      "desc": "Crons de sincronización diaria (ventas, labor, violaciones, precios Viele) e integridad DB."
+    },
+    {
+      "num": 25,
+      "title": "App Móvil para Gerentes y Supervisores (React Native / Expo)",
+      "status": "Pendiente",
+      "statusClass": "status-pending",
+      "statusLabel": "Pendiente de Inicio",
+      "timeEstimate": "60.0 hrs",
+      "desc": "Aplicación móvil nativa para gestión en tiempo real desde teléfonos móviles."
+    },
+    {
+      "num": 26,
+      "title": "Módulo de Mantenimiento Preventivo y Reparaciones de Equipos",
+      "status": "Pendiente",
+      "statusClass": "status-pending",
+      "statusLabel": "Pendiente de Inicio",
+      "timeEstimate": "35.0 hrs",
+      "desc": "Tickets de servicio y bitácora técnica de freidoras, parrillas, cuartos fríos y POS."
+    },
+    {
+      "num": 27,
+      "title": "Portal de Capacitación y Videos de Estandarización de Cocina",
+      "status": "Pendiente",
+      "statusClass": "status-pending",
+      "statusLabel": "Pendiente de Inicio",
+      "timeEstimate": "40.0 hrs",
+      "desc": "Biblioteca multimedia de recetas, cortes de carne y manuales de servicio."
+    }
+  ]
+}

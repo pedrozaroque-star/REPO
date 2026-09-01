@@ -47,6 +47,18 @@ console.log('══════════════════════�
         margin: { top: '0.3in', right: '0.3in', bottom: '0.3in', left: '0.3in' }
     });
 
-    console.log('🎉 Los 3 PDFs fueron generados exitosamente en el Escritorio!');
+    // 4. SEPTIEMBRE
+    console.log('Generando Reporte_Septiembre_2026_TEG.pdf...');
+    const sepUrl = `file:///${path.resolve('pendientes_septiembre.html').replace(/\\/g, '/')}`;
+    await page.goto(sepUrl, { waitUntil: 'networkidle0' });
+    await page.pdf({
+        path: 'c:/Users/pedro/Desktop/Reporte_Septiembre_2026_TEG.pdf',
+        format: 'Letter',
+        printBackground: true,
+        scale: 0.82,
+        margin: { top: '0.3in', right: '0.3in', bottom: '0.3in', left: '0.3in' }
+    });
+
+    console.log('🎉 Los 4 PDFs ejecutivos fueron generados exitosamente en el Escritorio!');
     await browser.close();
 })();
