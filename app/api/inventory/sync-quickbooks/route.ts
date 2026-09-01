@@ -265,6 +265,14 @@ export async function POST() {
             // Case A: Already mapped
             const existingMapping = existingMappings?.find(m => m.qb_item_id === qbItem.Id);
             if (existingMapping) {
+                // 🛡️ REGLA FUNDAMENTAL DE NEGOCIO:
+                // QuickBooks SOLO gobierna insumos de La Bodega (is_bodega: true).
+                // Los insumos de distribuidores externos (is_bodega: false / Viele & Sons) son gobernados exclusivamente por el Radar de Precios.
+                const targetItem = internalItems.find(i => i.id === existingMapping.inventory_item_id);
+                if (targetItem && targetItem.is_bodega === false) {
+                    continue;
+                }
+
                 // --- SMART PRICE PROTECTION ---
                 // 1. Get multiplier: from DB column (post-migration) or fallback map (pre-migration)
                 const dbMultiplier = Number((existingMapping as any).multiplier);
@@ -337,10 +345,11 @@ export async function POST() {
             const newItemMultiplier = FALLBACK_MULTIPLIERS[qbItem.Id] || 1;
             const rate = baseRate * newItemMultiplier;
 
-            // Case B: Not mapped, try to find a FREE internal item by Name exactly
+            // Case B: Not mapped, try to find a FREE internal item by Name exactly (solo para items de Bodega)
             let internal = internalItems.find(i =>
                 !usedInternalIds.has(i.id) &&
-                (i.name.toLowerCase().trim() === qbItem.Name.toLowerCase().trim())
+                (i.name.toLowerCase().trim() === qbItem.Name.toLowerCase().trim()) &&
+                i.is_bodega === true
             );
 
             if (!internal) {
