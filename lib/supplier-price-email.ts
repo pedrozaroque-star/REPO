@@ -63,12 +63,15 @@ export const DEFAULT_PRICE_ALERT_RECIPIENTS = [
 /**
  * Genera la fila HTML de un artículo para la tabla de correo
  */
+/**
+ * Genera la fila HTML de un artículo para la tabla de correo (Diseño limpio y bien distribuido)
+ */
 function renderItemRow(item: PriceChangeItem, type: 'increase' | 'decrease'): string {
   const formattedPrev = item.previousCasePrice.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
   const formattedNew = item.newCasePrice.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
   const isInc = type === 'increase'
   const color = isInc ? '#dc2626' : '#059669'
-  const bgColor = isInc ? '#fff5f5' : '#f0fdf4'
+  const bgColor = isInc ? '#fef2f2' : '#f0fdf4'
   const sign = item.diffAmount >= 0 ? '+' : ''
   const formattedDiff = sign + item.diffAmount.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
   const formattedImpact = (isInc ? '+' : '') + item.annualImpactUsd.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
@@ -81,34 +84,49 @@ function renderItemRow(item: PriceChangeItem, type: 'increase' | 'decrease'): st
   if (item.lastApprovedDate) {
     try {
       const d = new Date(item.lastApprovedDate)
-      refDateText = d.toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: '2-digit', timeZone: 'America/Los_Angeles' })
+      refDateText = d.toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'America/Los_Angeles' })
     } catch { refDateText = '' }
   }
 
   return `
-    <tr style="border-bottom: 1px solid #e2e8f0;">
-      <td style="padding: 10px 12px; font-family: monospace; font-weight: 700; color: #2563eb; font-size: 13px;">
-        ${item.supplierSku}
+    <tr style="border-bottom: 1px solid #f1f5f9;">
+      <td style="padding: 12px 14px; vertical-align: middle;">
+        <span style="font-family: monospace; font-weight: 700; color: #2563eb; font-size: 13px; background-color: #eff6ff; padding: 2px 6px; border-radius: 4px;">
+          ${item.supplierSku}
+        </span>
+        <div style="font-size: 13px; color: #0f172a; font-weight: 600; margin-top: 4px;">
+          ${item.description}
+        </div>
+        <div style="font-size: 11px; color: #64748b; margin-top: 2px;">
+          ${packText} · Consumo est.: <strong>${item.annualVolume.toLocaleString()} cjs/año</strong>
+        </div>
       </td>
-      <td style="padding: 10px 12px; font-size: 13px; color: #0f172a; font-weight: 600;">
-        ${item.description}
-        <div style="font-size: 11px; color: #64748b; font-weight: 400; margin-top: 2px;">${packText}</div>
+      <td style="padding: 12px 14px; text-align: right; vertical-align: middle; white-space: nowrap;">
+        <div style="font-family: monospace; font-size: 14px; color: #64748b; font-weight: 600;">
+          ${formattedPrev}
+        </div>
+        ${refDateText ? `<div style="font-size: 10.5px; color: #94a3b8; margin-top: 2px;">Aprobado: ${refDateText}</div>` : ''}
       </td>
-      <td style="padding: 10px 12px; text-align: right; font-family: monospace; font-size: 13px; color: #64748b;">
-        ${formattedPrev}
-        ${refDateText ? `<div style="font-size: 10px; color: #94a3b8; margin-top: 2px;">${refDateText}</div>` : ''}
+      <td style="padding: 12px 14px; text-align: right; vertical-align: middle; white-space: nowrap;">
+        <div style="font-family: monospace; font-size: 15px; color: ${color}; font-weight: 800;">
+          ${formattedNew}
+        </div>
       </td>
-      <td style="padding: 10px 12px; text-align: right; font-family: monospace; font-size: 13px; color: ${color}; font-weight: 700;">
-        ${formattedNew}
+      <td style="padding: 12px 14px; text-align: right; vertical-align: middle; white-space: nowrap;">
+        <div style="font-family: monospace; font-size: 13px; color: ${color}; font-weight: 700;">
+          ${formattedDiff}
+        </div>
+        <div style="font-size: 11px; color: ${color}; font-weight: 600; margin-top: 1px;">
+          (${sign}${item.changePercent.toFixed(1)}%)
+        </div>
       </td>
-      <td style="padding: 10px 12px; text-align: right; font-family: monospace; font-size: 12px; color: ${color}; font-weight: 700;">
-        ${formattedDiff} (${sign}${item.changePercent.toFixed(1)}%)
-      </td>
-      <td style="padding: 10px 12px; text-align: right; font-family: monospace; font-size: 12px; color: #475569;">
-        ${item.annualVolume.toLocaleString()} cjs
-      </td>
-      <td style="padding: 10px 12px; text-align: right; font-family: monospace; font-size: 13px; color: ${color}; font-weight: 800; background-color: ${bgColor};">
-        ${formattedImpact} / año
+      <td style="padding: 12px 14px; text-align: right; vertical-align: middle; background-color: ${bgColor}; white-space: nowrap; border-left: 1px solid #f1f5f9;">
+        <div style="font-family: monospace; font-size: 14px; color: ${color}; font-weight: 900;">
+          ${formattedImpact}
+        </div>
+        <div style="font-size: 10px; color: ${color}; opacity: 0.85; font-weight: 600; text-transform: uppercase;">
+          Cadena (15T)
+        </div>
       </td>
     </tr>
   `
@@ -127,7 +145,7 @@ export function generatePriceAlertEmailHtml(options: PriceAlertEmailOptions): st
     isTest = false
   } = options
 
-  const formattedDate = new Date(detectedAt).toLocaleString('es-ES', {
+  const formattedDate = new Date(detectedAt).toLocaleString('es-MX', {
     timeZone: 'America/Los_Angeles',
     day: '2-digit',
     month: 'short',
@@ -138,8 +156,8 @@ export function generatePriceAlertEmailHtml(options: PriceAlertEmailOptions): st
   })
 
   const sourceLabel = sourceType === 'cron_auto' 
-    ? 'Revisión Automática Programada (Lunes a Viernes 6:00 AM)' 
-    : 'Revisión en Vivo desde el Tablero SM TEG'
+    ? 'Monitoreo Automático Diario (Lunes a Viernes 6:00 AM)' 
+    : 'Revisión en Vivo desde Tablero SM TEG'
 
   const hasIncreases = increases.length > 0
   const hasDecreases = decreases.length > 0
@@ -151,151 +169,96 @@ export function generatePriceAlertEmailHtml(options: PriceAlertEmailOptions): st
     ? options.netAnnualImpactUsd 
     : (totalIncreasesSum + totalDecreasesSum)
 
-  // Determinar Tipo de Notificación:
-  // 'only_decreases' | 'only_increases' | 'mixed'
   const notifType: 'only_decreases' | 'only_increases' | 'mixed' = 
     (!hasIncreases && hasDecreases) ? 'only_decreases' :
     (hasIncreases && !hasDecreases) ? 'only_increases' : 'mixed'
 
-  // Configuración de Título y Colores de Cabecera
-  let headerTitle = '🚨 Alerta de Aumento de Precios de Proveedor'
-  let mainThemeColor = '#dc2626'
-  let mainThemeBg = '#fef2f2'
-  let mainThemeBorder = '#fecaca'
+  let headerTitle = 'Reporte de Variación de Precios'
+  let headerColor = '#0f172a'
+  let netColor = netImpact <= 0 ? '#059669' : '#dc2626'
+  let netBg = netImpact <= 0 ? '#ecfdf5' : '#fef2f2'
+  let netBorder = netImpact <= 0 ? '#a7f3d0' : '#fecaca'
 
   if (notifType === 'only_decreases') {
-    headerTitle = '🎉 Alerta de Reducción de Precios & Oportunidades de Ahorro'
-    mainThemeColor = '#059669'
-    mainThemeBg = '#ecfdf5'
-    mainThemeBorder = '#a7f3d0'
-  } else if (notifType === 'mixed') {
-    headerTitle = '📊 Reporte de Variación de Precios de Proveedor'
-    mainThemeColor = netImpact >= 0 ? '#dc2626' : '#059669'
-    mainThemeBg = netImpact >= 0 ? '#fef2f2' : '#ecfdf5'
-    mainThemeBorder = netImpact >= 0 ? '#fecaca' : '#a7f3d0'
-  }
-
-  // Tarjeta de Resumen Financiero
-  let financialCardHtml = ''
-  if (notifType === 'only_decreases') {
-    const formattedSavings = Math.abs(totalDecreasesSum).toLocaleString('en-US', { style: 'currency', currency: 'USD' })
-    financialCardHtml = `
-      <table width="100%" cellspacing="0" cellpadding="0" style="background-color: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 12px; padding: 16px;">
-        <tr>
-          <td width="50%" style="vertical-align: top; padding-right: 12px; border-right: 1px solid #a7f3d0;">
-            <div style="font-size: 11px; font-weight: 800; color: #065f46; text-transform: uppercase; letter-spacing: 0.5px;">
-              Ahorro Anual Proyectado (15 Tiendas)
-            </div>
-            <div style="font-size: 28px; font-weight: 900; color: #059669; font-family: monospace; margin-top: 4px;">
-              -${formattedSavings} USD
-            </div>
-            <div style="font-size: 11.5px; color: #047857; margin-top: 4px;">
-              Dinero que la cadena ahorrará al año con estas rebajas de costos.
-            </div>
-          </td>
-          <td width="50%" style="vertical-align: top; padding-left: 16px;">
-            <div style="font-size: 11px; font-weight: 800; color: #475569; text-transform: uppercase; letter-spacing: 0.5px;">
-              Resumen de Ahorros
-            </div>
-            <div style="margin-top: 6px; font-size: 13px; color: #1e293b;">
-              • Insumos con Rebaja: <strong style="color: #059669;">${decreases.length} producto(s)</strong><br>
-              • Fecha de Detección: <strong>${formattedDate}</strong><br>
-              • Sucursales Beneficiadas: <strong>15 tiendas activas</strong>
-            </div>
-          </td>
-        </tr>
-      </table>
-    `
+    headerTitle = 'Oportunidades de Ahorro — Reducción de Precios'
   } else if (notifType === 'only_increases') {
-    const formattedCost = Math.abs(totalIncreasesSum).toLocaleString('en-US', { style: 'currency', currency: 'USD' })
-    financialCardHtml = `
-      <table width="100%" cellspacing="0" cellpadding="0" style="background-color: #fef2f2; border: 1px solid #fecaca; border-radius: 12px; padding: 16px;">
-        <tr>
-          <td width="50%" style="vertical-align: top; padding-right: 12px; border-right: 1px solid #fecaca;">
-            <div style="font-size: 11px; font-weight: 800; color: #991b1b; text-transform: uppercase; letter-spacing: 0.5px;">
-              Impacto Anual Proyectado (15 Tiendas)
-            </div>
-            <div style="font-size: 28px; font-weight: 900; color: #dc2626; font-family: monospace; margin-top: 4px;">
-              +${formattedCost} USD
-            </div>
-            <div style="font-size: 11.5px; color: #7f1d1d; margin-top: 4px;">
-              Gasto adicional proyectado para la cadena si se aceptan las alzas.
-            </div>
-          </td>
-          <td width="50%" style="vertical-align: top; padding-left: 16px;">
-            <div style="font-size: 11px; font-weight: 800; color: #475569; text-transform: uppercase; letter-spacing: 0.5px;">
-              Resumen del Catálogo
-            </div>
-            <div style="margin-top: 6px; font-size: 13px; color: #1e293b;">
-              • Insumos con Aumento: <strong style="color: #dc2626;">${increases.length} producto(s)</strong><br>
-              • Fecha de Detección: <strong>${formattedDate}</strong><br>
-              • Sucursales Afectadas: <strong>15 tiendas activas</strong>
-            </div>
-          </td>
-        </tr>
-      </table>
-    `
-  } else {
-    // Mixto
-    const formattedNet = (netImpact >= 0 ? '+' : '') + netImpact.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
-    const formattedInc = Math.abs(totalIncreasesSum).toLocaleString('en-US', { style: 'currency', currency: 'USD' })
-    const formattedDec = Math.abs(totalDecreasesSum).toLocaleString('en-US', { style: 'currency', currency: 'USD' })
-    financialCardHtml = `
-      <table width="100%" cellspacing="0" cellpadding="0" style="background-color: ${mainThemeBg}; border: 1px solid ${mainThemeBorder}; border-radius: 12px; padding: 16px;">
-        <tr>
-          <td width="40%" style="vertical-align: top; padding-right: 12px; border-right: 1px solid #e2e8f0;">
-            <div style="font-size: 11px; font-weight: 800; color: #475569; text-transform: uppercase; letter-spacing: 0.5px;">
-              Impacto Neto Anual (15 Tiendas)
-            </div>
-            <div style="font-size: 24px; font-weight: 900; color: ${mainThemeColor}; font-family: monospace; margin-top: 4px;">
-              ${formattedNet} USD
-            </div>
-            <div style="font-size: 11px; color: #64748b; margin-top: 4px;">
-              Balance total de aumentos vs rebajas.
-            </div>
-          </td>
-          <td width="30%" style="vertical-align: top; padding: 0 12px; border-right: 1px solid #e2e8f0;">
-            <div style="font-size: 11px; font-weight: 800; color: #991b1b; text-transform: uppercase;">
-              🔴 Aumentos (${increases.length})
-            </div>
-            <div style="font-size: 18px; font-weight: 900; color: #dc2626; font-family: monospace; margin-top: 4px;">
-              +${formattedInc}
-            </div>
-          </td>
-          <td width="30%" style="vertical-align: top; padding-left: 12px;">
-            <div style="font-size: 11px; font-weight: 800; color: #065f46; text-transform: uppercase;">
-              🟢 Ahorros (${decreases.length})
-            </div>
-            <div style="font-size: 18px; font-weight: 900; color: #059669; font-family: monospace; margin-top: 4px;">
-              -${formattedDec}
-            </div>
-          </td>
-        </tr>
-      </table>
-    `
+    headerTitle = 'Alerta de Aumento de Precios de Proveedor'
   }
+
+  // Tarjeta de Resumen Financiero Limpia
+  const formattedNet = (netImpact >= 0 ? '+' : '') + netImpact.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
+  const formattedInc = Math.abs(totalIncreasesSum).toLocaleString('en-US', { style: 'currency', currency: 'USD' })
+  const formattedDec = Math.abs(totalDecreasesSum).toLocaleString('en-US', { style: 'currency', currency: 'USD' })
+
+  const financialCardHtml = `
+    <table width="100%" cellspacing="0" cellpadding="0" style="background-color: ${netBg}; border: 1px solid ${netBorder}; border-radius: 12px; overflow: hidden;">
+      <tr>
+        <td style="padding: 18px 20px;">
+          <table width="100%" cellspacing="0" cellpadding="0">
+            <tr>
+              <td style="vertical-align: middle;">
+                <div style="font-size: 11px; font-weight: 800; color: #475569; text-transform: uppercase; letter-spacing: 0.5px;">
+                  Balance Anual Proyectado (15 Sucursales)
+                </div>
+                <div style="font-size: 26px; font-weight: 900; color: ${netColor}; font-family: monospace; margin-top: 2px;">
+                  ${formattedNet} USD / año
+                </div>
+                <div style="font-size: 11.5px; color: #64748b; margin-top: 2px;">
+                  ${netImpact <= 0 ? 'Ahorro neto estimado para la cadena.' : 'Incremento neto estimado para la cadena.'}
+                </div>
+              </td>
+              <td align="right" style="vertical-align: middle;">
+                <table cellspacing="0" cellpadding="0">
+                  <tr>
+                    ${hasIncreases ? `
+                      <td style="padding-left: 16px; text-align: right;">
+                        <div style="font-size: 11px; font-weight: 700; color: #dc2626; text-transform: uppercase;">
+                          ${increases.length} Aumento${increases.length > 1 ? 's' : ''}
+                        </div>
+                        <div style="font-size: 15px; font-weight: 800; color: #dc2626; font-family: monospace; margin-top: 1px;">
+                          +${formattedInc}
+                        </div>
+                      </td>
+                    ` : ''}
+                    ${hasDecreases ? `
+                      <td style="padding-left: 16px; text-align: right;">
+                        <div style="font-size: 11px; font-weight: 700; color: #059669; text-transform: uppercase;">
+                          ${decreases.length} Rebaja${decreases.length > 1 ? 's' : ''}
+                        </div>
+                        <div style="font-size: 15px; font-weight: 800; color: #059669; font-family: monospace; margin-top: 1px;">
+                          -${formattedDec}
+                        </div>
+                      </td>
+                    ` : ''}
+                  </tr>
+                </table>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  `
 
   // Sección de Tablas
   let tablesSectionHtml = ''
 
-  // Tabla de Reducciones / Ahorros (si hay)
+  // Tabla de Rebajas / Ahorros
   if (hasDecreases) {
     const decRows = decreases.map(i => renderItemRow(i, 'decrease')).join('')
     tablesSectionHtml += `
       <div style="margin-top: 24px;">
-        <div style="font-size: 14px; font-weight: 900; color: #059669; margin-bottom: 10px; display: flex; align-items: center; gap: 6px;">
-          🎉 Insumos con Reducción de Precio (${decreases.length} Oportunidades de Ahorro):
+        <div style="font-size: 14px; font-weight: 800; color: #059669; margin-bottom: 8px;">
+          📉 Insumos con Rebaja de Precio (${decreases.length} Oportunidades de Ahorro):
         </div>
         <table width="100%" cellspacing="0" cellpadding="0" style="border-collapse: collapse; background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden;">
           <thead>
-            <tr style="background-color: #ecfdf5; border-bottom: 2px solid #a7f3d0; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #065f46;">
-              <th style="padding: 10px 12px; text-align: left;">SKU</th>
-              <th style="padding: 10px 12px; text-align: left;">Insumo / Descripción</th>
-              <th style="padding: 10px 12px; text-align: right;">Último Aprobado</th>
-              <th style="padding: 10px 12px; text-align: right;">Precio Hoy</th>
-              <th style="padding: 10px 12px; text-align: right;">Ahorro</th>
-              <th style="padding: 10px 12px; text-align: right;">Consumo</th>
-              <th style="padding: 10px 12px; text-align: right;">Ahorro Anual (15T)</th>
+            <tr style="background-color: #f8fafc; border-bottom: 2px solid #e2e8f0; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #475569;">
+              <th style="padding: 10px 14px; text-align: left;">Insumo / Descripción</th>
+              <th style="padding: 10px 14px; text-align: right;">Último Aprobado</th>
+              <th style="padding: 10px 14px; text-align: right;">Precio Hoy</th>
+              <th style="padding: 10px 14px; text-align: right;">Ahorro</th>
+              <th style="padding: 10px 14px; text-align: right;">Impacto Anual</th>
             </tr>
           </thead>
           <tbody>
@@ -306,24 +269,22 @@ export function generatePriceAlertEmailHtml(options: PriceAlertEmailOptions): st
     `
   }
 
-  // Tabla de Aumentos (si hay)
+  // Tabla de Aumentos
   if (hasIncreases) {
     const incRows = increases.map(i => renderItemRow(i, 'increase')).join('')
     tablesSectionHtml += `
       <div style="margin-top: 24px;">
-        <div style="font-size: 14px; font-weight: 900; color: #dc2626; margin-bottom: 10px; display: flex; align-items: center; gap: 6px;">
-          🚨 Insumos con Aumento de Precio (${increases.length} Productos Afectados):
+        <div style="font-size: 14px; font-weight: 800; color: #dc2626; margin-bottom: 8px;">
+          📈 Insumos con Aumento de Precio (${increases.length} Producto${increases.length > 1 ? 's' : ''} Afectado${increases.length > 1 ? 's' : ''}):
         </div>
         <table width="100%" cellspacing="0" cellpadding="0" style="border-collapse: collapse; background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden;">
           <thead>
-            <tr style="background-color: #fef2f2; border-bottom: 2px solid #fecaca; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #991b1b;">
-              <th style="padding: 10px 12px; text-align: left;">SKU</th>
-              <th style="padding: 10px 12px; text-align: left;">Insumo / Descripción</th>
-              <th style="padding: 10px 12px; text-align: right;">Último Aprobado</th>
-              <th style="padding: 10px 12px; text-align: right;">Precio Hoy</th>
-              <th style="padding: 10px 12px; text-align: right;">Aumento</th>
-              <th style="padding: 10px 12px; text-align: right;">Consumo</th>
-              <th style="padding: 10px 12px; text-align: right;">Impacto Anual (15T)</th>
+            <tr style="background-color: #f8fafc; border-bottom: 2px solid #e2e8f0; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #475569;">
+              <th style="padding: 10px 14px; text-align: left;">Insumo / Descripción</th>
+              <th style="padding: 10px 14px; text-align: right;">Último Aprobado</th>
+              <th style="padding: 10px 14px; text-align: right;">Precio Hoy</th>
+              <th style="padding: 10px 14px; text-align: right;">Aumento</th>
+              <th style="padding: 10px 14px; text-align: right;">Impacto Anual</th>
             </tr>
           </thead>
           <tbody>
@@ -342,44 +303,44 @@ export function generatePriceAlertEmailHtml(options: PriceAlertEmailOptions): st
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>${headerTitle} — Tacos Gavilan</title>
 </head>
-<body style="margin: 0; padding: 0; background-color: #f8fafc; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #0f172a;">
+<body style="margin: 0; padding: 0; background-color: #f1f5f9; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #0f172a;">
   
-  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color: #f8fafc; padding: 24px 12px;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color: #f1f5f9; padding: 24px 12px;">
     <tr>
       <td align="center">
         
         <!-- CONTENEDOR PRINCIPAL -->
-        <table role="presentation" width="100%" style="max-width: 700px; background-color: #ffffff; border-radius: 16px; overflow: hidden; border: 1px solid #e2e8f0; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.05);" cellspacing="0" cellpadding="0">
+        <table role="presentation" width="100%" style="max-width: 720px; background-color: #ffffff; border-radius: 14px; overflow: hidden; border: 1px solid #cbd5e1; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06);" cellspacing="0" cellpadding="0">
           
-          <!-- BANDA ROJA SUPERIOR GAVILAN -->
+          <!-- BANDA ROJA SUPERIOR TACOS GAVILAN -->
           <tr>
-            <td style="background-color: #DA291C; height: 6px;"></td>
+            <td style="background-color: #DA291C; height: 5px;"></td>
           </tr>
 
           <!-- ENCABEZADO -->
           <tr>
-            <td style="padding: 24px 28px 16px 28px; border-bottom: 1px solid #e2e8f0;">
+            <td style="padding: 24px 28px 18px 28px; border-bottom: 1px solid #f1f5f9;">
               <table width="100%" cellspacing="0" cellpadding="0">
                 <tr>
                   <td>
-                    <div style="display: inline-block; background-color: #DA291C; color: #ffffff; font-weight: 900; font-size: 14px; padding: 4px 10px; border-radius: 6px; letter-spacing: 0.5px;">
+                    <span style="display: inline-block; background-color: #DA291C; color: #ffffff; font-weight: 900; font-size: 13px; padding: 3px 8px; border-radius: 4px; letter-spacing: 0.5px;">
                       TACOS GAVILAN
-                    </div>
-                    <span style="font-size: 12px; font-weight: 700; color: #64748b; margin-left: 8px; text-transform: uppercase; letter-spacing: 0.5px;">
+                    </span>
+                    <span style="font-size: 12px; font-weight: 700; color: #64748b; margin-left: 8px;">
                       SM TEG · Control de Costos
                     </span>
                   </td>
                   <td align="right">
-                    ${isTest ? '<span style="background-color: #fef3c7; color: #92400e; border: 1px solid #fde68a; font-size: 10px; font-weight: 800; padding: 3px 8px; border-radius: 12px; text-transform: uppercase;">MODO DE PRUEBA</span>' : ''}
+                    ${isTest ? '<span style="background-color: #fef3c7; color: #92400e; border: 1px solid #fde68a; font-size: 10px; font-weight: 800; padding: 3px 8px; border-radius: 8px; text-transform: uppercase;">MODO DE PRUEBA</span>' : ''}
                   </td>
                 </tr>
                 <tr>
                   <td colspan="2" style="padding-top: 14px;">
-                    <h1 style="margin: 0; font-size: 22px; font-weight: 900; color: #0f172a; line-height: 1.25;">
+                    <h1 style="margin: 0; font-size: 20px; font-weight: 900; color: ${headerColor}; line-height: 1.3;">
                       ${headerTitle}
                     </h1>
-                    <div style="font-size: 13px; color: #64748b; margin-top: 4px;">
-                      Distribuidor: <strong style="color: #0f172a;">${supplierName}</strong> · ${sourceLabel}
+                    <div style="font-size: 12.5px; color: #64748b; margin-top: 4px;">
+                      Proveedor: <strong style="color: #0f172a;">${supplierName}</strong> · ${sourceLabel}
                     </div>
                   </td>
                 </tr>
@@ -387,9 +348,9 @@ export function generatePriceAlertEmailHtml(options: PriceAlertEmailOptions): st
             </td>
           </tr>
 
-          <!-- TARJETA DE IMPACTO FINANCIERO -->
+          <!-- TARJETA DE RESUMEN FINANCIERO -->
           <tr>
-            <td style="padding: 20px 28px 12px 28px;">
+            <td style="padding: 20px 28px 8px 28px;">
               ${financialCardHtml}
             </td>
           </tr>
@@ -399,21 +360,20 @@ export function generatePriceAlertEmailHtml(options: PriceAlertEmailOptions): st
             <td style="padding: 0 28px 24px 28px;">
               ${tablesSectionHtml}
 
-              <!-- BOTÓN DE ACCIÓN DIRECTA -->
-              <div style="text-align: center; margin-top: 28px;">
-                <a href="https://tacosgavilan.vercel.app/admin/precios-proveedores" target="_blank" style="display: inline-block; background-color: #DA291C; color: #ffffff; font-size: 14px; font-weight: 800; text-decoration: none; padding: 14px 28px; border-radius: 10px; box-shadow: 0 4px 12px rgba(218, 41, 28, 0.25);">
-                  Ver y Auditar en el Radar de Precios (SM TEG) ➔
+              <!-- BOTÓN DE ACCIÓN -->
+              <div style="text-align: center; margin-top: 26px;">
+                <a href="https://tacosgavilan.vercel.app/admin/precios-proveedores" target="_blank" style="display: inline-block; background-color: #DA291C; color: #ffffff; font-size: 13px; font-weight: 800; text-decoration: none; padding: 12px 24px; border-radius: 8px; box-shadow: 0 2px 8px rgba(218, 41, 28, 0.25);">
+                  Abrir Radar de Precios en SM TEG ➔
                 </a>
               </div>
             </td>
           </tr>
 
-          <!-- PIE DE PÁGINA -->
+          <!-- PIE DE PÁGINA LIMPIO -->
           <tr>
             <td style="background-color: #f8fafc; padding: 16px 28px; border-top: 1px solid #e2e8f0; font-size: 11px; color: #64748b; text-align: center; line-height: 1.5;">
-              <strong>Tacos Gavilan · Dirección de Operaciones, Finanzas y Tecnología</strong><br>
-              Sistema SM TEG · Auditoría Automática de Costos COGS de las 15 Sucursales<br>
-              Destinatarios: <code>roberto@tacosgavilan.com</code>, <code>raquel@tacosgavilan.com</code>, <code>gonzalo@tacosgavilan.com</code>, <code>carlos@tacosgavilan.com</code>
+              <strong style="color: #0f172a;">Tacos Gavilan</strong> · Sistema SM TEG<br>
+              Notificación automática para directivos: <code>roberto@tacosgavilan.com</code>, <code>raquel@tacosgavilan.com</code>, <code>gonzalo@tacosgavilan.com</code>, <code>carlos@tacosgavilan.com</code>
             </td>
           </tr>
 
