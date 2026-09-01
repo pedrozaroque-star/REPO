@@ -77,7 +77,8 @@ async function handleSync(request: NextRequest) {
           id,
           name,
           purchase_unit_cost,
-          quantity_per_unit
+          quantity_per_unit,
+          updated_at
         )
       `)
       .eq('supplier_id', supplierId)
@@ -154,7 +155,8 @@ async function handleSync(request: NextRequest) {
           diffAmount,
           changePercent,
           annualVolume: annualVol,
-          annualImpactUsd: Number(annualImpact.toFixed(2))
+          annualImpactUsd: Number(annualImpact.toFixed(2)),
+          lastApprovedDate: masterItem.updated_at || undefined
         })
 
         // Idempotencia: no insertar si ya existe un registro cron reciente con el mismo SKU y precio
@@ -192,7 +194,8 @@ async function handleSync(request: NextRequest) {
           diffAmount,
           changePercent,
           annualVolume: annualVol,
-          annualImpactUsd: Number(annualImpact.toFixed(2))
+          annualImpactUsd: Number(annualImpact.toFixed(2)),
+          lastApprovedDate: masterItem.updated_at || undefined
         })
 
         const dedupeKey = `${parsed.supplierSku}|${newCasePrice.toFixed(2)}`

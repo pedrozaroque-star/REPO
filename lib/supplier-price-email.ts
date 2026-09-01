@@ -32,6 +32,8 @@ export interface PriceChangeItem {
   changePercent: number
   annualVolume: number
   annualImpactUsd: number
+  /** Fecha en que el precio anterior fue aprobado/registrado por última vez en el sistema */
+  lastApprovedDate?: string
 }
 
 export type PriceIncreaseItem = PriceChangeItem
@@ -74,6 +76,15 @@ function renderItemRow(item: PriceChangeItem, type: 'increase' | 'decrease'): st
     ? `Caja con ${item.packQuantity.toLocaleString()} pzas` 
     : (item.packUnit || 'Caja')
 
+  // Formatear la fecha de referencia del precio anterior
+  let refDateText = ''
+  if (item.lastApprovedDate) {
+    try {
+      const d = new Date(item.lastApprovedDate)
+      refDateText = d.toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: '2-digit', timeZone: 'America/Los_Angeles' })
+    } catch { refDateText = '' }
+  }
+
   return `
     <tr style="border-bottom: 1px solid #e2e8f0;">
       <td style="padding: 10px 12px; font-family: monospace; font-weight: 700; color: #2563eb; font-size: 13px;">
@@ -85,6 +96,7 @@ function renderItemRow(item: PriceChangeItem, type: 'increase' | 'decrease'): st
       </td>
       <td style="padding: 10px 12px; text-align: right; font-family: monospace; font-size: 13px; color: #64748b;">
         ${formattedPrev}
+        ${refDateText ? `<div style="font-size: 10px; color: #94a3b8; margin-top: 2px;">${refDateText}</div>` : ''}
       </td>
       <td style="padding: 10px 12px; text-align: right; font-family: monospace; font-size: 13px; color: ${color}; font-weight: 700;">
         ${formattedNew}
@@ -279,7 +291,7 @@ export function generatePriceAlertEmailHtml(options: PriceAlertEmailOptions): st
             <tr style="background-color: #ecfdf5; border-bottom: 2px solid #a7f3d0; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #065f46;">
               <th style="padding: 10px 12px; text-align: left;">SKU</th>
               <th style="padding: 10px 12px; text-align: left;">Insumo / Descripción</th>
-              <th style="padding: 10px 12px; text-align: right;">Precio Anterior</th>
+              <th style="padding: 10px 12px; text-align: right;">Último Aprobado</th>
               <th style="padding: 10px 12px; text-align: right;">Precio Hoy</th>
               <th style="padding: 10px 12px; text-align: right;">Ahorro</th>
               <th style="padding: 10px 12px; text-align: right;">Consumo</th>
@@ -307,7 +319,7 @@ export function generatePriceAlertEmailHtml(options: PriceAlertEmailOptions): st
             <tr style="background-color: #fef2f2; border-bottom: 2px solid #fecaca; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #991b1b;">
               <th style="padding: 10px 12px; text-align: left;">SKU</th>
               <th style="padding: 10px 12px; text-align: left;">Insumo / Descripción</th>
-              <th style="padding: 10px 12px; text-align: right;">Precio Anterior</th>
+              <th style="padding: 10px 12px; text-align: right;">Último Aprobado</th>
               <th style="padding: 10px 12px; text-align: right;">Precio Hoy</th>
               <th style="padding: 10px 12px; text-align: right;">Aumento</th>
               <th style="padding: 10px 12px; text-align: right;">Consumo</th>
