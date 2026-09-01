@@ -17,6 +17,7 @@ import {
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useLanguage } from '@/lib/i18n'
+import { SYSTEM_VERSION } from '@/lib/version'
 
 const BasecampIcon = ({ size = 20 }: { size?: number }) => (
     <svg 
@@ -802,18 +803,18 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                             </span>
                             <div className="flex flex-col">
                                 <span className="text-[11px] font-black text-emerald-900 dark:text-emerald-200 tracking-tight flex items-center gap-1.5">
-                                    SM TEG
+                                    {SYSTEM_VERSION.brand}
                                     <span className="px-1.5 py-0.2 bg-emerald-600 text-white dark:bg-emerald-500 dark:text-slate-950 rounded-md text-[9px] font-mono font-black shadow-xs">
-                                        v2.5.0
+                                        {SYSTEM_VERSION.version}
                                     </span>
                                 </span>
                                 <span className="text-[9px] font-semibold text-emerald-700 dark:text-emerald-400">
-                                    {language === 'es' ? 'Agosto 2026 • Producción' : 'August 2026 • Production'}
+                                    {language === 'es' ? SYSTEM_VERSION.labelEs : SYSTEM_VERSION.labelEn}
                                 </span>
                             </div>
                         </div>
                         <span className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded-md bg-white/90 dark:bg-slate-900/90 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 shadow-2xs">
-                            2026
+                            {SYSTEM_VERSION.year}
                         </span>
                     </div>
 
@@ -1094,18 +1095,18 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                                     </span>
                                     <div className="flex flex-col">
                                         <span className="text-[11px] font-black text-emerald-900 dark:text-emerald-200 tracking-tight flex items-center gap-1.5">
-                                            SM TEG
+                                            {SYSTEM_VERSION.brand}
                                             <span className="px-1.5 py-0.2 bg-emerald-600 text-white dark:bg-emerald-500 dark:text-slate-950 rounded-md text-[9px] font-mono font-black shadow-xs">
-                                                v2.5.0
+                                                {SYSTEM_VERSION.version}
                                             </span>
                                         </span>
                                         <span className="text-[9px] font-semibold text-emerald-700 dark:text-emerald-400">
-                                            {language === 'es' ? 'Agosto 2026 • Producción' : 'August 2026 • Production'}
+                                            {language === 'es' ? SYSTEM_VERSION.labelEs : SYSTEM_VERSION.labelEn}
                                         </span>
                                     </div>
                                 </div>
                                 <span className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded-md bg-white/90 dark:bg-slate-900/90 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 shadow-2xs">
-                                    2026
+                                    {SYSTEM_VERSION.year}
                                 </span>
                             </div>
 
