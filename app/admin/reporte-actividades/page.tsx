@@ -44,7 +44,7 @@ const MONTHS_CATALOG: ReportMonthOption[] = [
         id: 'agosto',
         label: 'Agosto 2026',
         sublabel: 'Planificador Gantt & 27 Tareas',
-        hours: '169.00 hrs',
+        hours: '169.50 hrs',
         tasks: '27 Tareas',
         badgeColor: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-300 border-emerald-300 dark:border-emerald-700',
         activeBorderColor: 'border-emerald-500 bg-emerald-50/60 dark:bg-emerald-950/30'
