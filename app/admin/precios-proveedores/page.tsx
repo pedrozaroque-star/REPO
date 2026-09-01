@@ -9,6 +9,7 @@
  *   y actualiza costos unitarios en cascada a las recetas sin fricción visual.
  *
  * @businessRules
+ *   - Acceso exclusivo para usuarios con rol 'admin' (Dirección General y Auditoría Ejecutiva).
  *   - Vista principal ejecutiva directa: Sin estados vacíos ni formularios confusos de entrada.
  *   - Sincronización en 1 Clic: Consulta en tiempo real el catálogo de Viele & Sons v3.
  *   - Desacoplado: Los SKUs de proveedores se traducen a Insumos Maestros sin romper recetas.
@@ -26,6 +27,7 @@
  */
 
 import React, { useState, useEffect } from 'react'
+import ProtectedRoute from '@/components/ProtectedRoute'
 import {
   TrendingUp, AlertTriangle, CheckCircle2, ArrowUpRight, ArrowDownRight,
   ClipboardPaste, UploadCloud, RefreshCw, Layers,
@@ -558,8 +560,9 @@ export default function SupplierPricesPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 p-4 sm:p-6 lg:p-8">
-      <div className="max-w-7xl mx-auto space-y-6">
+    <ProtectedRoute allowedRoles={['admin']}>
+      <div className="min-h-screen bg-slate-50 dark:bg-slate-950 p-4 sm:p-6 lg:p-8">
+        <div className="max-w-7xl mx-auto space-y-6">
 
         {/* ═══════════════════════════════════════════════════════════
             CABECERA EJECUTIVA LIMPIA (ONE-CLICK RADAR HEADER)
@@ -1510,6 +1513,7 @@ export default function SupplierPricesPage() {
         </div>
       )}
 
-    </div>
+      </div>
+    </ProtectedRoute>
   )
 }
