@@ -25,52 +25,52 @@ interface Message { id: string; role: 'user' | 'assistant'; content: string }
 const PROMPTS = {
   es: {
     tabs: ['Ventas', 'Operaciones', 'Equipo', 'Calidad', 'Aprender'],
-    hero: 'Administra tu negocio a la velocidad de una conversación',
-    newChat: 'Nuevo chat', explore: 'Explorar', earlier: 'ANTERIORES',
-    placeholder: 'Escribe tu pregunta...', heroPlaceholder: 'Inicia un nuevo chat...',
-    powered: 'TEG Internal AI Core', welcome: '¡Hola! Soy TEG Assistant 🤖\nTu asistente de soporte técnico interno.\n\n¿En qué te puedo ayudar hoy con la plataforma?',
+    hero: 'Administra tu tienda con datos claros al instante',
+    newChat: 'Nueva consulta', explore: 'Explorar', earlier: 'ANTERIORES',
+    placeholder: 'Pregúntame sobre ventas, comida, horarios...', heroPlaceholder: 'Hazme una pregunta sobre la tienda...',
+    powered: 'Asistente Operativo Tacos Gavilan', welcome: '¡Hola! Soy tu Asistente de Operaciones de Tacos Gavilan 🌮\n\nPuedo darte las ventas en vivo, costos de comida, revisar descansos de ley, proyectar la carne de parrilla o ayudarte con cualquier duda de tu restaurante.\n\n¿Qué te gustaría revisar hoy?',
     errPrefix: 'Error de conexión.',
     cards: [
       { tag: 'VENTAS', text: '¿Cómo van las ventas hoy vs ayer?', color: 'from-red-500 to-orange-500' },
       { tag: 'EQUIPO', text: '¿Cuáles son las reglas de breaks en California?', color: 'from-blue-500 to-cyan-500' },
-      { tag: 'OPS', text: '¿Cómo asigno roles en el tablero operativo?', color: 'from-purple-500 to-indigo-500' },
+      { tag: 'CARNE', text: '¿Cuánta carne poner en parrilla hoy?', color: 'from-purple-500 to-indigo-500' },
     ],
     prompts: [
       // Ventas
-      ['Genera el reporte de rendimiento de ayer', 'Proyecta las ventas netas y personal para Lynwood mañana', 'Proyecta las ventas netas de hoy', 'Compara las ventas de esta semana vs la semana pasada', 'Desglosa las ventas por canal (Uber, DoorDash, EBT)', 'Muestra el ticket promedio por tienda hoy', 'Ranking de las 15 tiendas por ventas netas'],
+      ['¿Cómo van las ventas hoy en mi tienda?', 'Compara las ventas de hoy vs ayer', 'Proyecta las ventas netas y personal para Lynwood mañana', 'Desglosa las ventas por canal (Uber, DoorDash, EBT)', '¿Cuál es el ticket promedio de hoy?', 'Ranking de las 15 tiendas por ventas netas hoy', 'Compara las ventas de esta semana vs la semana pasada'],
       // Operaciones
-      ['¿Cómo asigno estaciones en el Tablero de Roles?', 'Calcula los descansos (breaks) de hoy para Lynwood', '¿Cómo activo el Modo Inmersivo para un monitor?', '¿Cómo funciona la regla de las 6 AM en ventas?', '¿Cómo configuro los horarios de apertura y cierre?', '¿Cómo uso el Preparador de producción?', '¿Qué es el motor de Descansos AI?'],
+      ['¿Cuánta carne poner en parrilla para el siguiente tramo?', 'Calcula los descansos (breaks) de comida de hoy para Lynwood', '¿Cómo funcionan los pedidos diarios a La Bodega?', '¿Cómo funciona la regla de las 6 AM en el restaurante?', '¿Cómo uso el botón Despertar Tableta en cocina?', '¿Cómo registro el conteo de la Caja Fuerte?'],
       // Equipo
-      ['¿Cuáles son las leyes de breaks en California?', 'Audita el desempeño y costo de labor de Lynwood de la semana pasada', '¿Cómo creo un horario semanal para una tienda?', '¿Cómo funciona el Smart-Hybrid forecasting?', '¿Cómo registro un nuevo empleado en el sistema?', '¿Qué roles de usuario existen (Admin, Manager, etc)?', '¿Cómo funciona la Auto-Programación de empleados?'],
+      ['¿Cuáles son las reglas de descansos y comida en California?', '¿Cómo genero el horario de la próxima semana?', 'Audita el costo de labor de Lynwood de la semana pasada', '¿Cómo registro un nuevo empleado en mi tienda?', '¿Cuáles son los roles de acceso en el sistema?', '¿Cómo se asignan las estaciones de trabajo?'],
       // Calidad
-      ['¿Cómo inicio una nueva inspección de supervisor?', '¿Cuántos checklists hay disponibles?', '¿Cómo funciona el Daily Checklist de 34 puntos?', '¿Cómo registro temperaturas correctamente?', '¿Qué es el Radar de Anomalías de descuentos?', '¿Cómo reviso y apruebo una inspección?'],
+      ['¿Cómo inicio una inspección de calidad?', '¿Cuántos checklists diarios tenemos que hacer?', '¿Cómo registro las temperaturas de refrigeradores y parrillas?', '¿Cómo funciona la auditoría de descuentos?', '¿Cómo reviso las observaciones de supervisión?'],
       // Aprender
-      ['Explícame la arquitectura general de la plataforma', '¿Qué es el Food Cost y cómo se calcula?', '¿Cómo funciona la integración con Toast POS?', '¿Qué es el NPS y cómo se mide aquí?', '¿Cómo exporto reportes en PDF o CSV?', '¿Cómo cambio mi contraseña o preferencias?'],
+      ['¿Qué es el Food Cost y cuál es la meta (<32%)?', '¿Cómo funciona la conexión con las cajas registradoras Toast?', '¿Cómo reviso las opiniones de clientes (Google / NPS)?', '¿Cómo descargo reportes en PDF o Excel?', '¿Cómo cambio mi contraseña o idioma?'],
     ]
   },
   en: {
     tabs: ['Sales', 'Operations', 'Team', 'Quality', 'Learn'],
-    hero: 'Run your business at the speed of conversation',
+    hero: 'Manage your restaurant with instant clear numbers',
     newChat: 'New chat', explore: 'Explore', earlier: 'EARLIER',
-    placeholder: 'Type your question...', heroPlaceholder: 'Start a new chat...',
-    powered: 'TEG Internal AI Core', welcome: "Hi! I'm TEG Assistant 🤖\nYour internal tech support assistant.\n\nHow can I help you today?",
+    placeholder: 'Ask about sales, food cost, schedules...', heroPlaceholder: 'Ask a question about the store...',
+    powered: 'Tacos Gavilan Operations Assistant', welcome: "Hi! I'm your Tacos Gavilan Operations Assistant 🌮\n\nI can help you check live sales, food cost, review break compliance, calculate grill pace, or answer questions about your restaurant.\n\nHow can I help you today?",
     errPrefix: 'Connection error.',
     cards: [
       { tag: 'SALES', text: "How are today's sales vs yesterday?", color: 'from-red-500 to-orange-500' },
       { tag: 'TEAM', text: 'What are the California break rules?', color: 'from-blue-500 to-cyan-500' },
-      { tag: 'OPS', text: 'How do I assign roles on the board?', color: 'from-purple-500 to-indigo-500' },
+      { tag: 'MEAT', text: 'How much meat to prep on the grill today?', color: 'from-purple-500 to-indigo-500' },
     ],
     prompts: [
       // Sales
-      ["Generate yesterday's performance report", 'Project sales and staff needed for Lynwood tomorrow', "Project today's net sales", 'Compare this week vs last week sales', 'Break down sales by channel (Uber, DoorDash, EBT)', 'Show average ticket by store today', 'Rank all 15 stores by net sales'],
+      ["How are today's sales in my store?", "Compare today's sales vs yesterday", 'Project sales and staff needed for Lynwood tomorrow', 'Break down sales by channel (Uber, DoorDash, EBT)', 'What is the average ticket today?', 'Rank all 15 stores by net sales today', 'Compare this week vs last week sales'],
       // Operations
-      ['How do I assign stations on the Roles Board?', 'Calculate compliance breaks for Lynwood today', 'How do I activate Immersive Mode for a monitor?', 'How does the 6 AM Rule work for sales?', 'How do I set store open/close hours?', 'How do I use the Prep production tool?', 'What is the AI Breaks engine?'],
+      ['How much meat to put on the grill for the next period?', 'Calculate meal break compliance for Lynwood today', 'How do daily warehouse orders work?', 'How does the 6 AM restaurant business day work?', 'How do I use the Awake Tablet button in the kitchen?', 'How do I log Safe Box cash counts?'],
       // Team
-      ['What are the California break laws?', 'Audit performance and labor cost for Lynwood last week', 'How do I create a weekly schedule?', 'How does Smart-Hybrid forecasting work?', 'How do I register a new employee?', 'What user roles exist (Admin, Manager, etc)?', 'How does employee Self-Scheduling work?'],
+      ['What are California meal and rest break rules?', 'How do I create next week schedule?', 'Audit labor cost for Lynwood last week', 'How do I register a new employee?', 'What user roles exist in the platform?', 'How do I assign kitchen stations?'],
       // Quality
-      ['How do I start a new supervisor inspection?', 'How many checklist types are available?', 'How does the 34-point Daily Checklist work?', 'How do I record temperatures correctly?', 'What is the Discount Anomaly Radar?', 'How do I review and approve an inspection?'],
+      ['How do I start a supervisor quality audit?', 'How many daily checklists do we need to complete?', 'How do I log fridge and grill temperatures?', 'How does the discount anomaly radar work?', 'How do I review supervisor feedback?'],
       // Learn
-      ['Explain the platform architecture', 'What is Food Cost and how is it calculated?', 'How does the Toast POS integration work?', 'What is NPS and how is it measured?', 'How do I export PDF or CSV reports?', 'How do I change my password or preferences?'],
+      ['What is Food Cost and what is our target (<32%)?', 'How does the live sync with Toast POS work?', 'How do I check customer reviews (Google / NPS)?', 'How do I export PDF or Excel reports?', 'How do I change my password or language preferences?'],
     ]
   }
 }
