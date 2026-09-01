@@ -1,21 +1,27 @@
 /**
  * @module app/api/cron/sync-supplier-prices/route
  * @description Cron job automatizado para sincronización periódica de precios de distribuidores (Viele & Sons).
- *   - Se ejecuta de lunes a viernes a las 6:00 AM (inicio de cada día laboral, 5 veces por semana).
+ *   - Se ejecuta de lunes a viernes a las 6:00 AM PST (inicio de cada día laboral, 5 veces por semana).
  *   - Conecta a la API del portal de Viele & Sons y extrae el catálogo de precios vigentes.
  *   - Compara los costos contra los insumos maestros en Supabase.
- *   - Si detecta aumentos o reducciones de precio, registra auditoría inmutable en supplier_price_history y despacha alertas a directivos.
+ *   - AUTO-APRUEBA los precios detectados en inventory_items.purchase_unit_cost porque el proveedor
+ *     YA cobra esos precios en la siguiente orden (no es una propuesta sino un hecho).
+ *   - Invalida el caché de Food Cost para recalcular con precios reales.
+ *   - Despacha correo INFORMATIVO a directivos con el desglose de variaciones.
  *
  * @businessRules
  *   - Autentica con credenciales corporativas (VIELE_PORTAL_USER / VIELE_PORTAL_PASS).
- *   - Si diffAmount != 0, registra un nuevo evento histórico en supplier_price_history con source_type 'cron_sync'.
- *   - Invalida el caché de Food Cost de los últimos 7 días si se aprueban o detectan aumentos críticos.
+ *   - Si diffAmount != 0, registra historial inmutable (source_type 'cron_sync') y auto-aprueba.
+ *   - El correo es informativo, no requiere acción manual para aprobar precios.
+ *   - Invalida caché de food_cost_daily_cache de los últimos 7 días tras auto-aprobación.
  *
  * @dataFlow
- *   Vercel Cron -> GET / POST -> syncVielePortalDirect -> Comparación con inventory_items -> supplier_price_history.
+ *   Vercel Cron -> GET/POST -> syncVielePortalDirect -> Comparación -> supplier_price_history
+ *   -> Auto-aprueba inventory_items -> Invalida food_cost_daily_cache -> Email informativo.
  *
  * @notes
  *   - Seguro para ejecución desatendida en Vercel Serverless con Vercel Cron.
+ *   - QuickBooks sync tiene blindaje is_bodega para NO pisar estos precios externos.
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseAdminClient } from '@/lib/supabase'
@@ -223,10 +229,49 @@ async function handleSync(request: NextRequest) {
 
     // 6. Guardar historial si hubo variaciones NUEVAS (no duplicadas)
     if (historyInserts.length > 0) {
-      await supabase.from('supplier_price_history').insert(historyInserts)
-      console.log(`[Cron:SyncSupplierPrices] ✅ ${historyInserts.length} variaciones NUEVAS registradas (${totalSkippedDuplicates} duplicados omitidos).`)
+      const { error: insertErr } = await supabase.from('supplier_price_history').insert(historyInserts)
+      if (insertErr) {
+        console.error(`[Cron:SyncSupplierPrices] ⚠️ Error al insertar historial: ${insertErr.message}`)
+      } else {
+        console.log(`[Cron:SyncSupplierPrices] ✅ ${historyInserts.length} variaciones NUEVAS registradas (${totalSkippedDuplicates} duplicados omitidos).`)
+      }
     } else if (totalSkippedDuplicates > 0) {
       console.log(`[Cron:SyncSupplierPrices] ℹ️ ${totalSkippedDuplicates} variaciones ya registradas previamente, sin duplicados insertados.`)
+    }
+
+    // 6.5. AUTO-APROBACIÓN: Actualizar inventory_items.purchase_unit_cost con el precio real de Viele.
+    // REGLA DE NEGOCIO: Viele & Sons ya cobra estos precios en la siguiente orden,
+    // no es una propuesta que requiere autorización. El correo es INFORMATIVO, no de aprobación.
+    // Esto garantiza que Food Cost, recetas y reportes financieros reflejen la realidad.
+    let autoApprovedCount = 0
+    for (const parsed of scrapeResult.items) {
+      const mapping = mappingMap.get(parsed.supplierSku)
+      const masterItem = mapping?.inventory_items
+      if (!mapping || !masterItem?.id) continue
+
+      const currentCasePrice = Number(masterItem.purchase_unit_cost) || 0
+      const newCasePrice = parsed.casePrice
+      const diff = Number((newCasePrice - currentCasePrice).toFixed(2))
+
+      if (Math.abs(diff) > 0.009 && newCasePrice > 0) {
+        const { error: updateErr } = await supabase
+          .from('inventory_items')
+          .update({
+            purchase_unit_cost: newCasePrice,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', masterItem.id)
+
+        if (!updateErr) autoApprovedCount++
+      }
+    }
+    if (autoApprovedCount > 0) {
+      console.log(`[Cron:SyncSupplierPrices] ✅ Auto-aprobados ${autoApprovedCount} precios en inventory_items (reflejan costo real del proveedor).`)
+
+      // Invalidar caché de Food Cost de los últimos 7 días para recalcular con precios actualizados
+      const sevenDaysAgoStr = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+      await supabase.from('food_cost_daily_cache').delete().gte('business_date', sevenDaysAgoStr)
+      console.log(`[Cron:SyncSupplierPrices] 🗑️ Caché de Food Cost invalidado desde ${sevenDaysAgoStr} para recálculo.`)
     }
 
     // 7. Enviar Alerta por Correo a Directivos si se detectaron variaciones (Aumentos o Rebajas de Precio)
@@ -248,7 +293,7 @@ async function handleSync(request: NextRequest) {
     }
 
     const durationMs = Date.now() - startTime
-    console.log(`[Cron:SyncSupplierPrices] ✅ Sincronización completada en ${durationMs}ms: ${scrapeResult.totalItems} items (${totalIncreases} aumentos, ${totalDecreases} reducciones, ${totalUnchanged} sin cambio). Email enviado: ${emailAlertSent}`)
+    console.log(`[Cron:SyncSupplierPrices] ✅ Sincronización completada en ${durationMs}ms: ${scrapeResult.totalItems} items (${totalIncreases} aumentos, ${totalDecreases} reducciones, ${totalUnchanged} sin cambio, ${autoApprovedCount} auto-aprobados). Email enviado: ${emailAlertSent}`)
 
     return NextResponse.json({
       success: true,
@@ -260,6 +305,7 @@ async function handleSync(request: NextRequest) {
       totalNew,
       netAnnualImpactUsd: Number(netAnnualImpactUsd.toFixed(2)),
       historyRecordsCreated: historyInserts.length,
+      autoApprovedCount,
       emailAlertSent,
       emailMessageId,
       durationMs
