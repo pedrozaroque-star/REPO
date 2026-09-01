@@ -23,6 +23,23 @@ const fmt$ = (n: number) => '$' + n.toLocaleString('en-US', { minimumFractionDig
 // ── Gemini Function Declarations ──
 export const TOOL_DECLARATIONS = [
   {
+    name: 'compare_sales_periods',
+    description: 'Compare sales, order count, and differences between two time periods (e.g. last week vs two weeks ago, this month vs last month, or custom date ranges) across all stores or for a specific store. Returns exact store-by-store differences ($ and %) and chain totals calculated directly from the database.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        period1_start: { type: 'STRING', description: 'Period 1 (Current / Most recent) start date YYYY-MM-DD' },
+        period1_end: { type: 'STRING', description: 'Period 1 end date YYYY-MM-DD' },
+        period2_start: { type: 'STRING', description: 'Period 2 (Previous / Baseline) start date YYYY-MM-DD' },
+        period2_end: { type: 'STRING', description: 'Period 2 end date YYYY-MM-DD' },
+        period1_label: { type: 'STRING', description: 'Optional human label for Period 1 (e.g. "Semana Pasada", "Agosto 2026")' },
+        period2_label: { type: 'STRING', description: 'Optional human label for Period 2 (e.g. "Semana Antepasada", "Julio 2026")' },
+        store_name: { type: 'STRING', description: 'Optional store name filter (e.g. "Lynwood"). Omit to compare all stores in the chain.' }
+      },
+      required: ['period1_start', 'period1_end', 'period2_start', 'period2_end']
+    }
+  },
+  {
     name: 'query_sales',
     description: 'Query net sales, order count, labor cost, Uber/DoorDash sales from sales_daily_cache. Use for any sales/revenue/labor question.',
     parameters: {
@@ -350,6 +367,17 @@ export const TOOL_DECLARATIONS = [
         is_biweekly: { type: 'BOOLEAN', description: 'Whether to calculate for biweekly period (2 weeks) or single week' }
       }
     }
+  },
+  {
+    name: 'query_user_chat_history',
+    description: 'Query past user conversations and questions asked in TEG Assistant. Use when the user asks "qué te pregunté ayer?", "recuerdas la consulta de...", or wants to search their past conversation topics.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        user_email: { type: 'STRING', description: 'User email to filter by' },
+        search_query: { type: 'STRING', description: 'Optional text keyword to search in titles or messages' }
+      }
+    }
   }
 ]
 
@@ -362,6 +390,7 @@ export async function executeTool(name: string, args: any): Promise<string> {
       case 'query_supplier_prices': return await querySupplierPrices(args)
       case 'query_supervisor_mileage': return await querySupervisorMileage(args)
       case 'query_sales': return await querySales(args)
+      case 'compare_sales_periods': return await compareSalesPeriods(args)
       case 'query_food_cost': return await queryFoodCost(args)
       case 'query_labor': return await queryLabor(args)
       case 'query_inspections': return await queryInspections(args)
@@ -384,6 +413,7 @@ export async function executeTool(name: string, args: any): Promise<string> {
       case 'execute_custom_sql': return await executeCustomSql(args)
       case 'query_uniforms_stock': return await queryUniformsStock(args)
       case 'query_executive_uniforms_dashboard': return await queryExecutiveUniformsDashboard(args)
+      case 'query_user_chat_history': return await queryUserChatHistory(args)
       default: return `Tool "${name}" not found.`
     }
   } catch (e: any) {
@@ -464,6 +494,100 @@ async function querySales(args: any): Promise<string> {
   })
 
   return `Sales ${args.start_date} to ${args.end_date}:\nTotal: ${fmt$(total)} | Orders: ${orders} | Labor: ${fmt$(labor)} (${total > 0 ? ((labor/total)*100).toFixed(1) : 0}%) | Uber: ${fmt$(uber)} | DD: ${fmt$(dd)}\n\nBy Store:\n${storeLines.join('\n')}\n\nDaily Breakdown:\n${dailyLines.join('\n')}`
+}
+
+// ── 1.1 Compare Sales Periods (Exact Real Data & Percentages) ──
+async function compareSalesPeriods(args: any): Promise<string> {
+  const p1Start = args.period1_start
+  const p1End = args.period1_end
+  const p2Start = args.period2_start
+  const p2End = args.period2_end
+  const p1Label = args.period1_label || `${p1Start} al ${p1End}`
+  const p2Label = args.period2_label || `${p2Start} al ${p2End}`
+  const storeName = args.store_name?.trim()
+
+  // Query Period 1
+  let q1 = supabaseAdmin
+    .from('sales_daily_cache')
+    .select('store_name, net_sales, order_count, labor_cost')
+    .gte('business_date', p1Start)
+    .lte('business_date', p1End)
+  if (storeName) q1 = q1.ilike('store_name', `%${storeName}%`)
+
+  // Query Period 2
+  let q2 = supabaseAdmin
+    .from('sales_daily_cache')
+    .select('store_name, net_sales, order_count, labor_cost')
+    .gte('business_date', p2Start)
+    .lte('business_date', p2End)
+  if (storeName) q2 = q2.ilike('store_name', `%${storeName}%`)
+
+  const [{ data: d1, error: e1 }, { data: d2, error: e2 }] = await Promise.all([
+    q1.limit(5000),
+    q2.limit(5000)
+  ])
+
+  if (e1) return `Error al consultar Periodo 1: ${e1.message}`
+  if (e2) return `Error al consultar Periodo 2: ${e2.message}`
+
+  if ((!d1 || d1.length === 0) && (!d2 || d2.length === 0)) {
+    return `No se encontraron datos de ventas en el sistema para ninguno de los dos periodos (${p1Start} a ${p1End} ni ${p2Start} a ${p2End}).`
+  }
+
+  // Aggregate by store
+  const storesData: Record<string, { p1Sales: number; p1Orders: number; p1Labor: number; p2Sales: number; p2Orders: number; p2Labor: number }> = {}
+
+  ;(d1 || []).forEach(r => {
+    const sName = clean(r.store_name)
+    if (!storesData[sName]) storesData[sName] = { p1Sales: 0, p1Orders: 0, p1Labor: 0, p2Sales: 0, p2Orders: 0, p2Labor: 0 }
+    storesData[sName].p1Sales += Number(r.net_sales) || 0
+    storesData[sName].p1Orders += Number(r.order_count) || 0
+    storesData[sName].p1Labor += Number(r.labor_cost) || 0
+  })
+
+  ;(d2 || []).forEach(r => {
+    const sName = clean(r.store_name)
+    if (!storesData[sName]) storesData[sName] = { p1Sales: 0, p1Orders: 0, p1Labor: 0, p2Sales: 0, p2Orders: 0, p2Labor: 0 }
+    storesData[sName].p2Sales += Number(r.net_sales) || 0
+    storesData[sName].p2Orders += Number(r.order_count) || 0
+    storesData[sName].p2Labor += Number(r.labor_cost) || 0
+  })
+
+  let totP1Sales = 0, totP1Orders = 0, totP1Labor = 0
+  let totP2Sales = 0, totP2Orders = 0, totP2Labor = 0
+
+  const rows = Object.entries(storesData)
+    .sort((a, b) => b[1].p1Sales - a[1].p1Sales)
+    .map(([sName, d]) => {
+      totP1Sales += d.p1Sales
+      totP1Orders += d.p1Orders
+      totP1Labor += d.p1Labor
+      totP2Sales += d.p2Sales
+      totP2Orders += d.p2Orders
+      totP2Labor += d.p2Labor
+
+      const diff = d.p1Sales - d.p2Sales
+      const pct = d.p2Sales > 0 ? ((diff / d.p2Sales) * 100).toFixed(2) : (d.p1Sales > 0 ? '+100.00' : '0.00')
+      const diffSign = diff >= 0 ? '+' : ''
+      const pctSign = Number(pct) >= 0 ? '+' : ''
+
+      return `| ${sName} | ${fmt$(d.p1Sales)} | ${fmt$(d.p2Sales)} | ${diffSign}${fmt$(diff)} | ${pctSign}${pct}% |`
+    })
+
+  const totDiff = totP1Sales - totP2Sales
+  const totPct = totP2Sales > 0 ? ((totDiff / totP2Sales) * 100).toFixed(2) : (totP1Sales > 0 ? '+100.00' : '0.00')
+  const totDiffSign = totDiff >= 0 ? '+' : ''
+  const totPctSign = Number(totPct) >= 0 ? '+' : ''
+
+  let out = `COMPARATIVA DE VENTAS REALES DEL SISTEMA:\n`
+  out += `Periodo 1 (${p1Label}): ${p1Start} al ${p1End} (Total: ${fmt$(totP1Sales)} en ${totP1Orders} órdenes)\n`
+  out += `Periodo 2 (${p2Label}): ${p2Start} al ${p2End} (Total: ${fmt$(totP2Sales)} en ${totP2Orders} órdenes)\n\n`
+  out += `| Sucursal | ${p1Label} | ${p2Label} | Diferencia ($) | Crecimiento (%) |\n`
+  out += `| :--- | :--- | :--- | :--- | :--- |\n`
+  out += rows.join('\n')
+  out += `\n| **TOTAL CADENA** | **${fmt$(totP1Sales)}** | **${fmt$(totP2Sales)}** | **${totDiffSign}${fmt$(totDiff)}** | **${totPctSign}${totPct}%** |\n`
+
+  return out
 }
 
 // ── 2. Food Cost ──
@@ -1884,5 +2008,29 @@ ${topEmployees}
 ${report.employees.length > 10 ? `\n*... y ${report.employees.length - 10} colaboradores adicionales en nómina.*` : ''}`
 }
 
+// ── 26. Query User Chat History ──
+async function queryUserChatHistory(args: any): Promise<string> {
+  let query = supabaseAdmin
+    .from('assistant_conversations')
+    .select('id, title, user_email, user_name, created_at, updated_at')
+    .order('updated_at', { ascending: false })
+    .limit(20)
 
+  if (args.user_email) {
+    query = query.ilike('user_email', `%${args.user_email}%`)
+  }
+  if (args.search_query) {
+    query = query.ilike('title', `%${args.search_query}%`)
+  }
 
+  const { data, error } = await query
+  if (error) return `Error al consultar historial: ${error.message}`
+  if (!data || data.length === 0) return 'No se encontraron conversaciones previas guardadas para este usuario.'
+
+  const lines = data.map((c, i) => {
+    const d = new Date(c.updated_at).toLocaleDateString('es-MX', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+    return `${i + 1}. **${c.title}** (${d})`
+  })
+
+  return `CONSULTAS ANTERIORES GUARDADAS DEL USUARIO:\n${lines.join('\n')}\n\nPuedes consultar o retomar cualquiera de estas conversaciones directamente desde el panel de Historial del asistente.`
+}

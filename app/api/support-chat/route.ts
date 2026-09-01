@@ -39,9 +39,50 @@ const fmt$ = (n: number) => '$' + n.toLocaleString('en-US', { minimumFractionDig
 const clean = (name: string) => (name || '').replace(/^Tacos Gavilan\s+/i, '').trim();
 
 // ── Lightweight context (quick summary, NOT exhaustive) ──
-async function fetchLightContext(): Promise<string> {
+async function fetchLightContext(user?: any): Promise<string> {
   try {
     const { today, yesterday, laHour } = getBusinessDates();
+    const [y, m, day] = today.split('-').map(Number);
+    const todayDate = new Date(Date.UTC(y, m - 1, day, 12, 0, 0));
+    
+    // Day of week: 0=Sun, 1=Mon, ..., 6=Sat
+    const dayOfWeek = todayDate.getUTCDay();
+    const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+    
+    // This week (Monday to today)
+    const thisMon = new Date(todayDate);
+    thisMon.setUTCDate(thisMon.getUTCDate() + mondayOffset);
+    const thisWeekStart = thisMon.toISOString().slice(0, 10);
+    const thisWeekEnd = today;
+
+    // Last week (Monday to Sunday)
+    const lastMon = new Date(thisMon);
+    lastMon.setUTCDate(lastMon.getUTCDate() - 7);
+    const lastSun = new Date(thisMon);
+    lastSun.setUTCDate(lastSun.getUTCDate() - 1);
+    const lastWeekStart = lastMon.toISOString().slice(0, 10);
+    const lastWeekEnd = lastSun.toISOString().slice(0, 10);
+
+    // Two weeks ago / Semana antepasada (Monday to Sunday)
+    const twoWeeksMon = new Date(lastMon);
+    twoWeeksMon.setUTCDate(twoWeeksMon.getUTCDate() - 7);
+    const twoWeeksSun = new Date(lastMon);
+    twoWeeksSun.setUTCDate(twoWeeksSun.getUTCDate() - 1);
+    const twoWeeksAgoStart = twoWeeksMon.toISOString().slice(0, 10);
+    const twoWeeksAgoEnd = twoWeeksSun.toISOString().slice(0, 10);
+
+    // This month (1st to today)
+    const thisMonthStart = `${today.slice(0, 7)}-01`;
+    const thisMonthEnd = today;
+
+    // Last month (1st to last day of previous month)
+    const prevMonthDate = new Date(Date.UTC(y, m - 2, 1, 12, 0, 0));
+    const lastMonthYear = prevMonthDate.getUTCFullYear();
+    const lastMonthNum = String(prevMonthDate.getUTCMonth() + 1).padStart(2, '0');
+    const lastDayOfPrevMonth = new Date(Date.UTC(y, m - 1, 0, 12, 0, 0)).getUTCDate();
+    const lastMonthStart = `${lastMonthYear}-${lastMonthNum}-01`;
+    const lastMonthEnd = `${lastMonthYear}-${lastMonthNum}-${String(lastDayOfPrevMonth).padStart(2, '0')}`;
+
     const sections: string[] = [];
     sections.push(`🕐 California time: ${laHour}:00 | Business day: ${today} | Yesterday: ${yesterday}`);
 
@@ -70,17 +111,42 @@ async function fetchLightContext(): Promise<string> {
     const { data: stores } = await supabaseAdmin.from('stores').select('name');
     if (stores?.length) sections.push(`🏪 Stores (${stores.length}): ${stores.map(s => clean(s.name)).join(', ')}`);
 
-    // Week dates
-    const todayDate = new Date(today + 'T12:00:00');
-    const dayOfWeek = todayDate.getDay();
-    const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
-    const monday = new Date(todayDate);
-    monday.setDate(monday.getDate() + mondayOffset);
-    const mondayStr = monday.toISOString().slice(0, 10);
-    sections.push(`📅 This week: ${mondayStr} to ${today}`);
+    // Complete period reference calendar for AI tools
+    sections.push(`📅 CALENDARIO EXACTO DE PERIODOS PARA CONSULTAS:`);
+    sections.push(`• Hoy (Today): ${today}`);
+    sections.push(`• Ayer (Yesterday): ${yesterday}`);
+    sections.push(`• Esta semana (This week): ${thisWeekStart} al ${thisWeekEnd}`);
+    sections.push(`• Semana pasada (Last week): ${lastWeekStart} al ${lastWeekEnd}`);
+    sections.push(`• Semana antepasada (Two weeks ago): ${twoWeeksAgoStart} al ${twoWeeksAgoEnd}`);
+    sections.push(`• Este mes (This month): ${thisMonthStart} al ${thisMonthEnd}`);
+    sections.push(`• Mes pasado (Last month): ${lastMonthStart} al ${lastMonthEnd}`);
 
-    // Month
-    sections.push(`📆 This month: ${today.slice(0, 7)}-01 to ${today}`);
+    // Recent user question history for predictive personalization
+    if (user && (user.email || user.id)) {
+      try {
+        let q = supabaseAdmin
+          .from('assistant_conversations')
+          .select('title, updated_at')
+          .order('updated_at', { ascending: false })
+          .limit(5);
+
+        if (user.email && user.id) {
+          q = q.or(`user_email.eq.${user.email},user_id.eq.${user.id}`);
+        } else if (user.email) {
+          q = q.eq('user_email', user.email);
+        } else if (user.id) {
+          q = q.eq('user_id', user.id);
+        }
+
+        const { data: pastConvs } = await q;
+        if (pastConvs && pastConvs.length > 0) {
+          sections.push(`🧠 TEMAS E HISTORIAL DE CONSULTAS RECIENTES DEL USUARIO (Usa esto para predecir preguntas de seguimiento contextualmente relevantes para su tienda/rol):`);
+          pastConvs.forEach(c => sections.push(`• "${c.title}"`));
+        }
+      } catch (e) {
+        // Non-blocking
+      }
+    }
 
     return sections.join('\n');
   } catch (e) {
@@ -166,6 +232,10 @@ DATABASE SCHEMA CATALOG (CORE TABLES - FOR INTERNAL ENGINE USE ONLY):
     *   Columns: \`id\` (UUID PRIMARY KEY), \`supplier_id\` (UUID), \`supplier_sku\` (TEXT), \`supplier_description\` (TEXT), \`master_item_id\` (UUID), \`pack_quantity\` (NUMERIC), \`pack_unit\` (TEXT), \`base_unit\` (TEXT), \`is_primary\` (BOOLEAN)
 25. **supplier_price_history**: Historical price audit log for inflation tracking and recipe cost adjustments.
     *   Columns: \`id\` (UUID PRIMARY KEY), \`supplier_id\` (UUID), \`supplier_sku\` (TEXT), \`master_item_id\` (UUID), \`case_price\` (NUMERIC), \`unit_cost\` (NUMERIC), \`previous_unit_cost\` (NUMERIC), \`change_percent\` (NUMERIC), \`effective_date\` (DATE), \`source_type\` (TEXT), \`created_by\` (TEXT)
+26. **assistant_conversations**: User chat session headers and question logs in TEG Assistant.
+    *   Columns: \`id\` (UUID PRIMARY KEY), \`user_id\` (TEXT), \`user_name\` (TEXT), \`user_email\` (TEXT), \`user_role\` (TEXT), \`store_id\` (TEXT), \`title\` (TEXT), \`created_at\` (TIMESTAMPTZ), \`updated_at\` (TIMESTAMPTZ)
+27. **assistant_messages**: Chronological messages, questions, and AI answers per conversation.
+    *   Columns: \`id\` (UUID PRIMARY KEY), \`conversation_id\` (UUID REFERENCES assistant_conversations), \`role\` (TEXT - 'user' | 'assistant'), \`content\` (TEXT), \`created_at\` (TIMESTAMPTZ)
 
 MODULES OVERVIEW & BUSINESS RULES:
 1.  **SALES & SUBMODULES**: Net Sales, orders, Uber Eats, DoorDash, Grubhub, EBT. "6 AM Rule" (business day 6:00 AM - 5:59 AM next day). Turno PM inicia a las 5:00 PM. Toast POS cross-date refunds reconciliation (getCrossDateRefunds via refundBusinessDate) ensures penny-perfect accounting matching Toast Group Sales Overview. Features Auto-Heal dynamic integrity cache refresh, Annual History Matrix (/ventas/historial) with YTD YoY growth comparisons including new/closed stores symmetrically, and Weekly Operations Reports (/ventas/reportes) with weighted labor % calculations and exact AM/PM shift window breakdowns.
@@ -245,10 +315,51 @@ SM TEG SIDEBAR NAVIGATION MAP & PATHS (MASTER DIRECTORY - 5 GROUPS):
 CRITICAL RULES:
 
 - ZERO PROGRAMMING JARGON: Never output SQL queries, table names, API endpoints, schema definitions, UUIDs, or backend code terms to the user. Present all findings in clear, friendly, human restaurant operational language.
+- 🚨 PROHIBICIÓN ABSOLUTA DE ALUCINACIONES Y DATOS INVENTADOS (CERO FAKE DATA / CERO MOCKS):
+  * ESTÁ TOTALMENTE PROHIBIDO INVENTAR NÚMEROS, ESTIMACIONES, MONTOS REDONDOS ($100,000, $88,000, etc.) O COMPARATIVAS FALSAS.
+  * NUNCA des una respuesta con cifras de ventas, costos, labor, órdenes o auditorías sin haber llamado PREVIAMENTE a tus herramientas para consultar la base de datos real.
+  * SI EL USUARIO PIDE COMPARAR PERIODOS (ej. "semana pasada vs antepasada", "este mes vs mes anterior", o dos semanas/meses específicos):
+    1. Revisa el "CALENDARIO EXACTO DE PERIODOS PARA CONSULTAS" en el contexto para obtener las fechas exactas de ambos periodos.
+    2. LLAMA INMEDIATAMENTE a la herramienta "compare_sales_periods" pasando las fechas exactas (period1_start, period1_end, period2_start, period2_end, y labels como "Semana Pasada", "Semana Antepasada").
+    3. Presenta la tabla comparativa oficial generada con datos 100% reales de la base de datos de Toast POS/Supabase.
+  * SI NO HAY DATOS EN EL SISTEMA: Dilo con total honestidad ("No hay datos de ventas registrados para esas fechas en el sistema"). NUNCA rellenes la tabla con números ficticios o estimados.
 - ALWAYS use your tools to answer questions. If there is a specialized tool, prefer it. If the question requires cross-table joining, complex filters, aggregates or schema lookups, IMMEDIATELY call "execute_custom_sql" to query the system behind the scenes.
 - SMART FALLBACK MANDATE: If a specialized query tool returns NO results or empty data for a request, you MUST NOT give up. You MUST IMMEDIATELY fall back to calling "execute_custom_sql" to perform a broad, direct SELECT query on the corresponding tables to inspect raw records. Synthesize the findings into natural Spanish/English for the user.
 - If you use "execute_custom_sql", write efficient, accurate PostgreSQL. Limit operations to analytical SELECT queries, counts, averages, and joins. Never run modifying queries (no INSERT/UPDATE/DELETE/DROP).
 - For date-related questions, derive the correct dates from the context provided.
+- 📊 MANDATO DE GENERACIÓN DE GRÁFICAS ANIMADAS (ANIMATED CHARTS MANDATE):
+  * CUÁNDO GENERAR GRÁFICA: SIEMPRE que la respuesta involucre comparativas numéricas (ventas periodo vs periodo, ayer vs hoy, tienda vs tienda), rankings de tiendas, tendencias temporales (por horas, días o tramos de parrilla), o desglose porcentual de canales/categorías (Uber/DoorDash/Dine-In, labor %, food cost %), ESTÁS OBLIGADO a fabricar y adjuntar un bloque estructurado de gráfica animada con datos 100% reales.
+  * CUÁNDO OMITIR GRÁFICA: Si la pregunta del usuario es meramente conceptual, procedimental, o de reglas de ley (ej. reglas de descansos en California, roles de acceso, cómo registrar un empleado, cómo usar el botón de tableta), OMITE por completo el bloque de gráfica y responde solo con texto claro.
+  * FORMATO ESTRICTO DE LA GRÁFICA:
+    Inserta el bloque de gráfica justo antes del bloque de sugerencias, en formato JSON válido:
+    <<<CHART>>>
+    {
+      "type": "comparison" | "bar" | "line" | "area" | "pie",
+      "title": "Título descriptivo de la gráfica",
+      "xAxisKey": "name",
+      "unit": "$" | "%" | "hrs" | "lbs" | "",
+      "series": [
+        { "key": "period1", "name": "Semana Pasada", "color": "#6366f1" },
+        { "key": "period2", "name": "Semana Antepasada", "color": "#a855f7" }
+      ],
+      "data": [
+        { "name": "Lynwood", "period1": 130543.15, "period2": 122249.93 },
+        { "name": "Central", "period1": 115320.40, "period2": 112100.00 }
+      ],
+      "summary": {
+        "total": 1434478.73,
+        "growth": "+2.44%"
+      }
+    }
+    <<<END_CHART>>>
+- 🔮 PREDICCIÓN INTELIGENTE DE PREGUNTAS DE SEGUIMIENTO (PREDICTIVE PROMPTING MANDATE):
+  * Al final de cada respuesta que des al usuario, DEBES predecir y sugerir de 2 a 3 preguntas lógicas, inteligentes y directamente relacionadas que el usuario probablemente quiera consultar a continuación (basadas en la tienda, el tema tratado, comparativas, insumos, labor, o siguientes pasos operativos).
+  * Formatea estas sugerencias OBLIGATORIAMENTE al final de tu respuesta dentro de un bloque especial:
+  <<<SUGGESTIONS>>>
+  - [Pregunta sugerida 1 en el idioma del usuario]
+  - [Pregunta sugerida 2 en el idioma del usuario]
+  - [Pregunta sugerida 3 en el idioma del usuario]
+  <<<END_SUGGESTIONS>>>
 - When comparing periods, show absolute difference AND percentage.
 - Use markdown tables for tabular data, bold text for key figures, and helpful emojis.
 - You are exclusive to Tacos Gavilan. Do not answer questions unrelated to the business.
@@ -353,11 +464,73 @@ export async function POST(req: NextRequest) {
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) return NextResponse.json({ error: 'Missing Gemini API Key.' }, { status: 500 });
 
-    const { messages, language } = await req.json();
+    const { messages, language, conversation_id, user } = await req.json();
     if (!messages || !Array.isArray(messages)) return NextResponse.json({ error: 'Invalid format.' }, { status: 400 });
 
+    // Extract the latest user question
+    const lastUserMsg = [...messages].reverse().find((m: any) => m.role === 'user')?.content || '';
+
+    // Database conversation handling (Save every question asked by each user)
+    let activeConversationId: string | null = conversation_id || null;
+    let conversationTitle: string = '';
+
+    if (user && (user.email || user.id) && lastUserMsg) {
+      try {
+        if (activeConversationId) {
+          const { data: existingConv } = await supabaseAdmin
+            .from('assistant_conversations')
+            .select('id, title')
+            .eq('id', activeConversationId)
+            .single();
+
+          if (existingConv) {
+            conversationTitle = existingConv.title;
+            await supabaseAdmin.from('assistant_messages').insert({
+              conversation_id: activeConversationId,
+              role: 'user',
+              content: lastUserMsg
+            });
+            await supabaseAdmin.from('assistant_conversations').update({
+              updated_at: new Date().toISOString()
+            }).eq('id', activeConversationId);
+          } else {
+            activeConversationId = null;
+          }
+        }
+
+        if (!activeConversationId) {
+          const cleanTitle = lastUserMsg.length > 70 ? lastUserMsg.slice(0, 67) + '...' : lastUserMsg;
+          conversationTitle = cleanTitle || 'Consulta Operativa';
+
+          const { data: newConv, error: newConvErr } = await supabaseAdmin
+            .from('assistant_conversations')
+            .insert({
+              user_id: user.id ? String(user.id) : null,
+              user_name: user.name || null,
+              user_email: user.email || null,
+              user_role: user.role || null,
+              store_id: user.store_id ? String(user.store_id) : null,
+              title: conversationTitle
+            })
+            .select('id')
+            .single();
+
+          if (newConv && !newConvErr) {
+            activeConversationId = newConv.id;
+            await supabaseAdmin.from('assistant_messages').insert({
+              conversation_id: activeConversationId,
+              role: 'user',
+              content: lastUserMsg
+            });
+          }
+        }
+      } catch (dbErr) {
+        console.error('[TEG Assistant] Warning: Failed to persist user message in DB:', dbErr);
+      }
+    }
+
     // Light context + language instruction
-    const liveContext = await fetchLightContext();
+    const liveContext = await fetchLightContext(user);
     const langInstruction = language === 'en'
       ? "\n\nCRITICAL: Reply in ENGLISH."
       : "\n\nCRÍTICO: Responde en ESPAÑOL.";
@@ -461,8 +634,62 @@ export async function POST(req: NextRequest) {
       finalReply = 'I reached the maximum number of data queries. Please try a more specific question.';
     }
 
-    console.log(`[TEG Assistant] ✅ OK (${finalReply.length} chars)`);
-    return NextResponse.json({ reply: finalReply });
+    // ── Extract Animated Chart Configuration ──
+    let chartConfig: any = null;
+    const chartMatch = finalReply.match(/(?:<<<CHART>>>|\[CHART\])([\s\S]*?)(?:<<<END_CHART>>>|<<<CHART>>>|\[END_CHART\]|$)/i);
+    if (chartMatch) {
+      try {
+        const rawJson = chartMatch[1].trim();
+        chartConfig = JSON.parse(rawJson);
+      } catch (jsonErr) {
+        console.warn('[TEG Assistant] Warning: Failed to parse chart JSON from model:', jsonErr);
+      }
+      // Strip chart tag from markdown text for pure text rendering
+      finalReply = finalReply.replace(/(?:<<<CHART>>>|\[CHART\])[\s\S]*?(?:<<<END_CHART>>>|<<<CHART>>>|\[END_CHART\]|$)/i, '').trim();
+    }
+
+    // ── Extract Predictive Suggested Questions ──
+    let suggestedQuestions: string[] = [];
+    const suggestionsMatch = finalReply.match(/(?:<<<SUGGESTIONS>>>|\[SUGGESTIONS\])([\s\S]*?)(?:<<<END_SUGGESTIONS>>>|<<<SUGGESTIONS>>>|\[END_SUGGESTIONS\]|$)/i);
+    if (suggestionsMatch) {
+      const suggestionsBlock = suggestionsMatch[1];
+      suggestedQuestions = suggestionsBlock
+        .split('\n')
+        .map(line => line.replace(/^[-*•\d.)\s]+/, '').trim())
+        .filter(line => line.length >= 5 && line.length <= 160);
+
+      // Strip suggestions block from visible markdown text
+      finalReply = finalReply.replace(/(?:<<<SUGGESTIONS>>>|\[SUGGESTIONS\])[\s\S]*?(?:<<<END_SUGGESTIONS>>>|<<<SUGGESTIONS>>>|\[END_SUGGESTIONS\]|$)/i, '').trim();
+    }
+
+    // Persist assistant reply (with chart JSON preserved for historical rehydration) to database
+    if (activeConversationId && finalReply) {
+      try {
+        const dbContent = chartConfig 
+          ? `${finalReply}\n\n<<<CHART>>>\n${JSON.stringify(chartConfig)}\n<<<END_CHART>>>`
+          : finalReply;
+
+        await supabaseAdmin.from('assistant_messages').insert({
+          conversation_id: activeConversationId,
+          role: 'assistant',
+          content: dbContent
+        });
+        await supabaseAdmin.from('assistant_conversations').update({
+          updated_at: new Date().toISOString()
+        }).eq('id', activeConversationId);
+      } catch (dbErr) {
+        console.error('[TEG Assistant] Warning: Failed to persist assistant reply in DB:', dbErr);
+      }
+    }
+
+    console.log(`[TEG Assistant] ✅ OK (${finalReply.length} chars, conv: ${activeConversationId}, suggestions: ${suggestedQuestions.length}, chart: ${!!chartConfig})`);
+    return NextResponse.json({
+      reply: finalReply,
+      conversation_id: activeConversationId,
+      title: conversationTitle,
+      suggested_questions: suggestedQuestions,
+      chart: chartConfig
+    });
 
   } catch (error: any) {
     console.error('[TEG Assistant] Error:', error);
