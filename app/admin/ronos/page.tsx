@@ -381,10 +381,14 @@ interface ChainAuditData {
 
 interface ToastCandidate {
   id: string
-  fullName: string
+  fullName?: string
+  full_name?: string
+  first_name?: string
+  last_name?: string
   email: string | null
   phone: string | null
-  jobTitle: string | null
+  jobTitle?: string | null
+  job_title?: string | null
 }
 
 interface MappedEmployeeItem {
@@ -644,7 +648,17 @@ function RonosLaborAuditContent() {
       const json = await res.json().catch(() => ({}))
       if (json?.success && json?.data) {
         setMappingsList(Array.isArray(json.data.mappings) ? json.data.mappings : [])
-        setToastCandidates(Array.isArray(json.data.toastCandidates) ? json.data.toastCandidates : [])
+        const rawCandidates = Array.isArray(json.data.toastCandidates) ? json.data.toastCandidates : []
+        const normalized = rawCandidates.map((tc: any) => ({
+          id: String(tc.id || ''),
+          fullName: String(tc.full_name || tc.fullName || `${tc.first_name || ''} ${tc.last_name || ''}`.trim() || 'Colaborador'),
+          full_name: String(tc.full_name || tc.fullName || `${tc.first_name || ''} ${tc.last_name || ''}`.trim() || 'Colaborador'),
+          email: tc.email ? String(tc.email) : null,
+          phone: tc.phone ? String(tc.phone) : null,
+          jobTitle: String(tc.job_title || tc.jobTitle || 'Colaborador'),
+          job_title: String(tc.job_title || tc.jobTitle || 'Colaborador')
+        }))
+        setToastCandidates(normalized)
         setMappingStats(json.data.stats || { totalRonos: 0, autoMatched: 0, manuallyMatched: 0, inactive: 0, unmapped: 0 })
       }
     } catch (err: any) {
@@ -661,15 +675,16 @@ function RonosLaborAuditContent() {
       const res = await fetch('/api/ronos/refresh-transfers', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ weekId: selectedWeekId, forceScan: true })
+        body: JSON.stringify({ companyId: selectedCompanyId, forceScan: true })
       })
       if (!res.ok) throw new Error(`Error en refresh de traslados (${res.status})`)
       const json = await res.json().catch(() => ({}))
       if (json?.success) {
         await fetchMappings(selectedCompanyId)
+        await fetchStoreAudit(selectedCompanyId, selectedWeekId)
       }
     } catch (err) {
-      console.error('Error refreshing transfers:', err)
+      console.error('Refresh transfers error:', err)
     } finally {
       setRefreshingTransfers(false)
     }
@@ -694,10 +709,10 @@ function RonosLaborAuditContent() {
           ronosFullName: item.ronosFullName,
           ronosPin: item.ronosPin,
           toastEmployeeId: isUnlinking ? null : (isInactive ? 'INACTIVE' : toastMatch?.id),
-          toastFullName: isUnlinking ? null : (isInactive ? 'INACTIVO / NO LABORA' : toastMatch?.fullName),
+          toastFullName: isUnlinking ? null : (isInactive ? 'INACTIVO / NO LABORA' : (toastMatch?.fullName || toastMatch?.full_name)),
           toastEmail: isUnlinking ? null : (isInactive ? null : toastMatch?.email),
           toastPhone: isUnlinking ? null : (isInactive ? null : toastMatch?.phone),
-          toastJobTitle: isUnlinking ? null : (isInactive ? 'INACTIVO' : toastMatch?.jobTitle),
+          toastJobTitle: isUnlinking ? null : (isInactive ? 'INACTIVO' : (toastMatch?.jobTitle || toastMatch?.job_title)),
           mappingType: isUnlinking ? 'unmapped' : (isInactive ? 'inactive' : 'manual'),
           isConfirmed: !isUnlinking
         })
@@ -2101,11 +2116,15 @@ function RonosLaborAuditContent() {
                         >
                           <option value="UNLINK">-- Seleccionar Toast --</option>
                           <option value="INACTIVE">🚫 Inactivo (No Labora)</option>
-                          {toastCandidates.map(tc => (
-                            <option key={tc.id} value={tc.id}>
-                              {tc.fullName} ({tc.jobTitle || 'Crew'})
-                            </option>
-                          ))}
+                          {toastCandidates.map(tc => {
+                            const name = tc.fullName || tc.full_name || 'Colaborador'
+                            const job = tc.jobTitle || tc.job_title || 'Colaborador'
+                            return (
+                              <option key={tc.id} value={tc.id}>
+                                {name} ({job})
+                              </option>
+                            )
+                          })}
                         </select>
                       </td>
                       <td className="py-2.5 px-3 font-mono text-slate-600 dark:text-slate-400">
