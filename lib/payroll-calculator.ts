@@ -28,7 +28,7 @@ import { supabaseAdmin } from './supabase'
 import { RONOS_STORES_MAP, getRonosStoreAudit } from './ronos-api'
 import { getSimplifyHrRateForEmployee, ensureSimplifyRatesLoaded } from './simplifyhr-api'
 
-export const CINGULAR_HOURLY_MARKUP_FACTOR = 1.25976 // ~25.98% markup factor
+export const CINGULAR_HOURLY_MARKUP_FACTOR = 1.26 // 26.00% markup oficial Cingular HR (Confirmado por Raquel)
 export const DEFAULT_BASE_HOURLY_RATE = 16.90 // California QSR baseline
 
 export interface CingularEmployeePayrollItem {
@@ -677,23 +677,20 @@ export async function calculateCingularPayrollReport(
     let billRate = 0
     let otBillRate = 0
 
-    // 1. FUENTE PRIMARIA: Simplify HR OS (Tarifas Reales del PEO — ya auto-sincronizadas)
-    const simplifyRate = getSimplifyHrRateForEmployee(normName) || (agg.pin ? getSimplifyHrRateForEmployee(agg.pin) : null)
-    if (simplifyRate && simplifyRate.payRate > 0) {
-      payRate = simplifyRate.payRate
-      billRate = simplifyRate.billRate
-    }
-
-    // 2. OVERRIDE MANUAL: Tarifas verificadas contra invoice real de Cingular
-    //    Solo aplica si Simplify HR no retornó tarifa (empleado nuevo o no sincronizado aún)
-    //    o si existe una corrección explícita verificada contra la factura
-    if (payRate <= 0) {
-      const exactOverride = CINGULAR_RATE_OVERRIDES[normName]
-      if (exactOverride) {
-        payRate = exactOverride.payRate
-        billRate = exactOverride.billRate
-        otBillRate = exactOverride.otBillRate || 0
+    // 1. OVERRIDE OFICIAL: Tarifas verificadas contra la Factura oficial de Cingular
+    const exactOverride = CINGULAR_RATE_OVERRIDES[normName] || (agg.fullName ? CINGULAR_RATE_OVERRIDES[agg.fullName.toLowerCase().trim()] : null)
+    if (exactOverride) {
+      payRate = exactOverride.payRate
+      billRate = exactOverride.billRate
+      otBillRate = exactOverride.otBillRate || 0
+    } else {
+      // 2. FUENTE PRIMARIA: Simplify HR OS (Tarifas Reales del PEO — ya auto-sincronizadas)
+      const simplifyRate = getSimplifyHrRateForEmployee(normName) || (agg.pin ? getSimplifyHrRateForEmployee(agg.pin) : null)
+      if (simplifyRate && simplifyRate.payRate > 0) {
+        payRate = simplifyRate.payRate
+        billRate = simplifyRate.billRate
       }
+
       // Coincidencia parcial con longitud mínima de 8 caracteres
       if (payRate <= 0) {
         for (const [key, val] of Object.entries(CINGULAR_RATE_OVERRIDES)) {
@@ -731,7 +728,7 @@ export async function calculateCingularPayrollReport(
       if (salaried) {
         billRate = Number((payRate * 1.2451).toFixed(2)) // 24.51% para Salaried
       } else {
-        billRate = Number((payRate * CINGULAR_HOURLY_MARKUP_FACTOR).toFixed(2)) // 25.98% para Hourly
+        billRate = Number((payRate * CINGULAR_HOURLY_MARKUP_FACTOR).toFixed(2)) // 26.00% para Hourly
       }
     }
 

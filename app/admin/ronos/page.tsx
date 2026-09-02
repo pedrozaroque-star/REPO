@@ -16,7 +16,7 @@
  *   - Acceso exclusivo para usuarios con rol 'admin' (Dirección General y Auditoría Ejecutiva).
  *   - El día laboral inicia a las 6:00 AM y termina a las 5:59 AM del día siguiente. El turno PM inicia a las 5:00 PM.
  *   - Cubre las 16 ubicaciones de Tacos Gavilan (15 restaurantes + La Bodega Vernon #28).
- *   - Facturación Cingular HR: Margen base del 25.98% sobre sueldo de personal por hora (BILL_RATE = PAY_RATE * 1.25976).
+ *   - Facturación Cingular HR: Margen base del 26.00% sobre sueldo de personal por hora (BILL_RATE = PAY_RATE * 1.26).
  *
  * @dataFlow
  *   RONOS API v2.0 -> `ronos_employee_timecards_cache` (Supabase) + Simplify HR / Toast -> `payroll-calculator` -> /admin/ronos.

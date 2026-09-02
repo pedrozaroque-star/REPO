@@ -1084,7 +1084,8 @@ export async function getRonosStoreAudit(
         holidayHours: empHolidayHours,
         bereavementHours: empBereavementHours,
         unpaidLeaveHours: empUnpaidHours,
-        mealPenaltyCount: days.reduce((count, d) => count + (d.violations.some(v => v.type.startsWith('MEAL_PENALTY')) ? 1 : 0), 0) || safeNum(emp.mealPenalty),
+        // Solo penalizaciones oficiales de RONOS o turnos >6h con lunch omitido por completo (MEAL_PENALTY_MISSED)
+        mealPenaltyCount: safeNum(emp.mealPenalty) || days.reduce((count, d) => count + (d.violations.some(v => v.type === 'MEAL_PENALTY_MISSED') ? 1 : 0), 0),
         brokenHours: broken,
         lockTimecard: !!emp.locktimecard,
         active: emp.active !== false && (weeklyHours > 0 || empVacationHours > 0 || empSickHours > 0 || (days && days.length > 0)),

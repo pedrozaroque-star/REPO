@@ -25,6 +25,7 @@
 *.pem
 *.zip
 aplicacion.zip
+invoice-*.pdf
 
 # debug
 npm-debug.log*

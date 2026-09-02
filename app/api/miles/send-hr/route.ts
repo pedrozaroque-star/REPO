@@ -12,6 +12,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseAdminClient } from '@/lib/supabase'
 import nodemailer from 'nodemailer'
+import { generateSupervisorMileagePdf, formatUsaDate } from '@/lib/miles-pdf'
 
 export async function POST(req: NextRequest) {
   try {
@@ -23,7 +24,8 @@ export async function POST(req: NextRequest) {
       recipient_email,
       period_start,
       period_end,
-      trip_ids = []
+      trip_ids = [],
+      is_test = false
     } = body
 
     if (!recipient_email || !period_start || !period_end) {
@@ -198,6 +200,49 @@ export async function POST(req: NextRequest) {
       `
     }).join('')
 
+    // 4c. Generate individual PDF report for each supervisor
+    const supervisorPdfResults: {
+      supervisorName: string
+      filename: string
+      buffer: Buffer
+      stats: { totalTrips: number; totalMiles: number; totalParking: number; totalTolls: number; totalReimbursement: number }
+    }[] = []
+
+    Object.entries(summaryBySupervisor).forEach(([supKey, s]) => {
+      const supTrips = targetTrips.filter(
+        t => (t.supervisor_id || t.supervisor_email || t.supervisor_name) === supKey
+      )
+      if (supTrips.length > 0) {
+        try {
+          const pdfRes = generateSupervisorMileagePdf({
+            supervisorId: supTrips[0]?.supervisor_id,
+            supervisorName: s.name,
+            supervisorEmail: s.email,
+            periodStart: period_start,
+            periodEnd: period_end,
+            trips: supTrips,
+            ratePerMile: 0.76,
+            submittedByName: sender_name
+          })
+          supervisorPdfResults.push({
+            supervisorName: s.name,
+            filename: pdfRes.filename,
+            buffer: pdfRes.buffer,
+            stats: pdfRes.stats
+          })
+        } catch (pdfErr: any) {
+          console.error(`Error generando PDF para ${s.name}:`, pdfErr)
+        }
+      }
+    })
+
+    // Attachments for Nodemailer
+    const attachments = supervisorPdfResults.map(p => ({
+      filename: p.filename,
+      content: p.buffer,
+      contentType: 'application/pdf'
+    }))
+
     const emailHtml = `
       <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 750px; margin: 0 auto; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
         <div style="background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); color: #ffffff; padding: 24px; text-align: center;">
@@ -210,7 +255,7 @@ export async function POST(req: NextRequest) {
             Estimado equipo de <strong>Recursos Humanos / Nómina</strong>,
           </p>
           <p style="font-size: 14px; color: #475569; line-height: 1.5;">
-            A continuación se presenta el desglose consolidado de millas recorridas y montos a reembolsar a los supervisores correspondiente al período del <strong>${period_start}</strong> al <strong>${period_end}</strong>.
+            A continuación se presenta el desglose consolidado de millas recorridas y montos a reembolsar a los supervisores correspondiente al período del <strong>${formatUsaDate(period_start)}</strong> al <strong>${formatUsaDate(period_end)}</strong>.
           </p>
 
           <div style="display: flex; gap: 12px; margin: 20px 0; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px;">
@@ -227,6 +272,39 @@ export async function POST(req: NextRequest) {
               <div style="font-size: 20px; font-weight: bold; color: #059669; margin-top: 4px;">$${globalReimbursement.toFixed(2)} USD</div>
             </div>
           </div>
+
+          <!-- Archivos PDF Adjuntos -->
+          ${supervisorPdfResults.length > 0 ? `
+          <div style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 16px; margin: 24px 0;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span style="font-size: 16px;">📎</span>
+              <strong style="color: #1e40af; font-size: 14px;">Reportes Individuales en PDF Adjuntos (${supervisorPdfResults.length} Documentos)</strong>
+            </div>
+            <p style="margin: 6px 0 10px 0; color: #3b82f6; font-size: 13px; line-height: 1.4;">
+              Se adjunta un reporte formal en PDF por cada supervisor con el desglose auditado de sus recorridos y firmas para certificación y nómina:
+            </p>
+            <table style="width: 100%; border-collapse: collapse; font-size: 12px; background: #ffffff; border-radius: 6px; overflow: hidden; border: 1px solid #dbeafe;">
+              <thead>
+                <tr style="background: #e0e7ff; color: #3730a3; text-align: left;">
+                  <th style="padding: 8px 10px;">Documento Adjunto</th>
+                  <th style="padding: 8px 10px; text-align: center;">Viajes</th>
+                  <th style="padding: 8px 10px; text-align: right;">Millas</th>
+                  <th style="padding: 8px 10px; text-align: right;">Total Reembolso</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${supervisorPdfResults.map(p => `
+                  <tr style="border-bottom: 1px solid #eff6ff;">
+                    <td style="padding: 8px 10px; font-weight: 600; color: #1e3a8a;">📄 ${p.filename}</td>
+                    <td style="padding: 8px 10px; text-align: center; color: #475569;">${p.stats.totalTrips}</td>
+                    <td style="padding: 8px 10px; text-align: right; color: #2563eb; font-weight: 600;">${p.stats.totalMiles.toFixed(2)} mi</td>
+                    <td style="padding: 8px 10px; text-align: right; font-weight: bold; color: #059669;">$${p.stats.totalReimbursement.toFixed(2)} USD</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+          ` : ''}
 
           <!-- Resumen Ejecutivo por Supervisor -->
           <h3 style="font-size: 14px; color: #1e293b; margin: 24px 0 8px 0; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 2px solid #e2e8f0; padding-bottom: 8px;">📊 Resumen Ejecutivo por Supervisor</h3>
@@ -291,7 +369,7 @@ export async function POST(req: NextRequest) {
       </div>
     `
 
-    // 5. Dispatch email via Nodemailer
+    // 5. Dispatch email via Nodemailer with attached individual PDFs
     let emailSent = false
     let emailErrorMsg = ''
 
@@ -304,12 +382,14 @@ export async function POST(req: NextRequest) {
         }
       })
 
+      const testPrefix = is_test ? '[PRUEBA] ' : ''
       await transporter.sendMail({
         from: `"${sender_name} via Tacos Gavilan" <${process.env.SMTP_EMAIL || 'carlos@tacosgavilan.com'}>`,
         replyTo: sender_email,
         to: recipient_email,
-        subject: `🚗 MilesIQ Reporte de Millas Supervisores (${period_start} al ${period_end}) - $${globalReimbursement.toFixed(2)} USD`,
-        html: emailHtml
+        subject: `${testPrefix}🚗 MilesIQ Reporte de Millas Supervisores (${formatUsaDate(period_start)} - ${formatUsaDate(period_end)}) - $${globalReimbursement.toFixed(2)} USD`,
+        html: emailHtml,
+        attachments
       })
 
       emailSent = true
@@ -331,14 +411,14 @@ export async function POST(req: NextRequest) {
         total_supervisors: supervisorCount,
         total_miles: globalMiles,
         total_reimbursement: globalReimbursement,
-        email_status: emailSent ? 'sent' : `failed: ${emailErrorMsg}`
+        email_status: emailSent ? (is_test ? 'test_sent' : 'sent') : `failed: ${emailErrorMsg}`
       })
       .select()
       .single()
 
-    // 7. Update trip statuses to 'submitted_hr' AND link submission ID ONLY if email was sent
+    // 7. Update trip statuses to 'submitted_hr' AND link submission ID ONLY if real submission (not test) AND email was sent
     const tripIdsToUpdate = targetTrips.map(t => t.id)
-    if (tripIdsToUpdate.length > 0 && emailSent && hrSub) {
+    if (!is_test && tripIdsToUpdate.length > 0 && emailSent && hrSub) {
       await supabase
         .from('supervisor_mileage_trips')
         .update({
@@ -352,6 +432,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       success: true,
       emailSent,
+      isTest: is_test,
+      attachmentsCount: attachments.length,
+      attachedFiles: supervisorPdfResults.map(p => p.filename),
       submission: hrSub,
       totals: {
         supervisors: supervisorCount,

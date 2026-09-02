@@ -1,13 +1,13 @@
 /**
  * @module api/ronos/payroll
  * @description Endpoint de cálculo y conciliación de Nómina y Facturación Cingular HR.
- *   - Calcula salarios brutos (Gross Wages) y facturación de Cingular HR (25.98% markup).
+ *   - Calcula salarios brutos (Gross Wages) y facturación de Cingular HR (26.00% markup).
  *   - Aplica diferenciación para Asalariados (General Manager / Supervisor) vs Por Hora (Asistente hacia abajo).
  *   - Soporta exportación en formato CSV idéntico al Summary Report oficial de Cingular.
  *
  * @businessRules
- *   - Asalariados (Exempt): 80 hrs fijas bisemanales, sin OT/DT ni Meal Penalties.
- *   - Por Hora (Non-Exempt): Calculado sobre ponchadas reales de RONOS + 25.98% markup.
+ *   - Asalariados (Exempt): 80 hrs fijas bisemanales, sin OT/DT ni Meal Penalties (markup ~24.51%).
+ *   - Por Hora (Non-Exempt): Calculado sobre ponchadas reales de RONOS + 26.00% markup oficial.
  *
  * @dataFlow
  *   Frontend -> GET /api/ronos/payroll?companyId=36&weekIds=155973,154247&format=json|csv -> `payroll-calculator` -> Response

@@ -874,7 +874,7 @@ async function loadFallbackRatesFromSupabase(): Promise<void> {
           const payRate = Number(wageEntry.wage)
           const billRate = wageEntry.bill_rate || (isSalaried
             ? Math.round(payRate * 1.2451 * 100) / 100
-            : Math.round(payRate * 1.25976 * 100) / 100)
+            : Math.round(payRate * 1.26 * 100) / 100)
 
           cachedSimplifyRates.set(normName, {
             payRate,
@@ -923,7 +923,7 @@ export async function syncSimplifyHrRates(ronosCompanyId?: number): Promise<{
       const hourlyPay = isSalaried ? Math.round((emp.payRate / 2080) * 100) / 100 : emp.payRate
       const billRate = isSalaried
         ? Math.round(hourlyPay * 1.2451 * 100) / 100     // Salaried: 24.51%
-        : Math.round(hourlyPay * 1.25976 * 100) / 100    // Hourly: 25.98%
+        : Math.round(hourlyPay * 1.26 * 100) / 100       // Hourly: 26.00% (Confirmado por Raquel)
 
       const rateInfo = {
         payRate: hourlyPay,
@@ -1169,8 +1169,8 @@ export async function syncAllStoresSimplifyHrRates(): Promise<{
             const hourlyPay = isSalaried ? Math.round((emp.payRate / 2080) * 100) / 100 : emp.payRate
             const billRate = isSalaried
               ? Math.round(hourlyPay * 1.2451 * 100) / 100     // Salaried: 24.51%
-              : Math.round(hourlyPay * 1.25976 * 100) / 100    // Hourly: 25.98%
-            const otBillRate = isSalaried ? billRate : Math.round(hourlyPay * 1.5 * 1.25976 * 100) / 100
+              : Math.round(hourlyPay * 1.26 * 100) / 100       // Hourly: 26.00%
+            const otBillRate = isSalaried ? billRate : Math.round(hourlyPay * 1.5 * 1.26 * 100) / 100
 
             const rateInfo = {
               payRate: hourlyPay,
@@ -1311,7 +1311,7 @@ async function persistConsolidatedRatesInSupabase(allRates: Record<string, { pay
                 job_guid: 'simplify-hr-sync',
                 pay_type: rate.isSalaried ? 'Yearly' : 'Hourly',
                 bill_rate: rate.billRate,
-                ot_bill_rate: rate.otPayRate ? Math.round(rate.otPayRate * 1.25976 * 100) / 100 : null,
+                ot_bill_rate: rate.otPayRate ? Math.round(rate.otPayRate * 1.26 * 100) / 100 : null,
                 synced_from: 'simplify_hr_raquel',
                 synced_at: new Date().toISOString(),
                 store: rate.storeName

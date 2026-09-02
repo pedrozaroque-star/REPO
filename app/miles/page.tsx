@@ -20,7 +20,7 @@ import {
   Car, Plus, MapPin, Calendar, DollarSign, Send, CheckCircle2,
   Clock, AlertCircle, Download, RefreshCw, Settings, Search,
   Filter, RotateCw, Trash2, Edit3, ShieldCheck, Mail, Users, FileSpreadsheet, Check,
-  Navigation, Sparkles
+  Navigation, Sparkles, FileText
 } from 'lucide-react'
 import ProtectedRoute, { useAuth } from '@/components/ProtectedRoute'
 import SurpriseLoader from '@/components/SurpriseLoader'
@@ -477,6 +477,45 @@ function MilesIQContent() {
         )
         setCustomEmailInput('')
         fetchInitialData()
+      } else {
+        showToast(json.error || t('miles.error_send_hr'), 'error')
+      }
+    } catch (err: any) {
+      showToast(err.message || t('miles.error_send_email'), 'error')
+    } finally {
+      setSendingHr(false)
+    }
+  }
+
+  // Dispatch test report to current user's email with PDFs attached (does not mutate submitted_hr trip status)
+  const handleSendTestToMe = async () => {
+    if (!currentUser.email) {
+      showToast('No se encontró el correo del usuario actual', 'error')
+      return
+    }
+
+    try {
+      setSendingHr(true)
+      const res = await fetch('/api/miles/send-hr', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sender_id: currentUser.id,
+          sender_name: currentUser.name,
+          sender_email: currentUser.email,
+          recipient_email: currentUser.email,
+          period_start: dateRange.start,
+          period_end: dateRange.end,
+          is_test: true
+        })
+      })
+
+      const json = await res.json()
+      if (json.success) {
+        showToast(
+          t('miles.test_sent_success').replace('{email}', currentUser.email),
+          'success'
+        )
       } else {
         showToast(json.error || t('miles.error_send_hr'), 'error')
       }
@@ -1601,6 +1640,18 @@ function MilesIQContent() {
                 )}
                 {t('miles.send_report')}
               </button>
+
+              {/* Test Send to Me Button */}
+              <button
+                type="button"
+                onClick={handleSendTestToMe}
+                disabled={sendingHr}
+                className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-semibold rounded-xl text-xs flex items-center justify-center gap-2 border border-slate-300 dark:border-slate-700 transition-all disabled:opacity-50 shadow-sm"
+                title="Envía una copia de prueba a tu propio correo con todos los PDFs adjuntos sin alterar los viajes en base de datos"
+              >
+                <FileText size={15} className="text-blue-500" />
+                {t('miles.send_test_btn')}
+              </button>
             </div>
 
             {/* Right: Consolidated Summary Table */}
@@ -1625,12 +1676,13 @@ function MilesIQContent() {
                       <th className="py-3 px-4 text-right">{t('miles.th_parking')}</th>
                       <th className="py-3 px-4 text-right">{t('miles.th_tolls')}</th>
                       <th className="py-3 px-4 text-right">{t('miles.th_total_reimbursement')}</th>
+                      <th className="py-3 px-4 text-center">{t('miles.th_pdf_report')}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
                     {supervisorSummaries.length === 0 ? (
                       <tr>
-                        <td colSpan={6} className="py-12 text-center text-slate-400">
+                        <td colSpan={7} className="py-12 text-center text-slate-400">
                           {t('miles.no_data_period')}
                         </td>
                       </tr>
@@ -1655,6 +1707,18 @@ function MilesIQContent() {
                           </td>
                           <td className="py-3.5 px-4 text-right font-black text-emerald-600 dark:text-emerald-400 text-sm">
                             ${s.totalAmount.toFixed(2)} USD
+                          </td>
+                          <td className="py-3.5 px-4 text-center">
+                            <a
+                              href={`/api/miles/pdf?supervisor_id=${encodeURIComponent(s.id)}&supervisor_name=${encodeURIComponent(s.name)}&start_date=${dateRange.start}&end_date=${dateRange.end}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/60 dark:hover:bg-blue-900/60 text-blue-600 dark:text-blue-400 rounded-lg font-bold text-xs border border-blue-200 dark:border-blue-800 transition-all shadow-sm"
+                              title={t('miles.download_pdf')}
+                            >
+                              <FileText size={13} />
+                              <span>PDF</span>
+                            </a>
                           </td>
                         </tr>
                       ))
