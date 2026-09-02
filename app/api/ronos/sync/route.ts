@@ -38,22 +38,19 @@ export async function POST(request: Request) {
     const body = await request.json().catch(() => ({}))
     const { companyId = 34, weekId, syncChain = false, syncSimplify = true } = body
 
-    // 1. Sincronización de Simplify HR (Salarios Reales de Cingular)
-    let simplifyResult: any = null
+    // 1. Iniciar sincronización de Simplify HR (Salarios Reales de Cingular) en paralelo
+    let simplifyPromise: Promise<any> = Promise.resolve(null)
     if (syncSimplify) {
-      try {
-        if (syncChain) {
-          // Chain-wide: Extraer TODAS las 16 tiendas con login corporativo de Raquel
-          console.log('🔄 Sincronización masiva de Simplify HR — 16 tiendas...')
-          simplifyResult = await syncAllStoresSimplifyHrRates()
-          console.log(`✅ Simplify HR chain sync completo: ${simplifyResult.totalSynced} empleados de ${simplifyResult.totalStores} tiendas`)
-        } else {
-          // Individual: Solo la tienda seleccionada
-          simplifyResult = await syncSimplifyHrRates(companyId)
-        }
-      } catch (sErr: any) {
-        console.warn('Advertencia en sincronización de Simplify HR:', sErr?.message)
-        simplifyResult = { success: false, error: sErr?.message }
+      if (syncChain) {
+        simplifyPromise = syncAllStoresSimplifyHrRates().catch((sErr: any) => {
+          console.warn('Advertencia en sincronización masiva de Simplify HR:', sErr?.message)
+          return { success: false, error: sErr?.message }
+        })
+      } else {
+        simplifyPromise = syncSimplifyHrRates(companyId).catch((sErr: any) => {
+          console.warn(`Advertencia en sincronización de Simplify HR (tienda ${companyId}):`, sErr?.message)
+          return { success: false, error: sErr?.message }
+        })
       }
     }
 
@@ -63,9 +60,13 @@ export async function POST(request: Request) {
       'Expires': '0'
     }
 
-    // 2. Sincronización de RONOS (Tarjetas de tiempo, horas y ponchadas)
+    // 2. Ejecutar auditoría de RONOS y Simplify HR de forma concurrente
     if (syncChain) {
-      const chainAudit = await getRonosChainWideAudit(weekId, undefined, true)
+      const [chainAudit, simplifyResult] = await Promise.all([
+        getRonosChainWideAudit(weekId, undefined, true),
+        simplifyPromise
+      ])
+
       const durationMs = Date.now() - startTime
       return NextResponse.json({
         success: true,
@@ -86,7 +87,11 @@ export async function POST(request: Request) {
       }, { headers: antiCacheHeaders })
     }
 
-    const storeAudit = await getRonosStoreAudit(companyId, weekId, true)
+    const [storeAudit, simplifyResult] = await Promise.all([
+      getRonosStoreAudit(companyId, weekId, true),
+      simplifyPromise
+    ])
+
     const durationMs = Date.now() - startTime
 
     return NextResponse.json({

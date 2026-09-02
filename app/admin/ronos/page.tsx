@@ -899,7 +899,7 @@ function RonosLaborAuditContent() {
           method: 'POST',
           cache: 'no-store',
           headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache' },
-          body: JSON.stringify({ syncChain: true, weekId: selectedWeekId, syncSimplify: true })
+          body: JSON.stringify({ syncChain: true, weekId: selectedWeekId, syncSimplify: false })
         })
         if (!res.ok) throw new Error(`Error en sincronización (${res.status})`)
         const json = await res.json().catch(() => ({}))
@@ -927,7 +927,7 @@ function RonosLaborAuditContent() {
           method: 'POST',
           cache: 'no-store',
           headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache' },
-          body: JSON.stringify({ companyId: selectedCompanyId, weekId: selectedWeekId, syncSimplify: false })
+          body: JSON.stringify({ companyId: selectedCompanyId, weekId: selectedWeekId, syncSimplify: true })
         })
         if (!res.ok) throw new Error(`Error en sincronización tienda (${res.status})`)
         const json = await res.json().catch(() => ({}))

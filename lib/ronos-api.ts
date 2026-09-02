@@ -245,7 +245,7 @@ const DEFAULT_PASS = process.env.RONOS_PASS || 'Carlos@tegly26'
 const BASE_API = 'https://ronos.com/api/v2.0'
 const ESTIMATED_HOURLY_RATE = 19.50
 const REQUEST_TIMEOUT_MS = 25000
-const MAX_CONCURRENT_CALLS = 6
+const MAX_CONCURRENT_CALLS = 16
 
 // In-Memory State & Mutex
 let cachedSession: RonosTokenSession | null = null
@@ -931,7 +931,9 @@ export async function getRonosStoreAudit(
       let empBereavementHours = 0
       let empUnpaidHours = 0
 
-      if (empUserId > 0) {
+      const hasActivity = weeklyHours > 0 || safeNum(emp.mealPenalty) > 0 || safeNum(emp.holidayHours) > 0 || !!emp.brokenHours || !!emp.hasRetroHours || !!emp.pto
+
+      if (empUserId > 0 && hasActivity) {
         try {
           const userWeek = await callRonosApi<any>('WorkWeek/ManagerGetUserWeekByWeekId', {
             userId: empUserId,
@@ -1230,7 +1232,7 @@ export async function getRonosChainWideAudit(
   // 2. Procesar las 16 tiendas en paralelo con control de concurrencia
   const storeAudits = await mapConcurrent(
     RONOS_STORES_MAP,
-    4,
+    8,
     async (store) => {
       try {
         const weeks = await getRonosWeeks(store.ronosCompanyId, forceLive)

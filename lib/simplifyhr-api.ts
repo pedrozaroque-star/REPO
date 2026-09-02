@@ -278,8 +278,8 @@ class ConcurrencyLimiter {
   }
 }
 
-// Máximo 3 peticiones concurrentes globales contra prod.simplifyhros.com
-const globalApiLimiter = new ConcurrencyLimiter(3)
+// Control de concurrencia optimizado para prod.simplifyhros.com
+const globalApiLimiter = new ConcurrencyLimiter(6)
 
 // ==========================================
 // AUTENTICACIÓN CON MUTEX Y REINTENTOS
@@ -678,7 +678,8 @@ export async function getPaystubDetail(paystubId: string): Promise<SimplifyHrPay
 // ==========================================
 export async function extractAllSimplifyHrSalaries(
   siteId: string = '657a2e35555bf12601f56284',
-  batchConcurrency = 3
+  batchConcurrency = 6,
+  includeInactive = false
 ): Promise<{
   siteId: string
   totalEmployees: number
@@ -690,7 +691,7 @@ export async function extractAllSimplifyHrSalaries(
   employees: SimplifyHrEmployeeRecord[]
 }> {
   const activeList = await getSimplifyHrSiteEmployees(siteId, true)
-  const inactiveList = await getSimplifyHrSiteEmployees(siteId, false)
+  const inactiveList = includeInactive ? await getSimplifyHrSiteEmployees(siteId, false) : []
 
   const mapById = new Map<string, any>()
   for (const emp of [...activeList, ...inactiveList]) {
@@ -855,7 +856,7 @@ export async function syncSimplifyHrRates(ronosCompanyId?: number): Promise<{
   }
 
   try {
-    const data = await extractAllSimplifyHrSalaries(siteId, 3)
+    const data = await extractAllSimplifyHrSalaries(siteId, 6, false)
     const ratesObj: Record<string, { payRate: number; billRate: number; otPayRate?: number | null; isSalaried: boolean; jobTitle: string }> = {}
 
     for (const emp of data.employees) {
@@ -961,7 +962,7 @@ export async function syncAllStoresSimplifyHrRates(): Promise<{
 
   const uniqueStoreEntries = Object.entries(RONOS_TO_SIMPLIFY_SITE_MAP)
 
-  const STORE_BATCH_SIZE = 2
+  const STORE_BATCH_SIZE = 4
   for (let si = 0; si < uniqueStoreEntries.length; si += STORE_BATCH_SIZE) {
     const storeBatch = uniqueStoreEntries.slice(si, si + STORE_BATCH_SIZE)
 
@@ -972,7 +973,7 @@ export async function syncAllStoresSimplifyHrRates(): Promise<{
 
         try {
           console.log(`📡 [SimplifyHR] Extrayendo salarios de ${storeName}...`)
-          const data = await extractAllSimplifyHrSalaries(siteId, 3)
+          const data = await extractAllSimplifyHrSalaries(siteId, 6, false)
 
           for (const emp of data.employees) {
             if (!emp.payRate || emp.payRate <= 0) continue
