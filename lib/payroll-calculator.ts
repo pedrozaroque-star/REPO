@@ -291,7 +291,9 @@ export const CINGULAR_RATE_OVERRIDES: Record<string, { payRate: number; billRate
   // Sucursal Lynwood (TEG - Lynwood #14 / Company ID: 34) - Verificado contra Factura TEGL-0023 y Simplify HR
   'victor munoz': { payRate: 21.00, billRate: 26.46, otBillRate: 39.69 },
   'victor muñoz': { payRate: 21.00, billRate: 26.46, otBillRate: 39.69 },
-  'librado mondragon': { payRate: 16.90, billRate: 21.29, otBillRate: 31.94 }
+  'librado mondragon': { payRate: 16.90, billRate: 21.29, otBillRate: 31.94 },
+  'maria tapia': { payRate: 19.40, billRate: 24.44, otBillRate: 36.66 },
+  'maria a tapia': { payRate: 19.40, billRate: 24.44, otBillRate: 36.66 }
 }
 
 /**
@@ -733,7 +735,7 @@ export async function calculateCingularPayrollReport(
     }
 
     if (otBillRate <= 0) {
-      otBillRate = Number((billRate * 1.5).toFixed(2))
+      otBillRate = Math.round((billRate * 1.5 + Number.EPSILON) * 100) / 100
     }
 
     // Horas y Salarios
@@ -756,9 +758,9 @@ export async function calculateCingularPayrollReport(
     let invOther = 0
     let totBill = 0
 
-    const otPayRate = Number((payRate * 1.5).toFixed(2))
-    const dtPayRate = Number((payRate * 2.0).toFixed(2))
-    const dtBillRate = Number((billRate * 2.0).toFixed(2))
+    const otPayRate = Math.round((payRate * 1.5 + Number.EPSILON) * 100) / 100
+    const dtPayRate = Math.round((payRate * 2.0 + Number.EPSILON) * 100) / 100
+    const dtBillRate = Math.round((billRate * 2.0 + Number.EPSILON) * 100) / 100
 
     if (salaried) {
       const baseSalHrs = isBiWeekly ? (weekIds.length === 1 ? 40.0 : 80.0) : 40.0
