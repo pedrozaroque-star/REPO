@@ -1,14 +1,15 @@
 /**
  * @module app/admin/ronos/page
- * @description Módulo de Auditoría Laboral RONOS & Cingular HR — Emulación oficial del Frontend de ronos.com.
- *   - Emula fielmente la interfaz de usuario de `ronos.com` (barra superior azul, 5 tarjetas KPI, tabla maestra de timecards y desglose de ponchadas diarias por empleado).
+ * @description Módulo de Auditoría Laboral RONOS & Conciliación Cingular HR / Simplify HR.
+ *   - Interfaz ejecutiva con estética oficial de `ronos.com` optimizada para auditorías operativas y financieras.
  *   - Monitoreo en tiempo real de ponchadas, horas extras (OT 1.5x / DT 2.0x), descansos de comida (Meal Breaks) y fotos de reloj checador (AWS S3).
  *   - Motor de Cumplimiento de Leyes Laborales de California (IWC Wage Order 5 / California Labor Code § 512):
  *     * Regla de 5ta Hora (Meal Penalty > 5.0h) y descansos cortos (< 30 min) con cálculo de fuga en USD.
  *     * Detección de tarjetas rotas/incompletas (Broken Timecards).
  *     * Exención legal de 6.0 horas (turnos cortos sin penalización).
- *   - Vinculación inteligente de empleados (Toast POS <-> RONOS PIN) y detección de traslados multi-tienda.
- *   - Pre-Facturación y Conciliación PEO Cingular HR (Exempt Salaried vs Non-Exempt Hourly) con exportación a CSV oficial.
+ *   - Despacho de avisos formales por correo electrónico a colaboradores y a la escalera de mando.
+ *   - Pre-Facturación y Conciliación PEO Cingular HR (Exempt Salaried vs Non-Exempt Hourly) sincronizada con salarios de Simplify HR.
+ *   - Exportación de auditoría a CSV oficial compatible con contabilidad y nómina.
  *
  * @businessRules
  *   - Acceso exclusivo para usuarios con rol 'admin' (Dirección General y Auditoría Ejecutiva).
@@ -17,7 +18,7 @@
  *   - Facturación Cingular HR: Margen base del 25.98% sobre sueldo de personal por hora (BILL_RATE = PAY_RATE * 1.25976).
  *
  * @dataFlow
- *   RONOS API v2.0 -> `ronos_employee_timecards_cache` (Supabase) + `toast_employees` -> `payroll-calculator` -> /admin/ronos.
+ *   RONOS API v2.0 -> `ronos_employee_timecards_cache` (Supabase) + Simplify HR / Toast -> `payroll-calculator` -> /admin/ronos.
  */
 
 'use client'
@@ -67,7 +68,9 @@ import {
   Plane,
   PlusCircle,
   ArrowLeft,
-  Edit3
+  Edit3,
+  Receipt,
+  Sparkles
 } from 'lucide-react'
 
 // ============================================================================
@@ -161,7 +164,8 @@ interface EmployeeTimecard {
 }
 
 interface StoreAuditData {
-  companyId: number
+  companyId?: number
+  ronosCompanyId?: number
   storeCode: string
   storeName: string
   weekId: number
@@ -275,6 +279,8 @@ function RonosLaborAuditContent() {
   const [payrollLoading, setPayrollLoading] = useState<boolean>(false)
   const [payrollBiWeekly, setPayrollBiWeekly] = useState<boolean>(true)
   const [selectedBiWeeklyPeriod, setSelectedBiWeeklyPeriod] = useState<string>('')
+  const [payrollSearch, setPayrollSearch] = useState<string>('')
+  const [payrollFilterType, setPayrollFilterType] = useState<'all' | 'violations' | 'pto'>('all')
 
   // Mapping Data States
   const [mappingsList, setMappingsList] = useState<MappedEmployeeItem[]>([])
@@ -667,7 +673,7 @@ function RonosLaborAuditContent() {
     }
   }
 
-  // Sync On Demand
+  // Sync On Demand (RONOS + Simplify HR)
   const handleSyncLive = async () => {
     setSyncing(true)
     setError(null)
@@ -747,7 +753,8 @@ function RonosLaborAuditContent() {
     return storeData.employees.filter(emp => {
       if (!emp) return false
 
-      if (!showInactive && !emp.active) return false
+      const isActive = emp.active !== false && ((emp.totalWeeklyHours ?? 0) > 0 || (emp.days && emp.days.length > 0))
+      if (!showInactive && emp.active === false) return false
 
       const isSal = emp.jobTitle?.toLowerCase().includes('manager') || emp.jobTitle?.toLowerCase().includes('supervisor')
       if (viewingFilter === 'salary' && !isSal) return false
@@ -763,7 +770,7 @@ function RonosLaborAuditContent() {
       if (!matchSearch) return false
 
       if (filterType === 'violations') {
-        return (emp.totalViolationsCount ?? 0) > 0 || (emp.mealPenaltyCount ?? 0) > 0
+        return (emp.totalViolationsCount ?? 0) > 0 || (emp.mealPenaltyCount ?? 0) > 0 || Boolean(emp.brokenHours)
       }
       if (filterType === 'broken') {
         return Boolean(emp.brokenHours)
@@ -802,6 +809,32 @@ function RonosLaborAuditContent() {
       return true
     })
   }, [mappingsList, mappingSearch, mappingFilter])
+
+  // Filtered Employees for Tab 4 (Payroll)
+  const filteredPayrollEmployees = useMemo(() => {
+    if (!Array.isArray(payrollData?.employees)) return []
+    const query = (payrollSearch || '').toLowerCase().trim()
+
+    return payrollData.employees.filter((emp: any) => {
+      if (!emp) return false
+
+      const matchSearch =
+        !query ||
+        (emp.fullName || '').toLowerCase().includes(query) ||
+        (emp.jobTitle || '').toLowerCase().includes(query)
+
+      if (!matchSearch) return false
+
+      if (payrollFilterType === 'violations') {
+        return (emp.overtimeHours ?? 0) > 0 || (emp.doubleTimeHours ?? 0) > 0 || (emp.mealPenaltyHours ?? 0) > 0
+      }
+      if (payrollFilterType === 'pto') {
+        return (emp.sickHours ?? 0) > 0 || (emp.vacationHours ?? 0) > 0 || (emp.holidayHours ?? 0) > 0
+      }
+
+      return true
+    })
+  }, [payrollData, payrollSearch, payrollFilterType])
 
   // Paired bi-weekly payroll periods for Cingular
   const biWeeklyPeriods = useMemo(() => {
@@ -997,7 +1030,7 @@ function RonosLaborAuditContent() {
                   : 'text-white/85 hover:text-white hover:bg-white/10'
               }`}
             >
-              <DollarSign className="w-3.5 h-3.5" />
+              <Receipt className="w-3.5 h-3.5" />
               {t('ronos.tab_payroll')}
             </button>
           </div>
@@ -1008,10 +1041,10 @@ function RonosLaborAuditContent() {
               onClick={handleSyncLive}
               disabled={syncing || loading}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/20 hover:bg-white/30 text-white font-semibold text-xs transition-all active:scale-95 cursor-pointer disabled:opacity-50"
-              title="Sincronizar en Vivo"
+              title="Sincronizar RONOS & Simplify HR"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${syncing ? 'animate-spin' : ''}`} />
-              <span className="hidden sm:inline">{syncing ? t('ronos.syncing') : 'Sync RONOS'}</span>
+              <span className="hidden sm:inline">{syncing ? t('ronos.syncing') : 'Sync RONOS & Simplify'}</span>
             </button>
 
             <div className="h-4 w-px bg-white/30" />
@@ -1145,9 +1178,6 @@ function RonosLaborAuditContent() {
                         >
                           <Mail className="w-3.5 h-3.5" />
                           <span>AVISAR POR CORREO</span>
-                        </button>
-                        <button className="p-1.5 rounded border border-amber-400 text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950/40">
-                          <Unlock className="w-4 h-4" />
                         </button>
                       </div>
                     </div>
@@ -1452,15 +1482,20 @@ function RonosLaborAuditContent() {
                 <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs p-5 space-y-4">
                   {/* Title */}
                   <div className="flex items-center justify-between">
-                    <h2 className="text-lg font-bold text-slate-800 dark:text-slate-100">
-                      Employee Timecards
+                    <h2 className="text-lg font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
+                      <span>Employee Timecards</span>
+                      {filterType === 'violations' && (
+                        <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-rose-100 text-rose-700">
+                          Filtrado: Solo Fugas / Broken
+                        </span>
+                      )}
                     </h2>
                     <span className="text-xs text-slate-400 font-mono">
-                      {storeData?.storeName ? `Sucursal ${storeData.storeName} (#${storeData.companyId})` : ''}
+                      {storeData?.storeName ? `Sucursal ${storeData.storeName} (#${storeData.ronosCompanyId || storeData.companyId || selectedCompanyId})` : ''}
                     </span>
                   </div>
 
-                  {/* Filter Toolbar Row 1: Dropdowns + Legend + Approve Button */}
+                  {/* Filter Toolbar Row 1: Dropdowns + Legend + Real Audit Action Buttons */}
                   <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 items-center pt-2">
                     {/* Store / Departments Selector */}
                     <div className="lg:col-span-3">
@@ -1482,7 +1517,7 @@ function RonosLaborAuditContent() {
                     </div>
 
                     {/* Week Selector */}
-                    <div className="lg:col-span-4">
+                    <div className="lg:col-span-3">
                       <label className="block text-[11px] text-slate-500 font-semibold mb-1">Week</label>
                       <select
                         value={selectedWeekId}
@@ -1497,32 +1532,48 @@ function RonosLaborAuditContent() {
                       </select>
                     </div>
 
-                    {/* Legend & Action Buttons */}
-                    <div className="lg:col-span-5 flex items-center justify-end gap-2 flex-wrap">
+                    {/* Real Executive Audit Buttons */}
+                    <div className="lg:col-span-6 flex items-center justify-end gap-2 flex-wrap">
                       <div className="text-[11px] text-slate-500 flex items-center gap-1.5 mr-2">
                         <span className="font-semibold">Legend:</span>
                         <span className="text-[#2e7d32] font-bold">Approved</span>
-                        <span className="text-[#f57c00] font-bold">Employee Approved</span>
-                        <span className="text-[#d32f2f] font-bold">Broken</span>
+                        <span className="text-[#d32f2f] font-bold">Broken / Violations</span>
                       </div>
 
-                      <button className="p-2 rounded bg-[#e53935] hover:bg-[#d32f2f] text-white shadow-xs cursor-pointer" title="Bloquear Nómina">
-                        <Lock className="w-4 h-4" />
+                      {/* Quick Filter Violations Toggle */}
+                      <button
+                        onClick={() => setFilterType(prev => prev === 'violations' ? 'all' : 'violations')}
+                        className={`px-3 py-1.5 rounded-lg font-bold text-xs flex items-center gap-1.5 shadow-xs transition-all cursor-pointer ${
+                          filterType === 'violations'
+                            ? 'bg-rose-600 text-white'
+                            : 'bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100 dark:bg-rose-950/40 dark:border-rose-800 dark:text-rose-300'
+                        }`}
+                        title="Ver únicamente colaboradores con penalizaciones o ponchadas rotas"
+                      >
+                        <AlertTriangle className="w-3.5 h-3.5" />
+                        <span>{filterType === 'violations' ? 'Ver Todos' : 'Ver Fugas & Multas'}</span>
                       </button>
 
+                      {/* Export Store CSV */}
                       <button
                         onClick={handleExportCSV}
-                        className="p-2 rounded bg-[#0288d1] hover:bg-[#0277bd] text-white shadow-xs cursor-pointer"
-                        title="Exportar CSV"
+                        className="px-3 py-1.5 rounded-lg bg-[#0288d1] hover:bg-[#0277bd] text-white font-bold text-xs shadow-xs transition-all active:scale-95 cursor-pointer flex items-center gap-1.5"
+                        title="Descargar reporte completo en formato Excel/CSV"
                       >
-                        <Download className="w-4 h-4" />
+                        <Download className="w-3.5 h-3.5" />
+                        <span>Exportar CSV</span>
                       </button>
 
+                      {/* Go to Cingular Payroll Audit */}
                       <button
-                        onClick={() => alert('Todas las tarjetas han sido auditadas y verificadas contra el motor de leyes laborales.')}
-                        className="px-4 py-2 rounded bg-[#43a047] hover:bg-[#388e3c] text-white font-bold text-xs shadow-xs transition-all active:scale-95 cursor-pointer"
+                        onClick={() => {
+                          setActiveTab('payroll')
+                        }}
+                        className="px-3.5 py-1.5 rounded-lg bg-[#43a047] hover:bg-[#388e3c] text-white font-bold text-xs shadow-xs transition-all active:scale-95 cursor-pointer flex items-center gap-1.5"
+                        title="Auditar pre-factura y conciliar nómina con Cingular HR"
                       >
-                        {t('ronos.btn_approve_timecards')}
+                        <Receipt className="w-3.5 h-3.5" />
+                        <span>Conciliar Cingular HR</span>
                       </button>
                     </div>
                   </div>
@@ -1672,7 +1723,7 @@ function RonosLaborAuditContent() {
                                   {emp.pin}
                                 </td>
                                 <td className="py-2.5 px-3 text-center text-slate-500">
-                                  {emp.active ? 'true' : 'false'}
+                                  {emp.active !== false ? 'true' : 'false'}
                                 </td>
                                 <td className="py-2.5 px-3 text-center font-bold text-slate-900 dark:text-white">
                                   {(emp.totalWeeklyHours ?? 0).toFixed(2)}
@@ -1954,23 +2005,38 @@ function RonosLaborAuditContent() {
         {/* ═══════════════════════════════════════════════════════════════════════════ */}
         {activeTab === 'payroll' && (
           <div className="space-y-5">
-            {/* Header & Controls */}
+            {/* Header & Controls Card */}
             <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs p-5 space-y-4">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100 dark:border-slate-800">
                 <div>
-                  <h2 className="text-lg font-bold text-slate-800 dark:text-slate-100">
-                    {t('ronos.tab_payroll')}
+                  <h2 className="text-lg font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
+                    <Receipt className="w-5 h-5 text-[#0288d1]" />
+                    <span>{t('ronos.tab_payroll')}</span>
+                    <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300">
+                      Simplify HR Sync
+                    </span>
                   </h2>
                   <p className="text-xs text-slate-500 mt-0.5">
-                    {t('ronos.payroll_subtitle')}
+                    Conciliación y auditoría de facturación Cingular HR con tarifas reales de Simplify HR
                   </p>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
+                  {/* Sync Live Simplify HR */}
+                  <button
+                    onClick={handleSyncLive}
+                    disabled={syncing || payrollLoading}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-50 text-[#0288d1] border border-blue-200 hover:bg-blue-100 dark:bg-slate-800 dark:border-slate-700 font-bold text-xs shadow-xs cursor-pointer disabled:opacity-50"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${syncing ? 'animate-spin' : ''}`} />
+                    <span>{syncing ? 'Sincronizando...' : 'Refrescar Tarifas Simplify HR'}</span>
+                  </button>
+
+                  {/* Export Official Cingular CSV */}
                   <a
                     href={`/api/ronos/payroll?companyId=${selectedCompanyId}&weekIds=${payrollBiWeekly ? (selectedBiWeeklyPeriod || biWeeklyPeriods[0]?.id || '') : (selectedWeekId || '')}&biWeekly=${payrollBiWeekly}&format=csv`}
                     download
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#43a047] hover:bg-[#388e3c] text-white font-bold text-xs shadow-xs cursor-pointer"
+                    className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-[#43a047] hover:bg-[#388e3c] text-white font-bold text-xs shadow-xs cursor-pointer"
                   >
                     <Download className="w-3.5 h-3.5" />
                     <span>{t('ronos.btn_export_cingular_csv')}</span>
@@ -1978,42 +2044,189 @@ function RonosLaborAuditContent() {
                 </div>
               </div>
 
-              {/* 4 KPI Cards */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                <div className="p-3.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 text-center">
+              {/* Controls Bar: Store Selector + Period Selector + Mode Radios */}
+              <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-center pt-1">
+                {/* Store Selector */}
+                <div className="sm:col-span-4">
+                  <label className="block text-[11px] text-slate-500 font-semibold mb-1">Sucursal / Tienda</label>
+                  <select
+                    value={selectedCompanyId}
+                    onChange={(e) => {
+                      const cId = Number(e.target.value)
+                      setSelectedCompanyId(cId)
+                      const periodId = payrollBiWeekly ? (selectedBiWeeklyPeriod || biWeeklyPeriods[0]?.id || '') : selectedWeekId
+                      fetchPayroll(cId, periodId, payrollBiWeekly)
+                    }}
+                    className="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold cursor-pointer"
+                  >
+                    {stores.map(st => (
+                      <option key={st.ronosCompanyId} value={st.ronosCompanyId}>
+                        {st.tegName} ({st.ronosName})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Period Selector */}
+                <div className="sm:col-span-5">
+                  <label className="block text-[11px] text-slate-500 font-semibold mb-1">
+                    {payrollBiWeekly ? 'Periodo Bisemanal Cingular HR' : 'Semana de Nómina'}
+                  </label>
+                  {payrollBiWeekly ? (
+                    <select
+                      value={selectedBiWeeklyPeriod}
+                      onChange={(e) => {
+                        setSelectedBiWeeklyPeriod(e.target.value)
+                        fetchPayroll(selectedCompanyId, e.target.value, true)
+                      }}
+                      className="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold cursor-pointer"
+                    >
+                      {biWeeklyPeriods.map(p => (
+                        <option key={p.id} value={p.id}>
+                          {p.label}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <select
+                      value={selectedWeekId}
+                      onChange={(e) => {
+                        const wId = Number(e.target.value)
+                        setSelectedWeekId(wId)
+                        fetchPayroll(selectedCompanyId, wId, false)
+                      }}
+                      className="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold cursor-pointer"
+                    >
+                      {weeks.map(w => (
+                        <option key={w.weekId} value={w.weekId}>
+                          {w.startDate?.substring(0, 10)} al {w.endDate?.substring(0, 10)} (Sem #{w.weekId})
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+
+                {/* Mode Radios */}
+                <div className="sm:col-span-3 flex items-center justify-end gap-3 pt-3">
+                  <label className="flex items-center gap-1.5 text-xs font-semibold cursor-pointer">
+                    <input
+                      type="radio"
+                      name="payrollMode"
+                      checked={payrollBiWeekly}
+                      onChange={() => {
+                        setPayrollBiWeekly(true)
+                        const periodId = selectedBiWeeklyPeriod || biWeeklyPeriods[0]?.id || ''
+                        fetchPayroll(selectedCompanyId, periodId, true)
+                      }}
+                      className="accent-[#0288d1]"
+                    />
+                    <span>Bisemanal (Factura)</span>
+                  </label>
+                  <label className="flex items-center gap-1.5 text-xs font-semibold cursor-pointer">
+                    <input
+                      type="radio"
+                      name="payrollMode"
+                      checked={!payrollBiWeekly}
+                      onChange={() => {
+                        setPayrollBiWeekly(false)
+                        fetchPayroll(selectedCompanyId, selectedWeekId, false)
+                      }}
+                      className="accent-[#0288d1]"
+                    />
+                    <span>Semanal</span>
+                  </label>
+                </div>
+              </div>
+
+              {/* 4 Financial KPI Summary Cards */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2">
+                <div className="p-3.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 text-center shadow-2xs">
                   <span className="text-[11px] font-semibold text-emerald-800 dark:text-emerald-400 block mb-1">
                     {t('ronos.kpi_total_invoiced')}
                   </span>
                   <span className="text-2xl font-black text-emerald-700 dark:text-emerald-300">
                     ${(payrollData?.totalInvoicedAmount ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
                   </span>
+                  <span className="text-[10px] text-emerald-600 block mt-0.5">Monto total facturado</span>
                 </div>
 
-                <div className="p-3.5 rounded-xl bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 text-center">
+                <div className="p-3.5 rounded-xl bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 text-center shadow-2xs">
                   <span className="text-[11px] font-semibold text-blue-800 dark:text-blue-400 block mb-1">
                     {t('ronos.kpi_gross_pay')}
                   </span>
                   <span className="text-2xl font-black text-blue-700 dark:text-blue-300">
                     ${(payrollData?.totalGrossPay ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
                   </span>
+                  <span className="text-[10px] text-blue-600 block mt-0.5">Sueldos brutos a pagar</span>
                 </div>
 
-                <div className="p-3.5 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 text-center">
+                <div className="p-3.5 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 text-center shadow-2xs">
                   <span className="text-[11px] font-semibold text-amber-800 dark:text-amber-400 block mb-1">
                     {t('ronos.kpi_cingular_fee')}
                   </span>
                   <span className="text-2xl font-black text-amber-700 dark:text-amber-300">
                     ${(payrollData?.totalCingularFee ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
                   </span>
+                  <span className="text-[10px] text-amber-600 block mt-0.5">Margen y cargos PEO</span>
                 </div>
 
-                <div className="p-3.5 rounded-xl bg-purple-50 dark:bg-purple-950/30 border border-purple-200 dark:border-purple-800 text-center">
+                <div className="p-3.5 rounded-xl bg-purple-50 dark:bg-purple-950/30 border border-purple-200 dark:border-purple-800 text-center shadow-2xs">
                   <span className="text-[11px] font-semibold text-purple-800 dark:text-purple-400 block mb-1">
                     Horas Totales Facturadas
                   </span>
                   <span className="text-2xl font-black text-purple-700 dark:text-purple-300">
                     {(payrollData?.totalHours ?? 0).toFixed(2)} hrs
                   </span>
+                  <span className="text-[10px] text-purple-600 block mt-0.5">
+                    {payrollData?.employees?.length || 0} colaboradores
+                  </span>
+                </div>
+              </div>
+
+              {/* Toolbar: Search + Quick Filters */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2 border-t border-slate-100 dark:border-slate-800 text-xs">
+                <div className="relative max-w-sm w-full">
+                  <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
+                  <input
+                    type="text"
+                    value={payrollSearch}
+                    onChange={(e) => setPayrollSearch(e.target.value)}
+                    placeholder="Buscar por colaborador o puesto..."
+                    className="w-full pl-8 pr-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs"
+                  />
+                </div>
+
+                <div className="flex items-center gap-2 flex-wrap">
+                  <button
+                    onClick={() => setPayrollFilterType('all')}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-semibold ${
+                      payrollFilterType === 'all'
+                        ? 'bg-[#0288d1] text-white'
+                        : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
+                    }`}
+                  >
+                    Todos ({payrollData?.employees?.length || 0})
+                  </button>
+                  <button
+                    onClick={() => setPayrollFilterType('violations')}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-semibold ${
+                      payrollFilterType === 'violations'
+                        ? 'bg-amber-600 text-white'
+                        : 'bg-amber-50 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300'
+                    }`}
+                  >
+                    Con Overtime / Multas
+                  </button>
+                  <button
+                    onClick={() => setPayrollFilterType('pto')}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-semibold ${
+                      payrollFilterType === 'pto'
+                        ? 'bg-purple-600 text-white'
+                        : 'bg-purple-50 text-purple-800 dark:bg-purple-950/40 dark:text-purple-300'
+                    }`}
+                  >
+                    Con PTO / Sick Pay
+                  </button>
                 </div>
               </div>
 
@@ -2028,6 +2241,9 @@ function RonosLaborAuditContent() {
                       <th className="py-2.5 px-3 text-center">Pay Rate</th>
                       <th className="py-2.5 px-3 text-center">Bill Rate</th>
                       <th className="py-2.5 px-3 text-center font-bold">Total Horas</th>
+                      <th className="py-2.5 px-3 text-center">Regular (h)</th>
+                      <th className="py-2.5 px-3 text-center">OT / DT (h)</th>
+                      <th className="py-2.5 px-3 text-center">Sick/PTO (h)</th>
                       <th className="py-2.5 px-3 text-center font-bold">Sueldo Bruto</th>
                       <th className="py-2.5 px-3 text-center font-bold text-emerald-700 dark:text-emerald-400">Total Factura</th>
                     </tr>
@@ -2035,43 +2251,61 @@ function RonosLaborAuditContent() {
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                     {payrollLoading ? (
                       <tr>
-                        <td colSpan={8} className="py-12 text-center text-slate-400">
+                        <td colSpan={11} className="py-12 text-center text-slate-400">
                           <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-[#03a9f4]" />
-                          <span>Calculando pre-factura oficial de Cingular HR...</span>
+                          <span>Calculando pre-factura oficial de Cingular HR con tarifas de Simplify HR...</span>
                         </td>
                       </tr>
-                    ) : payrollData?.employees?.map((emp: any) => (
-                      <tr key={emp.employeeUserId} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
-                        <td className="py-2.5 px-3 font-bold text-slate-900 dark:text-white">
-                          {emp.fullName}
-                        </td>
-                        <td className="py-2.5 px-3 text-slate-600 dark:text-slate-400">
-                          {emp.jobTitle}
-                        </td>
-                        <td className="py-2.5 px-3 text-center">
-                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                            emp.isSalaried ? 'bg-purple-100 text-purple-800' : 'bg-slate-100 text-slate-700'
-                          }`}>
-                            {emp.isSalaried ? 'Salaried' : 'Hourly'}
-                          </span>
-                        </td>
-                        <td className="py-2.5 px-3 text-center font-mono">
-                          ${(emp.payRate ?? 0).toFixed(2)}
-                        </td>
-                        <td className="py-2.5 px-3 text-center font-mono text-[#0288d1] font-bold">
-                          ${(emp.billRate ?? 0).toFixed(2)}
-                        </td>
-                        <td className="py-2.5 px-3 text-center font-bold text-slate-900 dark:text-white">
-                          {(emp.totalHours ?? 0).toFixed(2)}
-                        </td>
-                        <td className="py-2.5 px-3 text-center font-mono font-bold text-slate-900 dark:text-white">
-                          ${(emp.totalGrossPay ?? 0).toFixed(2)}
-                        </td>
-                        <td className="py-2.5 px-3 text-center font-mono font-black text-emerald-600 dark:text-emerald-400">
-                          ${(emp.totalInvoicedAmount ?? 0).toFixed(2)}
+                    ) : filteredPayrollEmployees.length === 0 ? (
+                      <tr>
+                        <td colSpan={11} className="py-12 text-center text-slate-400">
+                          <Receipt className="w-6 h-6 mx-auto mb-2 opacity-50" />
+                          <span>No hay datos de nómina disponibles para los filtros seleccionados.</span>
                         </td>
                       </tr>
-                    ))}
+                    ) : (
+                      filteredPayrollEmployees.map((emp: any) => (
+                        <tr key={emp.employeeUserId} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                          <td className="py-2.5 px-3 font-bold text-slate-900 dark:text-white">
+                            {emp.fullName}
+                          </td>
+                          <td className="py-2.5 px-3 text-slate-600 dark:text-slate-400">
+                            {emp.jobTitle}
+                          </td>
+                          <td className="py-2.5 px-3 text-center">
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                              emp.isSalaried ? 'bg-purple-100 text-purple-800' : 'bg-slate-100 text-slate-700'
+                            }`}>
+                              {emp.isSalaried ? 'Salaried' : 'Hourly'}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-3 text-center font-mono">
+                            ${(emp.payRate ?? 0).toFixed(2)}
+                          </td>
+                          <td className="py-2.5 px-3 text-center font-mono text-[#0288d1] font-bold">
+                            ${(emp.billRate ?? 0).toFixed(2)}
+                          </td>
+                          <td className="py-2.5 px-3 text-center font-bold text-slate-900 dark:text-white">
+                            {(emp.totalHours ?? 0).toFixed(2)}
+                          </td>
+                          <td className="py-2.5 px-3 text-center text-slate-700 dark:text-slate-300 font-mono">
+                            {(emp.regularHours ?? 0).toFixed(2)}
+                          </td>
+                          <td className="py-2.5 px-3 text-center font-mono text-amber-600 font-semibold">
+                            {((emp.overtimeHours ?? 0) + (emp.doubleTimeHours ?? 0)).toFixed(2)}
+                          </td>
+                          <td className="py-2.5 px-3 text-center font-mono text-purple-600">
+                            {((emp.sickHours ?? 0) + (emp.vacationHours ?? 0) + (emp.holidayHours ?? 0)).toFixed(2)}
+                          </td>
+                          <td className="py-2.5 px-3 text-center font-mono font-bold text-slate-900 dark:text-white">
+                            ${(emp.totalGrossPay ?? 0).toFixed(2)}
+                          </td>
+                          <td className="py-2.5 px-3 text-center font-mono font-black text-emerald-600 dark:text-emerald-400">
+                            ${(emp.totalInvoicedAmount ?? 0).toFixed(2)}
+                          </td>
+                        </tr>
+                      ))
+                    )}
                   </tbody>
                 </table>
               </div>

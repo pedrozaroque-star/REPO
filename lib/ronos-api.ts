@@ -992,6 +992,7 @@ export async function getRonosStoreAudit(
         mealPenaltyCount: days.reduce((count, d) => count + (d.violations.some(v => v.type.startsWith('MEAL_PENALTY')) ? 1 : 0), 0) || safeNum(emp.mealPenalty),
         brokenHours: broken,
         lockTimecard: !!emp.locktimecard,
+        active: emp.active !== false && (weeklyHours > 0 || empVacationHours > 0 || empSickHours > 0 || (days && days.length > 0)),
         days,
         totalViolationsCount: empViolationsCount,
         totalEstimatedPenaltyCostUsd: Number(empPenaltyCost.toFixed(2)),
