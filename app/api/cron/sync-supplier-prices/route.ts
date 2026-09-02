@@ -313,6 +313,35 @@ async function handleSync(request: NextRequest) {
     }
 
     const durationMs = Date.now() - startTime
+
+    // 8. REGISTRO DE AUDITORÍA PERMANENTE EN ACTIVITY_LOGS
+    // Se registra SIEMPRE, incluso si hubo 0 cambios y no se enviaron correos,
+    // para certificar que el cronjob y la consulta a Viele se ejecutaron exitosamente.
+    try {
+      await supabase.from('activity_logs').insert({
+        action: 'cron_sync_supplier_prices',
+        entity_type: 'suppliers',
+        new_values: {
+          supplier_code: 'VIELE',
+          source_type: 'cron_auto',
+          status: 'success',
+          total_items_scraped: scrapeResult.totalItems,
+          total_increases: totalIncreases,
+          total_decreases: totalDecreases,
+          total_unchanged: totalUnchanged,
+          total_new: totalNew,
+          net_annual_impact_usd: Number(netAnnualImpactUsd.toFixed(2)),
+          auto_approved_count: autoApprovedCount,
+          email_sent: emailAlertSent,
+          email_message_id: emailMessageId || null,
+          duration_ms: durationMs,
+          executed_at: new Date().toISOString()
+        }
+      })
+    } catch (logErr) {
+      console.warn('[Cron:SyncSupplierPrices] ⚠️ No se pudo registrar auditoría en activity_logs:', logErr)
+    }
+
     console.log(`[Cron:SyncSupplierPrices] ✅ Sincronización completada en ${durationMs}ms: ${scrapeResult.totalItems} items (${totalIncreases} aumentos, ${totalDecreases} reducciones, ${totalUnchanged} sin cambio, ${autoApprovedCount} auto-aprobados). Email enviado: ${emailAlertSent}`)
 
     return NextResponse.json({
@@ -332,6 +361,24 @@ async function handleSync(request: NextRequest) {
     })
   } catch (error: any) {
     console.error('[Cron:SyncSupplierPrices] ❌ Excepción no controlada:', error)
+
+    // Registrar fallo en activity_logs para trazabilidad
+    try {
+      const supabase = await getSupabaseAdminClient()
+      await supabase.from('activity_logs').insert({
+        action: 'cron_sync_supplier_prices',
+        entity_type: 'suppliers',
+        new_values: {
+          supplier_code: 'VIELE',
+          source_type: 'cron_auto',
+          status: 'failed',
+          error_message: error?.message || 'Error desconocido en cron',
+          duration_ms: Date.now() - startTime,
+          executed_at: new Date().toISOString()
+        }
+      })
+    } catch (_) {}
+
     return NextResponse.json({ success: false, error: error?.message || 'Error en el cron de precios' }, { status: 500 })
   }
 }

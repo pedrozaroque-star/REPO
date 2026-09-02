@@ -100,11 +100,24 @@ export async function GET(request: NextRequest) {
 
     if (mapErr) throw mapErr
 
+    // 4. Obtener último registro de ejecución del cron para telemetría
+    const { data: lastCronLog } = await supabase
+      .from('activity_logs')
+      .select('new_values, created_at')
+      .eq('action', 'cron_sync_supplier_prices')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
     return NextResponse.json({
       success: true,
       suppliers: suppliers || [],
       history: history || [],
-      mappings: mappings || []
+      mappings: mappings || [],
+      lastCronRun: lastCronLog ? {
+        ...(lastCronLog.new_values as object),
+        executedAt: lastCronLog.created_at
+      } : null
     })
   } catch (error: any) {
     console.error('[SupplierPricesAPI] GET Error:', error)

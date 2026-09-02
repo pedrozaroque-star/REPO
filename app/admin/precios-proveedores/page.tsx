@@ -109,6 +109,16 @@ export default function SupplierPricesPage() {
   const [historyList, setHistoryList] = useState<PriceHistoryRecord[]>([])
   const [mappingsList, setMappingsList] = useState<MappingRecord[]>([])
   const [isLoadingInitial, setIsLoadingInitial] = useState<boolean>(true)
+  const [lastCronRun, setLastCronRun] = useState<{
+    status?: string
+    total_items_scraped?: number
+    total_increases?: number
+    total_decreases?: number
+    total_unchanged?: number
+    email_sent?: boolean
+    duration_ms?: number
+    executedAt?: string
+  } | null>(null)
 
   // Estados de operación
   const [isSyncingLive, setIsSyncingLive] = useState<boolean>(false)
@@ -204,6 +214,7 @@ export default function SupplierPricesPage() {
       setSuppliers(json.suppliers || [])
       setHistoryList(json.history || [])
       setMappingsList(json.mappings || [])
+      setLastCronRun(json.lastCronRun || null)
 
       // Seleccionar Viele & Sons por defecto
       let targetId = selectedSupplierId
@@ -584,6 +595,29 @@ export default function SupplierPricesPage() {
               <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-0.5">
                 {t('supplier_prices.subtitle') || 'Detección automática de aumentos de costos y recálculo para las 15 sucursales'}
               </p>
+              {lastCronRun && (
+                <div className="flex items-center gap-1.5 mt-2 text-[11px] font-medium text-slate-600 dark:text-slate-400 bg-slate-100 dark:bg-slate-800/80 px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700/60 w-fit">
+                  <span className={`w-2 h-2 rounded-full ${lastCronRun.status === 'success' ? 'bg-emerald-500 animate-pulse' : 'bg-red-500'}`} />
+                  <span>
+                    <strong className="font-bold text-slate-800 dark:text-slate-200">
+                      {language === 'en' ? 'Auto-Audit:' : 'Auditoría Automática:'}
+                    </strong>{' '}
+                    {lastCronRun.executedAt ? new Date(lastCronRun.executedAt).toLocaleString(language === 'en' ? 'en-US' : 'es-MX', {
+                      month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
+                    }) : ''}
+                    {' · '}{lastCronRun.total_items_scraped || 87} {language === 'en' ? 'items scanned' : 'insumos escaneados'}
+                    {lastCronRun.total_increases || lastCronRun.total_decreases ? (
+                      <span className="text-amber-600 dark:text-amber-400 font-bold">
+                        {' · '}{lastCronRun.total_increases || 0} {language === 'en' ? 'up' : 'alzas'}, {lastCronRun.total_decreases || 0} {language === 'en' ? 'down' : 'bajas'}
+                      </span>
+                    ) : (
+                      <span className="text-emerald-600 dark:text-emerald-400 font-bold">
+                        {' · '}{language === 'en' ? '0 variations' : '0 variaciones'}
+                      </span>
+                    )}
+                  </span>
+                </div>
+              )}
             </div>
           </div>
 
