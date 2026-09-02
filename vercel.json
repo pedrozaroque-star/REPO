@@ -83,6 +83,10 @@
         {
             "path": "/api/cron/sync-supplier-prices",
             "schedule": "0 13 * * 1-5"
+        },
+        {
+            "path": "/api/cron/sync-simplify-rates",
+            "schedule": "0 13 * * *"
         }
     ]
 }

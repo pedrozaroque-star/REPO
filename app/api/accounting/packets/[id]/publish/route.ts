@@ -26,7 +26,8 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
-import { getQuickBooksClient } from '@/lib/quickbooks'
+import { getQuickBooksClient, getAuthClient } from '@/lib/quickbooks'
+import { getQBStoreRefs } from '@/lib/qb-classes-locations'
 import type { JournalLine } from '@/lib/accounting-journal'
 
 /** Publishable statuses — packets must be in one of these to proceed */
@@ -39,8 +40,8 @@ interface QBJournalEntryLine {
   JournalEntryLineDetail: {
     PostingType: 'Debit' | 'Credit'
     AccountRef: { value: string; name: string }
-    ClassRef?: { name: string }
-    DepartmentRef?: { name: string }
+    ClassRef?: { value: string; name: string }
+    DepartmentRef?: { value: string; name: string }
   }
 }
 
@@ -117,7 +118,7 @@ export async function POST(
       )
     }
 
-    // Build a lookup map: account_number → { qb_account_id, account_name }
+    // Build a lookup map: account_number → { qbId, name }
     const accountMap = new Map<string, { qbId: string; name: string }>()
     for (const gl of glAccounts || []) {
       if (gl.qb_account_id) {
@@ -148,12 +149,8 @@ export async function POST(
       year: 'numeric',
     })
 
-    // Fetch site mapping for Class and Location
-    const { data: siteMapping } = await supabaseAdmin
-      .from('accounting_site_mappings')
-      .select('qb_location, qb_class')
-      .eq('store_id', packet.store_id)
-      .maybeSingle()
+    // Resolve Class and Location with official numeric IDs
+    const storeRefs = getQBStoreRefs(storeName)
 
     const qbLines: QBJournalEntryLine[] = journalLines.map((line) => {
       const acct = accountMap.get(line.account)!
@@ -166,16 +163,14 @@ export async function POST(
           value: acct.qbId,
           name: `${line.account} - ${acct.name}`,
         },
-      }
-
-      const qbClass = siteMapping?.qb_class || line.className || (line as any).class
-      if (qbClass) {
-        lineDetail.ClassRef = { name: qbClass }
-      }
-
-      const qbLocation = siteMapping?.qb_location || line.location
-      if (qbLocation) {
-        lineDetail.DepartmentRef = { name: qbLocation }
+        ClassRef: {
+          value: storeRefs.classId,
+          name: storeRefs.className,
+        },
+        DepartmentRef: {
+          value: storeRefs.locationId,
+          name: storeRefs.locationName,
+        },
       }
 
       return {
@@ -193,15 +188,60 @@ export async function POST(
       Line: qbLines,
     }
 
-    // 5. Get QuickBooks client and publish
-    const qbo = await getQuickBooksClient()
+    // 5. Query active integration token and publish via direct REST API / SDK
+    const { data: integ } = await supabaseAdmin
+      .from('integrations')
+      .select('*')
+      .eq('service_name', 'quickbooks')
+      .single()
 
-    const result = await new Promise<Record<string, unknown>>((resolve, reject) => {
-      qbo.createJournalEntry(journalEntry, (err: unknown, data: Record<string, unknown>) => {
-        if (err) reject(err)
-        else resolve(data)
-      })
-    })
+    if (!integ || !integ.access_token) {
+      return NextResponse.json(
+        { error: 'No active QuickBooks connection. Reconnect QuickBooks in settings.' },
+        { status: 401 }
+      )
+    }
+
+    let token = integ.access_token
+    const realmId = integ.realm_id
+
+    // Check token expiration and refresh if needed
+    if (new Date(integ.expires_at) <= new Date()) {
+      const authClient = getAuthClient()
+      const refreshRes = await authClient.refreshUsingToken(integ.refresh_token)
+      const newTokens = refreshRes.getJson()
+      token = newTokens.access_token
+
+      await supabaseAdmin.from('integrations').update({
+        access_token: newTokens.access_token,
+        refresh_token: newTokens.refresh_token,
+        expires_at: new Date(Date.now() + newTokens.expires_in * 1000),
+        updated_at: new Date().toISOString(),
+      }).eq('id', integ.id)
+    }
+
+    // Send directly to QuickBooks Online REST API
+    const qbRes = await fetch(
+      `https://quickbooks.api.intuit.com/v3/company/${realmId}/journalentry?minorversion=75`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+        body: JSON.stringify(journalEntry),
+      }
+    )
+
+    if (!qbRes.ok) {
+      const errorText = await qbRes.text()
+      console.error('[Accounting] QuickBooks API Error:', qbRes.status, errorText)
+      throw new Error(`QuickBooks API Error: ${errorText}`)
+    }
+
+    const qbData = await qbRes.json()
+    const result = qbData.JournalEntry || qbData
 
     // 6. Update packet with QB response
     const qbEntryId = (result as { Id?: string })?.Id || null

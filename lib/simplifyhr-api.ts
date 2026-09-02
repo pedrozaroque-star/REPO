@@ -246,6 +246,61 @@ const BASE_API = 'https://prod.simplifyhros.com'
 // In-Memory Rate Cache para acceso ultra-rápido
 let cachedSimplifyRates: Map<string, { payRate: number; billRate: number; otPayRate?: number | null; isSalaried: boolean; jobTitle: string; storeName?: string }> | null = null
 let lastRatesSyncTime = 0
+let ratesSyncInProgress: Promise<void> | null = null
+
+// Throttle: 4 horas (14,400,000 ms) — no volver a llamar Simplify HR API si ya se sincronizó recientemente
+const RATES_SYNC_THROTTLE_MS = 4 * 60 * 60 * 1000
+
+/**
+ * Garantiza que las tarifas de Simplify HR estén cargadas en memoria antes de cualquier cálculo.
+ * - Throttle de 4 horas: si ya se sincronizó recientemente, retorna inmediatamente.
+ * - Mutex: si hay un sync en progreso, espera a que termine en vez de lanzar uno duplicado.
+ * - Resiliencia: si Simplify HR falla, carga automáticamente desde caché de Supabase.
+ * - Se invoca automáticamente desde calculateCingularPayrollReport().
+ */
+export async function ensureSimplifyRatesLoaded(): Promise<void> {
+  // 1. Si las tarifas ya están cargadas en memoria y son frescas, retorno instantáneo (0ms)
+  if (cachedSimplifyRates && cachedSimplifyRates.size > 0 && (Date.now() - lastRatesSyncTime) < RATES_SYNC_THROTTLE_MS) {
+    return
+  }
+
+  // 2. Cargar instantáneamente desde el caché persistido de Supabase (~100ms)
+  //    Esto evita que la pantalla se congele 7 minutos haciendo sync en vivo de 16 tiendas.
+  if (!cachedSimplifyRates || cachedSimplifyRates.size === 0) {
+    await loadFallbackRatesFromSupabase()
+    if (cachedSimplifyRates && cachedSimplifyRates.size > 0) {
+      lastRatesSyncTime = Date.now()
+      console.log(`[SimplifyHR] ⚡ ${cachedSimplifyRates.size} tarifas cargadas instantáneamente desde Supabase`)
+      return
+    }
+  }
+
+  // 3. Si ya hay un sync en progreso, esperar a que termine (mutex)
+  if (ratesSyncInProgress) {
+    await ratesSyncInProgress
+    return
+  }
+
+  // 4. Solo si Supabase estaba vacío, sincronizar en vivo con Simplify HR OS
+  ratesSyncInProgress = (async () => {
+    try {
+      console.log('[SimplifyHR] ⏳ Auto-sincronizando tarifas de las 16 tiendas...')
+      const result = await syncAllStoresSimplifyHrRates()
+      if (result.totalSynced > 0) {
+        console.log(`[SimplifyHR] ✅ ${result.totalSynced} tarifas sincronizadas de ${result.totalStores} tiendas`)
+      } else {
+        await loadFallbackRatesFromSupabase()
+      }
+    } catch (err: any) {
+      console.error('[SimplifyHR] ❌ Error en auto-sync:', err?.message)
+      await loadFallbackRatesFromSupabase()
+    } finally {
+      ratesSyncInProgress = null
+    }
+  })()
+
+  await ratesSyncInProgress
+}
 
 // ==========================================
 // UTILIDADES DE CONTROL DE FLUJO Y BACKOFF
@@ -803,6 +858,7 @@ async function loadFallbackRatesFromSupabase(): Promise<void> {
     const { data: employees } = await supabaseAdmin
       .from('toast_employees')
       .select('first_name, last_name, wage_data')
+      .eq('deleted', false)
 
     if (employees && employees.length > 0) {
       let loaded = 0
@@ -911,12 +967,142 @@ export async function syncSimplifyHrRates(ronosCompanyId?: number): Promise<{
 }
 
 // ==========================================
-// CONSULTA RÁPIDA DE TARIFAS
+// CONSULTA RÁPIDA DE TARIFAS (CON FUZZY MATCHING INTELIGENTE)
 // ==========================================
+
+/**
+ * Calcula la distancia de Levenshtein entre dos strings.
+ * Usado para detectar typos comunes: Cardoso↔Cardozo, Hernandez↔Hernadez, etc.
+ */
+function levenshtein(a: string, b: string): number {
+  if (a.length === 0) return b.length
+  if (b.length === 0) return a.length
+  // Optimización: si la diferencia de longitud es > 3, no vale la pena calcular
+  if (Math.abs(a.length - b.length) > 3) return Math.max(a.length, b.length)
+
+  const matrix: number[][] = []
+  for (let i = 0; i <= b.length; i++) matrix[i] = [i]
+  for (let j = 0; j <= a.length; j++) matrix[0][j] = j
+
+  for (let i = 1; i <= b.length; i++) {
+    for (let j = 1; j <= a.length; j++) {
+      const cost = b[i - 1] === a[j - 1] ? 0 : 1
+      matrix[i][j] = Math.min(
+        matrix[i - 1][j] + 1,     // deletion
+        matrix[i][j - 1] + 1,     // insertion
+        matrix[i - 1][j - 1] + cost // substitution
+      )
+    }
+  }
+  return matrix[b.length][a.length]
+}
+
+/**
+ * Normaliza un nombre removiendo acentos, caracteres especiales, y convirtiendo a minúsculas.
+ */
+function normalizeNameForMatch(name: string): string {
+  return (name || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '') // Quitar acentos
+    .replace(/[^a-z0-9\s]/g, '')     // Solo alfanuméricos
+    .trim()
+    .replace(/\s+/g, ' ')
+}
+
+/**
+ * Extrae el primer y último nombre de un string completo.
+ * "juan pablo tecua montiel" → "juan montiel"
+ */
+function firstAndLast(name: string): string {
+  const parts = name.trim().split(/\s+/)
+  if (parts.length <= 1) return name.trim()
+  return `${parts[0]} ${parts[parts.length - 1]}`
+}
+
+// Caché secundario para evitar recalcular fuzzy matches repetidos
+const fuzzyMatchCache = new Map<string, string | null>()
+
 export function getSimplifyHrRateForEmployee(nameOrId: string): { payRate: number; billRate: number; otPayRate?: number | null; isSalaried: boolean; jobTitle: string } | null {
-  if (!cachedSimplifyRates) return null
-  const key = nameOrId.toLowerCase().trim().replace(/\s+/g, ' ')
-  return cachedSimplifyRates.get(key) || cachedSimplifyRates.get(`id:${nameOrId}`) || null
+  if (!cachedSimplifyRates || cachedSimplifyRates.size === 0) return null
+
+  const key = normalizeNameForMatch(nameOrId)
+  if (!key || key.length < 3) return null
+
+  // 1. Match EXACTO (más rápido)
+  const exact = cachedSimplifyRates.get(key) || cachedSimplifyRates.get(`id:${nameOrId}`)
+  if (exact) return exact
+
+  // 2. Revisar caché de fuzzy matches previos
+  if (fuzzyMatchCache.has(key)) {
+    const cached = fuzzyMatchCache.get(key)
+    if (!cached) return null
+    return cachedSimplifyRates.get(cached) || null
+  }
+
+  // 3. Match por PRIMER + ÚLTIMO nombre (ignora middle names)
+  //    "juan pablo tecua montiel" → busca "juan montiel" en las claves
+  const fl = firstAndLast(key)
+  for (const [cacheKey, val] of cachedSimplifyRates) {
+    if (cacheKey.startsWith('id:')) continue
+    if (firstAndLast(cacheKey) === fl) {
+      fuzzyMatchCache.set(key, cacheKey)
+      return val
+    }
+  }
+
+  // 4. Match por INCLUSIÓN (un nombre contiene al otro)
+  //    "wilson adolfo marroquin rivera" contiene "wilson marroquin"
+  for (const [cacheKey, val] of cachedSimplifyRates) {
+    if (cacheKey.startsWith('id:')) continue
+    if (cacheKey.length < 8) continue
+    if (key.includes(cacheKey) || cacheKey.includes(key)) {
+      fuzzyMatchCache.set(key, cacheKey)
+      return val
+    }
+  }
+
+  // 5. Match FUZZY con Levenshtein (para typos: Cardoso↔Cardozo, Hernandez↔Hernadez)
+  //    Solo si el nombre tiene al menos 10 caracteres para evitar falsos positivos
+  if (key.length >= 10) {
+    let bestMatch: string | null = null
+    let bestDist = Infinity
+
+    for (const [cacheKey] of cachedSimplifyRates) {
+      if (cacheKey.startsWith('id:')) continue
+      // Solo comparar nombres de longitud similar (±5 chars)
+      if (Math.abs(cacheKey.length - key.length) > 5) continue
+
+      const dist = levenshtein(key, cacheKey)
+      // Umbral: max 2 edits para nombres largos, 1 para nombres cortos
+      const threshold = key.length >= 15 ? 3 : 2
+      if (dist <= threshold && dist < bestDist) {
+        bestDist = dist
+        bestMatch = cacheKey
+      }
+    }
+
+    if (bestMatch) {
+      fuzzyMatchCache.set(key, bestMatch)
+      return cachedSimplifyRates.get(bestMatch) || null
+    }
+  }
+
+  // 6. Match por primer + último nombre con Levenshtein (para "Gutierrez" vs "Gutierres")
+  if (fl.length >= 8) {
+    for (const [cacheKey, val] of cachedSimplifyRates) {
+      if (cacheKey.startsWith('id:')) continue
+      const cfl = firstAndLast(cacheKey)
+      if (cfl.length >= 8 && levenshtein(fl, cfl) <= 2) {
+        fuzzyMatchCache.set(key, cacheKey)
+        return val
+      }
+    }
+  }
+
+  // No match encontrado
+  fuzzyMatchCache.set(key, null)
+  return null
 }
 
 // ==========================================
@@ -1050,6 +1236,7 @@ async function persistRatesInSupabaseBackground(employees: SimplifyHrEmployeeRec
     const { data: toastEmps } = await supabaseAdmin
       .from('toast_employees')
       .select('id, first_name, last_name')
+      .eq('deleted', false)
 
     if (!toastEmps || toastEmps.length === 0) return
 
@@ -1099,6 +1286,7 @@ async function persistConsolidatedRatesInSupabase(allRates: Record<string, { pay
     const { data: toastEmps } = await supabaseAdmin
       .from('toast_employees')
       .select('id, first_name, last_name')
+      .eq('deleted', false)
 
     if (!toastEmps || toastEmps.length === 0) return
 

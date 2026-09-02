@@ -26,7 +26,7 @@
 
 import { supabaseAdmin } from './supabase'
 import { RONOS_STORES_MAP, getRonosStoreAudit } from './ronos-api'
-import { getSimplifyHrRateForEmployee } from './simplifyhr-api'
+import { getSimplifyHrRateForEmployee, ensureSimplifyRatesLoaded } from './simplifyhr-api'
 
 export const CINGULAR_HOURLY_MARKUP_FACTOR = 1.25976 // ~25.98% markup factor
 export const DEFAULT_BASE_HOURLY_RATE = 16.90 // California QSR baseline
@@ -160,6 +160,15 @@ export const CINGULAR_RATE_OVERRIDES: Record<string, { payRate: number; billRate
   // General Manager (Salaried) - Lynwood #14
   'carlos velazquez': { payRate: 37.93, billRate: 47.22 }, // $78,884/yr ($37.93/hr paystub legal rounded rate -> $3,034.40 with PTO)
 
+  // 4 District Supervisors (Asalariados asignados a tienda base en Facturas Cingular HR)
+  'willian aguilar': { payRate: 43.25, billRate: 53.85 }, // $89,960/yr (Facturado sobre Lynwood #34)
+  'wilian aguilar': { payRate: 43.25, billRate: 53.85 },
+  'ricardo velazquez': { payRate: 46.475, billRate: 57.86 }, // $96,668/yr (Facturado sobre Huntington Park #27)
+  'ricardo velázquez': { payRate: 46.475, billRate: 57.86 },
+  'javier pastor': { payRate: 43.2375, billRate: 53.83 }, // $89,934/yr (Facturado sobre LA Central #31)
+  'estefani duran': { payRate: 41.80, billRate: 52.04 }, // $86,944/yr (Facturado sobre Rialto #25)
+  'estefani durán': { payRate: 41.80, billRate: 52.04 },
+
   // Sucursal Broadway (TEG - Broadway #5 / Company ID: 30 / TEGB-0017)
   'aaron chay hernandez': { payRate: 33.80, billRate: 42.08 },
   'aaron hernandez': { payRate: 33.80, billRate: 42.08 },
@@ -277,7 +286,43 @@ export const CINGULAR_RATE_OVERRIDES: Record<string, { payRate: number; billRate
   'sandra gonon itzep': { payRate: 18.47, billRate: 23.27, otBillRate: 34.90 },
   'teresa gabarrete nunez': { payRate: 18.47, billRate: 23.27, otBillRate: 34.90 },
   'teresa nunez': { payRate: 18.47, billRate: 23.27, otBillRate: 34.90 },
-  'william salgado': { payRate: 18.47, billRate: 23.27, otBillRate: 34.90 }
+  'william salgado': { payRate: 18.47, billRate: 23.27, otBillRate: 34.90 },
+
+  // Sucursal Lynwood (TEG - Lynwood #14 / Company ID: 34) - Verificado contra Factura TEGL-0023 y Simplify HR
+  'victor munoz': { payRate: 21.00, billRate: 26.46, otBillRate: 39.69 },
+  'victor muñoz': { payRate: 21.00, billRate: 26.46, otBillRate: 39.69 },
+  'librado mondragon': { payRate: 16.90, billRate: 21.29, otBillRate: 31.94 }
+}
+
+/**
+ * Correcciones de nombres en RONOS que tienen typos vs Simplify HR.
+ * Clave = nombre tal como aparece en RONOS (normalizado, lowercase).
+ * Valor = nombre correcto tal como aparece en Simplify HR.
+ *
+ * Estos typos causan que el motor NO encuentre la tarifa correcta en Simplify HR,
+ * y caiga al default de $16.90/h.
+ */
+const RONOS_NAME_CORRECTIONS: Record<string, string> = {
+  // Typos de letras: s↔z, n faltante, doble L, i faltante
+  'apolonio cardozo': 'apolonio cardoso',
+  'carlos lezama hernadez': 'carlos lezama hernandez',
+  'oscar tiguilla': 'oscar tiguila',
+  'felix remundez': 'felix reimundez',
+  'jaqueline gutierres': 'jaqueline gutierrez contreras',
+  'willian aguilar': 'wilian aguilar',
+
+  // Apellidos cortados o middle names omitidos
+  'wilson marroquin': 'wilson adolfo marroquin rivera',
+  'delia arreaga': 'delia josefina arreaga ajiataz',
+  'roger lopez martinez': 'roger alexis lopez martinez',
+}
+
+/**
+ * Aplica correcciones de nombre conocidas de RONOS → Simplify HR.
+ */
+function normalizeRonosName(name: string): string {
+  const norm = name.toLowerCase().trim().replace(/\s+/g, ' ')
+  return RONOS_NAME_CORRECTIONS[norm] || norm
 }
 
 /**
@@ -330,7 +375,15 @@ export function isEmployeeSalaried(jobTitle?: string, fullName?: string, payRate
     name.includes('marco antonio salgado') ||
     name.includes('erick martinez') ||
     name.includes('jesus olivares') ||
-    name.includes('eloy velazquez')
+    name.includes('eloy velazquez') ||
+    // 4 Supervisores de Distrito (Asalariados asignados por tienda para facturación)
+    name.includes('willian aguilar') ||
+    name.includes('wilian aguilar') ||
+    name.includes('ricardo velazquez') ||
+    name.includes('ricardo velázquez') ||
+    name.includes('javier pastor') ||
+    name.includes('estefani duran') ||
+    name.includes('estefani durán')
   ) {
     return true
   }
@@ -431,6 +484,10 @@ export async function calculateCingularPayrollReport(
     ronosName: `Store #${ronosCompanyId}`
   }
 
+  // Auto-sincronizar tarifas de Simplify HR (throttled: máx 1 vez cada 4 horas)
+  // Esto garantiza que TODAS las tiendas tengan tarifas reales y no caigan al default de $16.90/h
+  await ensureSimplifyRatesLoaded()
+
   // 1. Obtener rango de fechas de las semanas
   const { data: wWeeks } = await supabaseAdmin
     .from('ronos_work_weeks')
@@ -479,10 +536,11 @@ export async function calculateCingularPayrollReport(
     }
   }
 
-  // 2. Obtener salarios reales de toast_employees
+  // 2. Obtener salarios reales de toast_employees (solo colaboradores activos)
   const { data: toastEmps } = await supabaseAdmin
     .from('toast_employees')
     .select('first_name, last_name, wage_data, job_references, external_id, id')
+    .eq('deleted', false)
     .limit(5000)
 
   const wageMap = new Map<string, number>()
@@ -604,41 +662,49 @@ export async function calculateCingularPayrollReport(
   const employeeItems: CingularEmployeePayrollItem[] = []
 
   empAggregation.forEach((agg, uId) => {
-    const normName = String(agg?.fullName || '').toLowerCase().trim().replace(/\s+/g, ' ')
-    const detectedTitle = String(titleMap.get(normName) || agg?.jobTitle || 'Crew')
+    const rawNormName = String(agg?.fullName || '').toLowerCase().trim().replace(/\s+/g, ' ')
+    // Aplicar correcciones de typos conocidos de RONOS antes de buscar tarifas
+    const normName = normalizeRonosName(rawNormName)
+    const detectedTitle = String(titleMap.get(rawNormName) || titleMap.get(normName) || agg?.jobTitle || 'Crew')
 
-    // Determinar Pay Rate & Bill Rate (Prioridad: Simplify HR Live Rates -> Registros Verificados Cingular -> Toast Wage Data -> Default)
+    // Determinar Pay Rate & Bill Rate
+    // Cascada de prioridad:
+    //   1. Simplify HR Live Rates (fuente primaria real — cubre las 16 tiendas)
+    //   2. CINGULAR_RATE_OVERRIDES (override manual para correcciones verificadas contra invoice)
+    //   3. Toast Wage Data (fallback)
+    //   4. Default por rol (último recurso)
     let payRate = 0
     let billRate = 0
     let otBillRate = 0
 
-    // 1. Buscar en tarifas maestras verificadas de Cingular (calibradas contra invoice real)
-    // Fix #3: Primero buscar coincidencia exacta para evitar falsos positivos
-    const exactOverride = CINGULAR_RATE_OVERRIDES[normName]
-    if (exactOverride) {
-      payRate = exactOverride.payRate
-      billRate = exactOverride.billRate
-      otBillRate = exactOverride.otBillRate || 0
-    }
-    // Si no hay exacta, buscar coincidencia parcial con longitud mínima de 8 caracteres
-    if (payRate <= 0) {
-      for (const [key, val] of Object.entries(CINGULAR_RATE_OVERRIDES)) {
-        if (key.length < 8) continue // Evitar matches con nombres muy cortos (ej: "jose")
-        if (normName.includes(key) || key.includes(normName)) {
-          payRate = val.payRate
-          billRate = val.billRate
-          otBillRate = val.otBillRate || 0
-          break
-        }
-      }
+    // 1. FUENTE PRIMARIA: Simplify HR OS (Tarifas Reales del PEO — ya auto-sincronizadas)
+    const simplifyRate = getSimplifyHrRateForEmployee(normName) || (agg.pin ? getSimplifyHrRateForEmployee(agg.pin) : null)
+    if (simplifyRate && simplifyRate.payRate > 0) {
+      payRate = simplifyRate.payRate
+      billRate = simplifyRate.billRate
     }
 
-    // 2. Buscar en Simplify HR OS (Tarifas Reales del PEO — fallback para tiendas sin override)
+    // 2. OVERRIDE MANUAL: Tarifas verificadas contra invoice real de Cingular
+    //    Solo aplica si Simplify HR no retornó tarifa (empleado nuevo o no sincronizado aún)
+    //    o si existe una corrección explícita verificada contra la factura
     if (payRate <= 0) {
-      const simplifyRate = getSimplifyHrRateForEmployee(normName) || (agg.pin ? getSimplifyHrRateForEmployee(agg.pin) : null)
-      if (simplifyRate && simplifyRate.payRate > 0) {
-        payRate = simplifyRate.payRate
-        billRate = simplifyRate.billRate
+      const exactOverride = CINGULAR_RATE_OVERRIDES[normName]
+      if (exactOverride) {
+        payRate = exactOverride.payRate
+        billRate = exactOverride.billRate
+        otBillRate = exactOverride.otBillRate || 0
+      }
+      // Coincidencia parcial con longitud mínima de 8 caracteres
+      if (payRate <= 0) {
+        for (const [key, val] of Object.entries(CINGULAR_RATE_OVERRIDES)) {
+          if (key.length < 8) continue
+          if (normName.includes(key) || key.includes(normName)) {
+            payRate = val.payRate
+            billRate = val.billRate
+            otBillRate = val.otBillRate || 0
+            break
+          }
+        }
       }
     }
 

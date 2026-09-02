@@ -604,8 +604,11 @@ function RonosLaborAuditContent() {
 
         const computedPeriods = computeCingularBiWeeklyPeriods(json.weeks)
         if (!selectedBiWeeklyPeriod && computedPeriods.length > 0) {
-          // Seleccionar por defecto el periodo completo más reciente (ej. 154242,154243)
-          const defaultPeriod = computedPeriods.find(p => p.weekIds[0] !== p.weekIds[1]) || computedPeriods[0]
+          // Seleccionar por defecto el periodo completo CERRADO más reciente (ej. 154242,154243)
+          // Si el periodo más reciente aún está en curso (endDate > hoy), priorizar el ciclo previo que ya facturó
+          const todayStr = new Date().toISOString().substring(0, 10)
+          const closedCompletePeriod = computedPeriods.find(p => p.weekIds[0] !== p.weekIds[1] && p.endDate <= todayStr)
+          const defaultPeriod = closedCompletePeriod || computedPeriods.find(p => p.weekIds[0] !== p.weekIds[1]) || computedPeriods[0]
           if (defaultPeriod) {
             setSelectedBiWeeklyPeriod(defaultPeriod.id)
           }
@@ -1168,13 +1171,58 @@ function RonosLaborAuditContent() {
     document.body.removeChild(link)
   }
 
-  // Cálculos para las 5 tarjetas de KPI estilo RONOS (Screenshot 2 / 4)
+  // Cálculos en tiempo real para las 5 tarjetas de KPI estilo RONOS (In Today, Lunch Today, Out Today)
+  const todayPunchStats = useMemo(() => {
+    let inCount = 0
+    let lunchCount = 0
+    let outCount = 0
+
+    if (!Array.isArray(storeData?.employees) || storeData.employees.length === 0) {
+      return { inCount, lunchCount, outCount }
+    }
+
+    // Fecha laboral actual en zona horaria de California
+    const todayLA = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' }) // "YYYY-MM-DD"
+
+    for (const emp of storeData.employees) {
+      if (!emp || !Array.isArray(emp.days)) continue
+
+      // Buscar el registro de hoy
+      const todayRecord = emp.days.find(d => d?.date && String(d.date).startsWith(todayLA))
+      const punches = todayRecord?.punches
+
+      if (Array.isArray(punches) && punches.length > 0) {
+        const sorted = [...punches].sort((a, b) => {
+          const timeA = new Date(a?.localTime || a?.punchTime || 0).getTime()
+          const timeB = new Date(b?.localTime || b?.punchTime || 0).getTime()
+          return timeA - timeB
+        })
+
+        const lastPunch = sorted[sorted.length - 1]
+        const pType = Number(lastPunch?.punchType)
+
+        if (pType === 1) {
+          // Clock IN o Lunch END -> Está actualmente trabajando en tienda (IN)
+          inCount++
+        } else if (pType === 3) {
+          // Lunch START -> Está actualmente en su descanso de comida (LUNCH)
+          lunchCount++
+        } else if (pType === 2) {
+          // Clock OUT -> Ya terminó su turno de hoy (OUT)
+          outCount++
+        }
+      }
+    }
+
+    return { inCount, lunchCount, outCount }
+  }, [storeData])
+
   const totalEmployeesCount = storeData?.employees?.length || 0
   const approvedCount = storeData?.employees?.filter(e => (e.totalViolationsCount === 0 && !e.brokenHours)).length || 0
   const brokenCount = storeData?.employees?.filter(e => (e.brokenHours || (e.mealPenaltyCount ?? 0) > 0)).length || 0
-  const inTodayCount = storeData?.activeEmployeesCount || 0
-  const lunchTodayCount = storeData?.employees?.filter(e => e.days?.some(d => d.lunchHours > 0)).length || 0
-  const outTodayCount = storeData?.activeEmployeesCount || 0
+  const inTodayCount = todayPunchStats.inCount
+  const lunchTodayCount = todayPunchStats.lunchCount
+  const outTodayCount = todayPunchStats.outCount
 
   const activeStoreName = storeData?.storeName ? `TEG - ${storeData.storeName}` : 'TEG - Lynwood'
 
@@ -2783,6 +2831,7 @@ function RonosLaborAuditContent() {
                       <th className="py-2.5 px-3 text-center">Regular</th>
                       <th className="py-2.5 px-3 text-center">OT (h)</th>
                       <th className="py-2.5 px-3 text-center">DT (h)</th>
+                      <th className="py-2.5 px-3 text-center text-amber-600 dark:text-amber-400 font-semibold">{t('ronos.col_meal_penalties') || 'Meal (Multas)'}</th>
                       <th className="py-2.5 px-3 text-center">Sick/PTO</th>
                       <th className="py-2.5 px-3 text-center font-bold">Sueldo Bruto</th>
                       <th className="py-2.5 px-3 text-center text-amber-700 dark:text-amber-400 font-semibold">Margen Cingular</th>
@@ -2793,14 +2842,14 @@ function RonosLaborAuditContent() {
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                     {payrollLoading ? (
                       <tr>
-                        <td colSpan={14} className="py-12 text-center text-slate-400">
+                        <td colSpan={15} className="py-12 text-center text-slate-400">
                           <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-[#03a9f4]" />
                           <span>Calculando pre-factura oficial de Cingular HR con tarifas de Simplify HR...</span>
                         </td>
                       </tr>
                     ) : filteredPayrollEmployees.length === 0 ? (
                       <tr>
-                        <td colSpan={14} className="py-12 text-center text-slate-400">
+                        <td colSpan={15} className="py-12 text-center text-slate-400">
                           <Receipt className="w-6 h-6 mx-auto mb-2 opacity-50" />
                           <span>No hay datos de nómina disponibles para los filtros seleccionados.</span>
                         </td>
@@ -2838,6 +2887,15 @@ function RonosLaborAuditContent() {
                           </td>
                           <td className="py-2.5 px-3 text-center font-mono text-rose-600 font-semibold">
                             {(emp.doubleTimeHours ?? 0).toFixed(2)}
+                          </td>
+                          <td className="py-2.5 px-3 text-center font-mono font-bold">
+                            {(emp.mealPenaltyHours ?? 0) > 0 ? (
+                              <span className="inline-block bg-amber-100 dark:bg-amber-950/50 text-amber-800 dark:text-amber-300 px-1.5 py-0.5 rounded font-bold border border-amber-300 dark:border-amber-800 text-[11px]">
+                                {(emp.mealPenaltyHours ?? 0).toFixed(2)}
+                              </span>
+                            ) : (
+                              <span className="text-slate-400 text-[11px]">0.00</span>
+                            )}
                           </td>
                           <td className="py-2.5 px-3 text-center font-mono text-purple-600">
                             {((emp.sickHours ?? 0) + (emp.vacationHours ?? 0) + (emp.holidayHours ?? 0)).toFixed(2)}
