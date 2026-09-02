@@ -433,8 +433,16 @@ function RonosLaborAuditContent() {
   const [storeData, setStoreData] = useState<StoreAuditData | null>(null)
   const [chainData, setChainData] = useState<ChainAuditData | null>(null)
 
-  // Vista de empleado individual (Screenshot 3)
-  const [selectedEmployeeDetail, setSelectedEmployeeDetail] = useState<EmployeeTimecard | null>(null)
+  // Vista de empleado individual reactiva a storeData (evita desactualización al reparar ponchadas)
+  const [selectedEmployeeUserId, setSelectedEmployeeUserId] = useState<number | null>(null)
+  const selectedEmployeeDetail = useMemo(() => {
+    if (!selectedEmployeeUserId || !Array.isArray(storeData?.employees)) return null
+    return storeData.employees.find(e => e.employeeUserId === selectedEmployeeUserId) || null
+  }, [selectedEmployeeUserId, storeData])
+  const setSelectedEmployeeDetail = (emp: EmployeeTimecard | null) => {
+    setSelectedEmployeeUserId(emp?.employeeUserId ?? null)
+  }
+  const [lastSyncedTime, setLastSyncedTime] = useState<string | null>(null)
 
   // Filtros de visualización estilo RONOS (Screenshot 2 / 4)
   const [viewingFilter, setViewingFilter] = useState<'all' | 'salary' | 'hourly'>('all')
@@ -558,14 +566,22 @@ function RonosLaborAuditContent() {
   }, [activeTab, selectedCompanyId, selectedWeekId, payrollBiWeekly, selectedBiWeeklyPeriod])
 
   // 2. Fetch Store Audit Data (Tab 1)
-  const fetchStoreAudit = async (companyId: number, weekId?: number) => {
+  const fetchStoreAudit = async (companyId: number, weekId?: number, force = false) => {
     setLoading(true)
     setError(null)
     try {
       let url = `/api/ronos/punches?companyId=${companyId}`
       if (weekId) url += `&weekId=${weekId}`
+      if (force) url += `&force=true`
+      url += `&_t=${Date.now()}`
 
-      const res = await fetch(url)
+      const res = await fetch(url, {
+        cache: 'no-store',
+        headers: {
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache'
+        }
+      })
       if (!res.ok) {
         const errBody = await res.json().catch(() => ({}))
         throw new Error(errBody?.error || `Error de red con RONOS (${res.status})`)
@@ -601,14 +617,22 @@ function RonosLaborAuditContent() {
   }
 
   // 3. Fetch Chain Audit Data (Tab 2)
-  const fetchChainAudit = async (weekId?: number) => {
+  const fetchChainAudit = async (weekId?: number, force = false) => {
     setLoading(true)
     setError(null)
     try {
       let url = `/api/ronos/punches?chain=true`
       if (weekId) url += `&weekId=${weekId}`
+      if (force) url += `&force=true`
+      url += `&_t=${Date.now()}`
 
-      const res = await fetch(url)
+      const res = await fetch(url, {
+        cache: 'no-store',
+        headers: {
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache'
+        }
+      })
       if (!res.ok) {
         const errBody = await res.json().catch(() => ({}))
         throw new Error(errBody?.error || `Error al obtener auditoría corporativa (${res.status})`)
@@ -635,7 +659,15 @@ function RonosLaborAuditContent() {
       if (periodId) {
         url += `&weekIds=${periodId}`
       }
-      const res = await fetch(url)
+      url += `&_t=${Date.now()}`
+
+      const res = await fetch(url, {
+        cache: 'no-store',
+        headers: {
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache'
+        }
+      })
       if (!res.ok) throw new Error(`Error de nómina (${res.status})`)
       const json = await res.json().catch(() => ({}))
       if (json?.success && json?.data) {
@@ -652,7 +684,13 @@ function RonosLaborAuditContent() {
   const fetchMappings = async (companyId: number) => {
     setMappingLoading(true)
     try {
-      const res = await fetch(`/api/ronos/mappings?companyId=${companyId}`)
+      const res = await fetch(`/api/ronos/mappings?companyId=${companyId}&_t=${Date.now()}`, {
+        cache: 'no-store',
+        headers: {
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache'
+        }
+      })
       if (!res.ok) throw new Error(`Error al obtener mapeos (${res.status})`)
       const json = await res.json().catch(() => ({}))
       if (json?.success && json?.data) {
@@ -681,16 +719,16 @@ function RonosLaborAuditContent() {
   const handleRefreshTransfers = async () => {
     setRefreshingTransfers(true)
     try {
-      const res = await fetch('/api/ronos/refresh-transfers', {
+      const res = await fetch(`/api/ronos/refresh-transfers?_t=${Date.now()}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache' },
         body: JSON.stringify({ companyId: selectedCompanyId, forceScan: true })
       })
       if (!res.ok) throw new Error(`Error en refresh de traslados (${res.status})`)
       const json = await res.json().catch(() => ({}))
       if (json?.success) {
         await fetchMappings(selectedCompanyId)
-        await fetchStoreAudit(selectedCompanyId, selectedWeekId)
+        await fetchStoreAudit(selectedCompanyId, selectedWeekId, true)
       }
     } catch (err) {
       console.error('Refresh transfers error:', err)
@@ -857,20 +895,22 @@ function RonosLaborAuditContent() {
     setError(null)
     try {
       if (activeTab === 'chain') {
-        const res = await fetch('/api/ronos/sync', {
+        const res = await fetch(`/api/ronos/sync?_t=${Date.now()}`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          cache: 'no-store',
+          headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache' },
           body: JSON.stringify({ syncChain: true, weekId: selectedWeekId, syncSimplify: true })
         })
         if (!res.ok) throw new Error(`Error en sincronización (${res.status})`)
         const json = await res.json().catch(() => ({}))
-        if (json?.success) {
+        if (json?.success && json?.data) {
           setChainData(json.data)
         }
       } else if (activeTab === 'payroll') {
-        const res = await fetch('/api/ronos/sync', {
+        const res = await fetch(`/api/ronos/sync?_t=${Date.now()}`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          cache: 'no-store',
+          headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache' },
           body: JSON.stringify({ companyId: selectedCompanyId, weekId: selectedWeekId, syncSimplify: true })
         })
         if (!res.ok) throw new Error(`Error en sincronización nómina (${res.status})`)
@@ -883,17 +923,19 @@ function RonosLaborAuditContent() {
         await handleRefreshTransfers()
         await fetchMappings(selectedCompanyId)
       } else {
-        const res = await fetch('/api/ronos/sync', {
+        const res = await fetch(`/api/ronos/sync?_t=${Date.now()}`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ companyId: selectedCompanyId, weekId: selectedWeekId, syncSimplify: true })
+          cache: 'no-store',
+          headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache' },
+          body: JSON.stringify({ companyId: selectedCompanyId, weekId: selectedWeekId, syncSimplify: false })
         })
         if (!res.ok) throw new Error(`Error en sincronización tienda (${res.status})`)
         const json = await res.json().catch(() => ({}))
-        if (json?.success) {
+        if (json?.success && json?.data) {
           setStoreData(json.data)
         }
       }
+      setLastSyncedTime(new Date().toLocaleTimeString('es-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' }))
     } catch (err: any) {
       console.error('Sync live error:', err)
       setError(err?.message || 'Error en sincronización en vivo')
@@ -1233,14 +1275,21 @@ function RonosLaborAuditContent() {
 
           {/* Right: Sync & Actions */}
           <div className="flex items-center gap-2 sm:gap-3">
+            {lastSyncedTime && (
+              <span className="hidden md:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-white/15 text-white text-[11px] font-medium border border-white/20">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                <span>En vivo: {lastSyncedTime}</span>
+              </span>
+            )}
+
             <button
               onClick={handleSyncLive}
               disabled={syncing || loading}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/20 hover:bg-white/30 text-white font-semibold text-xs transition-all active:scale-95 cursor-pointer disabled:opacity-50"
-              title="Sincronizar RONOS & Simplify HR"
+              title="Sincronizar RONOS & Simplify HR directamente sin caché"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${syncing ? 'animate-spin' : ''}`} />
-              <span className="hidden sm:inline">{syncing ? t('ronos.syncing') : 'Sync RONOS & Simplify'}</span>
+              <span className="hidden sm:inline">{syncing ? t('ronos.syncing') : 'Sincronizar en Vivo'}</span>
             </button>
 
             <div className="h-4 w-px bg-white/30" />

@@ -57,6 +57,12 @@ export async function POST(request: Request) {
       }
     }
 
+    const antiCacheHeaders = {
+      'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+      'Pragma': 'no-cache',
+      'Expires': '0'
+    }
+
     // 2. Sincronización de RONOS (Tarjetas de tiempo, horas y ponchadas)
     if (syncChain) {
       const chainAudit = await getRonosChainWideAudit(weekId, undefined, true)
@@ -77,10 +83,10 @@ export async function POST(request: Request) {
             error: s.error
           }))
         } : null
-      })
+      }, { headers: antiCacheHeaders })
     }
 
-    const storeAudit = await getRonosStoreAudit(companyId, weekId)
+    const storeAudit = await getRonosStoreAudit(companyId, weekId, true)
     const durationMs = Date.now() - startTime
 
     return NextResponse.json({
@@ -93,7 +99,7 @@ export async function POST(request: Request) {
         syncedCount: simplifyResult.syncedCount,
         siteId: simplifyResult.siteId
       } : null
-    })
+    }, { headers: antiCacheHeaders })
   } catch (error: any) {
     console.error('Error en /api/ronos/sync:', error)
     return NextResponse.json(
@@ -101,7 +107,7 @@ export async function POST(request: Request) {
         success: false,
         error: error.message || 'Error al sincronizar datos de RONOS y Simplify HR'
       },
-      { status: 500 }
+      { status: 500, headers: { 'Cache-Control': 'no-store, no-cache, max-age=0' } }
     )
   }
 }

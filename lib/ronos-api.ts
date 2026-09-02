@@ -255,6 +255,25 @@ const storeAuditCache = new Map<string, { data: RonosStoreAuditSummary; timestam
 const AUDIT_CACHE_TTL_MS = 5 * 60 * 1000
 const AUDIT_PAST_WEEK_TTL_MS = 24 * 60 * 60 * 1000
 
+/**
+ * Invalida la memoria caché en vivo de RONOS para forzar lectura inmediata
+ */
+export function invalidateRonosStoreCache(ronosCompanyId?: number, weekId?: number) {
+  if (ronosCompanyId && weekId) {
+    storeAuditCache.delete(`${ronosCompanyId}_${weekId}`)
+  } else if (ronosCompanyId) {
+    weeksMemoryCache.delete(ronosCompanyId)
+    for (const key of Array.from(storeAuditCache.keys())) {
+      if (key.startsWith(`${ronosCompanyId}_`)) {
+        storeAuditCache.delete(key)
+      }
+    }
+  } else {
+    weeksMemoryCache.clear()
+    storeAuditCache.clear()
+  }
+}
+
 // ============================================================================
 // HELPERS DE TOLERANCIA A FALLOS (RETRY, BACKOFF & CONCURRENCY)
 // ============================================================================
@@ -799,7 +818,7 @@ export async function getRonosStoreAudit(
     ronosName: `Store #${ronosCompanyId}`
   }
 
-  const weeks = await getRonosWeeks(ronosCompanyId)
+  const weeks = await getRonosWeeks(ronosCompanyId, forceRefresh)
   if (weeks.length === 0) {
     throw new Error(`No se encontraron semanas registradas para la tienda ${storeMeta.ronosName}`)
   }
@@ -812,6 +831,9 @@ export async function getRonosStoreAudit(
   const isCurrentWeek = weeks[0]?.weekId === weekId
 
   const cacheKey = `${ronosCompanyId}_${weekId}`
+  if (forceRefresh) {
+    storeAuditCache.delete(cacheKey)
+  }
   const cached = storeAuditCache.get(cacheKey)
   const ttl = isCurrentWeek ? AUDIT_CACHE_TTL_MS : AUDIT_PAST_WEEK_TTL_MS
   if (!forceRefresh && cached && (Date.now() - cached.timestamp) < ttl) {
@@ -1115,8 +1137,16 @@ export async function getRonosStoreAudit(
 
   // Persistir en caché de Supabase de forma segura
   try {
+    if (forceRefresh) {
+      await supabaseAdmin
+        .from('ronos_employee_timecards_cache')
+        .delete()
+        .eq('company_id', ronosCompanyId)
+        .eq('week_id', weekId)
+    }
+
     const timecardsToCache = employeeTimecards
-      .filter(emp => emp.employeeUserId > 0)
+      .filter(emp => emp && emp.employeeUserId > 0)
       .map(emp => ({
         company_id: ronosCompanyId,
         week_id: weekId,
@@ -1203,7 +1233,7 @@ export async function getRonosChainWideAudit(
     4,
     async (store) => {
       try {
-        const weeks = await getRonosWeeks(store.ronosCompanyId)
+        const weeks = await getRonosWeeks(store.ronosCompanyId, forceLive)
         if (!weeks || weeks.length === 0) return null
 
         let matchingWeek = resolvedStartDate
@@ -1279,7 +1309,7 @@ export async function getRonosChainWideAudit(
         }
 
         // Si no está en caché o se solicitó forzar actualización en vivo, auditar ponchadas reales
-        const liveAudit = await getRonosStoreAudit(store.ronosCompanyId, storeWeekId)
+        const liveAudit = await getRonosStoreAudit(store.ronosCompanyId, storeWeekId, forceLive)
 
         return {
           storeId: store.tegStoreId,

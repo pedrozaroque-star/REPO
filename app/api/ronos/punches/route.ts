@@ -31,23 +31,29 @@ export async function GET(request: Request) {
     const weekId = weekIdParam ? parseInt(weekIdParam, 10) : undefined
 
     const startDateParam = searchParams.get('startDate') || undefined
-    const forceLive = searchParams.get('force') === 'true'
+    const forceLive = searchParams.get('force') === 'true' || searchParams.get('live') === 'true'
+
+    const antiCacheHeaders = {
+      'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+      'Pragma': 'no-cache',
+      'Expires': '0'
+    }
 
     // 1. Listado de tiendas disponibles
     if (mode === 'stores') {
       return NextResponse.json({
         success: true,
         stores: RONOS_STORES_MAP
-      })
+      }, { headers: antiCacheHeaders })
     }
 
     // 2. Listado de semanas para una tienda
     if (mode === 'weeks') {
-      const weeks = await getRonosWeeks(ronosCompanyId)
+      const weeks = await getRonosWeeks(ronosCompanyId, forceLive)
       return NextResponse.json({
         success: true,
         weeks
-      })
+      }, { headers: antiCacheHeaders })
     }
 
     // 3. Consolidado general de toda la cadena (15 tiendas + Bodega)
@@ -56,19 +62,19 @@ export async function GET(request: Request) {
       return NextResponse.json({
         success: true,
         data: chainAudit
-      })
+      }, { headers: antiCacheHeaders })
     }
 
     // 4. Auditoría detallada de una tienda (por defecto)
-    const storeAudit = await getRonosStoreAudit(ronosCompanyId, weekId)
-    const availableWeeks = await getRonosWeeks(ronosCompanyId)
+    const storeAudit = await getRonosStoreAudit(ronosCompanyId, weekId, forceLive)
+    const availableWeeks = await getRonosWeeks(ronosCompanyId, forceLive)
 
     return NextResponse.json({
       success: true,
       data: storeAudit,
       weeks: availableWeeks,
       stores: RONOS_STORES_MAP
-    })
+    }, { headers: antiCacheHeaders })
   } catch (error: any) {
     console.error('Error en /api/ronos/punches:', error)
     return NextResponse.json(
@@ -76,7 +82,7 @@ export async function GET(request: Request) {
         success: false,
         error: error.message || 'Error al consultar datos de RONOS'
       },
-      { status: 500 }
+      { status: 500, headers: { 'Cache-Control': 'no-store, no-cache, max-age=0' } }
     )
   }
 }
