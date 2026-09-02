@@ -28,6 +28,8 @@
 
 import { supabaseAdmin } from './supabase'
 import { getAllToastEmployees, calculateNameSimilarity, ToastEmployeeCandidate } from './ronos-mapping'
+import { getSimplifyHrRateForEmployee } from './simplifyhr-api'
+import { isEmployeeSalaried } from './payroll-calculator'
 
 // ============================================================================
 // TIPOS E INTERFACES
@@ -146,6 +148,9 @@ export interface RonosEmployeeTimecard {
   fullName: string
   pin: string
   jobTitle?: string
+  isSalaried?: boolean
+  payType?: 'Hourly' | 'Yearly' | string
+  payRate?: number
   departmentName?: string
   totalWeeklyHours: number
   regularHours: number
@@ -1053,6 +1058,10 @@ export async function getRonosStoreAudit(
       }
 
       const displayJobTitle = toastJobTitle || emp.title || emp.jobTitle || 'Colaborador'
+      const simplifyInfo = getSimplifyHrRateForEmployee(empFullName) || getSimplifyHrRateForEmployee(String(empUserId))
+      const isSalariedEmp = simplifyInfo
+        ? simplifyInfo.isSalaried
+        : isEmployeeSalaried(displayJobTitle, empFullName)
 
       return {
         employeeUserId: empUserId,
@@ -1062,6 +1071,9 @@ export async function getRonosStoreAudit(
         fullName: empFullName || `Empleado #${empUserId}`,
         pin: emp.pin || '',
         jobTitle: displayJobTitle,
+        isSalaried: isSalariedEmp,
+        payType: isSalariedEmp ? 'Yearly' : 'Hourly',
+        payRate: simplifyInfo?.payRate || 0,
         departmentName: emp.departmentName || storeMeta.tegName,
         totalWeeklyHours: weeklyHours,
         regularHours: regHours,

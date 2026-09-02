@@ -77,6 +77,7 @@ import {
   Moon,
   CheckCircle
 } from 'lucide-react'
+import { isEmployeeSalaried } from '@/lib/payroll-calculator'
 
 // ============================================================================
 // HELPERS DE FORMATEO (FECHAS Y HORAS LEGIBLES)
@@ -315,6 +316,9 @@ interface EmployeeTimecard {
   totalEstimatedPenaltyCostUsd: number
   toastEmail: string | null
   jobTitle: string | null
+  isSalaried?: boolean
+  payType?: 'Hourly' | 'Yearly' | string
+  payRate?: number
   days: DailyRecord[]
   transferredToStore?: string | null
   locked?: boolean
@@ -977,7 +981,7 @@ function RonosLaborAuditContent() {
       // Si "Mostrar Inactivos" está desmarcado, ocultar colaboradores con 0 horas
       if (!showInactive && !hasHours) return false
 
-      const isSal = emp.jobTitle?.toLowerCase().includes('manager') || emp.jobTitle?.toLowerCase().includes('supervisor')
+      const isSal = emp.isSalaried !== undefined ? emp.isSalaried : isEmployeeSalaried(emp.jobTitle || undefined, emp.fullName, emp.payRate)
       if (viewingFilter === 'salary' && !isSal) return false
       if (viewingFilter === 'hourly' && isSal) return false
 
