@@ -18,10 +18,11 @@ import { callRonosApi, getRonosWeeks } from '@/lib/ronos-api'
 
 export async function POST(req: Request) {
   try {
-    const { ronosCompanyId } = await req.json()
+    const body = await req.json().catch(() => ({}))
+    const ronosCompanyId = Number(body.ronosCompanyId || body.companyId)
 
     if (!ronosCompanyId) {
-      return NextResponse.json({ error: 'ronosCompanyId es requerido' }, { status: 400 })
+      return NextResponse.json({ error: 'ronosCompanyId / companyId es requerido' }, { status: 400 })
     }
 
     // Obtener lista de empleados con 0 horas para esta tienda

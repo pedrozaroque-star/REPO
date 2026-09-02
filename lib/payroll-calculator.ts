@@ -49,6 +49,7 @@ export interface CingularEmployeePayrollItem {
   mealPenaltyHours: number
   sickHours: number
   vacationHours: number
+  holidayHours: number
   totalHours: number
   grossRegularPay: number
   grossOvertimePay: number
@@ -91,6 +92,7 @@ export interface CingularInvoiceSummaryReport {
   totalMealPenaltyHours: number
   totalSickHours: number
   totalVacationHours: number
+  totalHolidayHours?: number
   totalGrossPay: number
   totalInvoicedAmount: number
   totalCingularFee: number
@@ -383,20 +385,36 @@ export function isEmployeeSalaried(jobTitle?: string, fullName?: string, payRate
  * Calcula la nómina y proyección exacta de facturación Cingular HR para una sucursal y semana(s)
  */
 export async function calculateCingularPayrollReport(
-  companyIdOrParams: number | { ronosCompanyId: number; weekIds: (number | string)[]; isBiWeekly?: boolean; biWeekly?: boolean; useLiveRates?: boolean },
+  companyIdOrParams: number | {
+    ronosCompanyId?: number
+    companyId?: number
+    weekIds?: (number | string)[]
+    periodId?: string | number | (number | string)[]
+    isBiWeekly?: boolean
+    biWeekly?: boolean
+    useLiveRates?: boolean
+    syncSimplify?: boolean
+  },
   rawWeekIds?: (number | string)[] | string | number,
   isBiWeeklyParam = true
 ): Promise<CingularInvoiceSummaryReport> {
-  let ronosCompanyId = 0
+  let ronosCompanyId = 34
   let rawWeeks: (number | string)[] = []
   let isBiWeekly = isBiWeeklyParam
 
   if (typeof companyIdOrParams === 'object' && companyIdOrParams !== null) {
-    ronosCompanyId = Number(companyIdOrParams.ronosCompanyId)
-    rawWeeks = Array.isArray(companyIdOrParams.weekIds) ? companyIdOrParams.weekIds : [companyIdOrParams.weekIds].filter(Boolean)
+    ronosCompanyId = Number(companyIdOrParams.ronosCompanyId || companyIdOrParams.companyId || 34)
+    const pWeeks = companyIdOrParams.weekIds || companyIdOrParams.periodId
+    if (Array.isArray(pWeeks)) {
+      rawWeeks = pWeeks
+    } else if (typeof pWeeks === 'string') {
+      rawWeeks = pWeeks.split(',').map(s => s.trim())
+    } else if (typeof pWeeks === 'number') {
+      rawWeeks = [pWeeks]
+    }
     isBiWeekly = companyIdOrParams.isBiWeekly ?? companyIdOrParams.biWeekly ?? true
   } else {
-    ronosCompanyId = Number(companyIdOrParams)
+    ronosCompanyId = Number(companyIdOrParams || 34)
     rawWeeks = Array.isArray(rawWeekIds) ? rawWeekIds : typeof rawWeekIds === 'string' ? rawWeekIds.split(',').map(s => s.trim()) : typeof rawWeekIds === 'number' ? [rawWeekIds] : []
     isBiWeekly = isBiWeeklyParam
   }
@@ -680,7 +698,7 @@ export async function calculateCingularPayrollReport(
     const dtBillRate = Number((billRate * 2.0).toFixed(2))
 
     if (salaried) {
-      const baseSalHrs = isBiWeekly ? 80.0 : 40.0
+      const baseSalHrs = isBiWeekly ? (weekIds.length === 1 ? 40.0 : 80.0) : 40.0
       const totalPto = agg.sickHours + agg.vacationHours + agg.holidayHours
       sickHrs = Number(safeNum(agg.sickHours).toFixed(2))
       vacHrs = Number(safeNum(agg.vacationHours).toFixed(2))
@@ -831,6 +849,7 @@ export async function calculateCingularPayrollReport(
       mealPenaltyHours: mealHrs,
       sickHours: sickHrs,
       vacationHours: vacHrs,
+      holidayHours: holHrs,
       totalHours: Number(safeNum(totalCalculatedHours).toFixed(2)),
       grossRegularPay: Number(safeNum(grossReg).toFixed(2)),
       grossOvertimePay: Number(safeNum(grossOt).toFixed(2)),
@@ -919,6 +938,7 @@ export function generateCingularSummaryCSV(report: CingularInvoiceSummaryReport)
     'FIRST',
     'LAST',
     'SITE',
+    'JOB TITLE',
     'TIPO',
     'PAY RT',
     'TOT PAY',
@@ -932,7 +952,10 @@ export function generateCingularSummaryCSV(report: CingularInvoiceSummaryReport)
     'DT',
     'MEAL PENALTY',
     'SICK',
-    'VAC'
+    'VAC',
+    'HOLIDAY',
+    'AUDIT STATUS',
+    'AUDIT NOTE'
   ]
 
   const employees = Array.isArray(report?.employees) ? report.employees : []
@@ -941,6 +964,7 @@ export function generateCingularSummaryCSV(report: CingularInvoiceSummaryReport)
     `"${e.firstName}"`,
     `"${e.lastName}"`,
     `"${e.siteName}"`,
+    `"${e.jobTitle || 'Team Member'}"`,
     `"${e.isSalaried ? 'SALARIED (EXEMPT)' : 'HOURLY (NON-EXEMPT)'}"`,
     safeNum(e?.payRate).toFixed(2),
     safeNum(e?.totalGrossPay).toFixed(2),
@@ -954,7 +978,10 @@ export function generateCingularSummaryCSV(report: CingularInvoiceSummaryReport)
     safeNum(e?.doubleTimeHours).toFixed(2),
     safeNum(e?.mealPenaltyHours).toFixed(2),
     safeNum(e?.sickHours).toFixed(2),
-    safeNum(e?.vacationHours).toFixed(2)
+    safeNum(e?.vacationHours).toFixed(2),
+    safeNum(e?.holidayHours).toFixed(2),
+    `"${e.auditBadgeText || 'Normal'}"`,
+    `"${(e.auditNote || '').replace(/"/g, '""')}"`
   ])
 
   const totalsRow = [
@@ -962,6 +989,7 @@ export function generateCingularSummaryCSV(report: CingularInvoiceSummaryReport)
     '""',
     '""',
     `"${report?.storeName || ''}"`,
+    '""',
     `"${safeNum(report?.salariedCount)} Salaried / ${safeNum(report?.hourlyCount)} Hourly"`,
     '""',
     safeNum(report?.totalGrossPay).toFixed(2),
@@ -975,7 +1003,10 @@ export function generateCingularSummaryCSV(report: CingularInvoiceSummaryReport)
     safeNum(report?.totalDoubleTimeHours).toFixed(2),
     safeNum(report?.totalMealPenaltyHours).toFixed(2),
     safeNum(report?.totalSickHours).toFixed(2),
-    safeNum(report?.totalVacationHours).toFixed(2)
+    safeNum(report?.totalVacationHours).toFixed(2),
+    safeNum(report?.totalHolidayHours).toFixed(2),
+    '""',
+    '""'
   ]
 
   return [headers.join(','), ...rows.map(r => r.join(',')), totalsRow.join(',')].join('\n')

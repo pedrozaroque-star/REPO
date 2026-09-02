@@ -39,10 +39,52 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   try {
     const body = await req.json()
+    const targetCompanyId = Number(body.ronosCompanyId || body.companyId)
+
+    if (!targetCompanyId) {
+      return NextResponse.json(
+        { success: false, error: 'Falta parámetro obligatorio: companyId / ronosCompanyId' },
+        { status: 400 }
+      )
+    }
+
+    // Caso A: Auto-Vincular Todo por Lote (Auto-Map All)
+    if (body.autoMapAll) {
+      const storeMappings = await getStoreEmployeeMappings(targetCompanyId)
+      const autoMatches = storeMappings.mappings.filter(m => m.mappingType === 'auto' && m.toastEmployeeId)
+
+      let savedCount = 0
+      for (const item of autoMatches) {
+        if (!item.toastEmployeeId) continue
+        await saveEmployeeMapping({
+          ronosEmployeeUserId: item.ronosEmployeeUserId,
+          ronosEmployeeId: item.ronosEmployeeId,
+          ronosCompanyId: targetCompanyId,
+          ronosFullName: item.ronosFullName,
+          ronosPin: item.ronosPin,
+          ronosJobTitle: item.ronosJobTitle,
+          toastEmployeeId: item.toastEmployeeId,
+          toastGuid: item.toastGuid,
+          toastFullName: item.toastFullName,
+          toastEmail: item.toastEmail,
+          mappingType: 'auto',
+          isConfirmed: true,
+          notes: 'Auto-vinculado por coincidencia de PIN y nombre'
+        })
+        savedCount++
+      }
+
+      return NextResponse.json({
+        success: true,
+        message: `Se vincularon automáticamente ${savedCount} colaboradores`,
+        savedCount
+      })
+    }
+
+    // Caso B: Guardado Individual
     const {
       ronosEmployeeUserId,
       ronosEmployeeId,
-      ronosCompanyId,
       ronosFullName,
       ronosPin,
       ronosJobTitle,
@@ -55,24 +97,24 @@ export async function POST(req: Request) {
       notes
     } = body
 
-    if (!ronosEmployeeUserId || !ronosCompanyId) {
+    if (!ronosEmployeeUserId) {
       return NextResponse.json(
-        { success: false, error: 'Faltan parámetros obligatorios: ronosEmployeeUserId, ronosCompanyId' },
+        { success: false, error: 'Faltan parámetros obligatorios: ronosEmployeeUserId' },
         { status: 400 }
       )
     }
 
     const result = await saveEmployeeMapping({
-      ronosEmployeeUserId,
-      ronosEmployeeId,
-      ronosCompanyId,
-      ronosFullName,
-      ronosPin,
-      ronosJobTitle,
-      toastEmployeeId,
-      toastGuid,
-      toastFullName,
-      toastEmail,
+      ronosEmployeeUserId: Number(ronosEmployeeUserId),
+      ronosEmployeeId: Number(ronosEmployeeId || 0),
+      ronosCompanyId: targetCompanyId,
+      ronosFullName: String(ronosFullName || ''),
+      ronosPin: String(ronosPin || ''),
+      ronosJobTitle: String(ronosJobTitle || 'Colaborador'),
+      toastEmployeeId: toastEmployeeId === 'INACTIVE' || toastEmployeeId === 'UNLINK' ? toastEmployeeId : toastEmployeeId || null,
+      toastGuid: toastGuid || null,
+      toastFullName: toastFullName || null,
+      toastEmail: toastEmail || null,
       mappingType,
       isConfirmed,
       notes

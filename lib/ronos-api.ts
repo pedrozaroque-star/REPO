@@ -178,7 +178,9 @@ export interface RonosStoreAuditSummary {
   startDate: string
   endDate: string
   totalEmployees: number
+  totalEmployeesCount?: number
   activeEmployeesCount: number
+  totalWeeklyHours?: number
   totalChainHours: number
   totalRegularHours: number
   totalOvertimeHours: number
@@ -188,7 +190,50 @@ export interface RonosStoreAuditSummary {
   totalEstimatedPenaltyCostUsd: number
   totalEstimatedOvertimeCostUsd: number
   complianceScorePercent: number
+  complianceScore?: number
   employees: RonosEmployeeTimecard[]
+}
+
+export interface RonosChainWideAuditSummary {
+  totalStores: number
+  totalChainEmployees: number
+  totalActiveEmployees: number
+  chainActiveEmployees?: number
+  totalChainHours: number
+  chainTotalHours?: number
+  totalOvertimeHours: number
+  chainOvertimeHours?: number
+  totalDoubleTimeHours: number
+  totalMealPenalties: number
+  totalMealPenaltiesCount?: number
+  chainMealPenaltiesCount?: number
+  totalBrokenTimecards: number
+  totalPenaltyCostUsd: number
+  chainPenaltyCostUsd?: number
+  totalOvertimeCostUsd: number
+  chainAverageComplianceScore?: number
+  selectedStartDate?: string
+  stores: Array<{
+    storeId: number
+    tegStoreId?: number
+    storeCode: string
+    storeName: string
+    ronosCompanyId: number
+    ronosName?: string
+    weekId: number
+    activeEmployees: number
+    totalHours: number
+    regularHours?: number
+    overtimeHours: number
+    doubleTimeHours: number
+    mealPenalties: number
+    mealPenaltiesCount?: number
+    brokenTimecards: number
+    penaltyCostUsd: number
+    estimatedPenaltyCostUsd?: number
+    complianceScore: number
+    isBodega?: boolean
+  }>
 }
 
 // ============================================================================
@@ -1052,7 +1097,9 @@ export async function getRonosStoreAudit(
     startDate: selectedWeek?.startDate || '',
     endDate: selectedWeek?.endDate || '',
     totalEmployees: rawEmployees.length,
+    totalEmployeesCount: rawEmployees.length,
     activeEmployeesCount,
+    totalWeeklyHours: Number(totalChainHours.toFixed(2)),
     totalChainHours: Number(totalChainHours.toFixed(2)),
     totalRegularHours: Number(totalRegularHours.toFixed(2)),
     totalOvertimeHours: Number(totalOvertimeHours.toFixed(2)),
@@ -1062,6 +1109,7 @@ export async function getRonosStoreAudit(
     totalEstimatedPenaltyCostUsd: Number(totalEstimatedPenaltyCostUsd.toFixed(2)),
     totalEstimatedOvertimeCostUsd: Number(totalEstimatedOvertimeCostUsd.toFixed(2)),
     complianceScorePercent,
+    complianceScore: complianceScorePercent,
     employees: employeeTimecards.sort((a, b) => (b.totalWeeklyHours || 0) - (a.totalWeeklyHours || 0))
   }
 
@@ -1123,34 +1171,7 @@ export async function getRonosChainWideAudit(
   targetWeekId?: number,
   targetStartDate?: string,
   forceLive: boolean = false
-): Promise<{
-  totalStores: number
-  totalChainEmployees: number
-  totalActiveEmployees: number
-  totalChainHours: number
-  totalOvertimeHours: number
-  totalDoubleTimeHours: number
-  totalMealPenalties: number
-  totalBrokenTimecards: number
-  totalPenaltyCostUsd: number
-  totalOvertimeCostUsd: number
-  selectedStartDate?: string
-  stores: Array<{
-    storeId: number
-    storeCode: string
-    storeName: string
-    ronosCompanyId: number
-    weekId: number
-    activeEmployees: number
-    totalHours: number
-    overtimeHours: number
-    doubleTimeHours: number
-    mealPenalties: number
-    brokenTimecards: number
-    penaltyCostUsd: number
-    complianceScore: number
-  }>
-}> {
+): Promise<RonosChainWideAuditSummary> {
   // 1. Determinar la fecha de inicio objetivo (targetStartDate)
   let resolvedStartDate = targetStartDate
 
@@ -1236,17 +1257,22 @@ export async function getRonosChainWideAudit(
 
             return {
               storeId: store.tegStoreId,
+              tegStoreId: store.tegStoreId,
               storeCode: store.tegCode,
               storeName: store.tegName,
               ronosCompanyId: store.ronosCompanyId,
+              ronosName: store.ronosName,
               weekId: storeWeekId,
               activeEmployees: activeCount,
               totalHours: Number(storeHours.toFixed(2)),
+              regularHours: Number(Math.max(0, storeHours - storeOt - storeDt).toFixed(2)),
               overtimeHours: Number(storeOt.toFixed(2)),
               doubleTimeHours: Number(storeDt.toFixed(2)),
               mealPenalties: storePenalties,
+              mealPenaltiesCount: storePenalties,
               brokenTimecards: storeBroken,
               penaltyCostUsd: Number(penaltyCost.toFixed(2)),
+              estimatedPenaltyCostUsd: Number(penaltyCost.toFixed(2)),
               complianceScore: compliance
             }
           }
@@ -1257,17 +1283,22 @@ export async function getRonosChainWideAudit(
 
         return {
           storeId: store.tegStoreId,
+          tegStoreId: store.tegStoreId,
           storeCode: store.tegCode,
           storeName: store.tegName,
           ronosCompanyId: store.ronosCompanyId,
+          ronosName: store.ronosName,
           weekId: storeWeekId,
           activeEmployees: liveAudit.activeEmployeesCount,
           totalHours: liveAudit.totalChainHours,
+          regularHours: liveAudit.totalRegularHours,
           overtimeHours: liveAudit.totalOvertimeHours,
           doubleTimeHours: liveAudit.totalDoubleTimeHours,
           mealPenalties: liveAudit.totalMealPenaltiesCount,
+          mealPenaltiesCount: liveAudit.totalMealPenaltiesCount,
           brokenTimecards: liveAudit.totalBrokenTimecardsCount,
           penaltyCostUsd: liveAudit.totalEstimatedPenaltyCostUsd,
+          estimatedPenaltyCostUsd: liveAudit.totalEstimatedPenaltyCostUsd,
           complianceScore: liveAudit.complianceScorePercent
         }
       } catch (err: any) {
@@ -1287,18 +1318,26 @@ export async function getRonosChainWideAudit(
   const totalBrokenTimecards = validStores.reduce((acc, s) => acc + s.brokenTimecards, 0)
   const totalPenaltyCostUsd = validStores.reduce((acc, s) => acc + s.penaltyCostUsd, 0)
   const totalOvertimeCostUsd = (totalOvertimeHours * ESTIMATED_HOURLY_RATE * 1.5) + (totalDoubleTimeHours * ESTIMATED_HOURLY_RATE * 2.0)
+  const chainAverageComplianceScore = validStores.length > 0 ? Math.round(validStores.reduce((sum, s) => sum + (s.complianceScore || 0), 0) / validStores.length) : 100
 
   return {
     totalStores: validStores.length,
     totalChainEmployees,
     totalActiveEmployees: totalChainEmployees,
+    chainActiveEmployees: totalChainEmployees,
     totalChainHours: Number(totalChainHours.toFixed(2)),
+    chainTotalHours: Number(totalChainHours.toFixed(2)),
     totalOvertimeHours: Number(totalOvertimeHours.toFixed(2)),
+    chainOvertimeHours: Number(totalOvertimeHours.toFixed(2)),
     totalDoubleTimeHours: Number(totalDoubleTimeHours.toFixed(2)),
     totalMealPenalties,
+    totalMealPenaltiesCount: totalMealPenalties,
+    chainMealPenaltiesCount: totalMealPenalties,
     totalBrokenTimecards,
     totalPenaltyCostUsd: Number(totalPenaltyCostUsd.toFixed(2)),
+    chainPenaltyCostUsd: Number(totalPenaltyCostUsd.toFixed(2)),
     totalOvertimeCostUsd: Number(totalOvertimeCostUsd.toFixed(2)),
+    chainAverageComplianceScore,
     selectedStartDate: resolvedStartDate,
     stores: validStores.sort((a, b) => b.totalHours - a.totalHours)
   }

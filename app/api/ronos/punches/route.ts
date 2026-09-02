@@ -21,7 +21,9 @@ export const dynamic = 'force-dynamic'
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url)
-    const mode = searchParams.get('mode') || 'store' // 'store' | 'chain' | 'weeks' | 'stores'
+    const modeParam = searchParams.get('mode')
+    const isChain = modeParam === 'chain' || searchParams.get('chain') === 'true'
+    const mode = isChain ? 'chain' : (modeParam || 'store') // 'store' | 'chain' | 'weeks' | 'stores'
     const companyIdParam = searchParams.get('companyId')
     const weekIdParam = searchParams.get('weekId')
 

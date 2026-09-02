@@ -364,19 +364,24 @@ interface ChainStoreSummary {
 }
 
 interface ChainAuditData {
-  weekId: number
-  startDate: string
-  endDate: string
+  weekId?: number
+  startDate?: string
+  endDate?: string
   totalStores: number
   totalActiveEmployees: number
+  totalChainEmployees?: number
+  totalChainHours?: number
   chainTotalHours: number
-  chainRegularHours: number
+  chainRegularHours?: number
+  totalOvertimeHours?: number
   chainOvertimeHours: number
+  totalMealPenalties?: number
   chainMealPenaltiesCount: number
+  totalPenaltyCostUsd?: number
   chainPenaltyCostUsd: number
   chainAverageComplianceScore: number
   stores: ChainStoreSummary[]
-  cachedAt: string
+  cachedAt?: string
 }
 
 interface ToastCandidate {
@@ -441,7 +446,11 @@ function RonosLaborAuditContent() {
   const [payrollBiWeekly, setPayrollBiWeekly] = useState<boolean>(true)
   const [selectedBiWeeklyPeriod, setSelectedBiWeeklyPeriod] = useState<string>('')
   const [payrollSearch, setPayrollSearch] = useState<string>('')
-  const [payrollFilterType, setPayrollFilterType] = useState<'all' | 'violations' | 'pto'>('all')
+  const [payrollFilterType, setPayrollFilterType] = useState<'all' | 'exact' | 'saving' | 'variance' | 'pto' | 'violations'>('all')
+
+  // Chain / Multi-Store View States
+  const [chainSortField, setChainSortField] = useState<'hours' | 'ot' | 'penalties' | 'penaltyCost' | 'compliance' | 'store'>('hours')
+  const [chainSortAsc, setChainSortAsc] = useState<boolean>(false)
 
   // Mapping Data States
   const [mappingsList, setMappingsList] = useState<MappedEmployeeItem[]>([])
@@ -1003,7 +1012,9 @@ function RonosLaborAuditContent() {
       const matchSearch =
         !query ||
         (emp.fullName || '').toLowerCase().includes(query) ||
-        (emp.jobTitle || '').toLowerCase().includes(query)
+        (emp.jobTitle || '').toLowerCase().includes(query) ||
+        Boolean(emp.employeeId && String(emp.employeeId).includes(query)) ||
+        Boolean(emp.auditNote && String(emp.auditNote).toLowerCase().includes(query))
 
       if (!matchSearch) return false
 
@@ -1013,10 +1024,49 @@ function RonosLaborAuditContent() {
       if (payrollFilterType === 'pto') {
         return (emp.sickHours ?? 0) > 0 || (emp.vacationHours ?? 0) > 0 || (emp.holidayHours ?? 0) > 0
       }
+      if (payrollFilterType === 'exact') {
+        return emp.auditStatus === 'exact'
+      }
+      if (payrollFilterType === 'saving') {
+        return emp.auditStatus === 'saving'
+      }
+      if (payrollFilterType === 'variance') {
+        return emp.auditStatus === 'variance'
+      }
 
       return true
     })
   }, [payrollData, payrollSearch, payrollFilterType])
+
+  // Sorted stores for Tab 2 (Chain-wide audit)
+  const sortedChainStores = useMemo(() => {
+    if (!Array.isArray(chainData?.stores)) return []
+    return [...chainData.stores].sort((a: any, b: any) => {
+      let valA: any = 0
+      let valB: any = 0
+      if (chainSortField === 'store') {
+        valA = a.storeName || ''
+        valB = b.storeName || ''
+        return chainSortAsc ? valA.localeCompare(valB) : valB.localeCompare(valA)
+      } else if (chainSortField === 'hours') {
+        valA = a.totalHours ?? 0
+        valB = b.totalHours ?? 0
+      } else if (chainSortField === 'ot') {
+        valA = a.overtimeHours ?? 0
+        valB = b.overtimeHours ?? 0
+      } else if (chainSortField === 'penalties') {
+        valA = a.mealPenaltiesCount ?? a.mealPenalties ?? 0
+        valB = b.mealPenaltiesCount ?? b.mealPenalties ?? 0
+      } else if (chainSortField === 'penaltyCost') {
+        valA = a.estimatedPenaltyCostUsd ?? a.penaltyCostUsd ?? 0
+        valB = b.estimatedPenaltyCostUsd ?? b.penaltyCostUsd ?? 0
+      } else if (chainSortField === 'compliance') {
+        valA = a.complianceScore ?? 0
+        valB = b.complianceScore ?? 0
+      }
+      return chainSortAsc ? valA - valB : valB - valA
+    })
+  }, [chainData, chainSortField, chainSortAsc])
 
   // Paired bi-weekly payroll periods for Cingular (Anchored to Monday 2026-08-10 series)
   const biWeeklyPeriods = useMemo(() => {
@@ -1908,125 +1958,228 @@ function RonosLaborAuditContent() {
         {/* PESTAÑA 2: TODAS LAS TIENDAS (SCREENSHOT 1 / MULTI-STORE CLIENTS VIEW)      */}
         {/* ═══════════════════════════════════════════════════════════════════════════ */}
         {activeTab === 'chain' && (
-          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs p-5 space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div>
-                <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100">
-                  Clients (16 Ubicaciones)
-                </h2>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Auditoría comparativa corporativa para la semana seleccionada
-                </p>
+          <div className="space-y-4">
+            {/* 5 Corporate KPI Summary Cards */}
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+              <div className="bg-white dark:bg-slate-900 rounded-xl p-4 text-center border border-slate-200 dark:border-slate-800 shadow-xs">
+                <span className="text-xs font-semibold text-slate-600 dark:text-slate-400 border-b-2 border-[#03a9f4] pb-0.5 inline-block mb-1">
+                  Tiendas Auditadas
+                </span>
+                <span className="text-[10px] text-slate-400 block mb-1.5">Red Corporativa</span>
+                <div className="text-3xl font-black text-slate-900 dark:text-white">
+                  {chainData?.totalStores || 16}
+                </div>
               </div>
 
-              {/* Week Selector for Chain View */}
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-semibold text-slate-500">Semana:</span>
-                <select
-                  value={selectedWeekId}
-                  onChange={(e) => {
-                    const wId = Number(e.target.value)
-                    setSelectedWeekId(wId)
-                    fetchChainAudit(wId)
-                  }}
-                  className="px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-bold cursor-pointer"
-                >
-                  {weeks.map(w => (
-                    <option key={w.weekId} value={w.weekId}>
-                      {w.startDate?.substring(0, 10)} al {w.endDate?.substring(0, 10)} (Sem #{w.weekId})
-                    </option>
-                  ))}
-                </select>
+              <div className="bg-white dark:bg-slate-900 rounded-xl p-4 text-center border border-slate-200 dark:border-slate-800 shadow-xs">
+                <span className="text-xs font-semibold text-slate-600 dark:text-slate-400 border-b-2 border-[#03a9f4] pb-0.5 inline-block mb-1">
+                  Personal Activo
+                </span>
+                <span className="text-[10px] text-slate-400 block mb-1.5">Cadena Completa</span>
+                <div className="text-3xl font-black text-[#0288d1]">
+                  {chainData?.totalActiveEmployees || chainData?.totalChainEmployees || 0}
+                </div>
+              </div>
+
+              <div className="bg-white dark:bg-slate-900 rounded-xl p-4 text-center border border-slate-200 dark:border-slate-800 shadow-xs">
+                <span className="text-xs font-semibold text-slate-600 dark:text-slate-400 border-b-2 border-[#03a9f4] pb-0.5 inline-block mb-1">
+                  Horas Totales
+                </span>
+                <span className="text-[10px] text-slate-400 block mb-1.5">Semana #{selectedWeekId || ''}</span>
+                <div className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white">
+                  {(chainData?.totalChainHours ?? 0).toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}h
+                </div>
+              </div>
+
+              <div className="bg-white dark:bg-slate-900 rounded-xl p-4 text-center border border-slate-200 dark:border-slate-800 shadow-xs">
+                <span className="text-xs font-semibold text-slate-600 dark:text-slate-400 border-b-2 border-[#03a9f4] pb-0.5 inline-block mb-1">
+                  Meal Penalties
+                </span>
+                <span className="text-[10px] text-slate-400 block mb-1.5">Total Infracciones</span>
+                <div className="text-3xl font-black text-rose-600 dark:text-rose-400">
+                  {chainData?.totalMealPenalties || 0}
+                </div>
+              </div>
+
+              <div className="bg-white dark:bg-slate-900 rounded-xl p-4 text-center border border-slate-200 dark:border-slate-800 shadow-xs">
+                <span className="text-xs font-semibold text-slate-600 dark:text-slate-400 border-b-2 border-[#03a9f4] pb-0.5 inline-block mb-1">
+                  Fuga Estimada USD
+                </span>
+                <span className="text-[10px] text-slate-400 block mb-1.5">Costo Penalizaciones</span>
+                <div className="text-2xl sm:text-3xl font-black text-rose-600 dark:text-rose-400">
+                  ${(chainData?.totalPenaltyCostUsd ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </div>
               </div>
             </div>
 
-            {/* Store Table */}
-            <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
-              <table className="w-full text-xs text-left">
-                <thead className="bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold border-b border-slate-200 dark:border-slate-700">
-                  <tr>
-                    <th className="py-2.5 px-3"># Tienda</th>
-                    <th className="py-2.5 px-3">Sucursal</th>
-                    <th className="py-2.5 px-3 text-center">Personal Activo</th>
-                    <th className="py-2.5 px-3 text-center font-bold">Total Horas</th>
-                    <th className="py-2.5 px-3 text-center">Overtime (OT)</th>
-                    <th className="py-2.5 px-3 text-center">Meal Penalties</th>
-                    <th className="py-2.5 px-3 text-center">Fuga ($ USD)</th>
-                    <th className="py-2.5 px-3 text-center font-bold">Compliance Score</th>
-                    <th className="py-2.5 px-3 text-center">Acción</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {loading ? (
+            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs p-5 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100">
+                    Clients (16 Ubicaciones)
+                  </h2>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Auditoría comparativa corporativa para la semana seleccionada
+                  </p>
+                </div>
+
+                {/* Week Selector for Chain View */}
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-semibold text-slate-500">Semana:</span>
+                  <select
+                    value={selectedWeekId}
+                    onChange={(e) => {
+                      const wId = Number(e.target.value)
+                      setSelectedWeekId(wId)
+                      fetchChainAudit(wId)
+                    }}
+                    className="px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-bold cursor-pointer"
+                  >
+                    {weeks.map(w => (
+                      <option key={w.weekId} value={w.weekId}>
+                        {w.startDate?.substring(0, 10)} al {w.endDate?.substring(0, 10)} (Sem #{w.weekId})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Store Table */}
+              <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
+                <table className="w-full text-xs text-left">
+                  <thead className="bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold border-b border-slate-200 dark:border-slate-700 select-none">
                     <tr>
-                      <td colSpan={9} className="py-12 text-center text-slate-400">
-                        <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-[#03a9f4]" />
-                        <span>Auditando las 16 sucursales en paralelo...</span>
-                      </td>
+                      <th className="py-2.5 px-3"># Tienda</th>
+                      <th
+                        onClick={() => {
+                          setChainSortField('store')
+                          setChainSortAsc(prev => !prev)
+                        }}
+                        className="py-2.5 px-3 cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+                      >
+                        Sucursal {chainSortField === 'store' ? (chainSortAsc ? '▲' : '▼') : ''}
+                      </th>
+                      <th className="py-2.5 px-3 text-center">Personal Activo</th>
+                      <th
+                        onClick={() => {
+                          setChainSortField('hours')
+                          setChainSortAsc(prev => !prev)
+                        }}
+                        className="py-2.5 px-3 text-center font-bold cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+                      >
+                        Total Horas {chainSortField === 'hours' ? (chainSortAsc ? '▲' : '▼') : ''}
+                      </th>
+                      <th
+                        onClick={() => {
+                          setChainSortField('ot')
+                          setChainSortAsc(prev => !prev)
+                        }}
+                        className="py-2.5 px-3 text-center cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+                      >
+                        Overtime (OT) {chainSortField === 'ot' ? (chainSortAsc ? '▲' : '▼') : ''}
+                      </th>
+                      <th
+                        onClick={() => {
+                          setChainSortField('penalties')
+                          setChainSortAsc(prev => !prev)
+                        }}
+                        className="py-2.5 px-3 text-center cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+                      >
+                        Meal Penalties {chainSortField === 'penalties' ? (chainSortAsc ? '▲' : '▼') : ''}
+                      </th>
+                      <th
+                        onClick={() => {
+                          setChainSortField('penaltyCost')
+                          setChainSortAsc(prev => !prev)
+                        }}
+                        className="py-2.5 px-3 text-center cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+                      >
+                        Fuga ($ USD) {chainSortField === 'penaltyCost' ? (chainSortAsc ? '▲' : '▼') : ''}
+                      </th>
+                      <th
+                        onClick={() => {
+                          setChainSortField('compliance')
+                          setChainSortAsc(prev => !prev)
+                        }}
+                        className="py-2.5 px-3 text-center font-bold cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+                      >
+                        Compliance Score {chainSortField === 'compliance' ? (chainSortAsc ? '▲' : '▼') : ''}
+                      </th>
+                      <th className="py-2.5 px-3 text-center">Acción</th>
                     </tr>
-                  ) : chainData?.stores?.map((st) => (
-                    <tr
-                      key={st.ronosCompanyId}
-                      className="hover:bg-blue-50/40 dark:hover:bg-slate-800/50 cursor-pointer"
-                      onClick={() => {
-                        setSelectedCompanyId(st.ronosCompanyId)
-                        setActiveTab('store')
-                        setSelectedEmployeeDetail(null)
-                      }}
-                    >
-                      <td className="py-2.5 px-3 font-mono text-slate-500">
-                        #{st.tegStoreId}
-                      </td>
-                      <td className="py-2.5 px-3 font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
-                        <Building2 className="w-3.5 h-3.5 text-[#0288d1]" />
-                        <span>{st.storeName}</span>
-                        {st.isBodega && (
-                          <span className="text-[9px] bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded font-bold">BODEGA</span>
-                        )}
-                      </td>
-                      <td className="py-2.5 px-3 text-center font-semibold text-slate-700 dark:text-slate-300">
-                        {st.activeEmployees}
-                      </td>
-                      <td className="py-2.5 px-3 text-center font-bold text-slate-900 dark:text-white">
-                        {(st.totalHours ?? 0).toFixed(2)} hrs
-                      </td>
-                      <td className="py-2.5 px-3 text-center text-amber-600 font-semibold">
-                        {(st.overtimeHours ?? 0).toFixed(2)} hrs
-                      </td>
-                      <td className="py-2.5 px-3 text-center">
-                        <span className={`px-2 py-0.5 rounded font-bold ${
-                          st.mealPenaltiesCount > 0 ? 'bg-rose-100 text-rose-700' : 'text-slate-400'
-                        }`}>
-                          {st.mealPenaltiesCount}
-                        </span>
-                      </td>
-                      <td className="py-2.5 px-3 text-center font-bold text-rose-600">
-                        ${(st.estimatedPenaltyCostUsd ?? 0).toFixed(2)}
-                      </td>
-                      <td className="py-2.5 px-3 text-center">
-                        <span className={`px-2 py-0.5 rounded font-bold ${
-                          st.complianceScore >= 95 ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
-                        }`}>
-                          {st.complianceScore}%
-                        </span>
-                      </td>
-                      <td className="py-2.5 px-3 text-center">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            setSelectedCompanyId(st.ronosCompanyId)
-                            setActiveTab('store')
-                            setSelectedEmployeeDetail(null)
-                          }}
-                          className="px-2.5 py-1 rounded bg-[#0288d1] hover:bg-[#0277bd] text-white font-bold text-[11px]"
-                        >
-                          {t('ronos.btn_view_store')}
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                    {loading ? (
+                      <tr>
+                        <td colSpan={9} className="py-12 text-center text-slate-400">
+                          <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-[#03a9f4]" />
+                          <span>Auditando las 16 sucursales en paralelo...</span>
+                        </td>
+                      </tr>
+                    ) : sortedChainStores.map((st: any) => (
+                      <tr
+                        key={st.ronosCompanyId}
+                        className="hover:bg-blue-50/40 dark:hover:bg-slate-800/50 cursor-pointer"
+                        onClick={() => {
+                          setSelectedCompanyId(st.ronosCompanyId)
+                          setActiveTab('store')
+                          setSelectedEmployeeDetail(null)
+                        }}
+                      >
+                        <td className="py-2.5 px-3 font-mono text-slate-500">
+                          #{st.tegStoreId || st.storeId}
+                        </td>
+                        <td className="py-2.5 px-3 font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                          <Building2 className="w-3.5 h-3.5 text-[#0288d1]" />
+                          <span>{st.storeName}</span>
+                          {st.isBodega && (
+                            <span className="text-[9px] bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded font-bold">BODEGA</span>
+                          )}
+                        </td>
+                        <td className="py-2.5 px-3 text-center font-semibold text-slate-700 dark:text-slate-300">
+                          {st.activeEmployees}
+                        </td>
+                        <td className="py-2.5 px-3 text-center font-bold text-slate-900 dark:text-white">
+                          {(st.totalHours ?? 0).toFixed(2)} hrs
+                        </td>
+                        <td className="py-2.5 px-3 text-center text-amber-600 font-semibold">
+                          {(st.overtimeHours ?? 0).toFixed(2)} hrs
+                        </td>
+                        <td className="py-2.5 px-3 text-center">
+                          <span className={`px-2 py-0.5 rounded font-bold ${
+                            (st.mealPenaltiesCount ?? st.mealPenalties ?? 0) > 0 ? 'bg-rose-100 text-rose-700' : 'text-slate-400'
+                          }`}>
+                            {st.mealPenaltiesCount ?? st.mealPenalties ?? 0}
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3 text-center font-bold text-rose-600">
+                          ${(st.estimatedPenaltyCostUsd ?? st.penaltyCostUsd ?? 0).toFixed(2)}
+                        </td>
+                        <td className="py-2.5 px-3 text-center">
+                          <span className={`px-2 py-0.5 rounded font-bold ${
+                            (st.complianceScore ?? 0) >= 95 ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                          }`}>
+                            {st.complianceScore ?? 0}%
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3 text-center">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setSelectedCompanyId(st.ronosCompanyId)
+                              setActiveTab('store')
+                              setSelectedEmployeeDetail(null)
+                            }}
+                            className="px-2.5 py-1 rounded bg-[#0288d1] hover:bg-[#0277bd] text-white font-bold text-[11px] cursor-pointer"
+                          >
+                            {t('ronos.btn_view_store')}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         )}
@@ -2035,113 +2188,270 @@ function RonosLaborAuditContent() {
         {/* PESTAÑA 3: VINCULAR EMPLEADOS (TOAST & PIN MAPPINGS)                        */}
         {/* ═══════════════════════════════════════════════════════════════════════════ */}
         {activeTab === 'mapping' && (
-          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs p-5 space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div>
-                <h2 className="text-lg font-bold text-slate-800 dark:text-slate-100">
-                  {t('ronos.mapping_title')}
-                </h2>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  {t('ronos.mapping_desc')}
-                </p>
+          <div className="space-y-4">
+            {/* 5 Mapping Stats Cards */}
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+              <div className="bg-white dark:bg-slate-900 rounded-xl p-4 text-center border border-slate-200 dark:border-slate-800 shadow-xs">
+                <span className="text-xs font-semibold text-slate-600 dark:text-slate-400 border-b-2 border-[#03a9f4] pb-0.5 inline-block mb-1">
+                  Total RONOS
+                </span>
+                <span className="text-[10px] text-slate-400 block mb-1.5">En esta sucursal</span>
+                <div className="text-3xl font-black text-slate-900 dark:text-white">
+                  {mappingStats.totalRonos}
+                </div>
               </div>
 
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={handleAutoMapAll}
-                  disabled={mappingLoading}
-                  className="px-3 py-1.5 rounded-lg bg-[#43a047] hover:bg-[#388e3c] text-white font-bold text-xs shadow-xs transition-all cursor-pointer"
-                >
-                  {t('ronos.btn_auto_map_all')}
-                </button>
-                <button
-                  onClick={handleRefreshTransfers}
-                  disabled={refreshingTransfers}
-                  className="px-3 py-1.5 rounded-lg bg-[#0288d1] hover:bg-[#0277bd] text-white font-bold text-xs shadow-xs transition-all cursor-pointer flex items-center gap-1.5"
-                >
-                  <RefreshCw className={`w-3.5 h-3.5 ${refreshingTransfers ? 'animate-spin' : ''}`} />
-                  <span>Escanear Traslados</span>
-                </button>
+              <div className="bg-white dark:bg-slate-900 rounded-xl p-4 text-center border border-slate-200 dark:border-slate-800 shadow-xs">
+                <span className="text-xs font-semibold text-slate-600 dark:text-slate-400 border-b-2 border-[#03a9f4] pb-0.5 inline-block mb-1">
+                  Auto-Vinculados
+                </span>
+                <span className="text-[10px] text-slate-400 block mb-1.5">Por PIN / Nombre</span>
+                <div className="text-3xl font-black text-emerald-600 dark:text-emerald-400">
+                  {mappingStats.autoMatched}
+                </div>
+              </div>
+
+              <div className="bg-white dark:bg-slate-900 rounded-xl p-4 text-center border border-slate-200 dark:border-slate-800 shadow-xs">
+                <span className="text-xs font-semibold text-slate-600 dark:text-slate-400 border-b-2 border-[#03a9f4] pb-0.5 inline-block mb-1">
+                  Manuales
+                </span>
+                <span className="text-[10px] text-slate-400 block mb-1.5">Verificados por Admin</span>
+                <div className="text-3xl font-black text-[#0288d1]">
+                  {mappingStats.manuallyMatched}
+                </div>
+              </div>
+
+              <div className="bg-white dark:bg-slate-900 rounded-xl p-4 text-center border border-slate-200 dark:border-slate-800 shadow-xs">
+                <span className="text-xs font-semibold text-slate-600 dark:text-slate-400 border-b-2 border-[#03a9f4] pb-0.5 inline-block mb-1">
+                  Inactivos
+                </span>
+                <span className="text-[10px] text-slate-400 block mb-1.5">Ex-colaboradores</span>
+                <div className="text-3xl font-black text-slate-500 dark:text-slate-400">
+                  {mappingStats.inactive}
+                </div>
+              </div>
+
+              <div className="bg-white dark:bg-slate-900 rounded-xl p-4 text-center border border-slate-200 dark:border-slate-800 shadow-xs">
+                <span className="text-xs font-semibold text-slate-600 dark:text-slate-400 border-b-2 border-[#03a9f4] pb-0.5 inline-block mb-1">
+                  Sin Vincular
+                </span>
+                <span className="text-[10px] text-slate-400 block mb-1.5">Requieren atención</span>
+                <div className="text-3xl font-black text-rose-600 dark:text-rose-400">
+                  {mappingStats.unmapped}
+                </div>
               </div>
             </div>
 
-            {/* Mappings Table */}
-            <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
-              <table className="w-full text-xs text-left">
-                <thead className="bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold border-b border-slate-200 dark:border-slate-700">
-                  <tr>
-                    <th className="py-2.5 px-3">Colaborador RONOS</th>
-                    <th className="py-2.5 px-3">PIN</th>
-                    <th className="py-2.5 px-3">Estado Mapeo</th>
-                    <th className="py-2.5 px-3">Perfil Toast POS Asociado</th>
-                    <th className="py-2.5 px-3">Correo Toast</th>
-                    <th className="py-2.5 px-3 text-center">Acciones</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {mappingLoading ? (
+            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs p-5 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100 dark:border-slate-800">
+                <div>
+                  <h2 className="text-lg font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
+                    <LinkIcon className="w-5 h-5 text-[#0288d1]" />
+                    <span>{t('ronos.mapping_title')}</span>
+                  </h2>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    {t('ronos.mapping_desc')}
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2 flex-wrap">
+                  {/* Store Selector for Mapping */}
+                  <select
+                    value={selectedCompanyId}
+                    onChange={(e) => {
+                      const cId = Number(e.target.value)
+                      setSelectedCompanyId(cId)
+                      fetchMappings(cId)
+                    }}
+                    className="px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold cursor-pointer"
+                  >
+                    {stores.map(st => (
+                      <option key={st.ronosCompanyId} value={st.ronosCompanyId}>
+                        {st.tegName} ({st.ronosName})
+                      </option>
+                    ))}
+                  </select>
+
+                  <button
+                    onClick={handleAutoMapAll}
+                    disabled={mappingLoading}
+                    className="px-3.5 py-1.5 rounded-lg bg-[#43a047] hover:bg-[#388e3c] text-white font-bold text-xs shadow-xs transition-all active:scale-95 cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>{t('ronos.btn_auto_map_all')}</span>
+                  </button>
+                  <button
+                    onClick={handleRefreshTransfers}
+                    disabled={refreshingTransfers}
+                    className="px-3.5 py-1.5 rounded-lg bg-[#0288d1] hover:bg-[#0277bd] text-white font-bold text-xs shadow-xs transition-all active:scale-95 cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${refreshingTransfers ? 'animate-spin' : ''}`} />
+                    <span>Escanear Traslados</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Toolbar: Search + Filter Pills */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1 text-xs">
+                <div className="relative max-w-sm w-full">
+                  <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
+                  <input
+                    type="text"
+                    value={mappingSearch}
+                    onChange={(e) => setMappingSearch(e.target.value)}
+                    placeholder="Buscar por colaborador o PIN..."
+                    className="w-full pl-8 pr-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-[#03a9f4]"
+                  />
+                </div>
+
+                <div className="flex items-center gap-2 flex-wrap">
+                  <button
+                    onClick={() => setMappingFilter('all')}
+                    className={`px-3 py-1 rounded-lg font-semibold transition-colors cursor-pointer ${
+                      mappingFilter === 'all'
+                        ? 'bg-[#0288d1] text-white'
+                        : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200'
+                    }`}
+                  >
+                    Todos ({mappingsList.length})
+                  </button>
+                  <button
+                    onClick={() => setMappingFilter('unmapped')}
+                    className={`px-3 py-1 rounded-lg font-semibold transition-colors cursor-pointer ${
+                      mappingFilter === 'unmapped'
+                        ? 'bg-rose-600 text-white'
+                        : 'bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300 hover:bg-rose-100'
+                    }`}
+                  >
+                    Sin Vincular ({mappingStats.unmapped})
+                  </button>
+                  <button
+                    onClick={() => setMappingFilter('matched')}
+                    className={`px-3 py-1 rounded-lg font-semibold transition-colors cursor-pointer ${
+                      mappingFilter === 'matched'
+                        ? 'bg-emerald-600 text-white'
+                        : 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 hover:bg-emerald-100'
+                    }`}
+                  >
+                    Vinculados ({mappingStats.autoMatched + mappingStats.manuallyMatched})
+                  </button>
+                  <button
+                    onClick={() => setMappingFilter('inactive')}
+                    className={`px-3 py-1 rounded-lg font-semibold transition-colors cursor-pointer ${
+                      mappingFilter === 'inactive'
+                        ? 'bg-slate-600 text-white'
+                        : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400 hover:bg-slate-200'
+                    }`}
+                  >
+                    Inactivos ({mappingStats.inactive})
+                  </button>
+                </div>
+              </div>
+
+              {/* Mappings Table */}
+              <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
+                <table className="w-full text-xs text-left">
+                  <thead className="bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold border-b border-slate-200 dark:border-slate-700">
                     <tr>
-                      <td colSpan={6} className="py-12 text-center text-slate-400">
-                        <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-[#03a9f4]" />
-                        <span>Cargando catálogo de vinculaciones...</span>
-                      </td>
+                      <th className="py-2.5 px-3">Colaborador RONOS</th>
+                      <th className="py-2.5 px-3">PIN</th>
+                      <th className="py-2.5 px-3">Estado Mapeo</th>
+                      <th className="py-2.5 px-3">Perfil Toast POS Asociado</th>
+                      <th className="py-2.5 px-3">Correo Toast</th>
+                      <th className="py-2.5 px-3 text-center">Acciones</th>
                     </tr>
-                  ) : filteredMappings.map((item) => (
-                    <tr key={item.ronosEmployeeUserId} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
-                      <td className="py-2.5 px-3 font-bold text-slate-900 dark:text-white">
-                        {item.ronosFullName}
-                      </td>
-                      <td className="py-2.5 px-3 font-mono text-slate-600 dark:text-slate-400">
-                        {item.ronosPin}
-                      </td>
-                      <td className="py-2.5 px-3">
-                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                          item.mappingType === 'auto'
-                            ? 'bg-emerald-100 text-emerald-800'
-                            : item.mappingType === 'manual'
-                            ? 'bg-blue-100 text-blue-800'
-                            : item.mappingType === 'inactive'
-                            ? 'bg-slate-200 text-slate-600'
-                            : 'bg-rose-100 text-rose-800'
-                        }`}>
-                          {item.mappingType === 'auto' ? 'Auto' : item.mappingType === 'manual' ? 'Manual' : item.mappingType === 'inactive' ? 'Inactivo' : 'Sin Vincular'}
-                        </span>
-                      </td>
-                      <td className="py-2.5 px-3">
-                        <select
-                          value={item.toastEmployeeId || ''}
-                          onChange={(e) => handleSaveSingleMapping(item, e.target.value)}
-                          disabled={savingMappingId === item.ronosEmployeeUserId}
-                          className="px-2 py-1 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs w-full max-w-xs"
-                        >
-                          <option value="UNLINK">-- Seleccionar Toast --</option>
-                          <option value="INACTIVE">🚫 Inactivo (No Labora)</option>
-                          {toastCandidates.map(tc => {
-                            const name = tc.fullName || tc.full_name || 'Colaborador'
-                            const job = tc.jobTitle || tc.job_title || 'Colaborador'
-                            return (
-                              <option key={tc.id} value={tc.id}>
-                                {name} ({job})
-                              </option>
-                            )
-                          })}
-                        </select>
-                      </td>
-                      <td className="py-2.5 px-3 font-mono text-slate-600 dark:text-slate-400">
-                        {item.toastEmail || 'Sin Correo'}
-                      </td>
-                      <td className="py-2.5 px-3 text-center">
-                        <button
-                          onClick={() => handleSaveSingleMapping(item, 'INACTIVE')}
-                          className="text-[10px] px-2 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-600"
-                        >
-                          Marcar Inactivo
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                    {mappingLoading ? (
+                      <tr>
+                        <td colSpan={6} className="py-12 text-center text-slate-400">
+                          <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-[#03a9f4]" />
+                          <span>Cargando catálogo de vinculaciones...</span>
+                        </td>
+                      </tr>
+                    ) : filteredMappings.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="py-12 text-center text-slate-400">
+                          <Users className="w-6 h-6 mx-auto mb-2 opacity-50" />
+                          <span>No se encontraron colaboradores para este filtro.</span>
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredMappings.map((item) => (
+                        <tr key={item.ronosEmployeeUserId} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                          <td className="py-2.5 px-3 font-bold text-slate-900 dark:text-white">
+                            <div className="flex items-center gap-2">
+                              <span>{item.ronosFullName}</span>
+                              {item.transferredToStore && (
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800">
+                                  <Plane className="w-3 h-3" />
+                                  <span>{item.transferredToStore}</span>
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="py-2.5 px-3 font-mono text-slate-600 dark:text-slate-400">
+                            {item.ronosPin}
+                          </td>
+                          <td className="py-2.5 px-3">
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                              item.mappingType === 'auto'
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : item.mappingType === 'manual'
+                                ? 'bg-blue-100 text-blue-800'
+                                : item.mappingType === 'inactive'
+                                ? 'bg-slate-200 text-slate-600'
+                                : 'bg-rose-100 text-rose-800'
+                            }`}>
+                              {item.mappingType === 'auto' ? 'Auto' : item.mappingType === 'manual' ? 'Manual' : item.mappingType === 'inactive' ? 'Inactivo' : 'Sin Vincular'}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-3">
+                            <select
+                              value={item.toastEmployeeId || ''}
+                              onChange={(e) => handleSaveSingleMapping(item, e.target.value)}
+                              disabled={savingMappingId === item.ronosEmployeeUserId}
+                              className="px-2 py-1 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs w-full max-w-xs cursor-pointer"
+                            >
+                              <option value="UNLINK">-- Seleccionar Toast --</option>
+                              <option value="INACTIVE">🚫 Inactivo (No Labora)</option>
+                              {toastCandidates.map(tc => {
+                                const name = tc.fullName || tc.full_name || 'Colaborador'
+                                const job = tc.jobTitle || tc.job_title || 'Colaborador'
+                                return (
+                                  <option key={tc.id} value={tc.id}>
+                                    {name} ({job})
+                                  </option>
+                                )
+                              })}
+                            </select>
+                          </td>
+                          <td className="py-2.5 px-3 font-mono text-slate-600 dark:text-slate-400">
+                            {item.toastEmail || 'Sin Correo'}
+                          </td>
+                          <td className="py-2.5 px-3 text-center">
+                            {item.mappingType === 'inactive' ? (
+                              <button
+                                onClick={() => handleSaveSingleMapping(item, 'UNLINK')}
+                                className="text-[10px] px-2.5 py-1 rounded bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold cursor-pointer"
+                              >
+                                Reactivar
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => handleSaveSingleMapping(item, 'INACTIVE')}
+                                className="text-[10px] px-2.5 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 font-medium cursor-pointer"
+                              >
+                                Marcar Inactivo
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         )}
@@ -2329,49 +2639,79 @@ function RonosLaborAuditContent() {
                 </div>
               </div>
 
-              {/* Toolbar: Search + Quick Filters */}
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2 border-t border-slate-100 dark:border-slate-800 text-xs">
+              {/* Toolbar: Search + Audit Variance Filter Pills */}
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pt-2 border-t border-slate-100 dark:border-slate-800 text-xs">
                 <div className="relative max-w-sm w-full">
                   <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
                   <input
                     type="text"
                     value={payrollSearch}
                     onChange={(e) => setPayrollSearch(e.target.value)}
-                    placeholder="Buscar por colaborador o puesto..."
-                    className="w-full pl-8 pr-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs"
+                    placeholder="Buscar por colaborador, puesto o nota de auditoría..."
+                    className="w-full pl-8 pr-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-[#03a9f4]"
                   />
                 </div>
 
-                <div className="flex items-center gap-2 flex-wrap">
+                <div className="flex items-center gap-1.5 flex-wrap">
                   <button
                     onClick={() => setPayrollFilterType('all')}
-                    className={`px-2.5 py-1 rounded-lg text-xs font-semibold ${
+                    className={`px-2.5 py-1 rounded-lg text-xs font-semibold cursor-pointer transition-colors ${
                       payrollFilterType === 'all'
                         ? 'bg-[#0288d1] text-white'
-                        : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
+                        : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200'
                     }`}
                   >
                     Todos ({payrollData?.employees?.length || 0})
                   </button>
                   <button
-                    onClick={() => setPayrollFilterType('violations')}
-                    className={`px-2.5 py-1 rounded-lg text-xs font-semibold ${
-                      payrollFilterType === 'violations'
-                        ? 'bg-amber-600 text-white'
-                        : 'bg-amber-50 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300'
+                    onClick={() => setPayrollFilterType('exact')}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-semibold cursor-pointer transition-colors ${
+                      payrollFilterType === 'exact'
+                        ? 'bg-emerald-600 text-white'
+                        : 'bg-emerald-50 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300 hover:bg-emerald-100'
                     }`}
                   >
-                    Con Overtime / Multas
+                    Cuadre Exacto
+                  </button>
+                  <button
+                    onClick={() => setPayrollFilterType('saving')}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-semibold cursor-pointer transition-colors ${
+                      payrollFilterType === 'saving'
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-blue-50 text-blue-800 dark:bg-blue-950/40 dark:text-blue-300 hover:bg-blue-100'
+                    }`}
+                  >
+                    Ahorro Favorable
+                  </button>
+                  <button
+                    onClick={() => setPayrollFilterType('variance')}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-semibold cursor-pointer transition-colors ${
+                      payrollFilterType === 'variance'
+                        ? 'bg-amber-600 text-white'
+                        : 'bg-amber-50 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300 hover:bg-amber-100'
+                    }`}
+                  >
+                    Diferencia Tarifa
                   </button>
                   <button
                     onClick={() => setPayrollFilterType('pto')}
-                    className={`px-2.5 py-1 rounded-lg text-xs font-semibold ${
+                    className={`px-2.5 py-1 rounded-lg text-xs font-semibold cursor-pointer transition-colors ${
                       payrollFilterType === 'pto'
                         ? 'bg-purple-600 text-white'
-                        : 'bg-purple-50 text-purple-800 dark:bg-purple-950/40 dark:text-purple-300'
+                        : 'bg-purple-50 text-purple-800 dark:bg-purple-950/40 dark:text-purple-300 hover:bg-purple-100'
                     }`}
                   >
-                    Con PTO / Sick Pay
+                    Con PTO / Sick
+                  </button>
+                  <button
+                    onClick={() => setPayrollFilterType('violations')}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-semibold cursor-pointer transition-colors ${
+                      payrollFilterType === 'violations'
+                        ? 'bg-rose-600 text-white'
+                        : 'bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300 hover:bg-rose-100'
+                    }`}
+                  >
+                    Con OT / Multas
                   </button>
                 </div>
               </div>
@@ -2387,24 +2727,27 @@ function RonosLaborAuditContent() {
                       <th className="py-2.5 px-3 text-center">Pay Rate</th>
                       <th className="py-2.5 px-3 text-center">Bill Rate</th>
                       <th className="py-2.5 px-3 text-center font-bold">Total Horas</th>
-                      <th className="py-2.5 px-3 text-center">Regular (h)</th>
-                      <th className="py-2.5 px-3 text-center">OT / DT (h)</th>
-                      <th className="py-2.5 px-3 text-center">Sick/PTO (h)</th>
+                      <th className="py-2.5 px-3 text-center">Regular</th>
+                      <th className="py-2.5 px-3 text-center">OT (h)</th>
+                      <th className="py-2.5 px-3 text-center">DT (h)</th>
+                      <th className="py-2.5 px-3 text-center">Sick/PTO</th>
                       <th className="py-2.5 px-3 text-center font-bold">Sueldo Bruto</th>
+                      <th className="py-2.5 px-3 text-center text-amber-700 dark:text-amber-400 font-semibold">Margen Cingular</th>
                       <th className="py-2.5 px-3 text-center font-bold text-emerald-700 dark:text-emerald-400">Total Factura</th>
+                      <th className="py-2.5 px-3 text-center">Auditoría</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                     {payrollLoading ? (
                       <tr>
-                        <td colSpan={11} className="py-12 text-center text-slate-400">
+                        <td colSpan={14} className="py-12 text-center text-slate-400">
                           <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-[#03a9f4]" />
                           <span>Calculando pre-factura oficial de Cingular HR con tarifas de Simplify HR...</span>
                         </td>
                       </tr>
                     ) : filteredPayrollEmployees.length === 0 ? (
                       <tr>
-                        <td colSpan={11} className="py-12 text-center text-slate-400">
+                        <td colSpan={14} className="py-12 text-center text-slate-400">
                           <Receipt className="w-6 h-6 mx-auto mb-2 opacity-50" />
                           <span>No hay datos de nómina disponibles para los filtros seleccionados.</span>
                         </td>
@@ -2438,7 +2781,10 @@ function RonosLaborAuditContent() {
                             {(emp.regularHours ?? 0).toFixed(2)}
                           </td>
                           <td className="py-2.5 px-3 text-center font-mono text-amber-600 font-semibold">
-                            {((emp.overtimeHours ?? 0) + (emp.doubleTimeHours ?? 0)).toFixed(2)}
+                            {(emp.overtimeHours ?? 0).toFixed(2)}
+                          </td>
+                          <td className="py-2.5 px-3 text-center font-mono text-rose-600 font-semibold">
+                            {(emp.doubleTimeHours ?? 0).toFixed(2)}
                           </td>
                           <td className="py-2.5 px-3 text-center font-mono text-purple-600">
                             {((emp.sickHours ?? 0) + (emp.vacationHours ?? 0) + (emp.holidayHours ?? 0)).toFixed(2)}
@@ -2446,8 +2792,27 @@ function RonosLaborAuditContent() {
                           <td className="py-2.5 px-3 text-center font-mono font-bold text-slate-900 dark:text-white">
                             ${(emp.totalGrossPay ?? 0).toFixed(2)}
                           </td>
+                          <td className="py-2.5 px-3 text-center font-mono text-amber-700 dark:text-amber-400 font-semibold">
+                            ${(emp.cingularFeeAmount ?? 0).toFixed(2)}
+                          </td>
                           <td className="py-2.5 px-3 text-center font-mono font-black text-emerald-600 dark:text-emerald-400">
                             ${(emp.totalInvoicedAmount ?? 0).toFixed(2)}
+                          </td>
+                          <td className="py-2.5 px-3 text-center">
+                            <span
+                              title={emp.auditNote || 'Auditoría normal'}
+                              className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold cursor-help ${
+                                emp.auditStatus === 'exact'
+                                  ? 'bg-emerald-100 text-emerald-800'
+                                  : emp.auditStatus === 'saving'
+                                  ? 'bg-blue-100 text-blue-800'
+                                  : emp.auditStatus === 'variance'
+                                  ? 'bg-amber-100 text-amber-800'
+                                  : 'bg-slate-100 text-slate-600'
+                              }`}
+                            >
+                              {emp.auditBadgeText || 'Normal'}
+                            </span>
                           </td>
                         </tr>
                       ))

@@ -149,13 +149,39 @@ export function generateViolationWarningEmailHtml(payload: RonosViolationEmailPa
     additionalNotes
   } = payload
 
-  const formattedDate = new Date(violationDate).toLocaleDateString('es-ES', {
-    timeZone: 'America/Los_Angeles',
-    weekday: 'long',
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric'
-  })
+  const formatSafeEmailDate = (dateStr: string): string => {
+    if (!dateStr) return 'Fecha no especificada'
+    try {
+      const cleanDate = dateStr.includes('T') ? dateStr.substring(0, 10) : dateStr
+      const parts = cleanDate.split('-').map(Number)
+      if (parts.length === 3 && parts[0] && parts[1] && parts[2]) {
+        const d = new Date(parts[0], parts[1] - 1, parts[2], 12, 0, 0)
+        return d.toLocaleDateString('es-ES', {
+          weekday: 'long',
+          day: 'numeric',
+          month: 'long',
+          year: 'numeric'
+        })
+      }
+    } catch {}
+    return dateStr
+  }
+
+  const formatSafeEmailTime = (timeStr?: string): string => {
+    if (!timeStr) return '--:--'
+    if (timeStr.includes('AM') || timeStr.includes('PM') || timeStr.includes('am') || timeStr.includes('pm')) {
+      return timeStr
+    }
+    try {
+      const d = new Date(timeStr)
+      if (!isNaN(d.getTime())) {
+        return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+      }
+    } catch {}
+    return timeStr
+  }
+
+  const formattedDate = formatSafeEmailDate(violationDate)
 
   return `
 <!DOCTYPE html>
@@ -247,16 +273,16 @@ export function generateViolationWarningEmailHtml(payload: RonosViolationEmailPa
                       </tr>
                       <tr style="color: #0f172a; font-family: monospace; font-weight: 600;">
                         <td align="left" style="padding: 8px 10px; border-bottom: 1px solid #e2e8f0;">
-                          ${clockInTime ? new Date(clockInTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '--:--'}
+                          ${formatSafeEmailTime(clockInTime)}
                         </td>
                         <td align="center" style="padding: 8px 10px; border-bottom: 1px solid #e2e8f0;">
-                          ${lunchStartTime ? new Date(lunchStartTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '--:--'}
+                          ${formatSafeEmailTime(lunchStartTime)}
                         </td>
                         <td align="center" style="padding: 8px 10px; border-bottom: 1px solid #e2e8f0;">
-                          ${lunchEndTime ? new Date(lunchEndTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '--:--'}
+                          ${formatSafeEmailTime(lunchEndTime)}
                         </td>
                         <td align="right" style="padding: 8px 10px; border-bottom: 1px solid #e2e8f0;">
-                          ${clockOutTime ? new Date(clockOutTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '--:--'}
+                          ${formatSafeEmailTime(clockOutTime)}
                         </td>
                       </tr>
                     </table>
