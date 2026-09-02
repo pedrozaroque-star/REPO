@@ -33,10 +33,9 @@ export const dynamic = 'force-dynamic'
 export const maxDuration = 60
 
 async function handleSync(request: NextRequest) {
-  // Validar CRON_SECRET para proteger contra invocaciones no autorizadas
+  // Validar CRON_SECRET solo si está configurado en el entorno
   const authHeader = request.headers.get('authorization')
-  const cronSecret = process.env.CRON_SECRET
-  if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
+  if (process.env.CRON_SECRET && authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
   }
 

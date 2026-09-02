@@ -82,7 +82,7 @@
         },
         {
             "path": "/api/cron/sync-supplier-prices",
-            "schedule": "0 14 * * 1-5"
+            "schedule": "0 13 * * 1-5"
         }
     ]
 }
