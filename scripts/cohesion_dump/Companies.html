@@ -1,0 +1,390 @@
+<!DOCTYPE html><html style="display: block;"><head>
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cohesion For Restaurants</title>
+    
+    <!-- Add local styles, mostly for plugins css file -->
+    
+    <!-- CSS style (bootstrap/inspinia) - ~/Content/css bundle -->
+    <link rel="stylesheet" href="/Content/bootstrap.css">
+    <link rel="stylesheet" href="/Content/animate.css">
+    <link rel="stylesheet" href="/Content/style.css">
+    
+    <!-- Font Awesome icons - ~/font-awesome/css bundle -->
+    <link rel="stylesheet" href="/fonts/font-awesome/css/font-awesome.min.css">
+    
+    <!-- CSS Style Colorstrap - ~/plugins/colorstrapStyles bundle -->
+    <link rel="stylesheet" href="/Content/plugins/colorstrap/colorstrap.css">
+    
+    <!-- CSS style (cohesion overrides) - ~/cohesion/css bundle -->
+    <link rel="stylesheet" href="/Content/cohesion.css">
+    <link rel="stylesheet" href="/Content/cohesion-color.css">
+    
+    <!-- Jasny styles - ~/Content/jasny bundle -->
+    <link rel="stylesheet" href="/Content/plugins/jasny/jasny-bootstrap.css">
+    
+    <style>
+        html {
+            display: none
+        }
+    </style>
+    
+    <!-- jQuery - ~/bundles/jquery bundle -->
+    <script src="/Scripts/jquery-3.7.1.min.js"></script>
+    
+    <!-- jQuery Unobtrusive Ajax - ~/bundles/jqueryUnobtrusiveAjax bundle -->
+    <script src="/Scripts/jquery.unobtrusive-ajax.min.js"></script>
+    
+    <!-- Bootstrap - ~/bundles/bootstrap bundle -->
+    <script src="/Scripts/bootstrap.min.js"></script>
+    
+    <!-- SlimScroll - ~/plugins/slimScroll bundle -->
+    <script src="/Scripts/plugins/slimscroll/jquery.slimscroll.min.js"></script>
+    
+    <!-- Inspinia script - ~/bundles/inspinia bundle -->
+    <script src="/Scripts/plugins/metisMenu/metisMenu.min.js"></script>
+    <script src="/Scripts/plugins/pace/pace.min.js"></script>
+    <script src="/Scripts/app/inspinia.min.js"></script>
+    
+    <!-- Cohesion - ~/bundles/cohesion bundle -->
+    <script src="/Scripts/cohesion.js"></script>
+    <script src="/Scripts/cohesion.myworkflows.js"></script>
+    
+    <!-- Jasny - ~/plugins/jasny bundle -->
+    <script src="/Scripts/plugins/jasny/jasny-bootstrap.js"></script>
+    
+    
+</head>
+<body class="pace-done"><div class="pace  pace-inactive"><div class="pace-progress" data-progress-text="100%" data-progress="99" style="transform: translate3d(100%, 0px, 0px);">
+  <div class="pace-progress-inner"></div>
+</div>
+<div class="pace-activity"></div></div>
+    <!-- Wrapper-->
+    <div b-mume8xfgo2="" id="wrapper">
+        <!-- Navigation -->
+        
+<nav class="navbar-default navbar-static-side" role="navigation">
+    <div class="sidebar-collapse">
+        <ul class="nav" id="side-menu">
+            <li>
+                <div class="profile-element text-center">
+                    <h2>
+                        <img style="width: 190px" src="/Images/CohesionForRestaurants.png"><br>
+                    </h2>
+                </div>
+                <div class="logo-element">
+                    <img style="width: 40px" src="/Images/CohesionIcon72x72.png">
+                </div>
+            </li>
+                        
+<li class="">
+    <a href="/Dashboard/Main">
+        <table>
+            <tbody><tr>
+                <td class="text-center" style="width: 15%">
+                    <i class="fa fa-dashboard fa-fw" data-toggle="tooltip" data-placement="right" title="Dashboard">
+                    </i>
+                </td>
+                <td>
+                    <span class="nav-label">Dashboard</span>
+                </td>
+            </tr>
+        </tbody></table>
+    </a>
+</li>
+ 
+<li class="">
+    <a href="/MyWorkflowsSales/Main">
+        <table>
+            <tbody><tr>
+                <td class="text-center" style="width: 15%">
+                    <i class="fa fa-money fa-fw" data-toggle="tooltip" data-placement="right" title="Sales Workflows">
+                    </i>
+                </td>
+                <td>
+                    <span class="nav-label">Sales</span>
+                </td>
+            </tr>
+        </tbody></table>
+    </a>
+</li>
+                             <li class="">
+    <a href="/CompanySetup/Main">
+        <table>
+            <tbody><tr>
+                <td class="text-center" style="width: 15%">
+                    <i class="fa fa-university fa-fw" data-toggle="tooltip" data-placement="right" title="Companies">
+                    </i>
+                </td>
+                <td>
+                    <span class="nav-label">Companies</span>
+                </td>
+            </tr>
+        </tbody></table>
+    </a>
+</li>
+
+                            <li class="">
+    <a href="/Users/Main">
+        <table>
+            <tbody><tr>
+                <td class="text-center" style="width: 15%">
+                    <i class="fa fa-users fa-fw" data-toggle="tooltip" data-placement="right" title="Users">
+                    </i>
+                </td>
+                <td>
+                    <span class="nav-label">Users</span>
+                </td>
+            </tr>
+        </tbody></table>
+    </a>
+</li>
+
+                            <li class="">
+    <a href="/Subscriptions/Main">
+        <table>
+            <tbody><tr>
+                <td class="text-center" style="width: 15%">
+                    <i class="fa fa-credit-card fa-fw" data-toggle="tooltip" data-placement="right" title="My Subscriptions">
+                    </i>
+                </td>
+                <td>
+                    <span class="nav-label">My Subscriptions</span>
+                </td>
+            </tr>
+        </tbody></table>
+    </a>
+</li>
+
+                        <li class="">
+    <a href="/Downloads/Main">
+        <table>
+            <tbody><tr>
+                <td class="text-center" style="width: 15%">
+                    <i class="fa fa-download fa-fw" data-toggle="tooltip" data-placement="right" title="Downloads">
+                    </i>
+                </td>
+                <td>
+                    <span class="nav-label">Downloads</span>
+                </td>
+            </tr>
+        </tbody></table>
+    </a>
+</li>
+
+                        <li class="">
+    <a href="/Help/Main">
+        <table>
+            <tbody><tr>
+                <td class="text-center" style="width: 15%">
+                    <i class="fa fa-comment fa-fw" data-toggle="tooltip" data-placement="right" title="Help &amp; Guidance">
+                    </i>
+                </td>
+                <td>
+                    <span class="nav-label">Help &amp; Guidance</span>
+                </td>
+            </tr>
+        </tbody></table>
+    </a>
+</li>
+
+            <li><br></li>
+            <li><div align="center">Release 2026.8.24.3</div></li>
+        </ul>
+    </div>
+</nav>
+
+<script>
+    $(document).ready(function () {
+        if (false) {
+            $('body').addClass('mini-navbar')
+        } else {
+            $('body').removeClass('mini-navbar')
+        }
+    })
+</script>
+
+        <!-- Page wraper -->
+        <div b-mume8xfgo2="" id="page-wrapper" class="gray-bg" style="min-height: 1000px;">
+            <!-- Top Navbar -->
+            <div class="row border-bottom">
+    <nav class="navbar navbar-static-top" role="navigation" style="margin-bottom: 0">
+        <div class="navbar-header">
+            <a id="SideBarToggle" class="navbar-minimalize minimalize-styl-2 btn btn-primary " href="#" onclick="ToggleSideBarIsCollapsed(); return false;">
+                <i class="fa fa-bars"></i>
+            </a>
+        </div>
+        
+<div class="navbar-header">
+        <div class="p-sm">
+            <h3>
+                Tacos El Gavilan Inc 
+            </h3>
+        </div>
+</div>
+
+        <ul class="nav navbar-top-links navbar-right">
+            
+<li class="text-primary">
+    Raquel Velazquez
+</li>
+
+            
+<!-- /.dropdown -->
+<li class="dropdown">
+    <a class="dropdown-toggle" data-toggle="dropdown" href="#">
+        <i class="fa fa-user fa-fw"></i>
+        <i class="fa fa-caret-down"></i>
+    </a>
+    <ul class="dropdown-menu dropdown-user">
+            <li>
+                <a href="/Subscriptions/Main">
+                    <i class="fa fa-credit-card"></i>&nbsp;My Subscription&nbsp;
+                </a>
+            </li>
+        <li>
+            <a href="/Account/ChangeMyPassword">
+                <i class="fa fa-gear"></i>&nbsp;Change My Password&nbsp;
+            </a>
+        </li>
+        <li class="divider"></li>
+        <li>
+            <a href="/Account/SignOut">
+                <i class="fa fa-user"></i>&nbsp;Sign Out&nbsp;
+            </a>
+        </li>
+    </ul>
+    <!-- /.dropdown-user -->
+</li>
+
+        </ul>
+    </nav>
+</div>
+
+<script type="text/javascript">
+    function ToggleSideBarIsCollapsed() {
+        const name = "Cohesion.IsCollapsed=";
+        const cDecoded = decodeURIComponent(document.cookie);
+        const cArr = cDecoded.split("; ");
+        let isCollapsed = "false";
+        
+        cArr.forEach(val => {
+            if (val.indexOf(name) === 0) {
+                isCollapsed = val.substring(name.length);
+            }
+        });
+
+        if (isCollapsed === "false") {
+            document.cookie = "Cohesion.IsCollapsed=true;path=/";
+        } else {
+            document.cookie = "Cohesion.IsCollapsed=false;path=/";
+        }
+
+        // Post to server to update state
+        fetch('/Navigation/UpdateSideBarToggleState', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            }
+        });
+    }
+</script>
+
+            <!-- Main view -->
+            
+
+<!-- Page Body -->
+<div class="wrapper wrapper-content animated fadeInRight">
+    <div class="row">
+        <div class="ibox float-e-margins">
+
+            <div class="ibox-title">
+                <h2>
+                    Company Profiles
+                        
+<a class="btn btn-xs btn-info btn-outline help-link " href="/Help/Article/topics/11-companies-sites" target="_blank" rel="noopener" aria-label="Companies &amp; Sites" data-toggle="tooltip" data-placement="right" title="Companies &amp; Sites">
+    <i class="fa fa-question-circle" aria-hidden="true"></i>&nbsp;Companies &amp; Sites</a>
+
+                    &nbsp;&nbsp;
+                    <a href="/CompanySetupCompanyManagement/CompanyAdd" class="modal-link btn btn-default btn-sm btn-outline pull-right">
+                        <i class="fa fa-map-marker"></i>&nbsp;&nbsp;<strong>Add a New Company</strong>
+                    </a>
+                </h2>
+                <small>Click on the Settings button below to manage the Financial Systems, Sites and Workflows for the Company.</small>
+            </div>
+
+            <div class="ibox-content">
+                <div class="panel-body">
+                    <div class="table-responsive">
+                        <table class="table table-condensed table-hover">
+                            <thead>
+                                <tr>
+                                    <th class="col-lg-1 text-center">Action</th>
+                                    <th class="col-lg-11">Company Name</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                    <tr>
+                                        <td style="vertical-align: middle">
+                                                <a href="/CompanySetupCompanyManagement/CompanyManagement/1866?IsTheOnlyCompany=True&amp;IsSetupComplete=True&amp;Name=Tacos%20El%20Gavilan%20Inc" class="btn btn-block btn-default btn-outline">
+                                                    <i class="fa fa-gear"></i>&nbsp;&nbsp;<strong>Settings</strong>
+                                                </a>
+                                        </td>
+                                        <td style="vertical-align: middle">
+                                            <h3 class="m-b-none ">
+                                                Tacos El Gavilan Inc
+                                            </h3>
+                                        </td>
+                                    </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                        <div class="table-responsive">
+                            <table class="table table-condensed table-hover">
+                                <thead>
+                                    <tr>
+                                        <th class="col-lg-1 text-center">Action</th>
+                                        <th class="col-lg-11">Organization Specific Settings</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                        <tr>
+                                            <td class="text-center" style="vertical-align: middle">
+                                                <a href="/CompanySetupCompanyManagementEventCalendar/List" class="btn btn-block btn-default btn-outline">
+                                                    <i class="fa fa-gear"></i>&nbsp;&nbsp;<strong>Manage</strong>
+                                                </a>
+                                            </td>
+                                            <td>
+                                                <h3 class="m-b-none">Event Calendar</h3>
+                                                <small>Manage this Organization's Event Calendar.</small>
+                                            </td>
+                                        </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+</div>
+
+            <!-- Footer -->
+        </div>
+        <!-- End page wrapper-->
+    </div>
+    <!-- End wrapper-->
+    <script>
+        if (self === top) { document.documentElement.style.display = 'block'; }
+        else { top.location = self.location; }
+    </script>
+    <!-- Modal Dialog Container -->
+    
+
+
+<div b-mume8xfgo2="" id="modal-container" class="modal fade" tabindex="-1" role="dialog">
+        <div b-mume8xfgo2="" class="modal-content">
+        </div>
+    </div></body></html>

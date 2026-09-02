@@ -1,0 +1,44 @@
+
+
+	Dashboard
+	Sales
+	Companies
+	Users
+	My Subscriptions
+	Downloads
+	Help & Guidance
+
+
+Release 2026.8.24.3
+Tacos El Gavilan Inc
+Raquel Velazquez 
+ 
+QuickBooks
+Windows 7, 8+, 10
+Cohesion Connect for QuickBooks Desktop  Downloads
+
+Download and install Cohesion.Connect to the workstation or server where you have QuickBooks installed. This application will act as the bridge between Cohesion and your copy of QuickBooks.
+
+
+NOTE - You will only need to install Cohesion Connect once for all the companies that you are connecting to Cohesion. So if you have already installed Cohesion.Connect for a different Company, you can skip downloading again.
+Dynamics NAV
+Windows 7, 8+, 10
+Cohesion Connect for Microsoft Dynamics NAV  Downloads
+
+Download and install Cohesion Connect to the workstation where you have a NAV client installed. This application will act as the bridge between Cohesion and your copy of NAV.
+
+
+NOTE - You can install Cohesion connect on as many Auditor's workstations as you wish. You should add a User for each Auditor that will use Cohesion.
+Sage 300 C&RE
+Windows 7, 8+, 10
+Cohesion Connect for Sage 300 C&RE (Timberline)  Downloads
+
+Download and install Cohesion Connect to the workstation where you have a Sage 300 client installed. This application will act as the bridge between Cohesion and your copy of Sage 300.
+
+
+NOTE - You can install Cohesion connect on as many Auditor's workstations as you wish. You should add a User for each Auditor that will use Cohesion.
+POSitouch
+Windows 7, 8+, 10
+Cohesion Connect for POSitouch POS  Downloads
+
+Download and install Cohesion Connect to a Site's (Restaurant) Backoffice Workstation. This application will act as the bridge between Cohesion and POSitouch.

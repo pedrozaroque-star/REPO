@@ -62,21 +62,21 @@
         <div class="stat-card">
             <div style="font-size: 24px;">✅</div>
             <div>
-                <div class="stat-val" style="color: #059669;">16</div>
+                <div class="stat-val" style="color: #059669;">14</div>
                 <div class="stat-lbl">Completadas</div>
             </div>
         </div>
         <div class="stat-card">
             <div style="font-size: 24px;">⏳</div>
             <div>
-                <div class="stat-val" style="color: #0284c7;">8</div>
+                <div class="stat-val" style="color: #0284c7;">9</div>
                 <div class="stat-lbl">En Progreso</div>
             </div>
         </div>
         <div class="stat-card">
             <div style="font-size: 24px;">📌</div>
             <div>
-                <div class="stat-val" style="color: #d97706;">3</div>
+                <div class="stat-val" style="color: #d97706;">4</div>
                 <div class="stat-lbl">Pendientes</div>
             </div>
         </div>
@@ -2426,14 +2426,14 @@
     <div class="tab-content content-pendientes">
         
         <div style="margin-bottom: 24px; background: #ffffff; border: 1.5px solid #cbd5e1; border-radius: 12px; padding: 20px 24px; width: 100%;">
-            <h2 style="font-size: 18px; font-weight: 900; color: #0f172a; margin-bottom: 4px;">Auditoría Consolidada de las 26 Tareas del Sistema (Agosto 2026)</h2>
+            <h2 style="font-size: 18px; font-weight: 900; color: #0f172a; margin-bottom: 4px;">Auditoría Consolidada de las 27 Tareas del Sistema (Agosto 2026)</h2>
             <p style="font-size: 13px; color: #64748b;">Desglose transparente del estado de desarrollo, reglas de negocio validadas y checklist de verificación por módulo.</p>
         </div>
 
         <!-- SECCIÓN 1: COMPLETADO -->
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; border-bottom: 2px solid #10b981; padding-bottom: 8px; width: 100%;">
-            <h2 style="font-size: 17px; font-weight: 900; color: #065f46;">✓ Completado (12)</h2>
-            <span style="background: #d1fae5; color: #065f46; border: 1px solid #a7f3d0; font-size: 12px; font-weight: 800; padding: 3px 12px; border-radius: 999px;">12 Tareas</span>
+            <h2 style="font-size: 17px; font-weight: 900; color: #065f46;">✓ Completado (14)</h2>
+            <span style="background: #d1fae5; color: #065f46; border: 1px solid #a7f3d0; font-size: 12px; font-weight: 800; padding: 3px 12px; border-radius: 999px;">14 Tareas</span>
         </div>
         <div class="tasks-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(350px, 1fr)); gap: 16px; margin-bottom: 32px; width: 100%;">
             
@@ -2976,12 +2976,102 @@
         </div>
     </div>
     
+
+    <div class="task-card" style="background: white; border: 1.5px solid #e2e8f0; border-radius: 12px; padding: 18px; display: flex; flex-direction: column; justify-content: space-between; box-shadow: 0 2px 4px rgba(0,0,0,0.02);">
+        <div>
+            <div class="card-tags" style="display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap;">
+                <span class="badge badge-sys" style="font-size: 10px; font-weight: 800; padding: 3px 8px; border-radius: 6px; background: #0f172a; color: white;">Cocina & Temporadas</span>
+                <span class="badge" style="font-size: 10px; font-weight: 800; padding: 3px 8px; border-radius: 6px; background: #f1f5f9; color: #475569; border: 1px solid #e2e8f0;">☕ Operaciones</span>
+                <span class="badge badge-complete" style="font-size: 10px; font-weight: 800; padding: 3px 8px; border-radius: 6px; background:#d1fae5; color:#065f46; border:1px solid #a7f3d0;">✓ Completado</span>
+            </div>
+            
+            <h3 class="task-title" style="font-size: 15px; font-weight: 800; color: #0f172a; margin-bottom: 12px; line-height: 1.35;">26. Predicción Estacional de Galones de Champurrado a 5 Años</h3>
+            
+            <div class="card-section" style="margin-bottom: 12px;">
+                <div class="audit-box green-box" style="font-size: 12px; line-height: 1.45; padding: 10px 12px; border-radius: 8px; background:#f0fdf4; border:1px solid #bbf7d0; color:#166534;">
+                    <strong>✓ Completado e Integrado (Agosto 2026).</strong> Modelo de proyección estacional en /api/inventory/champurrado-forecast con 5 años de historial de semanas ISO, conversión de 8 lbs/galón y sugerencia automática de galones diarios para la orden de bodega.
+                </div>
+            </div>
+        </div>
+        
+        <div class="card-section" style="margin-top: 10px; border-top: 1px dashed #e2e8f0; padding-top: 10px;">
+            <span class="card-section-title" style="font-size: 10px; font-weight: 800; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; display: block;">
+                📋 Puntos de Avance & Verificación
+            </span>
+            <div class="steps-list" style="display: flex; flex-direction: column; gap: 6px;">
+                
+        <div class="step-item" style="display: flex; align-items: flex-start; gap: 8px; font-size: 12px; line-height: 1.4; color: #334155;">
+            <span class="step-number" style="width: 18px; height: 18px; border-radius: 50%; background: #e2e8f0; font-size: 10px; font-weight: 800; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; color: #334155;">1</span>
+            <span>Extracción histórica de galones y vasos vendidos en Toast.</span>
+        </div>
+    
+
+        <div class="step-item" style="display: flex; align-items: flex-start; gap: 8px; font-size: 12px; line-height: 1.4; color: #334155;">
+            <span class="step-number" style="width: 18px; height: 18px; border-radius: 50%; background: #e2e8f0; font-size: 10px; font-weight: 800; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; color: #334155;">2</span>
+            <span>Fórmula de sugerencia con niveles de confianza (HIGH/MED/LOW) y 8 lbs/gal.</span>
+        </div>
+    
+
+        <div class="step-item" style="display: flex; align-items: flex-start; gap: 8px; font-size: 12px; line-height: 1.4; color: #334155;">
+            <span class="step-number" style="width: 18px; height: 18px; border-radius: 50%; background: #e2e8f0; font-size: 10px; font-weight: 800; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; color: #334155;">3</span>
+            <span>Integración visual informativa en la Orden Diaria de Bodega.</span>
+        </div>
+    
+            </div>
+        </div>
+    </div>
+    
+
+    <div class="task-card" style="background: white; border: 1.5px solid #e2e8f0; border-radius: 12px; padding: 18px; display: flex; flex-direction: column; justify-content: space-between; box-shadow: 0 2px 4px rgba(0,0,0,0.02);">
+        <div>
+            <div class="card-tags" style="display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap;">
+                <span class="badge badge-sys" style="font-size: 10px; font-weight: 800; padding: 3px 8px; border-radius: 6px; background: #0f172a; color: white;">Recursos Humanos / Payroll</span>
+                <span class="badge" style="font-size: 10px; font-weight: 800; padding: 3px 8px; border-radius: 6px; background: #f1f5f9; color: #475569; border: 1px solid #e2e8f0;">👥 RRHH & Nóminas</span>
+                <span class="badge badge-complete" style="font-size: 10px; font-weight: 800; padding: 3px 8px; border-radius: 6px; background:#d1fae5; color:#065f46; border:1px solid #a7f3d0;">✓ Completado</span>
+            </div>
+            
+            <h3 class="task-title" style="font-size: 15px; font-weight: 800; color: #0f172a; margin-bottom: 12px; line-height: 1.35;">27. Módulo RONOS HR, Auditoría de Nóminas Simplify & Paystubs</h3>
+            
+            <div class="card-section" style="margin-bottom: 12px;">
+                <div class="audit-box green-box" style="font-size: 12px; line-height: 1.45; padding: 10px 12px; border-radius: 8px; background:#f0fdf4; border:1px solid #bbf7d0; color:#166534;">
+                    <strong>✓ Completado e Implementado (Agosto 2026).</strong> Sistema de extracción, auditoría y cruce de nóminas Simplify vs RONOS, motor de cálculo de billing PEO para 15 empresas/sucursales, visor de paystubs y detección automática de discrepancias salariales y horas extra.
+                </div>
+            </div>
+        </div>
+        
+        <div class="card-section" style="margin-top: 10px; border-top: 1px dashed #e2e8f0; padding-top: 10px;">
+            <span class="card-section-title" style="font-size: 10px; font-weight: 800; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; display: block;">
+                📋 Puntos de Avance & Verificación
+            </span>
+            <div class="steps-list" style="display: flex; flex-direction: column; gap: 6px;">
+                
+        <div class="step-item" style="display: flex; align-items: flex-start; gap: 8px; font-size: 12px; line-height: 1.4; color: #334155;">
+            <span class="step-number" style="width: 18px; height: 18px; border-radius: 50%; background: #e2e8f0; font-size: 10px; font-weight: 800; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; color: #334155;">1</span>
+            <span>Extracción forense de nóminas y timbrados de Simplify y RONOS.</span>
+        </div>
+    
+
+        <div class="step-item" style="display: flex; align-items: flex-start; gap: 8px; font-size: 12px; line-height: 1.4; color: #334155;">
+            <span class="step-number" style="width: 18px; height: 18px; border-radius: 50%; background: #e2e8f0; font-size: 10px; font-weight: 800; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; color: #334155;">2</span>
+            <span>Motor de conciliación PEO con cálculo de cargas sociales y fees.</span>
+        </div>
+    
+
+        <div class="step-item" style="display: flex; align-items: flex-start; gap: 8px; font-size: 12px; line-height: 1.4; color: #334155;">
+            <span class="step-number" style="width: 18px; height: 18px; border-radius: 50%; background: #e2e8f0; font-size: 10px; font-weight: 800; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; color: #334155;">3</span>
+            <span>Visor interactivo de paystubs y reporte de discrepancias para gerencia.</span>
+        </div>
+    
+            </div>
+        </div>
+    </div>
+    
         </div>
 
         <!-- SECCIÓN 2: EN PROGRESO -->
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; border-bottom: 2px solid #3b82f6; padding-bottom: 8px; width: 100%;">
-            <h2 style="font-size: 17px; font-weight: 900; color: #1e40af;">⚡ En Progreso (7)</h2>
-            <span style="background: #dbeafe; color: #1e40af; border: 1px solid #bfdbfe; font-size: 12px; font-weight: 800; padding: 3px 12px; border-radius: 999px;">7 Tareas</span>
+            <h2 style="font-size: 17px; font-weight: 900; color: #1e40af;">⚡ En Progreso (9)</h2>
+            <span style="background: #dbeafe; color: #1e40af; border: 1px solid #bfdbfe; font-size: 12px; font-weight: 800; padding: 3px 12px; border-radius: 999px;">9 Tareas</span>
         </div>
         <div class="tasks-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(350px, 1fr)); gap: 16px; margin-bottom: 32px; width: 100%;">
             
@@ -3033,6 +3123,51 @@
     <div class="task-card" style="background: white; border: 1.5px solid #e2e8f0; border-radius: 12px; padding: 18px; display: flex; flex-direction: column; justify-content: space-between; box-shadow: 0 2px 4px rgba(0,0,0,0.02);">
         <div>
             <div class="card-tags" style="display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap;">
+                <span class="badge badge-sys" style="font-size: 10px; font-weight: 800; padding: 3px 8px; border-radius: 6px; background: #0f172a; color: white;">Sistemas / Systems</span>
+                <span class="badge" style="font-size: 10px; font-weight: 800; padding: 3px 8px; border-radius: 6px; background: #f1f5f9; color: #475569; border: 1px solid #e2e8f0;">💻 Sistemas</span>
+                <span class="badge badge-prog" style="font-size: 10px; font-weight: 800; padding: 3px 8px; border-radius: 6px; background:#dbeafe; color:#1e40af; border:1px solid #bfdbfe;">⚡ En Progreso</span>
+            </div>
+            
+            <h3 class="task-title" style="font-size: 15px; font-weight: 800; color: #0f172a; margin-bottom: 12px; line-height: 1.35;">9. Página Web Oficial de Tacos El Gavilán</h3>
+            
+            <div class="card-section" style="margin-bottom: 12px;">
+                <div class="audit-box yellow-box" style="font-size: 12px; line-height: 1.45; padding: 10px 12px; border-radius: 8px; background:#fffbeb; border:1px solid #fde68a; color:#92400e;">
+                    <strong>⚡ En Progreso.</strong> Portal web oficial responsivo con localización de sucursales, menú interactivo y optimización SEO.
+                </div>
+            </div>
+        </div>
+        
+        <div class="card-section" style="margin-top: 10px; border-top: 1px dashed #e2e8f0; padding-top: 10px;">
+            <span class="card-section-title" style="font-size: 10px; font-weight: 800; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; display: block;">
+                📋 Puntos de Avance & Verificación
+            </span>
+            <div class="steps-list" style="display: flex; flex-direction: column; gap: 6px;">
+                
+        <div class="step-item" style="display: flex; align-items: flex-start; gap: 8px; font-size: 12px; line-height: 1.4; color: #334155;">
+            <span class="step-number" style="width: 18px; height: 18px; border-radius: 50%; background: #e2e8f0; font-size: 10px; font-weight: 800; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; color: #334155;">1</span>
+            <span>Diseño responsivo móvil y de escritorio.</span>
+        </div>
+    
+
+        <div class="step-item" style="display: flex; align-items: flex-start; gap: 8px; font-size: 12px; line-height: 1.4; color: #334155;">
+            <span class="step-number" style="width: 18px; height: 18px; border-radius: 50%; background: #e2e8f0; font-size: 10px; font-weight: 800; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; color: #334155;">2</span>
+            <span>Integración del directorio oficial de 15 tiendas.</span>
+        </div>
+    
+
+        <div class="step-item" style="display: flex; align-items: flex-start; gap: 8px; font-size: 12px; line-height: 1.4; color: #334155;">
+            <span class="step-number" style="width: 18px; height: 18px; border-radius: 50%; background: #e2e8f0; font-size: 10px; font-weight: 800; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; color: #334155;">3</span>
+            <span>Despliegue y configuración de dominio.</span>
+        </div>
+    
+            </div>
+        </div>
+    </div>
+    
+
+    <div class="task-card" style="background: white; border: 1.5px solid #e2e8f0; border-radius: 12px; padding: 18px; display: flex; flex-direction: column; justify-content: space-between; box-shadow: 0 2px 4px rgba(0,0,0,0.02);">
+        <div>
+            <div class="card-tags" style="display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap;">
                 <span class="badge badge-sys" style="font-size: 10px; font-weight: 800; padding: 3px 8px; border-radius: 6px; background: #0f172a; color: white;">Operaciones / HR</span>
                 <span class="badge" style="font-size: 10px; font-weight: 800; padding: 3px 8px; border-radius: 6px; background: #f1f5f9; color: #475569; border: 1px solid #e2e8f0;">📝 Operaciones</span>
                 <span class="badge badge-prog" style="font-size: 10px; font-weight: 800; padding: 3px 8px; border-radius: 6px; background:#dbeafe; color:#1e40af; border:1px solid #bfdbfe;">⚡ En Progreso</span>
@@ -3068,6 +3203,51 @@
         <div class="step-item" style="display: flex; align-items: flex-start; gap: 8px; font-size: 12px; line-height: 1.4; color: #334155;">
             <span class="step-number" style="width: 18px; height: 18px; border-radius: 50%; background: #e2e8f0; font-size: 10px; font-weight: 800; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; color: #334155;">3</span>
             <span>Integración en el flujo de bienvenida de la app.</span>
+        </div>
+    
+            </div>
+        </div>
+    </div>
+    
+
+    <div class="task-card" style="background: white; border: 1.5px solid #e2e8f0; border-radius: 12px; padding: 18px; display: flex; flex-direction: column; justify-content: space-between; box-shadow: 0 2px 4px rgba(0,0,0,0.02);">
+        <div>
+            <div class="card-tags" style="display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap;">
+                <span class="badge badge-sys" style="font-size: 10px; font-weight: 800; padding: 3px 8px; border-radius: 6px; background: #0f172a; color: white;">Sistemas / Finance</span>
+                <span class="badge" style="font-size: 10px; font-weight: 800; padding: 3px 8px; border-radius: 6px; background: #f1f5f9; color: #475569; border: 1px solid #e2e8f0;">💻 Finanzas</span>
+                <span class="badge badge-prog" style="font-size: 10px; font-weight: 800; padding: 3px 8px; border-radius: 6px; background:#dbeafe; color:#1e40af; border:1px solid #bfdbfe;">⚡ En Progreso</span>
+            </div>
+            
+            <h3 class="task-title" style="font-size: 15px; font-weight: 800; color: #0f172a; margin-bottom: 12px; line-height: 1.35;">16. CLONAR Cohesion (app de contabilidad)</h3>
+            
+            <div class="card-section" style="margin-bottom: 12px;">
+                <div class="audit-box yellow-box" style="font-size: 12px; line-height: 1.45; padding: 10px 12px; border-radius: 8px; background:#fffbeb; border:1px solid #fde68a; color:#92400e;">
+                    <strong>⚡ En Progreso Avanzado (95% en Agosto 2026).</strong> Extracción forense completa de la estructura de Cohesion ($450/mes) con Puppeteer, mapeo de 17 cuentas contables (canales For Here/To Go/Uber/DoorDash/GrubHub, impuestos, efectivo y propinas), librería central lib/accounting-journal.ts y arquitectura de endpoints API.
+                </div>
+            </div>
+        </div>
+        
+        <div class="card-section" style="margin-top: 10px; border-top: 1px dashed #e2e8f0; padding-top: 10px;">
+            <span class="card-section-title" style="font-size: 10px; font-weight: 800; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; display: block;">
+                📋 Puntos de Avance & Verificación
+            </span>
+            <div class="steps-list" style="display: flex; flex-direction: column; gap: 6px;">
+                
+        <div class="step-item" style="display: flex; align-items: flex-start; gap: 8px; font-size: 12px; line-height: 1.4; color: #334155;">
+            <span class="step-number" style="width: 18px; height: 18px; border-radius: 50%; background: #e2e8f0; font-size: 10px; font-weight: 800; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; color: #334155;">1</span>
+            <span>Extracción forense de reglas contables, catálogos de cuentas y mapeos GL de Cohesion.</span>
+        </div>
+    
+
+        <div class="step-item" style="display: flex; align-items: flex-start; gap: 8px; font-size: 12px; line-height: 1.4; color: #334155;">
+            <span class="step-number" style="width: 18px; height: 18px; border-radius: 50%; background: #e2e8f0; font-size: 10px; font-weight: 800; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; color: #334155;">2</span>
+            <span>Librería central lib/accounting-journal.ts (17 cuentas, canales For Here/To Go/Uber/DoorDash/GrubHub y efectivo).</span>
+        </div>
+    
+
+        <div class="step-item" style="display: flex; align-items: flex-start; gap: 8px; font-size: 12px; line-height: 1.4; color: #334155;">
+            <span class="step-number" style="width: 18px; height: 18px; border-radius: 50%; background: #e2e8f0; font-size: 10px; font-weight: 800; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; color: #334155;">3</span>
+            <span>Endpoints de generación automática, revisión y publicación masiva a QuickBooks Online con cuadre al centavo.</span>
         </div>
     
             </div>
@@ -3304,56 +3484,11 @@
         <!-- SECCIÓN 3: PENDIENTES -->
         
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; border-bottom: 2px solid #f59e0b; padding-bottom: 8px; width: 100%;">
-            <h2 style="font-size: 17px; font-weight: 900; color: #92400e;">⏳ Pendientes (7)</h2>
-            <span style="background: #fef3c7; color: #92400e; border: 1px solid #fde68a; font-size: 12px; font-weight: 800; padding: 3px 12px; border-radius: 999px;">7 Tareas</span>
+            <h2 style="font-size: 17px; font-weight: 900; color: #92400e;">⏳ Pendientes (4)</h2>
+            <span style="background: #fef3c7; color: #92400e; border: 1px solid #fde68a; font-size: 12px; font-weight: 800; padding: 3px 12px; border-radius: 999px;">4 Tareas</span>
         </div>
         <div class="tasks-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(350px, 1fr)); gap: 16px; margin-bottom: 32px; width: 100%;">
             
-    <div class="task-card" style="background: white; border: 1.5px solid #e2e8f0; border-radius: 12px; padding: 18px; display: flex; flex-direction: column; justify-content: space-between; box-shadow: 0 2px 4px rgba(0,0,0,0.02);">
-        <div>
-            <div class="card-tags" style="display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap;">
-                <span class="badge badge-sys" style="font-size: 10px; font-weight: 800; padding: 3px 8px; border-radius: 6px; background: #0f172a; color: white;">Sistemas / Systems</span>
-                <span class="badge" style="font-size: 10px; font-weight: 800; padding: 3px 8px; border-radius: 6px; background: #f1f5f9; color: #475569; border: 1px solid #e2e8f0;">💻 Sistemas</span>
-                <span class="badge badge-pend" style="font-size: 10px; font-weight: 800; padding: 3px 8px; border-radius: 6px; background:#fef3c7; color:#92400e; border:1px solid #fde68a;">⏳ Pendiente</span>
-            </div>
-            
-            <h3 class="task-title" style="font-size: 15px; font-weight: 800; color: #0f172a; margin-bottom: 12px; line-height: 1.35;">9. Página Web Oficial de Tacos El Gavilán</h3>
-            
-            <div class="card-section" style="margin-bottom: 12px;">
-                <div class="audit-box gray-box" style="font-size: 12px; line-height: 1.45; padding: 10px 12px; border-radius: 8px; background:#f8fafc; border:1px solid #e2e8f0; color:#475569;">
-                    <strong>⚡ En Progreso.</strong> Portal web oficial responsivo con localización de sucursales, menú interactivo y optimización SEO.
-                </div>
-            </div>
-        </div>
-        
-        <div class="card-section" style="margin-top: 10px; border-top: 1px dashed #e2e8f0; padding-top: 10px;">
-            <span class="card-section-title" style="font-size: 10px; font-weight: 800; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; display: block;">
-                📋 Puntos de Avance & Verificación
-            </span>
-            <div class="steps-list" style="display: flex; flex-direction: column; gap: 6px;">
-                
-        <div class="step-item" style="display: flex; align-items: flex-start; gap: 8px; font-size: 12px; line-height: 1.4; color: #334155;">
-            <span class="step-number" style="width: 18px; height: 18px; border-radius: 50%; background: #e2e8f0; font-size: 10px; font-weight: 800; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; color: #334155;">1</span>
-            <span>Diseño responsivo móvil y de escritorio.</span>
-        </div>
-    
-
-        <div class="step-item" style="display: flex; align-items: flex-start; gap: 8px; font-size: 12px; line-height: 1.4; color: #334155;">
-            <span class="step-number" style="width: 18px; height: 18px; border-radius: 50%; background: #e2e8f0; font-size: 10px; font-weight: 800; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; color: #334155;">2</span>
-            <span>Integración del directorio oficial de 15 tiendas.</span>
-        </div>
-    
-
-        <div class="step-item" style="display: flex; align-items: flex-start; gap: 8px; font-size: 12px; line-height: 1.4; color: #334155;">
-            <span class="step-number" style="width: 18px; height: 18px; border-radius: 50%; background: #e2e8f0; font-size: 10px; font-weight: 800; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; color: #334155;">3</span>
-            <span>Despliegue y configuración de dominio.</span>
-        </div>
-    
-            </div>
-        </div>
-    </div>
-    
-
     <div class="task-card" style="background: white; border: 1.5px solid #e2e8f0; border-radius: 12px; padding: 18px; display: flex; flex-direction: column; justify-content: space-between; box-shadow: 0 2px 4px rgba(0,0,0,0.02);">
         <div>
             <div class="card-tags" style="display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap;">
@@ -3527,96 +3662,6 @@
         <div class="step-item" style="display: flex; align-items: flex-start; gap: 8px; font-size: 12px; line-height: 1.4; color: #334155;">
             <span class="step-number" style="width: 18px; height: 18px; border-radius: 50%; background: #e2e8f0; font-size: 10px; font-weight: 800; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; color: #334155;">3</span>
             <span>Certificados digitales de aprobación por empleado.</span>
-        </div>
-    
-            </div>
-        </div>
-    </div>
-    
-
-    <div class="task-card" style="background: white; border: 1.5px solid #e2e8f0; border-radius: 12px; padding: 18px; display: flex; flex-direction: column; justify-content: space-between; box-shadow: 0 2px 4px rgba(0,0,0,0.02);">
-        <div>
-            <div class="card-tags" style="display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap;">
-                <span class="badge badge-sys" style="font-size: 10px; font-weight: 800; padding: 3px 8px; border-radius: 6px; background: #0f172a; color: white;">Sistemas / Finance</span>
-                <span class="badge" style="font-size: 10px; font-weight: 800; padding: 3px 8px; border-radius: 6px; background: #f1f5f9; color: #475569; border: 1px solid #e2e8f0;">💻 Sistemas</span>
-                <span class="badge badge-pend" style="font-size: 10px; font-weight: 800; padding: 3px 8px; border-radius: 6px; background:#fef3c7; color:#92400e; border:1px solid #fde68a;">⏳ Pendiente</span>
-            </div>
-            
-            <h3 class="task-title" style="font-size: 15px; font-weight: 800; color: #0f172a; margin-bottom: 12px; line-height: 1.35;">16. CLONAR Cohesion (app de contabilidad)</h3>
-            
-            <div class="card-section" style="margin-bottom: 12px;">
-                <div class="audit-box gray-box" style="font-size: 12px; line-height: 1.45; padding: 10px 12px; border-radius: 8px; background:#f8fafc; border:1px solid #e2e8f0; color:#475569;">
-                    <strong>⏳ Pendiente.</strong> Módulo contable para conciliación automática de nóminas, depósitos bancarios y facturación.
-                </div>
-            </div>
-        </div>
-        
-        <div class="card-section" style="margin-top: 10px; border-top: 1px dashed #e2e8f0; padding-top: 10px;">
-            <span class="card-section-title" style="font-size: 10px; font-weight: 800; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; display: block;">
-                📋 Puntos de Avance & Verificación
-            </span>
-            <div class="steps-list" style="display: flex; flex-direction: column; gap: 6px;">
-                
-        <div class="step-item" style="display: flex; align-items: flex-start; gap: 8px; font-size: 12px; line-height: 1.4; color: #334155;">
-            <span class="step-number" style="width: 18px; height: 18px; border-radius: 50%; background: #e2e8f0; font-size: 10px; font-weight: 800; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; color: #334155;">1</span>
-            <span>Especificación de esquemas de datos contables y reportes.</span>
-        </div>
-    
-
-        <div class="step-item" style="display: flex; align-items: flex-start; gap: 8px; font-size: 12px; line-height: 1.4; color: #334155;">
-            <span class="step-number" style="width: 18px; height: 18px; border-radius: 50%; background: #e2e8f0; font-size: 10px; font-weight: 800; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; color: #334155;">2</span>
-            <span>Integración con extractos bancarios y API de nómina.</span>
-        </div>
-    
-
-        <div class="step-item" style="display: flex; align-items: flex-start; gap: 8px; font-size: 12px; line-height: 1.4; color: #334155;">
-            <span class="step-number" style="width: 18px; height: 18px; border-radius: 50%; background: #e2e8f0; font-size: 10px; font-weight: 800; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; color: #334155;">3</span>
-            <span>Tablero financiero de pérdidas y ganancias.</span>
-        </div>
-    
-            </div>
-        </div>
-    </div>
-    
-
-    <div class="task-card" style="background: white; border: 1.5px solid #e2e8f0; border-radius: 12px; padding: 18px; display: flex; flex-direction: column; justify-content: space-between; box-shadow: 0 2px 4px rgba(0,0,0,0.02);">
-        <div>
-            <div class="card-tags" style="display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap;">
-                <span class="badge badge-sys" style="font-size: 10px; font-weight: 800; padding: 3px 8px; border-radius: 6px; background: #0f172a; color: white;">Cocina & Temporadas</span>
-                <span class="badge" style="font-size: 10px; font-weight: 800; padding: 3px 8px; border-radius: 6px; background: #f1f5f9; color: #475569; border: 1px solid #e2e8f0;">☕ Operaciones</span>
-                <span class="badge badge-pend" style="font-size: 10px; font-weight: 800; padding: 3px 8px; border-radius: 6px; background:#fef3c7; color:#92400e; border:1px solid #fde68a;">⏳ Pendiente</span>
-            </div>
-            
-            <h3 class="task-title" style="font-size: 15px; font-weight: 800; color: #0f172a; margin-bottom: 12px; line-height: 1.35;">26. Predicción Estacional de Galones de Champurrado & Kiosko de Satisfacción</h3>
-            
-            <div class="card-section" style="margin-bottom: 12px;">
-                <div class="audit-box gray-box" style="font-size: 12px; line-height: 1.45; padding: 10px 12px; border-radius: 8px; background:#f8fafc; border:1px solid #e2e8f0; color:#475569;">
-                    <strong>⏳ Pendiente.</strong> Modelo de proyección estacional en /api/inventory/champurrado-forecast con 5 años de historial de semanas ISO y sugerencia informativa de galones diarios para la orden de bodega.
-                </div>
-            </div>
-        </div>
-        
-        <div class="card-section" style="margin-top: 10px; border-top: 1px dashed #e2e8f0; padding-top: 10px;">
-            <span class="card-section-title" style="font-size: 10px; font-weight: 800; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; display: block;">
-                📋 Puntos de Avance & Verificación
-            </span>
-            <div class="steps-list" style="display: flex; flex-direction: column; gap: 6px;">
-                
-        <div class="step-item" style="display: flex; align-items: flex-start; gap: 8px; font-size: 12px; line-height: 1.4; color: #334155;">
-            <span class="step-number" style="width: 18px; height: 18px; border-radius: 50%; background: #e2e8f0; font-size: 10px; font-weight: 800; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; color: #334155;">1</span>
-            <span>Extracción histórica de galones y vasos vendidos en Toast.</span>
-        </div>
-    
-
-        <div class="step-item" style="display: flex; align-items: flex-start; gap: 8px; font-size: 12px; line-height: 1.4; color: #334155;">
-            <span class="step-number" style="width: 18px; height: 18px; border-radius: 50%; background: #e2e8f0; font-size: 10px; font-weight: 800; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; color: #334155;">2</span>
-            <span>Fórmula de sugerencia con niveles de confianza (HIGH/MED/LOW).</span>
-        </div>
-    
-
-        <div class="step-item" style="display: flex; align-items: flex-start; gap: 8px; font-size: 12px; line-height: 1.4; color: #334155;">
-            <span class="step-number" style="width: 18px; height: 18px; border-radius: 50%; background: #e2e8f0; font-size: 10px; font-weight: 800; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; color: #334155;">3</span>
-            <span>Integración visual informativa en la Orden Diaria de Bodega.</span>
         </div>
     
             </div>

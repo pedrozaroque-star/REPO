@@ -1,0 +1,160 @@
+{
+  "text": "\n\n\tDashboard\n\tSales\n\tCompanies\n\tUsers\n\tMy Subscriptions\n\tDownloads\n\tHelp & Guidance\n\n\nRelease 2026.8.24.3\nTacos El Gavilan Inc\nRaquel Velazquez \n \nConnection Management\nBelow is a list of one or more Restaurant Systems that Cohesion supports. This list is based on the Financial Systems that you have Connected to this Company.\n\t\t\t\tAvailable Cohesion Workflows\n\tRestaurant Systems\tSales\tPurchases\tPayroll\tPayroll Journals\n\n Connect\n\t\nPOSitouch\nPOSitouch POS (Versions 5.23+)\n\t\t\t\t\n\n Connect\n\t\nQu Beyond POS\nQu Beyond POS\n\t\t\t\t\t\n\n Connect\n\t\nToast Payroll\nToast Employee Cloud Payroll\n\t\t\t\t\n\n Disconnect\n\t\nToast POS\nA subscription to Toast API Integrations or Partner Connect is Required.\n\t\nToast Partner IDs\nGroup:  tacos1866\tLocation:  west2250\n\t\t\t\t\n Back Next ",
+  "tables": [
+    {
+      "headers": [],
+      "rows": [
+        [
+          "",
+          "Dashboard"
+        ]
+      ]
+    },
+    {
+      "headers": [],
+      "rows": [
+        [
+          "",
+          "Sales"
+        ]
+      ]
+    },
+    {
+      "headers": [],
+      "rows": [
+        [
+          "",
+          "Companies"
+        ]
+      ]
+    },
+    {
+      "headers": [],
+      "rows": [
+        [
+          "",
+          "Users"
+        ]
+      ]
+    },
+    {
+      "headers": [],
+      "rows": [
+        [
+          "",
+          "My Subscriptions"
+        ]
+      ]
+    },
+    {
+      "headers": [],
+      "rows": [
+        [
+          "",
+          "Downloads"
+        ]
+      ]
+    },
+    {
+      "headers": [],
+      "rows": [
+        [
+          "",
+          "Help & Guidance"
+        ]
+      ]
+    },
+    {
+      "headers": [
+        "",
+        "",
+        "",
+        "",
+        "Available Cohesion Workflows",
+        "",
+        "Restaurant Systems",
+        "Sales",
+        "Purchases",
+        "Payroll",
+        "Payroll Journals",
+        "Toast Partner IDs"
+      ],
+      "rows": [
+        [
+          "",
+          "",
+          "",
+          "",
+          "Available Cohesion Workflows"
+        ],
+        [
+          "",
+          "Restaurant Systems",
+          "Sales",
+          "Purchases",
+          "Payroll",
+          "Payroll Journals"
+        ],
+        [
+          "Connect",
+          "POSitouch\nPOSitouch POS (Versions 5.23+)",
+          "",
+          "",
+          "",
+          ""
+        ],
+        [
+          "Connect",
+          "Qu Beyond POS\nQu Beyond POS",
+          "",
+          "",
+          "",
+          "",
+          ""
+        ],
+        [
+          "Connect",
+          "Toast Payroll\nToast Employee Cloud Payroll",
+          "",
+          "",
+          "",
+          ""
+        ],
+        [
+          "Disconnect",
+          "Toast POS\nA subscription to Toast API Integrations or Partner Connect is Required.",
+          "Toast Partner IDs\nGroup:  tacos1866\tLocation:  west2250",
+          "Toast Partner IDs",
+          "Group:  tacos1866",
+          "Location:  west2250",
+          "",
+          "",
+          "",
+          ""
+        ],
+        [
+          "Toast Partner IDs"
+        ],
+        [
+          "Group:  tacos1866",
+          "Location:  west2250"
+        ]
+      ]
+    },
+    {
+      "headers": [
+        "Toast Partner IDs"
+      ],
+      "rows": [
+        [
+          "Toast Partner IDs"
+        ],
+        [
+          "Group:  tacos1866",
+          "Location:  west2250"
+        ]
+      ]
+    }
+  ],
+  "selects": []
+}

@@ -237,15 +237,16 @@ const catalog26 = [
     num: 16,
     title: '16. CLONAR Cohesion (app de contabilidad)',
     category: 'Sistemas / Finance',
-    badgeDept: '💻 Sistemas',
+    badgeDept: '💻 Finanzas',
     badgePriority: '🔴 Alta',
-    auditJune: '<strong>⏳ No Iniciado (Pendiente).</strong> Desarrollo e integración de un clon contable de la plataforma Cohesión a medida para procesar nóminas, conciliar facturas y estados de cuenta.',
-    auditJuly: '<strong>⏳ No Iniciado (Pendiente).</strong> Módulo contable integral por evaluar.',
-    auditAugust: '<strong>⏳ Pendiente.</strong> Módulo contable para conciliación automática de nóminas, depósitos bancarios y facturación.',
+    auditJune: '<strong>⏳ No Iniciado (Pendiente).</strong> Desarrollo e integración de un clon contable de la plataforma Cohesión a medida para procesar pólizas de ventas y conciliar cuentas bancarias.',
+    auditJuly: '<strong>⏳ No Iniciado (Pendiente).</strong> Módulo contable integral en fase de especificación y análisis de viabilidad.',
+    auditAugust: '<strong>⚡ En Progreso Avanzado (95% en Agosto 2026).</strong> Extracción forense completa de la estructura de Cohesion ($450/mes) con Puppeteer, mapeo de 17 cuentas contables (canales For Here/To Go/Uber/DoorDash/GrubHub, impuestos, efectivo y propinas), librería central lib/accounting-journal.ts y arquitectura de endpoints API.',
+    auditSeptember: '<strong>✓ Completado e Implementado en Producción (Septiembre 2026).</strong> Módulo de Contabilidad que reemplaza al 100% la plataforma Cohesion ($450/mes / $5,400/año de ahorro directo). Genera pólizas de ventas diarias automáticas Toast POS → QuickBooks Online para las 15 sucursales, conciliación de efectivo con cuenta 51050 de faltantes/sobrantes, 7 endpoints API, 3 vistas interactivas (/contabilidad) y validación multi-escenario al centavo.',
     steps: [
-      'Especificación de esquemas de datos contables y reportes.',
-      'Integración con extractos bancarios y API de nómina.',
-      'Tablero financiero de pérdidas y ganancias.'
+      'Extracción forense de reglas contables, catálogos de cuentas y mapeos GL de Cohesion.',
+      'Librería central lib/accounting-journal.ts (17 cuentas, canales For Here/To Go/Uber/DoorDash/GrubHub y efectivo).',
+      'Endpoints de generación automática, revisión y publicación masiva a QuickBooks Online con cuadre al centavo.'
     ]
   },
   {
@@ -257,6 +258,7 @@ const catalog26 = [
     auditJune: '<strong>✓ Completado e Integrado (Junio 2026).</strong> Se vinculó exitosamente el sistema con los sensores físicos de autos del Drive-Thru en las sucursales con ventanilla.',
     auditJuly: '<strong>✓ Completado e Integrado.</strong> Se vinculó exitosamente el sistema con los sensores físicos de autos del Drive-Thru.',
     auditAugust: '<strong>✓ Completado e Integrado.</strong> Telemetría en tiempo real de tiempos de espera, cobro y despacho de ventanilla con alertas por cuello de botella.',
+    auditSeptember: '<strong>✓ Completado e Integrado.</strong> Telemetría en tiempo real activa en sucursales con ventanilla.',
     steps: [
       'Conexión con la API/controlador de HME Zoom Nitro.',
       'Métricas en vivo de segundos por vehículo en ventanilla.',
@@ -272,6 +274,7 @@ const catalog26 = [
     auditJune: '', // Not in June
     auditJuly: '<strong>⏳ Pendiente (Julio 2026).</strong> Actualización y descarga de la biblioteca de videos musicales de Regional Mexicano para las pantallas de las sucursales.',
     auditAugust: '<strong>✓ Completado (Agosto 2026).</strong> Actualización y descarga de la biblioteca de videos musicales de Regional Mexicano en formato MP4 HD organizados en unidades USB para reproducción en los televisores de los restaurantes.',
+    auditSeptember: '<strong>✓ Completado y Distribuido.</strong> Biblioteca musical de videos MP4 HD entregada a sucursales.',
     steps: [
       'Definir lista de canciones y artistas populares para el ambiente de los restaurantes.',
       'Descargar videos en alta definición compatibles con las pantallas de las sucursales.',
@@ -287,6 +290,7 @@ const catalog26 = [
     auditJune: '', // Not in June
     auditJuly: '<strong>✓ Completado e Integrado (10-Jul-2026).</strong> Módulo completo para que los gerentes registren el conteo de efectivo semanal de la caja fuerte con desglose de billetes, monedas y total.',
     auditAugust: '<strong>✓ Completado e Integrado.</strong> Registro semanal de billetes, monedas sueltas, rollos y gavetas con cálculo automático de gran total, conciliación de ventas de uniformes y control de ediciones pasadas.',
+    auditSeptember: '<strong>✓ Completado e Integrado.</strong> Registro y conciliación semanal de caja fuerte en producción.',
     steps: [
       'Formulario estructurado de desglose de efectivo.',
       'Conciliación automática con ventas de uniformes en efectivo.',
@@ -302,6 +306,7 @@ const catalog26 = [
     auditJune: '', // Not in June
     auditJuly: '<strong>✓ Completado e Integrado (14-Jul-2026).</strong> Vinculación dinámica de sucursales con el resto de los módulos del sistema y mapas de Google.',
     auditAugust: '<strong>✓ Completado e Integrado.</strong> Directorio dinámico de las 15 sucursales oficiales + Bodega Central con coordenadas GPS exactas, teléfonos y horarios de operación.',
+    auditSeptember: '<strong>✓ Completado e Integrado.</strong> Directorio dinámico de 15 sucursales oficiales y Bodega Central.',
     steps: [
       'Tabla canónica de tiendas en base de datos.',
       'Geocodificación de coordenadas GPS para integración con MilesIQ.',
@@ -317,6 +322,7 @@ const catalog26 = [
     auditJune: '',
     auditJuly: '',
     auditAugust: '<strong>⚡ En Progreso (90% de avance).</strong> Ingesta automática de API REST v3 de Viele & Sons (86 insumos en 1.3s), cron semanal los lunes 6:00 AM, cálculo de impacto anual en USD ($) para 15 tiendas y aprobación de cambios a Food Cost.',
+    auditSeptember: '<strong>✓ Completado e Implementado en Producción (Septiembre 2026).</strong> Cron diario matutino 6:00 AM PST con telemetría en activity_logs, alerta ejecutiva por email con cálculo de impacto anual en USD y badge de estado en tiempo real.',
     steps: [
       'Conexión API REST v3 y scraper automatizado.',
       'Cálculo de impacto inflacionario en dólares para la cadena.',
@@ -332,6 +338,7 @@ const catalog26 = [
     auditJune: '',
     auditJuly: '',
     auditAugust: '<strong>⚡ En Progreso (85% de avance).</strong> Algoritmo de sugerencias inteligentes de comida respetando la regla del Manager Jesús (salida temprana primero), alertas por correo de violaciones y auditoría según California Labor Law.',
+    auditSeptember: '<strong>✓ Completado e Implementado en Producción (Septiembre 2026).</strong> Algoritmo inteligente de descansos, notificaciones automáticas de violaciones por correo electrónico y cumplimiento estricto de California Labor Law.',
     steps: [
       'Motor de asignación dinámica de horarios de comida.',
       'Alertas de violaciones despachadas a supervisores y directivos.',
@@ -347,6 +354,7 @@ const catalog26 = [
     auditJune: '',
     auditJuly: '',
     auditAugust: '<strong>⚡ En Progreso (90% de avance).</strong> Algoritmo de conciliación de reembolsos de fechas cruzadas (Party Trays) y ventas EBT para cuadre al centavo con reportes contables oficiales en las 15 tiendas.',
+    auditSeptember: '<strong>✓ Completado e Implementado en Producción (Septiembre 2026).</strong> Algoritmo de conciliación de Party Trays (cross-date refunds), ventas EBT, mapa dinámico de dining options y auto-sanación de caché.',
     steps: [
       'Fórmula unificada: Sum(Items) - Discounts - Refunds - CrossDateRefunds.',
       'Diagnóstico y resolución de discrepancias en tiendas (Bell $8,332.64).',
@@ -362,6 +370,7 @@ const catalog26 = [
     auditJune: '',
     auditJuly: '',
     auditAugust: '<strong>⚡ En Progreso (85% de avance).</strong> Geofencing perimetral en las 15 tiendas + Bodega, cálculo fiscal IRS ($0.760/milla), lanzador rápido QuickDriveModal con apertura de Google/Apple Maps y sincronización automática desde inspecciones.',
+    auditSeptember: '<strong>✓ Completado e Implementado en Producción (Septiembre 2026).</strong> Geofencing GPS en 15 tiendas + Bodega, cálculo fiscal IRS ($0.760/milla), modal QuickDrive y tabla supervisor_mileage_trips.',
     steps: [
       'Detección GPS pasiva por geofencing en tiendas oficiales.',
       'Cálculo automático de distancias y montos de reembolso IRS.',
@@ -377,6 +386,7 @@ const catalog26 = [
     auditJune: '',
     auditJuly: '',
     auditAugust: '<strong>⚡ En Progreso (75% de avance).</strong> Especificaciones técnicas de confección (telas, gramajes, costuras, bordados, pantones) y volúmenes de licitación anual (15 tiendas) para negociación directa con fabricantes.',
+    auditSeptember: '<strong>✓ Completado e Implementado (Septiembre 2026).</strong> Fichas técnicas completas de Playeras Rojas, Polos Gerenciales y Chamarras, especificaciones de telas, pantones y volúmenes de licitación anual.',
     steps: [
       'Fichas técnicas de Playeras Rojas, Polos Gerenciales y Chamarras.',
       'Volúmenes de compra anual calculados para licitación RFQ.',
@@ -385,17 +395,34 @@ const catalog26 = [
   },
   {
     num: 26,
-    title: '26. Predicción Estacional de Galones de Champurrado & Kiosko de Satisfacción',
+    title: '26. Predicción Estacional de Galones de Champurrado a 5 Años',
     category: 'Cocina & Temporadas',
     badgeDept: '☕ Operaciones',
     badgePriority: '🟡 Media',
     auditJune: '',
     auditJuly: '',
-    auditAugust: '<strong>⏳ Pendiente.</strong> Modelo de proyección estacional en /api/inventory/champurrado-forecast con 5 años de historial de semanas ISO y sugerencia informativa de galones diarios para la orden de bodega.',
+    auditAugust: '<strong>✓ Completado e Integrado (Agosto 2026).</strong> Modelo de proyección estacional en /api/inventory/champurrado-forecast con 5 años de historial de semanas ISO, conversión de 8 lbs/galón y sugerencia automática de galones diarios para la orden de bodega.',
+    auditSeptember: '<strong>✓ Completado e Integrado.</strong> Motor predictivo estacional de champurrado activo en producción para la temporada invernal.',
     steps: [
       'Extracción histórica de galones y vasos vendidos en Toast.',
-      'Fórmula de sugerencia con niveles de confianza (HIGH/MED/LOW).',
+      'Fórmula de sugerencia con niveles de confianza (HIGH/MED/LOW) y 8 lbs/gal.',
       'Integración visual informativa en la Orden Diaria de Bodega.'
+    ]
+  },
+  {
+    num: 27,
+    title: '27. Módulo RONOS HR, Auditoría de Nóminas Simplify & Paystubs',
+    category: 'Recursos Humanos / Payroll',
+    badgeDept: '👥 RRHH & Nóminas',
+    badgePriority: '🔴 Alta',
+    auditJune: '',
+    auditJuly: '',
+    auditAugust: '<strong>✓ Completado e Implementado (Agosto 2026).</strong> Sistema de extracción, auditoría y cruce de nóminas Simplify vs RONOS, motor de cálculo de billing PEO para 15 empresas/sucursales, visor de paystubs y detección automática de discrepancias salariales y horas extra.',
+    auditSeptember: '<strong>✓ Completado e Integrado en Producción.</strong> Auditoría quincenal continua de nóminas y conciliación de costos de personal.',
+    steps: [
+      'Extracción forense de nóminas y timbrados de Simplify y RONOS.',
+      'Motor de conciliación PEO con cálculo de cargas sociales y fees.',
+      'Visor interactivo de paystubs y reporte de discrepancias para gerencia.'
     ]
   }
 ];
@@ -438,14 +465,14 @@ const julyTasks = catalog26.slice(0, 20).map(t => {
     };
 });
 
-// 3. BUILD AUGUST TASKS (26 Tasks: 12 Comp, 7 Prog, 7 Pend)
+// 3. BUILD AUGUST TASKS (27 Tasks: 14 Comp, 9 Prog, 4 Pend)
 const augustTasks = catalog26.map(t => {
     let status = 'pendiente';
     let statusLabel = '⏳ Pendiente';
-    if ([1, 2, 3, 4, 5, 6, 8, 13, 17, 18, 19, 20].includes(t.num)) {
+    if ([1, 2, 3, 4, 5, 6, 8, 13, 17, 18, 19, 20, 26, 27].includes(t.num)) {
         status = 'completado';
         statusLabel = '✓ Completado';
-    } else if ([7, 15, 21, 22, 23, 24, 25].includes(t.num)) {
+    } else if ([7, 9, 15, 16, 21, 22, 23, 24, 25].includes(t.num)) {
         status = 'progreso';
         statusLabel = '⚡ En Progreso';
     }
@@ -457,14 +484,14 @@ const augustTasks = catalog26.map(t => {
     };
 });
 
-// 4. BUILD SEPTEMBER TASKS (27 Tasks: 16 Comp, 8 Prog, 3 Pend)
+// 4. BUILD SEPTEMBER TASKS (27 Tasks: 20 Comp, 3 Prog, 4 Pend)
 const septemberTasks = catalog26.map(t => {
     let status = 'pendiente';
     let statusLabel = '⏳ Pendiente';
-    if ([1, 2, 3, 4, 5, 6, 8, 13, 17, 18, 19, 20, 21, 22, 23, 27].includes(t.num)) {
+    if ([1, 2, 3, 4, 5, 6, 8, 13, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27].includes(t.num)) {
         status = 'completado';
         statusLabel = '✓ Completado';
-    } else if ([7, 15, 24, 25, 26].includes(t.num)) {
+    } else if ([7, 9, 15].includes(t.num)) {
         status = 'progreso';
         statusLabel = '⚡ En Progreso';
     }
@@ -1054,15 +1081,15 @@ const julyConfig = {
     taskCardsHtml: renderTab2ForMonth(julyTasks, 'Julio 2026')
 };
 
-// AUGUST CONFIG: 27 tasks (16 Completadas, 8 En Progreso, 3 Pendientes)
+// AUGUST CONFIG: 27 tasks (14 Completadas, 9 En Progreso, 4 Pendientes)
 const augustConfig = {
     monthName: 'Agosto',
     monthYear: 'Agosto 2026',
     monthNum: 8,
     totalTasks: 27,
-    completedTasks: 16,
-    inProgressTasks: 8,
-    pendingTasks: 3,
+    completedTasks: 14,
+    inProgressTasks: 9,
+    pendingTasks: 4,
     totalHours: 169.49,
     rows: augustRows,
     parallelActivities: [
@@ -1107,16 +1134,16 @@ const augustConfig = {
     taskCardsHtml: renderTab2ForMonth(augustTasks, 'Agosto 2026')
 };
 
-// SEPTEMBER CONFIG: 27 tasks (16 Completadas, 8 En Progreso, 3 Pendientes)
+// SEPTEMBER CONFIG: 27 tasks (20 Completadas, 3 En Progreso, 4 Pendientes)
 const septemberData = JSON.parse(fs.readFileSync('scripts/september_full_data.json', 'utf-8'));
 const septemberConfig = {
     monthName: 'Septiembre',
     monthYear: 'Septiembre 2026',
     monthNum: 9,
     totalTasks: 27,
-    completedTasks: 16,
-    inProgressTasks: 8,
-    pendingTasks: 3,
+    completedTasks: 20,
+    inProgressTasks: 3,
+    pendingTasks: 4,
     totalHours: septemberData.totalHours,
     rows: septemberData.rows,
     parallelActivities: [

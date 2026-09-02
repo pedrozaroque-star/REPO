@@ -1,0 +1,246 @@
+{
+  "text": "\n\n\tDashboard\n\tSales\n\tCompanies\n\tUsers\n\tMy Subscriptions\n\tDownloads\n\tHelp & Guidance\n\n\nRelease 2026.8.24.3\nTacos El Gavilan Inc\nRaquel Velazquez \n \nConnection Management\nNow set up connections to all the Financial Systems that you use in your Company.\n\t\t\t\tWorkflows Supported\n\tFinancial/Payroll Systems\tSales\tPurchases\tInv Trans\tPayroll\n\n Connect\n\t\nADP Workforce Now\nADP Workforce Now Payroll (File Import)\n\t\t\t\t\n\n Connect\n\t\nAvanti Payroll\nAvanti Payroll Services (File Import)\n\t\t\t\t\n\n Connect\n\t\nCeridian Dayforce Payroll\nCeridian Dayforce Payroll Services\n\t\t\t\t\n\n Connect\n\t\nCeridian Dayforce T&A\nCeridian Dayforce Time & Attendance Services\n\t\t\t\t\n\n Connect\n\t\nHeartland PlusOne Payroll\nHeartland PlusOne Payroll Services (File Import)\n\t\t\t\t\n\n Connect\n\t\nMicrosoft Dynamics NAV\nMicrosoft Dynamics NAV ERP (File Import)\n\t\t\t\t\n\n Connect\n\t\nNETCHEX Payroll\nNETCHEX Payroll Services (File Import)\n\t\t\t\t\n\n Connect\n\t\nPAYCHEX Flex Payroll\nPAYCHEX Flex Payroll Services (File Import)\n\t\t\t\t\n\n Connect\n\t\nPaycom Payroll Services\nPaycom Pay (File Import)\n\t\t\t\t\n\n Connect\n\t\nPaycor Payroll\nPaycor Payroll Services (File Import)\n\t\t\t\t\n\n Connect\n\t\nPaylocity Payroll\nPaylocity Payroll Services (File Import)\n\t\t\t\t\n\n Connect\n\t\nQuickBooks Desktop (Pro, Premier, Enterprise)\nSupported Versions (2015+)\n\t\t\t\t\n\n Disconnect\n\t\nQuickBooks Online - Tacos El Gavilan LLC\nSupported Editions (Simple Start, Essentials & Plus)\n\t\nChange Company\n\t\t\t\t\n\n Connect\n\t\nSage 300 C&RE ERP\nSage 300 Construction & Real Estate ERP (Timberline)\n\t\t\t\t\n\n Connect\n\t\nSage 300 ERP\nSage 300 ERP (Accpac)\n\t\t\t\t\n\n Connect\n\t\nSage Intacct ERP\nSage Intacct ERP with support for Core Financials (API)\n\t\t\t\t\n\n Connect\n\t\nStampli\nStampli Procure-to-Pay Platform\n\t\t\t\t\n\n Connect\n\t\nTriNet Payroll Services\nTriNet Payroll Services\n\t\t\t\t\n Back Next ",
+  "tables": [
+    {
+      "headers": [],
+      "rows": [
+        [
+          "",
+          "Dashboard"
+        ]
+      ]
+    },
+    {
+      "headers": [],
+      "rows": [
+        [
+          "",
+          "Sales"
+        ]
+      ]
+    },
+    {
+      "headers": [],
+      "rows": [
+        [
+          "",
+          "Companies"
+        ]
+      ]
+    },
+    {
+      "headers": [],
+      "rows": [
+        [
+          "",
+          "Users"
+        ]
+      ]
+    },
+    {
+      "headers": [],
+      "rows": [
+        [
+          "",
+          "My Subscriptions"
+        ]
+      ]
+    },
+    {
+      "headers": [],
+      "rows": [
+        [
+          "",
+          "Downloads"
+        ]
+      ]
+    },
+    {
+      "headers": [],
+      "rows": [
+        [
+          "",
+          "Help & Guidance"
+        ]
+      ]
+    },
+    {
+      "headers": [
+        "",
+        "",
+        "",
+        "",
+        "Workflows Supported",
+        "",
+        "Financial/Payroll Systems",
+        "Sales",
+        "Purchases",
+        "Inv Trans",
+        "Payroll"
+      ],
+      "rows": [
+        [
+          "",
+          "",
+          "",
+          "",
+          "Workflows Supported"
+        ],
+        [
+          "",
+          "Financial/Payroll Systems",
+          "Sales",
+          "Purchases",
+          "Inv Trans",
+          "Payroll"
+        ],
+        [
+          "Connect",
+          "ADP Workforce Now\nADP Workforce Now Payroll (File Import)",
+          "",
+          "",
+          "",
+          ""
+        ],
+        [
+          "Connect",
+          "Avanti Payroll\nAvanti Payroll Services (File Import)",
+          "",
+          "",
+          "",
+          ""
+        ],
+        [
+          "Connect",
+          "Ceridian Dayforce Payroll\nCeridian Dayforce Payroll Services",
+          "",
+          "",
+          "",
+          ""
+        ],
+        [
+          "Connect",
+          "Ceridian Dayforce T&A\nCeridian Dayforce Time & Attendance Services",
+          "",
+          "",
+          "",
+          ""
+        ],
+        [
+          "Connect",
+          "Heartland PlusOne Payroll\nHeartland PlusOne Payroll Services (File Import)",
+          "",
+          "",
+          "",
+          ""
+        ],
+        [
+          "Connect",
+          "Microsoft Dynamics NAV\nMicrosoft Dynamics NAV ERP (File Import)",
+          "",
+          "",
+          "",
+          ""
+        ],
+        [
+          "Connect",
+          "NETCHEX Payroll\nNETCHEX Payroll Services (File Import)",
+          "",
+          "",
+          "",
+          ""
+        ],
+        [
+          "Connect",
+          "PAYCHEX Flex Payroll\nPAYCHEX Flex Payroll Services (File Import)",
+          "",
+          "",
+          "",
+          ""
+        ],
+        [
+          "Connect",
+          "Paycom Payroll Services\nPaycom Pay (File Import)",
+          "",
+          "",
+          "",
+          ""
+        ],
+        [
+          "Connect",
+          "Paycor Payroll\nPaycor Payroll Services (File Import)",
+          "",
+          "",
+          "",
+          ""
+        ],
+        [
+          "Connect",
+          "Paylocity Payroll\nPaylocity Payroll Services (File Import)",
+          "",
+          "",
+          "",
+          ""
+        ],
+        [
+          "Connect",
+          "QuickBooks Desktop (Pro, Premier, Enterprise)\nSupported Versions (2015+)",
+          "",
+          "",
+          "",
+          ""
+        ],
+        [
+          "Disconnect",
+          "QuickBooks Online - Tacos El Gavilan LLC\nSupported Editions (Simple Start, Essentials & Plus)",
+          "Change Company",
+          "",
+          "",
+          "",
+          ""
+        ],
+        [
+          "Connect",
+          "Sage 300 C&RE ERP\nSage 300 Construction & Real Estate ERP (Timberline)",
+          "",
+          "",
+          "",
+          ""
+        ],
+        [
+          "Connect",
+          "Sage 300 ERP\nSage 300 ERP (Accpac)",
+          "",
+          "",
+          "",
+          ""
+        ],
+        [
+          "Connect",
+          "Sage Intacct ERP\nSage Intacct ERP with support for Core Financials (API)",
+          "",
+          "",
+          "",
+          ""
+        ],
+        [
+          "Connect",
+          "Stampli\nStampli Procure-to-Pay Platform",
+          "",
+          "",
+          "",
+          ""
+        ],
+        [
+          "Connect",
+          "TriNet Payroll Services\nTriNet Payroll Services",
+          "",
+          "",
+          "",
+          ""
+        ]
+      ]
+    }
+  ],
+  "selects": []
+}

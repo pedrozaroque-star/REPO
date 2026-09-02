@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Propuesta y Validación — Módulo de Contabilidad | Tacos Gavilan</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @media print {
+      body { background: white !important; color: black !important; }
+      .no-print { display: none !important; }
+      .page-break { page-break-before: always; }
+      .card-box { border: 1px solid #ddd !important; background: #fff !important; color: #000 !important; }
+    }
+  </style>
+</head>
+<body class="bg-zinc-950 text-zinc-100 font-sans p-6 md:p-12 min-h-screen">
+  <div class="max-w-5xl mx-auto space-y-8">
+
+    <!-- Header / Membrete -->
+    <div class="border-b border-zinc-800 pb-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+      <div>
+        <div class="flex items-center gap-3">
+          <span class="bg-amber-500 text-zinc-950 font-black px-3 py-1 rounded text-sm tracking-wider">TACOS GAVILAN</span>
+          <span class="text-xs text-zinc-400 font-mono">CONFIDENCIAL / CONTABILIDAD</span>
+        </div>
+        <h1 class="text-2xl md:text-3xl font-bold mt-2 text-white">Reporte de Validación: Módulo de Contabilidad Nativo</h1>
+        <p class="text-zinc-400 text-sm mt-1">Automatización de Pólizas Diarias de Ventas Toast POS → QuickBooks Online</p>
+      </div>
+      <div class="text-left md:text-right text-xs text-zinc-400 font-mono space-y-1 bg-zinc-900/80 p-4 rounded-lg border border-zinc-800">
+        <p><strong class="text-zinc-200">Fecha:</strong> 1 de Septiembre de 2026</p>
+        <p><strong class="text-zinc-200">Para:</strong> Raquel Velázquez (Contabilidad)</p>
+        <p><strong class="text-zinc-200">De:</strong> Carlos Roque / Equipo de Operaciones</p>
+        <p><strong class="text-emerald-400">Ahorro Anual:</strong> $5,400 USD / año</p>
+      </div>
+    </div>
+
+    <!-- Resumen Ejecutivo Card -->
+    <div class="bg-zinc-900 border border-zinc-800 rounded-xl p-6 shadow-xl card-box">
+      <h2 class="text-lg font-bold text-amber-400 mb-3 flex items-center gap-2">
+        <span>📌</span> Resumen Ejecutivo para Raquel
+      </h2>
+      <p class="text-zinc-300 leading-relaxed text-sm">
+        Hemos desarrollado dentro de la aplicación de <strong>Tacos Gavilan</strong> un módulo que realiza <strong>exactamente las mismas funciones que Cohesion</strong>, pero de forma 100% nativa, más rápida y sin costo mensual. Este módulo lee las ventas de Toast POS, calcula los impuestos y retenciones de aplicaciones de delivery (Uber, DoorDash, GrubHub), concilia el efectivo y las tarjetas, y genera la <strong>Póliza de Diario (Journal Entry)</strong> balanceada al centavo para publicarla a QuickBooks Online con un solo clic.
+      </p>
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-4 pt-4 border-t border-zinc-800">
+        <div class="bg-zinc-950/60 p-3 rounded-lg border border-zinc-800/80">
+          <p class="text-xs text-zinc-400">Ahorro Mensual</p>
+          <p class="text-xl font-bold text-emerald-400 mt-1">$450.00 USD</p>
+          <p class="text-[11px] text-zinc-500">Eliminación de suscripción externa</p>
+        </div>
+        <div class="bg-zinc-950/60 p-3 rounded-lg border border-zinc-800/80">
+          <p class="text-xs text-zinc-400">Hora de Disponibilidad</p>
+          <p class="text-xl font-bold text-blue-400 mt-1">7:30 AM PST</p>
+          <p class="text-[11px] text-zinc-500">Listo antes de iniciar el día laboral</p>
+        </div>
+        <div class="bg-zinc-950/60 p-3 rounded-lg border border-zinc-800/80">
+          <p class="text-xs text-zinc-400">Catálogo Contable</p>
+          <p class="text-xl font-bold text-purple-400 mt-1">100% Idéntico</p>
+          <p class="text-[11px] text-zinc-500">Sin cambios en QuickBooks</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Flujo de Trabajo -->
+    <div class="bg-zinc-900 border border-zinc-800 rounded-xl p-6 card-box">
+      <h2 class="text-lg font-bold text-white mb-4 flex items-center gap-2">
+        <span>🔄</span> ¿Cómo es el flujo de trabajo para Raquel en el nuevo módulo?
+      </h2>
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-4 text-sm">
+        <div class="bg-zinc-950/50 p-4 rounded-lg border border-zinc-800 relative">
+          <div class="w-6 h-6 rounded-full bg-amber-500 text-zinc-950 font-bold flex items-center justify-center text-xs mb-2">1</div>
+          <h3 class="font-semibold text-zinc-200">Auto-Generación</h3>
+          <p class="text-zinc-400 text-xs mt-1">Cada mañana a las 7:30 AM se compilan automáticamente las 15 tiendas con ventas de Toast POS.</p>
+        </div>
+        <div class="bg-zinc-950/50 p-4 rounded-lg border border-zinc-800 relative">
+          <div class="w-6 h-6 rounded-full bg-blue-500 text-white font-bold flex items-center justify-center text-xs mb-2">2</div>
+          <h3 class="font-semibold text-zinc-200">Revisión Semanal</h3>
+          <p class="text-zinc-400 text-xs mt-1">Raquel entra a <code class="text-amber-400">/contabilidad</code> y ve un calendario semanal con badges de colores (Listo, Revisado, etc.).</p>
+        </div>
+        <div class="bg-zinc-950/50 p-4 rounded-lg border border-zinc-800 relative">
+          <div class="w-6 h-6 rounded-full bg-purple-500 text-white font-bold flex items-center justify-center text-xs mb-2">3</div>
+          <h3 class="font-semibold text-zinc-200">Ajuste de Depósito</h3>
+          <p class="text-zinc-400 text-xs mt-1">Si el depósito bancario real difiere, Raquel edita el monto y el sistema asigna la diferencia a Cash Over/Short (51050).</p>
+        </div>
+        <div class="bg-zinc-950/50 p-4 rounded-lg border border-zinc-800 relative">
+          <div class="w-6 h-6 rounded-full bg-emerald-500 text-zinc-950 font-bold flex items-center justify-center text-xs mb-2">4</div>
+          <h3 class="font-semibold text-zinc-200">Publicar a QBO</h3>
+          <p class="text-zinc-400 text-xs mt-1">Un solo clic para publicar una tienda o el botón masivo "Publicar Todo el Día" para las 15 tiendas.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Estructura Contable -->
+    <div class="bg-zinc-900 border border-zinc-800 rounded-xl p-6 card-box">
+      <h2 class="text-lg font-bold text-white mb-3 flex items-center gap-2">
+        <span>📑</span> Estructura de la Póliza de Diario (17 Cuentas Contables)
+      </h2>
+      <p class="text-zinc-400 text-xs mb-4">Ejemplo real basado en la póliza publicada de <strong>Azusa</strong> (Total Balanceado: <strong>$8,976.01</strong>):</p>
+      
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <!-- Créditos -->
+        <div class="space-y-2">
+          <h3 class="text-xs font-bold uppercase tracking-wider text-emerald-400 border-b border-zinc-800 pb-2 flex justify-between">
+            <span>🟢 CRÉDITOS (Ventas e Impuestos)</span>
+            <span>$8,976.01</span>
+          </h3>
+          <table class="w-full text-xs">
+            <tbody class="divide-y divide-zinc-800/60 font-mono">
+              <tr><td class="py-1.5 text-zinc-400">40050</td><td class="text-zinc-300">For Here (Comedor)</td><td class="text-right text-emerald-400 font-bold">$3,440.65</td></tr>
+              <tr><td class="py-1.5 text-zinc-400">40050</td><td class="text-zinc-300">To Go (Para Llevar)</td><td class="text-right text-emerald-400 font-bold">$3,186.29</td></tr>
+              <tr><td class="py-1.5 text-zinc-400">40060</td><td class="text-zinc-300">Uber Eats - Delivery</td><td class="text-right text-emerald-400 font-bold">$534.72</td></tr>
+              <tr><td class="py-1.5 text-zinc-400">40060</td><td class="text-zinc-300">Uber Eats - Takeout</td><td class="text-right text-emerald-400 font-bold">$31.73</td></tr>
+              <tr><td class="py-1.5 text-zinc-400">40062</td><td class="text-zinc-300">DoorDash - Takeout</td><td class="text-right text-emerald-400 font-bold">$273.20</td></tr>
+              <tr><td class="py-1.5 text-zinc-400">40062</td><td class="text-zinc-300">DoorDash - Delivery</td><td class="text-right text-emerald-400 font-bold">$637.43</td></tr>
+              <tr><td class="py-1.5 text-zinc-400">40063</td><td class="text-zinc-300">GrubHub Delivery</td><td class="text-right text-emerald-400 font-bold">$21.93</td></tr>
+              <tr><td class="py-1.5 text-zinc-400">12050</td><td class="text-zinc-300">Tax Paid by Uber Eats</td><td class="text-right text-emerald-400 font-bold">$52.31</td></tr>
+              <tr><td class="py-1.5 text-zinc-400">24001</td><td class="text-zinc-300">Sales Tax (Impuesto Ciudad)</td><td class="text-right text-emerald-400 font-bold">$704.42</td></tr>
+              <tr><td class="py-1.5 text-zinc-400">24001</td><td class="text-zinc-300">Marketplace Facilitator Taxes</td><td class="text-right text-emerald-400 font-bold">$93.33</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Débitos -->
+        <div class="space-y-2">
+          <h3 class="text-xs font-bold uppercase tracking-wider text-blue-400 border-b border-zinc-800 pb-2 flex justify-between">
+            <span>🔵 DÉBITOS (Bancos, CxC y Gastos)</span>
+            <span>$8,976.01</span>
+          </h3>
+          <table class="w-full text-xs">
+            <tbody class="divide-y divide-zinc-800/60 font-mono">
+              <tr><td class="py-1.5 text-zinc-400">10000</td><td class="text-zinc-300">EBT (Banco Azusa)</td><td class="text-right text-blue-400 font-bold">$78.88</td></tr>
+              <tr><td class="py-1.5 text-zinc-400">12050</td><td class="text-zinc-300">Uber Eats (Cuenta por Cobrar)</td><td class="text-right text-blue-400 font-bold">$618.76</td></tr>
+              <tr><td class="py-1.5 text-zinc-400">12053</td><td class="text-zinc-300">DoorDash (Cuenta por Cobrar)</td><td class="text-right text-blue-400 font-bold">$1,003.96</td></tr>
+              <tr><td class="py-1.5 text-zinc-400">12054</td><td class="text-zinc-300">GrubHub (Cuenta por Cobrar)</td><td class="text-right text-blue-400 font-bold">$24.29</td></tr>
+              <tr><td class="py-1.5 text-zinc-400">10000</td><td class="text-zinc-300">Depósito Tarjetas (Neto Banco)</td><td class="text-right text-blue-400 font-bold">$4,931.99</td></tr>
+              <tr><td class="py-1.5 text-zinc-400">51030</td><td class="text-zinc-300">Comisiones Tarjetas (Merchant Fee)</td><td class="text-right text-blue-400 font-bold">$92.18</td></tr>
+              <tr><td class="py-1.5 text-zinc-400">13200</td><td class="text-zinc-300">Depósito Efectivo a Banco</td><td class="text-right text-blue-400 font-bold">$2,225.95</td></tr>
+              <tr><td class="py-1.5 text-zinc-400">51050</td><td class="text-zinc-300">Cash Over/(Short) (Ajuste)</td><td class="text-right text-zinc-500 font-bold">$0.00</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      
+      <div class="mt-4 p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-lg flex justify-between items-center text-xs text-emerald-400 font-medium">
+        <span>Balance Contable (Total Débitos − Total Créditos):</span>
+        <span class="font-bold text-sm font-mono">$0.00 ✓ (Cuadre Matemático Exacto)</span>
+      </div>
+    </div>
+
+    <!-- Resultados de la Simulación en Vivo -->
+    <div class="bg-zinc-900 border border-zinc-800 rounded-xl p-6 card-box">
+      <h2 class="text-lg font-bold text-white mb-3 flex items-center gap-2">
+        <span>🧪</span> Resultados de las Simulaciones de Prueba en Tiempo Real
+      </h2>
+      <div class="overflow-x-auto">
+        <table class="w-full text-xs text-left">
+          <thead class="bg-zinc-950 text-zinc-400 border-b border-zinc-800">
+            <tr>
+              <th class="p-3">Escenario de Prueba</th>
+              <th class="p-3">Ventas Netas</th>
+              <th class="p-3">Total Bruto</th>
+              <th class="p-3">Efectivo Real vs Esperado</th>
+              <th class="p-3">Ajuste 51050</th>
+              <th class="p-3 text-right">Resultado</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-zinc-800 font-mono">
+            <tr class="hover:bg-zinc-800/30">
+              <td class="p-3 font-sans text-zinc-200 font-medium">1. Azusa (Línea Base Cohesion)</td>
+              <td class="p-3 text-zinc-300">$8,125.95</td>
+              <td class="p-3 text-zinc-300">$8,976.01</td>
+              <td class="p-3 text-zinc-400">$2,225.95 vs $2,225.95</td>
+              <td class="p-3 text-zinc-500">$0.00</td>
+              <td class="p-3 text-right font-bold text-emerald-400">✅ MATCH 100%</td>
+            </tr>
+            <tr class="hover:bg-zinc-800/30">
+              <td class="p-3 font-sans text-zinc-200 font-medium">2. Lynwood (Faltante -$50.00)</td>
+              <td class="p-3 text-zinc-300">$11,450.80</td>
+              <td class="p-3 text-zinc-300">$12,624.51</td>
+              <td class="p-3 text-zinc-400">$3,174.51 vs $3,224.51</td>
+              <td class="p-3 text-red-400">+$50.00 Débito</td>
+              <td class="p-3 text-right font-bold text-emerald-400">✅ CUADRADA</td>
+            </tr>
+            <tr class="hover:bg-zinc-800/30">
+              <td class="p-3 font-sans text-zinc-200 font-medium">3. Huntington Park (Sobrante +$35.50)</td>
+              <td class="p-3 text-zinc-300">$9,800.25</td>
+              <td class="p-3 text-zinc-300">$10,804.78</td>
+              <td class="p-3 text-zinc-400">$3,067.78 vs $3,032.28</td>
+              <td class="p-3 text-emerald-400">+$35.50 Crédito</td>
+              <td class="p-3 text-right font-bold text-emerald-400">✅ CUADRADA</td>
+            </tr>
+            <tr class="hover:bg-zinc-800/30">
+              <td class="p-3 font-sans text-zinc-200 font-medium">4. Santa Ana (Alto Delivery)</td>
+              <td class="p-3 text-zinc-300">$14,200.50</td>
+              <td class="p-3 text-zinc-300">$15,514.05</td>
+              <td class="p-3 text-zinc-400">$3,019.05 vs $3,019.05</td>
+              <td class="p-3 text-zinc-500">$0.00</td>
+              <td class="p-3 text-right font-bold text-emerald-400">✅ CUADRADA</td>
+            </tr>
+            <tr class="hover:bg-zinc-800/30">
+              <td class="p-3 font-sans text-zinc-200 font-medium">5. West Covina (Alto Efectivo)</td>
+              <td class="p-3 text-zinc-300">$16,800.90</td>
+              <td class="p-3 text-zinc-300">$18,438.99</td>
+              <td class="p-3 text-zinc-400">$8,878.99 vs $8,878.99</td>
+              <td class="p-3 text-zinc-500">$0.00</td>
+              <td class="p-3 text-right font-bold text-emerald-400">✅ CUADRADA</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Checklist para Visto Bueno -->
+    <div class="bg-amber-950/20 border border-amber-500/30 rounded-xl p-6 card-box">
+      <h2 class="text-lg font-bold text-amber-400 mb-3 flex items-center gap-2">
+        <span>✍️</span> Solicitud de Visto Bueno de Raquel
+      </h2>
+      <p class="text-xs text-zinc-300 mb-4">
+        Para avanzar con la transición definitiva y desactivar la suscripción de $450/mes de Cohesion, solicitamos que Raquel revise y nos confirme los siguientes tres puntos:
+      </p>
+      <div class="space-y-3 text-sm text-zinc-300">
+        <label class="flex items-start gap-3 p-3 bg-zinc-900/60 rounded-lg border border-zinc-800 cursor-pointer">
+          <input type="checkbox" class="mt-1 rounded bg-zinc-800 border-zinc-700 text-amber-500 focus:ring-amber-400">
+          <span><strong>1. Validación de Cuentas de Banco:</strong> Confirmar que las cuentas <code>10000</code> a <code>10015</code> corresponden a cada sucursal respectiva.</span>
+        </label>
+        <label class="flex items-start gap-3 p-3 bg-zinc-900/60 rounded-lg border border-zinc-800 cursor-pointer">
+          <input type="checkbox" class="mt-1 rounded bg-zinc-800 border-zinc-700 text-amber-500 focus:ring-amber-400">
+          <span><strong>2. Cuentas de Cobro de Delivery:</strong> Confirmar que <code>12050</code> (Uber), <code>12053</code> (DoorDash) y <code>12054</code> (GrubHub) son las cuentas receptoras deseadas.</span>
+        </label>
+        <label class="flex items-start gap-3 p-3 bg-zinc-900/60 rounded-lg border border-zinc-800 cursor-pointer">
+          <input type="checkbox" class="mt-1 rounded bg-zinc-800 border-zinc-700 text-amber-500 focus:ring-amber-400">
+          <span><strong>3. Aprobación de Prueba en Paralelo:</strong> Autorizar 3 días de revisión paralela en TEG Modernizado antes de apagar Cohesion definitivamente.</span>
+        </label>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <div class="text-center text-xs text-zinc-500 pt-4 border-t border-zinc-900 font-mono">
+      Tacos Gavilan © 2026 — Sistema Central TEG Modernizado — Módulo de Contabilidad y Conciliación
+    </div>
+
+  </div>
+</body>
+</html>

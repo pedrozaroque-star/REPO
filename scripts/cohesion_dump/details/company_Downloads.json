@@ -1,0 +1,69 @@
+{
+  "text": "\n\n\tDashboard\n\tSales\n\tCompanies\n\tUsers\n\tMy Subscriptions\n\tDownloads\n\tHelp & Guidance\n\n\nRelease 2026.8.24.3\nTacos El Gavilan Inc\nRaquel Velazquez \n \nQuickBooks\nWindows 7, 8+, 10\nCohesion Connect for QuickBooks Desktop  Downloads\n\nDownload and install Cohesion.Connect to the workstation or server where you have QuickBooks installed. This application will act as the bridge between Cohesion and your copy of QuickBooks.\n\n\nNOTE - You will only need to install Cohesion Connect once for all the companies that you are connecting to Cohesion. So if you have already installed Cohesion.Connect for a different Company, you can skip downloading again.\nDynamics NAV\nWindows 7, 8+, 10\nCohesion Connect for Microsoft Dynamics NAV  Downloads\n\nDownload and install Cohesion Connect to the workstation where you have a NAV client installed. This application will act as the bridge between Cohesion and your copy of NAV.\n\n\nNOTE - You can install Cohesion connect on as many Auditor's workstations as you wish. You should add a User for each Auditor that will use Cohesion.\nSage 300 C&RE\nWindows 7, 8+, 10\nCohesion Connect for Sage 300 C&RE (Timberline)  Downloads\n\nDownload and install Cohesion Connect to the workstation where you have a Sage 300 client installed. This application will act as the bridge between Cohesion and your copy of Sage 300.\n\n\nNOTE - You can install Cohesion connect on as many Auditor's workstations as you wish. You should add a User for each Auditor that will use Cohesion.\nPOSitouch\nWindows 7, 8+, 10\nCohesion Connect for POSitouch POS  Downloads\n\nDownload and install Cohesion Connect to a Site's (Restaurant) Backoffice Workstation. This application will act as the bridge between Cohesion and POSitouch.\n",
+  "tables": [
+    {
+      "headers": [],
+      "rows": [
+        [
+          "",
+          "Dashboard"
+        ]
+      ]
+    },
+    {
+      "headers": [],
+      "rows": [
+        [
+          "",
+          "Sales"
+        ]
+      ]
+    },
+    {
+      "headers": [],
+      "rows": [
+        [
+          "",
+          "Companies"
+        ]
+      ]
+    },
+    {
+      "headers": [],
+      "rows": [
+        [
+          "",
+          "Users"
+        ]
+      ]
+    },
+    {
+      "headers": [],
+      "rows": [
+        [
+          "",
+          "My Subscriptions"
+        ]
+      ]
+    },
+    {
+      "headers": [],
+      "rows": [
+        [
+          "",
+          "Downloads"
+        ]
+      ]
+    },
+    {
+      "headers": [],
+      "rows": [
+        [
+          "",
+          "Help & Guidance"
+        ]
+      ]
+    }
+  ],
+  "selects": []
+}

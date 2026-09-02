@@ -1,0 +1,638 @@
+[
+  {
+    "text": "Dashboard",
+    "href": "https://www.cohesion4restaurants.com/Dashboard/Main",
+    "id": "",
+    "class": ""
+  },
+  {
+    "text": "Sales",
+    "href": "https://www.cohesion4restaurants.com/MyWorkflowsSales/Main",
+    "id": "",
+    "class": ""
+  },
+  {
+    "text": "Companies",
+    "href": "https://www.cohesion4restaurants.com/CompanySetup/Main",
+    "id": "",
+    "class": ""
+  },
+  {
+    "text": "Users",
+    "href": "https://www.cohesion4restaurants.com/Users/Main",
+    "id": "",
+    "class": ""
+  },
+  {
+    "text": "My Subscriptions",
+    "href": "https://www.cohesion4restaurants.com/Subscriptions/Main",
+    "id": "",
+    "class": ""
+  },
+  {
+    "text": "Downloads",
+    "href": "https://www.cohesion4restaurants.com/Downloads/Main",
+    "id": "",
+    "class": ""
+  },
+  {
+    "text": "Help & Guidance",
+    "href": "https://www.cohesion4restaurants.com/Help/Main",
+    "id": "",
+    "class": ""
+  },
+  {
+    "text": "",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupSiteManagement/List?companyId=1866&taskId=3#",
+    "id": "SideBarToggle",
+    "class": "navbar-minimalize minimalize-styl-2 btn btn-primary "
+  },
+  {
+    "text": "",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupSiteManagement/List?companyId=1866&taskId=3#",
+    "id": "",
+    "class": "dropdown-toggle"
+  },
+  {
+    "text": "My Subscription",
+    "href": "https://www.cohesion4restaurants.com/Subscriptions/Main",
+    "id": "",
+    "class": ""
+  },
+  {
+    "text": "Change My Password",
+    "href": "https://www.cohesion4restaurants.com/Account/ChangeMyPassword",
+    "id": "",
+    "class": ""
+  },
+  {
+    "text": "Sign Out",
+    "href": "https://www.cohesion4restaurants.com/Account/SignOut",
+    "id": "",
+    "class": ""
+  },
+  {
+    "text": "Add Another Site",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupSiteManagement/Add?CompanyId=1866&TaskId=3&CompanyName=Tacos%20El%20Gavilan%20Inc",
+    "id": "",
+    "class": "modal-link btn btn-sm btn-default btn-outline"
+  },
+  {
+    "text": "",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupSiteManagement/Edit/2248?CompanyId=1866&TaskId=3&Name=AZUSA&TimeZoneId=Pacific%20Standard%20Time&RegionStateType=California",
+    "id": "",
+    "class": "modal-link btn btn-default btn-xs btn-outline"
+  },
+  {
+    "text": "",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupSiteManagement/Delete/2248?CompanyId=1866&TaskId=3&Name=AZUSA",
+    "id": "",
+    "class": "modal-link btn btn-danger btn-xs btn-outline"
+  },
+  {
+    "text": "Manage Workflows and Connections",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupSiteManagement/List?companyId=1866&taskId=3#2248",
+    "id": "",
+    "class": "btn btn-default btn-xs btn-outline pull-right"
+  },
+  {
+    "text": "Update",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupSourceManagement/List?CompanyId=1866&TaskId=3&siteId=2248",
+    "id": "",
+    "class": "btn btn-sm btn-block btn-primary btn-outline"
+  },
+  {
+    "text": "Disable",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupWorkflowManagement/DeactivateWorkflow?CompanyId=1866&TaskId=3&siteId=2248&workflowId=2606",
+    "id": "workflow_2606",
+    "class": "btn btn-sm btn-block btn-warning"
+  },
+  {
+    "text": "Settings",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupWorkflowManagementSettings/Update?CompanyId=1866&TaskId=3&siteId=2248&siteName=AZUSA&workflowId=2606",
+    "id": "settings_2606",
+    "class": "btn btn-sm btn-default btn-outline"
+  },
+  {
+    "text": "",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupSiteManagement/Edit/2259?CompanyId=1866&TaskId=3&Name=BELL&TimeZoneId=Pacific%20Standard%20Time&RegionStateType=California",
+    "id": "",
+    "class": "modal-link btn btn-default btn-xs btn-outline"
+  },
+  {
+    "text": "",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupSiteManagement/Delete/2259?CompanyId=1866&TaskId=3&Name=BELL",
+    "id": "",
+    "class": "modal-link btn btn-danger btn-xs btn-outline"
+  },
+  {
+    "text": "Manage Workflows and Connections",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupSiteManagement/List?companyId=1866&taskId=3#2259",
+    "id": "",
+    "class": "btn btn-default btn-xs btn-outline pull-right"
+  },
+  {
+    "text": "Update",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupSourceManagement/List?CompanyId=1866&TaskId=3&siteId=2259",
+    "id": "",
+    "class": "btn btn-sm btn-block btn-primary btn-outline"
+  },
+  {
+    "text": "Disable",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupWorkflowManagement/DeactivateWorkflow?CompanyId=1866&TaskId=3&siteId=2259&workflowId=2617",
+    "id": "workflow_2617",
+    "class": "btn btn-sm btn-block btn-warning"
+  },
+  {
+    "text": "Settings",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupWorkflowManagementSettings/Update?CompanyId=1866&TaskId=3&siteId=2259&siteName=BELL&workflowId=2617",
+    "id": "settings_2617",
+    "class": "btn btn-sm btn-default btn-outline"
+  },
+  {
+    "text": "",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupSiteManagement/Edit/2231?CompanyId=1866&TaskId=3&Name=BROADWAY&TimeZoneId=Pacific%20Standard%20Time&RegionStateType=California",
+    "id": "",
+    "class": "modal-link btn btn-default btn-xs btn-outline"
+  },
+  {
+    "text": "",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupSiteManagement/Delete/2231?CompanyId=1866&TaskId=3&Name=BROADWAY",
+    "id": "",
+    "class": "modal-link btn btn-danger btn-xs btn-outline"
+  },
+  {
+    "text": "Manage Workflows and Connections",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupSiteManagement/List?companyId=1866&taskId=3#2231",
+    "id": "",
+    "class": "btn btn-default btn-xs btn-outline pull-right"
+  },
+  {
+    "text": "Update",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupSourceManagement/List?CompanyId=1866&TaskId=3&siteId=2231",
+    "id": "",
+    "class": "btn btn-sm btn-block btn-primary btn-outline"
+  },
+  {
+    "text": "Disable",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupWorkflowManagement/DeactivateWorkflow?CompanyId=1866&TaskId=3&siteId=2231&workflowId=2593",
+    "id": "workflow_2593",
+    "class": "btn btn-sm btn-block btn-warning"
+  },
+  {
+    "text": "Settings",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupWorkflowManagementSettings/Update?CompanyId=1866&TaskId=3&siteId=2231&siteName=BROADWAY&workflowId=2593",
+    "id": "settings_2593",
+    "class": "btn btn-sm btn-default btn-outline"
+  },
+  {
+    "text": "",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupSiteManagement/Edit/2240?CompanyId=1866&TaskId=3&Name=CENTRAL&TimeZoneId=Pacific%20Standard%20Time&RegionStateType=California",
+    "id": "",
+    "class": "modal-link btn btn-default btn-xs btn-outline"
+  },
+  {
+    "text": "",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupSiteManagement/Delete/2240?CompanyId=1866&TaskId=3&Name=CENTRAL",
+    "id": "",
+    "class": "modal-link btn btn-danger btn-xs btn-outline"
+  },
+  {
+    "text": "Manage Workflows and Connections",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupSiteManagement/List?companyId=1866&taskId=3#2240",
+    "id": "",
+    "class": "btn btn-default btn-xs btn-outline pull-right"
+  },
+  {
+    "text": "Update",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupSourceManagement/List?CompanyId=1866&TaskId=3&siteId=2240",
+    "id": "",
+    "class": "btn btn-sm btn-block btn-primary btn-outline"
+  },
+  {
+    "text": "Disable",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupWorkflowManagement/DeactivateWorkflow?CompanyId=1866&TaskId=3&siteId=2240&workflowId=2598",
+    "id": "workflow_2598",
+    "class": "btn btn-sm btn-block btn-warning"
+  },
+  {
+    "text": "Settings",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupWorkflowManagementSettings/Update?CompanyId=1866&TaskId=3&siteId=2240&siteName=CENTRAL&workflowId=2598",
+    "id": "settings_2598",
+    "class": "btn btn-sm btn-default btn-outline"
+  },
+  {
+    "text": "",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupSiteManagement/Edit/2193?CompanyId=1866&TaskId=3&Name=DOWNEY&TimeZoneId=Pacific%20Standard%20Time&RegionStateType=California",
+    "id": "",
+    "class": "modal-link btn btn-default btn-xs btn-outline"
+  },
+  {
+    "text": "",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupSiteManagement/Delete/2193?CompanyId=1866&TaskId=3&Name=DOWNEY",
+    "id": "",
+    "class": "modal-link btn btn-danger btn-xs btn-outline"
+  },
+  {
+    "text": "Manage Workflows and Connections",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupSiteManagement/List?companyId=1866&taskId=3#2193",
+    "id": "",
+    "class": "btn btn-default btn-xs btn-outline pull-right"
+  },
+  {
+    "text": "Update",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupSourceManagement/List?CompanyId=1866&TaskId=3&siteId=2193",
+    "id": "",
+    "class": "btn btn-sm btn-block btn-primary btn-outline"
+  },
+  {
+    "text": "Disable",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupWorkflowManagement/DeactivateWorkflow?CompanyId=1866&TaskId=3&siteId=2193&workflowId=2556",
+    "id": "workflow_2556",
+    "class": "btn btn-sm btn-block btn-warning"
+  },
+  {
+    "text": "Settings",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupWorkflowManagementSettings/Update?CompanyId=1866&TaskId=3&siteId=2193&siteName=DOWNEY&workflowId=2556",
+    "id": "settings_2556",
+    "class": "btn btn-sm btn-default btn-outline"
+  },
+  {
+    "text": "",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupSiteManagement/Edit/2280?CompanyId=1866&TaskId=3&Name=HOLLYWOOD&TimeZoneId=Pacific%20Standard%20Time&RegionStateType=California",
+    "id": "",
+    "class": "modal-link btn btn-default btn-xs btn-outline"
+  },
+  {
+    "text": "",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupSiteManagement/Delete/2280?CompanyId=1866&TaskId=3&Name=HOLLYWOOD",
+    "id": "",
+    "class": "modal-link btn btn-danger btn-xs btn-outline"
+  },
+  {
+    "text": "Manage Workflows and Connections",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupSiteManagement/List?companyId=1866&taskId=3#2280",
+    "id": "",
+    "class": "btn btn-default btn-xs btn-outline pull-right"
+  },
+  {
+    "text": "Update",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupSourceManagement/List?CompanyId=1866&TaskId=3&siteId=2280",
+    "id": "",
+    "class": "btn btn-sm btn-block btn-primary btn-outline"
+  },
+  {
+    "text": "Disable",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupWorkflowManagement/DeactivateWorkflow?CompanyId=1866&TaskId=3&siteId=2280&workflowId=2637",
+    "id": "workflow_2637",
+    "class": "btn btn-sm btn-block btn-warning"
+  },
+  {
+    "text": "Settings",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupWorkflowManagementSettings/Update?CompanyId=1866&TaskId=3&siteId=2280&siteName=HOLLYWOOD&workflowId=2637",
+    "id": "settings_2637",
+    "class": "btn btn-sm btn-default btn-outline"
+  },
+  {
+    "text": "",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupSiteManagement/Edit/2276?CompanyId=1866&TaskId=3&Name=HUNTINGTON%20PARK&TimeZoneId=Pacific%20Standard%20Time&RegionStateType=California",
+    "id": "",
+    "class": "modal-link btn btn-default btn-xs btn-outline"
+  },
+  {
+    "text": "",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupSiteManagement/Delete/2276?CompanyId=1866&TaskId=3&Name=HUNTINGTON%20PARK",
+    "id": "",
+    "class": "modal-link btn btn-danger btn-xs btn-outline"
+  },
+  {
+    "text": "Manage Workflows and Connections",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupSiteManagement/List?companyId=1866&taskId=3#2276",
+    "id": "",
+    "class": "btn btn-default btn-xs btn-outline pull-right"
+  },
+  {
+    "text": "Update",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupSourceManagement/List?CompanyId=1866&TaskId=3&siteId=2276",
+    "id": "",
+    "class": "btn btn-sm btn-block btn-primary btn-outline"
+  },
+  {
+    "text": "Disable",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupWorkflowManagement/DeactivateWorkflow?CompanyId=1866&TaskId=3&siteId=2276&workflowId=2631",
+    "id": "workflow_2631",
+    "class": "btn btn-sm btn-block btn-warning"
+  },
+  {
+    "text": "Settings",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupWorkflowManagementSettings/Update?CompanyId=1866&TaskId=3&siteId=2276&siteName=HUNTINGTON%20PARK&workflowId=2631",
+    "id": "settings_2631",
+    "class": "btn btn-sm btn-default btn-outline"
+  },
+  {
+    "text": "",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupSiteManagement/Edit/2254?CompanyId=1866&TaskId=3&Name=LA%20PUENTE&TimeZoneId=Pacific%20Standard%20Time&RegionStateType=California",
+    "id": "",
+    "class": "modal-link btn btn-default btn-xs btn-outline"
+  },
+  {
+    "text": "",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupSiteManagement/Delete/2254?CompanyId=1866&TaskId=3&Name=LA%20PUENTE",
+    "id": "",
+    "class": "modal-link btn btn-danger btn-xs btn-outline"
+  },
+  {
+    "text": "Manage Workflows and Connections",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupSiteManagement/List?companyId=1866&taskId=3#2254",
+    "id": "",
+    "class": "btn btn-default btn-xs btn-outline pull-right"
+  },
+  {
+    "text": "Update",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupSourceManagement/List?CompanyId=1866&TaskId=3&siteId=2254",
+    "id": "",
+    "class": "btn btn-sm btn-block btn-primary btn-outline"
+  },
+  {
+    "text": "Disable",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupWorkflowManagement/DeactivateWorkflow?CompanyId=1866&TaskId=3&siteId=2254&workflowId=2614",
+    "id": "workflow_2614",
+    "class": "btn btn-sm btn-block btn-warning"
+  },
+  {
+    "text": "Settings",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupWorkflowManagementSettings/Update?CompanyId=1866&TaskId=3&siteId=2254&siteName=LA%20PUENTE&workflowId=2614",
+    "id": "settings_2614",
+    "class": "btn btn-sm btn-default btn-outline"
+  },
+  {
+    "text": "",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupSiteManagement/Edit/2262?CompanyId=1866&TaskId=3&Name=LYNWOOD&TimeZoneId=Pacific%20Standard%20Time&RegionStateType=California",
+    "id": "",
+    "class": "modal-link btn btn-default btn-xs btn-outline"
+  },
+  {
+    "text": "",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupSiteManagement/Delete/2262?CompanyId=1866&TaskId=3&Name=LYNWOOD",
+    "id": "",
+    "class": "modal-link btn btn-danger btn-xs btn-outline"
+  },
+  {
+    "text": "Manage Workflows and Connections",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupSiteManagement/List?companyId=1866&taskId=3#2262",
+    "id": "",
+    "class": "btn btn-default btn-xs btn-outline pull-right"
+  },
+  {
+    "text": "Update",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupSourceManagement/List?CompanyId=1866&TaskId=3&siteId=2262",
+    "id": "",
+    "class": "btn btn-sm btn-block btn-primary btn-outline"
+  },
+  {
+    "text": "Disable",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupWorkflowManagement/DeactivateWorkflow?CompanyId=1866&TaskId=3&siteId=2262&workflowId=2622",
+    "id": "workflow_2622",
+    "class": "btn btn-sm btn-block btn-warning"
+  },
+  {
+    "text": "Settings",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupWorkflowManagementSettings/Update?CompanyId=1866&TaskId=3&siteId=2262&siteName=LYNWOOD&workflowId=2622",
+    "id": "settings_2622",
+    "class": "btn btn-sm btn-default btn-outline"
+  },
+  {
+    "text": "",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupSiteManagement/Edit/2201?CompanyId=1866&TaskId=3&Name=NORWALK&TimeZoneId=Pacific%20Standard%20Time&RegionStateType=California",
+    "id": "",
+    "class": "modal-link btn btn-default btn-xs btn-outline"
+  },
+  {
+    "text": "",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupSiteManagement/Delete/2201?CompanyId=1866&TaskId=3&Name=NORWALK",
+    "id": "",
+    "class": "modal-link btn btn-danger btn-xs btn-outline"
+  },
+  {
+    "text": "Manage Workflows and Connections",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupSiteManagement/List?companyId=1866&taskId=3#2201",
+    "id": "",
+    "class": "btn btn-default btn-xs btn-outline pull-right"
+  },
+  {
+    "text": "Update",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupSourceManagement/List?CompanyId=1866&TaskId=3&siteId=2201",
+    "id": "",
+    "class": "btn btn-sm btn-block btn-primary btn-outline"
+  },
+  {
+    "text": "Disable",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupWorkflowManagement/DeactivateWorkflow?CompanyId=1866&TaskId=3&siteId=2201&workflowId=2594",
+    "id": "workflow_2594",
+    "class": "btn btn-sm btn-block btn-warning"
+  },
+  {
+    "text": "Settings",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupWorkflowManagementSettings/Update?CompanyId=1866&TaskId=3&siteId=2201&siteName=NORWALK&workflowId=2594",
+    "id": "settings_2594",
+    "class": "btn btn-sm btn-default btn-outline"
+  },
+  {
+    "text": "",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupSiteManagement/Edit/2342?CompanyId=1866&TaskId=3&Name=RIALTO&TimeZoneId=Pacific%20Standard%20Time&RegionStateType=California",
+    "id": "",
+    "class": "modal-link btn btn-default btn-xs btn-outline"
+  },
+  {
+    "text": "",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupSiteManagement/Delete/2342?CompanyId=1866&TaskId=3&Name=RIALTO",
+    "id": "",
+    "class": "modal-link btn btn-danger btn-xs btn-outline"
+  },
+  {
+    "text": "Manage Workflows and Connections",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupSiteManagement/List?companyId=1866&taskId=3#2342",
+    "id": "",
+    "class": "btn btn-default btn-xs btn-outline pull-right"
+  },
+  {
+    "text": "Update",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupSourceManagement/List?CompanyId=1866&TaskId=3&siteId=2342",
+    "id": "",
+    "class": "btn btn-sm btn-block btn-primary btn-outline"
+  },
+  {
+    "text": "Disable",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupWorkflowManagement/DeactivateWorkflow?CompanyId=1866&TaskId=3&siteId=2342&workflowId=4554",
+    "id": "workflow_4554",
+    "class": "btn btn-sm btn-block btn-warning"
+  },
+  {
+    "text": "Settings",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupWorkflowManagementSettings/Update?CompanyId=1866&TaskId=3&siteId=2342&siteName=RIALTO&workflowId=4554",
+    "id": "settings_4554",
+    "class": "btn btn-sm btn-default btn-outline"
+  },
+  {
+    "text": "",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupSiteManagement/Edit/2253?CompanyId=1866&TaskId=3&Name=SANTA%20ANA&TimeZoneId=Pacific%20Standard%20Time&RegionStateType=California",
+    "id": "",
+    "class": "modal-link btn btn-default btn-xs btn-outline"
+  },
+  {
+    "text": "",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupSiteManagement/Delete/2253?CompanyId=1866&TaskId=3&Name=SANTA%20ANA",
+    "id": "",
+    "class": "modal-link btn btn-danger btn-xs btn-outline"
+  },
+  {
+    "text": "Manage Workflows and Connections",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupSiteManagement/List?companyId=1866&taskId=3#2253",
+    "id": "",
+    "class": "btn btn-default btn-xs btn-outline pull-right"
+  },
+  {
+    "text": "Update",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupSourceManagement/List?CompanyId=1866&TaskId=3&siteId=2253",
+    "id": "",
+    "class": "btn btn-sm btn-block btn-primary btn-outline"
+  },
+  {
+    "text": "Disable",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupWorkflowManagement/DeactivateWorkflow?CompanyId=1866&TaskId=3&siteId=2253&workflowId=2612",
+    "id": "workflow_2612",
+    "class": "btn btn-sm btn-block btn-warning"
+  },
+  {
+    "text": "Settings",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupWorkflowManagementSettings/Update?CompanyId=1866&TaskId=3&siteId=2253&siteName=SANTA%20ANA&workflowId=2612",
+    "id": "settings_2612",
+    "class": "btn btn-sm btn-default btn-outline"
+  },
+  {
+    "text": "",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupSiteManagement/Edit/3145?CompanyId=1866&TaskId=3&Name=SLAUSON&TimeZoneId=Pacific%20Standard%20Time&RegionStateType=California",
+    "id": "",
+    "class": "modal-link btn btn-default btn-xs btn-outline"
+  },
+  {
+    "text": "",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupSiteManagement/Delete/3145?CompanyId=1866&TaskId=3&Name=SLAUSON",
+    "id": "",
+    "class": "modal-link btn btn-danger btn-xs btn-outline"
+  },
+  {
+    "text": "Manage Workflows and Connections",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupSiteManagement/List?companyId=1866&taskId=3#3145",
+    "id": "",
+    "class": "btn btn-default btn-xs btn-outline pull-right"
+  },
+  {
+    "text": "Update",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupSourceManagement/List?CompanyId=1866&TaskId=3&siteId=3145",
+    "id": "",
+    "class": "btn btn-sm btn-block btn-primary btn-outline"
+  },
+  {
+    "text": "Disable",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupWorkflowManagement/DeactivateWorkflow?CompanyId=1866&TaskId=3&siteId=3145&workflowId=3545",
+    "id": "workflow_3545",
+    "class": "btn btn-sm btn-block btn-warning"
+  },
+  {
+    "text": "Settings",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupWorkflowManagementSettings/Update?CompanyId=1866&TaskId=3&siteId=3145&siteName=SLAUSON&workflowId=3545",
+    "id": "settings_3545",
+    "class": "btn btn-sm btn-default btn-outline"
+  },
+  {
+    "text": "",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupSiteManagement/Edit/2283?CompanyId=1866&TaskId=3&Name=SOUTH%20GATE&TimeZoneId=Pacific%20Standard%20Time&RegionStateType=California",
+    "id": "",
+    "class": "modal-link btn btn-default btn-xs btn-outline"
+  },
+  {
+    "text": "",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupSiteManagement/Delete/2283?CompanyId=1866&TaskId=3&Name=SOUTH%20GATE",
+    "id": "",
+    "class": "modal-link btn btn-danger btn-xs btn-outline"
+  },
+  {
+    "text": "Manage Workflows and Connections",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupSiteManagement/List?companyId=1866&taskId=3#2283",
+    "id": "",
+    "class": "btn btn-default btn-xs btn-outline pull-right"
+  },
+  {
+    "text": "Update",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupSourceManagement/List?CompanyId=1866&TaskId=3&siteId=2283",
+    "id": "",
+    "class": "btn btn-sm btn-block btn-primary btn-outline"
+  },
+  {
+    "text": "Disable",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupWorkflowManagement/DeactivateWorkflow?CompanyId=1866&TaskId=3&siteId=2283&workflowId=2640",
+    "id": "workflow_2640",
+    "class": "btn btn-sm btn-block btn-warning"
+  },
+  {
+    "text": "Settings",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupWorkflowManagementSettings/Update?CompanyId=1866&TaskId=3&siteId=2283&siteName=SOUTH%20GATE&workflowId=2640",
+    "id": "settings_2640",
+    "class": "btn btn-sm btn-default btn-outline"
+  },
+  {
+    "text": "",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupSiteManagement/Edit/2250?CompanyId=1866&TaskId=3&Name=WEST%20COVINA&TimeZoneId=Pacific%20Standard%20Time&RegionStateType=California",
+    "id": "",
+    "class": "modal-link btn btn-default btn-xs btn-outline"
+  },
+  {
+    "text": "",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupSiteManagement/Delete/2250?CompanyId=1866&TaskId=3&Name=WEST%20COVINA",
+    "id": "",
+    "class": "modal-link btn btn-danger btn-xs btn-outline"
+  },
+  {
+    "text": "Manage Workflows and Connections",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupSiteManagement/List?companyId=1866&taskId=3#2250",
+    "id": "",
+    "class": "btn btn-default btn-xs btn-outline pull-right"
+  },
+  {
+    "text": "Update",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupSourceManagement/List?CompanyId=1866&TaskId=3&siteId=2250",
+    "id": "",
+    "class": "btn btn-sm btn-block btn-primary btn-outline"
+  },
+  {
+    "text": "Disable",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupWorkflowManagement/DeactivateWorkflow?CompanyId=1866&TaskId=3&siteId=2250&workflowId=2609",
+    "id": "workflow_2609",
+    "class": "btn btn-sm btn-block btn-warning"
+  },
+  {
+    "text": "Settings",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupWorkflowManagementSettings/Update?CompanyId=1866&TaskId=3&siteId=2250&siteName=WEST%20COVINA&workflowId=2609",
+    "id": "settings_2609",
+    "class": "btn btn-sm btn-default btn-outline"
+  },
+  {
+    "text": "Manage",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupSiteManagementWorkflowRules/List?CompanyId=1866&TaskId=3",
+    "id": "",
+    "class": "btn btn-block btn-default btn-outline"
+  },
+  {
+    "text": "Back",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupCompanyManagement/CompanyList?CompanyId=1866",
+    "id": "",
+    "class": "btn btn-primary"
+  },
+  {
+    "text": "Finished",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupCompanyManagement/SetupTaskIsComplete?CompanyId=1866&TaskId=3",
+    "id": "",
+    "class": "btn btn-warning "
+  }
+]

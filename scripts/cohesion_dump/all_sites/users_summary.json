@@ -1,0 +1,83 @@
+{
+  "text": "\n\n\tDashboard\n\tSales\n\tCompanies\n\tUsers\n\tMy Subscriptions\n\tDownloads\n\tHelp & Guidance\n\n\nRelease 2026.8.24.3\nTacos El Gavilan Inc\nRaquel Velazquez \n \n \nSite Managers    Add Site Manager  Users\nSite Managers are responsible to Submit Transaction Packets from the site that they are assigned to.\n \nArea Managers    Add Area Manager  Users\nArea Managers oversee multiple Sites.\nThey can Submit packets from a Site if the Site Manager is not available.\nThey receive notifications if Packets are Rejected or an Alert is raised from a Site they have responsiblity for.\n \nAuditors    Add Auditor  Users\nAuditors manage the review and posting workflows for Packets that are Submitted from the sites they are assigned to.\n \nAccountants    Add Accountant  Users\nAccountants have full rights to submit, review and process all Packets for any site as well as manage Companies and Users. They can be added to multiple Organizations.\n \nOrganization Administrators    Add Org Admin  Users\nOrganizational Administrators have full rights to submit, review and process all Packets for any site.\nName\tSign-In Credentials\tAccess\n Update Profile    Velazquez, Raquel\traquel@tacosgavilan.com\t  Lock",
+  "tables": [
+    {
+      "headers": [],
+      "rows": [
+        [
+          "",
+          "Dashboard"
+        ]
+      ]
+    },
+    {
+      "headers": [],
+      "rows": [
+        [
+          "",
+          "Sales"
+        ]
+      ]
+    },
+    {
+      "headers": [],
+      "rows": [
+        [
+          "",
+          "Companies"
+        ]
+      ]
+    },
+    {
+      "headers": [],
+      "rows": [
+        [
+          "",
+          "Users"
+        ]
+      ]
+    },
+    {
+      "headers": [],
+      "rows": [
+        [
+          "",
+          "My Subscriptions"
+        ]
+      ]
+    },
+    {
+      "headers": [],
+      "rows": [
+        [
+          "",
+          "Downloads"
+        ]
+      ]
+    },
+    {
+      "headers": [],
+      "rows": [
+        [
+          "",
+          "Help & Guidance"
+        ]
+      ]
+    },
+    {
+      "headers": [
+        "Name",
+        "Sign-In Credentials",
+        "Access"
+      ],
+      "rows": [
+        [],
+        [
+          "Update Profile    Velazquez, Raquel",
+          "raquel@tacosgavilan.com",
+          "Lock"
+        ]
+      ]
+    }
+  ]
+}

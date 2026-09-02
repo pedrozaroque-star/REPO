@@ -1,0 +1,111 @@
+{
+  "text": "\n\n\tDashboard\n\tSales\n\tCompanies\n\tUsers\n\tMy Subscriptions\n\tDownloads\n\tHelp & Guidance\n\n\nRelease 2026.8.24.3\nTacos El Gavilan Inc\nRaquel Velazquez \n \nHelp and Guidance Content:\nBrowse below, or search for a specific topic.\nAdding New Workflows\nAdding More Sites\nDashboard\nUsing Sales Workflows\nCompanies & Sites\nUsers\nMy Subscriptions\nDownloads\nTechnical Support or Purchase Training\nFAQ\nLegacy PDF User's Guides\nAdding New Workflows\n  Open In New Tab\n  Print\n\nFollow the Steps below to add a new Workflow to Cohesion - they'll walk you through everything you need to select and gather, without affecting any Workflow you're already using.\n\nStep 1 · Select what integration you want to implement with Cohesion.\n1. WORKFLOW\nChoose a Workflow…\nSales Reconcilation & Journal\nPayroll/Time Entries\nPayroll Journal\nVendor Purchases\nInventory Transfers\nPurchase Transactions\n\nNot sure what these terms mean?\n\nWorkflow is what you want to send - your daily Sales, Time Entries (hours worked), or a Payroll Journal.\nSource is the point-of-sale (POS) system you use in your restaurant, like Toast or Qu.\nTarget is the accounting or payroll software you want that information sent to, like QuickBooks or ADP.",
+  "tables": [
+    {
+      "headers": [],
+      "rows": [
+        [
+          "",
+          "Dashboard"
+        ]
+      ]
+    },
+    {
+      "headers": [],
+      "rows": [
+        [
+          "",
+          "Sales"
+        ]
+      ]
+    },
+    {
+      "headers": [],
+      "rows": [
+        [
+          "",
+          "Companies"
+        ]
+      ]
+    },
+    {
+      "headers": [],
+      "rows": [
+        [
+          "",
+          "Users"
+        ]
+      ]
+    },
+    {
+      "headers": [],
+      "rows": [
+        [
+          "",
+          "My Subscriptions"
+        ]
+      ]
+    },
+    {
+      "headers": [],
+      "rows": [
+        [
+          "",
+          "Downloads"
+        ]
+      ]
+    },
+    {
+      "headers": [],
+      "rows": [
+        [
+          "",
+          "Help & Guidance"
+        ]
+      ]
+    }
+  ],
+  "selects": [
+    {
+      "id": "gs-workflow-select",
+      "name": "",
+      "options": [
+        {
+          "value": "",
+          "text": "Choose a Workflow…",
+          "selected": true
+        },
+        {
+          "value": "/Help/Main?workflowType=Sales",
+          "text": "Sales Reconcilation & Journal",
+          "selected": false
+        },
+        {
+          "value": "/Help/Main?workflowType=TimeEntries",
+          "text": "Payroll/Time Entries",
+          "selected": false
+        },
+        {
+          "value": "/Help/Main?workflowType=PayrollJournals",
+          "text": "Payroll Journal",
+          "selected": false
+        },
+        {
+          "value": "/Help/Main?workflowType=Purchases",
+          "text": "Vendor Purchases",
+          "selected": false
+        },
+        {
+          "value": "/Help/Main?workflowType=InventoryTransfers",
+          "text": "Inventory Transfers",
+          "selected": false
+        },
+        {
+          "value": "/Help/Main?workflowType=PurchaseTransactions",
+          "text": "Purchase Transactions",
+          "selected": false
+        }
+      ]
+    }
+  ]
+}

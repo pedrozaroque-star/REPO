@@ -1,0 +1,5 @@
+{
+  "text": "Are you sure you want to disconnect QuickBooks Online?\n\nNote - This will also disconnect all Site Workflows that are set up for this Financial System.\n\nTo re-enable the Workflows you will need to\n1) Connect to QuickBooks Online again\n2) Configure the Settings for QuickBooks Online\n3) Re-enable the Workflows in Site & Workflow.\n\nCancel Disconnect",
+  "tables": [],
+  "selects": []
+}

@@ -157,6 +157,16 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                         : 'Reportes consolidados de ventas, canales de entrega, impuestos y métodos de pago'
                 },
                 {
+                    name: t('items.accounting'),
+                    plainName: 'Contabilidad',
+                    path: '/contabilidad',
+                    icon: <Calculator size={20} />,
+                    roles: ['admin'],
+                    tooltip: language === 'en'
+                        ? 'Daily sales journal entries for QuickBooks — replaces Cohesion (Pólizas de ventas diarias)'
+                        : 'Pólizas de ventas diarias para QuickBooks — reemplaza Cohesion ($450/mes)'
+                },
+                {
                     name: t('items.planner'),
                     plainName: 'Planificador',
                     path: '/planificador',

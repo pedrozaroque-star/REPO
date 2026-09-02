@@ -1,0 +1,541 @@
+<!DOCTYPE html><html style="display: block;"><head>
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cohesion For Restaurants</title>
+    
+    <!-- Add local styles, mostly for plugins css file -->
+    
+    <!-- CSS style (bootstrap/inspinia) - ~/Content/css bundle -->
+    <link rel="stylesheet" href="/Content/bootstrap.css">
+    <link rel="stylesheet" href="/Content/animate.css">
+    <link rel="stylesheet" href="/Content/style.css">
+    
+    <!-- Font Awesome icons - ~/font-awesome/css bundle -->
+    <link rel="stylesheet" href="/fonts/font-awesome/css/font-awesome.min.css">
+    
+    <!-- CSS Style Colorstrap - ~/plugins/colorstrapStyles bundle -->
+    <link rel="stylesheet" href="/Content/plugins/colorstrap/colorstrap.css">
+    
+    <!-- CSS style (cohesion overrides) - ~/cohesion/css bundle -->
+    <link rel="stylesheet" href="/Content/cohesion.css">
+    <link rel="stylesheet" href="/Content/cohesion-color.css">
+    
+    <!-- Jasny styles - ~/Content/jasny bundle -->
+    <link rel="stylesheet" href="/Content/plugins/jasny/jasny-bootstrap.css">
+    
+    <style>
+        html {
+            display: none
+        }
+    </style>
+    
+    <!-- jQuery - ~/bundles/jquery bundle -->
+    <script src="/Scripts/jquery-3.7.1.min.js"></script>
+    
+    <!-- jQuery Unobtrusive Ajax - ~/bundles/jqueryUnobtrusiveAjax bundle -->
+    <script src="/Scripts/jquery.unobtrusive-ajax.min.js"></script>
+    
+    <!-- Bootstrap - ~/bundles/bootstrap bundle -->
+    <script src="/Scripts/bootstrap.min.js"></script>
+    
+    <!-- SlimScroll - ~/plugins/slimScroll bundle -->
+    <script src="/Scripts/plugins/slimscroll/jquery.slimscroll.min.js"></script>
+    
+    <!-- Inspinia script - ~/bundles/inspinia bundle -->
+    <script src="/Scripts/plugins/metisMenu/metisMenu.min.js"></script>
+    <script src="/Scripts/plugins/pace/pace.min.js"></script>
+    <script src="/Scripts/app/inspinia.min.js"></script>
+    
+    <!-- Cohesion - ~/bundles/cohesion bundle -->
+    <script src="/Scripts/cohesion.js"></script>
+    <script src="/Scripts/cohesion.myworkflows.js"></script>
+    
+    <!-- Jasny - ~/plugins/jasny bundle -->
+    <script src="/Scripts/plugins/jasny/jasny-bootstrap.js"></script>
+    
+    
+    <script type="text/javascript">
+
+        $(document).ready(function () {
+            $("#SalesWorkflowCheckBox").attr("checked", true);
+            $("#PurchasesWorkflowCheckBox").attr("checked", false);
+            $("#InventoryTransfersWorkflowCheckBox").attr("checked", false);
+            $("#PayrollWorkflowCheckBox").attr("checked", false);
+            $("#PayrollJournalWorkflowCheckBox").attr("checked", false);
+            showAddOns();
+            enableNextButton();
+        });
+
+        $(document).ready(function () {
+            $('#SalesWorkflowCheckBox').change(function () {
+                var checked = $(this).is(":checked");
+                if (checked == true) {
+                    $('#SalesWorkflowAddonLaborJournalOption').show();
+                } else {
+                    $('#SalesWorkflowAddonLaborJournalOption').hide();
+                    $('#SalesWorkflowAddonLaborJournalCheckbox').attr("checked", false);
+                }
+                enableNextButton();
+
+                // Update TargetEntity
+                var id = "#SalesWorkflowCheckBox";
+                var targetId = $(id).data("targetid");
+                var workflowType = "Sales";
+                var url = $(id).data("url");
+                var data = { targetId: targetId, workflowType: workflowType, isSelected: checked };
+                $.post(url, data);
+            });
+        });
+
+        $(document).ready(function () {
+            $('#PurchasesWorkflowCheckBox').change(function () {
+                var checked = $(this).is(":checked");
+                if (checked == true) {
+                } else {
+                }
+                enableNextButton();
+
+                // Update TargetEntity
+                var id = "#PurchasesWorkflowCheckBox";
+                var targetId = $(id).data("targetid");
+                var workflowType = "Purchases";
+                var url = $(id).data("url");
+                var data = { targetId: targetId, workflowType: workflowType, isSelected: checked };
+                $.post(url, data);
+            });
+        });
+
+        $(document).ready(function () {
+            $('#InventoryTransfersWorkflowCheckBox').change(function () {
+                var checked = $(this).is(":checked");
+                if (checked == true) {
+                } else {
+                }
+                enableNextButton();
+
+                // Update TargetEntity
+                var id = "#InventoryTransfersWorkflowCheckBox";
+                var targetId = $(id).data("targetid");
+                var workflowType = "InventoryTransfers";
+                var url = $(id).data("url");
+                var data = { targetId: targetId, workflowType: workflowType, isSelected: checked };
+                $.post(url, data);
+            });
+        });
+
+        $(document).ready(function () {
+            $('#PayrollWorkflowCheckBox').change(function () {
+                var checked = $(this).is(":checked");
+                if (checked == true) {
+                } else {
+                }
+                enableNextButton();
+
+                // Update TargetEntity
+                var id = "#PayrollWorkflowCheckBox";
+                var targetId = $(id).data("targetid");
+                var workflowType = "TimeEntries";
+                var url = $(id).data("url");
+                var data = { targetId: targetId, workflowType: workflowType, isSelected: checked };
+                $.post(url, data);
+            });
+        });
+
+        $(document).ready(function () {
+            $('#PayrollJournalWorkflowCheckBox').change(function () {
+                var checked = $(this).is(":checked");
+                if (checked == true) {
+                } else {
+                }
+                enableNextButton();
+
+                // Update TargetEntity
+                var id = "#PayrollJournalWorkflowCheckBox";
+                var targetId = $(id).data("targetid");
+                var workflowType = "TimeEntries";
+                var url = $(id).data("url");
+                var data = { targetId: targetId, workflowType: workflowType, isSelected: checked };
+                $.post(url, data);
+            });
+        });
+
+        function enableNextButton() {
+            var SalesIsChecked = $('#SalesWorkflowCheckBox').is(":checked");
+            var PurchasesIsChecked = $('#PurchasesWorkflowCheckBox').is(":checked");
+            var InvTransIsChecked = $('#InventoryTransfersWorkflowCheckBox').is(":checked");
+            var PayrollIsChecked = $('#PayrollWorkflowCheckBox').is(":checked");
+            var PayrollJournalIsChecked = $('#PayrollJournalWorkflowCheckBox').is(":checked");
+
+            if (SalesIsChecked || PurchasesIsChecked || InvTransIsChecked || PayrollIsChecked || PayrollJournalIsChecked) {
+                $('#btnNext').attr("disabled", false);
+            } else {
+                $('#btnNext').attr("disabled", true);
+            }
+        }
+
+        function showAddOns() {
+            var SalesIsChecked = $('#SalesWorkflowCheckBox').is(":checked");
+            var PurchasesIsChecked = $('#PurchasesWorkflowCheckBox').is(":checked");
+            var InvTransIsChecked = $('#InventoryTransfersWorkflowCheckBox').is(":checked");
+            var PayrollIsChecked = $('#PayrollWorkflowCheckBox').is(":checked");
+            var PayrollJournalIsChecked = $('#PayrollJournalWorkflowCheckBox').is(":checked");
+
+            if (SalesIsChecked) {
+                $('#SalesWorkflowAddonLaborJournalOption').show();
+            }
+        }
+
+    </script>
+
+</head>
+<body class="pace-done"><div class="pace  pace-inactive"><div class="pace-progress" data-progress-text="100%" data-progress="99" style="transform: translate3d(100%, 0px, 0px);">
+  <div class="pace-progress-inner"></div>
+</div>
+<div class="pace-activity"></div></div>
+    <!-- Wrapper-->
+    <div b-mume8xfgo2="" id="wrapper">
+        <!-- Navigation -->
+        
+<nav class="navbar-default navbar-static-side" role="navigation">
+    <div class="sidebar-collapse">
+        <ul class="nav" id="side-menu">
+            <li>
+                <div class="profile-element text-center">
+                    <h2>
+                        <img style="width: 190px" src="/Images/CohesionForRestaurants.png"><br>
+                    </h2>
+                </div>
+                <div class="logo-element">
+                    <img style="width: 40px" src="/Images/CohesionIcon72x72.png">
+                </div>
+            </li>
+                        
+<li class="">
+    <a href="/Dashboard/Main">
+        <table>
+            <tbody><tr>
+                <td class="text-center" style="width: 15%">
+                    <i class="fa fa-dashboard fa-fw" data-toggle="tooltip" data-placement="right" title="Dashboard">
+                    </i>
+                </td>
+                <td>
+                    <span class="nav-label">Dashboard</span>
+                </td>
+            </tr>
+        </tbody></table>
+    </a>
+</li>
+ 
+<li class="">
+    <a href="/MyWorkflowsSales/Main">
+        <table>
+            <tbody><tr>
+                <td class="text-center" style="width: 15%">
+                    <i class="fa fa-money fa-fw" data-toggle="tooltip" data-placement="right" title="Sales Workflows">
+                    </i>
+                </td>
+                <td>
+                    <span class="nav-label">Sales</span>
+                </td>
+            </tr>
+        </tbody></table>
+    </a>
+</li>
+                             <li class="">
+    <a href="/CompanySetup/Main">
+        <table>
+            <tbody><tr>
+                <td class="text-center" style="width: 15%">
+                    <i class="fa fa-university fa-fw" data-toggle="tooltip" data-placement="right" title="Companies">
+                    </i>
+                </td>
+                <td>
+                    <span class="nav-label">Companies</span>
+                </td>
+            </tr>
+        </tbody></table>
+    </a>
+</li>
+
+                            <li class="">
+    <a href="/Users/Main">
+        <table>
+            <tbody><tr>
+                <td class="text-center" style="width: 15%">
+                    <i class="fa fa-users fa-fw" data-toggle="tooltip" data-placement="right" title="Users">
+                    </i>
+                </td>
+                <td>
+                    <span class="nav-label">Users</span>
+                </td>
+            </tr>
+        </tbody></table>
+    </a>
+</li>
+
+                            <li class="">
+    <a href="/Subscriptions/Main">
+        <table>
+            <tbody><tr>
+                <td class="text-center" style="width: 15%">
+                    <i class="fa fa-credit-card fa-fw" data-toggle="tooltip" data-placement="right" title="My Subscriptions">
+                    </i>
+                </td>
+                <td>
+                    <span class="nav-label">My Subscriptions</span>
+                </td>
+            </tr>
+        </tbody></table>
+    </a>
+</li>
+
+                        <li class="">
+    <a href="/Downloads/Main">
+        <table>
+            <tbody><tr>
+                <td class="text-center" style="width: 15%">
+                    <i class="fa fa-download fa-fw" data-toggle="tooltip" data-placement="right" title="Downloads">
+                    </i>
+                </td>
+                <td>
+                    <span class="nav-label">Downloads</span>
+                </td>
+            </tr>
+        </tbody></table>
+    </a>
+</li>
+
+                        <li class="">
+    <a href="/Help/Main">
+        <table>
+            <tbody><tr>
+                <td class="text-center" style="width: 15%">
+                    <i class="fa fa-comment fa-fw" data-toggle="tooltip" data-placement="right" title="Help &amp; Guidance">
+                    </i>
+                </td>
+                <td>
+                    <span class="nav-label">Help &amp; Guidance</span>
+                </td>
+            </tr>
+        </tbody></table>
+    </a>
+</li>
+
+            <li><br></li>
+            <li><div align="center">Release 2026.8.24.3</div></li>
+        </ul>
+    </div>
+</nav>
+
+<script>
+    $(document).ready(function () {
+        if (false) {
+            $('body').addClass('mini-navbar')
+        } else {
+            $('body').removeClass('mini-navbar')
+        }
+    })
+</script>
+
+        <!-- Page wraper -->
+        <div b-mume8xfgo2="" id="page-wrapper" class="gray-bg" style="min-height: 1200px;">
+            <!-- Top Navbar -->
+            <div class="row border-bottom">
+    <nav class="navbar navbar-static-top" role="navigation" style="margin-bottom: 0">
+        <div class="navbar-header">
+            <a id="SideBarToggle" class="navbar-minimalize minimalize-styl-2 btn btn-primary " href="#" onclick="ToggleSideBarIsCollapsed(); return false;">
+                <i class="fa fa-bars"></i>
+            </a>
+        </div>
+        
+<div class="navbar-header">
+        <div class="p-sm">
+            <h3>
+                Tacos El Gavilan Inc 
+            </h3>
+        </div>
+</div>
+
+        <ul class="nav navbar-top-links navbar-right">
+            
+<li class="text-primary">
+    Raquel Velazquez
+</li>
+
+            
+<!-- /.dropdown -->
+<li class="dropdown">
+    <a class="dropdown-toggle" data-toggle="dropdown" href="#">
+        <i class="fa fa-user fa-fw"></i>
+        <i class="fa fa-caret-down"></i>
+    </a>
+    <ul class="dropdown-menu dropdown-user">
+            <li>
+                <a href="/Subscriptions/Main">
+                    <i class="fa fa-credit-card"></i>&nbsp;My Subscription&nbsp;
+                </a>
+            </li>
+        <li>
+            <a href="/Account/ChangeMyPassword">
+                <i class="fa fa-gear"></i>&nbsp;Change My Password&nbsp;
+            </a>
+        </li>
+        <li class="divider"></li>
+        <li>
+            <a href="/Account/SignOut">
+                <i class="fa fa-user"></i>&nbsp;Sign Out&nbsp;
+            </a>
+        </li>
+    </ul>
+    <!-- /.dropdown-user -->
+</li>
+
+        </ul>
+    </nav>
+</div>
+
+<script type="text/javascript">
+    function ToggleSideBarIsCollapsed() {
+        const name = "Cohesion.IsCollapsed=";
+        const cDecoded = decodeURIComponent(document.cookie);
+        const cArr = cDecoded.split("; ");
+        let isCollapsed = "false";
+        
+        cArr.forEach(val => {
+            if (val.indexOf(name) === 0) {
+                isCollapsed = val.substring(name.length);
+            }
+        });
+
+        if (isCollapsed === "false") {
+            document.cookie = "Cohesion.IsCollapsed=true;path=/";
+        } else {
+            document.cookie = "Cohesion.IsCollapsed=false;path=/";
+        }
+
+        // Post to server to update state
+        fetch('/Navigation/UpdateSideBarToggleState', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            }
+        });
+    }
+</script>
+
+            <!-- Main view -->
+            
+
+<form method="post" action="/CompanySetupTargetSettingsManagement/AvailableWorkflows">
+    
+    <input type="hidden" data-val="true" data-val-required="The CompanyId field is required." id="CompanyId" name="CompanyId" value="1866">
+    <input type="hidden" data-val="true" data-val-required="The TaskId field is required." id="TaskId" name="TaskId" value="2">
+    <input type="hidden" data-val="true" data-val-required="The TargetId field is required." id="TargetId" name="TargetId" value="2063">
+    <input type="hidden" data-val="true" data-val-required="The TargetSystemType field is required." id="TargetSystemType" name="TargetSystemType" value="QbOnline">
+    <input type="hidden" data-val="true" data-val-required="The IsTheOnlyTarget field is required." id="IsTheOnlyTarget" name="IsTheOnlyTarget" value="True">
+
+    <!-- Page Body -->
+    <div class="wrapper wrapper-content">
+
+        <div class="row">
+            <div class="col-lg-12">
+                <div class="ibox float-e-margins">
+                    <div class="ibox-title">
+                        <h2>Available Workflows for QuickBooks Online</h2>
+                        Please select the Workflow(s) that you plan on implementing in Cohesion for this Financial System.
+                    </div>
+                    <div class="ibox-content">
+                        <div class="table-responsive">
+                            <table class="table table-hover">
+                                <thead>
+                                    <tr>
+                                        <td class="col-lg-1"></td>
+                                        <td class="col-lg-1"></td>
+                                        <td class="col-lg-10"></td>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                        <tr>
+                                            <td class="text-center" style="vertical-align: middle">
+                                                <input type="checkbox" id="SalesWorkflowCheckBox" class="i-checks" data-url="/CompanySetupTargetSettingsManagement/UpdateSelectedWorkflow" data-targetid="2063" checked="checked" data-val="true" data-val-required="The UseSales field is required." name="UseSales" value="true">
+                                            </td>
+                                            <td colspan="2">
+                                                <h2>
+                                                    <strong>Daily Sales Reconciliation Workflow</strong>
+                                                </h2>
+                                            </td>
+                                        </tr>
+                                            <tr id="SalesWorkflowAddonLaborJournalOption" style="">
+                                                <td></td>
+                                                <td class="text-center" style="vertical-align: middle">
+                                                    <input type="checkbox" id="SalesWorkflowAddonLaborJournalCheckbox" class="i-checks" data-val="true" data-val-required="The IncludeLaborJournal field is required." name="IncludeLaborJournal" value="true">
+                                                </td>
+                                                <td>
+                                                    <h3>
+                                                        Daily Labor Accrual Journal (Add-on)
+                                                        <br>
+                                                        <small>$10 additional per Month/per Site</small>
+                                                    </h3>
+                                                    This feature is valuable if you desire to produce Daily or Weekly Profit &amp; Loss statements
+                                                    in QuickBooks Online. By adding this feature, Cohesion will compile a Daily Labor Accrual Journal Entry
+                                                    from the Labor data in your POS, in addition to a Daily Sales Journal Entry.
+                                                </td>
+                                            </tr>
+                                        <tr>
+                                            <td class="text-center" style="vertical-align: middle">
+                                                <input type="checkbox" id="PurchasesWorkflowCheckBox" class="i-checks" data-url="/CompanySetupTargetSettingsManagement/UpdateSelectedWorkflow" data-targetid="2063" data-val="true" data-val-required="The UsePurchases field is required." name="UsePurchases" value="true">
+                                            </td>
+                                            <td colspan="2">
+                                                <h2>
+                                                    <strong>Vendor Purchases Workflow</strong>
+                                                    <br>
+                                                    <small>(Not Currently Available for Toast POS)</small>
+                                                </h2>
+                                            </td>
+                                        </tr>
+                                        <tr>
+                                            <td class="text-center" style="vertical-align: middle">
+                                                <input type="checkbox" id="PayrollJournalWorkflowCheckBox" class="i-checks" data-url="/CompanySetupTargetSettingsManagement/UpdateSelectedWorkflow" data-targetid="2063" data-val="true" data-val-required="The UsePayrollJournals field is required." name="UsePayrollJournals" value="true">
+                                            </td>
+                                            <td colspan="2">
+                                                <h2>
+                                                    <strong>Payroll Journal Entry Workflow</strong>
+                                                </h2>
+                                            </td>
+                                        </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div class="ibox-footer">
+                        <button class="btn btn-primary" type="submit" name="cancel" value="Cancel">Back</button>
+                        <button id="btnNext" class="btn btn-warning" type="submit" name="btnNext" value="Next">Next <i class="fa fa-step-forward"></i></button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+<input name="__RequestVerificationToken" type="hidden" value="CfDJ8EuC0qqdrkdDhZqx0fAeqhVeOOcfizkBVV2S0jDOuOKMGHuuDla2IH8Lr0HKzmxkmT7eX44Ke2kYt-YZsR8TttvM2rAtKdvlGx_NJcd65oRBpCgS6xEww5J_euAePZwxVxs7RtiFfbNe0SKvear24wXmoxGWpbXX1_2UG_yOxdQmtvP89dq0UDDMADwlz0a9UA"><input name="UseSales" type="hidden" value="false"><input name="IncludeLaborJournal" type="hidden" value="false"><input name="UsePurchases" type="hidden" value="false"><input name="UsePayrollJournals" type="hidden" value="false"></form>
+
+
+
+            <!-- Footer -->
+        </div>
+        <!-- End page wrapper-->
+    </div>
+    <!-- End wrapper-->
+    <script>
+        if (self === top) { document.documentElement.style.display = 'block'; }
+        else { top.location = self.location; }
+    </script>
+    <!-- Modal Dialog Container -->
+    
+
+
+<div b-mume8xfgo2="" id="modal-container" class="modal fade" tabindex="-1" role="dialog">
+        <div b-mume8xfgo2="" class="modal-content">
+        </div>
+    </div></body></html>

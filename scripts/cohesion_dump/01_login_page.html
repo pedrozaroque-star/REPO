@@ -1,0 +1,69 @@
+<!DOCTYPE html><html><head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cohesion | Sign In</title>
+    <link href="/Content/bootstrap.min.css" rel="stylesheet">
+    <link href="/Fonts/font-awesome/css/font-awesome.css" rel="stylesheet">
+    <link href="/Content/animate.css" rel="stylesheet">
+    <link href="/Content/style.css" rel="stylesheet">
+</head>
+
+<body class="gray-bg">
+    
+    <div class="container animated fadeInDown">
+        <div class="row">
+            <div class="col-md-4 col-md-offset-4">
+                <div class="login-panel panel panel-default">
+                    <div class="panel-heading">
+                        <h4 class="panel-title text-center">
+                            <a href="/Landing/Main">
+                                <img style="width: 250px" src="/Images/CohesionForRestaurants.png" alt="Cohesion for Restaurants">
+                            </a>
+                        </h4>
+                    </div>
+                    <div class="panel-body">
+                        <form method="post" class="form-horizontal" role="form" action="/Account/SignIn">
+                            <input type="hidden" id="ReturnUrl" name="ReturnUrl" value="">
+                            
+                            <div class="form-group">
+                                <div class="col-md-12">
+                                    <input class="form-control" placeholder="EMail" type="email" data-val="true" data-val-email="The Email field is not a valid e-mail address." data-val-required="The Email field is required." id="Email" name="Email" value="">
+                                    <span class="text-danger field-validation-valid" data-valmsg-for="Email" data-valmsg-replace="true"></span>
+                                </div>
+                            </div>
+                            
+                            <div class="form-group">
+                                <div class="col-md-12">
+                                    <input type="password" class="form-control" placeholder="Password" data-val="true" data-val-required="The Password field is required." id="Password" name="Password">
+                                    <span class="text-danger field-validation-valid" data-valmsg-for="Password" data-valmsg-replace="true"></span>
+                                </div>
+                            </div>
+                            
+
+                            <div class="text-center">
+                                <p>
+                                    You will not be able to Sign in if you have your Browser set to Block Cookies.
+                                </p>
+                            </div>
+                            
+                            <div class="form-group">
+                                <div class="col-md-12">
+                                    <button type="submit" class="btn btn-lg btn-primary btn-block">Sign in</button>
+                                </div>
+                            </div>
+                            
+                            <p>
+                                <a href="/Account/Register">Register</a> for a 30 day Free Trial.
+                            </p>
+                            
+                            <div class="text-center"><small>Ver. 2026.8.24.3</small></div>
+                        <input name="__RequestVerificationToken" type="hidden" value="CfDJ8EuC0qqdrkdDhZqx0fAeqhX8CssMOG6o8ubInukoqzpFfK_H6Gj_5ipEwaSDyRx4W-TT5kPROURRUFOj-HSH30KpnOvxZEbUmdN_0fwOdqQmMim4IpSXhwmVTD4wCpqLgN-L__gYjBxXYx9uEfQ1Ads"></form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+
+
+</body></html>

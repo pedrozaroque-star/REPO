@@ -1,0 +1,74 @@
+[
+  {
+    "text": "Dashboard",
+    "href": "https://www.cohesion4restaurants.com/Dashboard/Main",
+    "id": "",
+    "class": ""
+  },
+  {
+    "text": "Sales",
+    "href": "https://www.cohesion4restaurants.com/MyWorkflowsSales/Main",
+    "id": "",
+    "class": ""
+  },
+  {
+    "text": "Companies",
+    "href": "https://www.cohesion4restaurants.com/CompanySetup/Main",
+    "id": "",
+    "class": ""
+  },
+  {
+    "text": "Users",
+    "href": "https://www.cohesion4restaurants.com/Users/Main",
+    "id": "",
+    "class": ""
+  },
+  {
+    "text": "My Subscriptions",
+    "href": "https://www.cohesion4restaurants.com/Subscriptions/Main",
+    "id": "",
+    "class": ""
+  },
+  {
+    "text": "Downloads",
+    "href": "https://www.cohesion4restaurants.com/Downloads/Main",
+    "id": "",
+    "class": ""
+  },
+  {
+    "text": "Help & Guidance",
+    "href": "https://www.cohesion4restaurants.com/Help/Main",
+    "id": "",
+    "class": ""
+  },
+  {
+    "text": "",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupTargetSettingsManagement/AvailableWorkflows?CompanyId=1866&TaskId=2&TargetId=2063&TargetSystemType=QbOnline&TargetName=QuickBooks%20Online&IsTheOnlyTarget=True&OnlyHasOneAvailableWorkflowOption=False&IsBetaTester=False&HasSales=True&UseSales=True&SupportsLaborJournal=True&IncludeLaborJournal=False&HasPurchases=True&UsePurchases=False&HasInventoryTransfers=False&UseInventoryTransfers=False&HasTimeEntries=False&UseTimeEntries=False&IncludeCaliforniaRules=False&IncludeNewYorkRules=False&HasPayrollJournals=True&UsePayrollJournals=False#",
+    "id": "SideBarToggle",
+    "class": "navbar-minimalize minimalize-styl-2 btn btn-primary "
+  },
+  {
+    "text": "",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupTargetSettingsManagement/AvailableWorkflows?CompanyId=1866&TaskId=2&TargetId=2063&TargetSystemType=QbOnline&TargetName=QuickBooks%20Online&IsTheOnlyTarget=True&OnlyHasOneAvailableWorkflowOption=False&IsBetaTester=False&HasSales=True&UseSales=True&SupportsLaborJournal=True&IncludeLaborJournal=False&HasPurchases=True&UsePurchases=False&HasInventoryTransfers=False&UseInventoryTransfers=False&HasTimeEntries=False&UseTimeEntries=False&IncludeCaliforniaRules=False&IncludeNewYorkRules=False&HasPayrollJournals=True&UsePayrollJournals=False#",
+    "id": "",
+    "class": "dropdown-toggle"
+  },
+  {
+    "text": "My Subscription",
+    "href": "https://www.cohesion4restaurants.com/Subscriptions/Main",
+    "id": "",
+    "class": ""
+  },
+  {
+    "text": "Change My Password",
+    "href": "https://www.cohesion4restaurants.com/Account/ChangeMyPassword",
+    "id": "",
+    "class": ""
+  },
+  {
+    "text": "Sign Out",
+    "href": "https://www.cohesion4restaurants.com/Account/SignOut",
+    "id": "",
+    "class": ""
+  }
+]

@@ -1,0 +1,96 @@
+{
+  "text": "\n\n\tDashboard\n\tSales\n\tCompanies\n\tUsers\n\tMy Subscriptions\n\tDownloads\n\tHelp & Guidance\n\n\nRelease 2026.8.24.3\nTacos El Gavilan Inc\nRaquel Velazquez \n \nAvailable Workflows for QuickBooks Online\nPlease select the Workflow(s) that you plan on implementing in Cohesion for this Financial System.\n\t\t\n\t\nDaily Sales Reconciliation Workflow\n\n\t\t\nDaily Labor Accrual Journal (Add-on)\n$10 additional per Month/per Site\nThis feature is valuable if you desire to produce Daily or Weekly Profit & Loss statements in QuickBooks Online. By adding this feature, Cohesion will compile a Daily Labor Accrual Journal Entry from the Labor data in your POS, in addition to a Daily Sales Journal Entry.\n\t\nVendor Purchases Workflow\n(Not Currently Available for Toast POS)\n\n\t\nPayroll Journal Entry Workflow\nBack Next ",
+  "tables": [
+    {
+      "headers": [],
+      "rows": [
+        [
+          "",
+          "Dashboard"
+        ]
+      ]
+    },
+    {
+      "headers": [],
+      "rows": [
+        [
+          "",
+          "Sales"
+        ]
+      ]
+    },
+    {
+      "headers": [],
+      "rows": [
+        [
+          "",
+          "Companies"
+        ]
+      ]
+    },
+    {
+      "headers": [],
+      "rows": [
+        [
+          "",
+          "Users"
+        ]
+      ]
+    },
+    {
+      "headers": [],
+      "rows": [
+        [
+          "",
+          "My Subscriptions"
+        ]
+      ]
+    },
+    {
+      "headers": [],
+      "rows": [
+        [
+          "",
+          "Downloads"
+        ]
+      ]
+    },
+    {
+      "headers": [],
+      "rows": [
+        [
+          "",
+          "Help & Guidance"
+        ]
+      ]
+    },
+    {
+      "headers": [],
+      "rows": [
+        [
+          "",
+          "",
+          ""
+        ],
+        [
+          "",
+          "Daily Sales Reconciliation Workflow"
+        ],
+        [
+          "",
+          "",
+          "Daily Labor Accrual Journal (Add-on)\n$10 additional per Month/per Site\nThis feature is valuable if you desire to produce Daily or Weekly Profit & Loss statements in QuickBooks Online. By adding this feature, Cohesion will compile a Daily Labor Accrual Journal Entry from the Labor data in your POS, in addition to a Daily Sales Journal Entry."
+        ],
+        [
+          "",
+          "Vendor Purchases Workflow\n(Not Currently Available for Toast POS)"
+        ],
+        [
+          "",
+          "Payroll Journal Entry Workflow"
+        ]
+      ]
+    }
+  ],
+  "selects": []
+}

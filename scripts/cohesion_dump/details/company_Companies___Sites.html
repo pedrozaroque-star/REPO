@@ -1,0 +1,1115 @@
+<!DOCTYPE html><html style="display: block;"><head>
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cohesion For Restaurants</title>
+    
+    <!-- Add local styles, mostly for plugins css file -->
+
+    <style>
+        /* ---------- Tree navigation ---------- */
+        /* .ibox-content (style.css) hardcodes padding: 15px 20px 0 20px - zero bottom padding.
+           .help-tree is a nested child here (not combined onto the same element), so its own
+           padding just adds on top of that instead of overriding it; the 21px bottom below
+           compensates for the parent's missing 15px so top and bottom end up visually equal. */
+        .help-tree {
+            padding: 6px 4px 21px;
+        }
+
+        .help-tree h3 {
+            font-size: 16px;
+            margin-bottom: 18px;
+        }
+
+        .help-search-form {
+            margin: 0 0 12px;
+        }
+
+        .help-search-form .form-control {
+            font-size: 13px;
+        }
+
+        .help-search-summary {
+            color: #999;
+            font-size: 13px;
+            margin-bottom: 18px;
+        }
+
+        .help-search-result {
+            padding: 12px 0;
+        }
+
+        .help-search-result + .help-search-result {
+            border-top: 1px solid #e7eaec;
+        }
+
+        .help-search-result-title {
+            display: block;
+            font-size: 15px;
+            font-weight: 700;
+            color: #1ab394;
+            margin-bottom: 4px;
+        }
+
+        .help-search-result-snippet {
+            margin: 0;
+            font-size: 13px;
+            color: #676a6c;
+        }
+
+        .help-tree-list, .help-tree-children {
+            list-style: none;
+            margin: 0;
+            padding: 0;
+        }
+
+        .help-tree-group {
+            position: relative;
+            padding: 7px 0;
+        }
+
+        .help-tree-group + .help-tree-group {
+            border-top: 1px solid #e7eaec;
+        }
+
+        .help-tree-node, .help-tree-node-static {
+            display: block;
+            font-weight: 600;
+            font-size: 14px;
+            color: #333;
+            padding: 5px 26px 5px 8px;
+            border-radius: 5px;
+            margin: 0 -8px;
+        }
+
+        /* Collapse/expand toggle for tree groups that have children - absolutely positioned
+           over the node's reserved right-hand padding so it doesn't require restructuring the
+           node into a flex row (which would break its existing full-bleed hover/current styling). */
+        .help-tree-toggle {
+            position: absolute;
+            z-index: 1;
+            top: 8px;
+            right: -2px;
+            width: 22px;
+            height: 22px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: none;
+            border: none;
+            padding: 0;
+            color: #a7a9ac;
+            font-size: 10px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        .help-tree-toggle:hover {
+            background: #e7eaec;
+            color: #333;
+        }
+
+        .help-tree-toggle i {
+            transition: transform .15s ease;
+        }
+
+        .help-tree-group.collapsed > .help-tree-toggle i {
+            transform: rotate(-90deg);
+        }
+
+        .help-tree-group.collapsed > .help-tree-children {
+            display: none;
+        }
+
+        a.help-tree-node:hover {
+            background: #f3f3f4;
+            color: #1ab394;
+            text-decoration: none;
+        }
+
+        a.help-tree-node.current {
+            background: rgba(26,179,148,.12);
+            color: #0e8069;
+        }
+
+        .help-tree-children {
+            padding-left: 16px;
+            margin-top: 4px;
+        }
+
+        .help-tree-label {
+            font-size: 10.5px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: .06em;
+            color: #a7a9ac;
+            padding: 10px 8px 2px;
+        }
+
+        a.help-tree-child {
+            display: block;
+            padding: 5px 8px;
+            font-size: 12.5px;
+            color: #676a6c;
+            border-radius: 5px;
+            margin: 0 -8px;
+        }
+
+        a.help-tree-child:hover {
+            background: #f3f3f4;
+            color: #333;
+            text-decoration: none;
+        }
+
+        a.help-tree-child.current {
+            background: var(--help-amber-bg, #faf3e2);
+            color: #ad841c;
+            font-weight: 700;
+        }
+
+        /* ---------- Article surface ---------- */
+        /* ".ibox-content.help-article" (not just ".help-article") because this element carries
+           both classes - style.css's .ibox-content rule (padding: 15px 20px 0 20px, zero bottom)
+           has equal specificity and is linked *after* this section in _Layout.cshtml, so a plain
+           ".help-article" rule loses the cascade and the bottom padding silently reverts to 0.
+           The extra class raises specificity so this always wins regardless of load order. */
+        .ibox-content.help-article {
+            padding: 22px 24px;
+            font-size: 14.5px;
+            line-height: 1.65;
+            color: #464a4c;
+        }
+
+        .help-article h3 {
+            font-size: 21px;
+            font-weight: 700;
+            color: #262626;
+            margin: 0 0 14px;
+            text-wrap: balance;
+        }
+
+        /* Markdown-rendered body content (@Html.Raw) - the source of most of the visible
+           "presentable" gap versus the mockup, since these elements otherwise fall back to
+           unstyled browser defaults. Markdown "## Heading" produces h2 - this is the level
+           authors actually use to break an article into topics. Deliberately does NOT set
+           font-size/weight/color: style.css's global h2 rule (light-weight, 24px - the
+           Inspinia look used app-wide) already cascades through for those, since this only
+           adds spacing and the separator line without overriding them.
+        .help-article h2 {
+            margin: 28px 0 14px;
+            padding-bottom: 8px;
+            border-bottom: 2px solid #e1e4e8;
+        } */
+
+        .help-article h2:first-child {
+            margin-top: 0;
+        }
+
+        .help-article h4 {
+            font-size: 15.5px;
+            font-weight: 700;
+            color: #333;
+            margin: 26px 0 10px;
+        }
+
+        .help-article p {
+            margin: 0 0 14px;
+        }
+
+        .help-article ul, .help-article ol {
+            margin: 0 0 16px;
+            padding-left: 22px;
+        }
+
+        .help-article li {
+            margin-bottom: 6px;
+        }
+
+        .help-article li:last-child {
+            margin-bottom: 0;
+        }
+
+        .help-article a {
+            color: #1ab394;
+            font-weight: 600;
+        }
+
+        .help-article strong {
+            color: #262626;
+        }
+
+        .help-article em {
+            color: #676a6c;
+        }
+
+        .help-article > *:last-child {
+            margin-bottom: 0;
+        }
+
+        .help-breadcrumb {
+            font-size: 12px;
+            color: #999;
+            margin-bottom: 10px;
+        }
+
+        .help-breadcrumb-sep {
+            opacity: .5;
+            margin: 0 2px;
+        }
+
+        /* One size step up from the global .label's 10px (style.css) - scoped to this class
+           rather than .label-success directly so it doesn't affect that class elsewhere in
+           the app. Chained onto ".label" (not just ".help-step3-label" alone) to raise
+           specificity above style.css's ".label" rule - style.css is linked *after* this
+           section in _Layout.cshtml, so an equal-specificity single-class selector here
+           would lose the cascade despite coming first in this file (same issue documented
+           on ".ibox-content.help-article" above). */
+        .label.help-step3-label {
+            font-size: 12px;
+            padding: 4px 10px;
+        }
+
+        /* ---------- Article header / toolbar ---------- */
+        .help-article-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 16px;
+        }
+
+        .help-article-toolbar {
+            flex: 0 0 auto;
+            white-space: nowrap;
+        }
+
+        /* ---------- Source/Target selectors ---------- */
+        .help-variant-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin: 4px 0 22px;
+        }
+
+        /* .help-variant-row has no align-items (defaults to stretch), so a bare inline
+           <span> flex item stretches to the row's full height with its text sitting at
+           the top instead of centering - this makes it a flex item of its own so the
+           text centers within that stretched height. */
+        .help-variant-connector {
+            display: flex;
+            align-items: center;
+        }
+
+        .help-variant-picker {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: #f8f8f9;
+            border: 1px solid #e7eaec;
+            border-radius: 7px;
+            padding: 7px 12px;
+        }
+
+        .help-variant-picker label {
+            font-size: 10.5px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: .05em;
+            color: #a7a9ac;
+            margin: 0;
+        }
+
+        .help-variant-picker select {
+            font: inherit;
+            font-size: 13px;
+            font-weight: 600;
+            color: #333;
+            border: 1px solid #dfe1e3;
+            border-radius: 5px;
+            padding: 4px 8px;
+            background: #fff;
+        }
+
+        .help-composed-section {
+            margin-top: 24px;
+            padding-top: 20px;
+            border-top: 1px dashed #e1e4e8;
+        }
+
+        .help-composed-section h4 {
+            margin-top: 8px;
+        }
+
+        .help-composed-subsection {
+            margin-top: 16px;
+        }
+
+        .help-composed-subsection:first-of-type {
+            margin-top: 12px;
+        }
+
+        .help-workflow-note {
+            margin-top: 10px;
+            padding: 10px 12px;
+            background: #f8f8f9;
+            border-left: 3px solid #1ab394;
+            border-radius: 0 4px 4px 0;
+        }
+
+        .help-workflow-note h5 {
+            margin: 0 0 4px;
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: .04em;
+            color: #676a6c;
+        }
+
+        .help-workflow-note p:last-child {
+            margin-bottom: 0;
+        }
+
+        /* ---------- Mobile: stack the tree above the article ---------- */
+        @media (max-width: 767px) {
+            .ibox-content.help-article {
+                padding: 18px 14px;
+            }
+
+            .help-tree-children {
+                padding-left: 10px;
+            }
+
+            .help-variant-row {
+                flex-direction: column;
+            }
+
+            .help-variant-picker {
+                width: 100%;
+            }
+
+            .help-variant-picker select {
+                flex: 1;
+                min-width: 0;
+            }
+        }
+
+        /* ---------- Print: article content only ---------- */
+        @media print {
+            .navbar-static-side,
+            .row.border-bottom,
+            .col-lg-4,
+            .ibox.m-b-sm,
+            .help-article-toolbar {
+                display: none !important;
+            }
+
+            #page-wrapper {
+                margin-left: 0 !important;
+            }
+
+            .col-lg-8 {
+                width: 100% !important;
+            }
+        }
+    </style>
+    
+    <!-- CSS style (bootstrap/inspinia) - ~/Content/css bundle -->
+    <link rel="stylesheet" href="/Content/bootstrap.css">
+    <link rel="stylesheet" href="/Content/animate.css">
+    <link rel="stylesheet" href="/Content/style.css">
+    
+    <!-- Font Awesome icons - ~/font-awesome/css bundle -->
+    <link rel="stylesheet" href="/fonts/font-awesome/css/font-awesome.min.css">
+    
+    <!-- CSS Style Colorstrap - ~/plugins/colorstrapStyles bundle -->
+    <link rel="stylesheet" href="/Content/plugins/colorstrap/colorstrap.css">
+    
+    <!-- CSS style (cohesion overrides) - ~/cohesion/css bundle -->
+    <link rel="stylesheet" href="/Content/cohesion.css">
+    <link rel="stylesheet" href="/Content/cohesion-color.css">
+    
+    <!-- Jasny styles - ~/Content/jasny bundle -->
+    <link rel="stylesheet" href="/Content/plugins/jasny/jasny-bootstrap.css">
+    
+    <style>
+        html {
+            display: none
+        }
+    </style>
+    
+    <!-- jQuery - ~/bundles/jquery bundle -->
+    <script src="/Scripts/jquery-3.7.1.min.js"></script>
+    
+    <!-- jQuery Unobtrusive Ajax - ~/bundles/jqueryUnobtrusiveAjax bundle -->
+    <script src="/Scripts/jquery.unobtrusive-ajax.min.js"></script>
+    
+    <!-- Bootstrap - ~/bundles/bootstrap bundle -->
+    <script src="/Scripts/bootstrap.min.js"></script>
+    
+    <!-- SlimScroll - ~/plugins/slimScroll bundle -->
+    <script src="/Scripts/plugins/slimscroll/jquery.slimscroll.min.js"></script>
+    
+    <!-- Inspinia script - ~/bundles/inspinia bundle -->
+    <script src="/Scripts/plugins/metisMenu/metisMenu.min.js"></script>
+    <script src="/Scripts/plugins/pace/pace.min.js"></script>
+    <script src="/Scripts/app/inspinia.min.js"></script>
+    
+    <!-- Cohesion - ~/bundles/cohesion bundle -->
+    <script src="/Scripts/cohesion.js"></script>
+    <script src="/Scripts/cohesion.myworkflows.js"></script>
+    
+    <!-- Jasny - ~/plugins/jasny bundle -->
+    <script src="/Scripts/plugins/jasny/jasny-bootstrap.js"></script>
+    
+    
+    <script>
+        // Each tree link is a full page navigation (no SPA routing), so collapse state has to
+        // be persisted client-side or it would reset on every click. The markup already renders
+        // each group's correct default collapsed/expanded state server-side (Getting Started per
+        // ShowCompanySetup, the others per whether they contain the current page) - so there's no
+        // flash of the wrong state before this runs. This only needs to (a) layer a stored
+        // localStorage preference on top of that default for groups that aren't force-expanded,
+        // and (b) wire up the toggle buttons.
+        //
+        // This section renders in <head> (Layout's RenderSectionAsync("scripts") call is above
+        // RenderBody()), which parses before the tree markup in <body> exists - so this MUST
+        // wait for DOMContentLoaded rather than running immediately, or querySelectorAll finds
+        // nothing and every toggle button silently does nothing.
+        document.addEventListener('DOMContentLoaded', function () {
+            var STORAGE_PREFIX = 'cohesionHelpTreeCollapsed:';
+
+            function setCollapsed(groupId, collapsed) {
+                try {
+                    window.localStorage.setItem(STORAGE_PREFIX + groupId, collapsed ? '1' : '0');
+                } catch (e) {
+                    // localStorage unavailable (private browsing, quota, etc.) - toggling still
+                    // works for this page view, it just won't persist across navigations.
+                }
+            }
+
+            function applyState(group, toggle, collapsed) {
+                group.classList.toggle('collapsed', collapsed);
+                if (toggle) {
+                    toggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+                }
+            }
+
+            document.querySelectorAll('.help-tree-group[data-help-group]').forEach(function (group) {
+                var groupId = group.getAttribute('data-help-group');
+                var toggle = group.querySelector(':scope > .help-tree-toggle');
+                var forceExpanded = group.getAttribute('data-force-expanded') === 'true';
+
+                if (!forceExpanded) {
+                    var stored = null;
+                    try { stored = window.localStorage.getItem(STORAGE_PREFIX + groupId); } catch (e) { }
+                    if (stored === '0' || stored === '1') {
+                        applyState(group, toggle, stored === '1');
+                    }
+                    // else: no stored preference yet - keep the server-rendered default (collapsed).
+                }
+
+                if (toggle) {
+                    toggle.addEventListener('click', function () {
+                        var next = !group.classList.contains('collapsed');
+                        applyState(group, toggle, next);
+                        setCollapsed(groupId, next);
+                    });
+                }
+            });
+        });
+    </script>
+
+</head>
+<body class="pace-done"><div class="pace  pace-inactive"><div class="pace-progress" data-progress-text="100%" data-progress="99" style="transform: translate3d(100%, 0px, 0px);">
+  <div class="pace-progress-inner"></div>
+</div>
+<div class="pace-activity"></div></div>
+    <!-- Wrapper-->
+    <div b-mume8xfgo2="" id="wrapper">
+        <!-- Navigation -->
+        
+<nav class="navbar-default navbar-static-side" role="navigation">
+    <div class="sidebar-collapse">
+        <ul class="nav" id="side-menu">
+            <li>
+                <div class="profile-element text-center">
+                    <h2>
+                        <img style="width: 190px" src="/Images/CohesionForRestaurants.png"><br>
+                    </h2>
+                </div>
+                <div class="logo-element">
+                    <img style="width: 40px" src="/Images/CohesionIcon72x72.png">
+                </div>
+            </li>
+                        
+<li class="">
+    <a href="/Dashboard/Main">
+        <table>
+            <tbody><tr>
+                <td class="text-center" style="width: 15%">
+                    <i class="fa fa-dashboard fa-fw" data-toggle="tooltip" data-placement="right" title="Dashboard">
+                    </i>
+                </td>
+                <td>
+                    <span class="nav-label">Dashboard</span>
+                </td>
+            </tr>
+        </tbody></table>
+    </a>
+</li>
+ 
+<li class="">
+    <a href="/MyWorkflowsSales/Main">
+        <table>
+            <tbody><tr>
+                <td class="text-center" style="width: 15%">
+                    <i class="fa fa-money fa-fw" data-toggle="tooltip" data-placement="right" title="Sales Workflows">
+                    </i>
+                </td>
+                <td>
+                    <span class="nav-label">Sales</span>
+                </td>
+            </tr>
+        </tbody></table>
+    </a>
+</li>
+                             <li class="">
+    <a href="/CompanySetup/Main">
+        <table>
+            <tbody><tr>
+                <td class="text-center" style="width: 15%">
+                    <i class="fa fa-university fa-fw" data-toggle="tooltip" data-placement="right" title="Companies">
+                    </i>
+                </td>
+                <td>
+                    <span class="nav-label">Companies</span>
+                </td>
+            </tr>
+        </tbody></table>
+    </a>
+</li>
+
+                            <li class="">
+    <a href="/Users/Main">
+        <table>
+            <tbody><tr>
+                <td class="text-center" style="width: 15%">
+                    <i class="fa fa-users fa-fw" data-toggle="tooltip" data-placement="right" title="Users">
+                    </i>
+                </td>
+                <td>
+                    <span class="nav-label">Users</span>
+                </td>
+            </tr>
+        </tbody></table>
+    </a>
+</li>
+
+                            <li class="">
+    <a href="/Subscriptions/Main">
+        <table>
+            <tbody><tr>
+                <td class="text-center" style="width: 15%">
+                    <i class="fa fa-credit-card fa-fw" data-toggle="tooltip" data-placement="right" title="My Subscriptions">
+                    </i>
+                </td>
+                <td>
+                    <span class="nav-label">My Subscriptions</span>
+                </td>
+            </tr>
+        </tbody></table>
+    </a>
+</li>
+
+                        <li class="">
+    <a href="/Downloads/Main">
+        <table>
+            <tbody><tr>
+                <td class="text-center" style="width: 15%">
+                    <i class="fa fa-download fa-fw" data-toggle="tooltip" data-placement="right" title="Downloads">
+                    </i>
+                </td>
+                <td>
+                    <span class="nav-label">Downloads</span>
+                </td>
+            </tr>
+        </tbody></table>
+    </a>
+</li>
+
+                        <li class="active">
+    <a href="/Help/Main">
+        <table>
+            <tbody><tr>
+                <td class="text-center" style="width: 15%">
+                    <i class="fa fa-comment fa-fw" data-toggle="tooltip" data-placement="right" title="Help &amp; Guidance">
+                    </i>
+                </td>
+                <td>
+                    <span class="nav-label">Help &amp; Guidance</span>
+                </td>
+            </tr>
+        </tbody></table>
+    </a>
+</li>
+
+            <li><br></li>
+            <li><div align="center">Release 2026.8.24.3</div></li>
+        </ul>
+    </div>
+</nav>
+
+<script>
+    $(document).ready(function () {
+        if (false) {
+            $('body').addClass('mini-navbar')
+        } else {
+            $('body').removeClass('mini-navbar')
+        }
+    })
+</script>
+
+        <!-- Page wraper -->
+        <div b-mume8xfgo2="" id="page-wrapper" class="gray-bg" style="min-height: 1200px;">
+            <!-- Top Navbar -->
+            <div class="row border-bottom">
+    <nav class="navbar navbar-static-top" role="navigation" style="margin-bottom: 0">
+        <div class="navbar-header">
+            <a id="SideBarToggle" class="navbar-minimalize minimalize-styl-2 btn btn-primary " href="#" onclick="ToggleSideBarIsCollapsed(); return false;">
+                <i class="fa fa-bars"></i>
+            </a>
+        </div>
+        
+<div class="navbar-header">
+        <div class="p-sm">
+            <h3>
+                Tacos El Gavilan Inc 
+            </h3>
+        </div>
+</div>
+
+        <ul class="nav navbar-top-links navbar-right">
+            
+<li class="text-primary">
+    Raquel Velazquez
+</li>
+
+            
+<!-- /.dropdown -->
+<li class="dropdown">
+    <a class="dropdown-toggle" data-toggle="dropdown" href="#">
+        <i class="fa fa-user fa-fw"></i>
+        <i class="fa fa-caret-down"></i>
+    </a>
+    <ul class="dropdown-menu dropdown-user">
+            <li>
+                <a href="/Subscriptions/Main">
+                    <i class="fa fa-credit-card"></i>&nbsp;My Subscription&nbsp;
+                </a>
+            </li>
+        <li>
+            <a href="/Account/ChangeMyPassword">
+                <i class="fa fa-gear"></i>&nbsp;Change My Password&nbsp;
+            </a>
+        </li>
+        <li class="divider"></li>
+        <li>
+            <a href="/Account/SignOut">
+                <i class="fa fa-user"></i>&nbsp;Sign Out&nbsp;
+            </a>
+        </li>
+    </ul>
+    <!-- /.dropdown-user -->
+</li>
+
+        </ul>
+    </nav>
+</div>
+
+<script type="text/javascript">
+    function ToggleSideBarIsCollapsed() {
+        const name = "Cohesion.IsCollapsed=";
+        const cDecoded = decodeURIComponent(document.cookie);
+        const cArr = cDecoded.split("; ");
+        let isCollapsed = "false";
+        
+        cArr.forEach(val => {
+            if (val.indexOf(name) === 0) {
+                isCollapsed = val.substring(name.length);
+            }
+        });
+
+        if (isCollapsed === "false") {
+            document.cookie = "Cohesion.IsCollapsed=true;path=/";
+        } else {
+            document.cookie = "Cohesion.IsCollapsed=false;path=/";
+        }
+
+        // Post to server to update state
+        fetch('/Navigation/UpdateSideBarToggleState', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            }
+        });
+    }
+</script>
+
+            <!-- Main view -->
+            
+
+<div class="wrapper wrapper-content">
+
+
+    <div class="row">
+        <div class="col-lg-4">
+            <div class="ibox float-e-margins">
+                <div class="ibox-content">
+                    <div class="help-tree">
+                        <h1>
+                            Help and Guidance Content:<br>
+                            <small>Browse below, or search for a specific topic.</small>
+                        </h1>
+                        <form class="help-search-form" method="get" action="/Help/Search">
+                            <div class="input-group">
+                                <input type="search" name="q" class="form-control" placeholder="Search Help &amp; Guidance">
+                                <span class="input-group-btn">
+                                    <button class="btn btn-primary" type="submit" title="Search"><i class="fa fa-search"></i></button>
+                                </span>
+                            </div>
+                        </form>
+                        <ul class="help-tree-list">
+                            <li class="help-tree-group collapsed" data-help-group="onboarding" data-force-expanded="false">
+                                <a class="help-tree-node " href="/Help/Main">
+                                    Adding New Workflows
+                                </a>
+                            </li>
+
+                                <li class="help-tree-group">
+                                    <a class="help-tree-node " href="/Help/Article/topics/01-adding-more-sites">
+                                        Adding More Sites
+                                    </a>
+                                </li>
+                                <li class="help-tree-group">
+                                    <a class="help-tree-node " href="/Help/Article/topics/02-dashboard">
+                                        Dashboard
+                                    </a>
+                                </li>
+                                <li class="help-tree-group">
+                                    <a class="help-tree-node " href="/Help/Article/topics/03-sales">
+                                        Using Sales Workflows
+                                    </a>
+                                </li>
+                                <li class="help-tree-group">
+                                    <a class="help-tree-node current" href="/Help/Article/topics/11-companies-sites">
+                                        Companies &amp; Sites
+                                    </a>
+                                </li>
+                                <li class="help-tree-group">
+                                    <a class="help-tree-node " href="/Help/Article/topics/12-users">
+                                        Users
+                                    </a>
+                                </li>
+                                <li class="help-tree-group">
+                                    <a class="help-tree-node " href="/Help/Article/topics/13-my-subscriptions">
+                                        My Subscriptions
+                                    </a>
+                                </li>
+                                <li class="help-tree-group">
+                                    <a class="help-tree-node " href="/Help/Article/topics/14-downloads">
+                                        Downloads
+                                    </a>
+                                </li>
+                                <li class="help-tree-group">
+                                    <a class="help-tree-node " href="/Help/Article/topics/99-purchase-training">
+                                        Technical Support or Purchase Training
+                                    </a>
+                                </li>
+
+                                <li class="help-tree-group collapsed" data-help-group="faqs" data-force-expanded="false">
+                                    <span class="help-tree-node help-tree-node-static">FAQ</span>
+                                    <button type="button" class="help-tree-toggle" aria-expanded="false" aria-label="Toggle FAQ section"><i class="fa fa-chevron-down"></i></button>
+                                    <ul class="help-tree-children">
+                                            <li>
+                                                <a class="help-tree-child " href="/Help/Article/faqs/cohesion-adding-a-new-workflow-to-an-existing-company">
+                                                    Cohesion - Adding a new Workflow to an existing Company
+                                                </a>
+                                            </li>
+                                            <li>
+                                                <a class="help-tree-child " href="/Help/Article/faqs/cohesion-adding-more-sites-to-my-registration">
+                                                    Cohesion - Adding more Sites to my registration
+                                                </a>
+                                            </li>
+                                            <li>
+                                                <a class="help-tree-child " href="/Help/Article/faqs/cohesion-downloading-and-installing-cohesion-connect">
+                                                    Cohesion - Downloading and installing Cohesion Connect
+                                                </a>
+                                            </li>
+                                            <li>
+                                                <a class="help-tree-child " href="/Help/Article/faqs/cohesion-how-overtime-wage-rates-are-calculated-for-tipped-employees">
+                                                    Cohesion - How overtime wage rates are calculated for tipped employees
+                                                </a>
+                                            </li>
+                                            <li>
+                                                <a class="help-tree-child " href="/Help/Article/faqs/cohesion-setting-up-an-accountant-user-for-multiple-registrations">
+                                                    Cohesion - Setting up an Accountant user for multiple registrations
+                                                </a>
+                                            </li>
+                                            <li>
+                                                <a class="help-tree-child " href="/Help/Article/faqs/cohesion-why-is-a-workflow-missing-from-my-options">
+                                                    Cohesion - Why is a Workflow missing from my options?
+                                                </a>
+                                            </li>
+                                            <li>
+                                                <a class="help-tree-child " href="/Help/Article/faqs/cohesion-how-to-transfer-ownership-of-a-cohesion-registration-to-a-new-owner">
+                                                    Cohesion - How to Transfer Ownership of a Cohesion Registration to a New Owner
+                                                </a>
+                                            </li>
+                                            <li>
+                                                <a class="help-tree-child " href="/Help/Article/faqs/quickbooks-desktop-employee-wage-rates-not-updating-from-my-pos">
+                                                    QuickBooks Desktop - Employee wage rates not updating from my POS
+                                                </a>
+                                            </li>
+                                            <li>
+                                                <a class="help-tree-child " href="/Help/Article/faqs/quickbooks-online-resolving-a-duplicate-document-number-error">
+                                                    QuickBooks Online - Resolving a "Duplicate Document Number" error
+                                                </a>
+                                            </li>
+                                            <li>
+                                                <a class="help-tree-child " href="/Help/Article/faqs/quickbooks-online-resolving-an-unauthorized-401-error">
+                                                    QuickBooks Online - Resolving an Unauthorized (401) error
+                                                </a>
+                                            </li>
+                                            <li>
+                                                <a class="help-tree-child " href="/Help/Article/faqs/toast-giving-someone-access-to-sales-summary-reports">
+                                                    Toast - Giving someone access to Sales Summary Reports
+                                                </a>
+                                            </li>
+                                            <li>
+                                                <a class="help-tree-child " href="/Help/Article/faqs/toast-including-tip-manager-tips-in-payroll">
+                                                    Toast - Including Tip Manager tips in Payroll
+                                                </a>
+                                            </li>
+                                            <li>
+                                                <a class="help-tree-child " href="/Help/Article/faqs/toast-mapping-marketplace-facilitator-taxes-paid">
+                                                    Toast - Mapping Marketplace Facilitator Taxes Paid
+                                                </a>
+                                            </li>
+                                            <li>
+                                                <a class="help-tree-child " href="/Help/Article/faqs/toast-mapping-the-new-order-processing-fee-service-charge">
+                                                    Toast - Mapping the new Order Processing Fee Service Charge
+                                                </a>
+                                            </li>
+                                            <li>
+                                                <a class="help-tree-child " href="/Help/Article/faqs/toast-removing-tip-outs-from-being-recorded">
+                                                    Toast - Removing Tip Outs from being recorded
+                                                </a>
+                                            </li>
+                                            <li>
+                                                <a class="help-tree-child " href="/Help/Article/faqs/toast-resolving-an-open-or-unpaid-order-error">
+                                                    Toast - Resolving an "Open or Unpaid Order" error
+                                                </a>
+                                            </li>
+                                            <li>
+                                                <a class="help-tree-child " href="/Help/Article/faqs/toast-what-are-credit-card-other-deductions">
+                                                    Toast - What are Credit Card Other Deductions?
+                                                </a>
+                                            </li>
+                                            <li>
+                                                <a class="help-tree-child " href="/Help/Article/faqs/toast-why-cash-over-short-differs-from-toasts-own-number">
+                                                    Toast - Why Cash Over/Short differs from Toast's own number
+                                                </a>
+                                            </li>
+                                            <li>
+                                                <a class="help-tree-child " href="/Help/Article/faqs/toast-why-credit-card-deposits-dont-match-my-bank-statement">
+                                                    Toast - Why credit card deposits don't match my bank statement
+                                                </a>
+                                            </li>
+                                            <li>
+                                                <a class="help-tree-child " href="/Help/Article/faqs/toast-why-tips-payable-and-tip-outs-dont-match-toast">
+                                                    Toast - Why Tips Payable and Tip Outs don't match Toast
+                                                </a>
+                                            </li>
+                                    </ul>
+                                </li>
+
+                                <li class="help-tree-group collapsed" data-help-group="legacy-documents" data-force-expanded="false">
+                                    <span class="help-tree-node help-tree-node-static">Legacy PDF User's Guides</span>
+                                    <button type="button" class="help-tree-toggle" aria-expanded="false" aria-label="Toggle Legacy Documents section"><i class="fa fa-chevron-down"></i></button>
+                                    <ul class="help-tree-children">
+                                            <li>
+                                                <a class="help-tree-child" href="/Documents/Help/C4R_Qu_Payroll_Paycor.pdf" target="_blank" rel="noopener">
+                                                    Qu → Paycor Payroll
+                                                </a>
+                                            </li>
+                                            <li>
+                                                <a class="help-tree-child" href="/Documents/Help/C4R_Qu_Sales_QuickBooksOnline.pdf" target="_blank" rel="noopener">
+                                                    Qu → QuickBooks Online Sales
+                                                </a>
+                                            </li>
+                                            <li>
+                                                <a class="help-tree-child" href="/Documents/Help/C4R_Toast_Payroll_ADP.pdf" target="_blank" rel="noopener">
+                                                    Toast → ADP Payroll
+                                                </a>
+                                            </li>
+                                            <li>
+                                                <a class="help-tree-child" href="/Documents/Help/C4R_Toast_Payroll_Heartland.pdf" target="_blank" rel="noopener">
+                                                    Toast → Heartland Payroll
+                                                </a>
+                                            </li>
+                                            <li>
+                                                <a class="help-tree-child" href="/Documents/Help/C4R_Toast_Payroll_Netchex.pdf" target="_blank" rel="noopener">
+                                                    Toast → Netchex Payroll
+                                                </a>
+                                            </li>
+                                            <li>
+                                                <a class="help-tree-child" href="/Documents/Help/C4R_Toast_Payroll_PaychexFlex.pdf" target="_blank" rel="noopener">
+                                                    Toast → Paychex Flex Payroll
+                                                </a>
+                                            </li>
+                                            <li>
+                                                <a class="help-tree-child" href="/Documents/Help/C4R_Toast_Payroll_Paycom.pdf" target="_blank" rel="noopener">
+                                                    Toast → Paycom Payroll
+                                                </a>
+                                            </li>
+                                            <li>
+                                                <a class="help-tree-child" href="/Documents/Help/C4R_Toast_Payroll_Paycor.pdf" target="_blank" rel="noopener">
+                                                    Toast → Paycor Payroll
+                                                </a>
+                                            </li>
+                                            <li>
+                                                <a class="help-tree-child" href="/Documents/Help/C4R_Toast_Payroll_Paylocity.pdf" target="_blank" rel="noopener">
+                                                    Toast → Paylocity Payroll
+                                                </a>
+                                            </li>
+                                            <li>
+                                                <a class="help-tree-child" href="/Documents/Help/C4R_Toast_Payroll_QuickBooksDesktop.pdf" target="_blank" rel="noopener">
+                                                    Toast → QuickBooks Desktop Payroll
+                                                </a>
+                                            </li>
+                                            <li>
+                                                <a class="help-tree-child" href="/Documents/Help/C4R_Toast_PayrollJournal_QuickBooksDesktop.pdf" target="_blank" rel="noopener">
+                                                    Toast → QuickBooks Desktop Payroll Journal
+                                                </a>
+                                            </li>
+                                            <li>
+                                                <a class="help-tree-child" href="/Documents/Help/C4R_Toast_Sales_QuickBooksDesktop.pdf" target="_blank" rel="noopener">
+                                                    Toast → QuickBooks Desktop Sales
+                                                </a>
+                                            </li>
+                                            <li>
+                                                <a class="help-tree-child" href="/Documents/Help/C4R_Toast_PayrollJournal_QuickBooksOnline.pdf" target="_blank" rel="noopener">
+                                                    Toast → QuickBooks Online Payroll Journal
+                                                </a>
+                                            </li>
+                                            <li>
+                                                <a class="help-tree-child" href="/Documents/Help/C4R_Toast_Sales_QuickBooksOnline.pdf" target="_blank" rel="noopener">
+                                                    Toast → QuickBooks Online Sales
+                                                </a>
+                                            </li>
+                                            <li>
+                                                <a class="help-tree-child" href="/Documents/Help/C4R_Toast_Sales_Intacct.pdf" target="_blank" rel="noopener">
+                                                    Toast → Sage Intacct Sales
+                                                </a>
+                                            </li>
+                                    </ul>
+                                </li>
+                        </ul>
+                        <div class="clearfix"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-8 animated fadeInRight">
+                    <div class="ibox-content help-article">
+                        <div class="help-article-header">
+                            <h1>Companies &amp; Sites</h1>
+                            <div class="help-article-toolbar btn-group">
+                                <a class="btn btn-sm btn-info btn-outline" href="javascript:void(0)" onclick="window.open(window.location.href, '_blank')" data-toggle="tooltip" data-placement="bottom" title="Open this page in a new tab">
+                                    <i class="fa fa-external-link"></i>&nbsp;&nbsp;Open In New Tab
+                                </a>
+                                <a class="btn btn-sm btn-info btn-outline" href="javascript:void(0)" onclick="window.print()" data-toggle="tooltip" data-placement="bottom" title="Print this article">
+                                    <i class="fa fa-print"></i>&nbsp;&nbsp;Print
+                                </a>
+                            </div>
+                        </div>
+                        <p>This is where you manage the structure everything else in Cohesion hangs off of: your
+<strong>Companies</strong>, their <strong>Sites</strong>, which Source/Target systems each Site connects to, and
+which Workflows are enabled for it. You won't come here for day-to-day Packet work -
+this is where you come when something about <em>how</em> Cohesion is set up needs to change,
+not the daily reconciliation itself.</p>
+<h2 id="how-its-organized">How it's organized</h2>
+<ul>
+<li>A <strong>Company</strong> is a legal entity - just a name, nothing more (no address or entity
+type field). Everything else attaches to it: connected Target systems and Sites.</li>
+<li>Each Company has one or more <strong>Sites</strong> (restaurant locations) - a Site name, its
+State/Region (used to determine which Overtime Rules and Minimum Wage apply), and a
+Time Zone.</li>
+<li>Each Site connects to one or more <strong>Sources</strong> (POS/time systems), and once a
+connected Source and the Company's Target both support it, a <strong>Workflow</strong> can be
+enabled for that Site.</li>
+</ul>
+<p>From <strong>Companies</strong>, click <strong>Settings</strong> on a Company (or <strong>Continue Setup</strong> if it's
+still mid-setup) to reach its <strong>Company Management</strong> page - three tasks, each with its
+own <strong>Manage</strong>/<strong>Update</strong> button:</p>
+<ul>
+<li><strong>Connected Financial Systems</strong> - add, connect, or disconnect the Company's Target
+systems (accounting or payroll).</li>
+<li><strong>Settings for Financial Systems</strong> - Company-wide settings for each connected
+Target (GL structure, vendor lists, and similar).</li>
+<li><strong>Sites and Workflows</strong> - opens <strong>Sites &amp; Workflow Management</strong>: add, edit, or
+delete Sites, connect each Site's Source(s), and enable or disable Workflows per
+Site.</li>
+</ul>
+<h2 id="examples-of-what-you-might-need-to-change-here">Examples of what you might need to change here</h2>
+<ul>
+<li><strong>Opening a new location</strong> - Sites and Workflows → <strong>Add a Site</strong> (or <strong>Add
+Another Site</strong> once one already exists) - name, State/Region, and Time Zone - then
+expand it, <strong>Connect</strong> a Restaurant System, and <strong>Enable</strong> whichever Workflows
+become available once that Source and the Company's Target both support them.</li>
+<li><strong>A Target connection lapsed</strong> (e.g. QuickBooks reports it's unauthorized) -
+Connected Financial Systems → reconnect (for QuickBooks, <strong>Connect to QuickBooks</strong>
+using an Admin user) → back on Sites and Workflows, <strong>Enable</strong> the affected
+Workflow again. If the accounting company itself changed, you'll also need to redo
+that Workflow's category/account mapping (below) against the new Chart of Accounts.</li>
+<li><strong>Your Chart of Accounts changed</strong> - open the affected Site's active Workflow and
+use <strong>Category Mapping</strong> (Sales) or <strong>Job Mapping</strong> (Payroll &amp; Time Entries) to
+point each category/job at its new account; broader account structure lives in that
+Workflow's own <strong>Settings</strong>.</li>
+<li><strong>Adding a Workflow to a Site that already runs one</strong> - expand the Site on Sites
+and Workflows; the newly-available Workflow appears in <strong>Available Workflows</strong> with
+an <strong>Enable</strong> button, as long as a Source it supports is already connected.</li>
+<li><strong>State overtime or minimum wage rules changed</strong> - open the affected Site's
+Payroll-family Workflow, click <strong>Settings</strong>, and update the <strong>Overtime Rules</strong> step
+(weekly/daily/7th-day rules, plus Minimum Wage) for that Site's state.</li>
+<li><strong>Closing a location or disconnecting a system</strong> - deleting a Site is permanent and
+removes every Workflow set up on it, so disable the individual Workflow(s) instead
+if you just want to stop processing without losing the Site's history. Targets and
+Sources can each be disconnected independently of deleting anything.</li>
+</ul>
+
+                    </div>
+        </div>
+    </div>
+</div>
+
+
+
+            <!-- Footer -->
+        </div>
+        <!-- End page wrapper-->
+    </div>
+    <!-- End wrapper-->
+    <script>
+        if (self === top) { document.documentElement.style.display = 'block'; }
+        else { top.location = self.location; }
+    </script>
+    <!-- Modal Dialog Container -->
+    
+
+
+<div b-mume8xfgo2="" id="modal-container" class="modal fade" tabindex="-1" role="dialog">
+        <div b-mume8xfgo2="" class="modal-content">
+        </div>
+    </div></body></html>

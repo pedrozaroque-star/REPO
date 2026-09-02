@@ -1,0 +1,93 @@
+{
+  "text": "\n\n\tDashboard\n\tSales\n\tCompanies\n\tUsers\n\tMy Subscriptions\n\tDownloads\n\tHelp & Guidance\n\n\nRelease 2026.8.24.3\nTacos El Gavilan Inc\nRaquel Velazquez \n \n    Tacos El Gavilan Inc  Companies & Sites   \n  Add a New Company\nClick on the Manage button(s) below to manage the Financial Systems, Sites and Workflows for this Company.\nAction\t\n\n Manage\n\t\nConnected Financial Systems\nManage the Financial Systems that are connected to this Company.\n\n Manage\n\t\nSettings for Financial Systems\nEach Financial System that is Connected to this Company has settings that need to be configured for each specific Cohesion Workflow that you plan to use.\n\n Manage\n\t\nSites and Workflows\nHere is were you define all the Sites (Restaurants) that you manage under this Company, as well as the Workflows that you want to use for each Site.",
+  "tables": [
+    {
+      "headers": [],
+      "rows": [
+        [
+          "",
+          "Dashboard"
+        ]
+      ]
+    },
+    {
+      "headers": [],
+      "rows": [
+        [
+          "",
+          "Sales"
+        ]
+      ]
+    },
+    {
+      "headers": [],
+      "rows": [
+        [
+          "",
+          "Companies"
+        ]
+      ]
+    },
+    {
+      "headers": [],
+      "rows": [
+        [
+          "",
+          "Users"
+        ]
+      ]
+    },
+    {
+      "headers": [],
+      "rows": [
+        [
+          "",
+          "My Subscriptions"
+        ]
+      ]
+    },
+    {
+      "headers": [],
+      "rows": [
+        [
+          "",
+          "Downloads"
+        ]
+      ]
+    },
+    {
+      "headers": [],
+      "rows": [
+        [
+          "",
+          "Help & Guidance"
+        ]
+      ]
+    },
+    {
+      "headers": [
+        "Action",
+        ""
+      ],
+      "rows": [
+        [
+          "Action",
+          ""
+        ],
+        [
+          "Manage",
+          "Connected Financial Systems\nManage the Financial Systems that are connected to this Company."
+        ],
+        [
+          "Manage",
+          "Settings for Financial Systems\nEach Financial System that is Connected to this Company has settings that need to be configured for each specific Cohesion Workflow that you plan to use."
+        ],
+        [
+          "Manage",
+          "Sites and Workflows\nHere is were you define all the Sites (Restaurants) that you manage under this Company, as well as the Workflows that you want to use for each Site."
+        ]
+      ]
+    }
+  ],
+  "selects": []
+}

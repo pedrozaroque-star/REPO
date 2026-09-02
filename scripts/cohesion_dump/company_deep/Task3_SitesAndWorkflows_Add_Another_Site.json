@@ -1,0 +1,428 @@
+{
+  "text": "Add Site to Tacos El Gavilan Inc\nSite Name \nState/Region \nPlease Select…\nUSA - Alabama\nUSA - Alaska\nUSA - American Samoa\nUSA - Arizona\nUSA - Arkansas\nUSA - California\nUSA - Colorado\nUSA - Connecticut\nUSA - Delaware\nUSA - District of Columbia\nUSA - Federated States of Micronesia\nUSA - Florida\nUSA - Georgia\nUSA - Guam\nUSA - Hawaii\nUSA - Idaho\nUSA - Illinois\nUSA - Indiana\nUSA - Iowa\nUSA - Kansas\nUSA - Kentucky\nUSA - Louisiana\nUSA - Maine\nUSA - Marshall Islands\nUSA - Maryland\nUSA - Massachusetts\nUSA - Michigan\nUSA - Minnesota\nUSA - Mississippi\nUSA - Missouri\nUSA - Montana\nUSA - Nebraska\nUSA - Nevada\nUSA - New Hampshire\nUSA - New Jersey\nUSA - New Mexico\nUSA - New York\nUSA - North Carolina\nUSA - North Dakota\nUSA - Northern Mariana Islands\nUSA - Ohio\nUSA - Oklahoma\nUSA - Oregon\nUSA - Palau\nUSA - Pennsylvania\nUSA - Puerto Rico\nUSA - Rhode Island\nUSA - South Carolina\nUSA - South Dakota\nUSA - Tennessee\nUSA - Texas\nUSA - Utah\nUSA - Vermont\nUSA - Virgin Islands\nUSA - Virginia\nUSA - Washington\nUSA - West Virginia\nUSA - Wisconsin\nUSA - Wyoming\nCanada - Alberta\nCanada - British Columbia\nCanada - Manitoba\nCanada - New Brunswick\nCanada - Newfoundland and Labrador\nCanada - Northwest Territories\nCanada - Nova Scotia\nCanada - Nunavut\nCanada - Ontario\nCanada - Prince Edward Island\nCanada - Quebec\nCanada - Saskatchewan\nCanada - Yukon\nTime Zone \nPlease Select...\n(UTC-10:00) Hawaii\n(UTC-09:00) Alaska\n(UTC-08:00) Pacific Time (US & Canada)\n(UTC-07:00) Arizona\n(UTC-07:00) Mountain Time (US & Canada)\n(UTC-06:00) Central Time (US & Canada)\n(UTC-05:00) Eastern Time (US & Canada)\n(UTC-05:00) Indiana (East)\nSave Cancel",
+  "tables": [],
+  "selects": [
+    {
+      "id": "RegionStateType",
+      "name": "RegionStateType",
+      "options": [
+        {
+          "value": "Unassigned",
+          "text": "Please Select…",
+          "selected": true
+        },
+        {
+          "value": "Alabama",
+          "text": "USA - Alabama",
+          "selected": false
+        },
+        {
+          "value": "Alaska",
+          "text": "USA - Alaska",
+          "selected": false
+        },
+        {
+          "value": "AmericanSamoa",
+          "text": "USA - American Samoa",
+          "selected": false
+        },
+        {
+          "value": "Arizona",
+          "text": "USA - Arizona",
+          "selected": false
+        },
+        {
+          "value": "Arkansas",
+          "text": "USA - Arkansas",
+          "selected": false
+        },
+        {
+          "value": "California",
+          "text": "USA - California",
+          "selected": false
+        },
+        {
+          "value": "Colorado",
+          "text": "USA - Colorado",
+          "selected": false
+        },
+        {
+          "value": "Connecticut",
+          "text": "USA - Connecticut",
+          "selected": false
+        },
+        {
+          "value": "Delaware",
+          "text": "USA - Delaware",
+          "selected": false
+        },
+        {
+          "value": "DistrictofColumbia",
+          "text": "USA - District of Columbia",
+          "selected": false
+        },
+        {
+          "value": "FederatedStatesofMicronesia",
+          "text": "USA - Federated States of Micronesia",
+          "selected": false
+        },
+        {
+          "value": "Florida",
+          "text": "USA - Florida",
+          "selected": false
+        },
+        {
+          "value": "Georgia",
+          "text": "USA - Georgia",
+          "selected": false
+        },
+        {
+          "value": "Guam",
+          "text": "USA - Guam",
+          "selected": false
+        },
+        {
+          "value": "Hawaii",
+          "text": "USA - Hawaii",
+          "selected": false
+        },
+        {
+          "value": "Idaho",
+          "text": "USA - Idaho",
+          "selected": false
+        },
+        {
+          "value": "Illinois",
+          "text": "USA - Illinois",
+          "selected": false
+        },
+        {
+          "value": "Indiana",
+          "text": "USA - Indiana",
+          "selected": false
+        },
+        {
+          "value": "Iowa",
+          "text": "USA - Iowa",
+          "selected": false
+        },
+        {
+          "value": "Kansas",
+          "text": "USA - Kansas",
+          "selected": false
+        },
+        {
+          "value": "Kentucky",
+          "text": "USA - Kentucky",
+          "selected": false
+        },
+        {
+          "value": "Louisiana",
+          "text": "USA - Louisiana",
+          "selected": false
+        },
+        {
+          "value": "Maine",
+          "text": "USA - Maine",
+          "selected": false
+        },
+        {
+          "value": "MarshallIslands",
+          "text": "USA - Marshall Islands",
+          "selected": false
+        },
+        {
+          "value": "Maryland",
+          "text": "USA - Maryland",
+          "selected": false
+        },
+        {
+          "value": "Massachusetts",
+          "text": "USA - Massachusetts",
+          "selected": false
+        },
+        {
+          "value": "Michigan",
+          "text": "USA - Michigan",
+          "selected": false
+        },
+        {
+          "value": "Minnesota",
+          "text": "USA - Minnesota",
+          "selected": false
+        },
+        {
+          "value": "Mississippi",
+          "text": "USA - Mississippi",
+          "selected": false
+        },
+        {
+          "value": "Missouri",
+          "text": "USA - Missouri",
+          "selected": false
+        },
+        {
+          "value": "Montana",
+          "text": "USA - Montana",
+          "selected": false
+        },
+        {
+          "value": "Nebraska",
+          "text": "USA - Nebraska",
+          "selected": false
+        },
+        {
+          "value": "Nevada",
+          "text": "USA - Nevada",
+          "selected": false
+        },
+        {
+          "value": "NewHampshire",
+          "text": "USA - New Hampshire",
+          "selected": false
+        },
+        {
+          "value": "NewJersey",
+          "text": "USA - New Jersey",
+          "selected": false
+        },
+        {
+          "value": "NewMexico",
+          "text": "USA - New Mexico",
+          "selected": false
+        },
+        {
+          "value": "NewYork",
+          "text": "USA - New York",
+          "selected": false
+        },
+        {
+          "value": "NorthCarolina",
+          "text": "USA - North Carolina",
+          "selected": false
+        },
+        {
+          "value": "NorthDakota",
+          "text": "USA - North Dakota",
+          "selected": false
+        },
+        {
+          "value": "NorthernMarianaIslands",
+          "text": "USA - Northern Mariana Islands",
+          "selected": false
+        },
+        {
+          "value": "Ohio",
+          "text": "USA - Ohio",
+          "selected": false
+        },
+        {
+          "value": "Oklahoma",
+          "text": "USA - Oklahoma",
+          "selected": false
+        },
+        {
+          "value": "Oregon",
+          "text": "USA - Oregon",
+          "selected": false
+        },
+        {
+          "value": "Palau",
+          "text": "USA - Palau",
+          "selected": false
+        },
+        {
+          "value": "Pennsylvania",
+          "text": "USA - Pennsylvania",
+          "selected": false
+        },
+        {
+          "value": "PuertoRico",
+          "text": "USA - Puerto Rico",
+          "selected": false
+        },
+        {
+          "value": "RhodeIsland",
+          "text": "USA - Rhode Island",
+          "selected": false
+        },
+        {
+          "value": "SouthCarolina",
+          "text": "USA - South Carolina",
+          "selected": false
+        },
+        {
+          "value": "SouthDakota",
+          "text": "USA - South Dakota",
+          "selected": false
+        },
+        {
+          "value": "Tennessee",
+          "text": "USA - Tennessee",
+          "selected": false
+        },
+        {
+          "value": "Texas",
+          "text": "USA - Texas",
+          "selected": false
+        },
+        {
+          "value": "Utah",
+          "text": "USA - Utah",
+          "selected": false
+        },
+        {
+          "value": "Vermont",
+          "text": "USA - Vermont",
+          "selected": false
+        },
+        {
+          "value": "VirginIslands",
+          "text": "USA - Virgin Islands",
+          "selected": false
+        },
+        {
+          "value": "Virginia",
+          "text": "USA - Virginia",
+          "selected": false
+        },
+        {
+          "value": "Washington",
+          "text": "USA - Washington",
+          "selected": false
+        },
+        {
+          "value": "WestVirginia",
+          "text": "USA - West Virginia",
+          "selected": false
+        },
+        {
+          "value": "Wisconsin",
+          "text": "USA - Wisconsin",
+          "selected": false
+        },
+        {
+          "value": "Wyoming",
+          "text": "USA - Wyoming",
+          "selected": false
+        },
+        {
+          "value": "Alberta",
+          "text": "Canada - Alberta",
+          "selected": false
+        },
+        {
+          "value": "BritishColumbia",
+          "text": "Canada - British Columbia",
+          "selected": false
+        },
+        {
+          "value": "Manitoba",
+          "text": "Canada - Manitoba",
+          "selected": false
+        },
+        {
+          "value": "NewBrunswick",
+          "text": "Canada - New Brunswick",
+          "selected": false
+        },
+        {
+          "value": "NewfoundlandandLabrador",
+          "text": "Canada - Newfoundland and Labrador",
+          "selected": false
+        },
+        {
+          "value": "NorthwestTerritories",
+          "text": "Canada - Northwest Territories",
+          "selected": false
+        },
+        {
+          "value": "NovaScotia",
+          "text": "Canada - Nova Scotia",
+          "selected": false
+        },
+        {
+          "value": "Nunavut",
+          "text": "Canada - Nunavut",
+          "selected": false
+        },
+        {
+          "value": "Ontario",
+          "text": "Canada - Ontario",
+          "selected": false
+        },
+        {
+          "value": "PrinceEdwardIsland",
+          "text": "Canada - Prince Edward Island",
+          "selected": false
+        },
+        {
+          "value": "Quebec",
+          "text": "Canada - Quebec",
+          "selected": false
+        },
+        {
+          "value": "Saskatchewan",
+          "text": "Canada - Saskatchewan",
+          "selected": false
+        },
+        {
+          "value": "Yukon",
+          "text": "Canada - Yukon",
+          "selected": false
+        }
+      ]
+    },
+    {
+      "id": "TimeZoneId",
+      "name": "TimeZoneId",
+      "options": [
+        {
+          "value": "Not Selected",
+          "text": "Please Select...",
+          "selected": true
+        },
+        {
+          "value": "Hawaiian Standard Time",
+          "text": "(UTC-10:00) Hawaii",
+          "selected": false
+        },
+        {
+          "value": "Alaskan Standard Time",
+          "text": "(UTC-09:00) Alaska",
+          "selected": false
+        },
+        {
+          "value": "Pacific Standard Time",
+          "text": "(UTC-08:00) Pacific Time (US & Canada)",
+          "selected": false
+        },
+        {
+          "value": "US Mountain Standard Time",
+          "text": "(UTC-07:00) Arizona",
+          "selected": false
+        },
+        {
+          "value": "Mountain Standard Time",
+          "text": "(UTC-07:00) Mountain Time (US & Canada)",
+          "selected": false
+        },
+        {
+          "value": "Central Standard Time",
+          "text": "(UTC-06:00) Central Time (US & Canada)",
+          "selected": false
+        },
+        {
+          "value": "Eastern Standard Time",
+          "text": "(UTC-05:00) Eastern Time (US & Canada)",
+          "selected": false
+        },
+        {
+          "value": "US Eastern Standard Time",
+          "text": "(UTC-05:00) Indiana (East)",
+          "selected": false
+        }
+      ]
+    }
+  ]
+}

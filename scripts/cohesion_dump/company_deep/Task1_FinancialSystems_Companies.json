@@ -1,0 +1,101 @@
+{
+  "text": "\n\n\tDashboard\n\tSales\n\tCompanies\n\tUsers\n\tMy Subscriptions\n\tDownloads\n\tHelp & Guidance\n\n\nRelease 2026.8.24.3\nTacos El Gavilan Inc\nRaquel Velazquez \n \nCompany Profiles  Companies & Sites   \n  Add a New Company\nClick on the Settings button below to manage the Financial Systems, Sites and Workflows for the Company.\nAction\tCompany Name\n\n  Settings\n\t\nTacos El Gavilan Inc\nAction\tOrganization Specific Settings\n\n  Manage\n\t\nEvent Calendar\nManage this Organization's Event Calendar.",
+  "tables": [
+    {
+      "headers": [],
+      "rows": [
+        [
+          "",
+          "Dashboard"
+        ]
+      ]
+    },
+    {
+      "headers": [],
+      "rows": [
+        [
+          "",
+          "Sales"
+        ]
+      ]
+    },
+    {
+      "headers": [],
+      "rows": [
+        [
+          "",
+          "Companies"
+        ]
+      ]
+    },
+    {
+      "headers": [],
+      "rows": [
+        [
+          "",
+          "Users"
+        ]
+      ]
+    },
+    {
+      "headers": [],
+      "rows": [
+        [
+          "",
+          "My Subscriptions"
+        ]
+      ]
+    },
+    {
+      "headers": [],
+      "rows": [
+        [
+          "",
+          "Downloads"
+        ]
+      ]
+    },
+    {
+      "headers": [],
+      "rows": [
+        [
+          "",
+          "Help & Guidance"
+        ]
+      ]
+    },
+    {
+      "headers": [
+        "Action",
+        "Company Name"
+      ],
+      "rows": [
+        [
+          "Action",
+          "Company Name"
+        ],
+        [
+          "Settings",
+          "Tacos El Gavilan Inc"
+        ]
+      ]
+    },
+    {
+      "headers": [
+        "Action",
+        "Organization Specific Settings"
+      ],
+      "rows": [
+        [
+          "Action",
+          "Organization Specific Settings"
+        ],
+        [
+          "Manage",
+          "Event Calendar\nManage this Organization's Event Calendar."
+        ]
+      ]
+    }
+  ],
+  "selects": []
+}

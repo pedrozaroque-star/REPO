@@ -378,6 +378,20 @@ export const TOOL_DECLARATIONS = [
         search_query: { type: 'STRING', description: 'Optional text keyword to search in titles or messages' }
       }
     }
+  },
+  {
+    name: 'query_accounting_packets',
+    description: 'Query daily sales journal entries (accounting packets). Shows packet status, net sales, and journal totals by store and date.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        store_name: { type: 'STRING', description: 'Optional store name filter (e.g. "Azusa", "Lynwood")' },
+        business_date: { type: 'STRING', description: 'Optional specific date YYYY-MM-DD' },
+        status: { type: 'STRING', description: 'Optional status filter: pending, ready, reviewed, published, rejected' },
+        days_back: { type: 'NUMBER', description: 'Number of days back to query (default 7)' },
+      },
+      required: []
+    }
   }
 ]
 
@@ -414,6 +428,7 @@ export async function executeTool(name: string, args: any): Promise<string> {
       case 'query_uniforms_stock': return await queryUniformsStock(args)
       case 'query_executive_uniforms_dashboard': return await queryExecutiveUniformsDashboard(args)
       case 'query_user_chat_history': return await queryUserChatHistory(args)
+      case 'query_accounting_packets': return await queryAccountingPackets(args)
       default: return `Tool "${name}" not found.`
     }
   } catch (e: any) {
@@ -2034,3 +2049,47 @@ async function queryUserChatHistory(args: any): Promise<string> {
 
   return `CONSULTAS ANTERIORES GUARDADAS DEL USUARIO:\n${lines.join('\n')}\n\nPuedes consultar o retomar cualquiera de estas conversaciones directamente desde el panel de Historial del asistente.`
 }
+
+// ── 27. Query Accounting Packets ──
+async function queryAccountingPackets(args: any) {
+  let query = supabaseAdmin
+    .from('accounting_sales_packets')
+    .select('*, stores!inner(name)')
+    .order('business_date', { ascending: false })
+    .order('store_id')
+    .limit(50)
+
+  if (args.status) query = query.eq('status', args.status)
+  if (args.business_date) query = query.eq('business_date', args.business_date)
+  if (args.store_name) query = query.ilike('stores.name', `%${args.store_name}%`)
+  
+  if (!args.business_date) {
+    const daysBack = args.days_back || 7
+    const startDate = new Date()
+    startDate.setDate(startDate.getDate() - daysBack)
+    query = query.gte('business_date', startDate.toISOString().split('T')[0])
+  }
+
+  const { data, error } = await query
+  if (error) return `Error: ${error.message}`
+  if (!data || data.length === 0) return 'No accounting packets found for the specified criteria.'
+
+  let result = `### Accounting Packets (${data.length} found)\n\n`
+  result += '| Store | Date | Status | Net Sales | Debits | Credits | QB Published |\n'
+  result += '|-------|------|--------|-----------|--------|---------|-------------|\n'
+  
+  for (const p of data) {
+    const storeName = (p.stores as any)?.name?.replace(/Tacos Gavilan\s*/i, '') || ''
+    result += `| ${storeName} | ${p.business_date} | ${p.status} | ${fmt$(p.net_sales)} | ${fmt$(p.journal_total_debits)} | ${fmt$(p.journal_total_credits)} | ${p.qb_journal_entry_id ? '✅' : '—'} |\n`
+  }
+
+  // Summary
+  const published = data.filter(p => p.status === 'published').length
+  const ready = data.filter(p => p.status === 'ready').length
+  const pending = data.filter(p => p.status === 'pending').length
+  const totalSales = data.reduce((sum, p) => sum + (Number(p.net_sales) || 0), 0)
+  result += `\n**Summary**: ${published} published, ${ready} ready, ${pending} pending. Total Net Sales: ${fmt$(totalSales)}`
+  
+  return result
+}
+

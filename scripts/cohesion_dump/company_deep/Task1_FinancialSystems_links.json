@@ -1,0 +1,200 @@
+[
+  {
+    "text": "Dashboard",
+    "href": "https://www.cohesion4restaurants.com/Dashboard/Main",
+    "id": "",
+    "class": ""
+  },
+  {
+    "text": "Sales",
+    "href": "https://www.cohesion4restaurants.com/MyWorkflowsSales/Main",
+    "id": "",
+    "class": ""
+  },
+  {
+    "text": "Companies",
+    "href": "https://www.cohesion4restaurants.com/CompanySetup/Main",
+    "id": "",
+    "class": ""
+  },
+  {
+    "text": "Users",
+    "href": "https://www.cohesion4restaurants.com/Users/Main",
+    "id": "",
+    "class": ""
+  },
+  {
+    "text": "My Subscriptions",
+    "href": "https://www.cohesion4restaurants.com/Subscriptions/Main",
+    "id": "",
+    "class": ""
+  },
+  {
+    "text": "Downloads",
+    "href": "https://www.cohesion4restaurants.com/Downloads/Main",
+    "id": "",
+    "class": ""
+  },
+  {
+    "text": "Help & Guidance",
+    "href": "https://www.cohesion4restaurants.com/Help/Main",
+    "id": "",
+    "class": ""
+  },
+  {
+    "text": "",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupTargetManagement/TargetManagement?companyId=1866&taskId=1#",
+    "id": "SideBarToggle",
+    "class": "navbar-minimalize minimalize-styl-2 btn btn-primary "
+  },
+  {
+    "text": "",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupTargetManagement/TargetManagement?companyId=1866&taskId=1#",
+    "id": "",
+    "class": "dropdown-toggle"
+  },
+  {
+    "text": "My Subscription",
+    "href": "https://www.cohesion4restaurants.com/Subscriptions/Main",
+    "id": "",
+    "class": ""
+  },
+  {
+    "text": "Change My Password",
+    "href": "https://www.cohesion4restaurants.com/Account/ChangeMyPassword",
+    "id": "",
+    "class": ""
+  },
+  {
+    "text": "Sign Out",
+    "href": "https://www.cohesion4restaurants.com/Account/SignOut",
+    "id": "",
+    "class": ""
+  },
+  {
+    "text": "Connect",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupTargetManagement/TargetAdd?CompanyId=1866&TaskId=1&SystemType=Adp",
+    "id": "",
+    "class": "btn btn-block btn-default btn-outline text-center"
+  },
+  {
+    "text": "Connect",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupTargetManagement/TargetAdd?CompanyId=1866&TaskId=1&SystemType=Avanti",
+    "id": "",
+    "class": "btn btn-block btn-default btn-outline text-center"
+  },
+  {
+    "text": "Connect",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupTargetManagement/TargetAdd?CompanyId=1866&TaskId=1&SystemType=CeridianDayforce",
+    "id": "",
+    "class": "btn btn-block btn-default btn-outline text-center"
+  },
+  {
+    "text": "Connect",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupTargetManagement/TargetAdd?CompanyId=1866&TaskId=1&SystemType=CeridianTime",
+    "id": "",
+    "class": "btn btn-block btn-default btn-outline text-center"
+  },
+  {
+    "text": "Connect",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupTargetManagement/TargetAdd?CompanyId=1866&TaskId=1&SystemType=Heartland",
+    "id": "",
+    "class": "btn btn-block btn-default btn-outline text-center"
+  },
+  {
+    "text": "Connect",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupTargetManagement/TargetAdd?CompanyId=1866&TaskId=1&SystemType=DynamicsNav",
+    "id": "",
+    "class": "btn btn-block btn-default btn-outline text-center"
+  },
+  {
+    "text": "Connect",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupTargetManagement/TargetAdd?CompanyId=1866&TaskId=1&SystemType=NetchexFile",
+    "id": "",
+    "class": "btn btn-block btn-default btn-outline text-center"
+  },
+  {
+    "text": "Connect",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupTargetManagement/TargetAdd?CompanyId=1866&TaskId=1&SystemType=PaychexFlexFile",
+    "id": "",
+    "class": "btn btn-block btn-default btn-outline text-center"
+  },
+  {
+    "text": "Connect",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupTargetManagement/TargetAdd?CompanyId=1866&TaskId=1&SystemType=PayCom",
+    "id": "",
+    "class": "btn btn-block btn-default btn-outline text-center"
+  },
+  {
+    "text": "Connect",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupTargetManagement/TargetAdd?CompanyId=1866&TaskId=1&SystemType=Paycor",
+    "id": "",
+    "class": "btn btn-block btn-default btn-outline text-center"
+  },
+  {
+    "text": "Connect",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupTargetManagement/TargetAdd?CompanyId=1866&TaskId=1&SystemType=Paylocity",
+    "id": "",
+    "class": "btn btn-block btn-default btn-outline text-center"
+  },
+  {
+    "text": "Connect",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupTargetManagement/TargetAdd?CompanyId=1866&TaskId=1&SystemType=QbDesktop",
+    "id": "",
+    "class": "btn btn-block btn-default btn-outline text-center"
+  },
+  {
+    "text": "Disconnect",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupTargetManagement/TargetDisconnect?CompanyId=1866&TaskId=1&TargetId=2063&SystemType=QbOnline&SystemName=QuickBooks%20Online&UsesSandbox=False",
+    "id": "",
+    "class": "modal-link btn btn-block btn-danger text-center"
+  },
+  {
+    "text": "Change Company",
+    "href": "https://www.cohesion4restaurants.com/Intuit/ConnectOAuthStartPoint?UsesSandbox=False",
+    "id": "",
+    "class": "btn btn-block btn-default btn-outline text-center"
+  },
+  {
+    "text": "Connect",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupTargetManagement/TargetAdd?CompanyId=1866&TaskId=1&SystemType=Sage300Timberline",
+    "id": "",
+    "class": "btn btn-block btn-default btn-outline text-center"
+  },
+  {
+    "text": "Connect",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupTargetManagement/TargetAdd?CompanyId=1866&TaskId=1&SystemType=Sage300Accpac",
+    "id": "",
+    "class": "btn btn-block btn-default btn-outline text-center"
+  },
+  {
+    "text": "Connect",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupTargetManagement/TargetAdd?CompanyId=1866&TaskId=1&SystemType=Intacct",
+    "id": "",
+    "class": "btn btn-block btn-default btn-outline text-center"
+  },
+  {
+    "text": "Connect",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupTargetManagement/TargetAdd?CompanyId=1866&TaskId=1&SystemType=Stampli",
+    "id": "",
+    "class": "btn btn-block btn-default btn-outline text-center"
+  },
+  {
+    "text": "Connect",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupTargetManagement/TargetAdd?CompanyId=1866&TaskId=1&SystemType=TriNet",
+    "id": "",
+    "class": "btn btn-block btn-default btn-outline text-center"
+  },
+  {
+    "text": "Back",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupCompanyManagement/CompanyList?companyId=1866",
+    "id": "",
+    "class": "btn btn-primary"
+  },
+  {
+    "text": "Next",
+    "href": "https://www.cohesion4restaurants.com/CompanySetupCompanyManagement/SetupTaskIsComplete?CompanyId=1866&TaskId=1",
+    "id": "",
+    "class": "btn btn-warning "
+  }
+]

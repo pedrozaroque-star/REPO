@@ -1,0 +1,249 @@
+{
+  "text": "\n\n\tDashboard\n\tSales\n\tCompanies\n\tUsers\n\tMy Subscriptions\n\tDownloads\n\tHelp & Guidance\n\n\nRelease 2026.8.24.3\nTacos El Gavilan Inc\nRaquel Velazquez \n \nRefresh\n  \nCurrent\n 4 Weeks\n Next\nPrior \n4 Weeks \n  \nShow Today\nSales Workflows  Using Sales Workflows\nTacos El Gavilan Inc\t\nMon 08-31\n\t\nSun 08-30\n\t\nSat 08-29\n\t\nFri 08-28\n\t\nThu 08-27\n\t\nWed 08-26\n\t\nTue 08-25\n\nAZUSA\t\nUnOpened\n\t\nPublished\n\t\nPublished\n\t\nPublished\n\t\nPublished\n\t\nPublished\n\t\nPublished\n\t\nBELL\t\nUnOpened\n\t\nPublished\n\t\nPublished\n\t\nPublished\n\t\nPublished\n\t\nPublished\n\t\nPublished\n\t\nBROADWAY\t\nUnOpened\n\t\nPublished\n\t\nPublished\n\t\nPublished\n\t\nPublished\n\t\nPublished\n\t\nPublished\n\t\nCENTRAL\t\nUnOpened\n\t\nPublished\n\t\nPublished\n\t\nPublished\n\t\nPublished\n\t\nPublished\n\t\nPublished\n\t\nDOWNEY\t\nUnOpened\n\t\nPublished\n\t\nPublished\n\t\nPublished\n\t\nPublished\n\t\nPublished\n\t\nPublished\n\t\nHOLLYWOOD\t\nUnOpened\n\t\nPublished\n\t\nPublished\n\t\nPublished\n\t\nPublished\n\t\nPublished\n\t\nPublished\n\t\nHUNTINGTON PARK\t\nUnOpened\n\t\nPublished\n\t\nPublished\n\t\nPublished\n\t\nPublished\n\t\nPublished\n\t\nPublished\n\t\nLA PUENTE\t\nUnOpened\n\t\nPublished\n\t\nPublished\n\t\nPublished\n\t\nPublished\n\t\nPublished\n\t\nPublished\n\t\nLYNWOOD\t\nUnOpened\n\t\nPublished\n\t\nPublished\n\t\nPublished\n\t\nPublished\n\t\nPublished\n\t\nPublished\n\t\nNORWALK\t\nUnOpened\n\t\nPublished\n\t\nPublished\n\t\nPublished\n\t\nPublished\n\t\nPublished\n\t\nPublished\n\t\nRIALTO\t\nUnOpened\n\t\nPublished\n\t\nPublished\n\t\nPublished\n\t\nPublished\n\t\nPublished\n\t\nPublished\n\t\nSANTA ANA\t\nUnOpened\n\t\nPublished\n\t\nPublished\n\t\nPublished\n\t\nPublished\n\t\nPublished\n\t\nPublished\n\t\nSLAUSON\t\nUnOpened\n\t\nPublished\n\t\nPublished\n\t\nPublished\n\t\nPublished\n\t\nPublished\n\t\nPublished\n\t\nSOUTH GATE\t\nUnOpened\n\t\nPublished\n\t\nPublished\n\t\nPublished\n\t\nPublished\n\t\nPublished\n\t\nPublished\n\t\nWEST COVINA\t\nUnOpened\n\t\nPublished\n\t\nPublished\n\t\nPublished\n\t\nPublished\n\t\nPublished\n\t\nPublished\n\t",
+  "tables": [
+    {
+      "headers": [],
+      "rows": [
+        [
+          "",
+          "Dashboard"
+        ]
+      ]
+    },
+    {
+      "headers": [],
+      "rows": [
+        [
+          "",
+          "Sales"
+        ]
+      ]
+    },
+    {
+      "headers": [],
+      "rows": [
+        [
+          "",
+          "Companies"
+        ]
+      ]
+    },
+    {
+      "headers": [],
+      "rows": [
+        [
+          "",
+          "Users"
+        ]
+      ]
+    },
+    {
+      "headers": [],
+      "rows": [
+        [
+          "",
+          "My Subscriptions"
+        ]
+      ]
+    },
+    {
+      "headers": [],
+      "rows": [
+        [
+          "",
+          "Downloads"
+        ]
+      ]
+    },
+    {
+      "headers": [],
+      "rows": [
+        [
+          "",
+          "Help & Guidance"
+        ]
+      ]
+    },
+    {
+      "headers": [
+        "Tacos El Gavilan Inc",
+        "Mon 08-31",
+        "Sun 08-30",
+        "Sat 08-29",
+        "Fri 08-28",
+        "Thu 08-27",
+        "Wed 08-26",
+        "Tue 08-25"
+      ],
+      "rows": [
+        [],
+        [
+          "AZUSA",
+          "UnOpened",
+          "Published",
+          "Published",
+          "Published",
+          "Published",
+          "Published",
+          "Published",
+          ""
+        ],
+        [
+          "BELL",
+          "UnOpened",
+          "Published",
+          "Published",
+          "Published",
+          "Published",
+          "Published",
+          "Published",
+          ""
+        ],
+        [
+          "BROADWAY",
+          "UnOpened",
+          "Published",
+          "Published",
+          "Published",
+          "Published",
+          "Published",
+          "Published",
+          ""
+        ],
+        [
+          "CENTRAL",
+          "UnOpened",
+          "Published",
+          "Published",
+          "Published",
+          "Published",
+          "Published",
+          "Published",
+          ""
+        ],
+        [
+          "DOWNEY",
+          "UnOpened",
+          "Published",
+          "Published",
+          "Published",
+          "Published",
+          "Published",
+          "Published",
+          ""
+        ],
+        [
+          "HOLLYWOOD",
+          "UnOpened",
+          "Published",
+          "Published",
+          "Published",
+          "Published",
+          "Published",
+          "Published",
+          ""
+        ],
+        [
+          "HUNTINGTON PARK",
+          "UnOpened",
+          "Published",
+          "Published",
+          "Published",
+          "Published",
+          "Published",
+          "Published",
+          ""
+        ],
+        [
+          "LA PUENTE",
+          "UnOpened",
+          "Published",
+          "Published",
+          "Published",
+          "Published",
+          "Published",
+          "Published",
+          ""
+        ],
+        [
+          "LYNWOOD",
+          "UnOpened",
+          "Published",
+          "Published",
+          "Published",
+          "Published",
+          "Published",
+          "Published",
+          ""
+        ],
+        [
+          "NORWALK",
+          "UnOpened",
+          "Published",
+          "Published",
+          "Published",
+          "Published",
+          "Published",
+          "Published",
+          ""
+        ],
+        [
+          "RIALTO",
+          "UnOpened",
+          "Published",
+          "Published",
+          "Published",
+          "Published",
+          "Published",
+          "Published",
+          ""
+        ],
+        [
+          "SANTA ANA",
+          "UnOpened",
+          "Published",
+          "Published",
+          "Published",
+          "Published",
+          "Published",
+          "Published",
+          ""
+        ],
+        [
+          "SLAUSON",
+          "UnOpened",
+          "Published",
+          "Published",
+          "Published",
+          "Published",
+          "Published",
+          "Published",
+          ""
+        ],
+        [
+          "SOUTH GATE",
+          "UnOpened",
+          "Published",
+          "Published",
+          "Published",
+          "Published",
+          "Published",
+          "Published",
+          ""
+        ],
+        [
+          "WEST COVINA",
+          "UnOpened",
+          "Published",
+          "Published",
+          "Published",
+          "Published",
+          "Published",
+          "Published",
+          ""
+        ]
+      ]
+    }
+  ],
+  "selects": []
+}

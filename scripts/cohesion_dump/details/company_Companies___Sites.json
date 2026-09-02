@@ -1,0 +1,69 @@
+{
+  "text": "\n\n\tDashboard\n\tSales\n\tCompanies\n\tUsers\n\tMy Subscriptions\n\tDownloads\n\tHelp & Guidance\n\n\nRelease 2026.8.24.3\nTacos El Gavilan Inc\nRaquel Velazquez \n \nHelp and Guidance Content:\nBrowse below, or search for a specific topic.\nAdding New Workflows\nAdding More Sites\nDashboard\nUsing Sales Workflows\nCompanies & Sites\nUsers\nMy Subscriptions\nDownloads\nTechnical Support or Purchase Training\nFAQ\nLegacy PDF User's Guides\nCompanies & Sites\n  Open In New Tab\n  Print\n\nThis is where you manage the structure everything else in Cohesion hangs off of: your Companies, their Sites, which Source/Target systems each Site connects to, and which Workflows are enabled for it. You won't come here for day-to-day Packet work - this is where you come when something about how Cohesion is set up needs to change, not the daily reconciliation itself.\n\nHow it's organized\nA Company is a legal entity - just a name, nothing more (no address or entity type field). Everything else attaches to it: connected Target systems and Sites.\nEach Company has one or more Sites (restaurant locations) - a Site name, its State/Region (used to determine which Overtime Rules and Minimum Wage apply), and a Time Zone.\nEach Site connects to one or more Sources (POS/time systems), and once a connected Source and the Company's Target both support it, a Workflow can be enabled for that Site.\n\nFrom Companies, click Settings on a Company (or Continue Setup if it's still mid-setup) to reach its Company Management page - three tasks, each with its own Manage/Update button:\n\nConnected Financial Systems - add, connect, or disconnect the Company's Target systems (accounting or payroll).\nSettings for Financial Systems - Company-wide settings for each connected Target (GL structure, vendor lists, and similar).\nSites and Workflows - opens Sites & Workflow Management: add, edit, or delete Sites, connect each Site's Source(s), and enable or disable Workflows per Site.\nExamples of what you might need to change here\nOpening a new location - Sites and Workflows → Add a Site (or Add Another Site once one already exists) - name, State/Region, and Time Zone - then expand it, Connect a Restaurant System, and Enable whichever Workflows become available once that Source and the Company's Target both support them.\nA Target connection lapsed (e.g. QuickBooks reports it's unauthorized) - Connected Financial Systems → reconnect (for QuickBooks, Connect to QuickBooks using an Admin user) → back on Sites and Workflows, Enable the affected Workflow again. If the accounting company itself changed, you'll also need to redo that Workflow's category/account mapping (below) against the new Chart of Accounts.\nYour Chart of Accounts changed - open the affected Site's active Workflow and use Category Mapping (Sales) or Job Mapping (Payroll & Time Entries) to point each category/job at its new account; broader account structure lives in that Workflow's own Settings.\nAdding a Workflow to a Site that already runs one - expand the Site on Sites and Workflows; the newly-available Workflow appears in Available Workflows with an Enable button, as long as a Source it supports is already connected.\nState overtime or minimum wage rules changed - open the affected Site's Payroll-family Workflow, click Settings, and update the Overtime Rules step (weekly/daily/7th-day rules, plus Minimum Wage) for that Site's state.\nClosing a location or disconnecting a system - deleting a Site is permanent and removes every Workflow set up on it, so disable the individual Workflow(s) instead if you just want to stop processing without losing the Site's history. Targets and Sources can each be disconnected independently of deleting anything.",
+  "tables": [
+    {
+      "headers": [],
+      "rows": [
+        [
+          "",
+          "Dashboard"
+        ]
+      ]
+    },
+    {
+      "headers": [],
+      "rows": [
+        [
+          "",
+          "Sales"
+        ]
+      ]
+    },
+    {
+      "headers": [],
+      "rows": [
+        [
+          "",
+          "Companies"
+        ]
+      ]
+    },
+    {
+      "headers": [],
+      "rows": [
+        [
+          "",
+          "Users"
+        ]
+      ]
+    },
+    {
+      "headers": [],
+      "rows": [
+        [
+          "",
+          "My Subscriptions"
+        ]
+      ]
+    },
+    {
+      "headers": [],
+      "rows": [
+        [
+          "",
+          "Downloads"
+        ]
+      ]
+    },
+    {
+      "headers": [],
+      "rows": [
+        [
+          "",
+          "Help & Guidance"
+        ]
+      ]
+    }
+  ],
+  "selects": []
+}

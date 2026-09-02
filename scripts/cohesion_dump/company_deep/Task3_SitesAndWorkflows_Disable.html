@@ -1,0 +1,1340 @@
+<!DOCTYPE html><html style="display: block;"><head>
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cohesion For Restaurants</title>
+    
+    <!-- Add local styles, mostly for plugins css file -->
+    
+    <!-- CSS style (bootstrap/inspinia) - ~/Content/css bundle -->
+    <link rel="stylesheet" href="/Content/bootstrap.css">
+    <link rel="stylesheet" href="/Content/animate.css">
+    <link rel="stylesheet" href="/Content/style.css">
+    
+    <!-- Font Awesome icons - ~/font-awesome/css bundle -->
+    <link rel="stylesheet" href="/fonts/font-awesome/css/font-awesome.min.css">
+    
+    <!-- CSS Style Colorstrap - ~/plugins/colorstrapStyles bundle -->
+    <link rel="stylesheet" href="/Content/plugins/colorstrap/colorstrap.css">
+    
+    <!-- CSS style (cohesion overrides) - ~/cohesion/css bundle -->
+    <link rel="stylesheet" href="/Content/cohesion.css">
+    <link rel="stylesheet" href="/Content/cohesion-color.css">
+    
+    <!-- Jasny styles - ~/Content/jasny bundle -->
+    <link rel="stylesheet" href="/Content/plugins/jasny/jasny-bootstrap.css">
+    
+    <style>
+        html {
+            display: none
+        }
+    </style>
+    
+    <!-- jQuery - ~/bundles/jquery bundle -->
+    <script src="/Scripts/jquery-3.7.1.min.js"></script>
+    
+    <!-- jQuery Unobtrusive Ajax - ~/bundles/jqueryUnobtrusiveAjax bundle -->
+    <script src="/Scripts/jquery.unobtrusive-ajax.min.js"></script>
+    
+    <!-- Bootstrap - ~/bundles/bootstrap bundle -->
+    <script src="/Scripts/bootstrap.min.js"></script>
+    
+    <!-- SlimScroll - ~/plugins/slimScroll bundle -->
+    <script src="/Scripts/plugins/slimscroll/jquery.slimscroll.min.js"></script>
+    
+    <!-- Inspinia script - ~/bundles/inspinia bundle -->
+    <script src="/Scripts/plugins/metisMenu/metisMenu.min.js"></script>
+    <script src="/Scripts/plugins/pace/pace.min.js"></script>
+    <script src="/Scripts/app/inspinia.min.js"></script>
+    
+    <!-- Cohesion - ~/bundles/cohesion bundle -->
+    <script src="/Scripts/cohesion.js"></script>
+    <script src="/Scripts/cohesion.myworkflows.js"></script>
+    
+    <!-- Jasny - ~/plugins/jasny bundle -->
+    <script src="/Scripts/plugins/jasny/jasny-bootstrap.js"></script>
+    
+    
+</head>
+<body class="pace-done"><div class="pace  pace-inactive"><div class="pace-progress" data-progress-text="100%" data-progress="99" style="transform: translate3d(100%, 0px, 0px);">
+  <div class="pace-progress-inner"></div>
+</div>
+<div class="pace-activity"></div></div>
+    <!-- Wrapper-->
+    <div b-mume8xfgo2="" id="wrapper">
+        <!-- Navigation -->
+        
+<nav class="navbar-default navbar-static-side" role="navigation">
+    <div class="sidebar-collapse">
+        <ul class="nav" id="side-menu">
+            <li>
+                <div class="profile-element text-center">
+                    <h2>
+                        <img style="width: 190px" src="/Images/CohesionForRestaurants.png"><br>
+                    </h2>
+                </div>
+                <div class="logo-element">
+                    <img style="width: 40px" src="/Images/CohesionIcon72x72.png">
+                </div>
+            </li>
+                        
+<li class="">
+    <a href="/Dashboard/Main">
+        <table>
+            <tbody><tr>
+                <td class="text-center" style="width: 15%">
+                    <i class="fa fa-dashboard fa-fw" data-toggle="tooltip" data-placement="right" title="Dashboard">
+                    </i>
+                </td>
+                <td>
+                    <span class="nav-label">Dashboard</span>
+                </td>
+            </tr>
+        </tbody></table>
+    </a>
+</li>
+ 
+<li class="">
+    <a href="/MyWorkflowsSales/Main">
+        <table>
+            <tbody><tr>
+                <td class="text-center" style="width: 15%">
+                    <i class="fa fa-money fa-fw" data-toggle="tooltip" data-placement="right" title="Sales Workflows">
+                    </i>
+                </td>
+                <td>
+                    <span class="nav-label">Sales</span>
+                </td>
+            </tr>
+        </tbody></table>
+    </a>
+</li>
+                             <li class="">
+    <a href="/CompanySetup/Main">
+        <table>
+            <tbody><tr>
+                <td class="text-center" style="width: 15%">
+                    <i class="fa fa-university fa-fw" data-toggle="tooltip" data-placement="right" title="Companies">
+                    </i>
+                </td>
+                <td>
+                    <span class="nav-label">Companies</span>
+                </td>
+            </tr>
+        </tbody></table>
+    </a>
+</li>
+
+                            <li class="">
+    <a href="/Users/Main">
+        <table>
+            <tbody><tr>
+                <td class="text-center" style="width: 15%">
+                    <i class="fa fa-users fa-fw" data-toggle="tooltip" data-placement="right" title="Users">
+                    </i>
+                </td>
+                <td>
+                    <span class="nav-label">Users</span>
+                </td>
+            </tr>
+        </tbody></table>
+    </a>
+</li>
+
+                            <li class="">
+    <a href="/Subscriptions/Main">
+        <table>
+            <tbody><tr>
+                <td class="text-center" style="width: 15%">
+                    <i class="fa fa-credit-card fa-fw" data-toggle="tooltip" data-placement="right" title="My Subscriptions">
+                    </i>
+                </td>
+                <td>
+                    <span class="nav-label">My Subscriptions</span>
+                </td>
+            </tr>
+        </tbody></table>
+    </a>
+</li>
+
+                        <li class="">
+    <a href="/Downloads/Main">
+        <table>
+            <tbody><tr>
+                <td class="text-center" style="width: 15%">
+                    <i class="fa fa-download fa-fw" data-toggle="tooltip" data-placement="right" title="Downloads">
+                    </i>
+                </td>
+                <td>
+                    <span class="nav-label">Downloads</span>
+                </td>
+            </tr>
+        </tbody></table>
+    </a>
+</li>
+
+                        <li class="">
+    <a href="/Help/Main">
+        <table>
+            <tbody><tr>
+                <td class="text-center" style="width: 15%">
+                    <i class="fa fa-comment fa-fw" data-toggle="tooltip" data-placement="right" title="Help &amp; Guidance">
+                    </i>
+                </td>
+                <td>
+                    <span class="nav-label">Help &amp; Guidance</span>
+                </td>
+            </tr>
+        </tbody></table>
+    </a>
+</li>
+
+            <li><br></li>
+            <li><div align="center">Release 2026.8.24.3</div></li>
+        </ul>
+    </div>
+</nav>
+
+<script>
+    $(document).ready(function () {
+        if (false) {
+            $('body').addClass('mini-navbar')
+        } else {
+            $('body').removeClass('mini-navbar')
+        }
+    })
+</script>
+
+        <!-- Page wraper -->
+        <div b-mume8xfgo2="" id="page-wrapper" class="gray-bg" style="min-height: 1200px;">
+            <!-- Top Navbar -->
+            <div class="row border-bottom">
+    <nav class="navbar navbar-static-top" role="navigation" style="margin-bottom: 0">
+        <div class="navbar-header">
+            <a id="SideBarToggle" class="navbar-minimalize minimalize-styl-2 btn btn-primary " href="#" onclick="ToggleSideBarIsCollapsed(); return false;">
+                <i class="fa fa-bars"></i>
+            </a>
+        </div>
+        
+<div class="navbar-header">
+        <div class="p-sm">
+            <h3>
+                Tacos El Gavilan Inc 
+            </h3>
+        </div>
+</div>
+
+        <ul class="nav navbar-top-links navbar-right">
+            
+<li class="text-primary">
+    Raquel Velazquez
+</li>
+
+            
+<!-- /.dropdown -->
+<li class="dropdown">
+    <a class="dropdown-toggle" data-toggle="dropdown" href="#">
+        <i class="fa fa-user fa-fw"></i>
+        <i class="fa fa-caret-down"></i>
+    </a>
+    <ul class="dropdown-menu dropdown-user">
+            <li>
+                <a href="/Subscriptions/Main">
+                    <i class="fa fa-credit-card"></i>&nbsp;My Subscription&nbsp;
+                </a>
+            </li>
+        <li>
+            <a href="/Account/ChangeMyPassword">
+                <i class="fa fa-gear"></i>&nbsp;Change My Password&nbsp;
+            </a>
+        </li>
+        <li class="divider"></li>
+        <li>
+            <a href="/Account/SignOut">
+                <i class="fa fa-user"></i>&nbsp;Sign Out&nbsp;
+            </a>
+        </li>
+    </ul>
+    <!-- /.dropdown-user -->
+</li>
+
+        </ul>
+    </nav>
+</div>
+
+<script type="text/javascript">
+    function ToggleSideBarIsCollapsed() {
+        const name = "Cohesion.IsCollapsed=";
+        const cDecoded = decodeURIComponent(document.cookie);
+        const cArr = cDecoded.split("; ");
+        let isCollapsed = "false";
+        
+        cArr.forEach(val => {
+            if (val.indexOf(name) === 0) {
+                isCollapsed = val.substring(name.length);
+            }
+        });
+
+        if (isCollapsed === "false") {
+            document.cookie = "Cohesion.IsCollapsed=true;path=/";
+        } else {
+            document.cookie = "Cohesion.IsCollapsed=false;path=/";
+        }
+
+        // Post to server to update state
+        fetch('/Navigation/UpdateSideBarToggleState', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            }
+        });
+    }
+</script>
+
+            <!-- Main view -->
+            
+
+<input data-val="true" data-val-required="The CompanyId field is required." id="CompanyId" name="CompanyId" type="hidden" value="1866">
+<input data-val="true" data-val-required="The TaskId field is required." id="TaskId" name="TaskId" type="hidden" value="3">
+
+<!-- Page Body -->
+<div id="siteManagement" class="wrapper wrapper-content animated fadeInRight">
+    <div class="row">
+        <div class="ibox float-e-margins">
+            <div class="ibox-title">
+                <div class="pull-right">
+                    <a href="/CompanySetupSiteManagement/Add?CompanyId=1866&amp;TaskId=3&amp;CompanyName=Tacos%20El%20Gavilan%20Inc" class="modal-link btn btn-sm btn-default btn-outline">
+                        <i class="fa fa-map-marker"></i>&nbsp;&nbsp;<strong>Add Another Site</strong>
+                    </a>
+                </div>
+                <h2>
+                    Sites &amp; Workflow Management
+                </h2>
+                Add a Site for each restaurant you operate under this Company. If you have multiple legal companies with separate restaurants operating
+                under different legal entities, then you will want to add a separate Company to Cohesion for each legal entity and add
+                Sites for each restaurant under the appropriate Company.
+            </div>
+                <div class="ibox-content">
+                    <div class="panel-body">
+                        <div class="panel-group" id="sites">
+                                <div class="panel panel-default">
+                                    <div class="panel-heading p-xxs">
+                                        <div class="panel-title">
+                                            <div id="divLoading_2248" class="pull-right vertical-align" style="display: none">
+                                                <i class="fa fa-cog fa-spin fa-2x fa-fw"></i>
+                                            </div>
+                                            <h4>
+                                                <a href="/CompanySetupSiteManagement/Edit/2248?CompanyId=1866&amp;TaskId=3&amp;Name=AZUSA&amp;TimeZoneId=Pacific%20Standard%20Time&amp;RegionStateType=California" class="modal-link btn btn-default btn-xs btn-outline" data-toggle="tooltip" data-placement="bottom" title="Edit"><i class="fa fa-pencil"></i></a>
+                                                <a href="/CompanySetupSiteManagement/Delete/2248?CompanyId=1866&amp;TaskId=3&amp;Name=AZUSA" class="modal-link btn btn-danger btn-xs btn-outline" data-toggle="tooltip" data-placement="bottom" title="Delete">
+                                                    <i class="fa fa-trash-o"></i>
+                                                </a>
+                                                &nbsp;
+                                                AZUSA
+                                                <a class="btn btn-default btn-xs btn-outline pull-right" data-toggle="collapse" data-parent="#sites" href="#2248"><i class="fa fa-cubes"></i> Manage Workflows and Connections</a>
+                                            </h4>
+                                        </div>
+                                    </div>
+                                    <div id="2248" class="panel-collapse collapse ">
+                                        <div class="panel-body">
+                                            <div class="table-responsive">
+                                                <table class="table table-condensed">
+                                                    <tbody>
+                                                            <tr>
+                                                                <td class="col-lg-2" style="vertical-align: middle">
+                                                                    <a href="/CompanySetupSourceManagement/List?CompanyId=1866&amp;TaskId=3&amp;siteId=2248" class="btn btn-sm btn-block btn-primary btn-outline" data-toggle="tooltip" data-placement="bottom" title="Update Connections">
+                                                                        <i class="fa fa-gear"></i>&nbsp;Update
+                                                                    </a>
+                                                                </td>
+                                                                <td class="col-lg-10">
+                                                                    <h3 class="m-b-none">Update the Restaurant System Connection(s) For This Site</h3>
+                                                                    <small>The Workflows listed below are dependent on these Connections.</small>
+                                                                </td>
+                                                            </tr>
+                                                    </tbody>
+                                                </table>
+                                            </div>
+
+                                                <div class="table-responsive">
+                                                    <table class="table table-condensed table-hover">
+                                                        <thead>
+                                                            <tr>
+                                                                <td class="col-lg-2"><strong>Available Workflows</strong></td>
+                                                                <td class="col-lg-10"></td>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                                    <tr>
+                                                                        <td style="vertical-align: middle">
+                                                                            <a href="/CompanySetupWorkflowManagement/ActivateWorkflow?CompanyId=1866&amp;TaskId=3&amp;TargetId=2063&amp;siteId=2248&amp;siteName=AZUSA&amp;workflowId=2606&amp;SubscriptionType=SalesToastToQbOnline" id="workflow_2606" onclick="DisableElementById('workflow_2606'); IsLoading('#divLoading_2248')" class="btn btn-sm btn-block btn-primary btn-outline" data-toggle="tooltip" data-placement="bottom" title="Enable Workflow">
+                                                                                <i class="fa fa-plug"></i>&nbsp;Enable
+                                                                            </a>
+                                                                        </td>
+                                                                        <td style="vertical-align: middle">
+                                                                            <h4>
+                                                                                Sales Workflow - Toast to QuickBooks Online
+                                                                            </h4>
+                                                                        </td>
+                                                                    </tr>
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+
+
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="panel panel-default">
+                                    <div class="panel-heading p-xxs">
+                                        <div class="panel-title">
+                                            <div id="divLoading_2259" class="pull-right vertical-align" style="display: none">
+                                                <i class="fa fa-cog fa-spin fa-2x fa-fw"></i>
+                                            </div>
+                                            <h4>
+                                                <a href="/CompanySetupSiteManagement/Edit/2259?CompanyId=1866&amp;TaskId=3&amp;Name=BELL&amp;TimeZoneId=Pacific%20Standard%20Time&amp;RegionStateType=California" class="modal-link btn btn-default btn-xs btn-outline" data-toggle="tooltip" data-placement="bottom" title="Edit"><i class="fa fa-pencil"></i></a>
+                                                <a href="/CompanySetupSiteManagement/Delete/2259?CompanyId=1866&amp;TaskId=3&amp;Name=BELL" class="modal-link btn btn-danger btn-xs btn-outline" data-toggle="tooltip" data-placement="bottom" title="Delete">
+                                                    <i class="fa fa-trash-o"></i>
+                                                </a>
+                                                &nbsp;
+                                                BELL
+                                                <a class="btn btn-default btn-xs btn-outline pull-right" data-toggle="collapse" data-parent="#sites" href="#2259"><i class="fa fa-cubes"></i> Manage Workflows and Connections</a>
+                                            </h4>
+                                        </div>
+                                    </div>
+                                    <div id="2259" class="panel-collapse collapse ">
+                                        <div class="panel-body">
+                                            <div class="table-responsive">
+                                                <table class="table table-condensed">
+                                                    <tbody>
+                                                            <tr>
+                                                                <td class="col-lg-2" style="vertical-align: middle">
+                                                                    <a href="/CompanySetupSourceManagement/List?CompanyId=1866&amp;TaskId=3&amp;siteId=2259" class="btn btn-sm btn-block btn-primary btn-outline" data-toggle="tooltip" data-placement="bottom" title="Update Connections">
+                                                                        <i class="fa fa-gear"></i>&nbsp;Update
+                                                                    </a>
+                                                                </td>
+                                                                <td class="col-lg-10">
+                                                                    <h3 class="m-b-none">Update the Restaurant System Connection(s) For This Site</h3>
+                                                                    <small>The Workflows listed below are dependent on these Connections.</small>
+                                                                </td>
+                                                            </tr>
+                                                    </tbody>
+                                                </table>
+                                            </div>
+
+                                                <div class="table-responsive">
+                                                    <table class="table table-condensed table-hover">
+                                                        <thead>
+                                                            <tr>
+                                                                <td class="col-lg-2"><strong>Available Workflows</strong></td>
+                                                                <td class="col-lg-10"></td>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                                    <tr>
+                                                                        <td style="vertical-align: middle">
+                                                                            <a href="/CompanySetupWorkflowManagement/ActivateWorkflow?CompanyId=1866&amp;TaskId=3&amp;TargetId=2063&amp;siteId=2259&amp;siteName=BELL&amp;workflowId=2617&amp;SubscriptionType=SalesToastToQbOnline" id="workflow_2617" onclick="DisableElementById('workflow_2617'); IsLoading('#divLoading_2259')" class="btn btn-sm btn-block btn-primary btn-outline" data-toggle="tooltip" data-placement="bottom" title="Enable Workflow">
+                                                                                <i class="fa fa-plug"></i>&nbsp;Enable
+                                                                            </a>
+                                                                        </td>
+                                                                        <td style="vertical-align: middle">
+                                                                            <h4>
+                                                                                Sales Workflow - Toast to QuickBooks Online
+                                                                            </h4>
+                                                                        </td>
+                                                                    </tr>
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+
+
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="panel panel-default">
+                                    <div class="panel-heading p-xxs">
+                                        <div class="panel-title">
+                                            <div id="divLoading_2231" class="pull-right vertical-align" style="display: none">
+                                                <i class="fa fa-cog fa-spin fa-2x fa-fw"></i>
+                                            </div>
+                                            <h4>
+                                                <a href="/CompanySetupSiteManagement/Edit/2231?CompanyId=1866&amp;TaskId=3&amp;Name=BROADWAY&amp;TimeZoneId=Pacific%20Standard%20Time&amp;RegionStateType=California" class="modal-link btn btn-default btn-xs btn-outline" data-toggle="tooltip" data-placement="bottom" title="Edit"><i class="fa fa-pencil"></i></a>
+                                                <a href="/CompanySetupSiteManagement/Delete/2231?CompanyId=1866&amp;TaskId=3&amp;Name=BROADWAY" class="modal-link btn btn-danger btn-xs btn-outline" data-toggle="tooltip" data-placement="bottom" title="Delete">
+                                                    <i class="fa fa-trash-o"></i>
+                                                </a>
+                                                &nbsp;
+                                                BROADWAY
+                                                <a class="btn btn-default btn-xs btn-outline pull-right" data-toggle="collapse" data-parent="#sites" href="#2231"><i class="fa fa-cubes"></i> Manage Workflows and Connections</a>
+                                            </h4>
+                                        </div>
+                                    </div>
+                                    <div id="2231" class="panel-collapse collapse ">
+                                        <div class="panel-body">
+                                            <div class="table-responsive">
+                                                <table class="table table-condensed">
+                                                    <tbody>
+                                                            <tr>
+                                                                <td class="col-lg-2" style="vertical-align: middle">
+                                                                    <a href="/CompanySetupSourceManagement/List?CompanyId=1866&amp;TaskId=3&amp;siteId=2231" class="btn btn-sm btn-block btn-primary btn-outline" data-toggle="tooltip" data-placement="bottom" title="Update Connections">
+                                                                        <i class="fa fa-gear"></i>&nbsp;Update
+                                                                    </a>
+                                                                </td>
+                                                                <td class="col-lg-10">
+                                                                    <h3 class="m-b-none">Update the Restaurant System Connection(s) For This Site</h3>
+                                                                    <small>The Workflows listed below are dependent on these Connections.</small>
+                                                                </td>
+                                                            </tr>
+                                                    </tbody>
+                                                </table>
+                                            </div>
+
+                                                <div class="table-responsive">
+                                                    <table class="table table-condensed table-hover">
+                                                        <thead>
+                                                            <tr>
+                                                                <td class="col-lg-2"><strong>Available Workflows</strong></td>
+                                                                <td class="col-lg-10"></td>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                                    <tr>
+                                                                        <td style="vertical-align: middle">
+                                                                            <a href="/CompanySetupWorkflowManagement/ActivateWorkflow?CompanyId=1866&amp;TaskId=3&amp;TargetId=2063&amp;siteId=2231&amp;siteName=BROADWAY&amp;workflowId=2593&amp;SubscriptionType=SalesToastToQbOnline" id="workflow_2593" onclick="DisableElementById('workflow_2593'); IsLoading('#divLoading_2231')" class="btn btn-sm btn-block btn-primary btn-outline" data-toggle="tooltip" data-placement="bottom" title="Enable Workflow">
+                                                                                <i class="fa fa-plug"></i>&nbsp;Enable
+                                                                            </a>
+                                                                        </td>
+                                                                        <td style="vertical-align: middle">
+                                                                            <h4>
+                                                                                Sales Workflow - Toast to QuickBooks Online
+                                                                            </h4>
+                                                                        </td>
+                                                                    </tr>
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+
+
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="panel panel-default">
+                                    <div class="panel-heading p-xxs">
+                                        <div class="panel-title">
+                                            <div id="divLoading_2240" class="pull-right vertical-align" style="display: none">
+                                                <i class="fa fa-cog fa-spin fa-2x fa-fw"></i>
+                                            </div>
+                                            <h4>
+                                                <a href="/CompanySetupSiteManagement/Edit/2240?CompanyId=1866&amp;TaskId=3&amp;Name=CENTRAL&amp;TimeZoneId=Pacific%20Standard%20Time&amp;RegionStateType=California" class="modal-link btn btn-default btn-xs btn-outline" data-toggle="tooltip" data-placement="bottom" title="Edit"><i class="fa fa-pencil"></i></a>
+                                                <a href="/CompanySetupSiteManagement/Delete/2240?CompanyId=1866&amp;TaskId=3&amp;Name=CENTRAL" class="modal-link btn btn-danger btn-xs btn-outline" data-toggle="tooltip" data-placement="bottom" title="Delete">
+                                                    <i class="fa fa-trash-o"></i>
+                                                </a>
+                                                &nbsp;
+                                                CENTRAL
+                                                <a class="btn btn-default btn-xs btn-outline pull-right" data-toggle="collapse" data-parent="#sites" href="#2240"><i class="fa fa-cubes"></i> Manage Workflows and Connections</a>
+                                            </h4>
+                                        </div>
+                                    </div>
+                                    <div id="2240" class="panel-collapse collapse ">
+                                        <div class="panel-body">
+                                            <div class="table-responsive">
+                                                <table class="table table-condensed">
+                                                    <tbody>
+                                                            <tr>
+                                                                <td class="col-lg-2" style="vertical-align: middle">
+                                                                    <a href="/CompanySetupSourceManagement/List?CompanyId=1866&amp;TaskId=3&amp;siteId=2240" class="btn btn-sm btn-block btn-primary btn-outline" data-toggle="tooltip" data-placement="bottom" title="Update Connections">
+                                                                        <i class="fa fa-gear"></i>&nbsp;Update
+                                                                    </a>
+                                                                </td>
+                                                                <td class="col-lg-10">
+                                                                    <h3 class="m-b-none">Update the Restaurant System Connection(s) For This Site</h3>
+                                                                    <small>The Workflows listed below are dependent on these Connections.</small>
+                                                                </td>
+                                                            </tr>
+                                                    </tbody>
+                                                </table>
+                                            </div>
+
+                                                <div class="table-responsive">
+                                                    <table class="table table-condensed table-hover">
+                                                        <thead>
+                                                            <tr>
+                                                                <td class="col-lg-2"><strong>Available Workflows</strong></td>
+                                                                <td class="col-lg-10"></td>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                                    <tr>
+                                                                        <td style="vertical-align: middle">
+                                                                            <a href="/CompanySetupWorkflowManagement/ActivateWorkflow?CompanyId=1866&amp;TaskId=3&amp;TargetId=2063&amp;siteId=2240&amp;siteName=CENTRAL&amp;workflowId=2598&amp;SubscriptionType=SalesToastToQbOnline" id="workflow_2598" onclick="DisableElementById('workflow_2598'); IsLoading('#divLoading_2240')" class="btn btn-sm btn-block btn-primary btn-outline" data-toggle="tooltip" data-placement="bottom" title="Enable Workflow">
+                                                                                <i class="fa fa-plug"></i>&nbsp;Enable
+                                                                            </a>
+                                                                        </td>
+                                                                        <td style="vertical-align: middle">
+                                                                            <h4>
+                                                                                Sales Workflow - Toast to QuickBooks Online
+                                                                            </h4>
+                                                                        </td>
+                                                                    </tr>
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+
+
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="panel panel-default">
+                                    <div class="panel-heading p-xxs">
+                                        <div class="panel-title">
+                                            <div id="divLoading_2193" class="pull-right vertical-align" style="display: none">
+                                                <i class="fa fa-cog fa-spin fa-2x fa-fw"></i>
+                                            </div>
+                                            <h4>
+                                                <a href="/CompanySetupSiteManagement/Edit/2193?CompanyId=1866&amp;TaskId=3&amp;Name=DOWNEY&amp;TimeZoneId=Pacific%20Standard%20Time&amp;RegionStateType=California" class="modal-link btn btn-default btn-xs btn-outline" data-toggle="tooltip" data-placement="bottom" title="Edit"><i class="fa fa-pencil"></i></a>
+                                                <a href="/CompanySetupSiteManagement/Delete/2193?CompanyId=1866&amp;TaskId=3&amp;Name=DOWNEY" class="modal-link btn btn-danger btn-xs btn-outline" data-toggle="tooltip" data-placement="bottom" title="Delete">
+                                                    <i class="fa fa-trash-o"></i>
+                                                </a>
+                                                &nbsp;
+                                                DOWNEY
+                                                <a class="btn btn-default btn-xs btn-outline pull-right" data-toggle="collapse" data-parent="#sites" href="#2193"><i class="fa fa-cubes"></i> Manage Workflows and Connections</a>
+                                            </h4>
+                                        </div>
+                                    </div>
+                                    <div id="2193" class="panel-collapse collapse ">
+                                        <div class="panel-body">
+                                            <div class="table-responsive">
+                                                <table class="table table-condensed">
+                                                    <tbody>
+                                                            <tr>
+                                                                <td class="col-lg-2" style="vertical-align: middle">
+                                                                    <a href="/CompanySetupSourceManagement/List?CompanyId=1866&amp;TaskId=3&amp;siteId=2193" class="btn btn-sm btn-block btn-primary btn-outline" data-toggle="tooltip" data-placement="bottom" title="Update Connections">
+                                                                        <i class="fa fa-gear"></i>&nbsp;Update
+                                                                    </a>
+                                                                </td>
+                                                                <td class="col-lg-10">
+                                                                    <h3 class="m-b-none">Update the Restaurant System Connection(s) For This Site</h3>
+                                                                    <small>The Workflows listed below are dependent on these Connections.</small>
+                                                                </td>
+                                                            </tr>
+                                                    </tbody>
+                                                </table>
+                                            </div>
+
+                                                <div class="table-responsive">
+                                                    <table class="table table-condensed table-hover">
+                                                        <thead>
+                                                            <tr>
+                                                                <td class="col-lg-2"><strong>Available Workflows</strong></td>
+                                                                <td class="col-lg-10"></td>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                                    <tr>
+                                                                        <td style="vertical-align: middle">
+                                                                            <a href="/CompanySetupWorkflowManagement/ActivateWorkflow?CompanyId=1866&amp;TaskId=3&amp;TargetId=2063&amp;siteId=2193&amp;siteName=DOWNEY&amp;workflowId=2556&amp;SubscriptionType=SalesToastToQbOnline" id="workflow_2556" onclick="DisableElementById('workflow_2556'); IsLoading('#divLoading_2193')" class="btn btn-sm btn-block btn-primary btn-outline" data-toggle="tooltip" data-placement="bottom" title="Enable Workflow">
+                                                                                <i class="fa fa-plug"></i>&nbsp;Enable
+                                                                            </a>
+                                                                        </td>
+                                                                        <td style="vertical-align: middle">
+                                                                            <h4>
+                                                                                Sales Workflow - Toast to QuickBooks Online
+                                                                            </h4>
+                                                                        </td>
+                                                                    </tr>
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+
+
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="panel panel-default">
+                                    <div class="panel-heading p-xxs">
+                                        <div class="panel-title">
+                                            <div id="divLoading_2280" class="pull-right vertical-align" style="display: none">
+                                                <i class="fa fa-cog fa-spin fa-2x fa-fw"></i>
+                                            </div>
+                                            <h4>
+                                                <a href="/CompanySetupSiteManagement/Edit/2280?CompanyId=1866&amp;TaskId=3&amp;Name=HOLLYWOOD&amp;TimeZoneId=Pacific%20Standard%20Time&amp;RegionStateType=California" class="modal-link btn btn-default btn-xs btn-outline" data-toggle="tooltip" data-placement="bottom" title="Edit"><i class="fa fa-pencil"></i></a>
+                                                <a href="/CompanySetupSiteManagement/Delete/2280?CompanyId=1866&amp;TaskId=3&amp;Name=HOLLYWOOD" class="modal-link btn btn-danger btn-xs btn-outline" data-toggle="tooltip" data-placement="bottom" title="Delete">
+                                                    <i class="fa fa-trash-o"></i>
+                                                </a>
+                                                &nbsp;
+                                                HOLLYWOOD
+                                                <a class="btn btn-default btn-xs btn-outline pull-right" data-toggle="collapse" data-parent="#sites" href="#2280"><i class="fa fa-cubes"></i> Manage Workflows and Connections</a>
+                                            </h4>
+                                        </div>
+                                    </div>
+                                    <div id="2280" class="panel-collapse collapse ">
+                                        <div class="panel-body">
+                                            <div class="table-responsive">
+                                                <table class="table table-condensed">
+                                                    <tbody>
+                                                            <tr>
+                                                                <td class="col-lg-2" style="vertical-align: middle">
+                                                                    <a href="/CompanySetupSourceManagement/List?CompanyId=1866&amp;TaskId=3&amp;siteId=2280" class="btn btn-sm btn-block btn-primary btn-outline" data-toggle="tooltip" data-placement="bottom" title="Update Connections">
+                                                                        <i class="fa fa-gear"></i>&nbsp;Update
+                                                                    </a>
+                                                                </td>
+                                                                <td class="col-lg-10">
+                                                                    <h3 class="m-b-none">Update the Restaurant System Connection(s) For This Site</h3>
+                                                                    <small>The Workflows listed below are dependent on these Connections.</small>
+                                                                </td>
+                                                            </tr>
+                                                    </tbody>
+                                                </table>
+                                            </div>
+
+                                                <div class="table-responsive">
+                                                    <table class="table table-condensed table-hover">
+                                                        <thead>
+                                                            <tr>
+                                                                <td class="col-lg-2"><strong>Available Workflows</strong></td>
+                                                                <td class="col-lg-10"></td>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                                    <tr>
+                                                                        <td style="vertical-align: middle">
+                                                                            <a href="/CompanySetupWorkflowManagement/ActivateWorkflow?CompanyId=1866&amp;TaskId=3&amp;TargetId=2063&amp;siteId=2280&amp;siteName=HOLLYWOOD&amp;workflowId=2637&amp;SubscriptionType=SalesToastToQbOnline" id="workflow_2637" onclick="DisableElementById('workflow_2637'); IsLoading('#divLoading_2280')" class="btn btn-sm btn-block btn-primary btn-outline" data-toggle="tooltip" data-placement="bottom" title="Enable Workflow">
+                                                                                <i class="fa fa-plug"></i>&nbsp;Enable
+                                                                            </a>
+                                                                        </td>
+                                                                        <td style="vertical-align: middle">
+                                                                            <h4>
+                                                                                Sales Workflow - Toast to QuickBooks Online
+                                                                            </h4>
+                                                                        </td>
+                                                                    </tr>
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+
+
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="panel panel-default">
+                                    <div class="panel-heading p-xxs">
+                                        <div class="panel-title">
+                                            <div id="divLoading_2276" class="pull-right vertical-align" style="display: none">
+                                                <i class="fa fa-cog fa-spin fa-2x fa-fw"></i>
+                                            </div>
+                                            <h4>
+                                                <a href="/CompanySetupSiteManagement/Edit/2276?CompanyId=1866&amp;TaskId=3&amp;Name=HUNTINGTON%20PARK&amp;TimeZoneId=Pacific%20Standard%20Time&amp;RegionStateType=California" class="modal-link btn btn-default btn-xs btn-outline" data-toggle="tooltip" data-placement="bottom" title="Edit"><i class="fa fa-pencil"></i></a>
+                                                <a href="/CompanySetupSiteManagement/Delete/2276?CompanyId=1866&amp;TaskId=3&amp;Name=HUNTINGTON%20PARK" class="modal-link btn btn-danger btn-xs btn-outline" data-toggle="tooltip" data-placement="bottom" title="Delete">
+                                                    <i class="fa fa-trash-o"></i>
+                                                </a>
+                                                &nbsp;
+                                                HUNTINGTON PARK
+                                                <a class="btn btn-default btn-xs btn-outline pull-right" data-toggle="collapse" data-parent="#sites" href="#2276"><i class="fa fa-cubes"></i> Manage Workflows and Connections</a>
+                                            </h4>
+                                        </div>
+                                    </div>
+                                    <div id="2276" class="panel-collapse collapse ">
+                                        <div class="panel-body">
+                                            <div class="table-responsive">
+                                                <table class="table table-condensed">
+                                                    <tbody>
+                                                            <tr>
+                                                                <td class="col-lg-2" style="vertical-align: middle">
+                                                                    <a href="/CompanySetupSourceManagement/List?CompanyId=1866&amp;TaskId=3&amp;siteId=2276" class="btn btn-sm btn-block btn-primary btn-outline" data-toggle="tooltip" data-placement="bottom" title="Update Connections">
+                                                                        <i class="fa fa-gear"></i>&nbsp;Update
+                                                                    </a>
+                                                                </td>
+                                                                <td class="col-lg-10">
+                                                                    <h3 class="m-b-none">Update the Restaurant System Connection(s) For This Site</h3>
+                                                                    <small>The Workflows listed below are dependent on these Connections.</small>
+                                                                </td>
+                                                            </tr>
+                                                    </tbody>
+                                                </table>
+                                            </div>
+
+                                                <div class="table-responsive">
+                                                    <table class="table table-condensed table-hover">
+                                                        <thead>
+                                                            <tr>
+                                                                <td class="col-lg-2"><strong>Available Workflows</strong></td>
+                                                                <td class="col-lg-10"></td>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                                    <tr>
+                                                                        <td style="vertical-align: middle">
+                                                                            <a href="/CompanySetupWorkflowManagement/ActivateWorkflow?CompanyId=1866&amp;TaskId=3&amp;TargetId=2063&amp;siteId=2276&amp;siteName=HUNTINGTON%20PARK&amp;workflowId=2631&amp;SubscriptionType=SalesToastToQbOnline" id="workflow_2631" onclick="DisableElementById('workflow_2631'); IsLoading('#divLoading_2276')" class="btn btn-sm btn-block btn-primary btn-outline" data-toggle="tooltip" data-placement="bottom" title="Enable Workflow">
+                                                                                <i class="fa fa-plug"></i>&nbsp;Enable
+                                                                            </a>
+                                                                        </td>
+                                                                        <td style="vertical-align: middle">
+                                                                            <h4>
+                                                                                Sales Workflow - Toast to QuickBooks Online
+                                                                            </h4>
+                                                                        </td>
+                                                                    </tr>
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+
+
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="panel panel-default">
+                                    <div class="panel-heading p-xxs">
+                                        <div class="panel-title">
+                                            <div id="divLoading_2254" class="pull-right vertical-align" style="display: none">
+                                                <i class="fa fa-cog fa-spin fa-2x fa-fw"></i>
+                                            </div>
+                                            <h4>
+                                                <a href="/CompanySetupSiteManagement/Edit/2254?CompanyId=1866&amp;TaskId=3&amp;Name=LA%20PUENTE&amp;TimeZoneId=Pacific%20Standard%20Time&amp;RegionStateType=California" class="modal-link btn btn-default btn-xs btn-outline" data-toggle="tooltip" data-placement="bottom" title="Edit"><i class="fa fa-pencil"></i></a>
+                                                <a href="/CompanySetupSiteManagement/Delete/2254?CompanyId=1866&amp;TaskId=3&amp;Name=LA%20PUENTE" class="modal-link btn btn-danger btn-xs btn-outline" data-toggle="tooltip" data-placement="bottom" title="Delete">
+                                                    <i class="fa fa-trash-o"></i>
+                                                </a>
+                                                &nbsp;
+                                                LA PUENTE
+                                                <a class="btn btn-default btn-xs btn-outline pull-right" data-toggle="collapse" data-parent="#sites" href="#2254"><i class="fa fa-cubes"></i> Manage Workflows and Connections</a>
+                                            </h4>
+                                        </div>
+                                    </div>
+                                    <div id="2254" class="panel-collapse collapse ">
+                                        <div class="panel-body">
+                                            <div class="table-responsive">
+                                                <table class="table table-condensed">
+                                                    <tbody>
+                                                            <tr>
+                                                                <td class="col-lg-2" style="vertical-align: middle">
+                                                                    <a href="/CompanySetupSourceManagement/List?CompanyId=1866&amp;TaskId=3&amp;siteId=2254" class="btn btn-sm btn-block btn-primary btn-outline" data-toggle="tooltip" data-placement="bottom" title="Update Connections">
+                                                                        <i class="fa fa-gear"></i>&nbsp;Update
+                                                                    </a>
+                                                                </td>
+                                                                <td class="col-lg-10">
+                                                                    <h3 class="m-b-none">Update the Restaurant System Connection(s) For This Site</h3>
+                                                                    <small>The Workflows listed below are dependent on these Connections.</small>
+                                                                </td>
+                                                            </tr>
+                                                    </tbody>
+                                                </table>
+                                            </div>
+
+                                                <div class="table-responsive">
+                                                    <table class="table table-condensed table-hover">
+                                                        <thead>
+                                                            <tr>
+                                                                <td class="col-lg-2"><strong>Available Workflows</strong></td>
+                                                                <td class="col-lg-10"></td>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                                    <tr>
+                                                                        <td style="vertical-align: middle">
+                                                                            <a href="/CompanySetupWorkflowManagement/ActivateWorkflow?CompanyId=1866&amp;TaskId=3&amp;TargetId=2063&amp;siteId=2254&amp;siteName=LA%20PUENTE&amp;workflowId=2614&amp;SubscriptionType=SalesToastToQbOnline" id="workflow_2614" onclick="DisableElementById('workflow_2614'); IsLoading('#divLoading_2254')" class="btn btn-sm btn-block btn-primary btn-outline" data-toggle="tooltip" data-placement="bottom" title="Enable Workflow">
+                                                                                <i class="fa fa-plug"></i>&nbsp;Enable
+                                                                            </a>
+                                                                        </td>
+                                                                        <td style="vertical-align: middle">
+                                                                            <h4>
+                                                                                Sales Workflow - Toast to QuickBooks Online
+                                                                            </h4>
+                                                                        </td>
+                                                                    </tr>
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+
+
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="panel panel-default">
+                                    <div class="panel-heading p-xxs">
+                                        <div class="panel-title">
+                                            <div id="divLoading_2262" class="pull-right vertical-align" style="display: none">
+                                                <i class="fa fa-cog fa-spin fa-2x fa-fw"></i>
+                                            </div>
+                                            <h4>
+                                                <a href="/CompanySetupSiteManagement/Edit/2262?CompanyId=1866&amp;TaskId=3&amp;Name=LYNWOOD&amp;TimeZoneId=Pacific%20Standard%20Time&amp;RegionStateType=California" class="modal-link btn btn-default btn-xs btn-outline" data-toggle="tooltip" data-placement="bottom" title="Edit"><i class="fa fa-pencil"></i></a>
+                                                <a href="/CompanySetupSiteManagement/Delete/2262?CompanyId=1866&amp;TaskId=3&amp;Name=LYNWOOD" class="modal-link btn btn-danger btn-xs btn-outline" data-toggle="tooltip" data-placement="bottom" title="Delete">
+                                                    <i class="fa fa-trash-o"></i>
+                                                </a>
+                                                &nbsp;
+                                                LYNWOOD
+                                                <a class="btn btn-default btn-xs btn-outline pull-right" data-toggle="collapse" data-parent="#sites" href="#2262"><i class="fa fa-cubes"></i> Manage Workflows and Connections</a>
+                                            </h4>
+                                        </div>
+                                    </div>
+                                    <div id="2262" class="panel-collapse collapse ">
+                                        <div class="panel-body">
+                                            <div class="table-responsive">
+                                                <table class="table table-condensed">
+                                                    <tbody>
+                                                            <tr>
+                                                                <td class="col-lg-2" style="vertical-align: middle">
+                                                                    <a href="/CompanySetupSourceManagement/List?CompanyId=1866&amp;TaskId=3&amp;siteId=2262" class="btn btn-sm btn-block btn-primary btn-outline" data-toggle="tooltip" data-placement="bottom" title="Update Connections">
+                                                                        <i class="fa fa-gear"></i>&nbsp;Update
+                                                                    </a>
+                                                                </td>
+                                                                <td class="col-lg-10">
+                                                                    <h3 class="m-b-none">Update the Restaurant System Connection(s) For This Site</h3>
+                                                                    <small>The Workflows listed below are dependent on these Connections.</small>
+                                                                </td>
+                                                            </tr>
+                                                    </tbody>
+                                                </table>
+                                            </div>
+
+                                                <div class="table-responsive">
+                                                    <table class="table table-condensed table-hover">
+                                                        <thead>
+                                                            <tr>
+                                                                <td class="col-lg-2"><strong>Available Workflows</strong></td>
+                                                                <td class="col-lg-10"></td>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                                    <tr>
+                                                                        <td style="vertical-align: middle">
+                                                                            <a href="/CompanySetupWorkflowManagement/ActivateWorkflow?CompanyId=1866&amp;TaskId=3&amp;TargetId=2063&amp;siteId=2262&amp;siteName=LYNWOOD&amp;workflowId=2622&amp;SubscriptionType=SalesToastToQbOnline" id="workflow_2622" onclick="DisableElementById('workflow_2622'); IsLoading('#divLoading_2262')" class="btn btn-sm btn-block btn-primary btn-outline" data-toggle="tooltip" data-placement="bottom" title="Enable Workflow">
+                                                                                <i class="fa fa-plug"></i>&nbsp;Enable
+                                                                            </a>
+                                                                        </td>
+                                                                        <td style="vertical-align: middle">
+                                                                            <h4>
+                                                                                Sales Workflow - Toast to QuickBooks Online
+                                                                            </h4>
+                                                                        </td>
+                                                                    </tr>
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+
+
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="panel panel-default">
+                                    <div class="panel-heading p-xxs">
+                                        <div class="panel-title">
+                                            <div id="divLoading_2201" class="pull-right vertical-align" style="display: none">
+                                                <i class="fa fa-cog fa-spin fa-2x fa-fw"></i>
+                                            </div>
+                                            <h4>
+                                                <a href="/CompanySetupSiteManagement/Edit/2201?CompanyId=1866&amp;TaskId=3&amp;Name=NORWALK&amp;TimeZoneId=Pacific%20Standard%20Time&amp;RegionStateType=California" class="modal-link btn btn-default btn-xs btn-outline" data-toggle="tooltip" data-placement="bottom" title="Edit"><i class="fa fa-pencil"></i></a>
+                                                <a href="/CompanySetupSiteManagement/Delete/2201?CompanyId=1866&amp;TaskId=3&amp;Name=NORWALK" class="modal-link btn btn-danger btn-xs btn-outline" data-toggle="tooltip" data-placement="bottom" title="Delete">
+                                                    <i class="fa fa-trash-o"></i>
+                                                </a>
+                                                &nbsp;
+                                                NORWALK
+                                                <a class="btn btn-default btn-xs btn-outline pull-right" data-toggle="collapse" data-parent="#sites" href="#2201"><i class="fa fa-cubes"></i> Manage Workflows and Connections</a>
+                                            </h4>
+                                        </div>
+                                    </div>
+                                    <div id="2201" class="panel-collapse collapse ">
+                                        <div class="panel-body">
+                                            <div class="table-responsive">
+                                                <table class="table table-condensed">
+                                                    <tbody>
+                                                            <tr>
+                                                                <td class="col-lg-2" style="vertical-align: middle">
+                                                                    <a href="/CompanySetupSourceManagement/List?CompanyId=1866&amp;TaskId=3&amp;siteId=2201" class="btn btn-sm btn-block btn-primary btn-outline" data-toggle="tooltip" data-placement="bottom" title="Update Connections">
+                                                                        <i class="fa fa-gear"></i>&nbsp;Update
+                                                                    </a>
+                                                                </td>
+                                                                <td class="col-lg-10">
+                                                                    <h3 class="m-b-none">Update the Restaurant System Connection(s) For This Site</h3>
+                                                                    <small>The Workflows listed below are dependent on these Connections.</small>
+                                                                </td>
+                                                            </tr>
+                                                    </tbody>
+                                                </table>
+                                            </div>
+
+                                                <div class="table-responsive">
+                                                    <table class="table table-condensed table-hover">
+                                                        <thead>
+                                                            <tr>
+                                                                <td class="col-lg-2"><strong>Available Workflows</strong></td>
+                                                                <td class="col-lg-10"></td>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                                    <tr>
+                                                                        <td style="vertical-align: middle">
+                                                                            <a href="/CompanySetupWorkflowManagement/ActivateWorkflow?CompanyId=1866&amp;TaskId=3&amp;TargetId=2063&amp;siteId=2201&amp;siteName=NORWALK&amp;workflowId=2594&amp;SubscriptionType=SalesToastToQbOnline" id="workflow_2594" onclick="DisableElementById('workflow_2594'); IsLoading('#divLoading_2201')" class="btn btn-sm btn-block btn-primary btn-outline" data-toggle="tooltip" data-placement="bottom" title="Enable Workflow">
+                                                                                <i class="fa fa-plug"></i>&nbsp;Enable
+                                                                            </a>
+                                                                        </td>
+                                                                        <td style="vertical-align: middle">
+                                                                            <h4>
+                                                                                Sales Workflow - Toast to QuickBooks Online
+                                                                            </h4>
+                                                                        </td>
+                                                                    </tr>
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+
+
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="panel panel-default">
+                                    <div class="panel-heading p-xxs">
+                                        <div class="panel-title">
+                                            <div id="divLoading_2342" class="pull-right vertical-align" style="display: none">
+                                                <i class="fa fa-cog fa-spin fa-2x fa-fw"></i>
+                                            </div>
+                                            <h4>
+                                                <a href="/CompanySetupSiteManagement/Edit/2342?CompanyId=1866&amp;TaskId=3&amp;Name=RIALTO&amp;TimeZoneId=Pacific%20Standard%20Time&amp;RegionStateType=California" class="modal-link btn btn-default btn-xs btn-outline" data-toggle="tooltip" data-placement="bottom" title="Edit"><i class="fa fa-pencil"></i></a>
+                                                <a href="/CompanySetupSiteManagement/Delete/2342?CompanyId=1866&amp;TaskId=3&amp;Name=RIALTO" class="modal-link btn btn-danger btn-xs btn-outline" data-toggle="tooltip" data-placement="bottom" title="Delete">
+                                                    <i class="fa fa-trash-o"></i>
+                                                </a>
+                                                &nbsp;
+                                                RIALTO
+                                                <a class="btn btn-default btn-xs btn-outline pull-right" data-toggle="collapse" data-parent="#sites" href="#2342"><i class="fa fa-cubes"></i> Manage Workflows and Connections</a>
+                                            </h4>
+                                        </div>
+                                    </div>
+                                    <div id="2342" class="panel-collapse collapse ">
+                                        <div class="panel-body">
+                                            <div class="table-responsive">
+                                                <table class="table table-condensed">
+                                                    <tbody>
+                                                            <tr>
+                                                                <td class="col-lg-2" style="vertical-align: middle">
+                                                                    <a href="/CompanySetupSourceManagement/List?CompanyId=1866&amp;TaskId=3&amp;siteId=2342" class="btn btn-sm btn-block btn-primary btn-outline" data-toggle="tooltip" data-placement="bottom" title="Update Connections">
+                                                                        <i class="fa fa-gear"></i>&nbsp;Update
+                                                                    </a>
+                                                                </td>
+                                                                <td class="col-lg-10">
+                                                                    <h3 class="m-b-none">Update the Restaurant System Connection(s) For This Site</h3>
+                                                                    <small>The Workflows listed below are dependent on these Connections.</small>
+                                                                </td>
+                                                            </tr>
+                                                    </tbody>
+                                                </table>
+                                            </div>
+
+                                                <div class="table-responsive">
+                                                    <table class="table table-condensed table-hover">
+                                                        <thead>
+                                                            <tr>
+                                                                <td class="col-lg-2"><strong>Available Workflows</strong></td>
+                                                                <td class="col-lg-10"></td>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                                    <tr>
+                                                                        <td style="vertical-align: middle">
+                                                                            <a href="/CompanySetupWorkflowManagement/ActivateWorkflow?CompanyId=1866&amp;TaskId=3&amp;TargetId=2063&amp;siteId=2342&amp;siteName=RIALTO&amp;workflowId=4554&amp;SubscriptionType=SalesToastToQbOnline" id="workflow_4554" onclick="DisableElementById('workflow_4554'); IsLoading('#divLoading_2342')" class="btn btn-sm btn-block btn-primary btn-outline" data-toggle="tooltip" data-placement="bottom" title="Enable Workflow">
+                                                                                <i class="fa fa-plug"></i>&nbsp;Enable
+                                                                            </a>
+                                                                        </td>
+                                                                        <td style="vertical-align: middle">
+                                                                            <h4>
+                                                                                Sales Workflow - Toast to QuickBooks Online
+                                                                            </h4>
+                                                                        </td>
+                                                                    </tr>
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+
+
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="panel panel-default">
+                                    <div class="panel-heading p-xxs">
+                                        <div class="panel-title">
+                                            <div id="divLoading_2253" class="pull-right vertical-align" style="display: none">
+                                                <i class="fa fa-cog fa-spin fa-2x fa-fw"></i>
+                                            </div>
+                                            <h4>
+                                                <a href="/CompanySetupSiteManagement/Edit/2253?CompanyId=1866&amp;TaskId=3&amp;Name=SANTA%20ANA&amp;TimeZoneId=Pacific%20Standard%20Time&amp;RegionStateType=California" class="modal-link btn btn-default btn-xs btn-outline" data-toggle="tooltip" data-placement="bottom" title="Edit"><i class="fa fa-pencil"></i></a>
+                                                <a href="/CompanySetupSiteManagement/Delete/2253?CompanyId=1866&amp;TaskId=3&amp;Name=SANTA%20ANA" class="modal-link btn btn-danger btn-xs btn-outline" data-toggle="tooltip" data-placement="bottom" title="Delete">
+                                                    <i class="fa fa-trash-o"></i>
+                                                </a>
+                                                &nbsp;
+                                                SANTA ANA
+                                                <a class="btn btn-default btn-xs btn-outline pull-right" data-toggle="collapse" data-parent="#sites" href="#2253"><i class="fa fa-cubes"></i> Manage Workflows and Connections</a>
+                                            </h4>
+                                        </div>
+                                    </div>
+                                    <div id="2253" class="panel-collapse collapse ">
+                                        <div class="panel-body">
+                                            <div class="table-responsive">
+                                                <table class="table table-condensed">
+                                                    <tbody>
+                                                            <tr>
+                                                                <td class="col-lg-2" style="vertical-align: middle">
+                                                                    <a href="/CompanySetupSourceManagement/List?CompanyId=1866&amp;TaskId=3&amp;siteId=2253" class="btn btn-sm btn-block btn-primary btn-outline" data-toggle="tooltip" data-placement="bottom" title="Update Connections">
+                                                                        <i class="fa fa-gear"></i>&nbsp;Update
+                                                                    </a>
+                                                                </td>
+                                                                <td class="col-lg-10">
+                                                                    <h3 class="m-b-none">Update the Restaurant System Connection(s) For This Site</h3>
+                                                                    <small>The Workflows listed below are dependent on these Connections.</small>
+                                                                </td>
+                                                            </tr>
+                                                    </tbody>
+                                                </table>
+                                            </div>
+
+                                                <div class="table-responsive">
+                                                    <table class="table table-condensed table-hover">
+                                                        <thead>
+                                                            <tr>
+                                                                <td class="col-lg-2"><strong>Available Workflows</strong></td>
+                                                                <td class="col-lg-10"></td>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                                    <tr>
+                                                                        <td style="vertical-align: middle">
+                                                                            <a href="/CompanySetupWorkflowManagement/ActivateWorkflow?CompanyId=1866&amp;TaskId=3&amp;TargetId=2063&amp;siteId=2253&amp;siteName=SANTA%20ANA&amp;workflowId=2612&amp;SubscriptionType=SalesToastToQbOnline" id="workflow_2612" onclick="DisableElementById('workflow_2612'); IsLoading('#divLoading_2253')" class="btn btn-sm btn-block btn-primary btn-outline" data-toggle="tooltip" data-placement="bottom" title="Enable Workflow">
+                                                                                <i class="fa fa-plug"></i>&nbsp;Enable
+                                                                            </a>
+                                                                        </td>
+                                                                        <td style="vertical-align: middle">
+                                                                            <h4>
+                                                                                Sales Workflow - Toast to QuickBooks Online
+                                                                            </h4>
+                                                                        </td>
+                                                                    </tr>
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+
+
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="panel panel-default">
+                                    <div class="panel-heading p-xxs">
+                                        <div class="panel-title">
+                                            <div id="divLoading_3145" class="pull-right vertical-align" style="display: none">
+                                                <i class="fa fa-cog fa-spin fa-2x fa-fw"></i>
+                                            </div>
+                                            <h4>
+                                                <a href="/CompanySetupSiteManagement/Edit/3145?CompanyId=1866&amp;TaskId=3&amp;Name=SLAUSON&amp;TimeZoneId=Pacific%20Standard%20Time&amp;RegionStateType=California" class="modal-link btn btn-default btn-xs btn-outline" data-toggle="tooltip" data-placement="bottom" title="Edit"><i class="fa fa-pencil"></i></a>
+                                                <a href="/CompanySetupSiteManagement/Delete/3145?CompanyId=1866&amp;TaskId=3&amp;Name=SLAUSON" class="modal-link btn btn-danger btn-xs btn-outline" data-toggle="tooltip" data-placement="bottom" title="Delete">
+                                                    <i class="fa fa-trash-o"></i>
+                                                </a>
+                                                &nbsp;
+                                                SLAUSON
+                                                <a class="btn btn-default btn-xs btn-outline pull-right" data-toggle="collapse" data-parent="#sites" href="#3145"><i class="fa fa-cubes"></i> Manage Workflows and Connections</a>
+                                            </h4>
+                                        </div>
+                                    </div>
+                                    <div id="3145" class="panel-collapse collapse ">
+                                        <div class="panel-body">
+                                            <div class="table-responsive">
+                                                <table class="table table-condensed">
+                                                    <tbody>
+                                                            <tr>
+                                                                <td class="col-lg-2" style="vertical-align: middle">
+                                                                    <a href="/CompanySetupSourceManagement/List?CompanyId=1866&amp;TaskId=3&amp;siteId=3145" class="btn btn-sm btn-block btn-primary btn-outline" data-toggle="tooltip" data-placement="bottom" title="Update Connections">
+                                                                        <i class="fa fa-gear"></i>&nbsp;Update
+                                                                    </a>
+                                                                </td>
+                                                                <td class="col-lg-10">
+                                                                    <h3 class="m-b-none">Update the Restaurant System Connection(s) For This Site</h3>
+                                                                    <small>The Workflows listed below are dependent on these Connections.</small>
+                                                                </td>
+                                                            </tr>
+                                                    </tbody>
+                                                </table>
+                                            </div>
+
+                                                <div class="table-responsive">
+                                                    <table class="table table-condensed table-hover">
+                                                        <thead>
+                                                            <tr>
+                                                                <td class="col-lg-2"><strong>Available Workflows</strong></td>
+                                                                <td class="col-lg-10"></td>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                                    <tr>
+                                                                        <td style="vertical-align: middle">
+                                                                            <a href="/CompanySetupWorkflowManagement/ActivateWorkflow?CompanyId=1866&amp;TaskId=3&amp;TargetId=2063&amp;siteId=3145&amp;siteName=SLAUSON&amp;workflowId=3545&amp;SubscriptionType=SalesToastToQbOnline" id="workflow_3545" onclick="DisableElementById('workflow_3545'); IsLoading('#divLoading_3145')" class="btn btn-sm btn-block btn-primary btn-outline" data-toggle="tooltip" data-placement="bottom" title="Enable Workflow">
+                                                                                <i class="fa fa-plug"></i>&nbsp;Enable
+                                                                            </a>
+                                                                        </td>
+                                                                        <td style="vertical-align: middle">
+                                                                            <h4>
+                                                                                Sales Workflow - Toast to QuickBooks Online
+                                                                            </h4>
+                                                                        </td>
+                                                                    </tr>
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+
+
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="panel panel-default">
+                                    <div class="panel-heading p-xxs">
+                                        <div class="panel-title">
+                                            <div id="divLoading_2283" class="pull-right vertical-align" style="display: none">
+                                                <i class="fa fa-cog fa-spin fa-2x fa-fw"></i>
+                                            </div>
+                                            <h4>
+                                                <a href="/CompanySetupSiteManagement/Edit/2283?CompanyId=1866&amp;TaskId=3&amp;Name=SOUTH%20GATE&amp;TimeZoneId=Pacific%20Standard%20Time&amp;RegionStateType=California" class="modal-link btn btn-default btn-xs btn-outline" data-toggle="tooltip" data-placement="bottom" title="Edit"><i class="fa fa-pencil"></i></a>
+                                                <a href="/CompanySetupSiteManagement/Delete/2283?CompanyId=1866&amp;TaskId=3&amp;Name=SOUTH%20GATE" class="modal-link btn btn-danger btn-xs btn-outline" data-toggle="tooltip" data-placement="bottom" title="Delete">
+                                                    <i class="fa fa-trash-o"></i>
+                                                </a>
+                                                &nbsp;
+                                                SOUTH GATE
+                                                <a class="btn btn-default btn-xs btn-outline pull-right" data-toggle="collapse" data-parent="#sites" href="#2283"><i class="fa fa-cubes"></i> Manage Workflows and Connections</a>
+                                            </h4>
+                                        </div>
+                                    </div>
+                                    <div id="2283" class="panel-collapse collapse ">
+                                        <div class="panel-body">
+                                            <div class="table-responsive">
+                                                <table class="table table-condensed">
+                                                    <tbody>
+                                                            <tr>
+                                                                <td class="col-lg-2" style="vertical-align: middle">
+                                                                    <a href="/CompanySetupSourceManagement/List?CompanyId=1866&amp;TaskId=3&amp;siteId=2283" class="btn btn-sm btn-block btn-primary btn-outline" data-toggle="tooltip" data-placement="bottom" title="Update Connections">
+                                                                        <i class="fa fa-gear"></i>&nbsp;Update
+                                                                    </a>
+                                                                </td>
+                                                                <td class="col-lg-10">
+                                                                    <h3 class="m-b-none">Update the Restaurant System Connection(s) For This Site</h3>
+                                                                    <small>The Workflows listed below are dependent on these Connections.</small>
+                                                                </td>
+                                                            </tr>
+                                                    </tbody>
+                                                </table>
+                                            </div>
+
+                                                <div class="table-responsive">
+                                                    <table class="table table-condensed table-hover">
+                                                        <thead>
+                                                            <tr>
+                                                                <td class="col-lg-2"><strong>Available Workflows</strong></td>
+                                                                <td class="col-lg-10"></td>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                                    <tr>
+                                                                        <td style="vertical-align: middle">
+                                                                            <a href="/CompanySetupWorkflowManagement/ActivateWorkflow?CompanyId=1866&amp;TaskId=3&amp;TargetId=2063&amp;siteId=2283&amp;siteName=SOUTH%20GATE&amp;workflowId=2640&amp;SubscriptionType=SalesToastToQbOnline" id="workflow_2640" onclick="DisableElementById('workflow_2640'); IsLoading('#divLoading_2283')" class="btn btn-sm btn-block btn-primary btn-outline" data-toggle="tooltip" data-placement="bottom" title="Enable Workflow">
+                                                                                <i class="fa fa-plug"></i>&nbsp;Enable
+                                                                            </a>
+                                                                        </td>
+                                                                        <td style="vertical-align: middle">
+                                                                            <h4>
+                                                                                Sales Workflow - Toast to QuickBooks Online
+                                                                            </h4>
+                                                                        </td>
+                                                                    </tr>
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+
+
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="panel panel-default">
+                                    <div class="panel-heading p-xxs">
+                                        <div class="panel-title">
+                                            <div id="divLoading_2250" class="pull-right vertical-align" style="display: none">
+                                                <i class="fa fa-cog fa-spin fa-2x fa-fw"></i>
+                                            </div>
+                                            <h4>
+                                                <a href="/CompanySetupSiteManagement/Edit/2250?CompanyId=1866&amp;TaskId=3&amp;Name=WEST%20COVINA&amp;TimeZoneId=Pacific%20Standard%20Time&amp;RegionStateType=California" class="modal-link btn btn-default btn-xs btn-outline" data-toggle="tooltip" data-placement="bottom" title="Edit"><i class="fa fa-pencil"></i></a>
+                                                <a href="/CompanySetupSiteManagement/Delete/2250?CompanyId=1866&amp;TaskId=3&amp;Name=WEST%20COVINA" class="modal-link btn btn-danger btn-xs btn-outline" data-toggle="tooltip" data-placement="bottom" title="Delete">
+                                                    <i class="fa fa-trash-o"></i>
+                                                </a>
+                                                &nbsp;
+                                                WEST COVINA
+                                                <a class="btn btn-default btn-xs btn-outline pull-right" data-toggle="collapse" data-parent="#sites" href="#2250"><i class="fa fa-cubes"></i> Manage Workflows and Connections</a>
+                                            </h4>
+                                        </div>
+                                    </div>
+                                    <div id="2250" class="panel-collapse collapse in">
+                                        <div class="panel-body">
+                                            <div class="table-responsive">
+                                                <table class="table table-condensed">
+                                                    <tbody>
+                                                            <tr>
+                                                                <td class="col-lg-2" style="vertical-align: middle">
+                                                                    <a href="/CompanySetupSourceManagement/List?CompanyId=1866&amp;TaskId=3&amp;siteId=2250" class="btn btn-sm btn-block btn-primary btn-outline" data-toggle="tooltip" data-placement="bottom" title="Update Connections">
+                                                                        <i class="fa fa-gear"></i>&nbsp;Update
+                                                                    </a>
+                                                                </td>
+                                                                <td class="col-lg-10">
+                                                                    <h3 class="m-b-none">Update the Restaurant System Connection(s) For This Site</h3>
+                                                                    <small>The Workflows listed below are dependent on these Connections.</small>
+                                                                </td>
+                                                            </tr>
+                                                    </tbody>
+                                                </table>
+                                            </div>
+
+                                                <div class="table-responsive">
+                                                    <table class="table table-condensed table-hover">
+                                                        <thead>
+                                                            <tr>
+                                                                <td class="col-lg-2"><strong>Available Workflows</strong></td>
+                                                                <td class="col-lg-10"></td>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                                    <tr>
+                                                                        <td style="vertical-align: middle">
+                                                                            <a href="/CompanySetupWorkflowManagement/ActivateWorkflow?CompanyId=1866&amp;TaskId=3&amp;TargetId=2063&amp;siteId=2250&amp;siteName=WEST%20COVINA&amp;workflowId=2609&amp;SubscriptionType=SalesToastToQbOnline" id="workflow_2609" onclick="DisableElementById('workflow_2609'); IsLoading('#divLoading_2250')" class="btn btn-sm btn-block btn-primary btn-outline" data-toggle="tooltip" data-placement="bottom" title="Enable Workflow">
+                                                                                <i class="fa fa-plug"></i>&nbsp;Enable
+                                                                            </a>
+                                                                        </td>
+                                                                        <td style="vertical-align: middle">
+                                                                            <h4>
+                                                                                Sales Workflow - Toast to QuickBooks Online
+                                                                            </h4>
+                                                                        </td>
+                                                                    </tr>
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+
+
+                                        </div>
+                                    </div>
+                                </div>
+                        </div>
+                    </div>
+                </div>
+            <div class="ibox-footer">
+                <a href="/CompanySetupCompanyManagement/CompanyList?CompanyId=1866" class="btn btn-primary"><i class="fa fa-step-backward"></i>&nbsp;Back</a>
+                <a href="/CompanySetupCompanyManagement/SetupTaskIsComplete?CompanyId=1866&amp;TaskId=3" class="btn btn-warning disabled">
+                    Finished&nbsp;<i class="fa fa-step-forward"></i>
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+
+            <!-- Footer -->
+        </div>
+        <!-- End page wrapper-->
+    </div>
+    <!-- End wrapper-->
+    <script>
+        if (self === top) { document.documentElement.style.display = 'block'; }
+        else { top.location = self.location; }
+    </script>
+    <!-- Modal Dialog Container -->
+    
+
+
+<div b-mume8xfgo2="" id="modal-container" class="modal fade" tabindex="-1" role="dialog">
+        <div b-mume8xfgo2="" class="modal-content">
+        </div>
+    </div></body></html>

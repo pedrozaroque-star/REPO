@@ -1,0 +1,824 @@
+[
+  {
+    "url": "https://www.cohesion4restaurants.com/Account/SignIn",
+    "status": 200,
+    "contentType": "text/html; charset=utf-8"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Content/bootstrap.min.css",
+    "status": 200,
+    "contentType": "text/css"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Content/style.css",
+    "status": 200,
+    "contentType": "text/css"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Fonts/font-awesome/css/font-awesome.css",
+    "status": 200,
+    "contentType": "text/css"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Content/animate.css",
+    "status": 200,
+    "contentType": "text/css"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Dashboard/Main",
+    "status": 200,
+    "contentType": "text/html; charset=utf-8"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Content/bootstrap.css",
+    "status": 200,
+    "contentType": "text/css"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Content/animate.css",
+    "status": 304,
+    "contentType": "text/css"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Content/style.css",
+    "status": 304,
+    "contentType": "text/css"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/fonts/font-awesome/css/font-awesome.min.css",
+    "status": 200,
+    "contentType": "text/css"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Content/plugins/colorstrap/colorstrap.css",
+    "status": 200,
+    "contentType": "text/css"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Content/cohesion.css",
+    "status": 200,
+    "contentType": "text/css"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Content/cohesion-color.css",
+    "status": 200,
+    "contentType": "text/css"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Content/plugins/jasny/jasny-bootstrap.css",
+    "status": 200,
+    "contentType": "text/css"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Scripts/jquery.unobtrusive-ajax.min.js",
+    "status": 200,
+    "contentType": "text/javascript"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Scripts/jquery-3.7.1.min.js",
+    "status": 200,
+    "contentType": "text/javascript"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Scripts/bootstrap.min.js",
+    "status": 200,
+    "contentType": "text/javascript"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Scripts/plugins/slimscroll/jquery.slimscroll.min.js",
+    "status": 200,
+    "contentType": "text/javascript"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Scripts/plugins/metisMenu/metisMenu.min.js",
+    "status": 200,
+    "contentType": "text/javascript"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Scripts/app/inspinia.min.js",
+    "status": 200,
+    "contentType": "text/javascript"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Scripts/cohesion.js",
+    "status": 200,
+    "contentType": "text/javascript"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Scripts/cohesion.myworkflows.js",
+    "status": 200,
+    "contentType": "text/javascript"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Scripts/plugins/pace/pace.min.js",
+    "status": 200,
+    "contentType": "text/javascript"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Scripts/plugins/jasny/jasny-bootstrap.js",
+    "status": 200,
+    "contentType": "text/javascript"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Dashboard/Main",
+    "status": 200,
+    "contentType": "text/html; charset=utf-8"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Content/bootstrap.css",
+    "status": 304,
+    "contentType": "text/css"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Content/animate.css",
+    "status": 304,
+    "contentType": "text/css"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Content/style.css",
+    "status": 304,
+    "contentType": "text/css"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/fonts/font-awesome/css/font-awesome.min.css",
+    "status": 304,
+    "contentType": "text/css"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Content/plugins/colorstrap/colorstrap.css",
+    "status": 304,
+    "contentType": "text/css"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Content/cohesion.css",
+    "status": 304,
+    "contentType": "text/css"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Content/cohesion-color.css",
+    "status": 304,
+    "contentType": "text/css"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Content/plugins/jasny/jasny-bootstrap.css",
+    "status": 304,
+    "contentType": "text/css"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Scripts/jquery.unobtrusive-ajax.min.js",
+    "status": 304,
+    "contentType": "text/javascript"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Scripts/jquery-3.7.1.min.js",
+    "status": 304,
+    "contentType": "text/javascript"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Scripts/bootstrap.min.js",
+    "status": 304,
+    "contentType": "text/javascript"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Scripts/plugins/slimscroll/jquery.slimscroll.min.js",
+    "status": 304,
+    "contentType": "text/javascript"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Scripts/plugins/metisMenu/metisMenu.min.js",
+    "status": 304,
+    "contentType": "text/javascript"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Scripts/plugins/pace/pace.min.js",
+    "status": 304,
+    "contentType": "text/javascript"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Scripts/app/inspinia.min.js",
+    "status": 304,
+    "contentType": "text/javascript"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Scripts/cohesion.myworkflows.js",
+    "status": 304,
+    "contentType": "text/javascript"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Scripts/plugins/jasny/jasny-bootstrap.js",
+    "status": 304,
+    "contentType": "text/javascript"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Scripts/cohesion.js",
+    "status": 304,
+    "contentType": "text/javascript"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/MyWorkflows/Main?workflowType=Sales",
+    "status": 200,
+    "contentType": "text/html; charset=utf-8"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Content/bootstrap.css",
+    "status": 304,
+    "contentType": "text/css"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Content/animate.css",
+    "status": 304,
+    "contentType": "text/css"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Content/style.css",
+    "status": 304,
+    "contentType": "text/css"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/fonts/font-awesome/css/font-awesome.min.css",
+    "status": 304,
+    "contentType": "text/css"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Content/plugins/colorstrap/colorstrap.css",
+    "status": 304,
+    "contentType": "text/css"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Content/cohesion.css",
+    "status": 304,
+    "contentType": "text/css"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Content/cohesion-color.css",
+    "status": 304,
+    "contentType": "text/css"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Content/plugins/jasny/jasny-bootstrap.css",
+    "status": 304,
+    "contentType": "text/css"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Scripts/jquery-3.7.1.min.js",
+    "status": 304,
+    "contentType": "text/javascript"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Scripts/jquery.unobtrusive-ajax.min.js",
+    "status": 304,
+    "contentType": "text/javascript"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Scripts/bootstrap.min.js",
+    "status": 304,
+    "contentType": "text/javascript"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Scripts/plugins/slimscroll/jquery.slimscroll.min.js",
+    "status": 304,
+    "contentType": "text/javascript"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Scripts/plugins/metisMenu/metisMenu.min.js",
+    "status": 304,
+    "contentType": "text/javascript"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Scripts/plugins/pace/pace.min.js",
+    "status": 304,
+    "contentType": "text/javascript"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Scripts/app/inspinia.min.js",
+    "status": 304,
+    "contentType": "text/javascript"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Scripts/cohesion.js",
+    "status": 304,
+    "contentType": "text/javascript"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Scripts/cohesion.myworkflows.js",
+    "status": 304,
+    "contentType": "text/javascript"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Scripts/signalr.min.js",
+    "status": 200,
+    "contentType": "text/javascript"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Scripts/plugins/jasny/jasny-bootstrap.js",
+    "status": 304,
+    "contentType": "text/javascript"
+  },
+  {
+    "url": "https://api.cohesion4restaurants.com/signalr/myworkflows/negotiate?userName=raquel%40tacosgavilan.com&negotiateVersion=1",
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "negotiateVersion": 1,
+      "connectionId": "fI7Tceat_jfHcK5TeVvxXw",
+      "connectionToken": "GWz-6PaYXGxoljjF1mYjKg",
+      "availableTransports": [
+        {
+          "transport": "WebSockets",
+          "transferFormats": [
+            "Text",
+            "Binary"
+          ]
+        },
+        {
+          "transport": "ServerSentEvents",
+          "transferFormats": [
+            "Text"
+          ]
+        },
+        {
+          "transport": "LongPolling",
+          "transferFormats": [
+            "Text",
+            "Binary"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/CompanySetupCompanyManagement/CompanyList",
+    "status": 200,
+    "contentType": "text/html; charset=utf-8"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Content/bootstrap.css",
+    "status": 304,
+    "contentType": "text/css"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Content/style.css",
+    "status": 304,
+    "contentType": "text/css"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Content/animate.css",
+    "status": 304,
+    "contentType": "text/css"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/fonts/font-awesome/css/font-awesome.min.css",
+    "status": 304,
+    "contentType": "text/css"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Content/plugins/colorstrap/colorstrap.css",
+    "status": 304,
+    "contentType": "text/css"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Content/plugins/jasny/jasny-bootstrap.css",
+    "status": 304,
+    "contentType": "text/css"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Content/cohesion.css",
+    "status": 304,
+    "contentType": "text/css"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Content/cohesion-color.css",
+    "status": 304,
+    "contentType": "text/css"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Scripts/jquery.unobtrusive-ajax.min.js",
+    "status": 304,
+    "contentType": "text/javascript"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Scripts/jquery-3.7.1.min.js",
+    "status": 304,
+    "contentType": "text/javascript"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Scripts/bootstrap.min.js",
+    "status": 304,
+    "contentType": "text/javascript"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Scripts/plugins/slimscroll/jquery.slimscroll.min.js",
+    "status": 304,
+    "contentType": "text/javascript"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Scripts/plugins/metisMenu/metisMenu.min.js",
+    "status": 304,
+    "contentType": "text/javascript"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Scripts/plugins/pace/pace.min.js",
+    "status": 304,
+    "contentType": "text/javascript"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Scripts/app/inspinia.min.js",
+    "status": 304,
+    "contentType": "text/javascript"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Scripts/cohesion.js",
+    "status": 304,
+    "contentType": "text/javascript"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Scripts/cohesion.myworkflows.js",
+    "status": 304,
+    "contentType": "text/javascript"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Scripts/plugins/jasny/jasny-bootstrap.js",
+    "status": 304,
+    "contentType": "text/javascript"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Users/Main",
+    "status": 200,
+    "contentType": "text/html; charset=utf-8"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Content/bootstrap.css",
+    "status": 304,
+    "contentType": "text/css"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Content/animate.css",
+    "status": 304,
+    "contentType": "text/css"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/fonts/font-awesome/css/font-awesome.min.css",
+    "status": 304,
+    "contentType": "text/css"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Content/style.css",
+    "status": 304,
+    "contentType": "text/css"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Content/plugins/colorstrap/colorstrap.css",
+    "status": 304,
+    "contentType": "text/css"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Content/cohesion.css",
+    "status": 304,
+    "contentType": "text/css"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Content/cohesion-color.css",
+    "status": 304,
+    "contentType": "text/css"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Scripts/jquery.unobtrusive-ajax.min.js",
+    "status": 304,
+    "contentType": "text/javascript"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Scripts/jquery-3.7.1.min.js",
+    "status": 304,
+    "contentType": "text/javascript"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Content/plugins/jasny/jasny-bootstrap.css",
+    "status": 304,
+    "contentType": "text/css"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Scripts/bootstrap.min.js",
+    "status": 304,
+    "contentType": "text/javascript"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Scripts/app/inspinia.min.js",
+    "status": 304,
+    "contentType": "text/javascript"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Scripts/plugins/slimscroll/jquery.slimscroll.min.js",
+    "status": 304,
+    "contentType": "text/javascript"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Scripts/cohesion.js",
+    "status": 304,
+    "contentType": "text/javascript"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Scripts/plugins/metisMenu/metisMenu.min.js",
+    "status": 304,
+    "contentType": "text/javascript"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Scripts/plugins/pace/pace.min.js",
+    "status": 304,
+    "contentType": "text/javascript"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Scripts/cohesion.myworkflows.js",
+    "status": 304,
+    "contentType": "text/javascript"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Scripts/plugins/jasny/jasny-bootstrap.js",
+    "status": 304,
+    "contentType": "text/javascript"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Subscriptions/Main",
+    "status": 200,
+    "contentType": "text/html; charset=utf-8"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Content/bootstrap.css",
+    "status": 304,
+    "contentType": "text/css"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Content/animate.css",
+    "status": 304,
+    "contentType": "text/css"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Content/style.css",
+    "status": 304,
+    "contentType": "text/css"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/fonts/font-awesome/css/font-awesome.min.css",
+    "status": 304,
+    "contentType": "text/css"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Content/plugins/colorstrap/colorstrap.css",
+    "status": 304,
+    "contentType": "text/css"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Content/cohesion.css",
+    "status": 304,
+    "contentType": "text/css"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Content/plugins/jasny/jasny-bootstrap.css",
+    "status": 304,
+    "contentType": "text/css"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Content/cohesion-color.css",
+    "status": 304,
+    "contentType": "text/css"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Scripts/jquery-3.7.1.min.js",
+    "status": 304,
+    "contentType": "text/javascript"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Scripts/bootstrap.min.js",
+    "status": 304,
+    "contentType": "text/javascript"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Scripts/jquery.unobtrusive-ajax.min.js",
+    "status": 304,
+    "contentType": "text/javascript"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Scripts/plugins/slimscroll/jquery.slimscroll.min.js",
+    "status": 304,
+    "contentType": "text/javascript"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Scripts/plugins/metisMenu/metisMenu.min.js",
+    "status": 304,
+    "contentType": "text/javascript"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Scripts/plugins/pace/pace.min.js",
+    "status": 304,
+    "contentType": "text/javascript"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Scripts/app/inspinia.min.js",
+    "status": 304,
+    "contentType": "text/javascript"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Scripts/plugins/jasny/jasny-bootstrap.js",
+    "status": 304,
+    "contentType": "text/javascript"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Scripts/cohesion.myworkflows.js",
+    "status": 304,
+    "contentType": "text/javascript"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Scripts/cohesion.js",
+    "status": 304,
+    "contentType": "text/javascript"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Downloads/Main",
+    "status": 200,
+    "contentType": "text/html; charset=utf-8"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Content/bootstrap.css",
+    "status": 304,
+    "contentType": "text/css"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Content/animate.css",
+    "status": 304,
+    "contentType": "text/css"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/fonts/font-awesome/css/font-awesome.min.css",
+    "status": 304,
+    "contentType": "text/css"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Content/style.css",
+    "status": 304,
+    "contentType": "text/css"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Content/plugins/colorstrap/colorstrap.css",
+    "status": 304,
+    "contentType": "text/css"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Content/cohesion.css",
+    "status": 304,
+    "contentType": "text/css"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Content/cohesion-color.css",
+    "status": 304,
+    "contentType": "text/css"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Content/plugins/jasny/jasny-bootstrap.css",
+    "status": 304,
+    "contentType": "text/css"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Scripts/jquery-3.7.1.min.js",
+    "status": 304,
+    "contentType": "text/javascript"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Scripts/jquery.unobtrusive-ajax.min.js",
+    "status": 304,
+    "contentType": "text/javascript"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Scripts/bootstrap.min.js",
+    "status": 304,
+    "contentType": "text/javascript"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Scripts/plugins/slimscroll/jquery.slimscroll.min.js",
+    "status": 304,
+    "contentType": "text/javascript"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Scripts/plugins/metisMenu/metisMenu.min.js",
+    "status": 304,
+    "contentType": "text/javascript"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Scripts/plugins/pace/pace.min.js",
+    "status": 304,
+    "contentType": "text/javascript"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Scripts/app/inspinia.min.js",
+    "status": 304,
+    "contentType": "text/javascript"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Scripts/cohesion.js",
+    "status": 304,
+    "contentType": "text/javascript"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Scripts/cohesion.myworkflows.js",
+    "status": 304,
+    "contentType": "text/javascript"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Scripts/plugins/jasny/jasny-bootstrap.js",
+    "status": 304,
+    "contentType": "text/javascript"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Help/Main",
+    "status": 200,
+    "contentType": "text/html; charset=utf-8"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Content/bootstrap.css",
+    "status": 304,
+    "contentType": "text/css"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/fonts/font-awesome/css/font-awesome.min.css",
+    "status": 304,
+    "contentType": "text/css"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Content/plugins/colorstrap/colorstrap.css",
+    "status": 304,
+    "contentType": "text/css"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Content/cohesion.css",
+    "status": 304,
+    "contentType": "text/css"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Content/cohesion-color.css",
+    "status": 304,
+    "contentType": "text/css"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Content/animate.css",
+    "status": 304,
+    "contentType": "text/css"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Content/style.css",
+    "status": 304,
+    "contentType": "text/css"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Content/plugins/jasny/jasny-bootstrap.css",
+    "status": 304,
+    "contentType": "text/css"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Scripts/jquery-3.7.1.min.js",
+    "status": 304,
+    "contentType": "text/javascript"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Scripts/jquery.unobtrusive-ajax.min.js",
+    "status": 304,
+    "contentType": "text/javascript"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Scripts/bootstrap.min.js",
+    "status": 304,
+    "contentType": "text/javascript"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Scripts/plugins/slimscroll/jquery.slimscroll.min.js",
+    "status": 304,
+    "contentType": "text/javascript"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Scripts/plugins/pace/pace.min.js",
+    "status": 304,
+    "contentType": "text/javascript"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Scripts/plugins/metisMenu/metisMenu.min.js",
+    "status": 304,
+    "contentType": "text/javascript"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Scripts/app/inspinia.min.js",
+    "status": 304,
+    "contentType": "text/javascript"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Scripts/cohesion.js",
+    "status": 304,
+    "contentType": "text/javascript"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Scripts/plugins/jasny/jasny-bootstrap.js",
+    "status": 304,
+    "contentType": "text/javascript"
+  },
+  {
+    "url": "https://www.cohesion4restaurants.com/Scripts/cohesion.myworkflows.js",
+    "status": 304,
+    "contentType": "text/javascript"
+  }
+]

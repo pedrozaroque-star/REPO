@@ -1,0 +1,619 @@
+{
+  "text": "Review Packet\n  Print Refresh\n  \nFinished\nTacos El Gavilan Inc - AZUSA\nSales Packet is Published for Tuesday 09/01/26\nWorkflow Actions\n Reject Update From Toast POS   Submit   Accept for Publishing Back to Review Publish To QuickBooks Online Re-Open\nWhen (Central Time)\tSource\tNotes\tAction\nMon 8-31 12:16 PM\tVelazquez, Raquel\tPacket was Opened\nMon 8-31 12:16 PM\tVelazquez, Raquel\tPacket was Updated and Passed All Validation\nMon 8-31 12:16 PM\tVelazquez, Raquel\tPacket was Updated and Passed All Validation\nMon 8-31 12:16 PM\tVelazquez, Raquel\tPacket was Published\n  Add Note\nReconciliation Summary\nGross Sales & Receipts\n\tGross\tNet\nNet Sales\t8,186.44\t8,125.95\nSales - Discounts\t-60.49\t0.00\nNet Sales + Deferred\t8,125.95\nTaxes\t850.06\t850.06\nTotal Gross Receipts\t8,976.01\nView Details Sales Details\n\tGross\tNet\nDoorDash - Delivery\t637.43\t637.43\nDoorDash - Takeout\t273.20\t273.20\nFor Here\t3,452.95\t3,440.65\nGrubHub Delivery\t21.93\t21.93\nTo Go\t3,234.48\t3,186.29\nUber Eats - Delivery\t534.72\t534.72\nUber Eats Takeout\t31.73\t31.73\nTotal Sales\t8,186.44\t8,125.95\nView Details Discount Details\n\tAmount\nEmployee Discount\t9.38\nFirst Responder Discount\t17.33\nRewards Card\t24.95\nSenior Discount\t8.83\nTotal Discounts\t60.49\nView Details Tax Details\n\tAmount\tAdjust.\nMarketplace Facilitator Taxes Not Paid\t93.33\t-0.00\nSales Tax\t704.42\t-0.00\nTaxes Paid by Facilitator\t52.31\t-0.00\nTotal Tax Liability\t850.06\t0.00\nNon-Cash Payments\n\tGross\tDeposit\nVisa\t3,961.57\t3,889.41\nMasterCard\t873.42\t857.75\nDiscover\t105.37\t103.51\nAmerican Express\t83.81\t81.32\nTotal Credit Cards\t5,024.17\t4,931.99\nCredit Card Fees\t\t92.18\nOther Payments\t1,725.89\t1,725.89\nTotal Non-Cash Payments\t6,750.06\nView Details Other Payment Details\n\tGross\tTaxes Paid\tNet\nDoorDash\t1,003.96\t0.00\t1,003.96\nEBT\t78.88\t0.00\t78.88\nGrubHub\t24.29\t0.00\t24.29\nUber Eats\t618.76\t-52.31\t566.45\nTotal\t1,725.89\t-52.31\t1,673.58\nCash Reconciliation\n\tAmount\nExpected Cash From Sales\t2,225.95\nDeposit To Bank\t2,225.95\nCash Over/(Short)\t0.00\nView Details Deposits To Bank Detail\n\tAmount\nCash Deposit To Bank\t2,225.95\nTotal Deposits To Bank\t2,225.95\nExport To Excel\nSales Journal\nAccount\tMemo\tDebit\tCredit\tSource Memo\tLocation\tClass\n40050\tFor Here\t0.00\t3,440.65\tDining Option: For Here\tAzusa\tAzusa\n40050\tTo Go\t0.00\t3,186.29\tDining Option: To Go\tAzusa\tAzusa\n40060\tUber Eats - Delivery\t0.00\t534.72\tDining Option: Uber Eats - Delivery\tAzusa\tAzusa\n40060\tUber Eats Takeout\t0.00\t31.73\tDining Option: Uber Eats Takeout\tAzusa\tAzusa\n40062\tDoorDash - Takeout\t0.00\t273.20\tDining Option: DoorDash - Takeout\tAzusa\tAzusa\n40062\tDoorDash - Delivery\t0.00\t637.43\tDining Option: DoorDash - Delivery\tAzusa\tAzusa\n40063\tGrubHub Delivery\t0.00\t21.93\tDining Option: GrubHub Delivery\tAzusa\tAzusa\n12050\tTax Paid by Uber Eats\t0.00\t52.31\tTax Paid by Facilitator\tAzusa\tAzusa\n24001\tSales Tax\t0.00\t704.42\tTax Rate: Azusa\tAzusa\tAzusa\n24001\tMarketplace Facilitator Taxes Not Paid\t0.00\t93.33\tTax Rate: Marketplace Facilitator Taxes Not Paid\tAzusa\tAzusa\n10000\tEBT\t78.88\t0.00\tPayment Other: EBT\tAzusa\tAzusa\n12050\tUber Eats\t618.76\t0.00\tPayment Other: Uber Eats\tAzusa\tAzusa\n12053\tDoorDash\t1,003.96\t0.00\tPayment Other: DoorDash\tAzusa\tAzusa\n12054\tGrubHub\t24.29\t0.00\tPayment Other: GrubHub\tAzusa\tAzusa\n10000\tCredit Card Deposit\t4,931.99\t0.00\tCombined Credit Card Deposit\tAzusa\tAzusa\n51030\tCredit Card Fees\t92.18\t0.00\tCredit Cards: Merchant Fees\tAzusa\tAzusa\n13200\tDeposit To Bank\t2,225.95\t0.00\tCash Deposits\tAzusa\tAzusa\n\tJournal Totals\t8,976.01\t8,976.01\t\t\t",
+  "tables": [
+    {
+      "headers": [],
+      "rows": [
+        [
+          "Reject Update From Toast POS   Submit   Accept for Publishing Back to Review Publish To QuickBooks Online Re-Open"
+        ]
+      ]
+    },
+    {
+      "headers": [],
+      "rows": [
+        [
+          "No\n                    \n                        \n                        Yes, Delete It\n                    \n                      Are you sure you want to delete this Packet?"
+        ]
+      ]
+    },
+    {
+      "headers": [
+        "When (Central Time)",
+        "Source",
+        "Notes",
+        "Action"
+      ],
+      "rows": [
+        [
+          "When (Central Time)",
+          "Source",
+          "Notes",
+          "Action"
+        ],
+        [
+          "Mon 8-31 12:16 PM",
+          "Velazquez, Raquel",
+          "Packet was Opened"
+        ],
+        [
+          "Mon 8-31 12:16 PM",
+          "Velazquez, Raquel",
+          "Packet was Updated and Passed All Validation"
+        ],
+        [
+          "Mon 8-31 12:16 PM",
+          "Velazquez, Raquel",
+          "Packet was Updated and Passed All Validation"
+        ],
+        [
+          "Mon 8-31 12:16 PM",
+          "Velazquez, Raquel",
+          "Packet was Published"
+        ],
+        [
+          "Add Note"
+        ]
+      ]
+    },
+    {
+      "headers": [
+        "",
+        "Gross",
+        "Net"
+      ],
+      "rows": [
+        [
+          "",
+          "Gross",
+          "Net"
+        ],
+        [
+          "Net Sales",
+          "8,186.44",
+          "8,125.95"
+        ],
+        [
+          "Sales - Discounts",
+          "-60.49",
+          "0.00"
+        ],
+        [
+          "Net Sales + Deferred",
+          "8,125.95"
+        ],
+        [
+          "Taxes",
+          "850.06",
+          "850.06"
+        ]
+      ]
+    },
+    {
+      "headers": [],
+      "rows": [
+        [
+          "Total Gross Receipts",
+          "8,976.01"
+        ]
+      ]
+    },
+    {
+      "headers": [
+        "",
+        "Gross",
+        "Net"
+      ],
+      "rows": [
+        [
+          "",
+          "Gross",
+          "Net"
+        ],
+        [
+          "DoorDash - Delivery",
+          "637.43",
+          "637.43"
+        ],
+        [
+          "DoorDash - Takeout",
+          "273.20",
+          "273.20"
+        ],
+        [
+          "For Here",
+          "3,452.95",
+          "3,440.65"
+        ],
+        [
+          "GrubHub Delivery",
+          "21.93",
+          "21.93"
+        ],
+        [
+          "To Go",
+          "3,234.48",
+          "3,186.29"
+        ],
+        [
+          "Uber Eats - Delivery",
+          "534.72",
+          "534.72"
+        ],
+        [
+          "Uber Eats Takeout",
+          "31.73",
+          "31.73"
+        ],
+        [
+          "Total Sales",
+          "8,186.44",
+          "8,125.95"
+        ]
+      ]
+    },
+    {
+      "headers": [
+        "",
+        "Amount"
+      ],
+      "rows": [
+        [
+          "",
+          "Amount"
+        ],
+        [
+          "Employee Discount",
+          "9.38"
+        ],
+        [
+          "First Responder Discount",
+          "17.33"
+        ],
+        [
+          "Rewards Card",
+          "24.95"
+        ],
+        [
+          "Senior Discount",
+          "8.83"
+        ],
+        [
+          "Total Discounts",
+          "60.49"
+        ]
+      ]
+    },
+    {
+      "headers": [
+        "",
+        "Amount",
+        "Adjust."
+      ],
+      "rows": [
+        [
+          "",
+          "Amount",
+          "Adjust."
+        ],
+        [
+          "Marketplace Facilitator Taxes Not Paid",
+          "93.33",
+          "-0.00"
+        ],
+        [
+          "Sales Tax",
+          "704.42",
+          "-0.00"
+        ],
+        [
+          "Taxes Paid by Facilitator",
+          "52.31",
+          "-0.00"
+        ],
+        [
+          "Total Tax Liability",
+          "850.06",
+          "0.00"
+        ]
+      ]
+    },
+    {
+      "headers": [
+        "",
+        "Gross",
+        "Deposit"
+      ],
+      "rows": [
+        [
+          "",
+          "Gross",
+          "Deposit"
+        ],
+        [
+          "Visa",
+          "3,961.57",
+          "3,889.41"
+        ],
+        [
+          "MasterCard",
+          "873.42",
+          "857.75"
+        ],
+        [
+          "Discover",
+          "105.37",
+          "103.51"
+        ],
+        [
+          "American Express",
+          "83.81",
+          "81.32"
+        ],
+        [
+          "Total Credit Cards",
+          "5,024.17",
+          "4,931.99"
+        ],
+        [
+          "Credit Card Fees",
+          "",
+          "92.18"
+        ],
+        [
+          "Other Payments",
+          "1,725.89",
+          "1,725.89"
+        ]
+      ]
+    },
+    {
+      "headers": [],
+      "rows": [
+        [
+          "Total Non-Cash Payments",
+          "6,750.06"
+        ]
+      ]
+    },
+    {
+      "headers": [
+        "",
+        "Gross",
+        "Taxes Paid",
+        "Net"
+      ],
+      "rows": [
+        [
+          "",
+          "Gross",
+          "Taxes Paid",
+          "Net"
+        ],
+        [
+          "DoorDash",
+          "1,003.96",
+          "0.00",
+          "1,003.96"
+        ],
+        [
+          "EBT",
+          "78.88",
+          "0.00",
+          "78.88"
+        ],
+        [
+          "GrubHub",
+          "24.29",
+          "0.00",
+          "24.29"
+        ],
+        [
+          "Uber Eats",
+          "618.76",
+          "-52.31",
+          "566.45"
+        ],
+        [
+          "Total",
+          "1,725.89",
+          "-52.31",
+          "1,673.58"
+        ]
+      ]
+    },
+    {
+      "headers": [
+        "",
+        "Amount"
+      ],
+      "rows": [
+        [
+          "",
+          "Amount"
+        ],
+        [
+          "Expected Cash From Sales",
+          "2,225.95"
+        ],
+        [
+          "Deposit To Bank",
+          "2,225.95"
+        ]
+      ]
+    },
+    {
+      "headers": [],
+      "rows": [
+        [
+          "Cash Over/(Short)",
+          "0.00"
+        ]
+      ]
+    },
+    {
+      "headers": [
+        "",
+        "Amount"
+      ],
+      "rows": [
+        [
+          "",
+          "Amount"
+        ],
+        [
+          "Cash Deposit To Bank",
+          "2,225.95"
+        ],
+        [
+          "Total Deposits To Bank",
+          "2,225.95"
+        ]
+      ]
+    },
+    {
+      "headers": [],
+      "rows": [
+        [
+          "Account",
+          "Memo",
+          "Debit",
+          "Credit",
+          "Source Memo",
+          "Location",
+          "Class"
+        ],
+        [
+          "40050",
+          "For Here",
+          "0.00",
+          "3,440.65",
+          "Dining Option: For Here",
+          "Azusa",
+          "Azusa"
+        ],
+        [
+          "40050",
+          "To Go",
+          "0.00",
+          "3,186.29",
+          "Dining Option: To Go",
+          "Azusa",
+          "Azusa"
+        ],
+        [
+          "40060",
+          "Uber Eats - Delivery",
+          "0.00",
+          "534.72",
+          "Dining Option: Uber Eats - Delivery",
+          "Azusa",
+          "Azusa"
+        ],
+        [
+          "40060",
+          "Uber Eats Takeout",
+          "0.00",
+          "31.73",
+          "Dining Option: Uber Eats Takeout",
+          "Azusa",
+          "Azusa"
+        ],
+        [
+          "40062",
+          "DoorDash - Takeout",
+          "0.00",
+          "273.20",
+          "Dining Option: DoorDash - Takeout",
+          "Azusa",
+          "Azusa"
+        ],
+        [
+          "40062",
+          "DoorDash - Delivery",
+          "0.00",
+          "637.43",
+          "Dining Option: DoorDash - Delivery",
+          "Azusa",
+          "Azusa"
+        ],
+        [
+          "40063",
+          "GrubHub Delivery",
+          "0.00",
+          "21.93",
+          "Dining Option: GrubHub Delivery",
+          "Azusa",
+          "Azusa"
+        ],
+        [
+          "12050",
+          "Tax Paid by Uber Eats",
+          "0.00",
+          "52.31",
+          "Tax Paid by Facilitator",
+          "Azusa",
+          "Azusa"
+        ],
+        [
+          "24001",
+          "Sales Tax",
+          "0.00",
+          "704.42",
+          "Tax Rate: Azusa",
+          "Azusa",
+          "Azusa"
+        ],
+        [
+          "24001",
+          "Marketplace Facilitator Taxes Not Paid",
+          "0.00",
+          "93.33",
+          "Tax Rate: Marketplace Facilitator Taxes Not Paid",
+          "Azusa",
+          "Azusa"
+        ],
+        [
+          "10000",
+          "EBT",
+          "78.88",
+          "0.00",
+          "Payment Other: EBT",
+          "Azusa",
+          "Azusa"
+        ],
+        [
+          "12050",
+          "Uber Eats",
+          "618.76",
+          "0.00",
+          "Payment Other: Uber Eats",
+          "Azusa",
+          "Azusa"
+        ],
+        [
+          "12053",
+          "DoorDash",
+          "1,003.96",
+          "0.00",
+          "Payment Other: DoorDash",
+          "Azusa",
+          "Azusa"
+        ],
+        [
+          "12054",
+          "GrubHub",
+          "24.29",
+          "0.00",
+          "Payment Other: GrubHub",
+          "Azusa",
+          "Azusa"
+        ],
+        [
+          "10000",
+          "Credit Card Deposit",
+          "4,931.99",
+          "0.00",
+          "Combined Credit Card Deposit",
+          "Azusa",
+          "Azusa"
+        ],
+        [
+          "51030",
+          "Credit Card Fees",
+          "92.18",
+          "0.00",
+          "Credit Cards: Merchant Fees",
+          "Azusa",
+          "Azusa"
+        ],
+        [
+          "13200",
+          "Deposit To Bank",
+          "2,225.95",
+          "0.00",
+          "Cash Deposits",
+          "Azusa",
+          "Azusa"
+        ],
+        [
+          "",
+          "Journal Totals",
+          "8,976.01",
+          "8,976.01",
+          "",
+          "",
+          ""
+        ]
+      ]
+    }
+  ],
+  "inputs": [
+    {
+      "name": "__RequestVerificationToken",
+      "id": "",
+      "value": "CfDJ8EuC0qqdrkdDhZqx0fAeqhXMdPiGucu8VlyiwWG0OWgfkZGYsjU6-DYIvIQd9SfgYJUlVJP__A1HQHfnP4dt6uQE6WVqZSIDXVC3JgH2SGIvDko7gBzv-NFJRYN0p4WtvRmr0ZmKqbB23bhzJegSGTlwwJ7tRMyHb8MoT_Ark8iAWPl0r4O0nxbekAaZODMQRw",
+      "type": "hidden"
+    },
+    {
+      "name": "IsLoading",
+      "id": "IsLoading",
+      "value": "False",
+      "type": "hidden"
+    },
+    {
+      "name": "__RequestVerificationToken",
+      "id": "",
+      "value": "CfDJ8EuC0qqdrkdDhZqx0fAeqhXMdPiGucu8VlyiwWG0OWgfkZGYsjU6-DYIvIQd9SfgYJUlVJP__A1HQHfnP4dt6uQE6WVqZSIDXVC3JgH2SGIvDko7gBzv-NFJRYN0p4WtvRmr0ZmKqbB23bhzJegSGTlwwJ7tRMyHb8MoT_Ark8iAWPl0r4O0nxbekAaZODMQRw",
+      "type": "hidden"
+    },
+    {
+      "name": "__RequestVerificationToken",
+      "id": "",
+      "value": "CfDJ8EuC0qqdrkdDhZqx0fAeqhXMdPiGucu8VlyiwWG0OWgfkZGYsjU6-DYIvIQd9SfgYJUlVJP__A1HQHfnP4dt6uQE6WVqZSIDXVC3JgH2SGIvDko7gBzv-NFJRYN0p4WtvRmr0ZmKqbB23bhzJegSGTlwwJ7tRMyHb8MoT_Ark8iAWPl0r4O0nxbekAaZODMQRw",
+      "type": "hidden"
+    },
+    {
+      "name": "__RequestVerificationToken",
+      "id": "",
+      "value": "CfDJ8EuC0qqdrkdDhZqx0fAeqhXMdPiGucu8VlyiwWG0OWgfkZGYsjU6-DYIvIQd9SfgYJUlVJP__A1HQHfnP4dt6uQE6WVqZSIDXVC3JgH2SGIvDko7gBzv-NFJRYN0p4WtvRmr0ZmKqbB23bhzJegSGTlwwJ7tRMyHb8MoT_Ark8iAWPl0r4O0nxbekAaZODMQRw",
+      "type": "hidden"
+    },
+    {
+      "name": "__RequestVerificationToken",
+      "id": "",
+      "value": "CfDJ8EuC0qqdrkdDhZqx0fAeqhXMdPiGucu8VlyiwWG0OWgfkZGYsjU6-DYIvIQd9SfgYJUlVJP__A1HQHfnP4dt6uQE6WVqZSIDXVC3JgH2SGIvDko7gBzv-NFJRYN0p4WtvRmr0ZmKqbB23bhzJegSGTlwwJ7tRMyHb8MoT_Ark8iAWPl0r4O0nxbekAaZODMQRw",
+      "type": "hidden"
+    },
+    {
+      "name": "__RequestVerificationToken",
+      "id": "",
+      "value": "CfDJ8EuC0qqdrkdDhZqx0fAeqhXMdPiGucu8VlyiwWG0OWgfkZGYsjU6-DYIvIQd9SfgYJUlVJP__A1HQHfnP4dt6uQE6WVqZSIDXVC3JgH2SGIvDko7gBzv-NFJRYN0p4WtvRmr0ZmKqbB23bhzJegSGTlwwJ7tRMyHb8MoT_Ark8iAWPl0r4O0nxbekAaZODMQRw",
+      "type": "hidden"
+    },
+    {
+      "name": "__RequestVerificationToken",
+      "id": "",
+      "value": "CfDJ8EuC0qqdrkdDhZqx0fAeqhXMdPiGucu8VlyiwWG0OWgfkZGYsjU6-DYIvIQd9SfgYJUlVJP__A1HQHfnP4dt6uQE6WVqZSIDXVC3JgH2SGIvDko7gBzv-NFJRYN0p4WtvRmr0ZmKqbB23bhzJegSGTlwwJ7tRMyHb8MoT_Ark8iAWPl0r4O0nxbekAaZODMQRw",
+      "type": "hidden"
+    },
+    {
+      "name": "__RequestVerificationToken",
+      "id": "",
+      "value": "CfDJ8EuC0qqdrkdDhZqx0fAeqhXMdPiGucu8VlyiwWG0OWgfkZGYsjU6-DYIvIQd9SfgYJUlVJP__A1HQHfnP4dt6uQE6WVqZSIDXVC3JgH2SGIvDko7gBzv-NFJRYN0p4WtvRmr0ZmKqbB23bhzJegSGTlwwJ7tRMyHb8MoT_Ark8iAWPl0r4O0nxbekAaZODMQRw",
+      "type": "hidden"
+    },
+    {
+      "name": "EventMessage",
+      "id": "EventMessage",
+      "value": "",
+      "type": "text"
+    },
+    {
+      "name": "__RequestVerificationToken",
+      "id": "",
+      "value": "CfDJ8EuC0qqdrkdDhZqx0fAeqhXMdPiGucu8VlyiwWG0OWgfkZGYsjU6-DYIvIQd9SfgYJUlVJP__A1HQHfnP4dt6uQE6WVqZSIDXVC3JgH2SGIvDko7gBzv-NFJRYN0p4WtvRmr0ZmKqbB23bhzJegSGTlwwJ7tRMyHb8MoT_Ark8iAWPl0r4O0nxbekAaZODMQRw",
+      "type": "hidden"
+    }
+  ]
+}

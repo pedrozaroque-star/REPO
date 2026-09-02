@@ -1,0 +1,28 @@
+<html><head></head><body><form method="post" action="/CompanySetupTargetManagement/TargetDisconnect">
+    
+    <input type="hidden" data-val="true" data-val-required="The CompanyId field is required." id="CompanyId" name="CompanyId" value="1866">
+    <input type="hidden" data-val="true" data-val-required="The TaskId field is required." id="TaskId" name="TaskId" value="1">
+    <input type="hidden" data-val="true" data-val-required="The TargetId field is required." id="TargetId" name="TargetId" value="2063">
+    <input type="hidden" data-val="true" data-val-required="The SystemType field is required." id="SystemType" name="SystemType" value="QbOnline">
+    <input type="hidden" data-val="true" data-val-required="The UsesSandbox field is required." id="UsesSandbox" name="UsesSandbox" value="False">
+
+    <div class="modal-header">
+        <div class="text-center font-bold">
+            <h2>Are you sure you want to disconnect QuickBooks Online?</h2>
+        </div>
+    </div>
+    <div class="modal-body">
+        <p class="text-center">
+            <strong>
+                Note - This will also disconnect all Site Workflows that are set up for this Financial System.<br><br>
+                To re-enable the Workflows you will need to<br>1) Connect to QuickBooks Online again<br>2) Configure the Settings
+                for QuickBooks Online<br>3) Re-enable the Workflows in Site &amp; Workflow.
+            </strong>
+        </p>
+    </div>
+    <div class="modal-footer">
+        <button type="button" class="btn btn-default" data-dismiss="modal">Cancel</button>
+        <button type="submit" id="modal-submit-btn" class="btn btn-danger">Disconnect</button>
+    </div>
+<input name="__RequestVerificationToken" type="hidden" value="CfDJ8EuC0qqdrkdDhZqx0fAeqhV75Ftm0u6IOklmRuboUL6tHavwgYn6YthpQsJu-zYP9xYmLf0Dul0g9Nqc27sU2Af8SQkSV_3AcYAwHlRkYoARb00nkbZwhqmR6uw1UBJ5WHUKKiCI6cR3_SxaGwvpj3UAT-RWYaWFbNDQiFxszUkmFYxr6_VqXJ9r4e93PXSIrw"></form>
+</body></html>
