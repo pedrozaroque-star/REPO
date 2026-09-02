@@ -43,8 +43,8 @@ const MONTHS_CATALOG: ReportMonthOption[] = [
     {
         id: 'septiembre',
         label: 'Septiembre 2026',
-        sublabel: 'En Curso • SM TEG v2.6.0',
-        hours: '1.75 hrs',
+        sublabel: 'En Curso • SM TEG v2.6.1',
+        hours: '6.75 hrs',
         tasks: '27 Tareas',
         badgeColor: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-300 border-emerald-300 dark:border-emerald-700',
         activeBorderColor: 'border-emerald-500 bg-emerald-50/60 dark:bg-emerald-950/30'

@@ -1,20 +1,31 @@
 {
-  "totalHours": 1.75,
+  "totalHours": 6.75,
   "rows": [
     {
       "date": "01-Sep-2026",
-      "time": "2:00 AM - 3:45 AM",
-      "hours": 1.75,
+      "time": "2:00 AM - 3:45 AM & 6:15 PM - 11:15 PM",
+      "hours": 6.75,
       "badges": [
+        "Contabilidad (Cohesion)",
+        "QuickBooks OAuth2",
+        "Auditoría de Tareas",
+        "Versionado v2.6.1",
         "Soporte IA Natural",
-        "Versionado v2.6.0",
         "Reportes Septiembre"
       ],
-      "descEs": "• <strong>Soporte IA (Chatbot Natural & Cero Jerga Técnica)</strong>: Reestructuración integral del prompt y tono del asistente para eliminar toda la jerga técnica (SQL, bases de datos, crons, endpoints) y adaptar el lenguaje a gerentes y supervisores de restaurante en tono 100% humano y cálido.<br>• <strong>Contador de Versiones UI (v2.6.0)</strong>: Centralización del sistema de versionado en lib/version.ts y despliegue automático de la nueva versión oficial SM TEG v2.6.0 (Septiembre 2026 • Producción).<br>• <strong>Reportes Mensuales (Pestaña Septiembre 2026)</strong>: Creación y activación de la nueva pestaña y reporte de Septiembre 2026 en el visualizador /admin/reporte-actividades, generando el entorno de pendientes y horas para el nuevo mes.",
-      "descEn": "• <strong>AI Support (Natural Chatbot & Zero Tech Jargon)</strong>: Comprehensive overhaul of assistant prompt and persona, removing all programming jargon (SQL, databases, crons) in favor of 100% human, warm, restaurant operational language for store managers and staff.<br>• <strong>UI Version Counter (v2.6.0)</strong>: Centralized automated versioning system in lib/version.ts and rolled out canonical SM TEG v2.6.0 (September 2026 • Production).<br>• <strong>Monthly Reports (September 2026 Tab)</strong>: Created and activated the new September 2026 tab and standalone report in /admin/reporte-actividades to track the new month's roadmap."
+      "descEs": "• <strong>Soporte IA (Chatbot Natural & Cero Jerga Técnica)</strong>: Reestructuración integral del prompt y tono del asistente para eliminar toda la jerga técnica (SQL, bases de datos, crons, endpoints) y adaptar el lenguaje a gerentes y supervisores de restaurante en tono 100% humano y cálido.<br>• <strong>Contador de Versiones UI (v2.6.1)</strong>: Centralización del sistema de versionado en lib/version.ts y despliegue del parche oficial SM TEG v2.6.1 (Septiembre 2026 • Parche Contable & Versionado).<br>• <strong>Reportes Mensuales (Pestaña Septiembre 2026)</strong>: Creación y activación de la nueva pestaña y reporte de Septiembre 2026 en el visualizador /admin/reporte-actividades.<br>• <strong>Contabilidad & Reemplazo de Cohesion (Auditoría Forense y Estatus)</strong>: Diagnóstico exhaustivo del módulo de Contabilidad y reclasificación formal de la Tarea 16 a estatus ⚡ En Progreso Activo (Fase de Desarrollo y Validación Dual con Raquel Velázquez antes de la migración final), actualizando y cuadrando los 4 meses históricos.<br>• <strong>Diagnóstico de Conexión QuickBooks Online (OAuth2 Tokens & Catálogo Local)</strong>: Análisis comparativo entre Orden Diaria y Contabilidad respecto a tokens de Intuit, verificando que el catálogo maestro de 30 cuentas GL (#2326, #2335, etc.) y los mapeos de las 15 tiendas ya operan de forma 100% autónoma y blindada en Supabase sin depender de llamadas de red bloqueadas.",
+      "descEn": "• <strong>AI Support (Natural Chatbot & Zero Tech Jargon)</strong>: Comprehensive overhaul of assistant prompt and persona, removing all programming jargon in favor of 100% human, warm, restaurant operational language for store managers and staff.<br>• <strong>UI Version Counter (v2.6.1)</strong>: Centralized automated versioning system in lib/version.ts and rolled out SM TEG v2.6.1 patch release.<br>• <strong>Monthly Reports (September 2026 Tab)</strong>: Created and activated the new September 2026 tab and standalone report in /admin/reporte-actividades.<br>• <strong>Accounting & Cohesion Replacement (Forensic Audit & Status Sync)</strong>: Exhaustive audit of the Accounting module and formal classification of Task 16 as ⚡ Active In-Progress (Development & Dual-Run Validation Phase with Raquel Velázquez), reconciling all 4 historical monthly reports.<br>• <strong>QuickBooks Online Connection Diagnosis (OAuth2 Tokens & Local Catalog)</strong>: Comparative analysis between Daily Orders and Accounting regarding Intuit session tokens, certifying that the master 30 GL accounts chart and 15 store mappings operate 100% autonomously in Supabase."
     }
   ],
   "effort": [
+    {
+      "module": "Módulo de Contabilidad (Reemplazo Cohesion) & QuickBooks",
+      "hours": 3.0
+    },
+    {
+      "module": "Auditoría Forense de Tareas y Reportes Mensuales",
+      "hours": 2.0
+    },
     {
       "module": "Mantenimiento General, Crons y Reportes",
       "hours": 0.75
@@ -24,7 +35,7 @@
       "hours": 0.5
     },
     {
-      "module": "Contador de Versiones UI & Navegación",
+      "module": "Contador de Versiones UI & Navegación (v2.6.1)",
       "hours": 0.5
     }
   ],

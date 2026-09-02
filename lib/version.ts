@@ -9,14 +9,14 @@
  */
 
 export const SYSTEM_VERSION = {
-    version: 'v2.6.0',
-    versionNumber: '2.6.0',
+    version: 'v2.6.1',
+    versionNumber: '2.6.1',
     releaseMonthEs: 'Septiembre 2026',
     releaseMonthEn: 'September 2026',
     stage: 'Producción',
     stageEn: 'Production',
     year: '2026',
-    labelEs: 'Septiembre 2026 • Producción',
-    labelEn: 'September 2026 • Production',
+    labelEs: 'Septiembre 2026 • SM TEG v2.6.1',
+    labelEn: 'September 2026 • SM TEG v2.6.1',
     brand: 'SM TEG'
 } as const;
