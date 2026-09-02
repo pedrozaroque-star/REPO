@@ -610,6 +610,7 @@ if (juneTableMatch) {
         const tdMatches = [...tr[1].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)].map(m => m[1].trim());
         if (tdMatches.length >= 5) {
             const date = tdMatches[0].replace(/<[^>]+>/g, '').trim();
+            if (!date.toLowerCase().includes('jun')) return;
             const time = tdMatches[1].replace(/<br\s*\/?>/gi, ' & ').replace(/<[^>]+>/g, '').trim();
             const hours = parseFloat(tdMatches[2].replace(/<[^>]+>/g, '').trim()) || 0;
             const badges = [...tdMatches[3].matchAll(/<span[^>]*>([^<]+)<\/span>/gi)].map(b => b[1].trim());
@@ -627,7 +628,7 @@ if (juneTableMatch) {
     });
 }
 
-// Extract July Rows
+// Extract July Rows (Strictly July dates only)
 const julyBackupHtml = fs.readFileSync('backups/pendientes_julio_canonical_backup.html', 'utf-8');
 const julyRows = [];
 const julyTableMatch = julyBackupHtml.match(/<tbody[^>]*>([\s\S]*?)<\/tbody>/i);
@@ -637,6 +638,7 @@ if (julyTableMatch) {
         const tdMatches = [...tr[1].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)].map(m => m[1].trim());
         if (tdMatches.length >= 5) {
             const date = tdMatches[0].replace(/<[^>]+>/g, '').trim();
+            if (!date.toLowerCase().includes('jul')) return;
             const time = tdMatches[1].replace(/<br\s*\/?>/gi, ' & ').replace(/<[^>]+>/g, '').trim();
             const hours = parseFloat(tdMatches[2].replace(/<[^>]+>/g, '').trim()) || 0;
             const badges = [...tdMatches[3].matchAll(/<span[^>]*>([^<]+)<\/span>/gi)].map(b => b[1].trim());

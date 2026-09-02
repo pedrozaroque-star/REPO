@@ -3374,66 +3374,6 @@ export const MONTHLY_REPORTS: Record<'septiembre' | 'agosto' | 'julio' | 'junio'
             ],
             "descEs": "- **Reestructuración del Preparador (Cooking Pace)**: Transición de la proyección de carne de bloques de 30 minutos a bloques por periodos de tráfico pico (Peak Time Period Blocks: Apertura, Almuerzo, Pico PM) mostrando Lbs/Hr y Libras Totales por bloque. Ajuste dinámico del Periodo 1 según la hora de apertura real de la sucursal.<br>- **Contraste y UX de Parrilla**: Aumento del contraste de las tarjetas de proyección y remoción de opacidad para lectura a distancia en cocina. Cálculo de velocidad real (Lbs/Hr) usando tiempo transcurrido en el periodo activo y visualización de total de libras reales.<br>- **Selector de Historial y Calendario**: Incorporación de Date Picker interactivo para consultar proyecciones e historial de consumo de cualquier fecha pasada. Selector interactivo 30 Min vs Tramos.<br>- **Control de Sobrecocción (Máx. Charola)**: Integración de insignia visual '🔥 Máx. Charola' indicando la capacidad máxima de cada carne. Página estática autónoma `tabla_maximos_preparador.html` con CSS puro autónomo para 100% de compatibilidad al previsualizarse en iOS QuickLook/WhatsApp sin JS, accesible mediante la ruta `/inventory/preparador/tabla`.<br>- **Guía Operativa KDS**: Modal interactivo de Guía Operativa y Tabla de Máximos accesible mediante botón 'VER GUÍA' con tema monocromático de alta legibilidad para ambiente rudo de cocina.",
             "descEn": "- **Preparador (Cooking Pace) Restructuring**: Shifted meat projection displays from fixed 30-min increments to Peak Time Period Blocks showing dynamic Lbs/Hr and Total Period Lbs. Coded automatic store opening adjustments for Period 1.<br>- **Grill Screen Contrast & UX**: Boosted text contrast and removed opacity elements on projection cards for long-range reading. Built dynamic consumption REAL/hr computing elapsed hours on current active block.<br>- **Calendar Historial Picker**: Coded interactive Date Picker to query projection values and consumption logs for any historical calendar date. View switcher for 30 Min vs. Peak Periods.<br>- **Overcooking Safety Limit (Max Tray)**: Added '🔥 Máx. Charola' capacity holding limit badge to cards. Created 100% self-contained Vanilla CSS static page `tabla_maximos_preparador.html` for JS-free previews on iOS QuickLook & WhatsApp, exposed via `/inventory/preparador/tabla`.<br>- **Operational KDS Guide**: Built interactive 'VER GUÍA' modal mapping operational guidelines and maximum capacity tray charts, implementing high-contrast monochrome UI styling."
-        },
-        {
-            "date": "07-Ago-2026",
-            "time": "10:00 AM - 1:45 PM",
-            "hours": 3.75,
-            "badges": [
-                "Navegación",
-                "Food Cost",
-                "Presentación"
-            ],
-            "descEs": "- **Reestructuración de la Navegación Principal**: Reorganización completa de la barra lateral en 5 grupos lógicos (Análisis y Ventas, Operaciones de Tienda, Inventario y Mercancía, Personal y Horarios, Administración y Sistema) eliminando duplicaciones.<br>- **Unificación del Módulo de Food Cost**: Integración de las 3 pantallas de costos bajo un solo acceso maestro `Food Cost & Márgenes` con 3 pestañas superiores (Visión General por Sucursal, Rendimiento de Carnes y Márgenes por Platillo).<br>- **Cuadros de Ayuda Flotantes (ALT / Tooltips)**: Inclusión de descripciones breves al pasar el cursor sobre cualquier elemento de la barra lateral.<br>- **Insignias BETA**: Incorporación de distintivos visuales `BETA` a los módulos Mi Horario y Auto-Schedule.<br>- **Fix React Key Error**: Corrección del aviso de consola en la tabla de desglose de carnes mediante claves compuestas únicas.<br>- **Guía de Presentación**: Creación de la guía HTML e integración de capturas reales del sistema para capacitación de gerentes.",
-            "descEn": "- **Main Navigation Restructuring**: Complete reorganization of the sidebar into 5 logical groups (Analysis & Sales, Store Operations, Inventory & Supplies, Staff & Schedules, System & Admin) eliminating redundancies.<br>- **Unified Food Cost Module**: Merged all 3 cost sub-screens under a single master access `Food Cost & Margins` with 3 top navigation tabs (Store Overview, Meat Yields, and Menu Item Margins).<br>- **Hover Tooltips (ALT descriptions)**: Added contextual descriptions when hovering over any sidebar item.<br>- **BETA Badges**: Added visual `BETA` badges to My Schedule and Auto-Schedule modules.<br>- **React Key Fix**: Resolved console warning on meat breakdown table rows using composite unique keys.<br>- **Presentation Guide**: Generated printable HTML presentation guide with real app screenshots for manager onboarding."
-        },
-        {
-            "date": "08-Ago-2026",
-            "time": "7:15 PM - 7:30 PM",
-            "hours": 0.25,
-            "badges": [
-                "Inventario",
-                "Uniformes",
-                "QuickBooks"
-            ],
-            "descEs": "- **Soporte de Talla Extra Small (XS) en Control de Uniformes**: Incorporación oficial de la talla XS a todas las categorías de torso y chamarras (`shirt_red`, `shirt_shift_leader`, `shirt_assistant`, `shirt_manager`, `jacket_red`, `jacket_black`).<br>- **Parser Inteligente de QuickBooks**: Actualización del parser de items de QuickBooks (`parseQBItemNameToCategoryAndSize`) para mapear ítems que indiquen `x-small`, `xsmall`, `extra small` o `xs` directamente a la talla `XS` en lugar de degradar a `S`.<br>- **Sincronización de Guía y Documentación**: Actualización de la documentación y guías de presentación del sistema para incluir el rango completo de tallas (XS, S, M, L, XL, 2XL, 3XL).",
-            "descEn": "- **Extra Small (XS) Size Support in Uniforms Module**: Added official XS size support across all shirt and jacket categories (`shirt_red`, `shirt_shift_leader`, `shirt_assistant`, `shirt_manager`, `jacket_red`, `jacket_black`).<br>- **Intelligent QuickBooks Parser**: Updated QuickBooks item parser (`parseQBItemNameToCategoryAndSize`) to accurately extract `x-small`, `xsmall`, `extra small`, or `xs` items as size `XS` instead of falling back to `S`.<br>- **Documentation & Guide Sync**: Updated system presentation guides to reflect full size spectrum (XS, S, M, L, XL, 2XL, 3XL)."
-        },
-        {
-            "date": "08-Ago-2026",
-            "time": "7:45 PM - 7:50 PM",
-            "hours": 0.1,
-            "badges": [
-                "Inventario",
-                "Uniformes",
-                "Seguridad"
-            ],
-            "descEs": "- **Restricción de Botones de Control de Inventario**: Encapsulamiento de las acciones de administración (`Editar Precios`, `Reiniciar Conteo Inicial` y `Modo Auditoría`) en `app/inventory/uniforms/page.tsx` bajo la condición estricta de `isAdmin` (`user.role === 'admin'`). Ocultación completa para gerentes y asistentes.",
-            "descEn": "- **Uniform Inventory Controls Security**: Encapsulated administrative actions (`Edit Pricing`, `Reset Initial Count`, and `Audit Mode`) in `app/inventory/uniforms/page.tsx` under strict `isAdmin` check (`user.role === 'admin'`). Completely hidden for store managers and assistants."
-        },
-        {
-            "date": "08-Ago-2026",
-            "time": "7:50 PM - 7:55 PM",
-            "hours": 0.1,
-            "badges": [
-                "Inventario",
-                "Uniformes",
-                "Transacciones"
-            ],
-            "descEs": "- **Campo \"Cantidad de Reemplazos\" en Cambio por Daño**: Habilitación del selector numérico de cantidad en el formulario de Cambio por Daño (`txType === 'damage'`) en `app/inventory/uniforms/page.tsx` con label dinámico `Cantidad de Reemplazos` e integración en la server action `recordDamageExchange` para deducir cualquier N cantidad de prendas dañadas en una sola transacción.",
-            "descEn": "- **Replacement Quantity Field in Damage Exchange**: Enabled numerical quantity selector on Damage Exchange form (`txType === 'damage'`) in `app/inventory/uniforms/page.tsx` with dynamic `Replacement Quantity` label, updating `recordDamageExchange` server action to support deducting N damaged items in a single transaction."
-        },
-        {
-            "date": "10-Ago-2026",
-            "time": "5:00 PM - 5:10 PM",
-            "hours": 0.2,
-            "badges": [
-                "Inventario",
-                "Uniformes",
-                "Alertas Bodega"
-            ],
-            "descEs": "- **Stock Mínimo Estándar y Alerta de Reposición a Bodega**: Configuración del diccionario de stock mínimo por categoría y talla (`DEFAULT_MIN_STOCK`) en `utils.ts` (Team Members Red: 10-20, Shift Leader: 10-20, Assistant: 3, Manager: 0, Gorras: 12, Chamarras: 2-3). Integración de banner dinámico de alerta en `page.tsx` al caer el inventario por debajo del mínimo, resaltado de filas en tabla de stock (rojo agotado, amarillo stock bajo) y modal de solicitud directa de pedido a La Bodega (`ReorderModal`).",
-            "descEn": "- **Standard Minimum Stock & Warehouse Replenishment Alert**: Configured category and size minimum stock dictionary (`DEFAULT_MIN_STOCK`) in `utils.ts` (Team Members Red: 10-20, Shift Leader: 10-20, Assistant: 3, Manager: 0, Caps: 12, Jackets: 2-3). Integrated dynamic warning alert banner in `page.tsx` when stock falls below target, row highlighting (red out of stock, yellow low stock), and interactive replenishment modal (`ReorderModal`) connecting to La Bodega orders."
         }
     ],
     "effortSummary": [
