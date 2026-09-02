@@ -39,6 +39,7 @@ export const dictionaries: Record<Language, Dictionary> = {
         // SECTIONS (Groups)
         sections: {
             analysis: 'ANÁLISIS Y VENTAS',
+            finance_accounting: 'FINANZAS Y CONTABILIDAD',
             operations: 'OPERACIONES DE TIENDA',
             inventory: 'INVENTARIO Y MERCANCÍA',
             team: 'PERSONAL Y HORARIOS',
@@ -85,6 +86,7 @@ export const dictionaries: Record<Language, Dictionary> = {
             ronos: 'Auditoría RONOS (Labor)',
             activity_reports: 'Reporte de Actividades',
             accounting: 'Contabilidad',
+            miles_finance: 'Miles',
         },
         // LOGIN
         login: {
@@ -3184,6 +3186,7 @@ export const dictionaries: Record<Language, Dictionary> = {
         // SECTIONS (Groups)
         sections: {
             analysis: 'ANALYSIS & SALES',
+            finance_accounting: 'FINANCE & ACCOUNTING',
             operations: 'STORE OPERATIONS',
             inventory: 'INVENTORY & SUPPLIES',
             team: 'STAFF & SCHEDULES',
@@ -3230,6 +3233,7 @@ export const dictionaries: Record<Language, Dictionary> = {
             ronos: 'RONOS Labor Audit',
             activity_reports: 'Activity Reports',
             accounting: 'Accounting',
+            miles_finance: 'Miles',
         },
         // LOGIN
         login: {

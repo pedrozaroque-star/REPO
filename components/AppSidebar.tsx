@@ -64,6 +64,11 @@ const GROUP_COLORS: Record<string, { icon: string; activeBg: string; activeBorde
         activeBg: 'bg-blue-50 dark:bg-blue-950/40',
         activeBorder: 'border-l-blue-500',
     },
+    finanzas: {
+        icon: 'text-amber-600 dark:text-amber-400',
+        activeBg: 'bg-amber-50 dark:bg-amber-950/40',
+        activeBorder: 'border-l-amber-500',
+    },
     gestion: {
         icon: 'text-emerald-600 dark:text-emerald-400',
         activeBg: 'bg-emerald-50 dark:bg-emerald-950/40',
@@ -93,7 +98,7 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
     const { t, language, setLanguage } = useLanguage()
 
     const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({
-        operaciones: true, analisis: false, inventario: false, equipo: false, gestion: false,
+        operaciones: true, finanzas: true, analisis: false, inventario: false, equipo: false, gestion: false,
     })
     const [userDropdownOpen, setUserDropdownOpen] = useState(false)
     const dropdownRef = useRef<HTMLDivElement>(null)
@@ -157,16 +162,6 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                         : 'Reportes consolidados de ventas, canales de entrega, impuestos y métodos de pago'
                 },
                 {
-                    name: t('items.accounting'),
-                    plainName: 'Contabilidad',
-                    path: '/contabilidad',
-                    icon: <Calculator size={20} />,
-                    roles: ['admin'],
-                    tooltip: language === 'en'
-                        ? 'Daily sales journal entries for QuickBooks — replaces Cohesion (Pólizas de ventas diarias)'
-                        : 'Pólizas de ventas diarias para QuickBooks — reemplaza Cohesion ($450/mes)'
-                },
-                {
                     name: t('items.planner'),
                     plainName: 'Planificador',
                     path: '/planificador',
@@ -205,6 +200,62 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                     tooltip: language === 'en'
                         ? 'Drive-Thru speed of service metrics and store leaderboard (Métricas de velocidad de atención autoservicio)'
                         : 'Métricas de velocidad de atención y ranking entre sucursales para el Drive-Thru'
+                },
+            ]
+        },
+        {
+            title: t('sections.finance_accounting') || 'FINANZAS Y CONTABILIDAD',
+            id: 'finanzas',
+            items: [
+                {
+                    name: t('items.accounting') || 'Contabilidad',
+                    plainName: 'Contabilidad',
+                    path: '/contabilidad',
+                    icon: <Calculator size={20} />,
+                    roles: ['admin'],
+                    tooltip: language === 'en'
+                        ? 'Daily sales journal entries for QuickBooks — replaces Cohesion (Pólizas de ventas diarias)'
+                        : 'Pólizas de ventas diarias para QuickBooks — reemplaza Cohesion ($450/mes)'
+                },
+                {
+                    name: (
+                        <div className="flex items-center gap-2">
+                            <span>{t('items.ronos') || 'Auditoría RONOS (Labor)'}</span>
+                            <span className="text-[10px] bg-amber-100 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 border border-amber-300 dark:border-amber-700 px-1.5 py-0.5 rounded font-black tracking-widest">NUEVO</span>
+                        </div>
+                    ),
+                    plainName: 'Auditoría RONOS (Labor)',
+                    path: '/admin/ronos',
+                    icon: <Clock size={20} />,
+                    roles: ['admin'],
+                    tooltip: language === 'en'
+                        ? 'Live timecard audit, time clock camera photos, meal penalty leakage & 15-store compliance (Auditoría de ponchadas, fotos y multas Cingular HR)'
+                        : 'Auditoría en vivo de ponchadas, fotos de reloj checador, penalizaciones de lunch y cumplimiento Cingular HR'
+                },
+                {
+                    name: t('items.miles_finance') || 'Miles',
+                    plainName: 'Miles',
+                    path: '/miles',
+                    icon: <Car size={20} />,
+                    roles: ['admin'],
+                    tooltip: language === 'en'
+                        ? 'Supervisor mileage tracking, drive log, reimbursement calculation, and HR payroll dispatch'
+                        : 'Control y cálculo de millas manejadas por supervisores, registro de viajes y despacho a RRHH'
+                },
+                {
+                    name: (
+                        <div className="flex items-center gap-2">
+                            <span>{t('items.activity_reports') || 'Reporte de Actividades'}</span>
+                            <span className="text-[10px] bg-orange-100 dark:bg-orange-950/60 text-orange-600 dark:text-orange-400 border border-orange-300 dark:border-orange-700 px-1.5 py-0.5 rounded font-black tracking-widest">ADMIN</span>
+                        </div>
+                    ),
+                    plainName: 'Reporte de Actividades',
+                    path: '/admin/reporte-actividades',
+                    icon: <TrendingUp size={20} />,
+                    roles: ['admin'],
+                    tooltip: language === 'en'
+                        ? 'Interactive executive report of monthly roadmaps, audited dev hours, and Gantt schedules (Septiembre, Agosto, Julio, Junio)'
+                        : 'Consulta ejecutiva de bitácora de desarrollo, horas trabajadas y cronograma Gantt 24h (Septiembre, Agosto, Julio, Junio)'
                 },
             ]
         },
@@ -417,21 +468,6 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                 {
                     name: (
                         <div className="flex items-center gap-2">
-                            <span>{t('items.ronos') || 'Auditoría RONOS (Labor)'}</span>
-                            <span className="text-[10px] bg-amber-100 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 border border-amber-300 dark:border-amber-700 px-1.5 py-0.5 rounded font-black tracking-widest">NUEVO</span>
-                        </div>
-                    ),
-                    plainName: 'Auditoría RONOS (Labor)',
-                    path: '/admin/ronos',
-                    icon: <Clock size={20} />,
-                    roles: ['admin'],
-                    tooltip: language === 'en'
-                        ? 'Live timecard audit, time clock camera photos, meal penalty leakage & 15-store compliance (Auditoría de ponchadas, fotos y multas Cingular HR)'
-                        : 'Auditoría en vivo de ponchadas, fotos de reloj checador, penalizaciones de lunch y cumplimiento Cingular HR'
-                },
-                {
-                    name: (
-                        <div className="flex items-center gap-2">
                             <span>{t('items.self_scheduling')}</span>
                             <span className="text-[10px] bg-purple-100 dark:bg-purple-950/60 text-purple-600 dark:text-purple-400 border border-purple-300 dark:border-purple-700 px-1.5 py-0.5 rounded font-black tracking-widest">BETA</span>
                         </div>
@@ -514,21 +550,6 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                     tooltip: language === 'en'
                         ? 'Periodic staff performance reviews and skills evaluation (Evaluación de desempeño del personal)'
                         : 'Evaluación periódica de desempeño y habilidades del personal de tienda'
-                },
-                {
-                    name: (
-                        <div className="flex items-center gap-2">
-                            <span>{t('items.activity_reports') || 'Reporte de Actividades'}</span>
-                            <span className="text-[10px] bg-orange-100 dark:bg-orange-950/60 text-orange-600 dark:text-orange-400 border border-orange-300 dark:border-orange-700 px-1.5 py-0.5 rounded font-black tracking-widest">ADMIN</span>
-                        </div>
-                    ),
-                    plainName: 'Reporte de Actividades',
-                    path: '/admin/reporte-actividades',
-                    icon: <Clock size={20} />,
-                    roles: ['admin'],
-                    tooltip: language === 'en'
-                        ? 'Interactive HTML viewer of monthly roadmaps, audited dev hours, and Gantt schedules (Agosto, Julio, Junio)'
-                        : 'Consulta interactiva en HTML de planes de trabajo, horas de desarrollo y distribución diaria (Agosto, Julio, Junio)'
                 },
             ]
         }

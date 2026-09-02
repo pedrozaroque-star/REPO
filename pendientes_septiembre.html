@@ -83,7 +83,7 @@
         <div class="stat-card">
             <div style="font-size: 24px;">⏱️</div>
             <div>
-                <div class="stat-val" style="color: #ea580c;">12.3 hrs</div>
+                <div class="stat-val" style="color: #ea580c;">12.0 hrs</div>
                 <div class="stat-lbl">Horas Septiembre</div>
             </div>
         </div>
@@ -181,6 +181,60 @@
             
         </div>
         
+
+        <div class="gantt-day-card" style="background: white; border: 1.5px solid #e2e8f0; border-radius: 10px; padding: 14px 16px; margin-bottom: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.03);">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <span style="background: #0f172a; color: white; padding: 3px 8px; border-radius: 6px; font-weight: 800; font-size: 12px;">02 Sep</span>
+                    <span style="font-size: 12px; font-weight: 800; color: #475569;">Miércoles</span>
+                </div>
+                <div style="display: flex; gap: 6px;">
+                    <span style="background: #e0f2fe; color: #0369a1; border: 1px solid #bae6fd; padding: 2px 8px; border-radius: 6px; font-size: 11px; font-weight: 800;">
+                        🏪 Turno Lynwood: 9:00 AM - 5:00 PM (8.0h)
+                    </span>
+                    <span style="background: #ffedd5; color: #c2410c; border: 1px solid #fed7aa; padding: 2px 8px; border-radius: 6px; font-size: 11px; font-weight: 800;">
+                        💻 Dev TEG: 1.0 hrs
+                    </span>
+                </div>
+            </div>
+
+            <!-- Double Track Gantt Ruler -->
+            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 6px; display: flex; flex-direction: column; gap: 4px;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <span style="font-size: 9px; font-weight: 800; color: #0284c7; width: 60px; text-transform: uppercase;">🏪 Tienda</span>
+                    <div style="flex: 1; height: 20px; background: #f1f5f9; border-radius: 4px; position: relative;">
+                        
+                    <div style="position: absolute; left: 25.00%; width: 40.00%; top: 2px; bottom: 2px; background: #0284c7; border-radius: 4px; display: flex; align-items: center; justify-content: space-between; padding: 0 8px; color: white; font-size: 10px; font-weight: 800; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.15);">
+                        <span>9:00 AM</span>
+                        <span>🏪 Turno Lynwood (8.0h)</span>
+                        <span>5:00 PM</span>
+                    </div>
+                
+                    </div>
+                </div>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <span style="font-size: 9px; font-weight: 800; color: #ea580c; width: 60px; text-transform: uppercase;">💻 Sistema</span>
+                    <div style="flex: 1; height: 20px; background: #f1f5f9; border-radius: 4px; position: relative;">
+                        
+                <div style="position: absolute; left: 98.33%; width: 1.67%; top: 2px; bottom: 2px; background: #ea580c; border-radius: 4px; display: flex; align-items: center; justify-content: center; color: white; font-size: 10px; font-weight: 800; overflow: hidden; box-shadow: 0 1px 3px rgba(234,88,12,0.3);" title="1:15 AM - 1:35 AM (0.33h)">
+                    💻 0.33h
+                </div>
+            
+                <div style="position: absolute; left: 35.00%; width: 2.50%; top: 2px; bottom: 2px; background: #ea580c; border-radius: 4px; display: flex; align-items: center; justify-content: center; color: white; font-size: 10px; font-weight: 800; overflow: hidden; box-shadow: 0 1px 3px rgba(234,88,12,0.3);" title="11:00 AM - 11:30 AM (0.5h)">
+                    💻 0.5h
+                </div>
+            
+                    </div>
+                </div>
+            </div>
+
+            
+            <div style="margin-top: 6px; font-size: 11px; color: #475569; display: flex; align-items: center; flex-wrap: wrap; gap: 4px;">
+                <span style="font-weight: 800; color: #0f172a;">⏱️ Sesiones Registradas:</span> <span style="display: inline-flex; align-items: center; gap: 4px;"><span style="color:#ea580c;">●</span> <strong>1:15 AM - 1:35 AM</strong> (0.33h) • Finanzas y Contabilidad</span> <span style="color:#cbd5e1; margin: 0 4px;">|</span> <span style="display: inline-flex; align-items: center; gap: 4px;"><span style="color:#ea580c;">●</span> <strong>11:00 AM - 11:30 AM</strong> (0.5h) • Barra Lateral</span>
+            </div>
+            
+        </div>
+        
         </div>
 
         <!-- Detail Table -->
@@ -208,18 +262,24 @@
                 </div>
             </td>
             <td style="font-size: 12.5px; line-height: 1.5; color: #334155;">
+                <div class="es-desc" style="margin-bottom: 4px;">• <strong>Módulo de Contabilidad (Génesis & Replicación de Cohesion)</strong>: En sesión matutina dedicada (chat específico 3ca1503c), exploración profunda y extracción forense con Puppeteer de la plataforma Cohesion (cohesion4restaurants.com) de Raquel Velázquez. Ingeniería inversa del mapeo de 17 cuentas contables (For Here, To Go, Uber, DoorDash, Delivery, Propinas, Impuestos, Faltantes/Sobrantes cuenta 51050), creación de lib/accounting-journal.ts, interfaz interactiva /contabilidad, /contabilidad/[packetId] y 7 endpoints API para transformar pólizas de Toast POS a QuickBooks Online sin costos de suscripción ($450/mes de ahorro).<br>• <strong>Simulaciones Duales QuickBooks & Diagnóstico de Tokens</strong>: Pruebas multi-sucursal en paralelo contra los libros reales de QBO en colaboración con Raquel Velázquez. Análisis comparativo de tokens OAuth2 entre Orden Diaria y Contabilidad, certificando que el catálogo maestro de 30 cuentas GL (#2326, #2335, etc.) y los mapeos de las 15 tiendas operan con total autonomía y blindaje en Supabase.<br>• <strong>Migración a Dashboard TSX Nativo & Rediseño Ejecutivo PRO</strong>: Conversión integral del módulo /admin/reporte-actividades de un iframe embebido a un componente 100% nativo en React/Next.js/TypeScript. Rediseño Ejecutivo PRO sin emojis decorativos, con 4 tarjetas KPI avanzadas, carrusel de filtros por módulo y botón de exportación instantánea a CSV.<br>• <strong>Vinculación con el Planificador (Turnos Lynwood #14 de Carlos Velázquez)</strong>: Sincronización dinámica de los 226 turnos reales del Planificador de Supabase (tabla schedules, user_id: 25), integrando el carril de tienda oficial (Turno Lynwood 2:00 PM - 10:00 PM, 8.0h • Intermedio) en el cronograma visual Gantt 24h.<br>• <strong>Soporte IA & Versionado UI (v2.6.1)</strong>: Reestructuración del asistente conversacional con tono natural y humano para gerentes, centralización en lib/version.ts y despliegue del parche oficial SM TEG v2.6.1.</div>
+                <div class="en-desc" style="font-size: 11.5px; color: #64748b; font-style: italic; border-top: 1px dashed #e2e8f0; padding-top: 4px; margin-top: 4px;">• <strong>Accounting Module (Cohesion Genesis & Architecture Replication)</strong>: In a dedicated morning session (conversation 3ca1503c), performed deep forensic Puppeteer crawling of Raquel Velázquez's Cohesion platform (cohesion4restaurants.com). Reverse-engineered the 17 GL accounting accounts mapping (For Here, To Go, Uber, DoorDash, Delivery, Tips, Taxes, Short/Over 51050), engineered core business logic in lib/accounting-journal.ts, built interactive UI in /contabilidad and /contabilidad/[packetId], and created 7 API endpoints to stream Toast POS daily journals directly to QuickBooks Online ($450/month cost savings).<br>• <strong>QuickBooks Dual-Run Simulations & Token Diagnosis</strong>: Ran parallel multi-store journal simulations against real QBO ledgers in coordination with Raquel Velázquez. Performed comparative OAuth2 token diagnostic between Daily Orders and Accounting, verifying that the 30 GL accounts master catalog (#2326, #2335, etc.) and 15 store mappings operate with 100% autonomy in Supabase.<br>• <strong>Native TSX Dashboard Migration & Executive PRO Redesign</strong>: Fully migrated /admin/reporte-actividades from an embedded iframe to a 100% native Next.js / React / TypeScript dashboard. Applied sleek Executive PRO design with zero emojis, 4 advanced KPI metrics cards, module filter chips, and instant CSV export.<br>• <strong>Planner Schedule Linking (Carlos Velázquez Lynwood #14 Shifts)</strong>: Dynamically connected all 226 real Planner schedules from Supabase (schedules table, user_id: 25), rendering Carlos's official store shift (Lynwood 2:00 PM - 10:00 PM, 8.0h • Intermedio) on the 24h visual Gantt timeline.<br>• <strong>AI Support & UI Versioning (v2.6.1)</strong>: Overhauled chatbot persona to natural human tone for store managers, centralized versioning in lib/version.ts, and rolled out official SM TEG v2.6.1 patch release.</div>
+            </td>
+        </tr>
+    
+
         <tr>
             <td style="font-weight: 800; color: #0f172a; white-space: nowrap;">02-Sep-2026</td>
-            <td style="font-size: 12px; color: #475569; white-space: nowrap;">6:40 AM - 8:00 AM</td>
-            <td style="font-weight: 900; color: #ea580c; font-size: 14px; text-align: center;">1.3</td>
+            <td style="font-size: 12px; color: #475569; white-space: nowrap;">1:15 AM - 1:35 AM & 11:00 AM - 11:30 AM</td>
+            <td style="font-weight: 900; color: #ea580c; font-size: 14px; text-align: center;">1.0</td>
             <td>
                 <div style="display: flex; gap: 4px; flex-wrap: wrap;">
-                    <span style="background: #f1f5f9; color: #0369a1; border: 1px solid #bae6fd; font-size: 10px; font-weight: 800; padding: 2px 6px; border-radius: 4px; text-transform: uppercase;">Auditoría Laboral RONOS</span><span style="background: #f1f5f9; color: #0369a1; border: 1px solid #bae6fd; font-size: 10px; font-weight: 800; padding: 2px 6px; border-radius: 4px; text-transform: uppercase;">Simplify HR Fuente de Verdad</span><span style="background: #f1f5f9; color: #0369a1; border: 1px solid #bae6fd; font-size: 10px; font-weight: 800; padding: 2px 6px; border-radius: 4px; text-transform: uppercase;">Filtro Asalariados / Por Hora</span><span style="background: #f1f5f9; color: #0369a1; border: 1px solid #bae6fd; font-size: 10px; font-weight: 800; padding: 2px 6px; border-radius: 4px; text-transform: uppercase;">Optimización Velocidad</span><span style="background: #f1f5f9; color: #0369a1; border: 1px solid #bae6fd; font-size: 10px; font-weight: 800; padding: 2px 6px; border-radius: 4px; text-transform: uppercase;">Simulaciones en Vivo</span>
+                    <span style="background: #f1f5f9; color: #0369a1; border: 1px solid #bae6fd; font-size: 10px; font-weight: 800; padding: 2px 6px; border-radius: 4px; text-transform: uppercase;">Finanzas y Contabilidad</span><span style="background: #f1f5f9; color: #0369a1; border: 1px solid #bae6fd; font-size: 10px; font-weight: 800; padding: 2px 6px; border-radius: 4px; text-transform: uppercase;">Barra Lateral</span><span style="background: #f1f5f9; color: #0369a1; border: 1px solid #bae6fd; font-size: 10px; font-weight: 800; padding: 2px 6px; border-radius: 4px; text-transform: uppercase;">Auditoría de Fechas</span><span style="background: #f1f5f9; color: #0369a1; border: 1px solid #bae6fd; font-size: 10px; font-weight: 800; padding: 2px 6px; border-radius: 4px; text-transform: uppercase;">Filtro Mensual</span><span style="background: #f1f5f9; color: #0369a1; border: 1px solid #bae6fd; font-size: 10px; font-weight: 800; padding: 2px 6px; border-radius: 4px; text-transform: uppercase;">Acceso Raquel (Miles)</span>
                 </div>
             </td>
             <td style="font-size: 12.5px; line-height: 1.5; color: #334155;">
-                <div class="es-desc" style="margin-bottom: 4px;">• <strong>Auditoría Laboral RONOS (Reparación de Ponchadas & Bypass de Caché en Vivo)</strong>: Diagnóstico y resolución del problema de retención de datos en memoria tras corregir ponchadas en RONOS. Implementación de invalidación de caché (<code>invalidateRonosStoreCache</code>), parámetro <code>forceRefresh=true</code> en <code>/api/ronos/sync</code> y <code>/api/ronos/punches</code>, depuración de registros obsoletos en Supabase al sincronizar en vivo, cabeceras HTTP anti-caché (<code>no-store</code>), y conversión de la vista de detalle a un hook reactivo (<code>useMemo</code> sobre <code>storeData</code>) para actualización visual instantánea.<br>• <strong>Sincronización Concurrente RONOS + Simplify HR & Clasificación Contractual Oficial</strong>: Arquitectura de ejecución paralela (<code>Promise.all</code>) donde las tarjetas de tiempo de RONOS y los salarios oficiales de Simplify HR se extraen simultáneamente en ~3.5s. Corrección del filtro de visualización (<em>Todos / Asalariados / Por Hora</em>) conectando directamente la propiedad <code>isSalaried</code> y <code>payType</code> (<code>Yearly</code> vs <code>Hourly</code>) desde Simplify HR, resolviendo la clasificación errónea de Asistentes de Gerente (Victor Muñoz / Cruz Victorino) como asalariados y certificando la precisión contractual al 100%.</div>
-                <div class="en-desc" style="font-size: 11.5px; color: #64748b; font-style: italic; border-top: 1px dashed #e2e8f0; padding-top: 4px; margin-top: 4px;">• <strong>RONOS Labor Audit (Punch Repair & Live Cache Bypass)</strong>: Diagnosed and eliminated stale memory caching when editing punches in RONOS. Added cache invalidator helper (<code>invalidateRonosStoreCache</code>), passed <code>forceRefresh=true</code> to <code>/api/ronos/sync</code> and <code>/api/ronos/punches</code>, cleaned stale Supabase cache upon live sync, injected anti-cache HTTP response headers (<code>no-store</code>), and converted employee detail view into a reactive <code>useMemo</code> over <code>storeData</code> for instant UI re-render.<br>• <strong>Concurrent RONOS + Simplify HR Sync & Official Contractual Classification</strong>: Parallel execution architecture (<code>Promise.all</code>) extracting RONOS timecards and Simplify HR salaries simultaneously in ~3.5s. Fixed table viewing filter (<em>All / Salaried / Hourly</em>) by binding <code>isSalaried</code> and <code>payType</code> (<code>Yearly</code> vs <code>Hourly</code>) directly to Simplify HR's source of truth, eliminating misclassification of Assistant Managers (Victor Muñoz / Cruz Victorino) and ensuring 100% legal compliance.</div>
+                <div class="es-desc" style="margin-bottom: 4px;">• <strong>Reorganización de Barra Lateral (Nuevo Grupo 'Finanzas y Contabilidad')</strong>: Creación del nuevo grupo de navegación exclusivo para usuarios con rol Admin (Carlos y Raquel). Se reubicaron de forma centralizada los módulos de Contabilidad (/contabilidad), Auditoría RONOS (/admin/ronos), Reporte de Actividades (/admin/reporte-actividades) y se generó el acceso directo corporativo 'Miles' para gestión ágil de kilometraje y reembolsos de supervisores.<br>• <strong>Blindaje de Filtros Mensuales en Reportes</strong>: Auditoría y corrección del motor de extracción para filtrar estrictamente los registros por mes calendario, erradicando filtraciones cruzadas de fechas entre Julio y Agosto en todas las vistas ejecutivas.</div>
+                <div class="en-desc" style="font-size: 11.5px; color: #64748b; font-style: italic; border-top: 1px dashed #e2e8f0; padding-top: 4px; margin-top: 4px;">• <strong>Sidebar Navigation Reorganization (New 'Finance & Accounting' Group)</strong>: Created a new dedicated navigation section exclusively visible to Admin role users (Carlos & Raquel). Centralized Contabilidad (/contabilidad), RONOS Audit (/admin/ronos), Activity Reports (/admin/reporte-actividades), and created the corporate 'Miles' direct shortcut for supervisor mileage & payroll reimbursement audits.<br>• <strong>Monthly Report Filter Hardening</strong>: Audited and patched data extraction logic to strictly enforce month boundaries per calendar period, eliminating cross-month date leaks between July and August in all executive views.</div>
             </td>
         </tr>
     
@@ -274,7 +334,13 @@
 
         <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; background: white; border: 1px solid #e2e8f0; border-radius: 8px;">
             <span style="font-size: 13px; font-weight: 700; color: #334155;">Reporte de Actividades TSX, Gantt & Planificador Lynwood</span>
-            <span style="font-size: 13px; font-weight: 900; color: #0f172a; background: #f8fafc; padding: 2px 8px; border-radius: 6px; border: 1px solid #e2e8f0;">3.0 hrs</span>
+            <span style="font-size: 13px; font-weight: 900; color: #0f172a; background: #f8fafc; padding: 2px 8px; border-radius: 6px; border: 1px solid #e2e8f0;">3.5 hrs</span>
+        </div>
+    
+
+        <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; background: white; border: 1px solid #e2e8f0; border-radius: 8px;">
+            <span style="font-size: 13px; font-weight: 700; color: #334155;">Barra Lateral, Finanzas & Módulo Miles Raquel</span>
+            <span style="font-size: 13px; font-weight: 900; color: #0f172a; background: #f8fafc; padding: 2px 8px; border-radius: 6px; border: 1px solid #e2e8f0;">0.5 hrs</span>
         </div>
     
 

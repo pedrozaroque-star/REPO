@@ -1,5 +1,5 @@
 {
-  "totalHours": 11.0,
+  "totalHours": 12.0,
   "rows": [
     {
       "date": "01-Sep-2026",
@@ -16,6 +16,20 @@
       ],
       "descEs": "• <strong>Módulo de Contabilidad (Génesis & Replicación de Cohesion)</strong>: En sesión matutina dedicada (chat específico 3ca1503c), exploración profunda y extracción forense con Puppeteer de la plataforma Cohesion (cohesion4restaurants.com) de Raquel Velázquez. Ingeniería inversa del mapeo de 17 cuentas contables (For Here, To Go, Uber, DoorDash, Delivery, Propinas, Impuestos, Faltantes/Sobrantes cuenta 51050), creación de lib/accounting-journal.ts, interfaz interactiva /contabilidad, /contabilidad/[packetId] y 7 endpoints API para transformar pólizas de Toast POS a QuickBooks Online sin costos de suscripción ($450/mes de ahorro).<br>• <strong>Simulaciones Duales QuickBooks & Diagnóstico de Tokens</strong>: Pruebas multi-sucursal en paralelo contra los libros reales de QBO en colaboración con Raquel Velázquez. Análisis comparativo de tokens OAuth2 entre Orden Diaria y Contabilidad, certificando que el catálogo maestro de 30 cuentas GL (#2326, #2335, etc.) y los mapeos de las 15 tiendas operan con total autonomía y blindaje en Supabase.<br>• <strong>Migración a Dashboard TSX Nativo & Rediseño Ejecutivo PRO</strong>: Conversión integral del módulo /admin/reporte-actividades de un iframe embebido a un componente 100% nativo en React/Next.js/TypeScript. Rediseño Ejecutivo PRO sin emojis decorativos, con 4 tarjetas KPI avanzadas, carrusel de filtros por módulo y botón de exportación instantánea a CSV.<br>• <strong>Vinculación con el Planificador (Turnos Lynwood #14 de Carlos Velázquez)</strong>: Sincronización dinámica de los 226 turnos reales del Planificador de Supabase (tabla schedules, user_id: 25), integrando el carril de tienda oficial (Turno Lynwood 2:00 PM - 10:00 PM, 8.0h • Intermedio) en el cronograma visual Gantt 24h.<br>• <strong>Soporte IA & Versionado UI (v2.6.1)</strong>: Reestructuración del asistente conversacional con tono natural y humano para gerentes, centralización en lib/version.ts y despliegue del parche oficial SM TEG v2.6.1.",
       "descEn": "• <strong>Accounting Module (Cohesion Genesis & Architecture Replication)</strong>: In a dedicated morning session (conversation 3ca1503c), performed deep forensic Puppeteer crawling of Raquel Velázquez's Cohesion platform (cohesion4restaurants.com). Reverse-engineered the 17 GL accounting accounts mapping (For Here, To Go, Uber, DoorDash, Delivery, Tips, Taxes, Short/Over 51050), engineered core business logic in lib/accounting-journal.ts, built interactive UI in /contabilidad and /contabilidad/[packetId], and created 7 API endpoints to stream Toast POS daily journals directly to QuickBooks Online ($450/month cost savings).<br>• <strong>QuickBooks Dual-Run Simulations & Token Diagnosis</strong>: Ran parallel multi-store journal simulations against real QBO ledgers in coordination with Raquel Velázquez. Performed comparative OAuth2 token diagnostic between Daily Orders and Accounting, verifying that the 30 GL accounts master catalog (#2326, #2335, etc.) and 15 store mappings operate with 100% autonomy in Supabase.<br>• <strong>Native TSX Dashboard Migration & Executive PRO Redesign</strong>: Fully migrated /admin/reporte-actividades from an embedded iframe to a 100% native Next.js / React / TypeScript dashboard. Applied sleek Executive PRO design with zero emojis, 4 advanced KPI metrics cards, module filter chips, and instant CSV export.<br>• <strong>Planner Schedule Linking (Carlos Velázquez Lynwood #14 Shifts)</strong>: Dynamically connected all 226 real Planner schedules from Supabase (schedules table, user_id: 25), rendering Carlos's official store shift (Lynwood 2:00 PM - 10:00 PM, 8.0h • Intermedio) on the 24h visual Gantt timeline.<br>• <strong>AI Support & UI Versioning (v2.6.1)</strong>: Overhauled chatbot persona to natural human tone for store managers, centralized versioning in lib/version.ts, and rolled out official SM TEG v2.6.1 patch release."
+    },
+    {
+      "date": "02-Sep-2026",
+      "time": "1:15 AM - 1:35 AM & 11:00 AM - 11:30 AM",
+      "hours": 1.0,
+      "badges": [
+        "Finanzas y Contabilidad",
+        "Barra Lateral",
+        "Auditoría de Fechas",
+        "Filtro Mensual",
+        "Acceso Raquel (Miles)"
+      ],
+      "descEs": "• <strong>Reorganización de Barra Lateral (Nuevo Grupo 'Finanzas y Contabilidad')</strong>: Creación del nuevo grupo de navegación exclusivo para usuarios con rol Admin (Carlos y Raquel). Se reubicaron de forma centralizada los módulos de Contabilidad (/contabilidad), Auditoría RONOS (/admin/ronos), Reporte de Actividades (/admin/reporte-actividades) y se generó el acceso directo corporativo 'Miles' para gestión ágil de kilometraje y reembolsos de supervisores.<br>• <strong>Blindaje de Filtros Mensuales en Reportes</strong>: Auditoría y corrección del motor de extracción para filtrar estrictamente los registros por mes calendario, erradicando filtraciones cruzadas de fechas entre Julio y Agosto en todas las vistas ejecutivas.",
+      "descEn": "• <strong>Sidebar Navigation Reorganization (New 'Finance & Accounting' Group)</strong>: Created a new dedicated navigation section exclusively visible to Admin role users (Carlos & Raquel). Centralized Contabilidad (/contabilidad), RONOS Audit (/admin/ronos), Activity Reports (/admin/reporte-actividades), and created the corporate 'Miles' direct shortcut for supervisor mileage & payroll reimbursement audits.<br>• <strong>Monthly Report Filter Hardening</strong>: Audited and patched data extraction logic to strictly enforce month boundaries per calendar period, eliminating cross-month date leaks between July and August in all executive views."
     }
   ],
   "effort": [
@@ -25,7 +39,11 @@
     },
     {
       "module": "Reporte de Actividades TSX, Gantt & Planificador Lynwood",
-      "hours": 3.0
+      "hours": 3.5
+    },
+    {
+      "module": "Barra Lateral, Finanzas & Módulo Miles Raquel",
+      "hours": 0.5
     },
     {
       "module": "Auditoría Forense de Tareas y Roadmap Canónico",
