@@ -241,12 +241,13 @@ const catalog26 = [
     badgePriority: '🔴 Alta',
     auditJune: '<strong>⏳ No Iniciado (Pendiente).</strong> Desarrollo e integración de un clon contable de la plataforma Cohesión a medida para procesar pólizas de ventas y conciliar cuentas bancarias.',
     auditJuly: '<strong>⏳ No Iniciado (Pendiente).</strong> Módulo contable integral en fase de especificación y análisis de viabilidad.',
-    auditAugust: '<strong>⚡ En Progreso Avanzado (95% en Agosto 2026).</strong> Extracción forense completa de la estructura de Cohesion ($450/mes) con Puppeteer, mapeo de 17 cuentas contables (canales For Here/To Go/Uber/DoorDash/GrubHub, impuestos, efectivo y propinas), librería central lib/accounting-journal.ts y arquitectura de endpoints API.',
-    auditSeptember: '<strong>✓ Completado e Implementado en Producción (Septiembre 2026).</strong> Módulo de Contabilidad que reemplaza al 100% la plataforma Cohesion ($450/mes / $5,400/año de ahorro directo). Genera pólizas de ventas diarias automáticas Toast POS → QuickBooks Online para las 15 sucursales, conciliación de efectivo con cuenta 51050 de faltantes/sobrantes, 7 endpoints API, 3 vistas interactivas (/contabilidad) y validación multi-escenario al centavo.',
+    auditAugust: '<strong>⚡ En Progreso (80% en Agosto 2026).</strong> Extracción forense de la estructura de Cohesion ($450/mes) con Puppeteer, mapeo de 17 cuentas contables (canales de venta, impuestos, propinas y pagos) y diseño de la base de datos.',
+    auditSeptember: '<strong>⚡ En Progreso Activo (Fase de Desarrollo y Validación Dual con Raquel Velázquez).</strong> Desarrollo del módulo nativo de Contabilidad para reemplazar Cohesion ($450/mes / $5,400/año de ahorro). Construcción de la librería central lib/accounting-journal.ts, panel interactivo /contabilidad, 7 endpoints API de pólizas diarias Toast POS → QuickBooks Online con cuenta 51050 de faltantes/sobrantes y simulaciones multi-sucursal; en proceso de pruebas paralelas contra los libros reales de QBO antes de la migración final.',
     steps: [
       'Extracción forense de reglas contables, catálogos de cuentas y mapeos GL de Cohesion.',
       'Librería central lib/accounting-journal.ts (17 cuentas, canales For Here/To Go/Uber/DoorDash/GrubHub y efectivo).',
-      'Endpoints de generación automática, revisión y publicación masiva a QuickBooks Online con cuadre al centavo.'
+      'Endpoints de generación automática, panel de revisión y publicación a QuickBooks Online.',
+      'Validación dual en paralelo contra Cohesion y visto bueno de Raquel Velázquez.'
     ]
   },
   {
@@ -465,14 +466,14 @@ const julyTasks = catalog26.slice(0, 20).map(t => {
     };
 });
 
-// 3. BUILD AUGUST TASKS (27 Tasks: 14 Comp, 9 Prog, 4 Pend)
+// 3. BUILD AUGUST TASKS (27 Tasks: 13 Comp, 10 Prog, 4 Pend)
 const augustTasks = catalog26.map(t => {
     let status = 'pendiente';
     let statusLabel = '⏳ Pendiente';
-    if ([1, 2, 3, 4, 5, 6, 8, 13, 17, 18, 19, 20, 26, 27].includes(t.num)) {
+    if ([1, 3, 4, 5, 6, 8, 13, 17, 18, 19, 20, 26, 27].includes(t.num)) {
         status = 'completado';
         statusLabel = '✓ Completado';
-    } else if ([7, 9, 15, 16, 21, 22, 23, 24, 25].includes(t.num)) {
+    } else if ([2, 7, 9, 15, 16, 21, 22, 23, 24, 25].includes(t.num)) {
         status = 'progreso';
         statusLabel = '⚡ En Progreso';
     }
@@ -484,14 +485,14 @@ const augustTasks = catalog26.map(t => {
     };
 });
 
-// 4. BUILD SEPTEMBER TASKS (27 Tasks: 20 Comp, 3 Prog, 4 Pend)
+// 4. BUILD SEPTEMBER TASKS (27 Tasks: 19 Comp, 4 Prog, 4 Pend)
 const septemberTasks = catalog26.map(t => {
     let status = 'pendiente';
     let statusLabel = '⏳ Pendiente';
-    if ([1, 2, 3, 4, 5, 6, 8, 13, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27].includes(t.num)) {
+    if ([1, 2, 3, 4, 5, 6, 8, 13, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27].includes(t.num)) {
         status = 'completado';
         statusLabel = '✓ Completado';
-    } else if ([7, 9, 15].includes(t.num)) {
+    } else if ([7, 9, 15, 16].includes(t.num)) {
         status = 'progreso';
         statusLabel = '⚡ En Progreso';
     }
@@ -1081,14 +1082,14 @@ const julyConfig = {
     taskCardsHtml: renderTab2ForMonth(julyTasks, 'Julio 2026')
 };
 
-// AUGUST CONFIG: 27 tasks (14 Completadas, 9 En Progreso, 4 Pendientes)
+// AUGUST CONFIG: 27 tasks (13 Completadas, 10 En Progreso, 4 Pendientes)
 const augustConfig = {
     monthName: 'Agosto',
     monthYear: 'Agosto 2026',
     monthNum: 8,
     totalTasks: 27,
-    completedTasks: 14,
-    inProgressTasks: 9,
+    completedTasks: 13,
+    inProgressTasks: 10,
     pendingTasks: 4,
     totalHours: 169.49,
     rows: augustRows,
@@ -1134,15 +1135,15 @@ const augustConfig = {
     taskCardsHtml: renderTab2ForMonth(augustTasks, 'Agosto 2026')
 };
 
-// SEPTEMBER CONFIG: 27 tasks (20 Completadas, 3 En Progreso, 4 Pendientes)
+// SEPTEMBER CONFIG: 27 tasks (19 Completadas, 4 En Progreso, 4 Pendientes)
 const septemberData = JSON.parse(fs.readFileSync('scripts/september_full_data.json', 'utf-8'));
 const septemberConfig = {
     monthName: 'Septiembre',
     monthYear: 'Septiembre 2026',
     monthNum: 9,
     totalTasks: 27,
-    completedTasks: 20,
-    inProgressTasks: 3,
+    completedTasks: 19,
+    inProgressTasks: 4,
     pendingTasks: 4,
     totalHours: septemberData.totalHours,
     rows: septemberData.rows,

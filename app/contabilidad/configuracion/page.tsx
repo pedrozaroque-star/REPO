@@ -135,18 +135,31 @@ export default function AccountingConfigPage() {
 
       {message && (
         <div
-          className={`p-4 rounded-xl flex items-center gap-3 border shadow-sm ${
+          className={`p-4 rounded-xl flex items-center justify-between gap-3 border shadow-sm ${
             message.type === 'success'
               ? 'bg-emerald-50 text-emerald-800 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-200 dark:border-emerald-800/60'
-              : 'bg-rose-50 text-rose-800 border-rose-200 dark:bg-rose-950/40 dark:text-rose-200 dark:border-rose-800/60'
+              : 'bg-amber-50 text-amber-900 border-amber-200 dark:bg-amber-950/40 dark:text-amber-200 dark:border-amber-800/60'
           }`}
         >
-          {message.type === 'success' ? (
-            <CheckCircle2 className="w-5 h-5 shrink-0 text-emerald-600 dark:text-emerald-400" />
-          ) : (
-            <AlertCircle className="w-5 h-5 shrink-0 text-rose-600 dark:text-rose-400" />
+          <div className="flex items-center gap-3">
+            {message.type === 'success' ? (
+              <CheckCircle2 className="w-5 h-5 shrink-0 text-emerald-600 dark:text-emerald-400" />
+            ) : (
+              <AlertCircle className="w-5 h-5 shrink-0 text-amber-600 dark:text-amber-400" />
+            )}
+            <span className="text-sm font-semibold">{message.text}</span>
+          </div>
+          {message.type === 'error' && (
+            <a
+              href="/api/integrations/quickbooks/auth"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="shrink-0 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition-all shadow-sm flex items-center gap-1.5"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              Reconectar QuickBooks
+            </a>
           )}
-          <span className="text-sm font-semibold">{message.text}</span>
         </div>
       )}
 
