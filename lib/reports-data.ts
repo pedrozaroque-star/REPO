@@ -1658,7 +1658,7 @@ export const MONTHLY_REPORTS: Record<'septiembre' | 'agosto' | 'julio' | 'junio'
     "id": "septiembre",
     "monthName": "Septiembre",
     "monthYear": "Septiembre 2026",
-    "totalHours": 6.75,
+    "totalHours": 11,
     "totalTasks": 27,
     "completedTasks": 19,
     "inProgressTasks": 4,
@@ -1666,40 +1666,37 @@ export const MONTHLY_REPORTS: Record<'septiembre' | 'agosto' | 'julio' | 'junio'
     "rows": [
         {
             "date": "01-Sep-2026",
-            "time": "2:00 AM - 3:45 AM & 6:15 PM - 11:15 PM",
-            "hours": 6.75,
+            "time": "9:12 AM - 1:45 PM & 6:15 PM - 10:15 PM & 10:45 PM - 1:15 AM",
+            "hours": 11,
             "badges": [
                 "Contabilidad (Cohesion)",
                 "QuickBooks OAuth2",
-                "Auditoría de Tareas",
+                "Auditoría Forense Tareas",
+                "Reportes TSX Nativo",
+                "Planificador Lynwood #14",
                 "Versionado v2.6.1",
-                "Soporte IA Natural",
-                "Reportes Septiembre"
+                "Soporte IA Natural"
             ],
-            "descEs": "• <strong>Soporte IA (Chatbot Natural & Cero Jerga Técnica)</strong>: Reestructuración integral del prompt y tono del asistente para eliminar toda la jerga técnica (SQL, bases de datos, crons, endpoints) y adaptar el lenguaje a gerentes y supervisores de restaurante en tono 100% humano y cálido.<br>• <strong>Contador de Versiones UI (v2.6.1)</strong>: Centralización del sistema de versionado en lib/version.ts y despliegue del parche oficial SM TEG v2.6.1 (Septiembre 2026 • Parche Contable & Versionado).<br>• <strong>Reportes Mensuales (Pestaña Septiembre 2026)</strong>: Creación y activación de la nueva pestaña y reporte de Septiembre 2026 en el visualizador /admin/reporte-actividades.<br>• <strong>Contabilidad & Reemplazo de Cohesion (Auditoría Forense y Estatus)</strong>: Diagnóstico exhaustivo del módulo de Contabilidad y reclasificación formal de la Tarea 16 a estatus ⚡ En Progreso Activo (Fase de Desarrollo y Validación Dual con Raquel Velázquez antes de la migración final), actualizando y cuadrando los 4 meses históricos.<br>• <strong>Diagnóstico de Conexión QuickBooks Online (OAuth2 Tokens & Catálogo Local)</strong>: Análisis comparativo entre Orden Diaria y Contabilidad respecto a tokens de Intuit, verificando que el catálogo maestro de 30 cuentas GL (#2326, #2335, etc.) y los mapeos de las 15 tiendas ya operan de forma 100% autónoma y blindada en Supabase sin depender de llamadas de red bloqueadas.",
-            "descEn": "• <strong>AI Support (Natural Chatbot & Zero Tech Jargon)</strong>: Comprehensive overhaul of assistant prompt and persona, removing all programming jargon in favor of 100% human, warm, restaurant operational language for store managers and staff.<br>• <strong>UI Version Counter (v2.6.1)</strong>: Centralized automated versioning system in lib/version.ts and rolled out SM TEG v2.6.1 patch release.<br>• <strong>Monthly Reports (September 2026 Tab)</strong>: Created and activated the new September 2026 tab and standalone report in /admin/reporte-actividades.<br>• <strong>Accounting & Cohesion Replacement (Forensic Audit & Status Sync)</strong>: Exhaustive audit of the Accounting module and formal classification of Task 16 as ⚡ Active In-Progress (Development & Dual-Run Validation Phase with Raquel Velázquez), reconciling all 4 historical monthly reports.<br>• <strong>QuickBooks Online Connection Diagnosis (OAuth2 Tokens & Local Catalog)</strong>: Comparative analysis between Daily Orders and Accounting regarding Intuit session tokens, certifying that the master 30 GL accounts chart and 15 store mappings operate 100% autonomously in Supabase."
+            "descEs": "• <strong>Módulo de Contabilidad (Génesis & Replicación de Cohesion)</strong>: En sesión matutina dedicada (chat específico 3ca1503c), exploración profunda y extracción forense con Puppeteer de la plataforma Cohesion (cohesion4restaurants.com) de Raquel Velázquez. Ingeniería inversa del mapeo de 17 cuentas contables (For Here, To Go, Uber, DoorDash, Delivery, Propinas, Impuestos, Faltantes/Sobrantes cuenta 51050), creación de lib/accounting-journal.ts, interfaz interactiva /contabilidad, /contabilidad/[packetId] y 7 endpoints API para transformar pólizas de Toast POS a QuickBooks Online sin costos de suscripción ($450/mes de ahorro).<br>• <strong>Simulaciones Duales QuickBooks & Diagnóstico de Tokens</strong>: Pruebas multi-sucursal en paralelo contra los libros reales de QBO en colaboración con Raquel Velázquez. Análisis comparativo de tokens OAuth2 entre Orden Diaria y Contabilidad, certificando que el catálogo maestro de 30 cuentas GL (#2326, #2335, etc.) y los mapeos de las 15 tiendas operan con total autonomía y blindaje en Supabase.<br>• <strong>Migración a Dashboard TSX Nativo & Rediseño Ejecutivo PRO</strong>: Conversión integral del módulo /admin/reporte-actividades de un iframe embebido a un componente 100% nativo en React/Next.js/TypeScript. Rediseño Ejecutivo PRO sin emojis decorativos, con 4 tarjetas KPI avanzadas, carrusel de filtros por módulo y botón de exportación instantánea a CSV.<br>• <strong>Vinculación con el Planificador (Turnos Lynwood #14 de Carlos Velázquez)</strong>: Sincronización dinámica de los 226 turnos reales del Planificador de Supabase (tabla schedules, user_id: 25), integrando el carril de tienda oficial (Turno Lynwood 2:00 PM - 10:00 PM, 8.0h • Intermedio) en el cronograma visual Gantt 24h.<br>• <strong>Soporte IA & Versionado UI (v2.6.1)</strong>: Reestructuración del asistente conversacional con tono natural y humano para gerentes, centralización en lib/version.ts y despliegue del parche oficial SM TEG v2.6.1.",
+            "descEn": "• <strong>Accounting Module (Cohesion Genesis & Architecture Replication)</strong>: In a dedicated morning session (conversation 3ca1503c), performed deep forensic Puppeteer crawling of Raquel Velázquez's Cohesion platform (cohesion4restaurants.com). Reverse-engineered the 17 GL accounting accounts mapping (For Here, To Go, Uber, DoorDash, Delivery, Tips, Taxes, Short/Over 51050), engineered core business logic in lib/accounting-journal.ts, built interactive UI in /contabilidad and /contabilidad/[packetId], and created 7 API endpoints to stream Toast POS daily journals directly to QuickBooks Online ($450/month cost savings).<br>• <strong>QuickBooks Dual-Run Simulations & Token Diagnosis</strong>: Ran parallel multi-store journal simulations against real QBO ledgers in coordination with Raquel Velázquez. Performed comparative OAuth2 token diagnostic between Daily Orders and Accounting, verifying that the 30 GL accounts master catalog (#2326, #2335, etc.) and 15 store mappings operate with 100% autonomy in Supabase.<br>• <strong>Native TSX Dashboard Migration & Executive PRO Redesign</strong>: Fully migrated /admin/reporte-actividades from an embedded iframe to a 100% native Next.js / React / TypeScript dashboard. Applied sleek Executive PRO design with zero emojis, 4 advanced KPI metrics cards, module filter chips, and instant CSV export.<br>• <strong>Planner Schedule Linking (Carlos Velázquez Lynwood #14 Shifts)</strong>: Dynamically connected all 226 real Planner schedules from Supabase (schedules table, user_id: 25), rendering Carlos's official store shift (Lynwood 2:00 PM - 10:00 PM, 8.0h • Intermedio) on the 24h visual Gantt timeline.<br>• <strong>AI Support & UI Versioning (v2.6.1)</strong>: Overhauled chatbot persona to natural human tone for store managers, centralized versioning in lib/version.ts, and rolled out official SM TEG v2.6.1 patch release."
         }
     ],
     "effortSummary": [
         {
             "module": "Módulo de Contabilidad (Reemplazo Cohesion) & QuickBooks",
+            "hours": 5.5
+        },
+        {
+            "module": "Reporte de Actividades TSX, Gantt & Planificador Lynwood",
             "hours": 3
         },
         {
-            "module": "Auditoría Forense de Tareas y Reportes Mensuales",
-            "hours": 2
+            "module": "Auditoría Forense de Tareas y Roadmap Canónico",
+            "hours": 1.25
         },
         {
-            "module": "Mantenimiento General, Crons y Reportes",
-            "hours": 0.75
-        },
-        {
-            "module": "Soporte IA & Asistente Conversacional",
-            "hours": 0.5
-        },
-        {
-            "module": "Contador de Versiones UI & Navegación (v2.6.1)",
-            "hours": 0.5
+            "module": "Soporte IA Conversacional & Versionado UI (v2.6.1)",
+            "hours": 1.25
         }
     ],
     "parallelActivities": [

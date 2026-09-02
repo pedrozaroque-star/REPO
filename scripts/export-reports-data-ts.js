@@ -15,6 +15,8 @@ const context = {
     path,
     __dirname,
     Buffer,
+    setTimeout,
+    clearTimeout,
     module: moduleObj,
     exports: moduleObj.exports
 };
@@ -152,6 +154,8 @@ export interface PlannerShift {
     hours: number;
     label?: string;
     store?: string;
+    rawStart?: string;
+    rawEnd?: string;
 }
 
 export const PLANNER_SHIFTS_MAP: Record<string, PlannerShift> = ${JSON.stringify(shiftsMap, null, 4)};
