@@ -1,7 +1,8 @@
 /**
  * @module app/admin/ronos/page
  * @description Módulo de Auditoría Laboral RONOS & Conciliación Cingular HR / Simplify HR.
- *   - Interfaz ejecutiva con estética oficial de `ronos.com` optimizada para auditorías operativas y financieras.
+ *   - Interfaz ejecutiva con estética moderna, limpia y de máxima legibilidad optimizada para auditorías operativas y financieras.
+ *   - Formateo inteligente de horarios a 12 horas (AM/PM) en zona horaria America/Los_Angeles y tarjetas visuales por día.
  *   - Monitoreo en tiempo real de ponchadas, horas extras (OT 1.5x / DT 2.0x), descansos de comida (Meal Breaks) y fotos de reloj checador (AWS S3).
  *   - Motor de Cumplimiento de Leyes Laborales de California (IWC Wage Order 5 / California Labor Code § 512):
  *     * Regla de 5ta Hora (Meal Penalty > 5.0h) y descansos cortos (< 30 min) con cálculo de fuga en USD.
@@ -70,8 +71,67 @@ import {
   ArrowLeft,
   Edit3,
   Receipt,
-  Sparkles
+  Sparkles,
+  ArrowRight,
+  Sun,
+  Moon,
+  CheckCircle
 } from 'lucide-react'
+
+// ============================================================================
+// HELPERS DE FORMATEO (FECHAS Y HORAS LEGIBLES)
+// ============================================================================
+
+/**
+ * Convierte timestamps ISO (ej. 2026-08-24T16:50:46.264-07:00) en hora legible 12h (ej. 4:50 PM)
+ */
+function formatTime12h(val?: string): string {
+  if (!val) return ''
+  const trimmed = val.trim()
+  if (/^\d{1,2}:\d{2}\s*(AM|PM)$/i.test(trimmed)) return trimmed.toUpperCase()
+
+  try {
+    const d = new Date(val)
+    if (!isNaN(d.getTime())) {
+      return d.toLocaleTimeString('en-US', {
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+        timeZone: 'America/Los_Angeles'
+      })
+    }
+  } catch {}
+
+  const match = val.match(/T(\d{2}):(\d{2})/)
+  if (match) {
+    let h = parseInt(match[1], 10)
+    const m = match[2]
+    const ampm = h >= 12 ? 'PM' : 'AM'
+    h = h % 12 || 12
+    return `${h}:${m} ${ampm}`
+  }
+
+  return val
+}
+
+/**
+ * Convierte strings de fecha (ej. 2026-08-24) en día y fecha en español (ej. Lunes, 24 de Agosto de 2026)
+ */
+function formatDayDetails(dateStr?: string, fallbackDay?: string): { dayOfWeek: string; dateFormatted: string } {
+  if (!dateStr) return { dayOfWeek: fallbackDay || '', dateFormatted: '' }
+  const cleanDate = dateStr.substring(0, 10)
+  const parts = cleanDate.split('-').map(Number)
+  if (parts.length === 3 && parts[0] && parts[1] && parts[2]) {
+    const d = new Date(parts[0], parts[1] - 1, parts[2], 12, 0, 0)
+    const dayOfWeek = d.toLocaleDateString('es-ES', { weekday: 'long' })
+    const dateFormatted = d.toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' })
+    return {
+      dayOfWeek: dayOfWeek.charAt(0).toUpperCase() + dayOfWeek.slice(1),
+      dateFormatted
+    }
+  }
+  return { dayOfWeek: fallbackDay || '', dateFormatted: cleanDate }
+}
 
 // ============================================================================
 // INTERFACES & TIPOS
@@ -598,10 +658,10 @@ function RonosLaborAuditContent() {
       violationType: violation?.type || 'MEAL_PENALTY',
       violationTitle: targetViolTitle,
       violationDescription: targetViolDesc,
-      clockInTime: day?.clockInTime,
-      lunchStartTime: day?.lunchStartTime,
-      lunchEndTime: day?.lunchEndTime,
-      clockOutTime: day?.clockOutTime,
+      clockInTime: day?.clockInTime ? formatTime12h(day.clockInTime) : undefined,
+      lunchStartTime: day?.lunchStartTime ? formatTime12h(day.lunchStartTime) : undefined,
+      lunchEndTime: day?.lunchEndTime ? formatTime12h(day.lunchEndTime) : undefined,
+      clockOutTime: day?.clockOutTime ? formatTime12h(day.clockOutTime) : undefined,
       totalHoursWorked: day?.totalHours ?? emp?.totalWeeklyHours ?? 0,
       additionalNotes: '',
       escalera: null,
@@ -732,7 +792,7 @@ function RonosLaborAuditContent() {
       photoUrl: url,
       title,
       employeeName: empName,
-      timestamp,
+      timestamp: formatTime12h(timestamp),
       rotation: 0
     })
   }
@@ -937,11 +997,11 @@ function RonosLaborAuditContent() {
   const activeStoreName = storeData?.storeName ? `TEG - ${storeData.storeName}` : 'TEG - Lynwood'
 
   return (
-    <div className="min-h-screen bg-[#f1f4f8] dark:bg-slate-950 text-slate-800 dark:text-slate-100 font-sans transition-colors duration-200">
+    <div className="min-h-screen bg-[#f8fafc] dark:bg-slate-950 text-slate-800 dark:text-slate-100 font-sans transition-colors duration-200">
       {/* ═══════════════════════════════════════════════════════════════════════════ */}
       {/* 1. TOP NAVBAR AZUL OFICIAL RONOS (SCREENSHOT 1, 2, 3, 4, 5)                  */}
       {/* ═══════════════════════════════════════════════════════════════════════════ */}
-      <header className="bg-[#03a9f4] dark:bg-[#0288d1] text-white shadow-md sticky top-0 z-40">
+      <header className="bg-[#0288d1] dark:bg-[#01579b] text-white shadow-md sticky top-0 z-40">
         <div className="w-full px-4 sm:px-6 h-14 flex items-center justify-between gap-4">
           {/* Left: Hamburger + Title / Back button */}
           <div className="flex items-center gap-3">
@@ -979,7 +1039,7 @@ function RonosLaborAuditContent() {
                 setActiveTab('store')
                 setSelectedEmployeeDetail(null)
               }}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
                 activeTab === 'store'
                   ? 'bg-white text-[#0288d1] shadow-xs'
                   : 'text-white/85 hover:text-white hover:bg-white/10'
@@ -994,7 +1054,7 @@ function RonosLaborAuditContent() {
                 setActiveTab('chain')
                 setSelectedEmployeeDetail(null)
               }}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
                 activeTab === 'chain'
                   ? 'bg-white text-[#0288d1] shadow-xs'
                   : 'text-white/85 hover:text-white hover:bg-white/10'
@@ -1009,7 +1069,7 @@ function RonosLaborAuditContent() {
                 setActiveTab('mapping')
                 setSelectedEmployeeDetail(null)
               }}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
                 activeTab === 'mapping'
                   ? 'bg-white text-[#0288d1] shadow-xs'
                   : 'text-white/85 hover:text-white hover:bg-white/10'
@@ -1024,7 +1084,7 @@ function RonosLaborAuditContent() {
                 setActiveTab('payroll')
                 setSelectedEmployeeDetail(null)
               }}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
                 activeTab === 'payroll'
                   ? 'bg-white text-[#0288d1] shadow-xs'
                   : 'text-white/85 hover:text-white hover:bg-white/10'
@@ -1100,316 +1160,305 @@ function RonosLaborAuditContent() {
         {/* ═══════════════════════════════════════════════════════════════════════════ */}
         {activeTab === 'store' && (
           <>
-            {/* VISTA A: EMPLEADO INDIVIDUAL DETALLADO (SCREENSHOT 3) */}
+            {/* VISTA A: EMPLEADO INDIVIDUAL REDISEÑADA (MAXIMA LEGIBILIDAD) */}
             {selectedEmployeeDetail ? (
-              <div className="space-y-5">
-                {/* 5 KPI Cards for Individual Employee */}
+              <div className="space-y-4">
+                {/* 1. Header Toolbar de Navegación del Empleado */}
+                <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs p-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() => setSelectedEmployeeDetail(null)}
+                      className="px-3.5 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold flex items-center gap-2 transition-all cursor-pointer shadow-2xs"
+                    >
+                      <ArrowLeft className="w-4 h-4" />
+                      <span>Volver a Lista</span>
+                    </button>
+
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h2 className="text-lg font-black text-slate-900 dark:text-white">
+                          {selectedEmployeeDetail.fullName}
+                        </h2>
+                        <span className="text-xs px-2 py-0.5 rounded-md bg-blue-100 dark:bg-blue-950 text-blue-800 dark:text-blue-300 font-mono font-bold">
+                          PIN #{selectedEmployeeDetail.pin}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        {selectedEmployeeDetail.jobTitle || 'Team Member'} • {activeStoreName}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Right Navigation Controls */}
+                  <div className="flex items-center gap-2.5 flex-wrap">
+                    {/* Selector Directo de Empleado */}
+                    <select
+                      value={selectedEmployeeDetail.employeeUserId}
+                      onChange={(e) => {
+                        const target = storeData?.employees.find(emp => emp.employeeUserId === Number(e.target.value))
+                        if (target) setSelectedEmployeeDetail(target)
+                      }}
+                      className="px-3 py-1.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-bold cursor-pointer max-w-[220px]"
+                    >
+                      {storeData?.employees.map(emp => (
+                        <option key={emp.employeeUserId} value={emp.employeeUserId}>
+                          {emp.fullName} (#{emp.pin})
+                        </option>
+                      ))}
+                    </select>
+
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => handleNavigateEmployee('prev')}
+                        className="p-2 rounded-xl border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 cursor-pointer"
+                        title="Empleado Anterior"
+                      >
+                        <ChevronLeft className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => handleNavigateEmployee('next')}
+                        className="p-2 rounded-xl border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 cursor-pointer"
+                        title="Siguiente Empleado"
+                      >
+                        <ChevronRight className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    <button
+                      onClick={() => openEmailModal(selectedEmployeeDetail)}
+                      className="px-3.5 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-xs cursor-pointer flex items-center gap-1.5 transition-all"
+                    >
+                      <Mail className="w-3.5 h-3.5" />
+                      <span>Avisar Fuga por Correo</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* 2. 5 KPI Cards Summary del Empleado */}
                 <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-                  {/* Total Hours */}
-                  <div className="bg-white dark:bg-slate-900 rounded-xl p-4 text-center border border-slate-200 dark:border-slate-800 shadow-xs">
-                    <span className="text-xs font-semibold text-slate-600 dark:text-slate-400 border-b-2 border-[#03a9f4] pb-0.5 inline-block mb-2">
-                      Total Hours
+                  <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 text-center border border-slate-200 dark:border-slate-800 shadow-xs">
+                    <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 block mb-1">
+                      Total Horas
                     </span>
-                    <div className="text-3xl font-black text-slate-900 dark:text-white">
+                    <div className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white">
                       {(selectedEmployeeDetail.totalWeeklyHours ?? 0).toFixed(2)}
+                      <span className="text-xs font-normal text-slate-400 ml-1">hrs</span>
                     </div>
                   </div>
 
-                  {/* Regular */}
-                  <div className="bg-white dark:bg-slate-900 rounded-xl p-4 text-center border border-slate-200 dark:border-slate-800 shadow-xs">
-                    <span className="text-xs font-semibold text-slate-600 dark:text-slate-400 border-b-2 border-[#03a9f4] pb-0.5 inline-block mb-2">
-                      Regular
+                  <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 text-center border border-slate-200 dark:border-slate-800 shadow-xs">
+                    <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 block mb-1">
+                      Horas Regulares
                     </span>
-                    <div className="text-3xl font-black text-slate-900 dark:text-white">
+                    <div className="text-2xl sm:text-3xl font-black text-emerald-600 dark:text-emerald-400">
                       {(selectedEmployeeDetail.regularHours ?? 0).toFixed(2)}
+                      <span className="text-xs font-normal text-slate-400 ml-1">hrs</span>
                     </div>
                   </div>
 
-                  {/* Overtime */}
-                  <div className="bg-white dark:bg-slate-900 rounded-xl p-4 text-center border border-slate-200 dark:border-slate-800 shadow-xs">
-                    <span className="text-xs font-semibold text-slate-600 dark:text-slate-400 border-b-2 border-[#03a9f4] pb-0.5 inline-block mb-2">
-                      Overtime
+                  <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 text-center border border-slate-200 dark:border-slate-800 shadow-xs">
+                    <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 block mb-1">
+                      Overtime (1.5x)
                     </span>
-                    <div className={`text-3xl font-black ${(selectedEmployeeDetail.overtimeHours ?? 0) > 0 ? 'text-amber-600' : 'text-slate-900 dark:text-white'}`}>
+                    <div className={`text-2xl sm:text-3xl font-black ${(selectedEmployeeDetail.overtimeHours ?? 0) > 0 ? 'text-amber-600' : 'text-slate-900 dark:text-white'}`}>
                       {(selectedEmployeeDetail.overtimeHours ?? 0).toFixed(2)}
+                      <span className="text-xs font-normal text-slate-400 ml-1">hrs</span>
                     </div>
                   </div>
 
-                  {/* Doubletime */}
-                  <div className="bg-white dark:bg-slate-900 rounded-xl p-4 text-center border border-slate-200 dark:border-slate-800 shadow-xs">
-                    <span className="text-xs font-semibold text-slate-600 dark:text-slate-400 border-b-2 border-[#03a9f4] pb-0.5 inline-block mb-2">
-                      Doubletime
+                  <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 text-center border border-slate-200 dark:border-slate-800 shadow-xs">
+                    <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 block mb-1">
+                      Double Time (2.0x)
                     </span>
-                    <div className="text-3xl font-black text-slate-900 dark:text-white">
+                    <div className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white">
                       {(selectedEmployeeDetail.doubleTimeHours ?? 0).toFixed(2)}
+                      <span className="text-xs font-normal text-slate-400 ml-1">hrs</span>
                     </div>
                   </div>
 
-                  {/* Meal Penalty */}
-                  <div className="bg-white dark:bg-slate-900 rounded-xl p-4 text-center border border-slate-200 dark:border-slate-800 shadow-xs">
-                    <span className="text-xs font-semibold text-slate-600 dark:text-slate-400 border-b-2 border-[#03a9f4] pb-0.5 inline-block mb-2">
-                      MealPenalty
+                  <div className={`rounded-2xl p-4 text-center border shadow-xs ${
+                    (selectedEmployeeDetail.mealPenaltyCount ?? 0) > 0
+                      ? 'bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300'
+                      : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white'
+                  }`}>
+                    <span className="text-[11px] font-bold block mb-1">
+                      Meal Penalties (Multas)
                     </span>
-                    <div className={`text-3xl font-black ${(selectedEmployeeDetail.mealPenaltyCount ?? 0) > 0 ? 'text-rose-600' : 'text-slate-900 dark:text-white'}`}>
+                    <div className="text-2xl sm:text-3xl font-black">
                       {selectedEmployeeDetail.mealPenaltyCount ?? 0}
+                      <span className="text-xs font-normal ml-1">
+                        {(selectedEmployeeDetail.mealPenaltyCount ?? 0) > 0 ? '⚠️ Alerta' : '✅ Conforme'}
+                      </span>
                     </div>
                   </div>
                 </div>
 
-                {/* Main Split Grid: 7-Day Matrix on Left & Action Sidebar on Right */}
-                <div className="grid grid-cols-1 lg:grid-cols-4 gap-5">
-                  {/* Left 3 Columns: Timecard Detail Panel */}
-                  <div className="lg:col-span-3 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs p-5 space-y-4">
-                    {/* Metadata Subheader Row */}
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200 dark:border-slate-800 text-xs text-slate-600 dark:text-slate-400">
-                      <div className="space-y-1">
-                        <div>
-                          <strong>Title:</strong> {selectedEmployeeDetail.jobTitle || 'Team Member'} &nbsp;|&nbsp; <strong>Company:</strong> {activeStoreName} &nbsp;|&nbsp; <strong>Sick Hours Left:</strong> 40
-                        </div>
-                        <div>
-                          <strong>Department:</strong> Tacos Gavilan - {storeData?.storeName || 'Lynwood'} &nbsp;|&nbsp; <strong>Meal Penalty:</strong> {selectedEmployeeDetail.mealPenaltyCount ?? 0}
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => openEmailModal(selectedEmployeeDetail)}
-                          className="px-3 py-1.5 rounded bg-[#e53935] hover:bg-[#d32f2f] text-white font-bold text-xs shadow-xs cursor-pointer flex items-center gap-1.5"
-                        >
-                          <Mail className="w-3.5 h-3.5" />
-                          <span>AVISAR POR CORREO</span>
-                        </button>
-                      </div>
+                {/* 3. Desglose de Ponchadas Diarias Formateadas (7 Días) */}
+                <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs p-5 space-y-4">
+                  <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+                    <div className="flex items-center gap-2">
+                      <Calendar className="w-5 h-5 text-[#0288d1]" />
+                      <h3 className="font-bold text-sm text-slate-800 dark:text-slate-100">
+                        Historial y Registro de Ponchadas de la Semana
+                      </h3>
                     </div>
-
-                    {/* Week Selector + Legend Bar */}
-                    <div className="flex flex-wrap items-center justify-between gap-3 text-xs">
-                      <div className="flex items-center gap-2">
-                        <span className="font-semibold text-slate-500">Week:</span>
-                        <select
-                          value={selectedWeekId}
-                          onChange={(e) => setSelectedWeekId(Number(e.target.value))}
-                          className="px-2.5 py-1 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-medium cursor-pointer"
-                        >
-                          {weeks.map(w => (
-                            <option key={w.weekId} value={w.weekId}>
-                              {w.startDate?.substring(0, 10)} - {w.endDate?.substring(0, 10)} (Sem #{w.weekId})
-                            </option>
-                          ))}
-                        </select>
-                        <button
-                          onClick={() => fetchStoreAudit(selectedCompanyId, selectedWeekId)}
-                          className="p-1 text-slate-500 hover:text-slate-800 dark:hover:text-white cursor-pointer"
-                        >
-                          <RefreshCw className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-
-                      {/* Legend Icons Bar */}
-                      <div className="flex items-center gap-2 text-[11px] text-slate-500 flex-wrap">
-                        <span>Legend:</span>
-                        <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" /> In</span>
-                        <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-500 inline-block" /> Lunch</span>
-                        <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-500 inline-block" /> Out</span>
-                        <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-rose-500 inline-block" /> Penalty</span>
-                        <Camera className="w-3.5 h-3.5 text-blue-500 inline" />
-                      </div>
-                    </div>
-
-                    {/* 7-Day Table */}
-                    <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
-                      <table className="w-full text-xs text-left">
-                        <thead className="bg-slate-100 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 font-bold border-b border-slate-200 dark:border-slate-700">
-                          <tr>
-                            <th className="py-2.5 px-3">Day</th>
-                            <th className="py-2.5 px-2 text-center">Total</th>
-                            <th className="py-2.5 px-2 text-center">Regular</th>
-                            <th className="py-2.5 px-2 text-center">Overtime</th>
-                            <th className="py-2.5 px-2 text-center">Doubletime</th>
-                            <th className="py-2.5 px-2 text-center">Lunch</th>
-                            <th className="py-2.5 px-3 text-right">Detalle Ponchadas</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                          {selectedEmployeeDetail.days?.map((day, dIdx) => {
-                            const hasPunches = (day.punches && day.punches.length > 0) || day.totalHours > 0
-                            const hasViolation = day.violations && day.violations.length > 0
-
-                            return (
-                              <React.Fragment key={dIdx}>
-                                <tr className={`hover:bg-slate-50 dark:hover:bg-slate-800/50 ${hasViolation ? 'bg-rose-50/40 dark:bg-rose-950/20' : ''}`}>
-                                  <td className="py-2.5 px-3 font-semibold text-slate-800 dark:text-slate-200">
-                                    <div className="flex items-center gap-1.5">
-                                      <span className={hasViolation ? 'text-rose-600 font-bold' : ''}>
-                                        {day.dayName}, {day.date?.substring(0, 10)}
-                                      </span>
-                                    </div>
-                                    <div className="text-[10px] text-blue-600 dark:text-blue-400 font-mono mt-0.5">
-                                      {selectedEmployeeDetail.jobTitle || 'crew'} - PIN #{selectedEmployeeDetail.pin}
-                                    </div>
-                                  </td>
-                                  <td className="py-2.5 px-2 text-center font-bold text-slate-900 dark:text-white">
-                                    {(day.totalHours ?? 0).toFixed(2)}
-                                  </td>
-                                  <td className="py-2.5 px-2 text-center text-slate-700 dark:text-slate-300">
-                                    {(day.regularHours ?? 0).toFixed(2)}
-                                  </td>
-                                  <td className="py-2.5 px-2 text-center text-slate-700 dark:text-slate-300">
-                                    {(day.overtimeHours ?? 0).toFixed(2)}
-                                  </td>
-                                  <td className="py-2.5 px-2 text-center text-slate-700 dark:text-slate-300">
-                                    {(day.doubleTimeHours ?? 0).toFixed(2)}
-                                  </td>
-                                  <td className="py-2.5 px-2 text-center text-slate-600 dark:text-slate-400">
-                                    {day.lunchDurationMinutes ? `${day.lunchDurationMinutes} min` : '0'}
-                                  </td>
-                                  <td className="py-2.5 px-3 text-right">
-                                    {hasViolation && (
-                                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-rose-100 dark:bg-rose-900/60 text-rose-700 dark:text-rose-300 mr-2">
-                                        <AlertTriangle className="w-3 h-3" />
-                                        {day.violations[0]?.title || 'Violación'}
-                                      </span>
-                                    )}
-                                    <span className="text-[11px] text-slate-400">
-                                      {day.punches?.length || 0} ponchadas
-                                    </span>
-                                  </td>
-                                </tr>
-
-                                {/* Sub-row with Detailed Punch Pairs if punches exist */}
-                                {hasPunches && (
-                                  <tr className="bg-slate-50/60 dark:bg-slate-900/40">
-                                    <td colSpan={7} className="py-2 px-4">
-                                      <div className="flex items-center gap-4 flex-wrap text-xs">
-                                        {/* IN Punch */}
-                                        {day.clockInTime && (
-                                          <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-2xs">
-                                            <span className="font-bold text-emerald-600 dark:text-emerald-400">IN</span>
-                                            {day.clockInPhoto && (
-                                              <button
-                                                onClick={() => openPhoto(day.clockInPhoto!, 'Entrada', selectedEmployeeDetail.fullName, day.clockInTime!)}
-                                                className="p-0.5 text-blue-500 hover:text-blue-700 cursor-pointer"
-                                                title="Ver Foto Reloj AWS"
-                                              >
-                                                <Camera className="w-3.5 h-3.5" />
-                                              </button>
-                                            )}
-                                            <span className="font-mono text-slate-700 dark:text-slate-200">{day.clockInTime}</span>
-                                          </div>
-                                        )}
-
-                                        {/* LUNCH Punch */}
-                                        {day.lunchStartTime && (
-                                          <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-2xs">
-                                            <span className="font-bold text-amber-600 dark:text-amber-400">LUNCH</span>
-                                            {day.lunchStartPhoto && (
-                                              <button
-                                                onClick={() => openPhoto(day.lunchStartPhoto!, 'Inicio Lunch', selectedEmployeeDetail.fullName, day.lunchStartTime!)}
-                                                className="p-0.5 text-blue-500 hover:text-blue-700 cursor-pointer"
-                                                title="Ver Foto Reloj AWS"
-                                              >
-                                                <Camera className="w-3.5 h-3.5" />
-                                              </button>
-                                            )}
-                                            <span className="font-mono text-slate-700 dark:text-slate-200">
-                                              {day.lunchStartTime} {day.lunchEndTime ? `→ ${day.lunchEndTime}` : ''} ({day.lunchDurationMinutes}m)
-                                            </span>
-                                          </div>
-                                        )}
-
-                                        {/* OUT Punch */}
-                                        {day.clockOutTime && (
-                                          <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-2xs">
-                                            <span className="font-bold text-rose-600 dark:text-rose-400">OUT</span>
-                                            {day.clockOutPhoto && (
-                                              <button
-                                                onClick={() => openPhoto(day.clockOutPhoto!, 'Salida', selectedEmployeeDetail.fullName, day.clockOutTime!)}
-                                                className="p-0.5 text-blue-500 hover:text-blue-700 cursor-pointer"
-                                                title="Ver Foto Reloj AWS"
-                                              >
-                                                <Camera className="w-3.5 h-3.5" />
-                                              </button>
-                                            )}
-                                            <span className="font-mono text-slate-700 dark:text-slate-200">{day.clockOutTime}</span>
-                                          </div>
-                                        )}
-                                      </div>
-                                    </td>
-                                  </tr>
-                                )}
-                              </React.Fragment>
-                            )
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
+                    <span className="text-xs text-slate-400 font-mono">
+                      Semana #{selectedWeekId} ({storeData?.startDate?.substring(5, 10)} al {storeData?.endDate?.substring(5, 10)})
+                    </span>
                   </div>
 
-                  {/* Right Column: Request Actions & Employee Navigator (Screenshot 3) */}
-                  <div className="space-y-4">
-                    {/* Request Sidebar Card */}
-                    <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs p-5 space-y-3">
-                      <h3 className="text-sm font-bold text-slate-700 dark:text-slate-300 text-center pb-2 border-b border-slate-200 dark:border-slate-800">
-                        Request
-                      </h3>
+                  {/* Lista de Tarjetas de Día */}
+                  <div className="space-y-3">
+                    {selectedEmployeeDetail.days?.map((day, dIdx) => {
+                      const hasWorked = (day.totalHours ?? 0) > 0 || (day.punches && day.punches.length > 0)
+                      const hasViolations = day.violations && day.violations.length > 0
+                      const { dayOfWeek, dateFormatted } = formatDayDetails(day.date, day.dayName)
 
-                      <button className="w-full py-2.5 px-3 rounded-lg bg-[#0288d1] hover:bg-[#0277bd] text-white font-bold text-xs tracking-wider shadow-xs transition-colors cursor-pointer">
-                        {t('ronos.btn_request_vacation')}
-                      </button>
+                      const dayReg = day.regularHours > 0 ? day.regularHours : Math.min(8.0, day.totalHours ?? 0)
+                      const dayOt = day.overtimeHours > 0 ? day.overtimeHours : ((day.totalHours ?? 0) > 8.0 ? Math.min(4.0, (day.totalHours ?? 0) - 8.0) : 0)
+                      const dayDt = day.doubleTimeHours > 0 ? day.doubleTimeHours : ((day.totalHours ?? 0) > 12.0 ? (day.totalHours ?? 0) - 12.0 : 0)
 
-                      <button className="w-full py-2.5 px-3 rounded-lg bg-[#0288d1] hover:bg-[#0277bd] text-white font-bold text-xs tracking-wider shadow-xs transition-colors cursor-pointer">
-                        {t('ronos.btn_request_sick')}
-                      </button>
+                      if (!hasWorked) {
+                        return (
+                          <div
+                            key={dIdx}
+                            className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/60 dark:border-slate-800 flex items-center justify-between text-xs text-slate-400"
+                          >
+                            <span className="font-semibold text-slate-600 dark:text-slate-400">
+                              {dayOfWeek}, {dateFormatted}
+                            </span>
+                            <span className="italic">Descanso / Día Libre (0.00 hrs)</span>
+                          </div>
+                        )
+                      }
 
-                      <button className="w-full py-2.5 px-3 rounded-lg bg-[#0288d1] hover:bg-[#0277bd] text-white font-bold text-xs tracking-wider shadow-xs transition-colors cursor-pointer">
-                        {t('ronos.btn_request_unpaid')}
-                      </button>
-
-                      <button
-                        onClick={() => setSelectedEmployeeDetail(null)}
-                        className="w-full py-2.5 px-3 rounded-lg bg-[#43a047] hover:bg-[#388e3c] text-white font-bold text-xs tracking-wider shadow-xs transition-colors cursor-pointer"
-                      >
-                        {t('ronos.btn_request_view_all')}
-                      </button>
-                    </div>
-
-                    {/* Employee Navigator Card */}
-                    <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs p-5 space-y-3">
-                      <label className="block text-xs font-semibold text-slate-500">
-                        Employee:
-                      </label>
-                      <select
-                        value={selectedEmployeeDetail.employeeUserId}
-                        onChange={(e) => {
-                          const target = storeData?.employees.find(emp => emp.employeeUserId === Number(e.target.value))
-                          if (target) setSelectedEmployeeDetail(target)
-                        }}
-                        className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-bold cursor-pointer"
-                      >
-                        {storeData?.employees.map(emp => (
-                          <option key={emp.employeeUserId} value={emp.employeeUserId}>
-                            {emp.fullName} (PIN #{emp.pin})
-                          </option>
-                        ))}
-                      </select>
-
-                      <div className="grid grid-cols-2 gap-2 pt-2">
-                        <button
-                          onClick={() => handleNavigateEmployee('prev')}
-                          className="py-2 px-3 rounded bg-[#0288d1] hover:bg-[#0277bd] text-white font-bold text-[11px] flex items-center justify-center gap-1 shadow-xs cursor-pointer"
+                      return (
+                        <div
+                          key={dIdx}
+                          className={`rounded-2xl border p-4 transition-all ${
+                            hasViolations
+                              ? 'bg-rose-50/50 dark:bg-rose-950/20 border-rose-200 dark:border-rose-800/60 shadow-xs'
+                              : 'bg-white dark:bg-slate-800/60 border-slate-200 dark:border-slate-800 shadow-2xs'
+                          }`}
                         >
-                          <ChevronLeft className="w-4 h-4" />
-                          <span>{t('ronos.btn_prev_emp')}</span>
-                        </button>
-                        <button
-                          onClick={() => handleNavigateEmployee('next')}
-                          className="py-2 px-3 rounded bg-[#0288d1] hover:bg-[#0277bd] text-white font-bold text-[11px] flex items-center justify-center gap-1 shadow-xs cursor-pointer"
-                        >
-                          <span>{t('ronos.btn_next_emp')}</span>
-                          <ChevronRight className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
+                          {/* Cabecera del Día */}
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-100 dark:border-slate-700/60">
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <span className={`font-bold text-sm ${hasViolations ? 'text-rose-700 dark:text-rose-400' : 'text-slate-900 dark:text-white'}`}>
+                                  {dayOfWeek}, {dateFormatted}
+                                </span>
+                                <span className="text-[11px] px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 font-mono">
+                                  {selectedEmployeeDetail.jobTitle || 'crew'}
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* Horas Trabajadas */}
+                            <div className="flex items-center gap-2">
+                              <span className="px-2.5 py-1 rounded-lg bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 font-black text-xs">
+                                {(day.totalHours ?? 0).toFixed(2)} hrs trabajadas
+                              </span>
+                              <span className="text-xs text-slate-500 font-mono">
+                                (Reg: {dayReg.toFixed(2)}h {dayOt > 0 ? `• OT: ${dayOt.toFixed(2)}h` : ''} {dayDt > 0 ? `• DT: ${dayDt.toFixed(2)}h` : ''})
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Violaciones o Alertas si existen */}
+                          {hasViolations && (
+                            <div className="mt-3 p-2.5 rounded-xl bg-rose-100/70 dark:bg-rose-900/40 border border-rose-200 dark:border-rose-800 text-rose-800 dark:text-rose-200 text-xs flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-2">
+                                <AlertTriangle className="w-4 h-4 text-rose-600 flex-shrink-0" />
+                                <div>
+                                  <span className="font-bold">{day.violations[0]?.title || 'Violación de Horario'}</span>
+                                  <span className="mx-1.5">•</span>
+                                  <span>{day.violations[0]?.description}</span>
+                                </div>
+                              </div>
+                              <span className="font-black text-rose-700 dark:text-rose-300 text-xs whitespace-nowrap">
+                                +${(day.violations[0]?.estimatedCostUsd ?? 19.50).toFixed(2)} USD
+                              </span>
+                            </div>
+                          )}
+
+                          {/* Línea de Tiempo de Ponchadas Formateadas */}
+                          <div className="mt-3.5 flex items-center gap-3 flex-wrap text-xs">
+                            {/* ENTRADA (IN) */}
+                            {day.clockInTime && (
+                              <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-emerald-900 dark:text-emerald-200 shadow-2xs">
+                                <Sun className="w-4 h-4 text-emerald-600" />
+                                <div>
+                                  <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold block uppercase tracking-wider">
+                                    Entrada
+                                  </span>
+                                  <span className="font-black text-sm font-mono">
+                                    {formatTime12h(day.clockInTime)}
+                                  </span>
+                                </div>
+                                {day.clockInPhoto && (
+                                  <button
+                                    onClick={() => openPhoto(day.clockInPhoto!, 'Entrada', selectedEmployeeDetail.fullName, day.clockInTime!)}
+                                    className="p-1.5 ml-1 rounded-lg bg-emerald-200/60 hover:bg-emerald-300 dark:bg-emerald-900 text-emerald-800 dark:text-emerald-200 cursor-pointer transition-colors"
+                                    title="Ver Foto de Reloj AWS"
+                                  >
+                                    <Camera className="w-3.5 h-3.5" />
+                                  </button>
+                                )}
+                              </div>
+                            )}
+
+                            {/* LUNCH / COMIDA */}
+                            {day.lunchStartTime && (
+                              <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-amber-900 dark:text-amber-200 shadow-2xs">
+                                <Coffee className="w-4 h-4 text-amber-600" />
+                                <div>
+                                  <span className="text-[10px] text-amber-600 dark:text-amber-400 font-bold block uppercase tracking-wider">
+                                    Descanso de Comida ({day.lunchDurationMinutes ? `${day.lunchDurationMinutes} min` : '30 min'})
+                                  </span>
+                                  <span className="font-black text-sm font-mono">
+                                    {formatTime12h(day.lunchStartTime)} {day.lunchEndTime ? `→ ${formatTime12h(day.lunchEndTime)}` : ''}
+                                  </span>
+                                </div>
+                                {day.lunchStartPhoto && (
+                                  <button
+                                    onClick={() => openPhoto(day.lunchStartPhoto!, 'Inicio de Comida', selectedEmployeeDetail.fullName, day.lunchStartTime!)}
+                                    className="p-1.5 ml-1 rounded-lg bg-amber-200/60 hover:bg-amber-300 dark:bg-amber-900 text-amber-800 dark:text-amber-200 cursor-pointer transition-colors"
+                                    title="Ver Foto de Inicio de Comida"
+                                  >
+                                    <Camera className="w-3.5 h-3.5" />
+                                  </button>
+                                )}
+                              </div>
+                            )}
+
+                            {/* SALIDA (OUT) */}
+                            {day.clockOutTime && (
+                              <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 shadow-2xs">
+                                <Moon className="w-4 h-4 text-slate-600 dark:text-slate-400" />
+                                <div>
+                                  <span className="text-[10px] text-slate-500 font-bold block uppercase tracking-wider">
+                                    Salida
+                                  </span>
+                                  <span className="font-black text-sm font-mono">
+                                    {formatTime12h(day.clockOutTime)}
+                                  </span>
+                                </div>
+                                {day.clockOutPhoto && (
+                                  <button
+                                    onClick={() => openPhoto(day.clockOutPhoto!, 'Salida', selectedEmployeeDetail.fullName, day.clockOutTime!)}
+                                    className="p-1.5 ml-1 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-700 text-slate-800 dark:text-slate-200 cursor-pointer transition-colors"
+                                    title="Ver Foto de Salida"
+                                  >
+                                    <Camera className="w-3.5 h-3.5" />
+                                  </button>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )
+                    })}
                   </div>
                 </div>
               </div>
