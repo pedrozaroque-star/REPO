@@ -1453,24 +1453,24 @@ function RonosLaborAuditContent() {
                             </div>
                           )}
 
-                          {/* Línea de Tiempo de Ponchadas Formateadas */}
+                          {/* Línea de Tiempo de Ponchadas Formateadas (Mismo Azul de la Portada) */}
                           <div className="mt-3.5 flex items-center gap-3 flex-wrap text-xs">
                             {/* ENTRADA (IN) */}
                             {day.clockInTime && (
-                              <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-emerald-900 dark:text-emerald-200 shadow-2xs">
-                                <Sun className="w-4 h-4 text-emerald-600" />
+                              <div className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-sky-50/80 dark:bg-sky-950/40 border border-[#0288d1]/30 dark:border-[#0288d1]/50 text-slate-800 dark:text-slate-100 shadow-2xs">
+                                <Sun className="w-4 h-4 text-[#0288d1]" />
                                 <div>
-                                  <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold block uppercase tracking-wider">
+                                  <span className="text-[10px] text-[#0288d1] dark:text-sky-400 font-bold block uppercase tracking-wider">
                                     Entrada
                                   </span>
-                                  <span className="font-black text-sm font-mono">
+                                  <span className="font-black text-sm font-mono text-slate-900 dark:text-white">
                                     {formatTime12h(day.clockInTime)}
                                   </span>
                                 </div>
                                 {day.clockInPhoto && (
                                   <button
                                     onClick={() => openPhoto(day.clockInPhoto!, 'Entrada', selectedEmployeeDetail.fullName, day.clockInTime!)}
-                                    className="p-1.5 ml-1 rounded-lg bg-emerald-200/60 hover:bg-emerald-300 dark:bg-emerald-900 text-emerald-800 dark:text-emerald-200 cursor-pointer transition-colors"
+                                    className="p-1.5 ml-1 rounded-lg bg-[#0288d1]/15 hover:bg-[#0288d1]/25 text-[#0288d1] dark:text-sky-300 cursor-pointer transition-colors"
                                     title="Ver Foto de Reloj AWS"
                                   >
                                     <Camera className="w-3.5 h-3.5" />
@@ -1481,20 +1481,20 @@ function RonosLaborAuditContent() {
 
                             {/* LUNCH / COMIDA */}
                             {day.lunchStartTime && (
-                              <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-amber-900 dark:text-amber-200 shadow-2xs">
-                                <Coffee className="w-4 h-4 text-amber-600" />
+                              <div className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-sky-50/80 dark:bg-sky-950/40 border border-[#0288d1]/30 dark:border-[#0288d1]/50 text-slate-800 dark:text-slate-100 shadow-2xs">
+                                <Coffee className="w-4 h-4 text-[#0288d1]" />
                                 <div>
-                                  <span className="text-[10px] text-amber-600 dark:text-amber-400 font-bold block uppercase tracking-wider">
+                                  <span className="text-[10px] text-[#0288d1] dark:text-sky-400 font-bold block uppercase tracking-wider">
                                     Descanso de Comida ({day.lunchDurationMinutes ? `${day.lunchDurationMinutes} min` : '30 min'})
                                   </span>
-                                  <span className="font-black text-sm font-mono">
+                                  <span className="font-black text-sm font-mono text-slate-900 dark:text-white">
                                     {formatTime12h(day.lunchStartTime)} {day.lunchEndTime ? `→ ${formatTime12h(day.lunchEndTime)}` : ''}
                                   </span>
                                 </div>
                                 {day.lunchStartPhoto && (
                                   <button
                                     onClick={() => openPhoto(day.lunchStartPhoto!, 'Inicio de Comida', selectedEmployeeDetail.fullName, day.lunchStartTime!)}
-                                    className="p-1.5 ml-1 rounded-lg bg-amber-200/60 hover:bg-amber-300 dark:bg-amber-900 text-amber-800 dark:text-amber-200 cursor-pointer transition-colors"
+                                    className="p-1.5 ml-1 rounded-lg bg-[#0288d1]/15 hover:bg-[#0288d1]/25 text-[#0288d1] dark:text-sky-300 cursor-pointer transition-colors"
                                     title="Ver Foto de Inicio de Comida"
                                   >
                                     <Camera className="w-3.5 h-3.5" />
@@ -1505,20 +1505,20 @@ function RonosLaborAuditContent() {
 
                             {/* SALIDA (OUT) */}
                             {day.clockOutTime && (
-                              <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 shadow-2xs">
-                                <Moon className="w-4 h-4 text-slate-600 dark:text-slate-400" />
+                              <div className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-sky-50/80 dark:bg-sky-950/40 border border-[#0288d1]/30 dark:border-[#0288d1]/50 text-slate-800 dark:text-slate-100 shadow-2xs">
+                                <Moon className="w-4 h-4 text-[#0288d1]" />
                                 <div>
-                                  <span className="text-[10px] text-slate-500 font-bold block uppercase tracking-wider">
+                                  <span className="text-[10px] text-[#0288d1] dark:text-sky-400 font-bold block uppercase tracking-wider">
                                     Salida
                                   </span>
-                                  <span className="font-black text-sm font-mono">
+                                  <span className="font-black text-sm font-mono text-slate-900 dark:text-white">
                                     {formatTime12h(day.clockOutTime)}
                                   </span>
                                 </div>
                                 {day.clockOutPhoto && (
                                   <button
                                     onClick={() => openPhoto(day.clockOutPhoto!, 'Salida', selectedEmployeeDetail.fullName, day.clockOutTime!)}
-                                    className="p-1.5 ml-1 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-700 text-slate-800 dark:text-slate-200 cursor-pointer transition-colors"
+                                    className="p-1.5 ml-1 rounded-lg bg-[#0288d1]/15 hover:bg-[#0288d1]/25 text-[#0288d1] dark:text-sky-300 cursor-pointer transition-colors"
                                     title="Ver Foto de Salida"
                                   >
                                     <Camera className="w-3.5 h-3.5" />
