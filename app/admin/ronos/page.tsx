@@ -153,6 +153,103 @@ interface WorkWeekOption {
   endDate: string
 }
 
+/**
+ * Agrupa las semanas en periodos bisemanales alineados con el ciclo oficial de Cingular HR
+ * Serie anclada: Lunes 10 de Agosto de 2026 al Domingo 23 de Agosto de 2026 (Sem 154242 + 154243)
+ */
+function computeCingularBiWeeklyPeriods(weeks: WorkWeekOption[]): Array<{
+  id: string
+  weekIds: [number, number]
+  startDate: string
+  endDate: string
+  label: string
+}> {
+  if (!weeks || !Array.isArray(weeks) || weeks.length === 0) return []
+
+  const ANCHOR_DATE = new Date('2026-08-10T00:00:00') // Known Week 1 Monday (Aug 10 - Aug 23 cycle)
+  const MS_PER_DAY = 24 * 60 * 60 * 1000
+
+  // Group weeks by their bi-weekly cycle start date
+  const cyclesMap = new Map<string, { week1?: WorkWeekOption; week2?: WorkWeekOption }>()
+
+  for (const w of weeks) {
+    if (!w?.startDate) continue
+    const sDate = new Date(w.startDate.substring(0, 10) + 'T00:00:00')
+    if (isNaN(sDate.getTime())) continue
+
+    const daysDiff = Math.round((sDate.getTime() - ANCHOR_DATE.getTime()) / MS_PER_DAY)
+    const weeksDiff = Math.round(daysDiff / 7)
+
+    let cycleStartDate: Date
+    let isWeek1 = false
+
+    if (weeksDiff % 2 === 0) {
+      // Week 1 of the cycle (e.g. Aug 10, Jul 27, Jul 13, Jun 29, Aug 24)
+      cycleStartDate = sDate
+      isWeek1 = true
+    } else {
+      // Week 2 of the cycle (e.g. Aug 17, Aug 3, Jul 20, Jul 6) -> Cycle started 7 days ago
+      cycleStartDate = new Date(sDate.getTime() - 7 * MS_PER_DAY)
+      isWeek1 = false
+    }
+
+    const cycleKey = cycleStartDate.toISOString().substring(0, 10)
+    if (!cyclesMap.has(cycleKey)) {
+      cyclesMap.set(cycleKey, {})
+    }
+    const cycle = cyclesMap.get(cycleKey)!
+    if (isWeek1) {
+      cycle.week1 = w
+    } else {
+      cycle.week2 = w
+    }
+  }
+
+  // Convert cyclesMap into sorted period list
+  const sortedCycleKeys = Array.from(cyclesMap.keys()).sort((a, b) => b.localeCompare(a))
+
+  const periods: Array<{
+    id: string
+    weekIds: [number, number]
+    startDate: string
+    endDate: string
+    label: string
+  }> = []
+
+  for (const cKey of sortedCycleKeys) {
+    const cycle = cyclesMap.get(cKey)!
+    if (cycle.week1 && cycle.week2) {
+      // Complete bi-weekly period (2 weeks)
+      periods.push({
+        id: `${cycle.week1.weekId},${cycle.week2.weekId}`,
+        weekIds: [cycle.week1.weekId, cycle.week2.weekId],
+        startDate: cycle.week1.startDate.substring(0, 10),
+        endDate: cycle.week2.endDate.substring(0, 10),
+        label: `Periodo Bisemanal (${cycle.week1.startDate.substring(0, 10)} al ${cycle.week2.endDate.substring(0, 10)}) • Sem #${cycle.week1.weekId} + #${cycle.week2.weekId}`
+      })
+    } else if (cycle.week1 && !cycle.week2) {
+      // In-progress period (only week 1 available so far)
+      periods.push({
+        id: `${cycle.week1.weekId}`,
+        weekIds: [cycle.week1.weekId, cycle.week1.weekId],
+        startDate: cycle.week1.startDate.substring(0, 10),
+        endDate: cycle.week1.endDate.substring(0, 10),
+        label: `Semana en Curso (${cycle.week1.startDate.substring(0, 10)} al ${cycle.week1.endDate.substring(0, 10)}) • Sem #${cycle.week1.weekId} (1ra sem de ciclo)`
+      })
+    } else if (!cycle.week1 && cycle.week2) {
+      periods.push({
+        id: `${cycle.week2.weekId}`,
+        weekIds: [cycle.week2.weekId, cycle.week2.weekId],
+        startDate: cycle.week2.startDate.substring(0, 10),
+        endDate: cycle.week2.endDate.substring(0, 10),
+        label: `Semana Parcial (${cycle.week2.startDate.substring(0, 10)} al ${cycle.week2.endDate.substring(0, 10)}) • Sem #${cycle.week2.weekId}`
+      })
+    }
+  }
+
+  return periods
+}
+
 interface AtomicPunch {
   punchId: number
   employeeId: number
@@ -472,16 +569,13 @@ function RonosLaborAuditContent() {
           setSelectedWeekId(json.weeks[0].weekId)
         }
 
-        const wList = json.weeks
-        const sIdx = (wList.length > 0 && new Date(wList[0]?.endDate || '').getTime() > Date.now()) ? 1 : 0
-        let targetPeriod = ''
-        if (payrollBiWeekly && wList.length >= sIdx + 2 && wList[sIdx + 1]?.weekId != null && wList[sIdx]?.weekId != null) {
-          targetPeriod = `${wList[sIdx + 1].weekId},${wList[sIdx].weekId}`
-        } else if (wList[0]?.weekId != null) {
-          targetPeriod = `${wList[0].weekId}`
-        }
-        if (!selectedBiWeeklyPeriod && targetPeriod) {
-          setSelectedBiWeeklyPeriod(targetPeriod)
+        const computedPeriods = computeCingularBiWeeklyPeriods(json.weeks)
+        if (!selectedBiWeeklyPeriod && computedPeriods.length > 0) {
+          // Seleccionar por defecto el periodo completo más reciente (ej. 154242,154243)
+          const defaultPeriod = computedPeriods.find(p => p.weekIds[0] !== p.weekIds[1]) || computedPeriods[0]
+          if (defaultPeriod) {
+            setSelectedBiWeeklyPeriod(defaultPeriod.id)
+          }
         }
       }
       if (Array.isArray(json.stores)) setStores(json.stores)
@@ -896,45 +990,9 @@ function RonosLaborAuditContent() {
     })
   }, [payrollData, payrollSearch, payrollFilterType])
 
-  // Paired bi-weekly payroll periods for Cingular
+  // Paired bi-weekly payroll periods for Cingular (Anchored to Monday 2026-08-10 series)
   const biWeeklyPeriods = useMemo(() => {
-    if (!weeks || weeks.length === 0) return []
-    const periods: Array<{
-      id: string
-      weekIds: [number, number]
-      startDate: string
-      endDate: string
-      label: string
-    }> = []
-
-    const startIndex = (weeks.length > 0 && new Date(weeks[0]?.endDate || '').getTime() > Date.now()) ? 1 : 0
-
-    for (let i = startIndex; i < weeks.length - 1; i += 2) {
-      const wEnd = weeks[i]
-      const wStart = weeks[i + 1]
-      if (wStart && wEnd) {
-        periods.push({
-          id: `${wStart.weekId},${wEnd.weekId}`,
-          weekIds: [wStart.weekId, wEnd.weekId],
-          startDate: wStart.startDate?.substring(0, 10),
-          endDate: wEnd.endDate?.substring(0, 10),
-          label: `Periodo Bisemanal (${wStart.startDate?.substring(0, 10)} al ${wEnd.endDate?.substring(0, 10)}) • Sem #${wStart.weekId} + #${wEnd.weekId}`
-        })
-      }
-    }
-
-    if (startIndex === 1 && weeks.length > 0) {
-      const w0 = weeks[0]
-      periods.push({
-        id: `${w0.weekId}`,
-        weekIds: [w0.weekId, w0.weekId],
-        startDate: w0.startDate?.substring(0, 10),
-        endDate: w0.endDate?.substring(0, 10),
-        label: `Semana en Curso (${w0.startDate?.substring(0, 10)} al ${w0.endDate?.substring(0, 10)}) • Sem #${w0.weekId} (En progreso)`
-      })
-    }
-
-    return periods
+    return computeCingularBiWeeklyPeriods(weeks)
   }, [weeks])
 
   // Navegación de empleado individual siguiente / anterior
