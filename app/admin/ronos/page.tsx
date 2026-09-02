@@ -907,8 +907,9 @@ function RonosLaborAuditContent() {
     return storeData.employees.filter(emp => {
       if (!emp) return false
 
-      const isActive = emp.active !== false && ((emp.totalWeeklyHours ?? 0) > 0 || (emp.days && emp.days.length > 0))
-      if (!showInactive && emp.active === false) return false
+      const hasHours = (emp.totalWeeklyHours ?? 0) > 0 || (emp.days && emp.days.some(d => (d.totalHours ?? 0) > 0))
+      // Si "Mostrar Inactivos" está desmarcado, ocultar colaboradores con 0 horas
+      if (!showInactive && !hasHours) return false
 
       const isSal = emp.jobTitle?.toLowerCase().includes('manager') || emp.jobTitle?.toLowerCase().includes('supervisor')
       if (viewingFilter === 'salary' && !isSal) return false
@@ -934,7 +935,19 @@ function RonosLaborAuditContent() {
       }
 
       return true
-    }).sort((a, b) => (a?.fullName || '').localeCompare(b?.fullName || '', 'es', { sensitivity: 'base' }))
+    }).sort((a, b) => {
+      const aHasHours = (a?.totalWeeklyHours ?? 0) > 0 || (a?.days && a.days.some(d => (d.totalHours ?? 0) > 0))
+      const bHasHours = (b?.totalWeeklyHours ?? 0) > 0 || (b?.days && b.days.some(d => (d.totalHours ?? 0) > 0))
+
+      // 1. Colaboradores con horas trabajadas siempre van primero arriba
+      if (aHasHours && !bHasHours) return -1
+      if (!aHasHours && bHasHours) return 1
+
+      // 2. Orden alfabético A-Z por Nombre de pila (First Name) o Nombre Completo
+      const aName = (a?.firstName?.trim() || a?.fullName?.trim() || '')
+      const bName = (b?.firstName?.trim() || b?.fullName?.trim() || '')
+      return aName.localeCompare(bName, 'es', { sensitivity: 'base' })
+    })
   }, [storeData, searchTerm, filterType, viewingFilter, showInactive])
 
   // Filtered Mappings for Tab 3
@@ -1800,14 +1813,19 @@ function RonosLaborAuditContent() {
                           </tr>
                         ) : (
                           filteredEmployees.map((emp, idx) => {
+                            const hasHours = (emp.totalWeeklyHours ?? 0) > 0 || (emp.days && emp.days.some(d => (d.totalHours ?? 0) > 0))
                             const isBroken = emp.brokenHours || (emp.mealPenaltyCount ?? 0) > 0
-                            const isApproved = !isBroken && (emp.totalWeeklyHours ?? 0) > 0
+                            const isApproved = !isBroken && hasHours
 
                             return (
                               <tr
                                 key={emp.employeeUserId}
                                 onClick={() => setSelectedEmployeeDetail(emp)}
-                                className="hover:bg-blue-50/50 dark:hover:bg-slate-800/60 cursor-pointer transition-colors"
+                                className={`cursor-pointer transition-colors ${
+                                  hasHours
+                                    ? 'hover:bg-blue-50/50 dark:hover:bg-slate-800/60'
+                                    : 'bg-slate-50/60 dark:bg-slate-900/40 text-slate-400 opacity-60 hover:opacity-100 hover:bg-slate-100 dark:hover:bg-slate-800'
+                                }`}
                               >
                                 <td className="py-2.5 px-3 text-center text-slate-400">
                                   {idx + 1}
@@ -1819,20 +1837,22 @@ function RonosLaborAuditContent() {
                                   {emp.employeeUserId}
                                 </td>
                                 <td className={`py-2.5 px-3 font-bold ${
-                                  isBroken ? 'text-[#d32f2f]' : isApproved ? 'text-[#2e7d32]' : 'text-slate-900 dark:text-white'
+                                  !hasHours ? 'text-slate-500 dark:text-slate-400' : isBroken ? 'text-[#d32f2f]' : isApproved ? 'text-[#2e7d32]' : 'text-slate-900 dark:text-white'
                                 }`}>
                                   {emp.firstName}
                                 </td>
-                                <td className="py-2.5 px-3 font-medium text-slate-800 dark:text-slate-200">
+                                <td className={`py-2.5 px-3 font-medium ${!hasHours ? 'text-slate-500 dark:text-slate-400' : 'text-slate-800 dark:text-slate-200'}`}>
                                   {emp.lastName}
                                 </td>
                                 <td className="py-2.5 px-3 font-mono text-slate-600 dark:text-slate-400">
                                   {emp.pin}
                                 </td>
-                                <td className="py-2.5 px-3 text-center text-slate-500">
-                                  {emp.active !== false ? 'true' : 'false'}
+                                <td className="py-2.5 px-3 text-center">
+                                  <span className={`text-[11px] font-semibold ${hasHours ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400'}`}>
+                                    {hasHours ? 'true' : 'false'}
+                                  </span>
                                 </td>
-                                <td className="py-2.5 px-3 text-center font-bold text-slate-900 dark:text-white">
+                                <td className={`py-2.5 px-3 text-center font-bold ${hasHours ? 'text-slate-900 dark:text-white' : 'text-slate-400'}`}>
                                   {(emp.totalWeeklyHours ?? 0).toFixed(2)}
                                 </td>
                                 <td className="py-2.5 px-3 text-center text-slate-700 dark:text-slate-300">

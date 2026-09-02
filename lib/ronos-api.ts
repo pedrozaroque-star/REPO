@@ -281,6 +281,11 @@ function safeTimestamp(val?: string): number {
 export async function getRonosAuthToken(forceRefresh = false): Promise<string> {
   const now = Date.now()
 
+  if (forceRefresh) {
+    cachedSession = null
+    authPromiseMutex = null
+  }
+
   // 1. Reutilizar sesión válida con 5 minutos de margen de seguridad
   if (!forceRefresh && cachedSession && cachedSession.expiresAt > now + 300000) {
     return cachedSession.accessToken
@@ -427,32 +432,41 @@ const weeksMemoryCache = new Map<number, { data: RonosWorkWeek[]; timestamp: num
 /**
  * Obtiene las semanas de pago de una tienda desde memoria / Supabase (o API de RONOS con normalización y auto-caché)
  */
-export async function getRonosWeeks(ronosCompanyId: number): Promise<RonosWorkWeek[]> {
+export async function getRonosWeeks(ronosCompanyId: number, forceRefresh = false): Promise<RonosWorkWeek[]> {
   const cachedMem = weeksMemoryCache.get(ronosCompanyId)
-  if (cachedMem && (Date.now() - cachedMem.timestamp) < 15 * 60 * 1000) {
-    return cachedMem.data
+  if (!forceRefresh && cachedMem && (Date.now() - cachedMem.timestamp) < 15 * 60 * 1000) {
+    const latestMemEnd = new Date(cachedMem.data[0]?.endDate || '').getTime()
+    if (latestMemEnd >= Date.now() - 24 * 60 * 60 * 1000) {
+      return cachedMem.data
+    }
   }
 
-  try {
-    const { data: dbWeeks, error: dbErr } = await supabaseAdmin
-      .from('ronos_work_weeks')
-      .select('week_id, company_id, start_date, end_date')
-      .eq('company_id', ronosCompanyId)
-      .order('start_date', { ascending: false })
+  if (!forceRefresh) {
+    try {
+      const { data: dbWeeks, error: dbErr } = await supabaseAdmin
+        .from('ronos_work_weeks')
+        .select('week_id, company_id, start_date, end_date')
+        .eq('company_id', ronosCompanyId)
+        .order('start_date', { ascending: false })
 
-    if (!dbErr && dbWeeks && dbWeeks.length > 0) {
-      const parsed = dbWeeks.map(w => ({
-        weekId: safeNum(w.week_id),
-        companyId: safeNum(w.company_id, ronosCompanyId),
-        startDate: String(w.start_date || ''),
-        endDate: String(w.end_date || '')
-      })).filter(w => w.weekId > 0)
+      if (!dbErr && dbWeeks && dbWeeks.length > 0) {
+        const parsed = dbWeeks.map(w => ({
+          weekId: safeNum(w.week_id),
+          companyId: safeNum(w.company_id, ronosCompanyId),
+          startDate: String(w.start_date || ''),
+          endDate: String(w.end_date || '')
+        })).filter(w => w.weekId > 0)
 
-      weeksMemoryCache.set(ronosCompanyId, { data: parsed, timestamp: Date.now() })
-      return parsed
+        const latestDbEnd = new Date(parsed[0]?.endDate || '').getTime()
+        // Si la semana más reciente en base de datos sigue vigente, usar caché
+        if (latestDbEnd >= Date.now() - 24 * 60 * 60 * 1000) {
+          weeksMemoryCache.set(ronosCompanyId, { data: parsed, timestamp: Date.now() })
+          return parsed
+        }
+      }
+    } catch (err) {
+      console.warn(`[RONOS Weeks] Advertencia al consultar Supabase para compañía ${ronosCompanyId}:`, err)
     }
-  } catch (err) {
-    console.warn(`[RONOS Weeks] Advertencia al consultar Supabase para compañía ${ronosCompanyId}:`, err)
   }
 
   try {
@@ -487,7 +501,7 @@ export async function getRonosWeeks(ronosCompanyId: number): Promise<RonosWorkWe
       Promise.resolve(
         supabaseAdmin
           .from('ronos_work_weeks')
-          .upsert(rowsToUpsert, { onConflict: 'week_id' })
+          .upsert(rowsToUpsert, { onConflict: 'company_id,week_id' })
       ).then(({ error }: any) => {
         if (error) console.warn('[RONOS Weeks] Error guardando caché en Supabase:', error?.message || error)
       }).catch((err: any) => {
