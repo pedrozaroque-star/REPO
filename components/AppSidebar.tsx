@@ -208,8 +208,8 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
             id: 'finanzas',
             items: [
                 {
-                    name: t('items.accounting') || 'Contabilidad',
-                    plainName: 'Contabilidad',
+                    name: 'Cohesion',
+                    plainName: 'Cohesion',
                     path: '/contabilidad',
                     icon: <Calculator size={20} />,
                     roles: ['admin'],
@@ -218,13 +218,8 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                         : 'Pólizas de ventas diarias para QuickBooks — reemplaza Cohesion ($450/mes)'
                 },
                 {
-                    name: (
-                        <div className="flex items-center gap-2">
-                            <span>{t('items.ronos') || 'Auditoría RONOS (Labor)'}</span>
-                            <span className="text-[10px] bg-amber-100 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 border border-amber-300 dark:border-amber-700 px-1.5 py-0.5 rounded font-black tracking-widest">NUEVO</span>
-                        </div>
-                    ),
-                    plainName: 'Auditoría RONOS (Labor)',
+                    name: 'RONOS',
+                    plainName: 'RONOS',
                     path: '/admin/ronos',
                     icon: <Clock size={20} />,
                     roles: ['admin'],
@@ -243,12 +238,7 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                         : 'Control y cálculo de millas manejadas por supervisores, registro de viajes y despacho a RRHH'
                 },
                 {
-                    name: (
-                        <div className="flex items-center gap-2">
-                            <span>{t('items.activity_reports') || 'Reporte de Actividades'}</span>
-                            <span className="text-[10px] bg-orange-100 dark:bg-orange-950/60 text-orange-600 dark:text-orange-400 border border-orange-300 dark:border-orange-700 px-1.5 py-0.5 rounded font-black tracking-widest">ADMIN</span>
-                        </div>
-                    ),
+                    name: t('items.activity_reports') || 'Reporte de Actividades',
                     plainName: 'Reporte de Actividades',
                     path: '/admin/reporte-actividades',
                     icon: <TrendingUp size={20} />,
