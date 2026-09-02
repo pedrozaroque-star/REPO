@@ -735,7 +735,9 @@ export async function calculateCingularPayrollReport(
     }
 
     if (otBillRate <= 0) {
-      otBillRate = Math.round((billRate * 1.5 + Number.EPSILON) * 100) / 100
+      otBillRate = salaried
+        ? billRate
+        : Math.round((payRate * 1.5 * CINGULAR_HOURLY_MARKUP_FACTOR + Number.EPSILON) * 100) / 100
     }
 
     // Horas y Salarios
@@ -760,7 +762,9 @@ export async function calculateCingularPayrollReport(
 
     const otPayRate = Math.round((payRate * 1.5 + Number.EPSILON) * 100) / 100
     const dtPayRate = Math.round((payRate * 2.0 + Number.EPSILON) * 100) / 100
-    const dtBillRate = Math.round((billRate * 2.0 + Number.EPSILON) * 100) / 100
+    const dtBillRate = salaried
+      ? billRate
+      : Math.round((payRate * 2.0 * CINGULAR_HOURLY_MARKUP_FACTOR + Number.EPSILON) * 100) / 100
 
     if (salaried) {
       const baseSalHrs = isBiWeekly ? (weekIds.length === 1 ? 40.0 : 80.0) : 40.0
