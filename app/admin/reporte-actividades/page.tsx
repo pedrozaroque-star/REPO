@@ -23,6 +23,7 @@ import ProtectedRoute from '@/components/ProtectedRoute';
 import { useLanguage } from '@/lib/i18n';
 import {
     MONTHLY_REPORTS,
+    PLANNER_SHIFTS_MAP,
     MonthlyReportData,
     DailyReportRow,
     AuditedTask,
@@ -140,6 +141,43 @@ function getDayOfWeek(dateStr: string, monthNum: number, year = 2026): string {
     const d = new Date(year, monthNum - 1, day);
     const days = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
     return days[d.getDay()];
+}
+
+function getStoreShiftForDate(dateStr: string, monthNum: number, year = 2026): {
+    hasShift: boolean;
+    startStr?: string;
+    endStr?: string;
+    hours?: number;
+    startDec?: number | null;
+    endDec?: number | null;
+    label: string;
+    badgeText: string;
+} {
+    const rawDay = dateStr.split('-')[0].trim().replace(/[^0-9]/g, '');
+    const day = parseInt(rawDay, 10);
+    if (isNaN(day)) return { hasShift: false, label: '🏖️ Día Libre en Tienda Lynwood', badgeText: '🏪 Día Libre en Tienda' };
+    const dayPadded = String(day).padStart(2, '0');
+    const monthPadded = String(monthNum).padStart(2, '0');
+    const isoDate = `${year}-${monthPadded}-${dayPadded}`;
+
+    const shift = PLANNER_SHIFTS_MAP[isoDate];
+    if (shift) {
+        return {
+            hasShift: true,
+            startStr: shift.start,
+            endStr: shift.end,
+            hours: shift.hours,
+            startDec: parseTimeToDecimal(shift.start),
+            endDec: parseTimeToDecimal(shift.end),
+            label: `Turno Lynwood (${shift.hours.toFixed(1)}h): ${shift.start} - ${shift.end} • ${shift.label || 'General Manager'}`,
+            badgeText: `🏪 Turno Lynwood: ${shift.start} - ${shift.end} (${shift.hours.toFixed(1)}h)`
+        };
+    }
+    return {
+        hasShift: false,
+        label: '🏖️ Día Libre en Tienda Lynwood',
+        badgeText: '🏪 Día Libre en Tienda'
+    };
 }
 
 function getMonthNumber(monthId: MonthKey): number {
@@ -428,6 +466,7 @@ function ReporteActividadesDashboard() {
                             {reportData.rows.map((row, idx) => {
                                 const dayName = getDayOfWeek(row.date, monthNum);
                                 const sessions = parseSessions(row.time);
+                                const shiftInfo = getStoreShiftForDate(row.date, monthNum);
 
                                 return (
                                     <div
@@ -444,6 +483,15 @@ function ReporteActividadesDashboard() {
                                                 </span>
                                             </div>
                                             <div className="flex items-center gap-2">
+                                                <span
+                                                    className={`px-2.5 py-0.5 rounded-lg text-xs font-bold border ${
+                                                        shiftInfo.hasShift
+                                                            ? 'bg-blue-50 dark:bg-blue-950/80 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800'
+                                                            : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700'
+                                                    }`}
+                                                >
+                                                    {shiftInfo.badgeText}
+                                                </span>
                                                 <span className="bg-orange-50 dark:bg-orange-950/80 text-orange-700 dark:text-orange-300 border border-orange-200 dark:border-orange-900/60 px-2.5 py-0.5 rounded-lg text-xs font-black">
                                                     💻 Dev TEG: {row.hours.toFixed(1)} hrs
                                                 </span>
@@ -458,9 +506,25 @@ function ReporteActividadesDashboard() {
                                                     🏪 Tienda
                                                 </span>
                                                 <div className="flex-1 h-5 bg-slate-200/60 dark:bg-slate-800 rounded-md relative overflow-hidden flex items-center justify-center">
-                                                    <span className="text-[10px] italic font-semibold text-slate-400 dark:text-slate-500">
-                                                        🏖️ Día Libre en Tienda Lynwood
-                                                    </span>
+                                                    {shiftInfo.hasShift && shiftInfo.startDec !== null && shiftInfo.startDec !== undefined && shiftInfo.endDec !== null && shiftInfo.endDec !== undefined ? (
+                                                        (() => {
+                                                            const pos = intervalToPercentages(shiftInfo.startDec, shiftInfo.endDec);
+                                                            if (!pos) return null;
+                                                            return (
+                                                                <div
+                                                                    style={{ left: `${pos.left}%`, width: `${pos.width}%` }}
+                                                                    className="absolute top-0.5 bottom-0.5 bg-blue-600 text-white rounded font-black text-[9px] flex items-center justify-center shadow-sm overflow-hidden whitespace-nowrap px-1"
+                                                                    title={shiftInfo.label}
+                                                                >
+                                                                    🏪 Lynwood {shiftInfo.startStr} - {shiftInfo.endStr} ({shiftInfo.hours}h)
+                                                                </div>
+                                                            );
+                                                        })()
+                                                    ) : (
+                                                        <span className="text-[10px] italic font-semibold text-slate-400 dark:text-slate-500">
+                                                            🏖️ Día Libre en Tienda Lynwood
+                                                        </span>
+                                                    )}
                                                 </div>
                                             </div>
 

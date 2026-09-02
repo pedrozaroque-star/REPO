@@ -84,6 +84,7 @@ extractedData = {
 `, context);
 
 const data = context.extractedData;
+const shiftsMap = JSON.parse(fs.readFileSync('scripts/carlos_planner_shifts_by_date.json', 'utf-8'));
 
 const tsContent = `/**
  * @module reports-data
@@ -104,6 +105,10 @@ export interface AuditedTask {
     statusLabel: string;
     audit: string;
     steps: string[];
+    auditJune?: string;
+    auditJuly?: string;
+    auditAugust?: string;
+    auditSeptember?: string;
 }
 
 export interface DailyReportRow {
@@ -141,6 +146,16 @@ export interface MonthlyReportData {
     tasks: AuditedTask[];
 }
 
+export interface PlannerShift {
+    start: string;
+    end: string;
+    hours: number;
+    label?: string;
+    store?: string;
+}
+
+export const PLANNER_SHIFTS_MAP: Record<string, PlannerShift> = ${JSON.stringify(shiftsMap, null, 4)};
+
 export const MONTHLY_REPORTS: Record<'septiembre' | 'agosto' | 'julio' | 'junio', MonthlyReportData> = {
     septiembre: ${JSON.stringify(data.septemberConfig, null, 4)},
     agosto: ${JSON.stringify(data.augustConfig, null, 4)},
@@ -150,4 +165,4 @@ export const MONTHLY_REPORTS: Record<'septiembre' | 'agosto' | 'julio' | 'junio'
 `;
 
 fs.writeFileSync('lib/reports-data.ts', tsContent, 'utf-8');
-console.log('✅ lib/reports-data.ts generated successfully!');
+console.log('✅ lib/reports-data.ts generated successfully with all shifts!');
