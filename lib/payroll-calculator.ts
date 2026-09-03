@@ -157,8 +157,9 @@ export const CINGULAR_RATE_OVERRIDES: Record<string, { payRate: number; billRate
   'salvador hernandez': { payRate: 20.40, billRate: 25.70, otBillRate: 38.56 },
   'salvador velazquez': { payRate: 20.40, billRate: 25.70, otBillRate: 38.56 },
 
-  // General Manager (Salaried) - Lynwood #14
+  // General Manager (Salaried) & Empleados Verificados - Lynwood #14
   'carlos velazquez': { payRate: 37.93, billRate: 47.22 }, // $78,884/yr ($37.93/hr paystub legal rounded rate -> $3,034.40 with PTO)
+  'heidy rodarte': { payRate: 19.88, billRate: 25.05, otBillRate: 37.58 }, // Factura Cingular TEGL-0023 ($1,312.48 gross / $1,653.80 bill)
 
   // 4 District Supervisors (Asalariados asignados a tienda base en Facturas Cingular HR)
   'willian aguilar': { payRate: 43.25, billRate: 53.85 }, // $89,960/yr (Facturado sobre Lynwood #34)
@@ -556,9 +557,24 @@ export async function calculateCingularPayrollReport(
       const normalizedName = `${fName} ${lName}`.trim().replace(/\s+/g, ' ')
       if (Array.isArray(te.wage_data) && te.wage_data.length > 0) {
         const w = Number(te.wage_data[0]?.wage)
+        const wageStore = String(te.wage_data[0]?.store || '').toLowerCase().trim()
         if (w > 0) {
-          wageMap.set(normalizedName, w)
-          if (fName && lName) wageMap.set(`${fName}|${lName}`, w)
+          // 1. Clave compuesta por tienda si está disponible (ej: "lynwood:heidy rodarte")
+          if (wageStore) {
+            wageMap.set(`${wageStore}:${normalizedName}`, w)
+            if (fName && lName) wageMap.set(`${wageStore}:${fName}|${lName}`, w)
+          }
+          // 2. Clave global con regla Anti-Degradación: nunca sobreescribir con tarifa menor
+          const existingGlobal = wageMap.get(normalizedName)
+          if (!existingGlobal || w > existingGlobal) {
+            wageMap.set(normalizedName, w)
+          }
+          if (fName && lName) {
+            const existingFl = wageMap.get(`${fName}|${lName}`)
+            if (!existingFl || w > existingFl) {
+              wageMap.set(`${fName}|${lName}`, w)
+            }
+          }
         }
       }
       if (Array.isArray(te.job_references) && te.job_references.length > 0) {
@@ -686,8 +702,17 @@ export async function calculateCingularPayrollReport(
       billRate = exactOverride.billRate
       otBillRate = exactOverride.otBillRate || 0
     } else {
-      // 2. FUENTE PRIMARIA: Simplify HR OS (Tarifas Reales del PEO — ya auto-sincronizadas)
-      const simplifyRate = getSimplifyHrRateForEmployee(normName) || (agg.pin ? getSimplifyHrRateForEmployee(agg.pin) : null)
+      // 2. FUENTE PRIMARIA: Simplify HR OS (Store-Scoped por Company ID y Nombre de Tienda)
+      const storeNameLower = (storeMeta?.tegName || '').toLowerCase().trim()
+      const storeCodeLower = (storeMeta?.tegCode || '').toLowerCase().trim()
+      const simplifyRate =
+        getSimplifyHrRateForEmployee(normName, ronosCompanyId) ||
+        (storeNameLower ? getSimplifyHrRateForEmployee(normName, storeNameLower) : null) ||
+        (storeCodeLower ? getSimplifyHrRateForEmployee(normName, storeCodeLower) : null) ||
+        (agg.pin ? getSimplifyHrRateForEmployee(agg.pin, ronosCompanyId) : null) ||
+        (agg.pin ? getSimplifyHrRateForEmployee(agg.pin) : null) ||
+        getSimplifyHrRateForEmployee(normName)
+
       if (simplifyRate && simplifyRate.payRate > 0) {
         payRate = simplifyRate.payRate
         billRate = simplifyRate.billRate
@@ -707,11 +732,17 @@ export async function calculateCingularPayrollReport(
       }
     }
 
-    // 3. Buscar en Toast Wage Data
+    // 3. Buscar en Toast Wage Data con Ámbito de Tienda (Store-Scoped)
     if (payRate <= 0) {
       const fName = String(agg.firstName || '').toLowerCase().trim()
       const lName = String(agg.lastName || '').toLowerCase().trim()
-      payRate = wageMap.get(normName) || (fName && lName ? wageMap.get(`${fName}|${lName}`) : 0) || 0
+      const storeNameLower = (storeMeta?.tegName || '').toLowerCase().trim()
+      payRate =
+        (storeNameLower ? wageMap.get(`${storeNameLower}:${normName}`) : 0) ||
+        (storeNameLower && fName && lName ? wageMap.get(`${storeNameLower}:${fName}|${lName}`) : 0) ||
+        wageMap.get(normName) ||
+        (fName && lName ? wageMap.get(`${fName}|${lName}`) : 0) ||
+        0
     }
 
     // 4. Determinar clasificación Salaried vs Hourly con arquitectura multicapa

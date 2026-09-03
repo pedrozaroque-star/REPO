@@ -20,6 +20,10 @@
  *
  * @dataFlow
  *   RONOS API v2.0 -> `ronos_employee_timecards_cache` (Supabase) + Simplify HR / Toast -> `payroll-calculator` -> /admin/ronos.
+ *
+ * @notes
+ *   - Manejo multi-tienda robusto: Al cambiar de tienda se preserva la fecha del ciclo activo (`targetStartDate`) para sincronizar automáticamente los week IDs específicos de cada tienda.
+ *   - Filtro global "Todas las Tiendas": Agrega la opción consolidada para visualizar métricas, nómina ($850k+) y vinculaciones de toda la cadena (15 Tiendas + Bodega).
  */
 
 'use client'
@@ -116,7 +120,40 @@ function formatTime12h(val?: string): string {
 }
 
 /**
- * Convierte strings de fecha (ej. 2026-08-24) en día y fecha en español (ej. Lunes, 24 de Agosto de 2026)
+ * Convierte cualquier fecha (YYYY-MM-DD o ISO) a formato estándar oficial de USA: MM/DD/YYYY
+ */
+function formatUsaDate(dateStr?: string | null): string {
+  if (!dateStr) return ''
+  const clean = dateStr.substring(0, 10).trim()
+  const parts = clean.split('-')
+  if (parts.length === 3 && parts[0].length === 4) {
+    // YYYY-MM-DD -> MM/DD/YYYY
+    return `${parts[1]}/${parts[2]}/${parts[0]}`
+  }
+  try {
+    const d = new Date(clean)
+    if (!isNaN(d.getTime())) {
+      const mm = String(d.getUTCMonth() + 1).padStart(2, '0')
+      const dd = String(d.getUTCDate()).padStart(2, '0')
+      const yyyy = d.getUTCFullYear()
+      return `${mm}/${dd}/${yyyy}`
+    }
+  } catch {}
+  return clean
+}
+
+/**
+ * Convierte un rango de fechas a formato estándar de USA: MM/DD/YYYY - MM/DD/YYYY
+ */
+function formatUsaDateRange(start?: string | null, end?: string | null): string {
+  const s = formatUsaDate(start)
+  const e = formatUsaDate(end)
+  if (s && e) return `${s} - ${e}`
+  return s || e || ''
+}
+
+/**
+ * Convierte strings de fecha en día de la semana y fecha en formato USA (MM/DD/YYYY)
  */
 function formatDayDetails(dateStr?: string, fallbackDay?: string): { dayOfWeek: string; dateFormatted: string } {
   if (!dateStr) return { dayOfWeek: fallbackDay || '', dateFormatted: '' }
@@ -125,13 +162,15 @@ function formatDayDetails(dateStr?: string, fallbackDay?: string): { dayOfWeek: 
   if (parts.length === 3 && parts[0] && parts[1] && parts[2]) {
     const d = new Date(parts[0], parts[1] - 1, parts[2], 12, 0, 0)
     const dayOfWeek = d.toLocaleDateString('es-ES', { weekday: 'long' })
-    const dateFormatted = d.toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' })
+    const mm = String(parts[1]).padStart(2, '0')
+    const dd = String(parts[2]).padStart(2, '0')
+    const yyyy = parts[0]
     return {
       dayOfWeek: dayOfWeek.charAt(0).toUpperCase() + dayOfWeek.slice(1),
-      dateFormatted
+      dateFormatted: `${mm}/${dd}/${yyyy}` // Formato USA: MM/DD/YYYY
     }
   }
-  return { dayOfWeek: fallbackDay || '', dateFormatted: cleanDate }
+  return { dayOfWeek: fallbackDay || '', dateFormatted: formatUsaDate(cleanDate) }
 }
 
 // ============================================================================
@@ -226,7 +265,7 @@ function computeCingularBiWeeklyPeriods(weeks: WorkWeekOption[]): Array<{
         weekIds: [cycle.week1.weekId, cycle.week2.weekId],
         startDate: cycle.week1.startDate.substring(0, 10),
         endDate: cycle.week2.endDate.substring(0, 10),
-        label: `Periodo Bisemanal (${cycle.week1.startDate.substring(0, 10)} al ${cycle.week2.endDate.substring(0, 10)}) • Sem #${cycle.week1.weekId} + #${cycle.week2.weekId}`
+        label: `${formatUsaDate(cycle.week1.startDate)} - ${formatUsaDate(cycle.week2.endDate)}`
       })
     } else if (cycle.week1 && !cycle.week2) {
       // In-progress period (only week 1 available so far)
@@ -235,7 +274,7 @@ function computeCingularBiWeeklyPeriods(weeks: WorkWeekOption[]): Array<{
         weekIds: [cycle.week1.weekId, cycle.week1.weekId],
         startDate: cycle.week1.startDate.substring(0, 10),
         endDate: cycle.week1.endDate.substring(0, 10),
-        label: `Semana en Curso (${cycle.week1.startDate.substring(0, 10)} al ${cycle.week1.endDate.substring(0, 10)}) • Sem #${cycle.week1.weekId} (1ra sem de ciclo)`
+        label: `${formatUsaDate(cycle.week1.startDate)} - ${formatUsaDate(cycle.week1.endDate)}`
       })
     } else if (!cycle.week1 && cycle.week2) {
       periods.push({
@@ -243,7 +282,7 @@ function computeCingularBiWeeklyPeriods(weeks: WorkWeekOption[]): Array<{
         weekIds: [cycle.week2.weekId, cycle.week2.weekId],
         startDate: cycle.week2.startDate.substring(0, 10),
         endDate: cycle.week2.endDate.substring(0, 10),
-        label: `Semana Parcial (${cycle.week2.startDate.substring(0, 10)} al ${cycle.week2.endDate.substring(0, 10)}) • Sem #${cycle.week2.weekId}`
+        label: `${formatUsaDate(cycle.week2.startDate)} - ${formatUsaDate(cycle.week2.endDate)}`
       })
     }
   }
@@ -427,8 +466,8 @@ function RonosLaborAuditContent() {
   // Pestañas: 'store' | 'chain' | 'mapping' | 'payroll'
   const [activeTab, setActiveTab] = useState<'store' | 'chain' | 'mapping' | 'payroll'>('store')
 
-  // Selección de tienda y semana
-  const [selectedCompanyId, setSelectedCompanyId] = useState<number>(34) // Default Lynwood
+  // Selección de tienda y semana (Default: 0 = Todas las Tiendas)
+  const [selectedCompanyId, setSelectedCompanyId] = useState<number>(0)
   const [selectedWeekId, setSelectedWeekId] = useState<number | undefined>(undefined)
 
   // Datos principales
@@ -552,30 +591,52 @@ function RonosLaborAuditContent() {
     sendError: null
   })
 
-  // 1. Carga Inicial al Montar Componente
-  useEffect(() => {
-    fetchStoreAudit(selectedCompanyId, selectedWeekId)
-  }, [selectedCompanyId, selectedWeekId])
+  // 1. Centralized Store Change Handler (Soporta Todas las Tiendas y Cruce de Fechas)
+  const handleStoreChange = async (newCompanyId: number) => {
+    setSelectedCompanyId(newCompanyId)
 
-  // Cargar datos al cambiar de pestaña
-  useEffect(() => {
-    if (activeTab === 'chain') {
-      fetchChainAudit(selectedWeekId)
-    } else if (activeTab === 'mapping') {
-      fetchMappings(selectedCompanyId)
-    } else if (activeTab === 'payroll') {
-      const periodId = payrollBiWeekly ? (selectedBiWeeklyPeriod || biWeeklyPeriods[0]?.id || '') : selectedWeekId
-      fetchPayroll(selectedCompanyId, periodId, payrollBiWeekly)
+    if (newCompanyId === 0) {
+      // Caso: Todas las Tiendas (Cadena Completa) - permanece en la pestaña activa
+      if (activeTab === 'payroll') {
+        const periodId = payrollBiWeekly ? (selectedBiWeeklyPeriod || biWeeklyPeriods[0]?.id || '') : selectedWeekId
+        fetchPayroll(0, periodId, payrollBiWeekly)
+      } else if (activeTab === 'mapping') {
+        fetchMappings(0)
+      } else if (activeTab === 'chain' || activeTab === 'store') {
+        fetchChainAudit(selectedWeekId)
+      }
+      return
     }
-  }, [activeTab, selectedCompanyId, selectedWeekId, payrollBiWeekly, selectedBiWeeklyPeriod])
+
+    // Tienda individual - permanece en la pestaña activa
+    // Mantener la sincronización cronológica por fecha (targetStartDate)
+    const currentPeriod = biWeeklyPeriods.find(p => p.id === selectedBiWeeklyPeriod)
+    const targetStartDate = currentPeriod?.startDate || weeks.find(w => w.weekId === selectedWeekId)?.startDate?.substring(0, 10)
+
+    if (activeTab === 'payroll') {
+      await fetchStoreAudit(newCompanyId, undefined, false, targetStartDate)
+    } else if (activeTab === 'mapping') {
+      await fetchMappings(newCompanyId)
+    } else if (activeTab === 'store') {
+      await fetchStoreAudit(newCompanyId, undefined, false, targetStartDate)
+    } else if (activeTab === 'chain') {
+      await fetchChainAudit(selectedWeekId)
+    }
+  }
 
   // 2. Fetch Store Audit Data (Tab 1)
-  const fetchStoreAudit = async (companyId: number, weekId?: number, force = false) => {
+  const fetchStoreAudit = async (
+    companyId: number,
+    weekId?: number,
+    force = false,
+    targetStartDate?: string
+  ) => {
     setLoading(true)
     setError(null)
     try {
       let url = `/api/ronos/punches?companyId=${companyId}`
       if (weekId) url += `&weekId=${weekId}`
+      if (targetStartDate) url += `&startDate=${targetStartDate}`
       if (force) url += `&force=true`
       url += `&_t=${Date.now()}`
 
@@ -596,22 +657,37 @@ function RonosLaborAuditContent() {
       }
 
       setStoreData(json.data)
-      if (Array.isArray(json.weeks)) {
+      if (Array.isArray(json.weeks) && json.weeks.length > 0) {
         setWeeks(json.weeks)
-        if (!weekId && json.weeks.length > 0 && json.weeks[0]?.weekId != null) {
-          setSelectedWeekId(json.weeks[0].weekId)
-        }
 
+        // 1. Resolver selectedWeekId para la nueva tienda
+        let resolvedWeek = targetStartDate
+          ? json.weeks.find((w: any) => w?.startDate?.substring(0, 10) === targetStartDate)
+          : null
+        if (!resolvedWeek && weekId) {
+          resolvedWeek = json.weeks.find((w: any) => w?.weekId === weekId) || null
+        }
+        if (!resolvedWeek) {
+          resolvedWeek = json.weeks.find((w: any) => new Date(w?.endDate || '').getTime() <= Date.now()) || json.weeks[0]
+        }
+        const resolvedWeekId = resolvedWeek?.weekId || json.weeks[0].weekId
+        setSelectedWeekId(resolvedWeekId)
+
+        // 2. Resolver selectedBiWeeklyPeriod para la nueva tienda
         const computedPeriods = computeCingularBiWeeklyPeriods(json.weeks)
-        if (!selectedBiWeeklyPeriod && computedPeriods.length > 0) {
-          // Seleccionar por defecto el periodo completo CERRADO más reciente (ej. 154242,154243)
-          // Si el periodo más reciente aún está en curso (endDate > hoy), priorizar el ciclo previo que ya facturó
+        let resolvedPeriod = targetStartDate
+          ? computedPeriods.find(p => p.startDate === targetStartDate)
+          : null
+        if (!resolvedPeriod) {
           const todayStr = new Date().toISOString().substring(0, 10)
-          const closedCompletePeriod = computedPeriods.find(p => p.weekIds[0] !== p.weekIds[1] && p.endDate <= todayStr)
-          const defaultPeriod = closedCompletePeriod || computedPeriods.find(p => p.weekIds[0] !== p.weekIds[1]) || computedPeriods[0]
-          if (defaultPeriod) {
-            setSelectedBiWeeklyPeriod(defaultPeriod.id)
-          }
+          resolvedPeriod = computedPeriods.find(p => p.weekIds[0] !== p.weekIds[1] && p.endDate <= todayStr) || computedPeriods.find(p => p.weekIds[0] !== p.weekIds[1]) || computedPeriods[0]
+        }
+        const resolvedPeriodId = resolvedPeriod?.id || (computedPeriods[0]?.id || '')
+        setSelectedBiWeeklyPeriod(resolvedPeriodId)
+
+        // 3. Si la pestaña activa es nómina, disparar de inmediato la consulta de nómina para esta tienda
+        if (activeTab === 'payroll') {
+          fetchPayroll(companyId, payrollBiWeekly ? resolvedPeriodId : resolvedWeekId, payrollBiWeekly)
         }
       }
       if (Array.isArray(json.stores)) setStores(json.stores)
@@ -622,6 +698,65 @@ function RonosLaborAuditContent() {
       setLoading(false)
     }
   }
+
+  // 3. Carga Inicial al Montar Componente
+  useEffect(() => {
+    // Si viene tab en la URL, respetarla
+    let initialTab = activeTab
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search)
+      const tabParam = params.get('tab')
+      if (tabParam === 'payroll' || tabParam === 'chain' || tabParam === 'store' || tabParam === 'mapping') {
+        initialTab = tabParam
+        setActiveTab(tabParam)
+      }
+    }
+
+    // Cargar catálogos base (tiendas y semanas de referencia desde Lynwood)
+    fetch('/api/ronos/punches?companyId=34&_t=' + Date.now())
+      .then(res => res.json())
+      .then(json => {
+        if (Array.isArray(json.stores)) setStores(json.stores)
+        if (Array.isArray(json.weeks) && json.weeks.length > 0) {
+          setWeeks(json.weeks)
+          const computedPeriods = computeCingularBiWeeklyPeriods(json.weeks)
+          const todayStr = new Date().toISOString().substring(0, 10)
+          const closedCompletePeriod = computedPeriods.find(p => p.weekIds[0] !== p.weekIds[1] && p.endDate <= todayStr)
+          const defaultPeriod = closedCompletePeriod || computedPeriods.find(p => p.weekIds[0] !== p.weekIds[1]) || computedPeriods[0]
+          if (defaultPeriod) {
+            setSelectedBiWeeklyPeriod(defaultPeriod.id)
+            if (initialTab === 'payroll') {
+              fetchPayroll(0, defaultPeriod.id, true)
+            }
+          }
+        }
+      })
+      .catch(console.error)
+
+    if (initialTab === 'chain' || (initialTab === 'store' && selectedCompanyId === 0)) {
+      fetchChainAudit(selectedWeekId)
+    } else if (initialTab === 'mapping') {
+      fetchMappings(selectedCompanyId)
+    } else if (initialTab === 'payroll') {
+      fetchPayroll(selectedCompanyId, undefined, true)
+    } else if (initialTab === 'store' && selectedCompanyId > 0) {
+      fetchStoreAudit(selectedCompanyId, selectedWeekId)
+    }
+  }, [])
+
+  // 4. Cargar datos al cambiar de pestaña
+  useEffect(() => {
+    if (activeTab === 'chain') {
+      fetchChainAudit(selectedWeekId)
+    } else if (activeTab === 'mapping') {
+      fetchMappings(selectedCompanyId)
+    } else if (activeTab === 'payroll') {
+      const periodId = payrollBiWeekly ? (selectedBiWeeklyPeriod || biWeeklyPeriods[0]?.id || '') : selectedWeekId
+      fetchPayroll(selectedCompanyId, periodId, payrollBiWeekly)
+    } else if (activeTab === 'store') {
+      fetchStoreAudit(selectedCompanyId > 0 ? selectedCompanyId : 34, selectedWeekId)
+    }
+  }, [activeTab])
 
   // 3. Fetch Chain Audit Data (Tab 2)
   const fetchChainAudit = async (weekId?: number, force = false) => {
@@ -993,7 +1128,8 @@ function RonosLaborAuditContent() {
         (emp.fullName || '').toLowerCase().includes(query) ||
         (emp.pin || '').includes(query) ||
         Boolean(emp.jobTitle && emp.jobTitle.toLowerCase().includes(query)) ||
-        Boolean(emp.toastEmail && emp.toastEmail.toLowerCase().includes(query))
+        Boolean(emp.toastEmail && emp.toastEmail.toLowerCase().includes(query)) ||
+        Boolean((emp as any).siteName && String((emp as any).siteName).toLowerCase().includes(query))
 
       if (!matchSearch) return false
 
@@ -1224,7 +1360,11 @@ function RonosLaborAuditContent() {
   const lunchTodayCount = todayPunchStats.lunchCount
   const outTodayCount = todayPunchStats.outCount
 
-  const activeStoreName = storeData?.storeName ? `TEG - ${storeData.storeName}` : 'TEG - Lynwood'
+  const activeStoreName = selectedCompanyId === 0
+    ? (t('ronos.opt_all_stores') || 'Todas las Tiendas')
+    : storeData?.storeName
+    ? storeData.storeName
+    : 'Lynwood'
 
   return (
     <div className="min-h-screen bg-[#f8fafc] dark:bg-slate-950 text-slate-800 dark:text-slate-100 font-sans transition-colors duration-200">
@@ -1437,9 +1577,9 @@ function RonosLaborAuditContent() {
                       }}
                       className="px-3 py-1.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-bold cursor-pointer max-w-[220px]"
                     >
-                      {storeData?.employees.map(emp => (
-                        <option key={emp.employeeUserId} value={emp.employeeUserId}>
-                          {emp.fullName} (#{emp.pin})
+                      {storeData?.employees.map((emp, idx) => (
+                        <option key={`${emp.employeeUserId}-${(emp as any).siteName || idx}`} value={emp.employeeUserId}>
+                          {emp.fullName} (#{emp.pin}) {(emp as any).siteName ? `[${(emp as any).siteName}]` : ''}
                         </option>
                       ))}
                     </select>
@@ -1540,7 +1680,7 @@ function RonosLaborAuditContent() {
                       </h3>
                     </div>
                     <span className="text-xs text-slate-400 font-mono">
-                      Semana #{selectedWeekId} ({storeData?.startDate?.substring(5, 10)} al {storeData?.endDate?.substring(5, 10)})
+                      {formatUsaDate(storeData?.startDate)} - {formatUsaDate(storeData?.endDate)}
                     </span>
                   </div>
 
@@ -1743,7 +1883,7 @@ function RonosLaborAuditContent() {
                       Approved
                     </span>
                     <span className="text-[10px] text-slate-400 block mb-1.5 truncate">
-                      {storeData?.startDate?.substring(5, 10)} - {storeData?.endDate?.substring(5, 10)}
+                      {formatUsaDate(storeData?.startDate)} - {formatUsaDate(storeData?.endDate)}
                     </span>
                     <div className="text-3xl font-black text-[#2e7d32] dark:text-emerald-400">
                       {approvedCount}/{totalEmployeesCount}
@@ -1756,7 +1896,7 @@ function RonosLaborAuditContent() {
                       Broken Timecards
                     </span>
                     <span className="text-[10px] text-slate-400 block mb-1.5 truncate">
-                      {storeData?.startDate?.substring(5, 10)} - {storeData?.endDate?.substring(5, 10)}
+                      {formatUsaDate(storeData?.startDate)} - {formatUsaDate(storeData?.endDate)}
                     </span>
                     <div className="text-3xl font-black text-[#d32f2f] dark:text-rose-400">
                       {brokenCount}/{totalEmployeesCount}
@@ -1777,7 +1917,9 @@ function RonosLaborAuditContent() {
                       )}
                     </h2>
                     <span className="text-xs text-slate-400 font-mono">
-                      {storeData?.storeName ? `Sucursal ${storeData.storeName} (#${storeData.ronosCompanyId || storeData.companyId || selectedCompanyId})` : ''}
+                      {selectedCompanyId === 0
+                        ? (t('ronos.opt_all_stores') || 'Todas las Tiendas')
+                        : storeData?.storeName || ''}
                     </span>
                   </div>
 
@@ -1788,15 +1930,15 @@ function RonosLaborAuditContent() {
                       <label className="block text-[11px] text-slate-500 font-semibold mb-1">Departments / Tienda</label>
                       <select
                         value={selectedCompanyId}
-                        onChange={(e) => {
-                          setSelectedCompanyId(Number(e.target.value))
-                          setSelectedWeekId(undefined)
-                        }}
+                        onChange={(e) => handleStoreChange(Number(e.target.value))}
                         className="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold cursor-pointer"
                       >
+                        <option value={0}>
+                          🌟 {t('ronos.opt_all_stores') || 'Todas las Tiendas'}
+                        </option>
                         {stores.map(st => (
                           <option key={st.ronosCompanyId} value={st.ronosCompanyId}>
-                            {st.tegName} ({st.ronosName})
+                            {st.tegName}
                           </option>
                         ))}
                       </select>
@@ -1807,12 +1949,16 @@ function RonosLaborAuditContent() {
                       <label className="block text-[11px] text-slate-500 font-semibold mb-1">Week</label>
                       <select
                         value={selectedWeekId}
-                        onChange={(e) => setSelectedWeekId(Number(e.target.value))}
+                        onChange={(e) => {
+                          const wId = Number(e.target.value)
+                          setSelectedWeekId(wId)
+                          fetchStoreAudit(selectedCompanyId, wId)
+                        }}
                         className="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold cursor-pointer"
                       >
                         {weeks.map(w => (
                           <option key={w.weekId} value={w.weekId}>
-                            {w.startDate?.substring(0, 10)} - {w.endDate?.substring(0, 10)} (Sem #{w.weekId})
+                            {formatUsaDate(w.startDate)} - {formatUsaDate(w.endDate)}
                           </option>
                         ))}
                       </select>
@@ -1985,7 +2131,7 @@ function RonosLaborAuditContent() {
 
                             return (
                               <tr
-                                key={emp.employeeUserId}
+                                key={`${emp.employeeUserId}-${(emp as any).siteName || idx}`}
                                 onClick={() => setSelectedEmployeeDetail(emp)}
                                 className={`cursor-pointer transition-colors ${
                                   hasHours
@@ -2005,10 +2151,15 @@ function RonosLaborAuditContent() {
                                 <td className={`py-2.5 px-3 font-bold ${
                                   !hasHours ? 'text-slate-500 dark:text-slate-400' : isBroken ? 'text-[#d32f2f]' : isApproved ? 'text-[#2e7d32]' : 'text-slate-900 dark:text-white'
                                 }`}>
-                                  {emp.firstName}
+                                  <div>{emp.firstName}</div>
+                                  {(emp as any).siteName && selectedCompanyId === 0 && (
+                                    <span className="text-[10px] font-normal text-slate-400 dark:text-slate-400 block">
+                                      {(emp as any).siteName}
+                                    </span>
+                                  )}
                                 </td>
                                 <td className={`py-2.5 px-3 font-medium ${!hasHours ? 'text-slate-500 dark:text-slate-400' : 'text-slate-800 dark:text-slate-200'}`}>
-                                  {emp.lastName}
+                                  <div>{emp.lastName}</div>
                                 </td>
                                 <td className="py-2.5 px-3 font-mono text-slate-600 dark:text-slate-400">
                                   {emp.pin}
@@ -2086,7 +2237,12 @@ function RonosLaborAuditContent() {
                 <span className="text-xs font-semibold text-slate-600 dark:text-slate-400 border-b-2 border-[#03a9f4] pb-0.5 inline-block mb-1">
                   Horas Totales
                 </span>
-                <span className="text-[10px] text-slate-400 block mb-1.5">Semana #{selectedWeekId || ''}</span>
+                <span className="text-[10px] text-slate-400 block mb-1.5">
+                  {(() => {
+                    const sw = weeks.find(w => w.weekId === selectedWeekId)
+                    return sw ? `${formatUsaDate(sw.startDate)} - ${formatUsaDate(sw.endDate)}` : 'Periodo Actual'
+                  })()}
+                </span>
                 <div className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white">
                   {(chainData?.totalChainHours ?? 0).toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}h
                 </div>
@@ -2126,7 +2282,7 @@ function RonosLaborAuditContent() {
 
                 {/* Week Selector for Chain View */}
                 <div className="flex items-center gap-2">
-                  <span className="text-xs font-semibold text-slate-500">Semana:</span>
+                  <span className="text-xs font-semibold text-slate-500">Periodo:</span>
                   <select
                     value={selectedWeekId}
                     onChange={(e) => {
@@ -2138,7 +2294,7 @@ function RonosLaborAuditContent() {
                   >
                     {weeks.map(w => (
                       <option key={w.weekId} value={w.weekId}>
-                        {w.startDate?.substring(0, 10)} al {w.endDate?.substring(0, 10)} (Sem #{w.weekId})
+                        {formatUsaDate(w.startDate)} - {formatUsaDate(w.endDate)}
                       </option>
                     ))}
                   </select>
@@ -2222,8 +2378,7 @@ function RonosLaborAuditContent() {
                         key={st.ronosCompanyId}
                         className="hover:bg-blue-50/40 dark:hover:bg-slate-800/50 cursor-pointer"
                         onClick={() => {
-                          setSelectedCompanyId(st.ronosCompanyId)
-                          setActiveTab('store')
+                          handleStoreChange(st.ronosCompanyId)
                           setSelectedEmployeeDetail(null)
                         }}
                       >
@@ -2267,8 +2422,7 @@ function RonosLaborAuditContent() {
                           <button
                             onClick={(e) => {
                               e.stopPropagation()
-                              setSelectedCompanyId(st.ronosCompanyId)
-                              setActiveTab('store')
+                              handleStoreChange(st.ronosCompanyId)
                               setSelectedEmployeeDetail(null)
                             }}
                             className="px-2.5 py-1 rounded bg-[#0288d1] hover:bg-[#0277bd] text-white font-bold text-[11px] cursor-pointer"
@@ -2359,16 +2513,15 @@ function RonosLaborAuditContent() {
                   {/* Store Selector for Mapping */}
                   <select
                     value={selectedCompanyId}
-                    onChange={(e) => {
-                      const cId = Number(e.target.value)
-                      setSelectedCompanyId(cId)
-                      fetchMappings(cId)
-                    }}
+                    onChange={(e) => handleStoreChange(Number(e.target.value))}
                     className="px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold cursor-pointer"
                   >
+                    <option value={0}>
+                      🌟 {t('ronos.opt_all_stores') || 'Todas las Tiendas'}
+                    </option>
                     {stores.map(st => (
                       <option key={st.ronosCompanyId} value={st.ronosCompanyId}>
-                        {st.tegName} ({st.ronosName})
+                        {st.tegName}
                       </option>
                     ))}
                   </select>
@@ -2608,17 +2761,15 @@ function RonosLaborAuditContent() {
                   <label className="block text-[11px] text-slate-500 font-semibold mb-1">Sucursal / Tienda</label>
                   <select
                     value={selectedCompanyId}
-                    onChange={(e) => {
-                      const cId = Number(e.target.value)
-                      setSelectedCompanyId(cId)
-                      const periodId = payrollBiWeekly ? (selectedBiWeeklyPeriod || biWeeklyPeriods[0]?.id || '') : selectedWeekId
-                      fetchPayroll(cId, periodId, payrollBiWeekly)
-                    }}
+                    onChange={(e) => handleStoreChange(Number(e.target.value))}
                     className="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold cursor-pointer"
                   >
+                    <option value={0}>
+                      🌟 {t('ronos.opt_all_stores') || 'Todas las Tiendas'}
+                    </option>
                     {stores.map(st => (
                       <option key={st.ronosCompanyId} value={st.ronosCompanyId}>
-                        {st.tegName} ({st.ronosName})
+                        {st.tegName}
                       </option>
                     ))}
                   </select>
@@ -2656,7 +2807,7 @@ function RonosLaborAuditContent() {
                     >
                       {weeks.map(w => (
                         <option key={w.weekId} value={w.weekId}>
-                          {w.startDate?.substring(0, 10)} al {w.endDate?.substring(0, 10)} (Sem #{w.weekId})
+                          {formatUsaDate(w.startDate)} - {formatUsaDate(w.endDate)}
                         </option>
                       ))}
                     </select>
@@ -2855,10 +3006,15 @@ function RonosLaborAuditContent() {
                         </td>
                       </tr>
                     ) : (
-                      filteredPayrollEmployees.map((emp: any) => (
-                        <tr key={emp.employeeUserId} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                      filteredPayrollEmployees.map((emp: any, idx: number) => (
+                        <tr key={`${emp.employeeUserId}-${emp.siteName || idx}`} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
                           <td className="py-2.5 px-3 font-bold text-slate-900 dark:text-white">
-                            {emp.fullName}
+                            <div>{emp.fullName}</div>
+                            {emp.siteName && (
+                              <span className="text-[10px] font-normal text-slate-400 dark:text-slate-400 block">
+                                {emp.siteName}
+                              </span>
+                            )}
                           </td>
                           <td className="py-2.5 px-3 text-slate-600 dark:text-slate-400">
                             {emp.jobTitle}

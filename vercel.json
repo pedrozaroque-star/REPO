@@ -53,6 +53,10 @@
             "schedule": "0 2 * * *"
         },
         {
+            "path": "/api/cron/sync-accounting",
+            "schedule": "15 13 * * *"
+        },
+        {
             "path": "/api/cron/sync-meat-history",
             "schedule": "*/10 * * * *"
         },

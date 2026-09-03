@@ -141,6 +141,15 @@ interface Packet {
       checkedAt: string
       message?: string
     }
+    post_publish_discrepancy?: {
+      hasDiscrepancy: boolean
+      detectedAt: string
+      publishedNet: number
+      liveToastNet: number
+      diffNet: number
+      liveToastTaxes?: number
+      publishedTaxes?: number
+    }
   }
 }
 
@@ -422,6 +431,32 @@ export default function PacketDetailPage() {
                   </div>
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Post-Publish Discrepancy Alert Card */}
+      {packet.status === 'published' && packet.qb_sync_response?.post_publish_discrepancy?.hasDiscrepancy && (
+        <div className="bg-amber-500/10 border-2 border-amber-500/40 dark:border-amber-500/30 rounded-2xl p-6 shadow-sm">
+          <div className="flex items-start gap-4">
+            <div className="p-3 bg-amber-500 text-black rounded-xl shrink-0 mt-0.5 shadow-md">
+              <AlertTriangle className="w-6 h-6 stroke-[2.5]" />
+            </div>
+            <div className="space-y-2 flex-1">
+              <div className="flex items-center justify-between gap-4 flex-wrap">
+                <h3 className="text-base font-black tracking-tight text-amber-950 dark:text-amber-200 flex items-center gap-2">
+                  <span>{language === 'en' ? '⚠️ Post-Publishing Toast Discrepancy Detected' : '⚠️ Discrepancia Posterior en Toast POS Detectada'}</span>
+                  <span className="bg-amber-500 text-black text-xs font-black px-2.5 py-0.5 rounded-full">
+                    Δ ${packet.qb_sync_response.post_publish_discrepancy.diffNet.toFixed(2)} USD
+                  </span>
+                </h3>
+              </div>
+              <p className="text-sm text-slate-700 dark:text-slate-300 leading-relaxed font-medium">
+                {language === 'en' 
+                  ? `This journal entry was already published to QuickBooks Online with Net Sales of $${packet.qb_sync_response.post_publish_discrepancy.publishedNet.toFixed(2)}. However, Toast POS later settled at $${packet.qb_sync_response.post_publish_discrepancy.liveToastNet.toFixed(2)} (likely due to a late refund, void, or tip adjustment applied by store management).`
+                  : `Esta póliza ya fue publicada a QuickBooks Online con Ventas Netas de $${packet.qb_sync_response.post_publish_discrepancy.publishedNet.toFixed(2)}. Sin embargo, Toast POS registró posteriormente un total de $${packet.qb_sync_response.post_publish_discrepancy.liveToastNet.toFixed(2)} (probablemente debido a un reembolso tardío, anulación o ajuste de propinas aplicado en la sucursal).`}
+              </p>
             </div>
           </div>
         </div>

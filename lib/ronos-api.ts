@@ -60,8 +60,70 @@ export const RONOS_STORES_MAP: RonosStoreMapping[] = [
   { tegStoreId: 4, tegCode: 'AZUSA', tegName: 'Azusa', ronosCompanyId: 24, ronosName: 'TEG - Azusa' },
   { tegStoreId: 8, tegCode: 'HOLLYWOOD', tegName: 'Hollywood', ronosCompanyId: 26, ronosName: 'TEG - Hollywood' },
   { tegStoreId: 13, tegCode: 'BELL', tegName: 'Bell', ronosCompanyId: 29, ronosName: 'TEG - Bell' },
-  { tegStoreId: 999, tegCode: 'BODEGA', tegName: 'La Bodega (Almacén Central)', ronosCompanyId: 28, ronosName: 'TEG - La Bodega (Vernon Warehouse)', isBodega: true }
+  { tegStoreId: 999, tegCode: 'BODEGA', tegName: 'La Bodega', ronosCompanyId: 28, ronosName: 'TEG - La Bodega (Vernon Warehouse)', isBodega: true }
 ]
+
+/**
+ * Obtiene la lista dinámica de tiendas sincronizada en tiempo real con Supabase ('stores').
+ * Si se crea una tienda nueva en el 'módulo tiendas' (/tiendas), se agrega automáticamente
+ * a la lista con su nombre oficial exacto, sin requerir programación de desarrollador.
+ */
+export async function getDynamicRonosStores(): Promise<RonosStoreMapping[]> {
+  try {
+    const { supabaseAdmin } = await import('./supabase')
+    const { data: dbStores } = await supabaseAdmin
+      .from('stores')
+      .select('id, name, code, is_active')
+      .eq('is_active', true)
+      .order('name')
+
+    if (Array.isArray(dbStores) && dbStores.length > 0) {
+      const result: RonosStoreMapping[] = []
+      const matchedStoreIds = new Set<number>()
+
+      // 1. Vincular tiendas activas de la base de datos con los metadatos de RONOS
+      for (const dbs of dbStores) {
+        const cleanName = dbs.name.replace(/^Tacos Gavilan\s+/i, '').trim()
+        const match = RONOS_STORES_MAP.find(r =>
+          r.tegStoreId === dbs.id ||
+          r.tegCode.toUpperCase() === (dbs.code || '').toUpperCase() ||
+          r.tegName.toLowerCase() === cleanName.toLowerCase()
+        )
+
+        if (match) {
+          matchedStoreIds.add(match.tegStoreId)
+          result.push({
+            ...match,
+            tegStoreId: dbs.id,
+            tegName: cleanName // Siempre el nombre exacto del módulo tiendas
+          })
+        } else {
+          // Tienda nueva creada en /tiendas: se auto-integra dinámicamente
+          result.push({
+            tegStoreId: dbs.id,
+            tegCode: dbs.code || cleanName.toUpperCase().replace(/\s+/g, ''),
+            tegName: cleanName,
+            ronosCompanyId: dbs.id + 100, // Fallback dinámico
+            ronosName: cleanName
+          })
+        }
+      }
+
+      // 2. Incluir Bodega y entidades adicionales de RONOS
+      for (const r of RONOS_STORES_MAP) {
+        if (!matchedStoreIds.has(r.tegStoreId)) {
+          result.push(r)
+        }
+      }
+
+      return result.sort((a, b) => a.tegName.localeCompare(b.tegName))
+    }
+  } catch (err: any) {
+    console.warn('[RONOS] Error obteniendo tiendas dinámicas de Supabase, usando fallback:', err?.message)
+  }
+
+  return RONOS_STORES_MAP
+}
 
 export interface RonosTokenSession {
   accessToken: string
@@ -1387,3 +1449,131 @@ export async function getRonosChainWideAudit(
     stores: validStores.sort((a, b) => b.totalHours - a.totalHours)
   }
 }
+
+/**
+ * Obtiene la auditoría consolidada de toda la cadena en formato RonosStoreAuditSummary,
+ * incluyendo la lista completa de colaboradores de las 16 ubicaciones con sus métricas y horas.
+ */
+export async function getRonosChainWideStoreAudit(
+  targetWeekId?: number,
+  targetStartDate?: string,
+  forceLive: boolean = false
+): Promise<RonosStoreAuditSummary> {
+  // 1. Determinar targetStartDate
+  let resolvedStartDate = targetStartDate
+
+  if (!resolvedStartDate && targetWeekId) {
+    for (const store of RONOS_STORES_MAP) {
+      const weeks = await getRonosWeeks(store.ronosCompanyId)
+      const matching = weeks.find(w => w.weekId === targetWeekId)
+      if (matching?.startDate) {
+        resolvedStartDate = matching.startDate.substring(0, 10)
+        break
+      }
+    }
+  }
+
+  if (!resolvedStartDate) {
+    const lynwoodWeeks = await getRonosWeeks(34)
+    if (lynwoodWeeks.length > 0) {
+      const isWeek0Future = new Date(lynwoodWeeks[0]?.endDate || '').getTime() > Date.now()
+      const defaultWeek = isWeek0Future && lynwoodWeeks.length > 1 ? lynwoodWeeks[1] : lynwoodWeeks[0]
+      resolvedStartDate = defaultWeek?.startDate ? defaultWeek.startDate.substring(0, 10) : undefined
+    }
+  }
+
+  // 2. Procesar las 16 tiendas en paralelo con control de concurrencia
+  const storeAudits = await mapConcurrent(
+    RONOS_STORES_MAP,
+    8,
+    async (store) => {
+      try {
+        const weeks = await getRonosWeeks(store.ronosCompanyId, forceLive)
+        if (!weeks || weeks.length === 0) return null
+
+        let matchingWeek = resolvedStartDate
+          ? weeks.find(w => w.startDate?.startsWith(resolvedStartDate!))
+          : undefined
+
+        if (!matchingWeek) {
+          const isWeek0Future = new Date(weeks[0]?.endDate || '').getTime() > Date.now()
+          matchingWeek = isWeek0Future && weeks.length > 1 ? weeks[1] : weeks[0]
+        }
+
+        if (!matchingWeek?.weekId) return null
+
+        const audit = await getRonosStoreAudit(store.ronosCompanyId, matchingWeek.weekId, forceLive)
+        if (audit && Array.isArray(audit.employees)) {
+          audit.employees.forEach(emp => {
+            (emp as any).siteName = store.tegName;
+            (emp as any).storeCode = store.tegCode;
+            (emp as any).companyId = store.ronosCompanyId;
+          })
+        }
+        return audit
+      } catch (err: any) {
+        console.error(`Error obteniendo empleados de ${store.tegName}:`, err?.message)
+        return null
+      }
+    }
+  )
+
+  const validAudits = storeAudits.filter((a): a is RonosStoreAuditSummary => Boolean(a))
+  const allEmployees: RonosEmployeeTimecard[] = validAudits.flatMap(a => a.employees || [])
+
+  // 3. Totales consolidados
+  let totalWeeklyHours = 0
+  let totalRegularHours = 0
+  let totalOvertimeHours = 0
+  let totalDoubleTimeHours = 0
+  let totalMealPenaltiesCount = 0
+  let totalBrokenTimecardsCount = 0
+  let totalEstimatedPenaltyCostUsd = 0
+  let activeEmployeesCount = 0
+
+  allEmployees.forEach(emp => {
+    const h = safeNum(emp.totalWeeklyHours)
+    if (h > 0) activeEmployeesCount++
+    totalWeeklyHours += h
+    totalRegularHours += safeNum(emp.regularHours)
+    totalOvertimeHours += safeNum(emp.overtimeHours)
+    totalDoubleTimeHours += safeNum(emp.doubleTimeHours)
+    totalMealPenaltiesCount += safeNum(emp.mealPenaltyCount)
+    if (emp.brokenHours) totalBrokenTimecardsCount++
+    totalEstimatedPenaltyCostUsd += safeNum(emp.totalEstimatedPenaltyCostUsd)
+  })
+
+  const totalEstimatedOvertimeCostUsd = (totalOvertimeHours * ESTIMATED_HOURLY_RATE * 1.5) + (totalDoubleTimeHours * ESTIMATED_HOURLY_RATE * 2.0)
+  const shiftsCount = Math.max(1, activeEmployeesCount * 5)
+  const complianceScorePercent = Math.max(
+    0,
+    Math.min(100, Math.round(100 - ((totalMealPenaltiesCount / shiftsCount) * 100)))
+  )
+
+  const refWeek = validAudits[0]
+  return {
+    storeId: 0,
+    storeCode: 'TODAS',
+    storeName: 'Todas las Tiendas (Cadena Completa)',
+    ronosCompanyId: 0,
+    weekId: targetWeekId || refWeek?.weekId || 0,
+    startDate: refWeek?.startDate || resolvedStartDate || '',
+    endDate: refWeek?.endDate || '',
+    totalEmployees: allEmployees.length,
+    totalEmployeesCount: allEmployees.length,
+    activeEmployeesCount,
+    totalWeeklyHours: Number(totalWeeklyHours.toFixed(2)),
+    totalChainHours: Number(totalWeeklyHours.toFixed(2)),
+    totalRegularHours: Number(totalRegularHours.toFixed(2)),
+    totalOvertimeHours: Number(totalOvertimeHours.toFixed(2)),
+    totalDoubleTimeHours: Number(totalDoubleTimeHours.toFixed(2)),
+    totalMealPenaltiesCount,
+    totalBrokenTimecardsCount,
+    totalEstimatedPenaltyCostUsd: Number(totalEstimatedPenaltyCostUsd.toFixed(2)),
+    totalEstimatedOvertimeCostUsd: Number(totalEstimatedOvertimeCostUsd.toFixed(2)),
+    complianceScorePercent,
+    complianceScore: complianceScorePercent,
+    employees: allEmployees
+  }
+}
+

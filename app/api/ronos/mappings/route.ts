@@ -9,19 +9,53 @@
  * @dataFlow
  *   GET: /api/ronos/mappings?companyId=34 -> getStoreEmployeeMappings() -> JSON.
  *   POST: /api/ronos/mappings { companyId, ronosUserId, toastEmployeeId, ... } -> saveEmployeeMapping() -> JSON.
+ *
+ * @notes
+ *   - Soporta `companyId=0` para consultar la consolidación de mapeos de toda la cadena (400+ colaboradores).
  */
 
 import { NextResponse } from 'next/server'
 import { getStoreEmployeeMappings, saveEmployeeMapping } from '@/lib/ronos-mapping'
+import { RONOS_STORES_MAP, getDynamicRonosStores } from '@/lib/ronos-api'
 import { supabaseAdmin } from '@/lib/supabase'
+
+export const dynamic = 'force-dynamic'
 
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url)
     const companyIdParam = searchParams.get('companyId')
-    const companyId = companyIdParam ? parseInt(companyIdParam, 10) : 34
+    const isChain = companyIdParam === '0' || companyIdParam === 'all' || companyIdParam === 'chain'
+    const companyId = isChain ? 0 : (companyIdParam ? parseInt(companyIdParam, 10) : 34)
 
-    const result = await getStoreEmployeeMappings(companyId)
+    let result
+    if (isChain) {
+      const storesList = await getDynamicRonosStores()
+      const allResults = await Promise.all(
+        storesList.map(s => getStoreEmployeeMappings(s.ronosCompanyId).catch(() => null))
+      )
+      const valid = allResults.filter(Boolean) as any[]
+      const combinedMappings = valid.flatMap(v => v.mappings || [])
+      const combinedCandidates = valid.flatMap(v => v.toastCandidates || [])
+      const uniqueCandidatesMap = new Map<string, any>()
+      combinedCandidates.forEach(c => {
+        if (c?.id && !uniqueCandidatesMap.has(c.id)) uniqueCandidatesMap.set(c.id, c)
+      })
+
+      result = {
+        mappings: combinedMappings,
+        toastCandidates: Array.from(uniqueCandidatesMap.values()),
+        stats: {
+          totalRonos: combinedMappings.length,
+          autoMatched: combinedMappings.filter(m => m.mappingType === 'auto').length,
+          manuallyMatched: combinedMappings.filter(m => m.mappingType === 'manual').length,
+          inactive: combinedMappings.filter(m => m.mappingType === 'inactive').length,
+          unmapped: combinedMappings.filter(m => m.mappingType === 'unmapped').length
+        }
+      }
+    } else {
+      result = await getStoreEmployeeMappings(companyId)
+    }
 
     return NextResponse.json({
       success: true,

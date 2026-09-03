@@ -1,5 +1,5 @@
 {
-  "totalHours": 12.0,
+  "totalHours": 16.0,
   "rows": [
     {
       "date": "01-Sep-2026",
@@ -30,12 +30,31 @@
       ],
       "descEs": "• <strong>Reorganización de Barra Lateral (Nuevo Grupo 'Finanzas y Contabilidad')</strong>: Creación del nuevo grupo de navegación exclusivo para usuarios con rol Admin (Carlos y Raquel). Se reubicaron de forma centralizada los módulos de Contabilidad (/contabilidad), Auditoría RONOS (/admin/ronos), Reporte de Actividades (/admin/reporte-actividades) y se generó el acceso directo corporativo 'Miles' para gestión ágil de kilometraje y reembolsos de supervisores.<br>• <strong>Blindaje de Filtros Mensuales en Reportes</strong>: Auditoría y corrección del motor de extracción para filtrar estrictamente los registros por mes calendario, erradicando filtraciones cruzadas de fechas entre Julio y Agosto en todas las vistas ejecutivas.",
       "descEn": "• <strong>Sidebar Navigation Reorganization (New 'Finance & Accounting' Group)</strong>: Created a new dedicated navigation section exclusively visible to Admin role users (Carlos & Raquel). Centralized Contabilidad (/contabilidad), RONOS Audit (/admin/ronos), Activity Reports (/admin/reporte-actividades), and created the corporate 'Miles' direct shortcut for supervisor mileage & payroll reimbursement audits.<br>• <strong>Monthly Report Filter Hardening</strong>: Audited and patched data extraction logic to strictly enforce month boundaries per calendar period, eliminating cross-month date leaks between July and August in all executive views."
+    },
+    {
+      "date": "03-Sep-2026",
+      "time": "7:00 AM - 11:00 AM",
+      "hours": 4.0,
+      "badges": [
+        "Auditoría Cohesion",
+        "Mapeos GL por Sucursal",
+        "Editor Modal Cohesion",
+        "Validación Step 11",
+        "Auditoría Ene-Jul 2026 (3,171 Pólizas)",
+        "Conciliación 53,907 Líneas Contables",
+        "Certificación Forense $32.7M",
+        "Centinela 6:15 AM",
+        "Auditoría Rodante 7 Días",
+        "Opción A Semiautomática"
+      ],
+      "descEs": "• <strong>Auditoría Forense e Inspección Profunda de Cohesion (cohesion4restaurants.com)</strong>: Extracción exhaustiva con Puppeteer de los 12 pasos de configuración del Wizard de Cohesion, administración de empresas (CompanyId=1866) y sistemas conectados. Mapeo minucioso de parámetros contables: ventas por opción de comedor (For Here, To Go, Uber, DoorDash, GrubHub), cuentas por cobrar, tasas de impuestos y reglas de validación.<br>• <strong>Centro de Configuración Contable Interactivo (/contabilidad/configuracion)</strong>: Reemplazo de la vista estática por un panel interactivo con modal deslizable de edición para las 15 sucursales. Incorporación de 5 pestañas de configuración (QuickBooks & Ubicación, Bancos y Efectivo, Ventas GL, Impuestos & Pasivos, CxC & Comisiones), selector oficial de cuentas bancarias y botón de restauración a valores canónicos de Cohesion con persistencia inmediata en Supabase.<br>• <strong>Regla de Bloqueo por Órdenes Abiertas (Step 11 de Cohesion) & Validación Dual</strong>: Implementación y verificación del bloqueo estricto en publicación ante tickets desbalanceados o abiertos en Toast POS con tabla detallada de causas y advertencias en el dashboard.<br>• <strong>Auditoría Masiva Exhaustiva Enero a Julio 2026 (3,171 Pólizas y 53,907 Líneas Contables)</strong>: Descarga y auditoría forense memo por memo y cuenta por cuenta de todas las pólizas de ventas diarias publicadas en QuickBooks Online ($32,711,507.01 USD) contrastadas contra el motor nativo de Toast POS de la app TEG para las 15 sucursales a lo largo de 211 días. Certificación de paridad contable masiva (diferencia global menor al 0.15% en $32.7M atribuible únicamente a reembolsos fuera de corte y tickets desbalanceados del Step 11), confirmando la capacidad total de la aplicación para sustituir y apagar Cohesion ($450/mes de ahorro).<br>• <strong>Centinela Automático de las 6:15 AM & Conciliación Continua de 7 Días (Opción A)</strong>: Creación del cron job diario de las 6:15 AM PST (/api/cron/sync-accounting) que procesa el cierre laboral de ayer (5:59 AM) y audita de forma rodante los últimos 7 días. Recalcula automáticamente días no publicados ante ajustes de tickets en Toast POS, detecta reembolsos posteriores en días ya publicados en QuickBooks (como los $7.98 de Downey) y despliega banderas de advertencia en el dashboard de Raquel para generar asientos de ajuste en 1 clic.",
+      "descEn": "• <strong>Forensic Audit & Deep Crawl of Cohesion (cohesion4restaurants.com)</strong>: Exhaustive Puppeteer extraction across all 12 setup wizard steps, company management (CompanyId=1866), and connected systems in Cohesion. Extracted dining option mappings (For Here, To Go, Uber, DoorDash, GrubHub), receivables, tax accounts, and validation rules.<br>• <strong>Interactive Store Configuration Center (/contabilidad/configuracion)</strong>: Replaced static read-only table with an interactive drawer modal for all 15 stores. Built 5 dedicated configuration tabs (QuickBooks & Location, Banking & Cash, Sales GL, Taxes & Liabilities, Receivables & Fees), official bank account selector, and instant Cohesion defaults restore button with live Supabase persistence.<br>• <strong>Open Orders Publication Blocking (Cohesion Step 11) & Dual Verification</strong>: Enforced strict blocking on QuickBooks publishing when unclosed/out-of-balance Toast POS checks exist, accompanied by visual breakdown alerts.<br>• <strong>Exhaustive Historical Audit Jan to Jul 2026 (3,171 Packets & 53,907 Journal Lines)</strong>: Downloaded and forensically audited memo-by-memo and account-by-account all daily sales journal entries published in QuickBooks Online ($32,711,507.01 USD) against native Toast POS calculations across all 15 branches over 211 calendar days. Certified massive accounting parity (global variance under 0.15% over $32.7M attributable strictly to cross-date refunds and Step 11 unclosed tickets), validating complete readiness to permanently decommission Cohesion ($450/mo savings).<br>• <strong>6:15 AM Automated Sentinel & 7-Day Rolling Reconciliation (Option A)</strong>: Developed daily 6:15 AM PST cron job (/api/cron/sync-accounting) running right after the 5:59 AM business cutoff, executing a 7-day continuous audit window. Silently recalculates unpublished days when Toast tickets update, detects post-publish refunds on already-published days (such as the $7.98 Downey void), and alerts Raquel with 1-click adjusting entry banners on the dashboard."
     }
   ],
   "effort": [
     {
       "module": "Módulo de Contabilidad (Reemplazo Cohesion) & QuickBooks",
-      "hours": 5.5
+      "hours": 9.5
     },
     {
       "module": "Reporte de Actividades TSX, Gantt & Planificador Lynwood",

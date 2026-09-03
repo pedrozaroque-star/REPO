@@ -50,3 +50,8 @@ next-env.d.ts
 
 # local quickbooks sandbox tokens
 .sandbox_tokens.json
+
+# large temporary audit dumps
+cohesion_dump/
+data/qb_historical_entries_2026.json
+

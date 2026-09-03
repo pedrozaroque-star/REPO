@@ -933,9 +933,16 @@ export async function syncSimplifyHrRates(ronosCompanyId?: number): Promise<{
         jobTitle: emp.title || emp.jobPosition || 'Employee'
       }
 
-      cachedSimplifyRates.set(normName, rateInfo)
+      // 1. Claves compuestas con ámbito estricto de tienda (Store-Scoped)
+      cachedSimplifyRates.set(`${ronosCompanyId}:${normName}`, rateInfo)
       if (emp.employeeID) {
+        cachedSimplifyRates.set(`${ronosCompanyId}:id:${emp.employeeID}`, rateInfo)
         cachedSimplifyRates.set(`id:${emp.employeeID}`, rateInfo)
+      }
+      // 2. Clave global con regla anti-degradación (nunca sobreescribir con tarifa menor)
+      const existingGlobal = cachedSimplifyRates.get(normName)
+      if (!existingGlobal || hourlyPay >= existingGlobal.payRate) {
+        cachedSimplifyRates.set(normName, rateInfo)
       }
       ratesObj[normName] = rateInfo
     }
@@ -1023,14 +1030,26 @@ function firstAndLast(name: string): string {
 // Caché secundario para evitar recalcular fuzzy matches repetidos
 const fuzzyMatchCache = new Map<string, string | null>()
 
-export function getSimplifyHrRateForEmployee(nameOrId: string): { payRate: number; billRate: number; otPayRate?: number | null; isSalaried: boolean; jobTitle: string } | null {
+export function getSimplifyHrRateForEmployee(
+  nameOrId: string,
+  storeIdOrCode?: number | string
+): { payRate: number; billRate: number; otPayRate?: number | null; isSalaried: boolean; jobTitle: string } | null {
   if (!cachedSimplifyRates || cachedSimplifyRates.size === 0) return null
 
   const key = normalizeNameForMatch(nameOrId)
   if (!key || key.length < 3) return null
 
-  // 1. Match EXACTO (más rápido)
-  const exact = cachedSimplifyRates.get(key) || cachedSimplifyRates.get(`id:${nameOrId}`)
+  // 0. Búsqueda prioritaria con ámbito estricto de tienda (Store-Scoped)
+  if (storeIdOrCode != null) {
+    const sKey = String(storeIdOrCode).toLowerCase().trim()
+    const storeScoped =
+      cachedSimplifyRates.get(`${sKey}:${key}`) ||
+      cachedSimplifyRates.get(`${sKey}:id:${nameOrId}`)
+    if (storeScoped) return storeScoped
+  }
+
+  // 1. Match EXACTO (ID universal primero, luego nombre global)
+  const exact = cachedSimplifyRates.get(`id:${nameOrId}`) || cachedSimplifyRates.get(key)
   if (exact) return exact
 
   // 2. Revisar caché de fuzzy matches previos
@@ -1181,10 +1200,19 @@ export async function syncAllStoresSimplifyHrRates(): Promise<{
               storeName
             }
 
-            cachedSimplifyRates!.set(normName, rateInfo)
+            // 1. Claves compuestas con ámbito estricto de tienda (Store-Scoped)
+            cachedSimplifyRates!.set(`${companyId}:${normName}`, rateInfo)
+            cachedSimplifyRates!.set(`${storeName.toLowerCase()}:${normName}`, rateInfo)
             if (emp.employeeID) {
+              cachedSimplifyRates!.set(`${companyId}:id:${emp.employeeID}`, rateInfo)
               cachedSimplifyRates!.set(`id:${emp.employeeID}`, rateInfo)
             }
+            // 2. Clave global con regla anti-degradación
+            const existingGlobal = cachedSimplifyRates!.get(normName)
+            if (!existingGlobal || hourlyPay >= existingGlobal.payRate) {
+              cachedSimplifyRates!.set(normName, rateInfo)
+            }
+            allRates[`${companyId}:${normName}`] = rateInfo
             allRates[normName] = rateInfo
           }
 
@@ -1235,7 +1263,7 @@ async function persistRatesInSupabaseBackground(employees: SimplifyHrEmployeeRec
     const { supabaseAdmin } = await import('./supabase')
     const { data: toastEmps } = await supabaseAdmin
       .from('toast_employees')
-      .select('id, first_name, last_name')
+      .select('id, first_name, last_name, wage_data')
       .eq('deleted', false)
 
     if (!toastEmps || toastEmps.length === 0) return
@@ -1256,6 +1284,12 @@ async function persistRatesInSupabaseBackground(employees: SimplifyHrEmployeeRec
       )
 
       if (match) {
+        const currentDbWage = Number(match.wage_data?.[0]?.wage || 0)
+        // Regla Anti-Degradación: no sobreescribir si la tarifa en DB es mayor
+        if (currentDbWage > 0 && hourlyPay < currentDbWage) {
+          continue
+        }
+
         updateTasks.push(
           Promise.resolve(
             supabaseAdmin.from('toast_employees').update({
@@ -1285,7 +1319,7 @@ async function persistConsolidatedRatesInSupabase(allRates: Record<string, { pay
     const { supabaseAdmin } = await import('./supabase')
     const { data: toastEmps } = await supabaseAdmin
       .from('toast_employees')
-      .select('id, first_name, last_name')
+      .select('id, first_name, last_name, wage_data')
       .eq('deleted', false)
 
     if (!toastEmps || toastEmps.length === 0) return
@@ -1293,16 +1327,33 @@ async function persistConsolidatedRatesInSupabase(allRates: Record<string, { pay
     const updateTasks: Array<Promise<any>> = []
 
     for (const [normName, rate] of Object.entries(allRates)) {
+      if (normName.includes(':')) continue // Omitir claves con prefijo de tienda para evitar updates duplicados
       const parts = normName.split(' ')
       const fName = parts[0]?.toLowerCase()
       const lName = parts[parts.length - 1]?.toLowerCase()
 
-      const match = toastEmps.find(te =>
+      const targetStoreLower = (rate.storeName || '').toLowerCase().trim()
+      const match = toastEmps.find(te => {
+        const matchName =
+          (te.first_name || '').toLowerCase().includes(fName) &&
+          (te.last_name || '').toLowerCase().includes(lName)
+        if (!matchName) return false
+        if (targetStoreLower && te.wage_data?.[0]?.store) {
+          return String(te.wage_data[0].store).toLowerCase().trim() === targetStoreLower
+        }
+        return true
+      }) || toastEmps.find(te =>
         (te.first_name || '').toLowerCase().includes(fName) &&
         (te.last_name || '').toLowerCase().includes(lName)
       )
 
       if (match) {
+        const currentDbWage = Number(match.wage_data?.[0]?.wage || 0)
+        // Regla Anti-Degradación: no sobreescribir si la tarifa en DB es mayor
+        if (currentDbWage > 0 && rate.payRate < currentDbWage) {
+          continue
+        }
+
         updateTasks.push(
           Promise.resolve(
             supabaseAdmin.from('toast_employees').update({

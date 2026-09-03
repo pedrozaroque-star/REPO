@@ -10,11 +10,11 @@
  *   Frontend /admin/ronos -> GET /api/ronos/punches?companyId=34&weekId=155969 -> ronos-api -> JSON response.
  *
  * @notes
- *   - Si no se especifica companyId, retorna por defecto la auditoría de TEG - Lynwood (ID: 34) o el consolidado de cadena si mode=chain.
+ *   - Si no se especifica companyId o si se envía companyId=0, retorna por defecto la auditoría de toda la cadena con semanas de referencia.
  */
 
 import { NextResponse } from 'next/server'
-import { getRonosStoreAudit, getRonosChainWideAudit, getRonosWeeks, RONOS_STORES_MAP } from '@/lib/ronos-api'
+import { getRonosStoreAudit, getRonosChainWideAudit, getRonosChainWideStoreAudit, getRonosWeeks, getDynamicRonosStores } from '@/lib/ronos-api'
 
 export const dynamic = 'force-dynamic'
 
@@ -43,7 +43,7 @@ export async function GET(request: Request) {
     if (mode === 'stores') {
       return NextResponse.json({
         success: true,
-        stores: RONOS_STORES_MAP
+        stores: await getDynamicRonosStores()
       }, { headers: antiCacheHeaders })
     }
 
@@ -56,24 +56,35 @@ export async function GET(request: Request) {
       }, { headers: antiCacheHeaders })
     }
 
-    // 3. Consolidado general de toda la cadena (15 tiendas + Bodega)
+    // 3. Consolidado general de toda la cadena (15 tiendas + Bodega - Resumen corporativo)
     if (mode === 'chain') {
       const chainAudit = await getRonosChainWideAudit(weekId, startDateParam, forceLive)
+      const availableWeeks = await getRonosWeeks(34, forceLive)
       return NextResponse.json({
         success: true,
-        data: chainAudit
+        data: chainAudit,
+        weeks: availableWeeks,
+        stores: await getDynamicRonosStores()
       }, { headers: antiCacheHeaders })
     }
 
-    // 4. Auditoría detallada de una tienda (por defecto)
-    const storeAudit = await getRonosStoreAudit(ronosCompanyId, weekId, forceLive)
-    const availableWeeks = await getRonosWeeks(ronosCompanyId, forceLive)
+    // 4. Auditoría de Tienda o Consolidado de Colaboradores si companyId === 0
+    let storeAudit: any
+    let availableWeeks: any[]
+
+    if (ronosCompanyId === 0) {
+      storeAudit = await getRonosChainWideStoreAudit(weekId, startDateParam, forceLive)
+      availableWeeks = await getRonosWeeks(34, forceLive)
+    } else {
+      storeAudit = await getRonosStoreAudit(ronosCompanyId, weekId, forceLive)
+      availableWeeks = await getRonosWeeks(ronosCompanyId, forceLive)
+    }
 
     return NextResponse.json({
       success: true,
       data: storeAudit,
       weeks: availableWeeks,
-      stores: RONOS_STORES_MAP
+      stores: await getDynamicRonosStores()
     }, { headers: antiCacheHeaders })
   } catch (error: any) {
     console.error('Error en /api/ronos/punches:', error)

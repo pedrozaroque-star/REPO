@@ -329,7 +329,9 @@ export default function AccountingPage() {
                         const dateStr = d.toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
                         const packet = getPacketForCell(store.id, dateStr)
                         const validation = (packet as any)?.qb_sync_response?.validation
+                        const postPublishDiscrepancy = (packet as any)?.qb_sync_response?.post_publish_discrepancy
                         const hasOpenOrders = Boolean(validation?.hasOpenOrders || (validation?.openOrdersCount && validation.openOrdersCount > 0))
+                        const hasDiscrepancy = Boolean(postPublishDiscrepancy?.hasDiscrepancy)
                         const displayStatus = hasOpenOrders ? 'open_orders' : (packet?.status || 'pending')
 
                         return (
@@ -337,9 +339,18 @@ export default function AccountingPage() {
                             {packet ? (
                               <Link href={`/contabilidad/${packet.id}`}>
                                 <div 
-                                  className={`inline-flex flex-col items-center justify-center px-3 py-1.5 text-xs rounded-xl cursor-pointer transition-all hover:scale-105 ${STATUS_STYLES[displayStatus] || STATUS_STYLES.pending}`}
-                                  title={hasOpenOrders ? `⚠️ ${validation.openOrdersCount} Órdenes Abiertas en Toast POS` : `Venta Neta: ${formatCurrency(packet.net_sales)}`}
+                                  className={`inline-flex flex-col items-center justify-center px-3 py-1.5 text-xs rounded-xl cursor-pointer transition-all hover:scale-105 relative ${STATUS_STYLES[displayStatus] || STATUS_STYLES.pending}`}
+                                  title={hasOpenOrders 
+                                    ? `⚠️ ${validation.openOrdersCount} Órdenes Abiertas en Toast POS` 
+                                    : (hasDiscrepancy 
+                                      ? `⚠️ Reembolso tardío detectado en Toast: Dif $${postPublishDiscrepancy.diffNet.toFixed(2)}` 
+                                      : `Venta Neta: ${formatCurrency(packet.net_sales)}`)}
                                 >
+                                  {hasDiscrepancy && (
+                                    <span className="absolute -top-1.5 -right-1.5 bg-amber-500 text-black text-[9px] font-black px-1.5 py-0.5 rounded-full shadow-md animate-pulse">
+                                      ⚠️ Dif ${postPublishDiscrepancy.diffNet.toFixed(2)}
+                                    </span>
+                                  )}
                                   <div className="flex items-center font-bold">
                                     {STATUS_ICONS[displayStatus]}
                                     <span>{hasOpenOrders ? (t('accounting.label_open_orders') || 'Órdenes Abiertas') : (t(`accounting.status_${packet.status}`) || packet.status)}</span>
