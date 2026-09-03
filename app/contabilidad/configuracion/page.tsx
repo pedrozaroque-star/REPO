@@ -20,6 +20,7 @@ import Link from 'next/link'
 import { ArrowLeft, RefreshCw, Loader2, CheckCircle2, AlertCircle, Building2, BookOpen } from 'lucide-react'
 import { useLanguage } from '@/lib/i18n'
 import { formatStoreName } from '@/lib/supabase'
+import { getQBStoreRefs } from '@/lib/qb-classes-locations'
 
 interface SiteMapping {
   id: string
@@ -203,36 +204,47 @@ export default function AccountingConfigPage() {
                   <th className="px-6 py-4 font-bold text-slate-900 dark:text-white uppercase text-xs">{t('accounting.col_store') || 'Sucursal'}</th>
                   <th className="px-6 py-4 font-bold text-slate-900 dark:text-white uppercase text-xs">{t('accounting.col_location') || 'Ubicación QB'}</th>
                   <th className="px-6 py-4 font-bold text-slate-900 dark:text-white uppercase text-xs">{t('accounting.col_class') || 'Clase QB'}</th>
-                  <th className="px-6 py-4 font-bold text-slate-900 dark:text-white uppercase text-xs">Cuenta Bancaria</th>
+                  <th className="px-6 py-4 font-bold text-slate-900 dark:text-white uppercase text-xs">Cuenta Bancaria (Depósito)</th>
+                  <th className="px-6 py-4 font-bold text-slate-900 dark:text-white uppercase text-xs">Cliente Efectivo (*-COH)</th>
                   <th className="px-6 py-4 font-bold text-center text-slate-900 dark:text-white uppercase text-xs">Estado</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                {mappings.map(m => (
-                  <tr key={m.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors">
-                    <td className="px-6 py-4 font-bold text-slate-900 dark:text-slate-100">
-                      {formatStoreName(m.stores?.name || '')}
-                    </td>
-                    <td className="px-6 py-4 text-slate-700 dark:text-slate-300 font-semibold">{m.qb_location}</td>
-                    <td className="px-6 py-4 text-slate-700 dark:text-slate-300 font-semibold">{m.qb_class}</td>
-                    <td className="px-6 py-4">
-                      <code className="text-blue-700 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800/50 px-2.5 py-1 rounded-lg text-xs font-mono font-bold">
-                        {m.bank_account_number}
-                      </code>
-                    </td>
-                    <td className="px-6 py-4 text-center">
-                      {m.is_active ? (
-                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400">
-                          Activo ✓
+                {mappings.map(m => {
+                  const qbRefs = getQBStoreRefs(m.stores?.name || '')
+                  return (
+                    <tr key={m.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors">
+                      <td className="px-6 py-4 font-bold text-slate-900 dark:text-slate-100">
+                        {formatStoreName(m.stores?.name || '')}
+                      </td>
+                      <td className="px-6 py-4 text-slate-700 dark:text-slate-300 font-semibold">{m.qb_location}</td>
+                      <td className="px-6 py-4 text-slate-700 dark:text-slate-300 font-semibold">{m.qb_class}</td>
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-2">
+                          <code className="text-blue-700 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800/50 px-2.5 py-1 rounded-lg text-xs font-mono font-bold">
+                            {qbRefs.bankAccountName || m.bank_account_number}
+                          </code>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-mono font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30">
+                          {qbRefs.cohCustomerName}
                         </span>
-                      ) : (
-                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-rose-50 text-rose-700 border border-rose-200">
-                          Inactivo
-                        </span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                      <td className="px-6 py-4 text-center">
+                        {m.is_active ? (
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400">
+                            Activo ✓
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-rose-50 text-rose-700 border border-rose-200">
+                            Inactivo
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>
