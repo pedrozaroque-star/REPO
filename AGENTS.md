@@ -67,57 +67,61 @@ Antes de modificar, analizar o trabajar con cualquier módulo del sistema, **el 
 ## 🤖 REGLA OBLIGATORIA: Sincronización de Conocimiento del Asistente (TEG Assistant Sync)
 Cada vez que se cree, modifique, elimine o actualice una característica, lógica de negocio, endpoint de API, o tabla de base de datos en el sistema, **el desarrollador/agente DEBE de inmediato actualizar el prompt del asistente** en `app/api/support-chat/route.ts` y sus herramientas de chat en `lib/chat-tools.ts`. Esto garantiza que el TEG Assistant AI aprenda de cada actualización del sistema y mantenga un dominio preciso del 100% del ecosistema en tiempo real.
 
-### 📌 REGLA DE COMMIT Y PUSH: Sincronización Obligatoria de Documentación
+### 📌 REGLA DE COMMIT Y PUSH: Sincronización Obligatoria de Documentación y Módulo TSX
 Cada vez que se realice un commit a GitHub y se haga push, **el desarrollador/agente DEBE actualizar de manera obligatoria**:
-1. El documento de seguimiento de tareas y actividades del mes correspondiente (`pendientes_julio.html` o similar), registrando el desglose de horas y descripción bilingüe de actividades.
+1. El repositorio de datos del módulo nativo TSX (`scripts/[mes]_full_data.json` y `lib/reports-data.ts` vía `node scripts/export-reports-data-ts.js`), registrando el desglose de horas y descripción bilingüe de actividades para el dashboard nativo `/admin/reporte-actividades`.
 2. El prompt y herramientas de chat de soporte del Asistente IA para reflejar los cambios realizados en el sistema.
+
 ### 📌 REGLA OBLIGATORIA: Nombre Oficial de la Marca
 El nombre oficial de la empresa y marca es estrictamente **Tacos Gavilan** (NUNCA "Tacos El Gavilan"). Todos los correos electrónicos, comunicaciones corporativas, títulos, documentación, prompts de IA y respuestas deben usar exclusivamente **Tacos Gavilan**.
 
 ---
 
-## 📊 REGLA OBLIGATORIA: Registro Exhaustivo de TODAS las Actividades en el Reporte Mensual
-**Ninguna actividad realizada en cualquier conversación puede quedar fuera del reporte mensual** (`pendientes_[mes].html`). El reporte es el documento oficial de horas trabajadas y DEBE reflejar el 100% del esfuerzo real invertido.
+## 📊 REGLA OBLIGATORIA: Registro Exhaustivo de TODAS las Actividades en el Módulo Nativo TSX (/admin/reporte-actividades)
+**Ninguna actividad realizada en cualquier conversación puede quedar fuera del registro mensual en el módulo nativo TSX** (`app/admin/reporte-actividades/page.tsx` y `lib/reports-data.ts`). El módulo nativo es la fuente oficial de horas trabajadas y DEBE reflejar el 100% del esfuerzo real invertido.
+
+> [!IMPORTANT]
+> **PROHIBICIÓN ESTRICTA DE GENERACIÓN DE HTML Y PDFS:**
+> Queda estrictamente prohibido generar archivos HTML (`pendientes_*.html`) o compilar PDFs (`Reporte_*.pdf`, `generate-all-desktop-pdfs.js`). Todo el registro y visualización ejecutiva se gestiona 100% en el componente nativo Next.js/React TSX `/admin/reporte-actividades`.
 
 ### Qué se DEBE registrar (sin excepción):
 1. **Código y commits** — Desarrollo de módulos, bug fixes, features, refactors, migraciones SQL
-2. **Tech Packs y fichas técnicas** — Documentos PDF de especificaciones para fabricantes o proveedores (uniformes, desechables, carnes, lácteos, etc.)
+2. **Tech Packs y fichas técnicas** — Documentos de especificaciones para fabricantes o proveedores (uniformes, desechables, carnes, lácteos, etc.)
 3. **RFQ y documentos de licitación** — Bidding volumes, solicitudes de cotización, portfolios de negociación
 4. **Correos profesionales** — Redacción y envío de correos a proveedores, fabricantes, socios comerciales
 5. **Análisis de datos** — Análisis de CSV, Excel, auditorías de inventario, análisis laboral, reportes financieros
 6. **Generación de imágenes y assets** — Imágenes de productos, referencias para fabricantes, mockups de UI
 7. **Investigación y planificación** — Diseño de arquitectura, evaluación de proveedores, research técnico
 8. **Pruebas y validación** — Testing en sitio, verificación con gerentes, QA de módulos
-9. **Presentaciones y documentación operativa** — Guías, manuales, presentaciones HTML para directivos
+9. **Presentaciones y documentación operativa** — Guías, manuales, dashboards ejecutivos
 10. **Soporte y debugging** — Resolución de incidentes reportados por usuarios, diagnóstico de errores en producción
 
 ### Protocolo de registro:
-- **Al finalizar CADA sesión de trabajo**, el agente DEBE verificar que la actividad ya tenga una fila correspondiente en la tabla de horas del reporte del mes vigente.
+- **Al finalizar CADA sesión de trabajo**, el agente DEBE verificar que la actividad ya tenga una fila correspondiente en la tabla de horas de `scripts/[mes]_full_data.json` y actualizar `lib/reports-data.ts` ejecutando `node scripts/export-reports-data-ts.js`.
 - **Al hacer commit/push**, el agente DEBE escanear TODAS las conversaciones activas del mes para detectar actividades no registradas.
 - **Cada fila** debe incluir: fecha, rango horario, horas, módulos involucrados (badges), y descripción bilingüe (ES/EN) detallada.
 - **Las actividades que NO generan commits** (tech packs, correos, análisis) son IGUAL de importantes que el código y DEBEN tener su propia fila con horas asignadas.
-- **El resumen de esfuerzo por módulo** al final del reporte debe reflejar TODAS las categorías de trabajo, incluyendo "Tech Packs, RFQ y Negociación con Proveedores" cuando aplique.
+- **El resumen de esfuerzo por módulo** en el dashboard debe reflejar TODAS las categorías de trabajo, incluyendo "Tech Packs, RFQ y Negociación con Proveedores" cuando aplique.
 
 ### Verificación cruzada:
-Al actualizar el reporte, el agente DEBE cruzar estas fuentes para detectar trabajo faltante:
+Al actualizar los datos, el agente DEBE cruzar estas fuentes para detectar trabajo faltante:
 - `git log` — Commits del mes
-- Directorios de conversaciones (`~/.gemini/antigravity/brain/*/`) — PDFs, imágenes, spec sheets generados
+- Directorios de conversaciones (`~/.gemini/antigravity/brain/*/`) — Archivos generados, imágenes, spec sheets
 - Transcripts de conversaciones — Solicitudes del usuario que resultaron en entregables
-- Archivos del proyecto modificados fuera de git — Reportes HTML, documentos operativos
 
 ---
 
 ## ⏱️ REGLA OBLIGATORIA: Protocolo de Auto-Registro en Tiempo Real, Conciliación Multi-Chat y Fusión No Destructiva (Multi-Chat Forensic Reconciliation & Non-Destructive Merge Protocol)
 
-**Queda estrictamente prohibido que cualquier sesión, bloque de desarrollo, auditoría, análisis o conversación termine sin registrar de inmediato las horas trabajadas en el reporte mensual (`pendientes_[mes].html`) o que se sobreescriban/omitan sesiones concurrentes de otros chats.**
+**Queda estrictamente prohibido que cualquier sesión, bloque de desarrollo, auditoría, análisis o conversación termine sin registrar de inmediato las horas trabajadas en el módulo nativo TSX (`lib/reports-data.ts` / `/admin/reporte-actividades`) o que se sobreescriban/omitan sesiones concurrentes de otros chats.**
 
 1. **Escaneo y Conciliación Multi-Chat Obligatoria (Multi-Chat Cross-Scan)**:
-   - Dado que Carlos trabaja simultáneamente en múltiples conversaciones (ej. Ventas Toast, Radar de Precios, Descansos, MilesIQ, Tech Packs, Uniformes, etc.), el agente TIENE LA OBLIGACIÓN de escanear los directorios de transcripciones (`C:\Users\pedro\.gemini\antigravity\brain\*\.system_generated\logs\transcript.jsonl`) y el `git log` antes de actualizar la tabla de horas.
+   - Dado que Carlos trabaja simultáneamente en múltiples conversaciones (ej. Ventas Toast, Radar de Precios, Descansos, MilesIQ, Cohesion, RONOS, etc.), el agente TIENE LA OBLIGACIÓN de escanear los directorios de transcripciones (`C:\Users\pedro\.gemini\antigravity\brain\*\.system_generated\logs\transcript.jsonl`) y el `git log` antes de actualizar la tabla de horas.
    - Debe cruzar 4 fuentes de verdad:
      a) `transcript.jsonl` de todos los chats activos del día (para capturar peticiones, análisis de CSVs, diseño de tech packs y correos).
      b) `git log` del día (para capturar todos los commits, archivos modificados y branches).
-     c) Base de datos de Supabase (`shifts` table para los turnos reales de Carlos como General Manager en Lynwood #14).
-     d) Archivos de entregables generados fuera de git (PDFs de Tech Packs, presentaciones ejecutivas HTML, etc.).
+     c) Base de datos de Supabase (`schedules` table para los turnos reales de Carlos como General Manager en Lynwood #14, `user_id: 25`).
+     d) Archivos de entregables generados fuera de git.
 
 2. **Fusión Acumulativa No Destructiva (Non-Destructive Cumulative Merge)**:
    - **Regla Estricta**: NUNCA reemplazar la fila de un día asumiendo únicamente el trabajo de la conversación actual.
@@ -125,13 +129,13 @@ Al actualizar el reporte, el agente DEBE cruzar estas fuentes para detectar trab
      * **Horarios (Time Slots)**: Se concatenan todas las sesiones separadas por ` & ` (ej. `6:09 AM - 8:30 AM & 11:30 AM - 1:45 PM & 4:30 PM - 5:30 PM & 7:15 PM - 9:30 PM`).
      * **Horas Totales**: Se suman aritméticamente las horas de cada bloque (`hours = sum(session_hours)`).
      * **Viñetas de Descripción**: Se anexan con `<br>• ` todas las actividades realizadas en el día sin sobreescribir ni resumir las sesiones anteriores.
-     * **Badges Temáticos**: Se unen en un conjunto único sin duplicados (ej. `['Radar de Precios', 'Viele & Sons v3', 'Descansos IA', 'Basecamp 4']`).
+     * **Badges Temáticos**: Se unen en un conjunto único sin duplicados (ej. `['Radar de Precios', 'Viele & Sons v3', 'Descansos IA', 'Cohesion']`).
 
 3. **Inclusión Obligatoria de Actividades No-Code**:
    - Todo trabajo técnico u operativo (redacción de Tech Packs, análisis de datos en Excel/CSV, correos de licitación a proveedores, presentaciones ejecutivas y diseño de arquitectura) DEBE tener su fila con horas asignadas, incluso si no generó un commit directo en el repositorio.
 
-4. **Recompilación Automática de PDFs Ejecutivos**:
-   - Tras actualizar el archivo HTML, el agente DEBE ejecutar automáticamente el script de compilación (`node scripts/generate-all-desktop-pdfs.js`) para regenerar de inmediato `c:\Users\pedro\Desktop\Reporte_[Mes]_[Año]_TEG.pdf`.
+4. **Actualización Directa al Módulo Nativo TSX (Cero PDFs / Cero HTMLs)**:
+   - Tras registrar o actualizar el archivo de datos del mes (`scripts/[mes]_full_data.json`), el agente DEBE ejecutar automáticamente `node scripts/export-reports-data-ts.js` para propagar los cambios inmediatamente a `lib/reports-data.ts`, reflejándose en `/admin/reporte-actividades`. NO compilar ni generar PDFs ni archivos HTML.
 
 5. **Cero Dependencia de Petición del Usuario**:
    - El usuario NO debe tener que recordar o pedir que se registren las horas. El agente lo ejecuta proactivamente en segundo plano en cada intervención.
