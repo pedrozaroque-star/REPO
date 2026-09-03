@@ -42,6 +42,7 @@ interface QBJournalEntryLine {
     AccountRef: { value: string; name: string }
     ClassRef?: { value: string; name: string }
     DepartmentRef?: { value: string; name: string }
+    Entity?: { Type: string; EntityRef: { value: string; name: string } }
   }
 }
 
@@ -171,6 +172,17 @@ export async function POST(
           value: storeRefs.locationId,
           name: storeRefs.locationName,
         },
+      }
+
+      // If this is line 13200 (Deposit To Bank / Undeposited Funds), attach the required Customer entity (e.g. AZUSA-COH)
+      if (line.account === '13200' && storeRefs.cohCustomerId) {
+        lineDetail.Entity = {
+          Type: 'Customer',
+          EntityRef: {
+            value: storeRefs.cohCustomerId,
+            name: storeRefs.cohCustomerName,
+          },
+        }
       }
 
       return {

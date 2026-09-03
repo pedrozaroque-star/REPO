@@ -20,6 +20,7 @@ import React, { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useLanguage } from '@/lib/i18n'
+import { getQBStoreRefs } from '@/lib/qb-classes-locations'
 import { Loader2, ArrowLeft, Send, RefreshCw, CheckCircle2, AlertTriangle, Check, RotateCcw } from 'lucide-react'
 
 // Inline UI components matching the standard light/dark app theme
@@ -397,34 +398,45 @@ export default function PacketDetailPage() {
         <Card>
           <h2 className="text-base font-bold text-slate-900 dark:text-white mb-4">{t('accounting.section_sales') || 'Detalle por Canal'}</h2>
           <div className="space-y-2 text-sm">
-            <div className="flex justify-between">
-              <span className="text-slate-500 dark:text-slate-400">Comedor (For Here)</span>
-              <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">{formatCurrency(packet.dine_in_sales)}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-slate-500 dark:text-slate-400">Para Llevar (To Go)</span>
-              <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">{formatCurrency(packet.togo_sales)}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-slate-500 dark:text-slate-400">Uber Eats (Delivery)</span>
-              <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">{formatCurrency(packet.uber_delivery_sales)}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-slate-500 dark:text-slate-400">Uber Eats (Takeout)</span>
-              <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">{formatCurrency(packet.uber_takeout_sales)}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-slate-500 dark:text-slate-400">DoorDash (Delivery)</span>
-              <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">{formatCurrency(packet.doordash_delivery_sales)}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-slate-500 dark:text-slate-400">DoorDash (Takeout)</span>
-              <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">{formatCurrency(packet.doordash_takeout_sales)}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-slate-500 dark:text-slate-400">GrubHub</span>
-              <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">{formatCurrency(packet.grubhub_sales)}</span>
-            </div>
+            {packet.journal_lines && packet.journal_lines.filter((l: any) => l.credit > 0 && l.account.startsWith('400')).length > 0 ? (
+              packet.journal_lines.filter((l: any) => l.credit > 0 && l.account.startsWith('400')).map((line: any, idx: number) => (
+                <div key={idx} className="flex justify-between">
+                  <span className="text-slate-500 dark:text-slate-400">{line.memo}</span>
+                  <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">{formatCurrency(line.credit)}</span>
+                </div>
+              ))
+            ) : (
+              <>
+                <div className="flex justify-between">
+                  <span className="text-slate-500 dark:text-slate-400">Comedor (For Here)</span>
+                  <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">{formatCurrency(packet.dine_in_sales)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500 dark:text-slate-400">Para Llevar (To Go)</span>
+                  <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">{formatCurrency(packet.togo_sales)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500 dark:text-slate-400">Uber Eats (Delivery)</span>
+                  <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">{formatCurrency(packet.uber_delivery_sales)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500 dark:text-slate-400">Uber Eats (Takeout)</span>
+                  <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">{formatCurrency(packet.uber_takeout_sales)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500 dark:text-slate-400">DoorDash (Delivery)</span>
+                  <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">{formatCurrency(packet.doordash_delivery_sales)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500 dark:text-slate-400">DoorDash (Takeout)</span>
+                  <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">{formatCurrency(packet.doordash_takeout_sales)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500 dark:text-slate-400">GrubHub</span>
+                  <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">{formatCurrency(packet.grubhub_sales)}</span>
+                </div>
+              </>
+            )}
             <div className="flex justify-between font-extrabold pt-2 border-t-2 border-slate-200 dark:border-slate-700 text-blue-600 dark:text-blue-400">
               <span>Total Ventas Netas</span>
               <span className="font-mono">{formatCurrency(packet.net_sales)}</span>
@@ -572,6 +584,7 @@ export default function PacketDetailPage() {
                 <th className="py-3 px-3 text-right font-bold">{t('accounting.col_debit') || 'Débito'}</th>
                 <th className="py-3 px-3 text-right font-bold">{t('accounting.col_credit') || 'Crédito'}</th>
                 <th className="py-3 px-3 pl-4 font-bold">Source Memo</th>
+                <th className="py-3 px-3 font-bold text-amber-600 dark:text-amber-400">Name (Entity)</th>
                 <th className="py-3 px-3 font-bold">{t('accounting.col_location') || 'Ubicación'}</th>
                 <th className="py-3 px-3 font-bold">{t('accounting.col_class') || 'Clase'}</th>
               </tr>
@@ -584,6 +597,9 @@ export default function PacketDetailPage() {
                   <td className="py-2.5 px-3 text-right text-emerald-600 dark:text-emerald-400 font-bold">{line.debit ? formatCurrency(line.debit) : '—'}</td>
                   <td className="py-2.5 px-3 text-right text-sky-600 dark:text-sky-400 font-bold">{line.credit ? formatCurrency(line.credit) : '—'}</td>
                   <td className="py-2.5 px-3 pl-4 font-sans text-slate-500 dark:text-slate-400 text-xs">{line.sourceMemo}</td>
+                  <td className="py-2.5 px-3 font-sans text-xs font-bold text-amber-600 dark:text-amber-400">
+                    {line.account === '13200' ? (getQBStoreRefs(packet.stores?.name || '').cohCustomerName) : '—'}
+                  </td>
                   <td className="py-2.5 px-3 font-sans text-slate-600 dark:text-slate-300 text-xs font-semibold">{line.location}</td>
                   <td className="py-2.5 px-3 font-sans text-slate-600 dark:text-slate-300 text-xs font-semibold">{line.className || line.class}</td>
                 </tr>
@@ -592,7 +608,7 @@ export default function PacketDetailPage() {
                 <td className="py-3.5 px-3 font-sans" colSpan={2}>{t('accounting.label_journal_totals') || 'Totales de la Póliza'}</td>
                 <td className="py-3.5 px-3 text-right text-emerald-600 dark:text-emerald-400">{formatCurrency(packet.journal_total_debits)}</td>
                 <td className="py-3.5 px-3 text-right text-sky-600 dark:text-sky-400">{formatCurrency(packet.journal_total_credits)}</td>
-                <td colSpan={3} className="py-3.5 px-3 text-center text-xs font-sans text-slate-500 dark:text-slate-400">
+                <td colSpan={4} className="py-3.5 px-3 text-center text-xs font-sans text-slate-500 dark:text-slate-400">
                   {isBalanced ? '✓ Cuadre exacto al centavo ($0.00 diferencia)' : '⚠️ Descuadre detectado'}
                 </td>
               </tr>

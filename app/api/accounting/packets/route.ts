@@ -26,6 +26,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { generateJournalLines, calculateExpectedCash, formatDocNumber } from '@/lib/accounting-journal'
 import type { SalesPacketData, SiteMappingConfig } from '@/lib/accounting-journal'
+import { fetchToastAccountingData } from '@/lib/toast-accounting'
 
 export async function GET(request: NextRequest) {
   try {
@@ -138,70 +139,90 @@ export async function POST(request: NextRequest) {
       const storeName = (mapping as any).stores?.name || `Store ${mapping.store_id}`
 
       try {
-        // Build SalesPacketData from cache
-        // Note: sales_daily_cache has aggregated uber/dd/gh sales but not the detailed
-        // dine-in vs to-go split or credit card fee breakdown.
-        // We'll approximate: dine_in + togo = net_sales - uber - doordash - grubhub
-        const uberSales = sale.uber_sales || 0
-        const doordashSales = sale.doordash_sales || 0
-        const grubhubSales = sale.grubhub_sales || 0
-        const netSales = sale.net_sales || 0
-        const taxes = sale.taxes || 0
-        const ebtAmount = sale.ebt_amount || 0
+        let salesPacketData: SalesPacketData | null = null
+        const extId = (mapping as any).stores?.external_id
 
-        // In-store sales = net_sales - third_party_sales
-        const inStoreSales = Math.max(0, netSales - uberSales - doordashSales - grubhubSales)
-        
-        // Approximate For Here vs To Go (typically ~50/50, configurable per store)
-        // For now, we'll use a simple split — this can be refined when Toast detailed data is available
-        const forHereSales = round(inStoreSales * 0.52)
-        const toGoSales = round(inStoreSales - forHereSales)
+        if (extId) {
+          try {
+            const toastData = await fetchToastAccountingData(extId, sale.business_date.replace(/-/g, ''))
+            salesPacketData = {
+              net_sales: toastData.netSales,
+              total_taxes: toastData.totalTaxes,
+              for_here_sales: toastData.forHereSales,
+              to_go_sales: toastData.toGoSales,
+              toast_online_sales: toastData.toastOnlineSales,
+              uber_delivery_sales: toastData.uberDeliverySales,
+              uber_takeout_sales: toastData.uberTakeoutSales,
+              doordash_takeout_sales: toastData.doordashTakeoutSales,
+              doordash_delivery_sales: toastData.doordashDeliverySales,
+              grubhub_delivery_sales: toastData.grubhubDeliverySales,
+              grubhub_takeout_sales: toastData.grubhubTakeoutSales,
+              tax_paid_by_uber: toastData.taxPaidByUber,
+              sales_tax: toastData.salesTax,
+              marketplace_tax: toastData.marketplaceTax,
+              ebt_amount: toastData.ebtAmount,
+              uber_payment: toastData.uberPayment,
+              doordash_payment: toastData.doordashPayment,
+              grubhub_payment: toastData.grubhubPayment,
+              credit_card_deposit: toastData.creditCardDeposit,
+              credit_card_fees: toastData.creditCardFees,
+              cash_deposits: toastData.cashDeposit,
+            }
+          } catch (toastErr: any) {
+            console.warn(`[Accounting] Granular Toast API fetch failed for ${storeName}, falling back to cache:`, toastErr.message)
+          }
+        }
 
-        // Approximate tax breakdown
-        // Total taxes → split: ~83% sales tax, ~11% marketplace facilitator, ~6% paid by facilitator
-        // These ratios come from the Cohesion journal entry analysis
-        const salesTax = round(taxes * 0.829)
-        const marketplaceTax = round(taxes * 0.110)
-        const facilitatorTaxPaid = round(taxes - salesTax - marketplaceTax)
+        // Fallback to cache estimation if direct Toast API fetch wasn't available
+        if (!salesPacketData) {
+          const uberSales = sale.uber_sales || 0
+          const doordashSales = sale.doordash_sales || 0
+          const grubhubSales = sale.grubhub_sales || 0
+          const netSales = sale.net_sales || 0
+          const taxes = sale.taxes || 0
+          const ebtAmount = sale.ebt_amount || 0
 
-        // Calculate total gross receipts
-        const totalGrossReceipts = round(netSales + taxes)
+          const inStoreSales = Math.max(0, netSales - uberSales - doordashSales - grubhubSales)
+          const forHereSales = round(inStoreSales * 0.52)
+          const toGoSales = round(inStoreSales - forHereSales)
 
-        // Third-party payments (gross — includes their commission and facilitator taxes)
-        const uberPayment = round(uberSales + facilitatorTaxPaid) // Uber pays net + facilitator tax
-        const doordashPayment = round(doordashSales + (doordashSales > 0 ? round(doordashSales / netSales * taxes * 0.11) : 0))
-        const grubhubPayment = round(grubhubSales + (grubhubSales > 0 ? round(grubhubSales / netSales * taxes * 0.11) : 0))
+          const salesTax = round(taxes * 0.829)
+          const marketplaceTax = round(taxes * 0.110)
+          const facilitatorTaxPaid = round(taxes - salesTax - marketplaceTax)
 
-        // Credit card fees (approximate ~1.8% of CC gross)
-        const ccFeeRate = 0.018
-        const cashFromSales = round(totalGrossReceipts - uberPayment - doordashPayment - grubhubPayment - ebtAmount)
-        const ccGross = round(cashFromSales * 0.70) // ~70% of remaining is credit card
-        const ccFees = round(ccGross * ccFeeRate)
-        const ccDeposit = round(ccGross - ccFees)
+          const totalGrossReceipts = round(netSales + taxes)
+          const uberPayment = round(uberSales + facilitatorTaxPaid)
+          const doordashPayment = round(doordashSales + (doordashSales > 0 ? round(doordashSales / netSales * taxes * 0.11) : 0))
+          const grubhubPayment = round(grubhubSales + (grubhubSales > 0 ? round(grubhubSales / netSales * taxes * 0.11) : 0))
 
-        // Cash deposit = remaining after all non-cash
-        const cashDeposit = round(totalGrossReceipts - ccGross - uberPayment - doordashPayment - grubhubPayment - ebtAmount)
+          const ccFeeRate = 0.018
+          const cashFromSales = round(totalGrossReceipts - uberPayment - doordashPayment - grubhubPayment - ebtAmount)
+          const ccGross = round(cashFromSales * 0.70)
+          const ccFees = round(ccGross * ccFeeRate)
+          const ccDeposit = round(ccGross - ccFees)
+          const cashDeposit = round(totalGrossReceipts - ccGross - uberPayment - doordashPayment - grubhubPayment - ebtAmount)
 
-        const salesPacketData: SalesPacketData = {
-          net_sales: netSales,
-          total_taxes: taxes,
-          for_here_sales: forHereSales,
-          to_go_sales: toGoSales,
-          uber_delivery_sales: round(uberSales * 0.90), // ~90% delivery
-          uber_takeout_sales: round(uberSales * 0.10), // ~10% takeout
-          doordash_takeout_sales: round(doordashSales * 0.30),
-          doordash_delivery_sales: round(doordashSales * 0.70),
-          grubhub_delivery_sales: grubhubSales,
-          tax_paid_by_uber: facilitatorTaxPaid,
-          sales_tax: salesTax,
-          marketplace_tax: marketplaceTax,
-          ebt_amount: ebtAmount,
-          uber_payment: uberPayment,
-          doordash_payment: doordashPayment,
-          grubhub_payment: grubhubPayment,
-          credit_card_deposit: ccDeposit,
-          credit_card_fees: ccFees,
-          cash_deposits: cashDeposit,
+          salesPacketData = {
+            net_sales: netSales,
+            total_taxes: taxes,
+            for_here_sales: forHereSales,
+            to_go_sales: toGoSales,
+            uber_delivery_sales: round(uberSales * 0.90),
+            uber_takeout_sales: round(uberSales * 0.10),
+            doordash_takeout_sales: round(doordashSales * 0.30),
+            doordash_delivery_sales: round(doordashSales * 0.70),
+            grubhub_delivery_sales: grubhubSales,
+            tax_paid_by_uber: facilitatorTaxPaid,
+            sales_tax: salesTax,
+            marketplace_tax: marketplaceTax,
+            ebt_amount: ebtAmount,
+            uber_payment: uberPayment,
+            doordash_payment: doordashPayment,
+            grubhub_payment: grubhubPayment,
+            credit_card_deposit: ccDeposit,
+            credit_card_fees: ccFees,
+            cash_deposits: cashDeposit,
+          }
         }
 
         const siteConfig: SiteMappingConfig = {
@@ -221,29 +242,29 @@ export async function POST(request: NextRequest) {
           store_id: mapping.store_id,
           business_date: sale.business_date,
           status: 'ready',
-          dine_in_sales: forHereSales,
-          togo_sales: toGoSales,
+          dine_in_sales: salesPacketData.for_here_sales,
+          togo_sales: salesPacketData.to_go_sales,
           uber_delivery_sales: salesPacketData.uber_delivery_sales,
           uber_takeout_sales: salesPacketData.uber_takeout_sales,
           doordash_delivery_sales: salesPacketData.doordash_delivery_sales,
           doordash_takeout_sales: salesPacketData.doordash_takeout_sales,
-          grubhub_sales: grubhubSales,
-          gross_sales: sale.gross_sales || 0,
-          net_sales: netSales,
+          grubhub_sales: Math.round(((salesPacketData.grubhub_delivery_sales || 0) + (salesPacketData.grubhub_takeout_sales || 0)) * 100) / 100,
+          gross_sales: Math.round((salesPacketData.net_sales + salesPacketData.total_taxes) * 100) / 100,
+          net_sales: salesPacketData.net_sales,
           total_discounts: sale.discounts || 0,
-          sales_tax: salesTax,
-          marketplace_facilitator_tax: marketplaceTax,
-          facilitator_tax_paid: facilitatorTaxPaid,
-          total_taxes: taxes,
-          total_credit_cards_gross: ccGross,
-          credit_card_deposit: ccDeposit,
-          credit_card_fees: ccFees,
-          uber_payment: uberPayment,
-          doordash_payment: doordashPayment,
-          grubhub_payment: grubhubPayment,
-          ebt_amount: ebtAmount,
+          sales_tax: salesPacketData.sales_tax,
+          marketplace_facilitator_tax: salesPacketData.marketplace_tax,
+          facilitator_tax_paid: salesPacketData.tax_paid_by_uber,
+          total_taxes: salesPacketData.total_taxes,
+          total_credit_cards_gross: Math.round((salesPacketData.credit_card_deposit + salesPacketData.credit_card_fees) * 100) / 100,
+          credit_card_deposit: salesPacketData.credit_card_deposit,
+          credit_card_fees: salesPacketData.credit_card_fees,
+          uber_payment: salesPacketData.uber_payment,
+          doordash_payment: salesPacketData.doordash_payment,
+          grubhub_payment: salesPacketData.grubhub_payment,
+          ebt_amount: salesPacketData.ebt_amount,
           expected_cash: expectedCash,
-          cash_deposit: cashDeposit,
+          cash_deposit: salesPacketData.cash_deposits,
           cash_over_short: 0,
           journal_total_debits: journal.totalDebits,
           journal_total_credits: journal.totalCredits,
@@ -265,7 +286,7 @@ export async function POST(request: NextRequest) {
             id: upserted?.id,
             store: storeName,
             date: sale.business_date,
-            netSales: netSales,
+            netSales: salesPacketData.net_sales,
             totalDebits: journal.totalDebits,
             totalCredits: journal.totalCredits,
             isBalanced: journal.isBalanced,

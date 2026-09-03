@@ -27,11 +27,13 @@ export interface SalesPacketData {
 
   for_here_sales: number;
   to_go_sales: number;
+  toast_online_sales?: number;
   uber_delivery_sales: number;
   uber_takeout_sales: number;
   doordash_takeout_sales: number;
   doordash_delivery_sales: number;
   grubhub_delivery_sales: number;
+  grubhub_takeout_sales?: number;
 
   tax_paid_by_uber: number;
   sales_tax: number;
@@ -84,12 +86,18 @@ export function generateJournalLines(salesData: SalesPacketData, siteMapping: Si
 
   // --- CREDITS ---
   addLine('40050', 'For Here', 0, salesData.for_here_sales, 'Dining Option: For Here');
+  if (salesData.toast_online_sales) {
+    addLine('40050', 'Toast Online', 0, salesData.toast_online_sales, 'Dining Option: Toast Online');
+  }
   addLine('40050', 'To Go', 0, salesData.to_go_sales, 'Dining Option: To Go');
   addLine('40060', 'Uber Eats - Delivery', 0, salesData.uber_delivery_sales, 'Dining Option: Uber Eats - Delivery');
   addLine('40060', 'Uber Eats Takeout', 0, salesData.uber_takeout_sales, 'Dining Option: Uber Eats Takeout');
   addLine('40062', 'DoorDash - Takeout', 0, salesData.doordash_takeout_sales, 'Dining Option: DoorDash - Takeout');
   addLine('40062', 'DoorDash - Delivery', 0, salesData.doordash_delivery_sales, 'Dining Option: DoorDash - Delivery');
   addLine('40063', 'GrubHub Delivery', 0, salesData.grubhub_delivery_sales, 'Dining Option: GrubHub Delivery');
+  if (salesData.grubhub_takeout_sales) {
+    addLine('40063', 'Grubhub - Takeout', 0, salesData.grubhub_takeout_sales, 'Dining Option: Grubhub - Takeout');
+  }
   
   addLine('12050', 'Tax Paid by Uber Eats', 0, salesData.tax_paid_by_uber, 'Tax Paid by Facilitator');
   addLine('24001', 'Sales Tax', 0, salesData.sales_tax, `Tax Rate: ${siteMapping.sales_tax_rate_name}`);
