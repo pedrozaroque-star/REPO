@@ -23,7 +23,7 @@
 import React, { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ChevronLeft, ChevronRight, CheckCircle2, Circle, AlertCircle, PlayCircle, Loader2, Settings, Sparkles, Send } from 'lucide-react'
+import { ChevronLeft, ChevronRight, CheckCircle2, Circle, AlertCircle, PlayCircle, Loader2, Settings, Sparkles, Send, AlertTriangle } from 'lucide-react'
 import { useLanguage } from '@/lib/i18n'
 import { createClient } from '@/lib/supabase-client'
 
@@ -38,23 +38,27 @@ interface Packet {
   business_date: string
   status: 'pending' | 'ready' | 'reviewed' | 'published' | 'rejected'
   net_sales: number
+  notes?: string
+  qb_sync_response?: any
 }
 
 // Map status to badge styles matching the standard app palette
-const STATUS_STYLES = {
+const STATUS_STYLES: Record<string, string> = {
   pending: 'bg-slate-100 text-slate-500 border border-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700',
   ready: 'bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 dark:bg-blue-900/40 dark:text-blue-300 dark:border-blue-800/60 shadow-sm',
   reviewed: 'bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100 dark:bg-amber-900/40 dark:text-amber-300 dark:border-amber-800/60 shadow-sm',
   published: 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 dark:bg-emerald-900/40 dark:text-emerald-300 dark:border-emerald-800/60 shadow-sm',
   rejected: 'bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100 dark:bg-rose-900/40 dark:text-rose-300 dark:border-rose-800/60 shadow-sm',
+  open_orders: 'bg-amber-500/15 text-amber-800 border-2 border-amber-500/50 hover:bg-amber-500/25 dark:bg-amber-950/50 dark:text-amber-200 dark:border-amber-600/70 shadow-sm',
 }
 
-const STATUS_ICONS = {
+const STATUS_ICONS: Record<string, React.ReactNode> = {
   pending: <Circle className="w-3.5 h-3.5 mr-1" />,
   ready: <PlayCircle className="w-3.5 h-3.5 mr-1 text-blue-600 dark:text-blue-400" />,
   reviewed: <AlertCircle className="w-3.5 h-3.5 mr-1 text-amber-600 dark:text-amber-400" />,
   published: <CheckCircle2 className="w-3.5 h-3.5 mr-1 text-emerald-600 dark:text-emerald-400" />,
   rejected: <AlertCircle className="w-3.5 h-3.5 mr-1 text-rose-600 dark:text-rose-400" />,
+  open_orders: <AlertTriangle className="w-3.5 h-3.5 mr-1 text-amber-600 dark:text-amber-400" />,
 }
 
 export default function AccountingPage() {
@@ -324,18 +328,21 @@ export default function AccountingPage() {
                       {weekDays.map((d, i) => {
                         const dateStr = d.toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
                         const packet = getPacketForCell(store.id, dateStr)
+                        const validation = (packet as any)?.qb_sync_response?.validation
+                        const hasOpenOrders = Boolean(validation?.hasOpenOrders || (validation?.openOrdersCount && validation.openOrdersCount > 0))
+                        const displayStatus = hasOpenOrders ? 'open_orders' : (packet?.status || 'pending')
 
                         return (
                           <td key={i} className="px-2 py-3 text-center">
                             {packet ? (
                               <Link href={`/contabilidad/${packet.id}`}>
                                 <div 
-                                  className={`inline-flex flex-col items-center justify-center px-3 py-1.5 text-xs rounded-xl cursor-pointer transition-all hover:scale-105 ${STATUS_STYLES[packet.status] || STATUS_STYLES.pending}`}
-                                  title={`Venta Neta: ${formatCurrency(packet.net_sales)}`}
+                                  className={`inline-flex flex-col items-center justify-center px-3 py-1.5 text-xs rounded-xl cursor-pointer transition-all hover:scale-105 ${STATUS_STYLES[displayStatus] || STATUS_STYLES.pending}`}
+                                  title={hasOpenOrders ? `⚠️ ${validation.openOrdersCount} Órdenes Abiertas en Toast POS` : `Venta Neta: ${formatCurrency(packet.net_sales)}`}
                                 >
                                   <div className="flex items-center font-bold">
-                                    {STATUS_ICONS[packet.status]}
-                                    <span>{t(`accounting.status_${packet.status}`) || packet.status}</span>
+                                    {STATUS_ICONS[displayStatus]}
+                                    <span>{hasOpenOrders ? (t('accounting.label_open_orders') || 'Órdenes Abiertas') : (t(`accounting.status_${packet.status}`) || packet.status)}</span>
                                   </div>
                                   <span className="text-[11px] font-mono font-bold mt-0.5 opacity-90">
                                     {formatCurrency(packet.net_sales)}

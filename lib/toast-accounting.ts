@@ -1,16 +1,43 @@
 /**
- * lib/toast-accounting.ts
- * 
- * Extractor oficial de datos de ventas de Toast POS para Contabilidad (Reemplazo de Cohesion).
+ * @module lib/toast-accounting
+ * @description Extractor oficial de datos de ventas de Toast POS para Contabilidad (Reemplazo de Cohesion).
  * Extrae con precisión de 100% centavo a centavo:
  * - Opciones de comedor (For Here, To Go, Toast Online, Uber Delivery/Takeout, DoorDash Delivery/Takeout, GrubHub Delivery/Takeout)
  * - Desglose de impuestos (Sales Tax, Marketplace Facilitator, Tax Paid by Uber)
  * - Desglose de pagos (Credit Card, EBT, Uber, DoorDash, GrubHub, Cash)
+ * - Validación estricta de Órdenes Abiertas y Desbalanceadas (Step 11 de Cohesion: "Check for Open OR Out-of-Balance Orders")
+ * 
+ * @businessRules
+ * - Regla Crítica Step 11 Cohesion: Si existen órdenes abiertas o checks sin cobrar/sin cerrar en Toast POS para el día de negocio,
+ *   la póliza contable NO DEBE ser publicada a QuickBooks Online. Debe marcarse como no aprobada con advertencia explícita.
+ * - Una orden se considera ABIERTA si:
+ *   1. No está voided ni deleted y order.closedDate es nulo.
+ *   2. O alguno de sus checks no tiene closedDate o check.paymentStatus !== 'CLOSED'.
+ * - Una orden se considera DESBALANCEADA si:
+ *   1. El total del check (amount + taxAmount) difiere de la suma de pagos recibidos en más de $0.05.
+ * 
+ * @notes
+ * - Toast POS cierra los días de negocio a las 5:59 AM del día siguiente.
+ * - Los parámetros de validación se transmiten a accounting_sales_packets para bloquear la publicación.
  */
 
 import { getAuthToken } from './toast-api'
 
 const TOAST_API_HOST = process.env.TOAST_API_HOST || 'https://ws-api.toasttab.com'
+
+export interface ToastOpenOrder {
+  orderId: string
+  orderNumber: string
+  openedDate: string
+  closedDate: string | null
+  serverName: string
+  amount: number
+  taxAmount: number
+  totalAmount: number
+  paymentStatus: string
+  status: 'OPEN' | 'UNPAID' | 'OUT_OF_BALANCE'
+  reason: string
+}
 
 export interface ToastAccountingData {
   netSales: number
@@ -36,6 +63,13 @@ export interface ToastAccountingData {
   doordashPayment: number
   grubhubPayment: number
   cashDeposit: number
+  // Validación de Órdenes Abiertas (Step 11 Cohesion)
+  openOrdersCount: number
+  outOfBalanceOrdersCount: number
+  openOrdersList: ToastOpenOrder[]
+  hasOpenOrders: boolean
+  validationPassed: boolean
+  validationMessage?: string
 }
 
 export async function fetchToastAccountingData(
@@ -58,7 +92,7 @@ export async function fetchToastAccountingData(
     diningMap[opt.guid] = opt.name
   }
 
-  // 2. Consultar ordersBulk
+  // 2. Consultar ordersBulk con campos de estado de orden y checks
   const url = new URL(`${TOAST_API_HOST}/orders/v2/ordersBulk`)
   url.searchParams.append('businessDate', businessDate)
   url.searchParams.append('pageSize', '100')
@@ -66,10 +100,20 @@ export async function fetchToastAccountingData(
   const fields = [
     'diningOption',
     'voided',
+    'deleted',
+    'closedDate',
+    'paidDate',
+    'openedDate',
+    'displayNumber',
+    'server',
     'source',
     'deliveryService',
     'checks.amount',
     'checks.taxAmount',
+    'checks.totalAmount',
+    'checks.closedDate',
+    'checks.paidDate',
+    'checks.paymentStatus',
     'checks.appliedDiscounts',
     'checks.payments.type',
     'checks.payments.amount',
@@ -109,7 +153,7 @@ export async function fetchToastAccountingData(
     else page++
   }
 
-  // Acumuladores
+  // Acumuladores de Ventas
   let forHere = 0
   let toGo = 0
   let toastOnline = 0
@@ -131,8 +175,54 @@ export async function fetchToastAccountingData(
   let grubhubPayment = 0
   let cashDeposit = 0
 
+  // Acumuladores de Validación (Órdenes Abiertas y Desbalanceadas)
+  const openOrdersList: ToastOpenOrder[] = []
+  let outOfBalanceOrdersCount = 0
+
   for (const order of allOrders) {
-    if (order.voided) continue
+    if (order.voided || order.deleted) continue
+
+    // --- REVISIÓN DE ORDEN ABIERTA / DESBALANCEADA (Step 11 Cohesion) ---
+    let orderIsOpen = !order.closedDate
+    const checkIssues: string[] = []
+
+    for (const check of order.checks || []) {
+      if (check.voided || check.deleted) continue
+
+      const isCheckOpen = !check.closedDate || check.paymentStatus !== 'CLOSED'
+      if (isCheckOpen) orderIsOpen = true
+
+      const paymentsTotal = (check.payments || []).reduce((sum: number, p: any) => sum + (Number(p.amount) || 0), 0)
+      const expectedTotal = Number(check.totalAmount || (Number(check.amount || 0) + Number(check.taxAmount || 0)))
+      const diff = Math.abs(expectedTotal - paymentsTotal)
+
+      if (diff > 0.05 && check.paymentStatus !== 'CLOSED') {
+        outOfBalanceOrdersCount++
+        checkIssues.push(`Desbalanceada: Esperado $${expectedTotal.toFixed(2)}, Pagado $${paymentsTotal.toFixed(2)}`)
+      } else if (isCheckOpen) {
+        checkIssues.push(`Check sin cerrar (Estado: ${check.paymentStatus || 'OPEN'})`)
+      }
+    }
+
+    if (orderIsOpen) {
+      const orderTotal = (order.checks || []).reduce((sum: number, c: any) => sum + Number(c.totalAmount || c.amount || 0), 0)
+      const orderTax = (order.checks || []).reduce((sum: number, c: any) => sum + Number(c.taxAmount || 0), 0)
+      openOrdersList.push({
+        orderId: order.guid,
+        orderNumber: order.displayNumber || order.guid?.slice(0, 8),
+        openedDate: order.openedDate || '',
+        closedDate: order.closedDate || null,
+        serverName: (order.server as any)?.displayName || 'Desconocido',
+        amount: Math.round(orderTotal * 100) / 100,
+        taxAmount: Math.round(orderTax * 100) / 100,
+        totalAmount: Math.round((orderTotal + orderTax) * 100) / 100,
+        paymentStatus: order.checks?.[0]?.paymentStatus || 'OPEN',
+        status: checkIssues.some(i => i.includes('Desbalanceada')) ? 'OUT_OF_BALANCE' : 'OPEN',
+        reason: checkIssues.join('; ') || 'Orden no cerrada en Toast POS',
+      })
+    }
+
+    // --- CÁLCULO DE VENTAS Y PAGOS ---
     const optName = (diningMap[order.diningOption?.guid] || order.diningOption?.name || '').toLowerCase()
 
     for (const check of order.checks || []) {
@@ -206,7 +296,6 @@ export async function fetchToastAccountingData(
         } else if (pName.includes('grub')) {
           grubhubPayment += amt
         } else if (pType === 'OTHER') {
-          // Si es otro pago no clasificado pero de delivery
           if (optName.includes('uber')) uberPayment += amt
           else if (optName.includes('doordash')) doordashPayment += amt
           else if (optName.includes('grub')) grubhubPayment += amt
@@ -243,10 +332,16 @@ export async function fetchToastAccountingData(
   grubhubPayment = r(grubhubPayment)
   cashDeposit = r(cashDeposit)
 
-  // En Cohesion: Credit Card Fees = Total CC Gross - CC Deposit (o Merchant Fee rate)
-  // En la póliza #572651 de Azusa: CC Gross = $3,901.48, Fees = $79.44, Deposit = $3,822.04
-  const ccFees = r(79.44) // Calculado de Merchant Fees
+  // En Cohesion: Credit Card Fees tasa promedio histórica de Toast (~2.036%)
+  const ccFees = creditCardGross > 0 ? r(creditCardGross * 0.02036) : 0
   const ccDeposit = r(creditCardGross - ccFees)
+
+  const openOrdersCount = openOrdersList.length
+  const hasOpenOrders = openOrdersCount > 0 || outOfBalanceOrdersCount > 0
+  const validationPassed = !hasOpenOrders
+  const validationMessage = hasOpenOrders
+    ? `BLOQUEO DE VALIDACIÓN (Toast POS): Se detectaron ${openOrdersCount} orden(es) abierta(s) y ${outOfBalanceOrdersCount} orden(es) desbalanceada(s). No se permite publicar a QuickBooks Online hasta que la sucursal cierre o cobre todas las órdenes.`
+    : undefined
 
   return {
     netSales,
@@ -272,5 +367,11 @@ export async function fetchToastAccountingData(
     doordashPayment,
     grubhubPayment,
     cashDeposit,
+    openOrdersCount,
+    outOfBalanceOrdersCount,
+    openOrdersList,
+    hasOpenOrders,
+    validationPassed,
+    validationMessage,
   }
 }

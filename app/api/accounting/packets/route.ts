@@ -142,9 +142,11 @@ export async function POST(request: NextRequest) {
         let salesPacketData: SalesPacketData | null = null
         const extId = (mapping as any).stores?.external_id
 
+        let toastAccountingResult: any = null
         if (extId) {
           try {
             const toastData = await fetchToastAccountingData(extId, sale.business_date.replace(/-/g, ''))
+            toastAccountingResult = toastData
             salesPacketData = {
               net_sales: toastData.netSales,
               total_taxes: toastData.totalTaxes,
@@ -237,11 +239,33 @@ export async function POST(request: NextRequest) {
         const expectedCash = calculateExpectedCash(salesPacketData)
         const docNumber = formatDocNumber(storeName.replace(/^Tacos Gavilan\s+/i, '').trim(), sale.business_date)
 
+        // Determine status based on Open Orders validation (Step 11 Cohesion Rule) and Journal Balance
+        const hasOpenOrders = toastAccountingResult?.hasOpenOrders ?? false
+        const openOrdersCount = toastAccountingResult?.openOrdersCount ?? 0
+        const outOfBalanceOrdersCount = toastAccountingResult?.outOfBalanceOrdersCount ?? 0
+        const openOrdersList = toastAccountingResult?.openOrdersList ?? []
+
+        const isBalanced = journal.isBalanced
+        // If there are open orders or unclosed checks in Toast POS, the packet MUST stay in 'pending' status
+        const packetStatus = hasOpenOrders ? 'pending' : (isBalanced ? 'ready' : 'pending')
+
+        const validationInfo = {
+          passed: !hasOpenOrders,
+          hasOpenOrders,
+          openOrdersCount,
+          outOfBalanceOrdersCount,
+          openOrders: openOrdersList,
+          checkedAt: new Date().toISOString(),
+          message: hasOpenOrders 
+            ? `⚠️ BLOQUEO DE VALIDACIÓN (Toast POS): Se detectaron ${openOrdersCount} orden(es) abierta(s) y ${outOfBalanceOrdersCount} desbalanceada(s). Publicación a QuickBooks bloqueada hasta su cierre en el POS.`
+            : '✓ Validación superada: 0 órdenes abiertas en Toast POS. Póliza balanceada lista para revisión.'
+        }
+
         // Upsert the packet
         const packetData = {
           store_id: mapping.store_id,
           business_date: sale.business_date,
-          status: 'ready',
+          status: packetStatus,
           dine_in_sales: salesPacketData.for_here_sales,
           togo_sales: salesPacketData.to_go_sales,
           uber_delivery_sales: salesPacketData.uber_delivery_sales,
@@ -270,6 +294,8 @@ export async function POST(request: NextRequest) {
           journal_total_credits: journal.totalCredits,
           journal_lines: journal.lines,
           qb_doc_number: docNumber,
+          notes: validationInfo.message,
+          qb_sync_response: { validation: validationInfo },
           updated_at: new Date().toISOString(),
         }
 
