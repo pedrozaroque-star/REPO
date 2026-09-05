@@ -1560,7 +1560,7 @@ export default function SchedulePlanner() {
             <SalesDetailModal
                 isOpen={salesDetailModal.isOpen}
                 onClose={() => setSalesDetailModal({ isOpen: false, date: null })}
-                storeGuid={storeGuid || ''}
+                storeGuid={storeGuid || currentStore?.id || selectedStoreId || ''}
                 date={salesDetailModal.date || ''}
                 storeName={currentStore?.name}
             />

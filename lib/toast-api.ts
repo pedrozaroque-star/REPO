@@ -1100,10 +1100,17 @@ export const fetchToastData = async (options: ToastMetricsOptions): Promise<{ ro
 
     // USE REAL STORES IF AVAILABLE, ELSE MOCK
     const storesToUse = realStores.length > 0 ? realStores : TOAST_STORES_MOCK
-    const targetIds = String(options.storeIds)
+    const targetIdList = String(options.storeIds)
+        .split(',')
+        .map(id => id.trim().toLowerCase())
+
     const storeList = options.storeIds === 'all'
         ? storesToUse
-        : storesToUse.filter(s => targetIds.includes(s.id))
+        : storesToUse.filter(s =>
+            targetIdList.includes(s.id.toLowerCase()) ||
+            (s.dbId && targetIdList.includes(String(s.dbId).toLowerCase())) ||
+            (s.name && targetIdList.includes(s.name.toLowerCase()))
+        )
 
     console.log(`🔍 [DEBUG] Auth Token: ${!!token}`)
     console.log(`🔍 [DEBUG] Usando Tiendas: ${realStores.length > 0 ? 'REALES (API)' : 'MOCK (Locales)'}`)

@@ -1658,7 +1658,7 @@ export const MONTHLY_REPORTS: Record<'septiembre' | 'agosto' | 'julio' | 'junio'
     "id": "septiembre",
     "monthName": "Septiembre",
     "monthYear": "Septiembre 2026",
-    "totalHours": 20.5,
+    "totalHours": 21.25,
     "totalTasks": 27,
     "completedTasks": 19,
     "inProgressTasks": 4,
@@ -1712,6 +1712,20 @@ export const MONTHLY_REPORTS: Record<'septiembre' | 'agosto' | 'julio' | 'junio'
             ],
             "descEs": "• <strong>Auditoría Forense e Inspección Profunda de Cohesion (cohesion4restaurants.com)</strong>: Extracción exhaustiva con Puppeteer de los 12 pasos de configuración del Wizard de Cohesion, administración de empresas (CompanyId=1866) y sistemas conectados. Mapeo minucioso de parámetros contables: ventas por opción de comedor (For Here, To Go, Uber, DoorDash, GrubHub), cuentas por cobrar, tasas de impuestos y reglas de validación.<br>• <strong>Centro de Configuración Contable Interactivo (/contabilidad/configuracion)</strong>: Reemplazo de la vista estática por un panel interactivo con modal deslizable de edición para las 15 sucursales. Incorporación de 5 pestañas de configuración (QuickBooks & Ubicación, Bancos y Efectivo, Ventas GL, Impuestos & Pasivos, CxC & Comisiones), selector oficial de cuentas bancarias y botón de restauración a valores canónicos de Cohesion con persistencia inmediata en Supabase.<br>• <strong>Regla de Bloqueo por Órdenes Abiertas (Step 11 de Cohesion) & Validación Dual</strong>: Implementación y verificación del bloqueo estricto en publicación ante tickets desbalanceados o abiertos en Toast POS con tabla detallada de causas y advertencias en el dashboard.<br>• <strong>Auditoría Masiva Exhaustiva Enero a Julio 2026 (3,171 Pólizas y 53,907 Líneas Contables)</strong>: Descarga y auditoría forense memo por memo y cuenta por cuenta de todas las pólizas de ventas diarias publicadas en QuickBooks Online ($32,711,507.01 USD) contrastadas contra el motor nativo de Toast POS de la app TEG para las 15 sucursales a lo largo de 211 días. Certificación de paridad contable masiva (diferencia global menor al 0.15% en $32.7M atribuible únicamente a reembolsos fuera de corte y tickets desbalanceados del Step 11), confirmando la capacidad total de la aplicación para sustituir y apagar Cohesion ($450/mes de ahorro).<br>• <strong>Centinela Automático de las 6:15 AM & Conciliación Continua de 7 Días (Opción A)</strong>: Creación del cron job diario de las 6:15 AM PST (/api/cron/sync-accounting) que procesa el cierre laboral de ayer (5:59 AM) y audita de forma rodante los últimos 7 días. Recalcula automáticamente días no publicados ante ajustes de tickets en Toast POS, detecta reembolsos posteriores en días ya publicados en QuickBooks (como los $7.98 de Downey) y despliega banderas de advertencia en el dashboard de Raquel para generar asientos de ajuste en 1 clic.<br>• <strong>Manual Ejecutivo Integral para Raquel Velázquez</strong>: Elaboración y generación del manual operativo de 5 páginas en PDF de alta fidelidad y HTML interactivo para auditoría diaria y publicación de pólizas en 1 clic.",
             "descEn": "• <strong>Forensic Audit & Deep Crawl of Cohesion (cohesion4restaurants.com)</strong>: Exhaustive Puppeteer extraction across all 12 setup wizard steps, company management (CompanyId=1866), and connected systems in Cohesion. Extracted dining option mappings (For Here, To Go, Uber, DoorDash, GrubHub), receivables, tax accounts, and validation rules.<br>• <strong>Interactive Store Configuration Center (/contabilidad/configuracion)</strong>: Replaced static read-only table with an interactive drawer modal for all 15 stores. Built 5 dedicated configuration tabs (QuickBooks & Location, Banking & Cash, Sales GL, Taxes & Liabilities, Receivables & Fees), official bank account selector, and instant Cohesion defaults restore button with live Supabase persistence.<br>• <strong>Open Orders Publication Blocking (Cohesion Step 11) & Dual Verification</strong>: Enforced strict blocking on QuickBooks publishing when unclosed/out-of-balance Toast POS checks exist, accompanied by visual breakdown alerts.<br>• <strong>Exhaustive Historical Audit Jan to Jul 2026 (3,171 Packets & 53,907 Journal Lines)</strong>: Downloaded and forensically audited memo-by-memo and account-by-account all daily sales journal entries published in QuickBooks Online ($32,711,507.01 USD) against native Toast POS calculations across all 15 branches over 211 calendar days. Certified massive accounting parity (global variance under 0.15% over $32.7M attributable strictly to cross-date refunds and Step 11 unclosed tickets), validating complete readiness to permanently decommission Cohesion ($450/mo savings).<br>• <strong>6:15 AM Automated Sentinel & 7-Day Rolling Reconciliation (Option A)</strong>: Developed daily 6:15 AM PST cron job (/api/cron/sync-accounting) running right after the 5:59 AM business cutoff, executing a 7-day continuous audit window. Silently recalculates unpublished days when Toast tickets update, detects post-publish refunds on already-published days (such as the $7.98 Downey void), and alerts Raquel with 1-click adjusting entry banners on the dashboard.<br>• <strong>Comprehensive Executive Manual for Raquel Velázquez</strong>: Created and generated the 5-page high-fidelity operational guide PDF and interactive HTML manual for daily sales audit and 1-click QuickBooks publishing."
+        },
+        {
+            "date": "05-Sep-2026",
+            "time": "9:00 AM - 9:45 AM",
+            "hours": 0.75,
+            "badges": [
+                "Planificador",
+                "Tendencia de Ventas",
+                "SalesCharts",
+                "Corrección Proyecciones",
+                "Multi-Tienda"
+            ],
+            "descEs": "• <strong>Corrección de Gráfica de Tendencia de Ventas en el Planificador</strong>: Diagnóstico y resolución del bug de acumulación en el modal de ventas por hora (SalesDetailModal.tsx). Se corrigió el bucle que multiplicaba las proyecciones por 24 horas ($341k en lugar de $14.8k de la tienda individual), se sincronizó la distribución de labor y ventas netas con el motor canónico de app/ventas/page.tsx, y se corrigió el filtro multitienda en lib/toast-api.ts para admitir GUID de Toast y DB Store ID.",
+            "descEn": "• <strong>Sales Trend Chart Bugfix in Schedule Planner</strong>: Diagnosed and resolved the projection multiplier bug in the hourly sales modal (SalesDetailModal.tsx). Fixed the loop that multiplied daily projections by 24 hours ($341k instead of $14.8k for the individual store), aligned net sales and labor curve distribution with canonical app/ventas/page.tsx logic, and enhanced multi-store filtering in lib/toast-api.ts to support both Toast GUID and DB Store ID."
         }
     ],
     "effortSummary": [
@@ -1721,7 +1735,7 @@ export const MONTHLY_REPORTS: Record<'septiembre' | 'agosto' | 'julio' | 'junio'
         },
         {
             "module": "Reporte de Actividades TSX, Gantt & Planificador Lynwood",
-            "hours": 4
+            "hours": 4.75
         },
         {
             "module": "Barra Lateral, Finanzas & Módulo Miles Raquel",

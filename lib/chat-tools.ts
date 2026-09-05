@@ -1,6 +1,6 @@
 /**
  * @module chat-tools
- * @description Operational tools executor for TEG Assistant AI. It acts as the interface between Google Gemini's function calling loops and Tacos El Gavilan's backend database and analytical engines.
+ * @description Operational tools executor for TEG Assistant AI. It acts as the interface between Google Gemini's function calling loops and Tacos Gavilan's backend database and analytical engines.
  * @businessRules
  * - Incorporates rules from the 6 AM PST business day boundary.
  * - Adheres to California compliance guidelines by wrapping the AI breaks scheduler.

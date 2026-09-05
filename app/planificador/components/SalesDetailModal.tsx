@@ -1,6 +1,16 @@
+/**
+ * @module app/planificador/components/SalesDetailModal
+ * @description Modal showing hourly sales trend, projected pace, and labor curve for a specific store and date from the planner budget bar.
+ * @businessRules
+ * - Shows 23 hours from 7:00 AM to 5:00 AM of the next day.
+ * - Projected hourly pace must be parsed ONCE per store to avoid multiplying projections across 24 hourly rows.
+ * - Dynamically switches between 'today' (intraday pace tracking) and 'custom' for past/future dates.
+ * @dataFlow
+ * - Store ID + Date -> GET /api/ventas?storeIds=...&startDate=...&endDate=...&groupBy=hour -> SalesCharts.
+ */
 'use client'
 
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect } from 'react'
 import { X, RefreshCw, TrendingUp } from 'lucide-react'
 import SalesCharts from '@/components/sales/SalesCharts'
 import { useLanguage } from '@/lib/i18n'
@@ -39,7 +49,7 @@ export function SalesDetailModal({ isOpen, onClose, storeGuid, date, storeName }
             const json = await res.json()
 
             if (json.data) {
-                const processed = processData(json.data, 'hour', date)
+                const processed = processData(json.data, date)
                 setData(processed)
             }
         } catch (e) {
@@ -50,11 +60,25 @@ export function SalesDetailModal({ isOpen, onClose, storeGuid, date, storeName }
     }
 
     useEffect(() => {
-        fetchData()
+        if (isOpen) {
+            fetchData()
+        }
     }, [isOpen, storeGuid, date])
 
-    // Simplified processData from app/ventas/page.tsx
-    const processData = (rows: any[], groupByMode: string, referenceDate: string) => {
+    // Canonical processData aligning with app/ventas/page.tsx
+    const processData = (rawRows: any[], referenceDate: string) => {
+        if (!rawRows || rawRows.length === 0) return []
+
+        // If multiple stores are in response, filter by the target store
+        const rows = storeGuid && storeGuid !== 'all'
+            ? rawRows.filter((r: any) =>
+                r.storeId === storeGuid ||
+                (storeName && r.storeName?.toLowerCase() === storeName.toLowerCase())
+            )
+            : rawRows
+
+        const effectiveRows = rows.length > 0 ? rows : rawRows
+
         const nextDate = new Date(referenceDate + 'T00:00:00')
         nextDate.setDate(nextDate.getDate() + 1)
         const nextDateStr = nextDate.toISOString().split('T')[0]
@@ -62,7 +86,7 @@ export function SalesDetailModal({ isOpen, onClose, storeGuid, date, storeName }
         const trendMap = new Map<string, { amount: number, labor: number }>()
         const projMap = new Map<string, number>()
 
-        // Horas de interés: 7 AM a 5 AM (next day)
+        // Standard Business Day Operating Hours: 7 AM to 5 AM (next day)
         const hoursOfInterest = [7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5]
 
         hoursOfInterest.forEach(h => {
@@ -73,38 +97,54 @@ export function SalesDetailModal({ isOpen, onClose, storeGuid, date, storeName }
             projMap.set(timeKey, 0)
         })
 
-        rows.forEach((row: any) => {
-            if (row.hourlySales) {
-                Object.entries(row.hourlySales).forEach(([h, amount]) => {
-                    const hourInt = parseInt(h)
-                    const isNext = hourInt < 6
-                    const dStr = isNext ? nextDateStr : referenceDate
-                    const key = `${dStr} ${hourInt.toString().padStart(2, '0')}:00`
-                    const bucket = trendMap.get(key)
-                    if (bucket) bucket.amount += (Number(amount) || 0)
-                })
+        // 1. Distribute Net Sales per Hourly Row
+        effectiveRows.forEach((row: any) => {
+            const rowPeriod = row.periodStart || ''
+            if (rowPeriod && trendMap.has(rowPeriod)) {
+                const bucket = trendMap.get(rowPeriod)!
+                bucket.amount += (Number(row.netSales) || 0)
             }
+        })
 
-            if (row.hourlyLabor) {
-                Object.entries(row.hourlyLabor).forEach(([h, cost]) => {
-                    const hourInt = parseInt(h)
-                    const isNext = hourInt < 6
-                    const dStr = isNext ? nextDateStr : referenceDate
-                    const key = `${dStr} ${hourInt.toString().padStart(2, '0')}:00`
-                    const bucket = trendMap.get(key)
-                    if (bucket) bucket.labor += (Number(cost) || 0)
-                })
+        // 2. Distribute Hourly Labor via hourlyLabor map
+        const storeHourlyLaborMaps = new Map<string, Record<number, number>>()
+        effectiveRows.forEach((row: any) => {
+            if (row.hourlyLabor && Object.keys(row.hourlyLabor).length > 0 && !storeHourlyLaborMaps.has(row.storeId)) {
+                storeHourlyLaborMaps.set(row.storeId, row.hourlyLabor)
             }
+        })
 
-            if (row.projectedHourly) {
+        effectiveRows.forEach((row: any) => {
+            const rowPeriod = row.periodStart || ''
+            if (rowPeriod && trendMap.has(rowPeriod)) {
+                const bucket = trendMap.get(rowPeriod)!
+                const hourlyLaborMap = storeHourlyLaborMaps.get(row.storeId)
+                if (hourlyLaborMap) {
+                    const hourStr = rowPeriod.split(' ')[1]?.split(':')[0]
+                    const hour = parseInt(hourStr || '0', 10)
+                    bucket.labor += (hourlyLaborMap[hour] || 0)
+                } else {
+                    bucket.labor += (Number(row.laborCost) || 0)
+                }
+            }
+        })
+
+        // 3. Process Projected Hourly Pace — ONLY ONCE per unique store (prevents multiplying 24x)
+        const seenStoresForProj = new Set<string>()
+        effectiveRows.forEach((row: any) => {
+            if (row.projectedHourly && !seenStoresForProj.has(row.storeId)) {
+                seenStoresForProj.add(row.storeId)
                 Object.entries(row.projectedHourly).forEach(([h, amount]) => {
-                    let hourInt = parseInt(h)
+                    let hourInt = parseInt(h, 10)
                     let isNext = hourInt < 6
-                    if (hourInt >= 24) { hourInt -= 24; isNext = true; }
+                    if (hourInt >= 24) {
+                        hourInt -= 24
+                        isNext = true
+                    }
                     const dStr = isNext ? nextDateStr : referenceDate
                     const key = `${dStr} ${hourInt.toString().padStart(2, '0')}:00`
-                    const current = projMap.get(key) || 0
-                    projMap.set(key, current + (Number(amount) || 0))
+                    const currentVal = projMap.get(key) || 0
+                    projMap.set(key, currentVal + (Number(amount) || 0))
                 })
             }
         })
@@ -124,6 +164,11 @@ export function SalesDetailModal({ isOpen, onClose, storeGuid, date, storeName }
 
     if (!isOpen) return null
 
+    // Determine if date inspected is today in California timezone
+    const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
+    const isToday = date === todayStr
+    const chartPeriod = isToday ? 'today' : 'custom'
+
     return (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-300">
             <div className="bg-white dark:bg-slate-900 w-full max-w-5xl rounded-3xl shadow-2xl border border-white/20 overflow-hidden flex flex-col max-h-[90vh]">
@@ -138,7 +183,7 @@ export function SalesDetailModal({ isOpen, onClose, storeGuid, date, storeName }
                                 {t('sales.charts.sales_trend')}
                             </h2>
                             <p className="text-sm text-slate-500 dark:text-slate-400">
-                                {storeName} • {date}
+                                {storeName || 'Tacos Gavilan'} • {date}
                             </p>
                         </div>
                     </div>
@@ -147,6 +192,7 @@ export function SalesDetailModal({ isOpen, onClose, storeGuid, date, storeName }
                             onClick={fetchData}
                             disabled={loading}
                             className="p-2 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-full transition-colors text-slate-500"
+                            title={t('common.refresh') || 'Refresh'}
                         >
                             <RefreshCw size={20} className={loading ? 'animate-spin' : ''} />
                         </button>
@@ -166,9 +212,9 @@ export function SalesDetailModal({ isOpen, onClose, storeGuid, date, storeName }
                             <SurpriseLoader />
                             <p className="animate-pulse">{t('sales.loading_fetching')}</p>
                         </div>
-                    ) : data ? (
+                    ) : data && data.length > 0 ? (
                         <div className="animate-in slide-in-from-bottom-4 duration-500">
-                            <SalesCharts trendData={data} period="today" />
+                            <SalesCharts trendData={data} period={chartPeriod} />
                         </div>
                     ) : (
                         <div className="h-64 flex flex-col items-center justify-center text-slate-500 italic">
