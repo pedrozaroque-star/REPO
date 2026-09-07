@@ -32,6 +32,8 @@ import { fetchToastAccountingData } from '@/lib/toast-accounting'
 import { generateJournalLines, calculateExpectedCash, formatDocNumber } from '@/lib/accounting-journal'
 import type { SalesPacketData, SiteMappingConfig } from '@/lib/accounting-journal'
 
+export const maxDuration = 300
+
 export async function GET() {
   const startTime = Date.now()
   console.log('═══════════════════════════════════════════════════════════════════════')
@@ -39,25 +41,37 @@ export async function GET() {
   console.log('═══════════════════════════════════════════════════════════════════════')
 
   try {
-    // 1. Calculate business dates in Los Angeles timezone
-    const now = new Date()
-    const laDateStr = now.toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
-    const laTime = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
-    const laHour = laTime.getHours()
+    // 1. Calculate business dates in Los Angeles timezone using exact Intl parts
+    const laFormatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/Los_Angeles',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      hour12: false
+    })
+    const parts = laFormatter.formatToParts(new Date())
+    const partMap: Record<string, string> = {}
+    for (const p of parts) partMap[p.type] = p.value
 
-    // If running at 6:15 AM, the business day that just closed at 5:59 AM is yesterday
+    const year = parseInt(partMap.year, 10)
+    const month = parseInt(partMap.month, 10) - 1
+    const day = parseInt(partMap.day, 10)
+    const laHour = parseInt(partMap.hour, 10)
+
+    // A business day in Toast runs from 6:00 AM to 5:59 AM next calendar day.
+    // At 6:15 AM (laHour >= 6), the business day that closed 16 mins ago at 5:59 AM is calendar yesterday (-1).
+    // If run before 6:00 AM (laHour < 6), the business day that closed was calendar 2 days ago (-2).
     const daysBackForYesterday = laHour < 6 ? 2 : 1
-    const yesterdayDate = new Date(laTime)
-    yesterdayDate.setDate(yesterdayDate.getDate() - daysBackForYesterday)
-    const yesterdayStr = yesterdayDate.toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
 
-    // Build the rolling 7-day list (yesterday + previous 6 days)
+    // Build the rolling 7-day list (yesterday + previous 6 days) using clean UTC date arithmetic
     const rollingDates: string[] = []
     for (let i = 0; i < 7; i++) {
-      const d = new Date(yesterdayDate)
-      d.setDate(d.getDate() - i)
-      rollingDates.push(d.toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' }))
+      const targetUtc = new Date(Date.UTC(year, month, day - daysBackForYesterday - i, 12, 0, 0))
+      rollingDates.push(targetUtc.toISOString().split('T')[0])
     }
+
+    const yesterdayStr = rollingDates[0]
 
     console.log(`[sync-accounting] Fecha de negocio cerrada hoy (ayer): ${yesterdayStr}`)
     console.log(`[sync-accounting] Ventana rodante de 7 días: ${rollingDates[6]} al ${rollingDates[0]}`)
@@ -251,7 +265,7 @@ export async function GET() {
             ebt_amount: salesPacketData.ebt_amount,
             expected_cash: expectedCash,
             cash_deposit: salesPacketData.cash_deposits,
-            cash_over_short: 0,
+            cash_over_short: Math.round((salesPacketData.cash_deposits - expectedCash) * 100) / 100,
             journal_total_debits: journal.totalDebits,
             journal_total_credits: journal.totalCredits,
             journal_lines: journal.lines,

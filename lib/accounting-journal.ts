@@ -136,6 +136,34 @@ export function generateJournalLines(salesData: SalesPacketData, siteMapping: Si
   totalDebits = round(totalDebits);
   totalCredits = round(totalCredits);
 
+  // Penny plug: If there is a 1-cent rounding difference between debits and credits,
+  // balance it via 51050 so QuickBooks Online never rejects with "unbalanced journal"
+  const pennyDiff = round(totalDebits - totalCredits);
+  if (Math.abs(pennyDiff) === 0.01) {
+    const cashOverShortLine = lines.find(l => l.account === '51050');
+    if (cashOverShortLine) {
+      if (pennyDiff > 0) {
+        if (cashOverShortLine.credit > 0) cashOverShortLine.credit = round(cashOverShortLine.credit + 0.01);
+        else if (cashOverShortLine.debit > 0) cashOverShortLine.debit = round(cashOverShortLine.debit - 0.01);
+      } else {
+        if (cashOverShortLine.debit > 0) cashOverShortLine.debit = round(cashOverShortLine.debit + 0.01);
+        else if (cashOverShortLine.credit > 0) cashOverShortLine.credit = round(cashOverShortLine.credit - 0.01);
+      }
+    } else {
+      lines.push({
+        account: '51050',
+        memo: 'Cash Over/(Short)',
+        debit: pennyDiff < 0 ? 0.01 : 0,
+        credit: pennyDiff > 0 ? 0.01 : 0,
+        sourceMemo: 'Penny Rounding Balancing',
+        location: siteMapping.location,
+        className: siteMapping.className,
+      });
+    }
+    totalDebits = round(lines.reduce((sum, l) => sum + l.debit, 0));
+    totalCredits = round(lines.reduce((sum, l) => sum + l.credit, 0));
+  }
+
   return {
     lines,
     totalDebits,

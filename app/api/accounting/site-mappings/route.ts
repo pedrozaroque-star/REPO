@@ -82,3 +82,56 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({ error: err.message }, { status: 500 })
   }
 }
+
+export const PATCH = PUT
+
+export async function POST(request: NextRequest) {
+  try {
+    const body = await request.json()
+    const { action, store_id } = body as { action: string; store_id?: number }
+
+    if (action === 'restore' && store_id) {
+      // Get store name
+      const { data: store } = await supabaseAdmin.from('stores').select('name').eq('id', store_id).single()
+      if (!store) return NextResponse.json({ error: 'Store not found' }, { status: 404 })
+
+      const { getQBStoreRefs } = await import('@/lib/qb-classes-locations')
+      const refs = getQBStoreRefs(store.name)
+
+      const restoredPayload = {
+        qb_location: refs.locationName,
+        qb_class: refs.className,
+        bank_account_number: refs.bankAccount,
+        bank_account_qb_id: refs.bankAccountQbId,
+        sales_dine_in_account: '40050',
+        sales_uber_account: '40060',
+        sales_doordash_account: '40062',
+        sales_grubhub_account: '40063',
+        sales_tax_account: '24001',
+        ar_uber_account: '12050',
+        ar_doordash_account: '12053',
+        ar_grubhub_account: '12054',
+        ar_postmates_account: '12050',
+        cc_fees_account: '51030',
+        undeposited_funds_account: '13200',
+        cash_over_short_account: '51050',
+        is_active: true,
+        updated_at: new Date().toISOString()
+      }
+
+      const { data: updated, error: updateErr } = await supabaseAdmin
+        .from('accounting_site_mappings')
+        .update(restoredPayload)
+        .eq('store_id', store_id)
+        .select()
+        .single()
+
+      if (updateErr) return NextResponse.json({ error: updateErr.message }, { status: 500 })
+      return NextResponse.json({ success: true, mapping: updated })
+    }
+
+    return NextResponse.json({ error: 'Invalid action' }, { status: 400 })
+  } catch (err: any) {
+    return NextResponse.json({ error: err.message }, { status: 500 })
+  }
+}

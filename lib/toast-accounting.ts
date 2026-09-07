@@ -118,6 +118,8 @@ export async function fetchToastAccountingData(
     'checks.payments.type',
     'checks.payments.amount',
     'checks.payments.tipAmount',
+    'checks.payments.refundAmount',
+    'checks.payments.voided',
     'checks.payments.otherPayment',
     'checks.payments.paymentInstrument',
     'checks.payments.displayName',
@@ -192,8 +194,10 @@ export async function fetchToastAccountingData(
       const isCheckOpen = !check.closedDate || check.paymentStatus !== 'CLOSED'
       if (isCheckOpen) orderIsOpen = true
 
-      const paymentsTotal = (check.payments || []).reduce((sum: number, p: any) => sum + (Number(p.amount) || 0), 0)
-      const expectedTotal = Number(check.totalAmount || (Number(check.amount || 0) + Number(check.taxAmount || 0)))
+      const paymentsTotal = (check.payments || [])
+        .filter((p: any) => !p.voided)
+        .reduce((sum: number, p: any) => sum + (Number(p.amount) || 0), 0)
+      const expectedTotal = Number(check.totalAmount ?? check.amount ?? 0)
       const diff = Math.abs(expectedTotal - paymentsTotal)
 
       if (diff > 0.05 && check.paymentStatus !== 'CLOSED') {
@@ -205,17 +209,21 @@ export async function fetchToastAccountingData(
     }
 
     if (orderIsOpen) {
-      const orderTotal = (order.checks || []).reduce((sum: number, c: any) => sum + Number(c.totalAmount || c.amount || 0), 0)
-      const orderTax = (order.checks || []).reduce((sum: number, c: any) => sum + Number(c.taxAmount || 0), 0)
+      const orderTotal = (order.checks || [])
+        .filter((c: any) => !c.voided && !c.deleted)
+        .reduce((sum: number, c: any) => sum + Number(c.totalAmount ?? c.amount ?? 0), 0)
+      const orderTax = (order.checks || [])
+        .filter((c: any) => !c.voided && !c.deleted)
+        .reduce((sum: number, c: any) => sum + Number(c.taxAmount || 0), 0)
       openOrdersList.push({
         orderId: order.guid,
         orderNumber: order.displayNumber || order.guid?.slice(0, 8),
         openedDate: order.openedDate || '',
         closedDate: order.closedDate || null,
         serverName: (order.server as any)?.displayName || 'Desconocido',
-        amount: Math.round(orderTotal * 100) / 100,
+        amount: Math.round(Math.max(0, orderTotal - orderTax) * 100) / 100,
         taxAmount: Math.round(orderTax * 100) / 100,
-        totalAmount: Math.round((orderTotal + orderTax) * 100) / 100,
+        totalAmount: Math.round(orderTotal * 100) / 100,
         paymentStatus: order.checks?.[0]?.paymentStatus || 'OPEN',
         status: checkIssues.some(i => i.includes('Desbalanceada')) ? 'OUT_OF_BALANCE' : 'OPEN',
         reason: checkIssues.join('; ') || 'Orden no cerrada en Toast POS',
@@ -223,7 +231,10 @@ export async function fetchToastAccountingData(
     }
 
     // --- CÁLCULO DE VENTAS Y PAGOS ---
-    const optName = (diningMap[order.diningOption?.guid] || order.diningOption?.name || '').toLowerCase()
+    const dOptionRaw = diningMap[order.diningOption?.guid] || order.diningOption?.name || ''
+    const dService = order.deliveryService || ''
+    const sourceRaw = order.source || ''
+    const optName = `${dService} ${dOptionRaw} ${sourceRaw}`.toLowerCase()
 
     for (const check of order.checks || []) {
       if (check.voided) continue
@@ -232,13 +243,18 @@ export async function fetchToastAccountingData(
       const checkTax = Number(check.taxAmount || 0)
       totalTax += checkTax
 
-      // Calcular Net Sales del check
+      // Calcular Net Sales del check: Sum(Item.Price) - Sum(Discounts) - Sum(Item.Refunds) - UnlinkedRefunds
       let checkNet = 0
+      let selRefunds = 0
       for (const sel of check.selections || []) {
         if (sel.voided) continue
         let p = Number(sel.price || 0)
         if (sel.taxInclusion === 'INCLUDED') p -= Number(sel.tax || 0)
-        if (sel.refundDetails?.refundAmount) p -= Number(sel.refundDetails.refundAmount)
+        if (sel.refundDetails?.refundAmount) {
+          const rAmt = Number(sel.refundDetails.refundAmount)
+          p -= rAmt
+          selRefunds += rAmt
+        }
         checkNet += p
       }
 
@@ -247,6 +263,14 @@ export async function fetchToastAccountingData(
           checkNet -= Number(d.amount || 0)
         }
       }
+
+      // Reembolsos no vinculados a nivel de pagos (Unlinked Refunds)
+      let paymentRefunds = 0
+      for (const p of check.payments || []) {
+        if (p.refundAmount && !p.voided) paymentRefunds += Number(p.refundAmount)
+      }
+      const unlinkedRefunds = Math.max(0, paymentRefunds - selRefunds)
+      checkNet -= unlinkedRefunds
 
       checkNet = Math.round(checkNet * 100) / 100
 
@@ -279,16 +303,18 @@ export async function fetchToastAccountingData(
 
       // Clasificar pagos
       for (const p of check.payments || []) {
+        if (p.voided) continue
         const amt = Number(p.amount || 0)
-        const pType = p.type || ''
-        const pName = (p.displayName || p.paymentInstrument?.displayName || '').toLowerCase()
+        const pType = (p.type || '').toUpperCase()
+        const pName = (p.displayName || p.paymentInstrument?.displayName || p.otherPayment?.name || '').toLowerCase()
 
-        if (pType === 'CASH') {
+        // EBT se valida primero para evitar enmascaramiento con CREDIT
+        if (pName.includes('ebt') || (p.otherPayment && pName.includes('ebt'))) {
+          ebtAmount += amt
+        } else if (pType === 'CASH') {
           cashDeposit += amt
         } else if (pType === 'CREDIT') {
           creditCardGross += amt
-        } else if (pName.includes('ebt') || (p.otherPayment && pName.includes('ebt'))) {
-          ebtAmount += amt
         } else if (pName.includes('uber') || pName.includes('postmates')) {
           uberPayment += amt
         } else if (pName.includes('doordash') || pName.includes('dash')) {

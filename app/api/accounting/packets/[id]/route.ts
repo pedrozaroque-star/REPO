@@ -88,10 +88,12 @@ export async function PATCH(
     const body: PatchBody = await request.json()
     const { status: newStatus, cash_deposit, notes, performed_by } = body
 
-    // 1. Fetch the current packet
+    const isUuid = (val?: string) => Boolean(val && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val))
+
+    // 1. Fetch the current packet with store details
     const { data: packet, error: fetchErr } = await supabaseAdmin
       .from('accounting_sales_packets')
-      .select('*')
+      .select('*, stores!inner(id, name)')
       .eq('id', id)
       .single()
 
@@ -125,7 +127,7 @@ export async function PATCH(
       // Set review metadata
       if (newStatus === 'reviewed') {
         updatePayload.reviewed_at = new Date().toISOString()
-        updatePayload.reviewed_by = performed_by || null
+        updatePayload.reviewed_by = isUuid(performed_by) ? performed_by : null
       }
 
       // Clear review metadata on reopen
@@ -137,6 +139,13 @@ export async function PATCH(
 
     // 4. Handle cash_deposit update and recalculate cash_over_short and journal_lines
     if (cash_deposit !== undefined && cash_deposit !== null) {
+      if (packet.status === 'published') {
+        return NextResponse.json(
+          { error: 'Cannot modify cash deposit of an already published journal entry' },
+          { status: 409 }
+        )
+      }
+
       updatePayload.cash_deposit = cash_deposit
       const expectedCash = Number(packet.expected_cash) || 0
       updatePayload.cash_over_short = Math.round((cash_deposit - expectedCash) * 100) / 100

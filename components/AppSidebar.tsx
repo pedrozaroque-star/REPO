@@ -13,7 +13,7 @@ import {
     DollarSign, TrendingUp, Calendar, MessageSquare, CalendarCheck, UserCog,
     Monitor, ChefHat, Zap, X, PanelLeftClose, PanelLeft, RefreshCw,
     Settings, Keyboard, HelpCircle, ExternalLink, Moon, Sun, Globe, Shield,
-    CalendarDays, Sparkles, Info, UserCircle, Menu, Folder, Truck, Timer, Shirt, Car, Calculator
+    CalendarDays, Sparkles, Info, UserCircle, Menu, Folder, Truck, Timer, Shirt, Car, Calculator, Package
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useLanguage } from '@/lib/i18n'
@@ -358,6 +358,21 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                     tooltip: language === 'en'
                         ? 'Auto-calculation of daily warehouse supply orders sent to QuickBooks (Pedido diario a Bodega Central)'
                         : 'Generación automática de pedidos diarios a Bodega Central y envío a QuickBooks'
+                },
+                {
+                    name: (
+                        <div className="flex items-center gap-2">
+                            <span>Viele & Sons</span>
+                            <span className="text-[10px] bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 border border-emerald-300 dark:border-emerald-700 px-1.5 py-0.5 rounded font-black tracking-widest">NUEVO</span>
+                        </div>
+                    ),
+                    plainName: 'Viele & Sons',
+                    path: '/admin/compras/viele',
+                    icon: <Package size={20} />,
+                    roles: ['admin', 'manager', 'supervisor'],
+                    tooltip: language === 'en'
+                        ? 'Weekly supplies count, order calculation, and direct Sage 100 checkout (Insumos y desechables)'
+                        : 'Conteo semanal de insumos y desechables, cálculo automático de orden y checkout en Viele & Sons'
                 },
                 {
                     name: t('items.uniforms_control'),

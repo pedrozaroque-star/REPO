@@ -192,7 +192,20 @@ export const CANONICAL_STORE_COORDINATES: Record<string, StoreLocation> = {
     lat: 34.121100,
     lng: -117.370048
   },
+  'Bodega Central (Warehouse - 5182 Malabar St, Vernon)': {
+    id: 99,
+    name: 'Bodega Central (Warehouse - 5182 Malabar St, Vernon)',
+    shortName: 'Bodega Central',
+    address: '5182 Malabar St',
+    city: 'Vernon',
+    state: 'CA',
+    zip_code: '90058',
+    lat: 33.995979,
+    lng: -118.227535,
+    isWarehouse: true
+  },
   'Bodega Central': {
+    id: 99,
     name: 'Bodega Central',
     shortName: 'Bodega Central',
     address: '5182 Malabar St',
@@ -274,8 +287,21 @@ export function normalizeStoreName(name: string): string {
   const clean = name.trim().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
   const lower = clean.toLowerCase()
 
-  if (lower === 'bodega central' || lower === 'bodega' || lower === 'warehouse') return 'Bodega Central'
-  if (lower === 'oficina corporativa' || lower === 'corporativo' || lower === 'office') return 'Oficina Corporativa'
+  if (
+    lower.includes('bodega') ||
+    lower.includes('warehouse') ||
+    lower.includes('malabar')
+  ) {
+    return 'Bodega Central (Warehouse - 5182 Malabar St, Vernon)'
+  }
+  if (
+    lower.includes('corporativa') ||
+    lower.includes('corporativo') ||
+    lower.includes('oficina central') ||
+    lower === 'office'
+  ) {
+    return 'Oficina Corporativa'
+  }
 
   // Match against known canonical stores
   for (const [fullName, loc] of Object.entries(CANONICAL_STORE_COORDINATES)) {

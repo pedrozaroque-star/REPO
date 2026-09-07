@@ -266,8 +266,14 @@ export function generateSupervisorMileagePdf(options: SupervisorPdfOptions): Sup
     const mileageVal = miles * rate
     const total = Number(t.total_reimbursement) || (mileageVal + extras)
 
-    const cleanOrig = (t.origin_name || '').replace('Tacos Gavilan ', '').trim()
-    const cleanDest = (t.destination_name || '').replace('Tacos Gavilan ', '').trim()
+    const cleanOrig = (t.origin_name || '')
+      .replace('Tacos Gavilan ', '')
+      .replace('(Warehouse - 5182 Malabar St, Vernon)', '(Warehouse)')
+      .trim()
+    const cleanDest = (t.destination_name || '')
+      .replace('Tacos Gavilan ', '')
+      .replace('(Warehouse - 5182 Malabar St, Vernon)', '(Warehouse)')
+      .trim()
     const routeText = `${cleanOrig} -> ${cleanDest}`
     const tripType = t.is_round_trip ? 'Round-trip' : 'One-way'
 

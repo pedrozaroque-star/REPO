@@ -325,6 +325,10 @@ function MilesIQContent() {
             id: String(s.id),
             name: s.name.startsWith('Tacos Gavilan') ? s.name : `Tacos Gavilan ${s.name}`
           }))
+          formattedStores.push({
+            id: 'warehouse',
+            name: 'Bodega Central (Warehouse - 5182 Malabar St, Vernon)'
+          })
           setStoresList(formattedStores)
         }
       } catch (errStore) {

@@ -111,11 +111,22 @@ export async function POST(
       )
     }
 
+    const isUuid = (val?: string) => Boolean(val && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val))
+
     const journalLines: JournalLine[] = packet.journal_lines || []
     if (journalLines.length === 0) {
       return NextResponse.json(
         { error: 'Packet has no journal lines. Regenerate the packet first.' },
         { status: 400 }
+      )
+    }
+
+    const debits = Math.round((Number(packet.journal_total_debits) || 0) * 100) / 100
+    const credits = Math.round((Number(packet.journal_total_credits) || 0) * 100) / 100
+    if (debits !== credits) {
+      return NextResponse.json(
+        { error: `Póliza desbalanceada ($${debits} != $${credits}). Recalcula la póliza antes de publicar a QuickBooks.` },
+        { status: 422 }
       )
     }
 
@@ -280,7 +291,7 @@ export async function POST(
         qb_journal_entry_id: qbEntryId,
         qb_sync_response: result,
         published_at: new Date().toISOString(),
-        published_by: body.performed_by || null,
+        published_by: isUuid(body.performed_by) ? body.performed_by : null,
         updated_at: new Date().toISOString(),
       })
       .eq('id', id)
@@ -298,11 +309,12 @@ export async function POST(
       store_id: packet.store_id,
       business_date: packet.business_date,
       action: 'publish',
-      performed_by: body.performed_by || null,
+      performed_by: isUuid(body.performed_by) ? body.performed_by : null,
       details: {
         qb_journal_entry_id: qbEntryId,
         doc_number: packet.qb_doc_number,
         line_count: qbLines.length,
+        user: body.performed_by || null,
       },
       qb_response: result,
     })

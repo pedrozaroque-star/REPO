@@ -306,7 +306,7 @@ export default function PacketDetailPage() {
         <p className="text-lg font-bold">{error || 'Packet not found'}</p>
         <Link href="/contabilidad" className="inline-flex items-center text-blue-600 hover:text-blue-500 font-bold">
           <ArrowLeft className="h-4 w-4 mr-2" />
-          {language === 'en' ? 'Back to list' : 'Volver a la lista'}
+          {t('accounting.back_to_list') || 'Volver a la lista'}
         </Link>
       </div>
     )
@@ -341,7 +341,7 @@ export default function PacketDetailPage() {
           <div>
             <h1 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">{packet.stores?.name || 'Sucursal'}</h1>
             <p className="text-slate-500 dark:text-slate-400 text-sm mt-0.5">
-              {language === 'en' ? 'Business Date: ' : 'Fecha Contable: '} 
+              {t('accounting.business_date_label') || 'Fecha Contable:'}{' '} 
               <span className="font-bold text-slate-800 dark:text-slate-200">{formatDateDisplay(packet.business_date)}</span>
               {packet.qb_doc_number && <span className="ml-3 text-xs font-mono font-bold bg-slate-100 dark:bg-slate-800 px-2.5 py-0.5 rounded-md text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">Doc: {packet.qb_doc_number}</span>}
             </p>
@@ -713,7 +713,7 @@ export default function PacketDetailPage() {
                     className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-2.5 py-1 text-sm font-mono text-right text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-bold"
                   />
                   <Button size="sm" variant="outline" onClick={handleSaveCashDeposit} disabled={actionLoading}>
-                    Guardar
+                    {t('accounting.btn_save') || 'Guardar'}
                   </Button>
                 </div>
               )}

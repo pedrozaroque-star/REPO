@@ -261,6 +261,20 @@ export async function POST(request: NextRequest) {
             : '✓ Validación superada: 0 órdenes abiertas en Toast POS. Póliza balanceada lista para revisión.'
         }
 
+        // Check if an existing packet is already published to protect QuickBooks integrity
+        const { data: existingPacket } = await supabaseAdmin
+          .from('accounting_sales_packets')
+          .select('id, status, qb_journal_entry_id, qb_doc_number, published_at')
+          .eq('store_id', mapping.store_id)
+          .eq('business_date', sale.business_date)
+          .maybeSingle()
+
+        if (existingPacket && existingPacket.status === 'published') {
+          // Do NOT overwrite already-published packets
+          generated.push(existingPacket as any)
+          continue
+        }
+
         // Upsert the packet
         const packetData = {
           store_id: mapping.store_id,
@@ -289,7 +303,7 @@ export async function POST(request: NextRequest) {
           ebt_amount: salesPacketData.ebt_amount,
           expected_cash: expectedCash,
           cash_deposit: salesPacketData.cash_deposits,
-          cash_over_short: 0,
+          cash_over_short: Math.round((salesPacketData.cash_deposits - expectedCash) * 100) / 100,
           journal_total_debits: journal.totalDebits,
           journal_total_credits: journal.totalCredits,
           journal_lines: journal.lines,

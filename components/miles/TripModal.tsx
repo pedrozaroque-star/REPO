@@ -21,7 +21,7 @@ import {
 import { useLanguage } from '@/lib/i18n'
 import dynamic from 'next/dynamic'
 import { getCaliforniaBusinessDate, getCaliforniaTime } from '@/lib/business-date'
-import { CANONICAL_STORE_COORDINATES, haversineDistanceMiles } from '@/lib/store-coordinates'
+import { CANONICAL_STORE_COORDINATES, haversineDistanceMiles, normalizeStoreName } from '@/lib/store-coordinates'
 
 // Dynamic import to prevent SSR issues with Google Maps
 const RouteMap = dynamic(() => import('@/components/miles/RouteMap'), {
@@ -124,28 +124,47 @@ export default function TripModal({
       .catch(() => {})
   }, [])
 
+  const warehouseName = 'Bodega Central (Warehouse - 5182 Malabar St, Vernon)'
+
   // Default preset store options if stores prop is empty
   const storePresets = [
-    'Tacos Gavilan LA Central',
-    'Tacos Gavilan LA Broadway',
-    'Tacos Gavilan Slauson',
-    'Tacos Gavilan Hollywood',
-    'Tacos Gavilan Lynwood',
-    'Tacos Gavilan Huntington Park',
+    'Tacos Gavilan Azusa',
     'Tacos Gavilan Bell',
     'Tacos Gavilan Downey',
-    'Tacos Gavilan Norwalk',
-    'Tacos Gavilan Santa Ana',
+    'Tacos Gavilan Hollywood',
+    'Tacos Gavilan Huntington Park',
+    'Tacos Gavilan LA Broadway',
+    'Tacos Gavilan LA Central',
     'Tacos Gavilan La Puente',
-    'Tacos Gavilan Azusa',
-    'Tacos Gavilan West Covina',
-    'Tacos Gavilan South Gate',
+    'Tacos Gavilan Lynwood',
+    'Tacos Gavilan Norwalk',
     'Tacos Gavilan Rialto',
-    'Bodega Central',
-    'Oficina Corporativa'
+    'Tacos Gavilan Santa Ana',
+    'Tacos Gavilan Slauson',
+    'Tacos Gavilan South Gate',
+    'Tacos Gavilan West Covina',
+    warehouseName
   ]
 
-  const availableLocations = stores.length > 0 ? stores.map(s => s.name) : storePresets
+  const availableLocations = React.useMemo(() => {
+    const rawList = stores.length > 0 ? stores.map(s => s.name) : storePresets
+    const set = new Set<string>()
+
+    rawList.forEach(name => {
+      const lower = name.toLowerCase()
+      if (lower.includes('bodega') || lower.includes('warehouse') || lower.includes('malabar')) {
+        set.add(warehouseName)
+      } else if (!lower.includes('corporativa') && !lower.includes('office')) {
+        set.add(name)
+      }
+    })
+
+    // Ensure warehouse is ALWAYS present
+    set.add(warehouseName)
+
+    return Array.from(set).sort((a, b) => a.localeCompare(b))
+  }, [stores])
+
   const isInitialEditLoadRef = useRef(false)
 
   // Synchronize state when modal opens or editingTrip changes
@@ -156,17 +175,29 @@ export default function TripModal({
       isInitialEditLoadRef.current = true
       const origName = editingTrip.origin_name || 'Tacos Gavilan LA Central'
       const dstName = editingTrip.destination_name || 'Tacos Gavilan LA Broadway'
-      const isOrigCustom = editingTrip.origin_type === 'custom' || !availableLocations.includes(origName)
-      const isDestCustom = editingTrip.destination_type === 'custom' || !availableLocations.includes(dstName)
+
+      const isWarehouse = (n: string) => {
+        const l = (n || '').toLowerCase()
+        return l.includes('bodega') || l.includes('warehouse') || l.includes('malabar')
+      }
+
+      const resolvedOrigName = isWarehouse(origName) ? warehouseName : origName
+      const resolvedDestName = isWarehouse(dstName) ? warehouseName : dstName
+
+      const isOrigKnown = availableLocations.includes(resolvedOrigName)
+      const isDestKnown = availableLocations.includes(resolvedDestName)
+
+      const isOrigCustom = editingTrip.origin_type === 'custom' || !isOrigKnown
+      const isDestCustom = editingTrip.destination_type === 'custom' || !isDestKnown
 
       setSelectedSupervisorId(editingTrip.supervisor_id || currentUser.id)
       setTripDate(editingTrip.trip_date || getCaliforniaBusinessDate())
       setStartTime(editingTrip.start_time || '')
       setOriginType(isOrigCustom ? 'custom' : (editingTrip.origin_type || 'store'))
-      setOriginName(origName)
+      setOriginName(resolvedOrigName)
       setOriginMode(isOrigCustom ? 'custom' : 'store')
       setDestinationType(isDestCustom ? 'custom' : (editingTrip.destination_type || 'store'))
-      setDestinationName(dstName)
+      setDestinationName(resolvedDestName)
       setDestMode(isDestCustom ? 'custom' : 'store')
       setIsRoundTrip(Boolean(editingTrip.is_round_trip))
       setPurpose(editingTrip.purpose || 'Business')
@@ -230,11 +261,17 @@ export default function TripModal({
     }
 
     // Lookup in distances matrix
-    const match = distances.find(
-      d =>
-        (d.origin_name.toLowerCase() === originName.toLowerCase() && d.destination_name.toLowerCase() === destinationName.toLowerCase()) ||
-        (d.origin_name.toLowerCase() === destinationName.toLowerCase() && d.destination_name.toLowerCase() === originName.toLowerCase())
-    )
+    const normOrig = normalizeStoreName(originName).toLowerCase()
+    const normDest = normalizeStoreName(destinationName).toLowerCase()
+
+    const match = distances.find(d => {
+      const dOrig = normalizeStoreName(d.origin_name).toLowerCase()
+      const dDest = normalizeStoreName(d.destination_name).toLowerCase()
+      return (
+        (dOrig === normOrig && dDest === normDest) ||
+        (dOrig === normDest && dDest === normOrig)
+      )
+    })
 
     if (match) {
       setDistanceMiles(match.distance_miles)
@@ -310,8 +347,17 @@ export default function TripModal({
   }
 
   // External Navigation Launchers (Save trip first, then launch navigation)
-  const getOrigAddress = () => storeCoordsMap[originName]?.address || originName
-  const getDestAddress = () => storeCoordsMap[destinationName]?.address || destinationName
+  const getOrigAddress = () =>
+    storeCoordsMap[originName]?.address ||
+    storeCoordsMap[normalizeStoreName(originName)]?.address ||
+    storeCoordsMap['Bodega Central']?.address ||
+    originName
+
+  const getDestAddress = () =>
+    storeCoordsMap[destinationName]?.address ||
+    storeCoordsMap[normalizeStoreName(destinationName)]?.address ||
+    storeCoordsMap['Bodega Central']?.address ||
+    destinationName
 
   const executeSaveTrip = async (): Promise<boolean> => {
     if (!distanceMiles || distanceMiles <= 0) return false

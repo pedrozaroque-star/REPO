@@ -23,7 +23,7 @@
 import React, { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ChevronLeft, ChevronRight, CheckCircle2, Circle, AlertCircle, PlayCircle, Loader2, Settings, Sparkles, Send, AlertTriangle } from 'lucide-react'
+import { ChevronLeft, ChevronRight, CheckCircle2, CheckCircle, Circle, AlertCircle, PlayCircle, Loader2, Settings, Sparkles, Send, AlertTriangle, Clock, XCircle } from 'lucide-react'
 import { useLanguage } from '@/lib/i18n'
 import { createClient } from '@/lib/supabase-client'
 
@@ -171,8 +171,14 @@ export default function AccountingPage() {
     }
   }
 
-  const handlePublishAll = async () => {
-    const targetDate = weekDays[0].toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
+  const handlePublishAll = async (targetDateOverride?: string) => {
+    let targetDate = targetDateOverride
+    if (!targetDate) {
+      const yesterday = new Date()
+      yesterday.setDate(yesterday.getDate() - 1)
+      targetDate = yesterday.toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
+    }
+
     const confirmMsg = language === 'en'
       ? `Publish all ready journal entries for ${targetDate} to QuickBooks Online?`
       : `¿Publicar todas las pólizas listas del ${targetDate} a QuickBooks Online?`
@@ -246,7 +252,7 @@ export default function AccountingPage() {
             {t('accounting.btn_generate') || 'Generar Pólizas'}
           </button>
           <button
-            onClick={handlePublishAll}
+            onClick={() => handlePublishAll()}
             disabled={isPublishingAll || isLoading}
             className="bg-blue-600 hover:bg-blue-700 text-white rounded-xl px-4 py-2.5 text-sm font-bold transition-all flex items-center shadow-md shadow-blue-600/20 disabled:opacity-50"
           >
@@ -298,16 +304,29 @@ export default function AccountingPage() {
                 <th className="px-6 py-4 font-bold w-52 shrink-0 text-slate-900 dark:text-white uppercase text-xs tracking-wider">
                   {t('accounting.col_store') || 'Sucursal'}
                 </th>
-                {weekDays.map((d, i) => (
-                  <th key={i} className="px-3 py-4 font-bold text-center min-w-[130px]">
-                    <div className="flex flex-col">
-                      <span className="text-slate-900 dark:text-white font-extrabold">{d.toLocaleDateString('en-US', { weekday: 'short' })}</span>
-                      <span className="text-xs font-semibold text-slate-600 dark:text-slate-400 mt-0.5">
-                        {d.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' })}
-                      </span>
-                    </div>
-                  </th>
-                ))}
+                {weekDays.map((d, i) => {
+                  const dateStr = d.toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
+                  return (
+                    <th key={i} className="px-3 py-3 font-bold text-center min-w-[130px]">
+                      <div className="flex flex-col items-center">
+                        <span className="text-slate-900 dark:text-white font-extrabold">{d.toLocaleDateString('en-US', { weekday: 'short' })}</span>
+                        <span className="text-xs font-semibold text-slate-600 dark:text-slate-400 mt-0.5">
+                          {d.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' })}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handlePublishAll(dateStr)}
+                          disabled={isPublishingAll || isLoading}
+                          title={`${t('accounting.btn_publish_day') || 'Publicar Día'}: ${dateStr}`}
+                          className="mt-1.5 inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/60 hover:bg-blue-100 dark:hover:bg-blue-900 rounded-lg border border-blue-200 dark:border-blue-800 transition-colors disabled:opacity-40"
+                        >
+                          <Send className="w-2.5 h-2.5" />
+                          <span>{t('accounting.btn_publish_day') || 'Publicar'}</span>
+                        </button>
+                      </div>
+                    </th>
+                  )
+                })}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800 bg-white dark:bg-slate-850">
@@ -315,7 +334,7 @@ export default function AccountingPage() {
                 <tr>
                   <td colSpan={8} className="py-24 text-center text-slate-400">
                     <Loader2 className="w-8 h-8 animate-spin mx-auto mb-3 text-blue-600 dark:text-blue-400" />
-                    <span className="font-semibold text-slate-500">Cargando cuadrícula de pólizas...</span>
+                    <span className="font-semibold text-slate-500">{t('accounting.loading_grid') || 'Cargando cuadrícula de pólizas...'}</span>
                   </td>
                 </tr>
               ) : (
@@ -343,35 +362,47 @@ export default function AccountingPage() {
                                   title={hasOpenOrders 
                                     ? `⚠️ ${validation.openOrdersCount} Órdenes Abiertas en Toast POS` 
                                     : (hasDiscrepancy 
-                                      ? `⚠️ Reembolso tardío detectado en Toast: Dif $${postPublishDiscrepancy.diffNet.toFixed(2)}` 
-                                      : `Venta Neta: ${formatCurrency(packet.net_sales)}`)}
+                                      ? `⚠️ Reembolso tardío detectado en Toast: Dif $${postPublishDiscrepancy.diffNet}`
+                                      : `Venta Neta: ${formatCurrency(packet.net_sales || 0)}`)}
                                 >
+                                  <div className="flex items-center space-x-1 font-extrabold tracking-wide">
+                                    {displayStatus === 'ready' && <Clock className="w-3.5 h-3.5" />}
+                                    {displayStatus === 'reviewed' && <CheckCircle className="w-3.5 h-3.5" />}
+                                    {displayStatus === 'published' && <CheckCircle2 className="w-3.5 h-3.5" />}
+                                    {displayStatus === 'rejected' && <XCircle className="w-3.5 h-3.5" />}
+                                    {displayStatus === 'open_orders' && <AlertTriangle className="w-3.5 h-3.5 text-amber-500 animate-pulse" />}
+                                    {displayStatus === 'pending' && <Circle className="w-3.5 h-3.5 text-slate-400" />}
+                                    <span>
+                                      {displayStatus === 'open_orders' ? (t('accounting.status_open_orders') || 'Órdenes Abiertas') : t(`accounting.status_${displayStatus}`)}
+                                    </span>
+                                  </div>
+                                  <span className="text-[10px] font-mono mt-0.5 opacity-90">
+                                    {formatCurrency(packet.net_sales || 0)}
+                                  </span>
+
+                                  {/* Discrepancy indicator badge */}
                                   {hasDiscrepancy && (
-                                    <span className="absolute -top-1.5 -right-1.5 bg-amber-500 text-black text-[9px] font-black px-1.5 py-0.5 rounded-full shadow-md animate-pulse">
-                                      ⚠️ Dif ${postPublishDiscrepancy.diffNet.toFixed(2)}
+                                    <span 
+                                      className="absolute -top-1.5 -right-1.5 bg-amber-500 text-slate-950 font-black text-[9px] px-1.5 py-0.5 rounded-full shadow-md animate-bounce"
+                                      title={`Toast POS tiene ventas distintas a QuickBooks: Dif $${postPublishDiscrepancy.diffNet}`}
+                                    >
+                                      ⚠️ Dif ${postPublishDiscrepancy.diffNet}
                                     </span>
                                   )}
-                                  <div className="flex items-center font-bold">
-                                    {STATUS_ICONS[displayStatus]}
-                                    <span>{hasOpenOrders ? (t('accounting.label_open_orders') || 'Órdenes Abiertas') : (t(`accounting.status_${packet.status}`) || packet.status)}</span>
-                                  </div>
-                                  <span className="text-[11px] font-mono font-bold mt-0.5 opacity-90">
-                                    {formatCurrency(packet.net_sales)}
-                                  </span>
                                 </div>
                               </Link>
                             ) : (
-                              <span className="text-slate-400 dark:text-slate-600 font-mono text-xs">—</span>
+                              <span className="text-xs text-slate-300 dark:text-slate-600 select-none font-mono">—</span>
                             )}
                           </td>
                         )
                       })}
                     </tr>
                   ))}
-                  {/* Totals Row */}
-                  <tr className="bg-slate-50/90 dark:bg-slate-900/80 border-t-2 border-slate-200 dark:border-slate-700 font-bold text-slate-900 dark:text-slate-100">
-                    <td className="px-6 py-4 text-slate-500 dark:text-slate-400 uppercase text-xs tracking-wider font-extrabold">
-                      {language === 'en' ? 'Daily Totals' : 'Totales Diarios'}
+                  {/* Daily Totals Row */}
+                  <tr className="bg-slate-100/60 dark:bg-slate-900/80 border-t-2 border-slate-200 dark:border-slate-700 font-extrabold">
+                    <td className="px-6 py-4 uppercase text-xs tracking-wider text-slate-800 dark:text-slate-200">
+                      {t('accounting.daily_totals') || 'Totales Diarios'}
                     </td>
                     {weekDays.map((d, i) => {
                       const dateStr = d.toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
@@ -392,14 +423,16 @@ export default function AccountingPage() {
         {/* Legend Footer */}
         <div className="p-4 bg-slate-50/70 dark:bg-slate-900/60 border-t border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between text-xs text-slate-600 dark:text-slate-400 gap-4">
           <div className="flex items-center gap-4 flex-wrap">
-            <span className="font-bold text-slate-800 dark:text-slate-200">{language === 'en' ? 'Status Legend:' : 'Estados:'}</span>
+            <span className="font-bold text-slate-800 dark:text-slate-200">{t('accounting.legend_title') || 'Estados:'}</span>
+            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-slate-400"></span> {t('accounting.status_pending') || 'Pendiente'}</span>
             <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-blue-500"></span> {t('accounting.status_ready') || 'Listo (Calculado)'}</span>
-            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-amber-500"></span> {t('accounting.status_reviewed') || 'Revisado (Aprobado)'}</span>
-            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span> {t('accounting.status_published') || 'Publicado en QuickBooks'}</span>
+            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-amber-500"></span> {t('accounting.status_open_orders') || 'Órdenes Abiertas'}</span>
+            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-yellow-500"></span> {t('accounting.status_reviewed') || 'Revisado'}</span>
+            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span> {t('accounting.status_published') || 'Publicado'}</span>
             <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-rose-500"></span> {t('accounting.status_rejected') || 'Rechazado'}</span>
           </div>
           <div className="text-slate-600 dark:text-slate-400 font-medium">
-            {language === 'en' ? 'Click any badge to review and adjust cash deposit' : 'Haz clic en cualquier botón para ver la póliza y ajustar efectivo'}
+            {t('accounting.legend_click_hint') || 'Haz clic en cualquier botón para ver la póliza y ajustar efectivo'}
           </div>
         </div>
       </div>

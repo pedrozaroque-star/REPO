@@ -392,6 +392,20 @@ export const TOOL_DECLARATIONS = [
       },
       required: []
     }
+  },
+  {
+    name: 'query_viele_procurement',
+    description: 'Query Viele & Sons procurement catalog (89 SKUs with photos & prices), per-store PAR levels, weekly order status, or recent Sage 100 PO orders with dual-invoice separation (sodas vs general supplies).',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        store_name: { type: 'STRING', description: 'Store name (e.g. "Lynwood", "South Gate", "Central")' },
+        query_type: { type: 'STRING', description: 'Type of query: "catalog", "pars", or "orders"' },
+        category: { type: 'STRING', description: 'Optional category filter for orders or catalog: "sodas" (Bag-in-Box syrups) or "general" (paper, packaging, supplies)' },
+        search: { type: 'STRING', description: 'Optional search keyword for item code or description' },
+        limit: { type: 'NUMBER', description: 'Optional result limit (default 20)' }
+      }
+    }
   }
 ]
 
@@ -429,6 +443,7 @@ export async function executeTool(name: string, args: any): Promise<string> {
       case 'query_executive_uniforms_dashboard': return await queryExecutiveUniformsDashboard(args)
       case 'query_user_chat_history': return await queryUserChatHistory(args)
       case 'query_accounting_packets': return await queryAccountingPackets(args)
+      case 'query_viele_procurement': return await queryVieleProcurement(args)
       default: return `Tool "${name}" not found.`
     }
   } catch (e: any) {
@@ -2092,4 +2107,108 @@ async function queryAccountingPackets(args: any) {
   
   return result
 }
+
+// ── 28. Query Viele & Sons Procurement ──
+async function queryVieleProcurement(args: any): Promise<string> {
+  const queryType = (args.query_type || 'catalog').toLowerCase()
+  const search = args.search ? String(args.search).trim() : ''
+  const limit = Number(args.limit) || 20
+
+  if (queryType === 'orders') {
+    let q = supabaseAdmin
+      .from('viele_orders')
+      .select('*, stores(name)')
+      .order('order_date', { ascending: false })
+      .limit(limit)
+
+    if (args.store_name) {
+      const { data: stores } = await supabaseAdmin.from('stores').select('id, name')
+      const matchedStore = (stores || []).find(s => s.name.toLowerCase().includes(args.store_name.toLowerCase()))
+      if (matchedStore) {
+        q = q.eq('store_id', matchedStore.id)
+      }
+    }
+
+    if (args.category) {
+      q = q.eq('order_category', args.category.toLowerCase().trim())
+    }
+
+    const { data: orders, error } = await q
+    if (error) return `Error al consultar órdenes de Viele & Sons: ${error.message}`
+    if (!orders || orders.length === 0) return 'No se encontraron órdenes de Viele & Sons registradas con esos criterios.'
+
+    let res = `📦 **Órdenes de Viele & Sons (${orders.length} encontradas):**\n\n`
+    res += '| Tienda | Orden / Factura | Tipo Factura | Fecha | Entrega | Cajas | Total | Estado |\n'
+    res += '|--------|-----------------|--------------|-------|---------|-------|-------|--------|\n'
+    for (const o of orders) {
+      const storeName = clean((o.stores as any)?.name || 'Tienda')
+      const statusEmoji = o.status === 'submitted' ? '✅ Enviada' : o.status === 'simulated' ? '🧪 Simulada' : '⏳ ' + o.status
+      const catLabel = o.order_category === 'sodas' ? '🥤 Sodas' : '📦 Insumos'
+      const linked = o.linked_order_number ? ` *(🔗 ${o.linked_order_number})*` : ''
+      res += `| ${storeName} | **${o.order_number || o.customer_po_no || 'N/A'}**${linked} | ${catLabel} | ${o.order_date} | ${o.ship_date || '—'} | ${o.total_cases} | ${fmt$(Number(o.total_amount) || 0)} | ${statusEmoji} |\n`
+    }
+    return res
+  }
+
+  if (queryType === 'pars') {
+    let targetStoreId: number | null = null
+    let targetStoreName = 'Cadena'
+    if (args.store_name) {
+      const { data: stores } = await supabaseAdmin.from('stores').select('id, name')
+      const matchedStore = (stores || []).find(s => s.name.toLowerCase().includes(args.store_name.toLowerCase()))
+      if (matchedStore) {
+        targetStoreId = matchedStore.id
+        targetStoreName = clean(matchedStore.name)
+      }
+    }
+
+    let q = supabaseAdmin
+      .from('viele_store_pars')
+      .select('*, viele_items(*), stores(name)')
+      .order('item_code', { ascending: true })
+      .limit(limit)
+
+    if (targetStoreId) {
+      q = q.eq('store_id', targetStoreId)
+    }
+
+    const { data: pars, error } = await q
+    if (error) return `Error al consultar PARs de Viele: ${error.message}`
+    if (!pars || pars.length === 0) return `No se encontraron niveles PAR de Viele & Sons para ${targetStoreName}.`
+
+    let res = `🎯 **Niveles PAR de Viele & Sons — ${targetStoreName} (${pars.length} items):**\n\n`
+    res += '| Código | Producto | Unidad | PAR |\n'
+    res += '|--------|----------|--------|-----|\n'
+    for (const p of pars) {
+      const itm = (p.viele_items as any) || {}
+      res += `| \`${p.item_code}\` | ${itm.description || '—'} | ${itm.uom || 'CS'} | **${p.par_quantity}** |\n`
+    }
+    return res
+  }
+
+  // Default: Catalog query
+  let q = supabaseAdmin
+    .from('viele_items')
+    .select('*')
+    .eq('is_active', true)
+    .order('sort_order', { ascending: true })
+    .limit(limit)
+
+  if (search) {
+    q = q.or(`item_code.ilike.%${search}%,description.ilike.%${search}%,category.ilike.%${search}%`)
+  }
+
+  const { data: items, error } = await q
+  if (error) return `Error al consultar catálogo de Viele: ${error.message}`
+  if (!items || items.length === 0) return `No se encontraron productos en el catálogo de Viele & Sons con la búsqueda "${search}".`
+
+  let res = `📋 **Catálogo Viele & Sons (${items.length} productos):**\n\n`
+  res += '| Código | Descripción | Categoría | UOM | Precio |\n'
+  res += '|--------|-------------|-----------|-----|--------|\n'
+  for (const it of items) {
+    res += `| \`${it.item_code}\` | ${it.description} | ${it.category || 'General'} | ${it.uom} | ${fmt$(Number(it.unit_price) || 0)} |\n`
+  }
+  return res
+}
+
 
