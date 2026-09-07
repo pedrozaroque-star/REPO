@@ -28,6 +28,7 @@ import { getSupabaseAdminClient } from '@/lib/supabase'
 import { syncVielePortalDirect } from '@/lib/vendor-scraper'
 import { ESTIMATED_ANNUAL_VOLUMES, DEFAULT_ANNUAL_VOLUME } from '@/lib/constants/supplier-volumes'
 import { sendSupplierPriceAlertEmail, PriceIncreaseItem } from '@/lib/supplier-price-email'
+import { syncVielePurchasesCatalog } from '@/lib/viele-price-sync'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -294,6 +295,12 @@ async function handleSync(request: NextRequest) {
       console.log(`[Cron:SyncSupplierPrices] 🗑️ Caché de Food Cost invalidado a partir de ${todayStr} para recálculo. Fechas pasadas permanecen intactas.`)
     }
 
+    // 6.6. SINCRONIZACIÓN DEL MÓDULO DE COMPRAS (viele_items)
+    // Conecta el catálogo de compras de sucursales con el Radar de Precios de Viele.
+    console.log('[Cron:SyncSupplierPrices] 🛒 Sincronizando catálogo de compras de Viele (viele_items)...')
+    const vielePurchasesSync = await syncVielePurchasesCatalog(scrapeResult.items)
+    console.log(`[Cron:SyncSupplierPrices] 🛒 viele_items sincronizado: ${vielePurchasesSync.totalUpdated} precios actualizados, ${vielePurchasesSync.totalNew} productos nuevos.`)
+
     // 7. Enviar Alerta por Correo a Directivos si se detectaron variaciones (Aumentos o Rebajas de Precio)
     let emailAlertSent = false
     let emailMessageId: string | undefined
@@ -332,6 +339,10 @@ async function handleSync(request: NextRequest) {
           total_new: totalNew,
           net_annual_impact_usd: Number(netAnnualImpactUsd.toFixed(2)),
           auto_approved_count: autoApprovedCount,
+          viele_purchases_updated: vielePurchasesSync.totalUpdated,
+          viele_purchases_new: vielePurchasesSync.totalNew,
+          viele_purchases_increases: vielePurchasesSync.totalIncreases,
+          viele_purchases_decreases: vielePurchasesSync.totalDecreases,
           email_sent: emailAlertSent,
           email_message_id: emailMessageId || null,
           duration_ms: durationMs,
@@ -342,7 +353,7 @@ async function handleSync(request: NextRequest) {
       console.warn('[Cron:SyncSupplierPrices] ⚠️ No se pudo registrar auditoría en activity_logs:', logErr)
     }
 
-    console.log(`[Cron:SyncSupplierPrices] ✅ Sincronización completada en ${durationMs}ms: ${scrapeResult.totalItems} items (${totalIncreases} aumentos, ${totalDecreases} reducciones, ${totalUnchanged} sin cambio, ${autoApprovedCount} auto-aprobados). Email enviado: ${emailAlertSent}`)
+    console.log(`[Cron:SyncSupplierPrices] ✅ Sincronización completada en ${durationMs}ms: ${scrapeResult.totalItems} items (${totalIncreases} aumentos, ${totalDecreases} reducciones, ${totalUnchanged} sin cambio, ${autoApprovedCount} auto-aprobados, ${vielePurchasesSync.totalUpdated} viele_items actualizados). Email enviado: ${emailAlertSent}`)
 
     return NextResponse.json({
       success: true,
@@ -355,6 +366,14 @@ async function handleSync(request: NextRequest) {
       netAnnualImpactUsd: Number(netAnnualImpactUsd.toFixed(2)),
       historyRecordsCreated: historyInserts.length,
       autoApprovedCount,
+      vielePurchasesSync: {
+        totalScraped: vielePurchasesSync.totalScraped,
+        totalUpdated: vielePurchasesSync.totalUpdated,
+        totalIncreases: vielePurchasesSync.totalIncreases,
+        totalDecreases: vielePurchasesSync.totalDecreases,
+        totalNew: vielePurchasesSync.totalNew,
+        newItemsList: vielePurchasesSync.newItemsList
+      },
       emailAlertSent,
       emailMessageId,
       durationMs

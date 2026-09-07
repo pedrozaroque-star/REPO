@@ -46,7 +46,8 @@ export default function ClientLayout({
         '/planificador/imprimir', 
         '/tv', 
         '/procedimientos/imprimir',
-        '/inventory/orders/print-sheet'
+        '/inventory/orders/print-sheet',
+        '/admin/compras/viele/print-sheet'
     ]
     const isPublicPage = publicRoutes.includes(pathname)
 

@@ -27,6 +27,7 @@
  */
 
 import React, { useState, useEffect } from 'react'
+import Link from 'next/link'
 import ProtectedRoute from '@/components/ProtectedRoute'
 import {
   TrendingUp, AlertTriangle, CheckCircle2, ArrowUpRight, ArrowDownRight,
@@ -669,6 +670,18 @@ export default function SupplierPricesPage() {
                   : (language === 'en' ? 'Check Today\'s Prices (API)' : 'Revisar Precios de Hoy (1 Clic)')}
               </span>
             </button>
+
+            {/* ENLACE DIRECTO AL MÓDULO DE COMPRAS VIELE */}
+            {suppliers.find(s => s.id === selectedSupplierId)?.supplier_code === 'VIELE' && (
+              <Link
+                href="/admin/compras/viele"
+                className="flex items-center justify-center gap-2 px-4 py-2.5 bg-amber-500 hover:bg-amber-600 active:bg-amber-700 text-white rounded-xl text-xs sm:text-sm font-bold shadow-md shadow-amber-500/25 transition-all cursor-pointer"
+                title="Generar orden de compras para las sucursales"
+              >
+                <span>🛒</span>
+                <span>{language === 'en' ? 'Purchases (Viele)' : 'Hacer Pedido Viele'}</span>
+              </Link>
+            )}
           </div>
         </div>
 

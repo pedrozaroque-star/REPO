@@ -24,7 +24,7 @@ import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useLanguage } from '@/lib/i18n';
-import { VIELE_STORE_ACCOUNTS } from '@/lib/viele-api';
+import { VIELE_STORE_ACCOUNTS, formatUsDate, formatUsFullDate } from '@/lib/viele-api';
 import { 
   ArrowLeft, 
   History, 
@@ -82,7 +82,7 @@ function OrderHistoryContent() {
   const initialStoreId = searchParams.get('storeId') || 'all';
 
   const [storeId, setStoreId] = useState<string>(initialStoreId);
-  const [categoryFilter, setCategoryFilter] = useState<'all' | 'general' | 'sodas'>('all');
+  const [categoryFilter, setCategoryFilter] = useState<'all' | 'general' | 'sodas' | 'chemicals'>('all');
   const [orders, setOrders] = useState<OrderHeader[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -242,6 +242,17 @@ function OrderHistoryContent() {
               >
                 🥤 Sodas
               </button>
+              <button
+                type="button"
+                onClick={() => setCategoryFilter('chemicals')}
+                className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-bold transition cursor-pointer text-center ${
+                  categoryFilter === 'chemicals'
+                    ? 'bg-white text-emerald-900 shadow-xs font-black'
+                    : 'text-slate-500 hover:text-slate-900'
+                }`}
+              >
+                🧪 Químicos
+              </button>
             </div>
           </div>
 
@@ -314,15 +325,27 @@ function OrderHistoryContent() {
                             {order.order_number || `#${order.id}`}
                           </div>
                           {order.linked_order_number && (
-                            <span className="text-[10px] text-slate-400 font-mono block mt-0.5" title="Orden Gemela">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                const twinOrder = orders.find(o => o.order_number === order.linked_order_number);
+                                if (twinOrder) handleViewDetail(twinOrder.id);
+                              }}
+                              className="text-[10px] text-indigo-500 hover:text-indigo-700 font-mono block mt-0.5 underline cursor-pointer transition-colors"
+                              title="Ver factura gemela"
+                            >
                               🔗 {order.linked_order_number}
-                            </span>
+                            </button>
                           )}
                         </td>
                         <td className="py-3 px-4 text-center">
                           {isSoda ? (
                             <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
                               <span>🥤</span> Sodas (BIB)
+                            </span>
+                          ) : order.order_category === 'chemicals' ? (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                              <span>🧪</span> Químicos
                             </span>
                           ) : (
                             <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-50 text-amber-800 border border-amber-200">
@@ -338,11 +361,11 @@ function OrderHistoryContent() {
                             Sage: {storeAccount?.sageCustomerCode || '00ELG'}
                           </span>
                         </td>
-                        <td className="py-3 px-4 text-center font-mono text-slate-600 text-xs">
-                          {order.order_date}
+                        <td className="py-3 px-4 text-center font-mono text-slate-700 text-xs font-semibold">
+                          {formatUsDate(order.order_date)}
                         </td>
                         <td className="py-3 px-4 text-center font-mono text-emerald-700 font-bold text-xs">
-                          {order.ship_date}
+                          {formatUsDate(order.ship_date)}
                         </td>
                         <td className="py-3 px-4 text-slate-700 text-xs font-bold">
                           {order.buyer_name}
@@ -414,9 +437,15 @@ function OrderHistoryContent() {
                     )}
                   </div>
                   {orderDetail?.order.linked_order_number && (
-                    <p className="text-xs text-indigo-600 font-mono mt-0.5 font-bold">
-                      🔗 Factura gemela correlativa: <strong>{orderDetail.order.linked_order_number}</strong>
-                    </p>
+                    <button
+                      onClick={() => {
+                        const twinOrder = orders.find(o => o.order_number === orderDetail.order.linked_order_number);
+                        if (twinOrder) handleViewDetail(twinOrder.id);
+                      }}
+                      className="text-xs text-indigo-600 hover:text-indigo-800 font-mono mt-0.5 font-bold underline cursor-pointer transition-colors"
+                    >
+                      🔗 Factura gemela correlativa: <strong>{orderDetail.order.linked_order_number}</strong> → Ver detalle
+                    </button>
                   )}
                 </div>
               </div>
@@ -446,8 +475,9 @@ function OrderHistoryContent() {
                       </strong>
                     </div>
                     <div>
-                      <span className="text-slate-500 font-bold block">Fecha Entrega:</span>
-                      <strong className="text-emerald-700 font-mono text-sm">{orderDetail.order.ship_date}</strong>
+                      <span className="text-slate-500 font-bold block">Fecha Entrega (USA):</span>
+                      <strong className="text-emerald-700 font-mono text-sm">{formatUsDate(orderDetail.order.ship_date)}</strong>
+                      <span className="block text-[10px] text-slate-500">{formatUsFullDate(orderDetail.order.ship_date, 'en-US')}</span>
                     </div>
                     <div>
                       <span className="text-slate-500 font-bold block">Total Cajas:</span>

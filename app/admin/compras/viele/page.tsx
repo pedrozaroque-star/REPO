@@ -4,11 +4,17 @@
  *              Permite capturar conteo físico de sobrantes, calcula automáticamente el pedido sugerido
  *              (ORDER = MAX(0, PAR - SOBRANTE)), permite ajustes manuales, y ejecuta el checkout directo
  *              en el portal de Viele & Sons bajo crédito comercial Net 30 con emisión de orden oficial Sage 100.
+ *              Incorpora reordenamiento Drag & Drop por sucursal persistente en Supabase y visualización de
+ *              fechas en formato estándar de EE.UU. (MM/DD/YYYY).
  *
  * @businessRules
  * - Marca oficial: Tacos Gavilan (estrictamente).
  * - Multi-tienda: Las 15 sucursales operan con su propia cuenta oficial en Viele & Sons.
+ * - Secuencia por defecto: Secuencia oficial del Order Guide de Viele & Sons (jarabes de soda BIB primero).
+ * - Personalización por sucursal: Cada gerente puede arrastrar y soltar (Drag & Drop) los insumos con el mouse
+ *   para alinearlos con la distribución física de su almacén / bodega.
  * - FÓRMULA DE PEDIDO: SUGERIDO = MAX(0, PAR - SOBRANTE).
+ * - Formato de fechas: Estándar estadounidense MM/DD/YYYY y US full date strings.
  * - Se permite sobreescribir el pedido final si se requieren cajas adicionales para eventos o contingencias.
  * - Soporte Bilingüe: Integrado con useLanguage() de lib/i18n.tsx.
  * - Prevención de órdenes accidentales: Modal de confirmación explícito antes del envío en vivo.
@@ -17,11 +23,15 @@
  * - Paleta visual: Tema claro (Light Mode) del sistema con fondos slate-50/50, tarjetas blancas, acentos ámbar/esmeralda.
  *
  * @dataFlow
- * - GET /api/viele/catalog → Catálogo maestro de 89 insumos con precios y fotos.
+ * - GET /api/viele/catalog?storeId=X → Catálogo maestro de 89 insumos ordenados según la tienda.
+ * - GET /api/viele/custom-order?storeId=X → Detecta si la sucursal tiene orden personalizado.
+ * - PUT /api/viele/custom-order → Persiste el nuevo orden tras soltar (drop) una fila.
+ * - DELETE /api/viele/custom-order?storeId=X → Restablece al orden oficial del Order Guide.
  * - GET /api/viele/pars?storeId=X → PARs base de inventario para la sucursal seleccionada.
  * - POST /api/viele/orders → Envío de orden (borrador local o live checkout contra Viele API).
  *
  * @notes
+ * - [2026-09-07] Implementación de Drag & Drop por sucursal y formato de fechas USA (MM/DD/YYYY).
  * - [2026-09-07] Refactorización total de interfaz visual para respetar la paleta oficial clara de SM TEG.
  */
 
@@ -31,7 +41,7 @@ import { useState, useEffect, useMemo, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useLanguage } from '@/lib/i18n';
-import { VIELE_STORE_ACCOUNTS } from '@/lib/viele-api';
+import { VIELE_STORE_ACCOUNTS, formatUsDate, formatUsFullDate } from '@/lib/viele-api';
 import { isVieleSoda } from '@/lib/viele-catalog-data';
 import { 
   Printer, 
@@ -46,9 +56,9 @@ import {
   Plus, 
   Minus,
   Truck,
-  DollarSign,
-  Coffee,
-  Sparkles
+  GripVertical,
+  RotateCcw,
+  Check
 } from 'lucide-react';
 
 interface CatalogItem {
@@ -60,6 +70,12 @@ interface CatalogItem {
   image_file: string;
   sort_order: number;
   is_soda?: boolean;
+  is_chemical?: boolean;
+  previous_price?: number | null;
+  price_change_percent?: number | null;
+  price_changed_at?: string | null;
+  price_status?: 'increased' | 'decreased' | 'unchanged' | 'new' | null;
+  last_scanned_at?: string | null;
 }
 
 interface OrderRow {
@@ -114,10 +130,8 @@ function VieleOrderContent() {
   const [pars, setPars] = useState<Record<string, number>>({});
   const [orderRows, setOrderRows] = useState<Record<string, OrderRow>>({});
   
-  // Filtros y pestañas
+  // Filtros de búsqueda
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeTab, setActiveTab] = useState<'general' | 'sodas' | 'all'>('general');
-  const [selectedCategory, setSelectedCategory] = useState<string>('all');
   
   // Fecha de entrega: Siempre los días martes (con opción de modificar por emergencias o cierres)
   const [shipDate, setShipDate] = useState<string>(() => getNextTuesday());
@@ -128,25 +142,38 @@ function VieleOrderContent() {
   const [poNumber, setPoNumber] = useState('');
   const [notes, setNotes] = useState('');
   
+  // Drag & Drop y orden personalizado por sucursal
+  const [hasCustomOrder, setHasCustomOrder] = useState<boolean>(false);
+  const [isSavingCustomOrder, setIsSavingCustomOrder] = useState<boolean>(false);
+  const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+  const [customOrderToast, setCustomOrderToast] = useState<string | null>(null);
+
   // Estados de proceso
   const [loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitSuccess, setSubmitSuccess] = useState<any>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  // 1. Cargar Catálogo Maestro y PARs de la tienda
+  // 1. Cargar Catálogo Maestro (con orden específico de tienda), PARs y estado de orden personalizado
   useEffect(() => {
     async function loadData() {
       setLoading(true);
       setErrorMessage(null);
       try {
-        const [catRes, parRes] = await Promise.all([
-          fetch('/api/viele/catalog'),
-          fetch(`/api/viele/pars?storeId=${storeId}`)
+        const [catRes, parRes, customOrderRes] = await Promise.all([
+          fetch(`/api/viele/catalog?storeId=${storeId}`),
+          fetch(`/api/viele/pars?storeId=${storeId}`),
+          fetch(`/api/viele/custom-order?storeId=${storeId}`)
         ]);
 
         const catJson = await catRes.json();
         const parJson = await parRes.json();
+        const customOrderJson = await customOrderRes.json();
+
+        if (customOrderJson.success) {
+          setHasCustomOrder(Boolean(customOrderJson.hasCustomOrder));
+        }
 
         if (catJson.success && catJson.data) {
           setCatalog(catJson.data);
@@ -177,6 +204,108 @@ function VieleOrderContent() {
 
     loadData();
   }, [storeId]);
+
+  // Drag & Drop: Inicio de arrastre con el mouse
+  const handleDragStart = (e: React.DragEvent<HTMLTableRowElement>, index: number) => {
+    if (searchQuery) return; // Deshabilitar arrastre mientras se filtra con buscador
+    setDraggedIndex(index);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', index.toString());
+  };
+
+  // Drag & Drop: Posicionamiento sobre otra fila
+  const handleDragOver = (e: React.DragEvent<HTMLTableRowElement>, index: number) => {
+    if (searchQuery) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (dragOverIndex !== index) {
+      setDragOverIndex(index);
+    }
+  };
+
+  const handleDragEnd = () => {
+    setDraggedIndex(null);
+    setDragOverIndex(null);
+  };
+
+  // Drag & Drop: Soltar fila y persistir orden para esta sucursal
+  const handleDrop = async (e: React.DragEvent<HTMLTableRowElement>, targetIndex: number) => {
+    e.preventDefault();
+    if (draggedIndex === null || draggedIndex === targetIndex || searchQuery) {
+      setDraggedIndex(null);
+      setDragOverIndex(null);
+      return;
+    }
+
+    const reordered = [...catalog];
+    const [movedItem] = reordered.splice(draggedIndex, 1);
+    reordered.splice(targetIndex, 0, movedItem);
+
+    const updatedCatalog = reordered.map((item, idx) => ({
+      ...item,
+      sort_order: idx + 1
+    }));
+
+    setCatalog(updatedCatalog);
+    setDraggedIndex(null);
+    setDragOverIndex(null);
+    setHasCustomOrder(true);
+
+    setIsSavingCustomOrder(true);
+    try {
+      const orderPayload = updatedCatalog.map((item, idx) => ({
+        itemCode: item.item_code,
+        sortOrder: idx + 1
+      }));
+
+      const saveRes = await fetch('/api/viele/custom-order', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          storeId: parseInt(storeId),
+          itemCodes: updatedCatalog.map(item => item.item_code),
+          order: orderPayload
+        })
+      });
+      const saveJson = await saveRes.json();
+      if (saveJson.success) {
+        setCustomOrderToast(t('viele.custom_order_toast'));
+        setTimeout(() => setCustomOrderToast(null), 3500);
+      }
+    } catch (err) {
+      console.error('Error guardando orden personalizado:', err);
+    } finally {
+      setIsSavingCustomOrder(false);
+    }
+  };
+
+  // Restablecer al orden oficial del Order Guide de Viele & Sons
+  const handleResetToOfficialOrder = async () => {
+    if (!confirm('¿Deseas restablecer el orden de los productos al oficial de Viele & Sons?')) {
+      return;
+    }
+    setIsSavingCustomOrder(true);
+    try {
+      const res = await fetch(`/api/viele/custom-order?storeId=${storeId}`, {
+        method: 'DELETE'
+      });
+      const data = await res.json();
+      if (data.success) {
+        setHasCustomOrder(false);
+        const catRes = await fetch(`/api/viele/catalog?storeId=${storeId}`);
+        const catJson = await catRes.json();
+        if (catJson.success && catJson.data) {
+          setCatalog(catJson.data);
+        }
+        setCustomOrderToast(t('viele.official_order_active'));
+        setTimeout(() => setCustomOrderToast(null), 3500);
+      }
+    } catch (err) {
+      console.error('Error restableciendo orden:', err);
+    } finally {
+      setIsSavingCustomOrder(false);
+    }
+  };
 
   // Manejador de cambio en "Sobrante"
   const handleLeftoverChange = (code: string, val: string) => {
@@ -226,33 +355,16 @@ function VieleOrderContent() {
     });
   };
 
-  // Categorías disponibles según pestaña activa
-  const categories = useMemo(() => {
-    const cats = new Set<string>();
-    catalog.forEach(item => {
-      const isSoda = item.is_soda || isVieleSoda(item.item_code);
-      if (activeTab === 'sodas' && isSoda) cats.add(item.category);
-      else if (activeTab === 'general' && !isSoda) cats.add(item.category);
-      else if (activeTab === 'all') cats.add(item.category);
-    });
-    return ['all', ...Array.from(cats)];
-  }, [catalog, activeTab]);
-
-  // Filtrado de filas visibles
+  // Filtrado de filas visibles: Búsqueda rápida
   const filteredItems = useMemo(() => {
-    return catalog.filter(item => {
-      const isSoda = item.is_soda || isVieleSoda(item.item_code);
-      if (activeTab === 'sodas' && !isSoda) return false;
-      if (activeTab === 'general' && isSoda) return false;
-
-      const matchesCategory = selectedCategory === 'all' || item.category === selectedCategory;
-      const q = searchQuery.toLowerCase().trim();
-      const matchesQuery = !q || 
-        item.item_code.toLowerCase().includes(q) || 
-        item.description.toLowerCase().includes(q);
-      return matchesCategory && matchesQuery;
-    });
-  }, [catalog, activeTab, selectedCategory, searchQuery]);
+    const q = searchQuery.toLowerCase().trim();
+    if (!q) return catalog;
+    return catalog.filter(item =>
+      item.item_code.toLowerCase().includes(q) || 
+      item.description.toLowerCase().includes(q) ||
+      item.category.toLowerCase().includes(q)
+    );
+  }, [catalog, searchQuery]);
 
   // Totales calculados en tiempo real con separación para las 2 facturas de Viele & Sons
   const summary = useMemo(() => {
@@ -417,7 +529,15 @@ function VieleOrderContent() {
   const currentStoreAccount = VIELE_STORE_ACCOUNTS[parseInt(storeId)];
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-800 p-4 md:p-8 pb-32">
+    <div className="min-h-screen bg-slate-50 text-slate-800 p-4 md:px-8 md:pt-8 pb-8">
+      {/* Toast Flotante de Confirmación de Guardado de Orden de Sucursal */}
+      {customOrderToast && (
+        <div className="fixed top-20 right-6 z-50 bg-emerald-600 text-white px-4 py-2.5 rounded-xl shadow-xl font-bold text-sm flex items-center gap-2 animate-in fade-in slide-in-from-top-3 border border-emerald-500">
+          <Check className="w-4 h-4 text-emerald-200" />
+          <span>{customOrderToast}</span>
+        </div>
+      )}
+
       {/* Header Principal */}
       <div className="max-w-7xl mx-auto mb-6">
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 border-b border-slate-200 pb-5">
@@ -510,7 +630,13 @@ function VieleOrderContent() {
                   : 'border-amber-400 focus:ring-amber-500 bg-amber-50/20'
               }`}
             />
-            <div className="mt-1">
+            <div className="mt-1 flex flex-col gap-0.5">
+              <div className="flex items-center gap-1.5 text-xs font-mono font-bold text-slate-700">
+                <span>🇺🇸 USA:</span>
+                <span className="text-amber-800">{formatUsDate(shipDate)}</span>
+                <span className="text-slate-400">•</span>
+                <span className="text-slate-600 font-sans font-semibold text-[11px]">{formatUsFullDate(shipDate, 'en-US')}</span>
+              </div>
               {isTuesday(shipDate) ? (
                 <span className="text-[11px] text-emerald-700 flex items-center gap-1.5 font-semibold">
                   <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
@@ -548,6 +674,48 @@ function VieleOrderContent() {
                 </button>
               )}
             </div>
+          </div>
+        </div>
+
+        {/* Barra de Estado de Orden Personalizado por Sucursal & Controles Drag & Drop */}
+        <div className="mt-4 bg-white px-4 py-3 rounded-2xl border border-slate-200 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5 flex-wrap">
+            <span className="text-xs font-bold text-slate-600 uppercase tracking-wider">
+              Disposición de Almacén:
+            </span>
+            {hasCustomOrder ? (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-amber-50 text-amber-800 border border-amber-200 shadow-xs">
+                <span>⭐</span> {t('viele.custom_order_active')} ({currentStoreAccount?.storeName})
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-700 border border-slate-200">
+                <span>📋</span> {t('viele.official_order_active')} (Order Guide)
+              </span>
+            )}
+            <span className="text-xs text-slate-400 hidden lg:inline">
+              • Arrastra cualquier fila con el mouse para adaptar la lista al recorrido de tu bodega
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2 self-end sm:self-auto">
+            {hasCustomOrder && (
+              <button
+                type="button"
+                onClick={handleResetToOfficialOrder}
+                disabled={isSavingCustomOrder}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 hover:bg-amber-50 text-slate-700 hover:text-amber-800 rounded-xl text-xs font-bold border border-slate-200 transition shadow-xs cursor-pointer"
+                title={t('viele.reset_to_official')}
+              >
+                <RotateCcw className="w-3.5 h-3.5 text-amber-600" />
+                {t('viele.reset_to_official')}
+              </button>
+            )}
+            {isSavingCustomOrder && (
+              <span className="text-xs font-bold text-amber-600 animate-pulse flex items-center gap-1">
+                <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping" />
+                Guardando orden...
+              </span>
+            )}
           </div>
         </div>
 
@@ -646,82 +814,6 @@ function VieleOrderContent() {
           </div>
         </div>
 
-        {/* Pestañas Principales (Insumos vs Sodas vs Todo) */}
-        <div className="flex items-center gap-2 mt-5 border-b border-slate-200 pb-3 flex-wrap">
-          <button
-            type="button"
-            onClick={() => {
-              setActiveTab('general');
-              setSelectedCategory('all');
-            }}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-black transition cursor-pointer ${
-              activeTab === 'general'
-                ? 'bg-amber-500 text-slate-950 shadow-sm'
-                : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
-            }`}
-          >
-            <Package className="w-4 h-4" />
-            <span>Insumos & Desechables</span>
-            <span className={`text-xs px-2 py-0.5 rounded-full font-mono ${activeTab === 'general' ? 'bg-slate-950/20 text-slate-950' : 'bg-slate-100 text-slate-600'}`}>
-              {catalog.filter(i => !(i.is_soda || isVieleSoda(i.item_code))).length}
-            </span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => {
-              setActiveTab('sodas');
-              setSelectedCategory('all');
-            }}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-black transition cursor-pointer ${
-              activeTab === 'sodas'
-                ? 'bg-indigo-600 text-white shadow-sm'
-                : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
-            }`}
-          >
-            <span>🥤</span>
-            <span>Sodas & Bebidas (BIB)</span>
-            <span className={`text-xs px-2 py-0.5 rounded-full font-mono ${activeTab === 'sodas' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-600'}`}>
-              {catalog.filter(i => i.is_soda || isVieleSoda(i.item_code)).length}
-            </span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => {
-              setActiveTab('all');
-              setSelectedCategory('all');
-            }}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition cursor-pointer ${
-              activeTab === 'all'
-                ? 'bg-slate-900 text-white shadow-sm'
-                : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
-            }`}
-          >
-            <span>🌟</span>
-            <span>Ver Catálogo Completo</span>
-            <span className={`text-xs px-2 py-0.5 rounded-full font-mono ${activeTab === 'all' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-600'}`}>
-              {catalog.length}
-            </span>
-          </button>
-        </div>
-
-        {/* Selector de Subcategorías (Pills) */}
-        <div className="flex items-center gap-2 overflow-x-auto py-2.5 scrollbar-thin">
-          {categories.map(cat => (
-            <button
-              key={cat}
-              onClick={() => setSelectedCategory(cat)}
-              className={`px-3 py-1 rounded-xl text-xs font-bold whitespace-nowrap transition border cursor-pointer ${
-                selectedCategory === cat
-                  ? 'bg-slate-900 text-white border-slate-900 shadow-sm font-black'
-                  : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100 shadow-xs'
-              }`}
-            >
-              {cat === 'all' ? '🌟 Todas las Subcategorías' : cat}
-            </button>
-          ))}
-        </div>
       </div>
 
       {/* Banner de Error */}
@@ -744,14 +836,17 @@ function VieleOrderContent() {
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="bg-slate-50 text-slate-600 text-xs font-bold uppercase tracking-wider border-b border-slate-200">
-                  <th className="py-3.5 px-4 w-12 text-center">#</th>
-                  <th className="py-3.5 px-4 w-16 text-center">{t('viele.table.photo')}</th>
-                  <th className="py-3.5 px-4 w-28 text-center">{t('viele.table.sku')}</th>
+                  <th className="py-3.5 px-2 w-10 text-center" title={t('viele.drag_handle_title')}>
+                    <GripVertical className="w-4 h-4 mx-auto text-slate-400" />
+                  </th>
+                  <th className="py-3.5 px-3 w-12 text-center">#</th>
+                  <th className="py-3.5 px-3 w-16 text-center">{t('viele.table.photo')}</th>
+                  <th className="py-3.5 px-3 w-28 text-center">{t('viele.table.sku')}</th>
                   <th className="py-3.5 px-4">{t('viele.table.description')}</th>
-                  <th className="py-3.5 px-4 w-24 text-right">{t('viele.table.price')}</th>
-                  <th className="py-3.5 px-4 w-20 text-center bg-amber-50/70 text-amber-900">{t('viele.table.par')}</th>
-                  <th className="py-3.5 px-4 w-24 text-center bg-slate-100/70 text-slate-700">{t('viele.table.leftover')}</th>
-                  <th className="py-3.5 px-4 w-24 text-center bg-blue-50/70 text-blue-800">{t('viele.table.suggested')}</th>
+                  <th className="py-3.5 px-3 w-24 text-right">{t('viele.table.price')}</th>
+                  <th className="py-3.5 px-3 w-20 text-center bg-amber-50/70 text-amber-900">{t('viele.table.par')}</th>
+                  <th className="py-3.5 px-3 w-24 text-center bg-slate-100/70 text-slate-700">{t('viele.table.leftover')}</th>
+                  <th className="py-3.5 px-3 w-24 text-center bg-blue-50/70 text-blue-800">{t('viele.table.suggested')}</th>
                   <th className="py-3.5 px-4 w-36 text-center bg-emerald-50/70 text-emerald-800">{t('viele.table.final_order')}</th>
                   <th className="py-3.5 px-4 w-28 text-right">{t('viele.table.extended')}</th>
                 </tr>
@@ -768,16 +863,39 @@ function VieleOrderContent() {
 
                   const isOrdered = row.finalOrder > 0;
                   const extendedAmount = row.finalOrder * item.unit_price;
+                  const isDraggingThis = draggedIndex === index;
+                  const isDragOverThis = dragOverIndex === index;
 
                   return (
                     <tr 
                       key={item.item_code}
-                      className={`hover:bg-slate-50/80 transition-colors ${
-                        isOrdered ? 'bg-emerald-50/30' : ''
+                      draggable={!searchQuery}
+                      onDragStart={(e) => handleDragStart(e, index)}
+                      onDragOver={(e) => handleDragOver(e, index)}
+                      onDragEnd={handleDragEnd}
+                      onDrop={(e) => handleDrop(e, index)}
+                      className={`transition-all ${
+                        isOrdered ? 'bg-emerald-50/30' : 'hover:bg-slate-50/80'
+                      } ${
+                        isDragOverThis ? 'border-t-2 border-amber-500 bg-amber-50/60 shadow-inner' : ''
+                      } ${
+                        isDraggingThis ? 'opacity-30 bg-slate-200' : ''
                       }`}
                     >
+                      {/* Agarradera Drag & Drop */}
+                      <td
+                        className={`py-2.5 px-2 text-center select-none ${
+                          searchQuery
+                            ? 'cursor-not-allowed opacity-25 text-slate-300'
+                            : 'cursor-grab active:cursor-grabbing text-slate-400 hover:text-amber-600'
+                        }`}
+                        title={searchQuery ? 'Limpia la búsqueda para arrastrar y reordenar' : t('viele.drag_handle_title')}
+                      >
+                        <GripVertical className="w-4 h-4 mx-auto" />
+                      </td>
+
                       {/* Correlativo */}
-                      <td className="py-2.5 px-4 text-center text-xs text-slate-400 font-mono">
+                      <td className="py-2.5 px-3 text-center text-xs text-slate-400 font-mono">
                         {index + 1}
                       </td>
 
@@ -818,8 +936,8 @@ function VieleOrderContent() {
                         </div>
                       </td>
 
-                      {/* Precio Unitario */}
-                      <td className="py-2.5 px-4 text-right font-mono text-slate-600 text-xs font-semibold">
+                      {/* Precio Unitario (Sincronizado automáticamente) */}
+                      <td className="py-2.5 px-4 text-right font-mono text-slate-700 text-xs font-semibold">
                         ${item.unit_price.toFixed(2)}
                       </td>
 
@@ -891,8 +1009,8 @@ function VieleOrderContent() {
       </div>
 
       {/* Floating Sticky Footer con Resumen y Acciones */}
-      <div className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200 px-6 py-4 shadow-2xl">
-        <div className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+      <div className="sticky bottom-[70px] lg:bottom-4 z-30 max-w-7xl mx-auto bg-white/95 backdrop-blur-md border border-slate-200 px-4 sm:px-6 py-4 rounded-2xl shadow-xl mt-6">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           {/* Métricas del Pedido */}
           <div className="flex items-center gap-5 flex-wrap">
             <div>
@@ -1009,11 +1127,16 @@ function VieleOrderContent() {
               <div className="flex justify-between items-center">
                 <span className="text-slate-500">{t('viele.modal.date_label')}</span>
                 <div className="text-right">
-                  <strong className="text-slate-900 font-mono">{shipDate}</strong>
+                  <div className="flex items-center justify-end gap-1.5 font-mono text-slate-900 font-bold">
+                    <span>🇺🇸 {formatUsDate(shipDate)}</span>
+                  </div>
+                  <span className="block text-[11px] text-slate-600 font-medium">
+                    {formatUsFullDate(shipDate, 'en-US')}
+                  </span>
                   {isTuesday(shipDate) ? (
                     <span className="block text-[11px] text-emerald-700 font-semibold">Martes habitual (Ciclo programado Viele)</span>
                   ) : (
-                    <span className="block text-[11px] text-amber-700 font-semibold">Modificado por emergencia ({getDayOfWeekName(shipDate)})</span>
+                    <span className="block text-[11px] text-amber-700 font-semibold">Modificado por emergencia</span>
                   )}
                 </div>
               </div>
@@ -1105,6 +1228,23 @@ function VieleOrderContent() {
                   placeholder={buyerName || 'AFV'}
                   className="w-full bg-white border border-slate-300 rounded-xl px-3.5 py-2 text-slate-900 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 shadow-sm"
                 />
+                <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                  <span className="text-[10px] text-slate-500">Referencias / Químicos:</span>
+                  {(['AFV', 'AFV / CHEMICAL', 'MARK / CHEMICAL', 'LEWIS/CHEMICALS', 'PV/ CHEMICAL'] as const).map(refCode => (
+                    <button
+                      key={refCode}
+                      type="button"
+                      onClick={() => setPoNumber(refCode)}
+                      className={`px-2 py-0.5 text-[11px] font-bold rounded-lg transition-colors cursor-pointer ${
+                        poNumber === refCode
+                          ? 'bg-emerald-600 text-white font-black shadow-sm'
+                          : 'bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-200'
+                      }`}
+                    >
+                      {refCode}
+                    </button>
+                  ))}
+                </div>
                 <p className="text-[10px] text-slate-500 mt-1">
                   Si se deja en blanco, se registrará automáticamente como <strong className="text-slate-800 font-mono">{buyerName || 'AFV'}</strong> tal como siempre se ha registrado en Viele & Sons.
                 </p>

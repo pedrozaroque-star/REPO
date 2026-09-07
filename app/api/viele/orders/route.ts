@@ -17,6 +17,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { placeVieleOrder } from '@/lib/viele-api';
+import { isVieleChemical } from '@/lib/viele-catalog-data';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -188,6 +189,9 @@ export async function POST(req: Request) {
           total_amount: orderResult.orderSodas.totalAmount,
           buyer_name: resolvedBuyer,
           customer_po_no: resolvedCustomerPo,
+          salesperson: 'D. TAMAYO',
+          route: 'W08',
+          terms: 'NET 30 DAYS',
           viele_response: orderResult.orderSodas.vieleRawResponse,
           notes: notes ? `[SODAS] ${notes}` : '[SODAS]'
         })
@@ -196,6 +200,7 @@ export async function POST(req: Request) {
 
       if (errSodas) {
         console.error('Error insertando orden de sodas en BD:', errSodas);
+        return NextResponse.json({ success: false, error: `Error guardando orden de sodas: ${errSodas.message}` }, { status: 500 });
       } else {
         const sodaItemRows = orderResult.orderSodas.items.map((i: any) => {
           const qty = Number(i.quantity);
@@ -210,7 +215,9 @@ export async function POST(req: Request) {
             leftover_quantity: Number(i.leftoverQuantity) || 0,
             suggested_quantity: Math.max(0, (Number(i.parQuantity) || 0) - (Number(i.leftoverQuantity) || 0)),
             order_quantity: qty,
-            extended_amount: parseFloat((qty * price).toFixed(2))
+            extended_amount: parseFloat((qty * price).toFixed(2)),
+            is_taxable: false,
+            bin_no: null
           };
         });
         await supabase.from('viele_order_items').insert(sodaItemRows);
@@ -233,6 +240,9 @@ export async function POST(req: Request) {
           total_amount: orderResult.orderGeneral.totalAmount,
           buyer_name: resolvedBuyer,
           customer_po_no: resolvedCustomerPo,
+          salesperson: 'D. TAMAYO',
+          route: 'W08',
+          terms: 'NET 30 DAYS',
           viele_response: orderResult.orderGeneral.vieleRawResponse,
           notes: notes ? `[INSUMOS] ${notes}` : '[INSUMOS]'
         })
@@ -241,6 +251,7 @@ export async function POST(req: Request) {
 
       if (errGeneral) {
         console.error('Error insertando orden de insumos en BD:', errGeneral);
+        return NextResponse.json({ success: false, error: `Error guardando orden de insumos: ${errGeneral.message}` }, { status: 500 });
       } else {
         const genItemRows = orderResult.orderGeneral.items.map((i: any) => {
           const qty = Number(i.quantity);
@@ -255,7 +266,9 @@ export async function POST(req: Request) {
             leftover_quantity: Number(i.leftoverQuantity) || 0,
             suggested_quantity: Math.max(0, (Number(i.parQuantity) || 0) - (Number(i.leftoverQuantity) || 0)),
             order_quantity: qty,
-            extended_amount: parseFloat((qty * price).toFixed(2))
+            extended_amount: parseFloat((qty * price).toFixed(2)),
+            is_taxable: isVieleChemical(i.itemCode),
+            bin_no: i.itemCode === 'IC5GLIDI' ? '2801B' : (i.itemCode === 'IC4DESC' ? '2806B' : null)
           };
         });
         await supabase.from('viele_order_items').insert(genItemRows);
@@ -277,8 +290,18 @@ export async function POST(req: Request) {
       });
     }
 
-    // Orden única (Solo sodas o solo insumos generales)
-    const category = orderResult.orderCategory || (validLines.some(i => i.isSoda) ? 'sodas' : 'general');
+    // Orden única (Solo sodas, solo insumos generales o solo químicos)
+    let category = orderResult.orderCategory;
+    if (!category) {
+      if (validLines.every((i: any) => isVieleChemical(i.itemCode))) {
+        category = 'chemicals';
+      } else if (validLines.some((i: any) => i.isSoda)) {
+        category = 'sodas';
+      } else {
+        category = 'general';
+      }
+    }
+
     const { data: insertedOrder, error: orderInsertError } = await supabase
       .from('viele_orders')
       .insert({
@@ -294,6 +317,9 @@ export async function POST(req: Request) {
         total_amount: orderResult.totalAmount,
         buyer_name: resolvedBuyer,
         customer_po_no: resolvedCustomerPo,
+        salesperson: 'D. TAMAYO',
+        route: 'W08',
+        terms: 'NET 30 DAYS',
         viele_response: orderResult.vieleRawResponse,
         notes: notes || null
       })
@@ -321,7 +347,9 @@ export async function POST(req: Request) {
         leftover_quantity: Number(i.leftoverQuantity) || 0,
         suggested_quantity: Math.max(0, (Number(i.parQuantity) || 0) - (Number(i.leftoverQuantity) || 0)),
         order_quantity: qty,
-        extended_amount: parseFloat((qty * price).toFixed(2))
+        extended_amount: parseFloat((qty * price).toFixed(2)),
+        is_taxable: isVieleChemical(i.itemCode),
+        bin_no: i.itemCode === 'IC5GLIDI' ? '2801B' : (i.itemCode === 'IC4DESC' ? '2806B' : null)
       };
     });
 

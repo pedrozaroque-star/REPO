@@ -22,7 +22,7 @@
 
 import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { VIELE_STORE_ACCOUNTS } from '@/lib/viele-api';
+import { VIELE_STORE_ACCOUNTS, formatUsDate, formatUsFullDate } from '@/lib/viele-api';
 
 interface CatalogItem {
   item_code: string;
@@ -45,13 +45,13 @@ function PrintSheetContent() {
   const [storeName, setStoreName] = useState<string>('Lynwood #14');
   const [loading, setLoading] = useState<boolean>(true);
 
-  // Cargar catálogo e información de la tienda
+  // Cargar catálogo e información de la tienda (con orden personalizado si existe)
   useEffect(() => {
     async function loadData() {
       setLoading(true);
       try {
-        // 1. Cargar catálogo
-        const catRes = await fetch('/api/viele/catalog');
+        // 1. Cargar catálogo ordenado específicamente para esta sucursal
+        const catRes = await fetch(`/api/viele/catalog?storeId=${storeId}`);
         const catJson = await catRes.json();
         if (catJson.success && catJson.data) {
           setItems(catJson.data);
@@ -86,21 +86,16 @@ function PrintSheetContent() {
   const leftColumnItems = items.slice(0, midpoint);
   const rightColumnItems = items.slice(midpoint);
 
-  // Fecha formateada
-  const todayFormatted = new Date().toLocaleDateString('es-MX', {
-    weekday: 'long',
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric'
-  });
+  // Fecha de conteo en formato USA estándar (MM/DD/YYYY) y nombre completo en inglés
+  const todayUsFormatted = `${formatUsDate(new Date().toISOString())} (${formatUsFullDate(new Date().toISOString(), 'en-US')})`;
 
   return (
     <>
       <style>{`
         @media print {
           @page {
-            size: portrait;
-            margin: 0.15in;
+            size: letter portrait;
+            margin: 0.12in;
           }
           * {
             -webkit-print-color-adjust: exact !important;
@@ -125,11 +120,17 @@ function PrintSheetContent() {
           .page-break {
             page-break-before: always;
           }
+          tr {
+            page-break-inside: avoid;
+          }
+          table {
+            page-break-inside: auto;
+          }
         }
 
         @media screen {
           body {
-            background: #0f172a;
+            background: #f1f5f9;
             margin: 0;
             padding-bottom: 40px;
           }
@@ -290,13 +291,13 @@ function PrintSheetContent() {
 
       {/* Barra de herramientas para pantalla */}
       <div className="no-print" style={{
-        position: 'fixed', top: 0, left: 0, right: 0, zIndex: 100,
+        position: 'fixed', top: 0, left: 0, right: 0, zIndex: 9999,
         background: '#ffffff', color: '#0f172a', padding: '10px 24px',
         display: 'flex', alignItems: 'center', gap: 16, fontFamily: 'sans-serif',
         boxShadow: '0 2px 10px rgba(0,0,0,0.06)', borderBottom: '1px solid #e2e8f0'
       }}>
         <button
-          onClick={() => router.push('/admin/compras/viele')}
+          onClick={() => router.push(`/admin/compras/viele?storeId=${storeId}`)}
           style={{
             background: '#f1f5f9', color: '#334155', border: '1px solid #cbd5e1',
             padding: '8px 16px', borderRadius: 8, cursor: 'pointer',
@@ -359,11 +360,11 @@ function PrintSheetContent() {
                 </div>
               </div>
               <div className="header-meta">
-                <div>Fecha Conteo: <strong>{todayFormatted}</strong></div>
-                <div>Entrega Habitual: <strong>Martes</strong> (Modificable por emergencia)</div>
-                <div>Comprador Oficial: <strong>AFV</strong></div>
-                <div>Fórmula: <strong>PEDIDO = PAR − SOBRANTE</strong></div>
-                <div>Total Artículos: <strong>{items.length} SKUs</strong></div>
+                <div>Date (Fecha Conteo): <strong>{todayUsFormatted}</strong></div>
+                <div>Delivery (Entrega): <strong>Tuesday (Martes)</strong></div>
+                <div>Official Buyer (Comprador): <strong>AFV</strong></div>
+                <div>Formula: <strong>ORDER = PAR − LEFTOVER</strong></div>
+                <div>Total Items (Artículos): <strong>{items.length} SKUs</strong></div>
               </div>
             </div>
 
