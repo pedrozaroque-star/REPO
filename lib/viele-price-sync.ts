@@ -12,22 +12,41 @@
  *   se inserta automáticamente en viele_items con status 'new', imagen y categoría inferida.
  * - Sincronización con el Radar de Precios: se registra en supplier_price_history y se
  *   mantienen sincronizados los mapeos en supplier_item_mappings.
+ * - Reconciliación automática de SKUs reemplazados: Si Viele & Sons cambia una clave
+ *   (ej: EL4LID -> KDL76PP, EF4CLEA -> IC4FLCL), el motor migra automáticamente los niveles PAR
+ *   de cada sucursal (viele_store_pars) y el orden de visualización (viele_store_sort_orders),
+ *   desactivando el código obsoleto en viele_items para mantener 1:1 el catálogo oficial.
  * - Idempotencia: no duplica registros históricos si el precio no ha variado.
  *
  * @dataFlow
  * - Invocado por:
  *   1) /api/cron/sync-supplier-prices (Cron job diario lunes a viernes 6:00 AM PST).
  *   2) /api/viele/sync-prices (Sincronización bajo demanda con un clic en UI de compras).
- * - Destinos: Supabase viele_items, supplier_price_history, supplier_item_mappings.
+ * - Destinos: Supabase viele_items, supplier_price_history, supplier_item_mappings, viele_store_pars, viele_store_sort_orders.
  *
  * @notes
  * - Respeta las reglas de no mutar columnas generadas en PostgreSQL.
  * - Las variaciones detectadas alimentan los semáforos de compras e informes ejecutivos.
+ * - 2026-09-07 Fix: EL4LID migrado automáticamente a KDL76PP preservando PAR y orden.
  */
 
 import { getSupabaseAdminClient } from '@/lib/supabase';
 import { ParsedSupplierItem } from './supplier-price-parser';
 import { isVieleSoda, isVieleChemical } from './viele-catalog-data';
+
+/**
+ * Diccionario oficial de reemplazos de SKUs de Viele & Sons.
+ * Mapea códigos descontinuados/reemplazados a sus nuevos SKUs activos.
+ */
+export const VIELE_SKU_REPLACEMENTS: Record<string, { newCode: string; name: string }> = {
+  'EL4LID': { newCode: 'KDL76PP', name: 'Karat - Flat Lid, Fits 4 oz Food Container, PP Plastic' },
+  'EF4CLEA': { newCode: 'IC4FLCL', name: 'Infinite Chemical - Enzyme Floor Cleaner, 4/1 gal' },
+};
+
+/**
+ * SKUs descontinuados por Viele & Sons que no deben estar activos
+ */
+export const VIELE_DISCONTINUED_SKUS = ['BDRPE'];
 
 export interface VieleSyncSummary {
   success: boolean;
@@ -248,6 +267,83 @@ export async function syncVielePurchasesCatalog(
             .eq('item_code', code);
         }
       }
+    }
+
+    // 4. Reconciliación automática de SKUs reemplazados y descontinuados
+    for (const [oldCode, replacement] of Object.entries(VIELE_SKU_REPLACEMENTS)) {
+      const newCode = replacement.newCode;
+
+      // a) Migrar viele_store_pars si aún quedan tiendas con el código viejo
+      const { data: oldPars } = await supabase
+        .from('viele_store_pars')
+        .select('id, store_id, par_quantity')
+        .eq('item_code', oldCode);
+
+      if (oldPars && oldPars.length > 0) {
+        const { data: newPars } = await supabase
+          .from('viele_store_pars')
+          .select('id, store_id')
+          .eq('item_code', newCode);
+
+        const newParsStoreIds = new Set((newPars || []).map(p => p.store_id));
+
+        for (const oldPar of oldPars) {
+          if (newParsStoreIds.has(oldPar.store_id)) {
+            await supabase.from('viele_store_pars').delete().eq('id', oldPar.id);
+          } else {
+            await supabase
+              .from('viele_store_pars')
+              .update({ item_code: newCode })
+              .eq('id', oldPar.id);
+          }
+        }
+        console.log(`[VielePriceSync] 🔄 Migrados ${oldPars.length} registros de PAR: ${oldCode} -> ${newCode}`);
+      }
+
+      // b) Migrar viele_store_sort_orders
+      const { data: oldSorts } = await supabase
+        .from('viele_store_sort_orders')
+        .select('store_id, sort_order')
+        .eq('item_code', oldCode);
+
+      if (oldSorts && oldSorts.length > 0) {
+        for (const s of oldSorts) {
+          const { data: existingNewSort } = await supabase
+            .from('viele_store_sort_orders')
+            .select('store_id')
+            .eq('store_id', s.store_id)
+            .eq('item_code', newCode)
+            .maybeSingle();
+
+          if (existingNewSort) {
+            await supabase
+              .from('viele_store_sort_orders')
+              .delete()
+              .eq('store_id', s.store_id)
+              .eq('item_code', oldCode);
+          } else {
+            await supabase
+              .from('viele_store_sort_orders')
+              .update({ item_code: newCode })
+              .eq('store_id', s.store_id)
+              .eq('item_code', oldCode);
+          }
+        }
+      }
+
+      // c) Desactivar SKU obsoleto en viele_items
+      await supabase
+        .from('viele_items')
+        .update({ is_active: false })
+        .eq('item_code', oldCode);
+    }
+
+    // 5. Desactivar artículos descontinuados confirmados
+    for (const discCode of VIELE_DISCONTINUED_SKUS) {
+      await supabase
+        .from('viele_items')
+        .update({ is_active: false })
+        .eq('item_code', discCode);
     }
 
     const durationMs = Date.now() - startTime;

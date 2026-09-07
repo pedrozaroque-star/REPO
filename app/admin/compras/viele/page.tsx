@@ -37,7 +37,7 @@
 
 'use client';
 
-import { useState, useEffect, useMemo, Suspense } from 'react';
+import { useState, useEffect, useMemo, useRef, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useLanguage } from '@/lib/i18n';
@@ -58,7 +58,9 @@ import {
   Truck,
   GripVertical,
   RotateCcw,
-  Check
+  Check,
+  Upload,
+  Camera
 } from 'lucide-react';
 
 interface CatalogItem {
@@ -81,6 +83,7 @@ interface CatalogItem {
 interface OrderRow {
   item: CatalogItem;
   par: number;
+  isParEmpty?: boolean;
   leftover: string; // string para permitir borrado limpio en input
   suggested: number;
   finalOrder: number;
@@ -148,6 +151,12 @@ function VieleOrderContent() {
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
   const [customOrderToast, setCustomOrderToast] = useState<string | null>(null);
+  const [isSavingPars, setIsSavingPars] = useState<boolean>(false);
+
+  // Modal de vista previa de imagen
+  const [imagePreviewItem, setImagePreviewItem] = useState<CatalogItem | null>(null);
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Estados de proceso
   const [loading, setLoading] = useState(true);
@@ -181,9 +190,15 @@ function VieleOrderContent() {
           const storePars = parJson.success ? parJson.pars || {} : {};
           setPars(storePars);
 
+          // Filtrar: Solo mostrar productos que la tienda maneja (tienen PAR configurado)
+          const storeItems = catJson.data.filter(
+            (item: CatalogItem) => item.item_code in storePars
+          );
+          setCatalog(storeItems);
+
           // Inicializar estado de filas
           const rows: Record<string, OrderRow> = {};
-          catJson.data.forEach((item: CatalogItem) => {
+          storeItems.forEach((item: CatalogItem) => {
             const par = storePars[item.item_code] ?? 0;
             rows[item.item_code] = {
               item,
@@ -337,6 +352,78 @@ function VieleOrderContent() {
         }
       };
     });
+  };
+
+  // Detección de niveles PAR modificados respecto a la base de datos
+  const modifiedParsCount = useMemo(() => {
+    let count = 0;
+    Object.entries(orderRows).forEach(([code, row]) => {
+      const originalPar = pars[code] ?? 0;
+      if (row.par !== originalPar) {
+        count++;
+      }
+    });
+    return count;
+  }, [orderRows, pars]);
+
+  // Manejador de cambio en "PAR"
+  const handleParChange = (code: string, val: string) => {
+    const isBlank = val.trim() === '';
+    const numVal = isBlank ? 0 : Math.max(0, parseInt(val) || 0);
+
+    setOrderRows(prev => {
+      const current = prev[code];
+      if (!current) return prev;
+
+      const leftoverNum = parseFloat(current.leftover) || 0;
+      const hasLeftover = current.leftover.trim() !== '';
+      const newSuggested = Math.max(0, numVal - (hasLeftover ? leftoverNum : 0));
+      const wasFinalOrderSynced = current.finalOrder === current.suggested;
+
+      return {
+        ...prev,
+        [code]: {
+          ...current,
+          par: numVal,
+          isParEmpty: isBlank,
+          suggested: newSuggested,
+          finalOrder: wasFinalOrderSynced ? newSuggested : current.finalOrder
+        }
+      };
+    });
+  };
+
+  // Guardar Niveles PAR en Supabase (/api/viele/pars)
+  const handleSavePars = async () => {
+    setIsSavingPars(true);
+    setErrorMessage(null);
+    try {
+      const parsPayload: Record<string, number> = {};
+      Object.entries(orderRows).forEach(([code, row]) => {
+        parsPayload[code] = row.par;
+      });
+
+      const res = await fetch('/api/viele/pars', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          storeId: parseInt(storeId),
+          pars: parsPayload
+        })
+      });
+
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error);
+
+      // Actualizar estado base de pars para limpiar contador de modificados
+      setPars(parsPayload);
+      setCustomOrderToast(t('viele.pars_saved_toast'));
+      setTimeout(() => setCustomOrderToast(null), 4000);
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Error al guardar niveles PAR');
+    } finally {
+      setIsSavingPars(false);
+    }
   };
 
   // Manejador de cambio manual en "Pedido Final"
@@ -547,9 +634,9 @@ function VieleOrderContent() {
                 <Truck className="w-6 h-6" />
               </span>
               <div>
-                <h1 className="text-2xl font-black tracking-tight text-slate-900 flex items-center gap-3">
+                <h1 className="text-2xl font-bold tracking-tight text-slate-900 flex items-center gap-3">
                   {t('viele.title')}
-                  <span className="text-xs px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold uppercase tracking-wide">
+                  <span className="text-xs px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 font-semibold uppercase tracking-wide">
                     Sage 100 Net 30
                   </span>
                 </h1>
@@ -564,7 +651,7 @@ function VieleOrderContent() {
           <div className="flex items-center gap-3 flex-wrap">
             <Link
               href={`/admin/compras/viele/print-sheet?storeId=${storeId}`}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-white hover:bg-slate-50 text-slate-700 rounded-xl font-bold text-sm border border-slate-200 transition shadow-sm"
+              className="inline-flex items-center gap-2 px-4 py-2 bg-white hover:bg-slate-50 text-slate-700 rounded-xl font-semibold text-sm border border-slate-200 transition shadow-sm"
             >
               <Printer className="w-4 h-4 text-amber-600" />
               {t('viele.print_sheet')}
@@ -572,7 +659,7 @@ function VieleOrderContent() {
 
             <Link
               href="/admin/compras/viele/historial"
-              className="inline-flex items-center gap-2 px-4 py-2 bg-white hover:bg-slate-50 text-slate-700 rounded-xl font-bold text-sm border border-slate-200 transition shadow-sm"
+              className="inline-flex items-center gap-2 px-4 py-2 bg-white hover:bg-slate-50 text-slate-700 rounded-xl font-semibold text-sm border border-slate-200 transition shadow-sm"
             >
               <History className="w-4 h-4 text-blue-600" />
               {t('viele.history')}
@@ -593,7 +680,7 @@ function VieleOrderContent() {
                 setStoreId(e.target.value);
                 router.push(`/admin/compras/viele?storeId=${e.target.value}`);
               }}
-              className="w-full bg-white border border-slate-300 rounded-xl px-3.5 py-2.5 text-slate-900 font-bold text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 cursor-pointer shadow-sm"
+              className="w-full bg-white border border-slate-300 rounded-xl px-3.5 py-2.5 text-slate-900 font-semibold text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 cursor-pointer shadow-sm"
             >
               {Object.values(VIELE_STORE_ACCOUNTS).map(acc => (
                 <option key={acc.storeId} value={acc.storeId}>
@@ -613,7 +700,7 @@ function VieleOrderContent() {
                 <button
                   type="button"
                   onClick={() => setShipDate(getNextTuesday())}
-                  className="text-[11px] text-amber-600 hover:text-amber-800 font-bold underline cursor-pointer"
+                  className="text-[11px] text-amber-600 hover:text-amber-800 font-semibold underline cursor-pointer"
                   title="Restablecer al próximo ciclo habitual de martes"
                 >
                   Restablecer a Martes
@@ -624,31 +711,18 @@ function VieleOrderContent() {
               type="date"
               value={shipDate}
               onChange={(e) => setShipDate(e.target.value)}
-              className={`w-full bg-white border rounded-xl px-3.5 py-2 text-slate-900 font-bold text-sm focus:outline-none focus:ring-2 shadow-sm ${
+              className={`w-full bg-white border rounded-xl px-3.5 py-2 text-slate-900 font-semibold text-sm focus:outline-none focus:ring-2 shadow-sm ${
                 isTuesday(shipDate)
                   ? 'border-slate-300 focus:ring-emerald-500'
                   : 'border-amber-400 focus:ring-amber-500 bg-amber-50/20'
               }`}
             />
-            <div className="mt-1 flex flex-col gap-0.5">
-              <div className="flex items-center gap-1.5 text-xs font-mono font-bold text-slate-700">
-                <span>🇺🇸 USA:</span>
-                <span className="text-amber-800">{formatUsDate(shipDate)}</span>
-                <span className="text-slate-400">•</span>
-                <span className="text-slate-600 font-sans font-semibold text-[11px]">{formatUsFullDate(shipDate, 'en-US')}</span>
-              </div>
-              {isTuesday(shipDate) ? (
-                <span className="text-[11px] text-emerald-700 flex items-center gap-1.5 font-semibold">
-                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                  Martes habitual (Entrega programada Viele & Sons)
-                </span>
-              ) : (
-                <span className="text-[11px] text-amber-700 flex items-center gap-1.5 font-semibold">
-                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-500"></span>
-                  Modificado para {getDayOfWeekName(shipDate)} (Emergencia o cierre)
-                </span>
-              )}
-            </div>
+            {!isTuesday(shipDate) && (
+              <p className="mt-1.5 text-xs text-amber-700 font-medium flex items-center gap-1.5">
+                <span>⚠️</span>
+                <span>Entrega modificada para {getDayOfWeekName(shipDate)}</span>
+              </p>
+            )}
           </div>
 
           {/* Buscador Rápido */}
@@ -698,6 +772,22 @@ function VieleOrderContent() {
           </div>
 
           <div className="flex items-center gap-2 self-end sm:self-auto">
+            {/* Botón Guardar PARs */}
+            <button
+              type="button"
+              onClick={handleSavePars}
+              disabled={isSavingPars || modifiedParsCount === 0}
+              className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold transition shadow-xs ${
+                modifiedParsCount > 0
+                  ? 'bg-amber-600 hover:bg-amber-700 text-white shadow-md ring-2 ring-amber-400/60 animate-pulse cursor-pointer'
+                  : 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed'
+              }`}
+              title={t('viele.par_input_title')}
+            >
+              <Save className="w-3.5 h-3.5" />
+              {isSavingPars ? t('viele.saving_pars') : modifiedParsCount > 0 ? `${t('viele.save_pars')} (${modifiedParsCount})` : t('viele.save_pars')}
+            </button>
+
             {hasCustomOrder && (
               <button
                 type="button"
@@ -728,16 +818,16 @@ function VieleOrderContent() {
               : 'bg-white border-slate-200 opacity-85'
           }`}>
             <div className="flex items-center justify-between mb-2">
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold bg-indigo-100 text-indigo-800">
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-100 text-indigo-800">
                 <span>🥤</span> Factura 1: Sodas (BIB)
               </span>
-              <span className="text-[11px] font-mono text-indigo-700 font-semibold">
+              <span className="text-xs text-indigo-700 font-semibold">
                 {summary.sodas.itemsCount} SKUs pedidos
               </span>
             </div>
             <div className="flex items-baseline justify-between mt-2">
               <div>
-                <span className="text-2xl font-black text-indigo-950 font-mono">
+                <span className="text-2xl font-bold text-indigo-950 tabular-nums">
                   ${summary.sodas.grandTotal.toFixed(2)}
                 </span>
                 <span className="block text-[11px] text-slate-500 font-medium">
@@ -745,10 +835,10 @@ function VieleOrderContent() {
                 </span>
               </div>
               <div className="text-right">
-                <span className="text-lg font-black text-indigo-700 font-mono">
+                <span className="text-xl font-bold text-indigo-700 tabular-nums">
                   {summary.sodas.totalCases}
                 </span>
-                <span className="block text-[10px] uppercase font-bold text-slate-400">cajas</span>
+                <span className="block text-[10px] uppercase font-semibold text-slate-400">cajas</span>
               </div>
             </div>
           </div>
@@ -760,16 +850,16 @@ function VieleOrderContent() {
               : 'bg-white border-slate-200 opacity-85'
           }`}>
             <div className="flex items-center justify-between mb-2">
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-800">
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-800">
                 <span>📦</span> Factura 2: Insumos Generales
               </span>
-              <span className="text-[11px] font-mono text-amber-700 font-semibold">
+              <span className="text-xs text-amber-700 font-semibold">
                 {summary.general.itemsCount} SKUs pedidos
               </span>
             </div>
             <div className="flex items-baseline justify-between mt-2">
               <div>
-                <span className="text-2xl font-black text-amber-950 font-mono">
+                <span className="text-2xl font-bold text-amber-950 tabular-nums">
                   ${summary.general.grandTotal.toFixed(2)}
                 </span>
                 <span className="block text-[11px] text-slate-500 font-medium">
@@ -777,10 +867,10 @@ function VieleOrderContent() {
                 </span>
               </div>
               <div className="text-right">
-                <span className="text-lg font-black text-amber-700 font-mono">
+                <span className="text-xl font-bold text-amber-700 tabular-nums">
                   {summary.general.totalCases}
                 </span>
-                <span className="block text-[10px] uppercase font-bold text-slate-400">cajas</span>
+                <span className="block text-[10px] uppercase font-semibold text-slate-400">cajas</span>
               </div>
             </div>
           </div>
@@ -788,16 +878,16 @@ function VieleOrderContent() {
           {/* Factura 3: Total Combinado */}
           <div className="p-4 rounded-2xl border bg-gradient-to-br from-emerald-50 to-teal-50/40 border-emerald-200 shadow-sm">
             <div className="flex items-center justify-between mb-2">
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800">
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800">
                 <span>💰</span> Total Combinado
               </span>
-              <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-emerald-600 text-white shadow-xs">
+              <span className="text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-md bg-emerald-600 text-white shadow-xs">
                 {summary.isSplit ? '2 Facturas Viele & Sons' : '1 Factura Viele & Sons'}
               </span>
             </div>
             <div className="flex items-baseline justify-between mt-2">
               <div>
-                <span className="text-2xl font-black text-emerald-950 font-mono">
+                <span className="text-2xl font-bold text-emerald-950 tabular-nums">
                   ${summary.grandTotal.toFixed(2)}
                 </span>
                 <span className="block text-[11px] text-slate-500 font-medium">
@@ -805,10 +895,10 @@ function VieleOrderContent() {
                 </span>
               </div>
               <div className="text-right">
-                <span className="text-lg font-black text-emerald-700 font-mono">
+                <span className="text-xl font-bold text-emerald-700 tabular-nums">
                   {summary.totalCases}
                 </span>
-                <span className="block text-[10px] uppercase font-bold text-slate-400">cajas totales</span>
+                <span className="block text-[10px] uppercase font-semibold text-slate-400">cajas totales</span>
               </div>
             </div>
           </div>
@@ -895,13 +985,17 @@ function VieleOrderContent() {
                       </td>
 
                       {/* Correlativo */}
-                      <td className="py-2.5 px-3 text-center text-xs text-slate-400 font-mono">
+                      <td className="py-2.5 px-3 text-center text-xs text-slate-400 tabular-nums font-medium">
                         {index + 1}
                       </td>
 
-                      {/* Miniatura Fotográfica */}
+                      {/* Miniatura Fotográfica — Clic para vista previa */}
                       <td className="py-2.5 px-4 text-center">
-                        <div className="w-10 h-10 bg-white rounded-lg p-0.5 border border-slate-200 shadow-sm mx-auto flex items-center justify-center overflow-hidden">
+                        <button
+                          onClick={() => setImagePreviewItem(item)}
+                          className="group relative w-10 h-10 bg-white rounded-lg p-0.5 border border-slate-200 shadow-sm mx-auto flex items-center justify-center overflow-hidden cursor-pointer hover:ring-2 hover:ring-amber-400 hover:border-amber-400 transition-all"
+                          title={`${t('viele.image_preview.view_title')} ${item.description}`}
+                        >
                           <img
                             src={item.image_file}
                             alt={item.item_code}
@@ -910,7 +1004,10 @@ function VieleOrderContent() {
                               (e.target as HTMLImageElement).src = '/images/viele/placeholder.png';
                             }}
                           />
-                        </div>
+                          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
+                            <Camera className="w-3.5 h-3.5 text-white opacity-0 group-hover:opacity-100 transition-opacity drop-shadow" />
+                          </div>
+                        </button>
                       </td>
 
                       {/* Código SKU */}
@@ -937,30 +1034,77 @@ function VieleOrderContent() {
                       </td>
 
                       {/* Precio Unitario (Sincronizado automáticamente) */}
-                      <td className="py-2.5 px-4 text-right font-mono text-slate-700 text-xs font-semibold">
+                      <td className="py-2.5 px-4 text-right tabular-nums text-slate-700 text-xs font-medium">
                         ${item.unit_price.toFixed(2)}
                       </td>
 
-                      {/* Nivel PAR */}
-                      <td className="py-2.5 px-4 text-center bg-amber-50/40 font-black text-amber-800 font-mono text-base">
-                        {row.par > 0 ? row.par : <span className="text-slate-400 font-normal text-xs">-</span>}
+                      {/* Nivel PAR editable con flechas ↑↓ y Enter */}
+                      <td className="py-2.5 px-3 text-center bg-amber-50/40">
+                        <input
+                          type="number"
+                          min="0"
+                          step="1"
+                          data-par-index={index}
+                          value={row.isParEmpty ? '' : row.par}
+                          onChange={(e) => handleParChange(item.item_code, e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'ArrowDown' || e.key === 'Enter') {
+                              e.preventDefault();
+                              const next = document.querySelector<HTMLInputElement>(
+                                `input[data-par-index="${index + 1}"]`
+                              );
+                              if (next) { next.focus(); next.select(); }
+                            } else if (e.key === 'ArrowUp') {
+                              e.preventDefault();
+                              const prev = document.querySelector<HTMLInputElement>(
+                                `input[data-par-index="${index - 1}"]`
+                              );
+                              if (prev) { prev.focus(); prev.select(); }
+                            }
+                          }}
+                          onFocus={(e) => e.target.select()}
+                          placeholder="0"
+                          className={`w-16 text-center font-bold tabular-nums py-1.5 rounded-lg text-sm shadow-sm transition-all focus:outline-none focus:ring-2 focus:ring-amber-500 ${
+                            (pars[item.item_code] ?? 0) !== row.par
+                              ? 'bg-amber-100 text-amber-950 border-2 border-amber-500 font-extrabold shadow-amber-200/50'
+                              : 'bg-white text-amber-900 border border-amber-200 hover:border-amber-400'
+                          }`}
+                          title={t('viele.par_input_title')}
+                        />
                       </td>
 
-                      {/* Input Sobrante */}
+                      {/* Input Sobrante — Flechas ↑↓ y Enter para navegar rápido */}
                       <td className="py-2.5 px-4 text-center bg-slate-50/50">
                         <input
                           type="number"
                           min="0"
                           step="any"
+                          data-leftover-index={index}
                           value={row.leftover}
                           onChange={(e) => handleLeftoverChange(item.item_code, e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'ArrowDown' || e.key === 'Enter') {
+                              e.preventDefault();
+                              const next = document.querySelector<HTMLInputElement>(
+                                `input[data-leftover-index="${index + 1}"]`
+                              );
+                              if (next) { next.focus(); next.select(); }
+                            } else if (e.key === 'ArrowUp') {
+                              e.preventDefault();
+                              const prev = document.querySelector<HTMLInputElement>(
+                                `input[data-leftover-index="${index - 1}"]`
+                              );
+                              if (prev) { prev.focus(); prev.select(); }
+                            }
+                          }}
+                          onFocus={(e) => e.target.select()}
                           placeholder="0"
-                          className="w-16 text-center font-bold font-mono py-1.5 bg-white border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-500 text-sm shadow-sm"
+                          className="w-16 text-center font-bold tabular-nums py-1.5 bg-white border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-500 text-sm shadow-sm"
                         />
                       </td>
 
                       {/* Sugerido (PAR - Sobrante) */}
-                      <td className="py-2.5 px-4 text-center bg-blue-50/30 font-mono font-black text-blue-700 text-sm">
+                      <td className="py-2.5 px-4 text-center bg-blue-50/30 text-blue-800 font-bold tabular-nums text-sm">
                         {row.suggested}
                       </td>
 
@@ -979,7 +1123,7 @@ function VieleOrderContent() {
                             min="0"
                             value={row.finalOrder}
                             onChange={(e) => handleFinalOrderChange(item.item_code, parseInt(e.target.value) || 0)}
-                            className={`w-14 text-center font-mono font-black py-1 rounded-md border text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 shadow-sm ${
+                            className={`w-14 text-center font-bold tabular-nums py-1 rounded-md border text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 shadow-sm ${
                               isOrdered
                                 ? 'bg-emerald-100 text-emerald-900 border-emerald-300'
                                 : 'bg-white text-slate-400 border-slate-300'
@@ -996,7 +1140,7 @@ function VieleOrderContent() {
                       </td>
 
                       {/* Importe Extendido */}
-                      <td className="py-2.5 px-4 text-right font-mono font-bold text-xs text-slate-900">
+                      <td className="py-2.5 px-4 text-right tabular-nums font-semibold text-xs text-slate-900">
                         ${extendedAmount.toFixed(2)}
                       </td>
                     </tr>
@@ -1017,7 +1161,7 @@ function VieleOrderContent() {
               <span className="text-xs text-slate-500 uppercase font-bold block">
                 {t('viele.summary.ordered_items')}
               </span>
-              <span className="text-lg font-black text-slate-900">
+              <span className="text-lg font-bold text-slate-900 tabular-nums">
                 {summary.orderedItemsCount} <span className="text-xs font-normal text-slate-400">/ {catalog.length}</span>
               </span>
             </div>
@@ -1026,7 +1170,7 @@ function VieleOrderContent() {
               <span className="text-xs text-slate-500 uppercase font-bold block">
                 {t('viele.summary.total_cases')}
               </span>
-              <span className="text-xl font-black text-slate-800 font-mono">
+              <span className="text-xl font-bold text-slate-800 tabular-nums">
                 {summary.totalCases} <span className="text-xs font-normal text-slate-500">cajas</span>
               </span>
             </div>
@@ -1036,7 +1180,7 @@ function VieleOrderContent() {
               <span className="text-[11px] text-indigo-700 uppercase font-bold flex items-center gap-1">
                 <span>🥤</span> Sodas ({summary.sodas.totalCases} cjs)
               </span>
-              <span className="text-base font-black text-indigo-950 font-mono">
+              <span className="text-base font-bold text-indigo-950 tabular-nums">
                 ${summary.sodas.grandTotal.toFixed(2)}
               </span>
             </div>
@@ -1046,7 +1190,7 @@ function VieleOrderContent() {
               <span className="text-[11px] text-amber-700 uppercase font-bold flex items-center gap-1">
                 <span>📦</span> Insumos ({summary.general.totalCases} cjs)
               </span>
-              <span className="text-base font-black text-amber-950 font-mono">
+              <span className="text-base font-bold text-amber-950 tabular-nums">
                 ${summary.general.grandTotal.toFixed(2)}
               </span>
             </div>
@@ -1061,7 +1205,7 @@ function VieleOrderContent() {
                   {summary.isSplit ? '2 Facturas V&S' : '1 Factura V&S'}
                 </span>
               </div>
-              <span className="text-2xl font-black text-emerald-700 font-mono">
+              <span className="text-2xl font-bold text-emerald-700 tabular-nums">
                 ${summary.grandTotal.toFixed(2)}
               </span>
             </div>
@@ -1069,6 +1213,19 @@ function VieleOrderContent() {
 
           {/* Botones de Acción */}
           <div className="flex items-center gap-3">
+            {modifiedParsCount > 0 && (
+              <button
+                type="button"
+                onClick={handleSavePars}
+                disabled={isSavingPars}
+                className="inline-flex items-center gap-2 px-4 py-2.5 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white font-bold text-sm rounded-xl shadow-md shadow-amber-600/20 transition cursor-pointer animate-pulse"
+                title={t('viele.par_input_title')}
+              >
+                <Save className="w-4 h-4" />
+                {isSavingPars ? t('viele.saving_pars') : `${t('viele.save_pars')} (${modifiedParsCount})`}
+              </button>
+            )}
+
             <button
               onClick={handleSaveDraft}
               disabled={isSubmitting || summary.totalCases === 0}
@@ -1081,7 +1238,7 @@ function VieleOrderContent() {
             <button
               onClick={() => setIsConfirmModalOpen(true)}
               disabled={isSubmitting || summary.totalCases === 0}
-              className="inline-flex items-center gap-2 px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-black text-sm rounded-xl shadow-lg shadow-emerald-600/20 transition cursor-pointer"
+              className="inline-flex items-center gap-2 px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold text-sm rounded-xl shadow-lg shadow-emerald-600/20 transition cursor-pointer"
             >
               <Send className="w-4 h-4" />
               {t('viele.submit_order')}
@@ -1099,7 +1256,7 @@ function VieleOrderContent() {
                 <span className="p-2 bg-emerald-50 text-emerald-600 rounded-xl border border-emerald-200 shadow-sm">
                   <Truck className="w-6 h-6" />
                 </span>
-                <h3 className="text-lg font-black text-slate-900">
+                <h3 className="text-lg font-bold text-slate-900">
                   {t('viele.modal.confirm_title')}
                 </h3>
               </div>
@@ -1127,16 +1284,16 @@ function VieleOrderContent() {
               <div className="flex justify-between items-center">
                 <span className="text-slate-500">{t('viele.modal.date_label')}</span>
                 <div className="text-right">
-                  <div className="flex items-center justify-end gap-1.5 font-mono text-slate-900 font-bold">
-                    <span>🇺🇸 {formatUsDate(shipDate)}</span>
-                  </div>
-                  <span className="block text-[11px] text-slate-600 font-medium">
+                  <span className="text-sm font-semibold text-slate-900 tabular-nums">
+                    {formatUsDate(shipDate)}
+                  </span>
+                  <span className="block text-xs text-slate-500 font-medium">
                     {formatUsFullDate(shipDate, 'en-US')}
                   </span>
-                  {isTuesday(shipDate) ? (
-                    <span className="block text-[11px] text-emerald-700 font-semibold">Martes habitual (Ciclo programado Viele)</span>
-                  ) : (
-                    <span className="block text-[11px] text-amber-700 font-semibold">Modificado por emergencia</span>
+                  {!isTuesday(shipDate) && (
+                    <span className="block text-xs text-amber-700 font-medium mt-0.5">
+                      ⚠️ Entrega especial programada
+                    </span>
                   )}
                 </div>
               </div>
@@ -1148,10 +1305,10 @@ function VieleOrderContent() {
                     <span className="font-bold text-indigo-900 flex items-center gap-1.5">
                       <span>🥤</span> Factura 1 (Sodas BIB):
                     </span>
-                    <div className="text-right font-mono">
-                      <span className="font-bold text-indigo-950">{summary.sodas.totalCases} cajas</span>
+                    <div className="text-right tabular-nums">
+                      <span className="font-semibold text-indigo-950">{summary.sodas.totalCases} cajas</span>
                       <span className="text-slate-400 mx-1">•</span>
-                      <strong className="text-indigo-700">${summary.sodas.grandTotal.toFixed(2)}</strong>
+                      <strong className="text-indigo-700 font-bold">${summary.sodas.grandTotal.toFixed(2)}</strong>
                     </div>
                   </div>
                 )}
@@ -1160,10 +1317,10 @@ function VieleOrderContent() {
                     <span className="font-bold text-amber-900 flex items-center gap-1.5">
                       <span>📦</span> Factura 2 (Insumos Generales):
                     </span>
-                    <div className="text-right font-mono">
-                      <span className="font-bold text-amber-950">{summary.general.totalCases} cajas</span>
+                    <div className="text-right tabular-nums">
+                      <span className="font-semibold text-amber-950">{summary.general.totalCases} cajas</span>
                       <span className="text-slate-400 mx-1">•</span>
-                      <strong className="text-amber-700">${summary.general.grandTotal.toFixed(2)}</strong>
+                      <strong className="text-amber-700 font-bold">${summary.general.grandTotal.toFixed(2)}</strong>
                     </div>
                   </div>
                 )}
@@ -1176,7 +1333,7 @@ function VieleOrderContent() {
 
               <div className="flex justify-between border-t border-slate-200 pt-2 text-base">
                 <span className="text-slate-700 font-bold">{t('viele.modal.total_label')}</span>
-                <strong className="text-emerald-700 font-mono text-lg">${summary.grandTotal.toFixed(2)}</strong>
+                <strong className="text-emerald-700 font-bold tabular-nums text-lg">${summary.grandTotal.toFixed(2)}</strong>
               </div>
             </div>
 
@@ -1187,7 +1344,7 @@ function VieleOrderContent() {
                   <label className="block text-xs font-bold text-slate-600">
                     {t('viele.modal.buyer_label')}
                   </label>
-                  <span className="text-[10px] text-emerald-700 font-mono font-bold">
+                  <span className="text-xs text-emerald-700 font-semibold">
                     ★ Código Oficial: AFV
                   </span>
                 </div>
@@ -1207,7 +1364,7 @@ function VieleOrderContent() {
                       onClick={() => setBuyerName(code)}
                       className={`px-2 py-0.5 text-xs font-bold rounded-lg transition-colors cursor-pointer ${
                         buyerName === code
-                          ? 'bg-amber-500 text-slate-950 font-black shadow-sm'
+                          ? 'bg-amber-500 text-slate-950 font-bold shadow-sm'
                           : 'bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-200'
                       }`}
                     >
@@ -1237,7 +1394,7 @@ function VieleOrderContent() {
                       onClick={() => setPoNumber(refCode)}
                       className={`px-2 py-0.5 text-[11px] font-bold rounded-lg transition-colors cursor-pointer ${
                         poNumber === refCode
-                          ? 'bg-emerald-600 text-white font-black shadow-sm'
+                          ? 'bg-emerald-600 text-white font-bold shadow-sm'
                           : 'bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-200'
                       }`}
                     >
@@ -1277,7 +1434,7 @@ function VieleOrderContent() {
               <button
                 onClick={handleConfirmLiveSubmit}
                 disabled={isSubmitting}
-                className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-black text-sm rounded-xl shadow-lg shadow-emerald-600/20 transition flex items-center gap-2 cursor-pointer"
+                className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold text-sm rounded-xl shadow-lg shadow-emerald-600/20 transition flex items-center gap-2 cursor-pointer"
               >
                 {isSubmitting ? (
                   <>
@@ -1304,7 +1461,7 @@ function VieleOrderContent() {
               <CheckCircle className="w-10 h-10" />
             </div>
 
-            <h3 className="text-xl font-black text-slate-900 mb-2">
+            <h3 className="text-xl font-bold text-slate-900 mb-2">
               {t('viele.modal.success_title')}
             </h3>
 
@@ -1326,11 +1483,11 @@ function VieleOrderContent() {
                     <span className="text-[11px] font-bold text-indigo-900 block flex items-center gap-1">
                       <span>🥤</span> Factura 1 (Sodas BIB)
                     </span>
-                    <span className="text-lg font-black text-indigo-950 font-mono">
+                    <span className="text-lg font-bold text-indigo-950 font-mono">
                       {submitSuccess.orderNumberSodas}
                     </span>
                   </div>
-                  <span className="text-sm font-bold font-mono text-indigo-700">
+                  <span className="text-sm font-bold tabular-nums text-indigo-700">
                     ${submitSuccess.sodasTotal?.toFixed(2) || '0.00'}
                   </span>
                 </div>
@@ -1341,18 +1498,18 @@ function VieleOrderContent() {
                     <span className="text-[11px] font-bold text-amber-900 block flex items-center gap-1">
                       <span>📦</span> Factura 2 (Insumos Generales)
                     </span>
-                    <span className="text-lg font-black text-amber-950 font-mono">
+                    <span className="text-lg font-bold text-amber-950 font-mono">
                       {submitSuccess.orderNumberGeneral}
                     </span>
                   </div>
-                  <span className="text-sm font-bold font-mono text-amber-700">
+                  <span className="text-sm font-bold tabular-nums text-amber-700">
                     ${submitSuccess.generalTotal?.toFixed(2) || '0.00'}
                   </span>
                 </div>
 
                 <div className="flex items-center justify-between border-t border-slate-200 pt-2 text-xs">
                   <span className="text-slate-500 font-bold">Total Facturado Combinado:</span>
-                  <span className="text-base font-black font-mono text-emerald-700">
+                  <span className="text-base font-bold tabular-nums text-emerald-700">
                     ${submitSuccess.totalAmount?.toFixed(2) || '0.00'}
                   </span>
                 </div>
@@ -1362,7 +1519,7 @@ function VieleOrderContent() {
                 <span className="text-xs text-slate-500 uppercase font-bold block mb-1">
                   {t('viele.modal.order_number_label')}
                 </span>
-                <span className="text-2xl font-black text-emerald-700 font-mono tracking-wider">
+                <span className="text-2xl font-bold text-emerald-700 font-mono tracking-wider">
                   {submitSuccess.orderNumber}
                 </span>
                 <div className="text-xs text-slate-500 mt-1">
@@ -1374,7 +1531,7 @@ function VieleOrderContent() {
             <div className="flex flex-col gap-2">
               <Link
                 href="/admin/compras/viele/historial"
-                className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-sm rounded-xl transition shadow-md shadow-emerald-600/20"
+                className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm rounded-xl transition shadow-md shadow-emerald-600/20"
               >
                 {t('viele.modal.btn_view_history')}
               </Link>
@@ -1383,6 +1540,121 @@ function VieleOrderContent() {
                 className="w-full py-2 text-sm font-bold text-slate-500 hover:text-slate-800 transition cursor-pointer"
               >
                 {t('viele.modal.btn_new_order')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* ═══════ MODAL: Vista Previa de Imagen del Producto ═══════ */}
+      {imagePreviewItem && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.6)' }}>
+          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 bg-slate-50">
+              <div className="flex-1 min-w-0">
+                <h3 className="text-lg font-bold text-slate-900 truncate">
+                  {imagePreviewItem.description}
+                </h3>
+                <div className="flex items-center gap-2 mt-0.5">
+                  <span className="font-mono font-bold text-xs px-2 py-0.5 rounded bg-slate-200 text-slate-700">
+                    {imagePreviewItem.item_code}
+                  </span>
+                  <span className="text-xs text-slate-500">{imagePreviewItem.category}</span>
+                </div>
+              </div>
+              <button
+                onClick={() => { setImagePreviewItem(null); setIsUploadingImage(false); }}
+                className="ml-3 p-1.5 rounded-lg hover:bg-slate-200 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Imagen Grande */}
+            <div className="p-6 flex items-center justify-center bg-white" style={{ minHeight: 280 }}>
+              <img
+                src={imagePreviewItem.image_file + '?t=' + Date.now()}
+                alt={imagePreviewItem.description}
+                className="max-w-full max-h-72 object-contain rounded-xl border border-slate-100 shadow-sm"
+                onError={(e) => {
+                  (e.target as HTMLImageElement).src = '/images/viele/placeholder.png';
+                }}
+              />
+            </div>
+
+            {/* Controles */}
+            <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex items-center justify-between gap-3">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                className="hidden"
+                onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  if (!file || !imagePreviewItem) return;
+
+                  // Validate size
+                  if (file.size > 5 * 1024 * 1024) {
+                    alert(t('viele.image_preview.file_too_large'));
+                    return;
+                  }
+
+                  setIsUploadingImage(true);
+                  try {
+                    const formData = new FormData();
+                    formData.append('itemCode', imagePreviewItem.item_code);
+                    formData.append('file', file);
+
+                    const res = await fetch('/api/viele/update-image', {
+                      method: 'POST',
+                      body: formData
+                    });
+                    const data = await res.json();
+
+                    if (data.success) {
+                      // Update the catalog in state with new image URL
+                      setCatalog(prev => prev.map(c =>
+                        c.item_code === imagePreviewItem.item_code
+                          ? { ...c, image_file: data.imageUrl }
+                          : c
+                      ));
+                      // Update the preview item
+                      setImagePreviewItem(prev => prev ? { ...prev, image_file: data.imageUrl } : null);
+                    } else {
+                      alert(`Error: ${data.error}`);
+                    }
+                  } catch (err) {
+                    console.error('Upload error:', err);
+                    alert(t('viele.image_preview.upload_error'));
+                  } finally {
+                    setIsUploadingImage(false);
+                    // Reset file input
+                    if (fileInputRef.current) fileInputRef.current.value = '';
+                  }
+                }}
+              />
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isUploadingImage}
+                className="flex items-center gap-2 px-4 py-2.5 bg-amber-500 hover:bg-amber-600 disabled:bg-slate-300 text-white font-bold text-sm rounded-xl transition-colors cursor-pointer shadow-sm"
+              >
+                {isUploadingImage ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    {t('viele.image_preview.uploading')}
+                  </>
+                ) : (
+                  <>
+                    <Upload className="w-4 h-4" />
+                    {t('viele.image_preview.change_btn')}
+                  </>
+                )}
+              </button>
+              <button
+                onClick={() => { setImagePreviewItem(null); setIsUploadingImage(false); }}
+                className="px-4 py-2.5 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-sm rounded-xl transition-colors cursor-pointer"
+              >
+                {t('viele.image_preview.close')}
               </button>
             </div>
           </div>

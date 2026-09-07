@@ -91,6 +91,20 @@ export default function ProtectedRoute({ children, allowedRoles, allowEmployee =
         return
       }
 
+      // Handle PLANIFICADOR / external user restriction - can only access /planificador
+      const userEmailNorm = (userData.email || '').trim().toLowerCase()
+      const isPlanificadorOnly = userEmailNorm === 'stephany@cingularhr.com' || userData.role?.toLowerCase() === 'planificador'
+
+      if (isPlanificadorOnly) {
+        if (pathname.startsWith('/planificador')) {
+          setUser(userData)
+          setLoading(false)
+          return
+        }
+        router.push('/planificador')
+        return
+      }
+
       // Handle ADMIN/MANAGER users with role-based access
       if (allowedRoles && allowedRoles.length > 0) {
         const userRole = userData.role.toLowerCase()

@@ -159,9 +159,9 @@ function OrderHistoryContent() {
               <ArrowLeft className="w-5 h-5" />
             </Link>
             <div>
-              <h1 className="text-2xl font-black text-slate-900 flex items-center gap-3">
+              <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-3">
                 Historial de Pedidos Viele & Sons
-                <span className="text-xs px-2.5 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200 font-bold uppercase">
+                <span className="text-xs px-2.5 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200 font-semibold uppercase">
                   Auditoría Sage 100
                 </span>
               </h1>
@@ -192,7 +192,7 @@ function OrderHistoryContent() {
             <select
               value={storeId}
               onChange={(e) => setStoreId(e.target.value)}
-              className="w-full bg-white border border-slate-300 rounded-xl px-3.5 py-2.5 text-slate-900 font-bold text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 cursor-pointer shadow-sm"
+              className="w-full bg-white border border-slate-300 rounded-xl px-3.5 py-2.5 text-slate-900 font-semibold text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 cursor-pointer shadow-sm"
             >
               <option value="all">🌟 Todas las Sucursales (15 Tiendas)</option>
               {Object.values(VIELE_STORE_ACCOUNTS).map(acc => (
@@ -212,9 +212,9 @@ function OrderHistoryContent() {
               <button
                 type="button"
                 onClick={() => setCategoryFilter('all')}
-                className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-bold transition cursor-pointer text-center ${
+                className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-semibold transition cursor-pointer text-center ${
                   categoryFilter === 'all'
-                    ? 'bg-white text-slate-900 shadow-xs font-black'
+                    ? 'bg-white text-slate-900 shadow-xs font-bold'
                     : 'text-slate-500 hover:text-slate-900'
                 }`}
               >
@@ -223,9 +223,9 @@ function OrderHistoryContent() {
               <button
                 type="button"
                 onClick={() => setCategoryFilter('general')}
-                className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-bold transition cursor-pointer text-center ${
+                className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-semibold transition cursor-pointer text-center ${
                   categoryFilter === 'general'
-                    ? 'bg-white text-amber-900 shadow-xs font-black'
+                    ? 'bg-white text-amber-900 shadow-xs font-bold'
                     : 'text-slate-500 hover:text-slate-900'
                 }`}
               >
@@ -234,9 +234,9 @@ function OrderHistoryContent() {
               <button
                 type="button"
                 onClick={() => setCategoryFilter('sodas')}
-                className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-bold transition cursor-pointer text-center ${
+                className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-semibold transition cursor-pointer text-center ${
                   categoryFilter === 'sodas'
-                    ? 'bg-white text-indigo-900 shadow-xs font-black'
+                    ? 'bg-white text-indigo-900 shadow-xs font-bold'
                     : 'text-slate-500 hover:text-slate-900'
                 }`}
               >
@@ -245,9 +245,9 @@ function OrderHistoryContent() {
               <button
                 type="button"
                 onClick={() => setCategoryFilter('chemicals')}
-                className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-bold transition cursor-pointer text-center ${
+                className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-semibold transition cursor-pointer text-center ${
                   categoryFilter === 'chemicals'
-                    ? 'bg-white text-emerald-900 shadow-xs font-black'
+                    ? 'bg-white text-emerald-900 shadow-xs font-bold'
                     : 'text-slate-500 hover:text-slate-900'
                 }`}
               >
@@ -320,7 +320,7 @@ function OrderHistoryContent() {
 
                     return (
                       <tr key={order.id} className="hover:bg-slate-50/80 transition-colors">
-                        <td className="py-3 px-4 text-center font-mono font-black text-amber-800">
+                        <td className="py-3 px-4 text-center font-mono font-bold text-amber-800">
                           <div>
                             {order.order_number || `#${order.id}`}
                           </div>
@@ -361,19 +361,19 @@ function OrderHistoryContent() {
                             Sage: {storeAccount?.sageCustomerCode || '00ELG'}
                           </span>
                         </td>
-                        <td className="py-3 px-4 text-center font-mono text-slate-700 text-xs font-semibold">
+                        <td className="py-3 px-4 text-center tabular-nums text-slate-700 text-xs font-medium">
                           {formatUsDate(order.order_date)}
                         </td>
-                        <td className="py-3 px-4 text-center font-mono text-emerald-700 font-bold text-xs">
+                        <td className="py-3 px-4 text-center tabular-nums text-emerald-700 font-semibold text-xs">
                           {formatUsDate(order.ship_date)}
                         </td>
                         <td className="py-3 px-4 text-slate-700 text-xs font-bold">
                           {order.buyer_name}
                         </td>
-                        <td className="py-3 px-4 text-center font-mono font-black text-amber-800">
+                        <td className="py-3 px-4 text-center tabular-nums font-bold text-amber-800">
                           {order.total_cases}
                         </td>
-                        <td className="py-3 px-4 text-right font-mono font-black text-slate-900">
+                        <td className="py-3 px-4 text-right tabular-nums font-bold text-slate-900">
                           ${order.total_amount?.toFixed(2) || '0.00'}
                         </td>
                         <td className="py-3 px-4 text-center">
@@ -423,7 +423,7 @@ function OrderHistoryContent() {
                 </span>
                 <div>
                   <div className="flex items-center gap-2 flex-wrap">
-                    <h3 className="text-lg font-black text-slate-900 flex items-center gap-2">
+                    <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
                       Orden: <span className="text-amber-800 font-mono">{orderDetail?.order.order_number || `#${selectedOrderId}`}</span>
                     </h3>
                     {orderDetail?.order.order_category === 'sodas' ? (

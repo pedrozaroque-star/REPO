@@ -166,7 +166,7 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                     plainName: 'Planificador',
                     path: '/planificador',
                     icon: <Calendar size={20} />,
-                    roles: ['manager', 'supervisor', 'admin'],
+                    roles: ['manager', 'supervisor', 'admin', 'planificador'],
                     tooltip: language === 'en'
                         ? 'Weekly demand forecasting and revenue planning (Proyección y planificación de demanda e ingresos)'
                         : 'Proyección y planificación de demanda e ingresos semanales'
@@ -569,11 +569,14 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
     // Filter groups by role (same logic as TopNav)
     const filteredGroups = useMemo(() => {
         const isVikesh = user?.email === 'vikesh@tacosgavilan.com'
+        const userEmailNorm = (user?.email || '').trim().toLowerCase()
+        const isPlanificadorOnly = userEmailNorm === 'stephany@cingularhr.com' || user?.role?.toLowerCase() === 'planificador'
         return menuGroups.map(group => {
             if (isVikesh && (group.id === 'inventario' || group.id === 'food_cost')) {
                 return { ...group, items: [] }
             }
             const validItems = group.items.filter(item => {
+                if (isPlanificadorOnly) return item.path === '/planificador'
                 if (isVikesh && (item.path === '/ventas' || item.path === '/ventas/reportes')) return false
                 if (!item.roles || item.roles.length === 0) return true
                 const userRole = (user?.role || user?.user_type || '').toLowerCase()

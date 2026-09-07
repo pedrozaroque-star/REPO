@@ -52,6 +52,7 @@ export default function LoginPage() {
       // Determinar redirección
       const userRole = data.user.role?.toLowerCase()
       const userType = data.user.user_type
+      const userEmailNorm = (data.user.email || '').trim().toLowerCase()
 
       setShowSplash(true)
 
@@ -62,13 +63,18 @@ export default function LoginPage() {
           return
         }
 
+        if (userEmailNorm === 'stephany@cingularhr.com' || userRole === 'planificador') {
+          router.push('/planificador')
+          return
+        }
+
         // Admin/Manager routing
         if (userRole === 'asistente') {
           router.push('/checklists')
         } else {
           router.push('/dashboard')
         }
-      }, userType === 'employee' ? 1500 : 5500) // Faster for employees
+      }, (userType === 'employee' || userEmailNorm === 'stephany@cingularhr.com') ? 1500 : 5500)
 
     } catch (err) {
       console.error('Error inesperado:', err)

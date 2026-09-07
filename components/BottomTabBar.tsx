@@ -30,8 +30,14 @@ export default function BottomTabBar({ onOpenDrawer }: BottomTabBarProps) {
     const { language } = useLanguage()
 
     const userRole = (user?.role || user?.user_type || '').toLowerCase()
+    const userEmailNorm = (user?.email || '').trim().toLowerCase()
+    const isPlanificadorOnly = userEmailNorm === 'stephany@cingularhr.com' || userRole === 'planificador'
 
     const tabs = useMemo(() => {
+        if (isPlanificadorOnly) {
+            return [{ label: 'Planner', icon: Calendar, path: '/planificador', id: 'planner' }]
+        }
+
         const items: { label: string; icon: typeof LayoutDashboard; path: string; id: string }[] = [
             { label: 'Home', icon: LayoutDashboard, path: '/dashboard', id: 'home' },
         ]
@@ -53,13 +59,18 @@ export default function BottomTabBar({ onOpenDrawer }: BottomTabBarProps) {
         }
 
         return items
-    }, [userRole, language])
+    }, [userRole, isPlanificadorOnly, language])
 
     // All items including "Más"
-    const allItems = useMemo(() => [
-        ...tabs,
-        { label: language === 'es' ? 'Más' : 'More', icon: Grid3X3, path: '__drawer__', id: 'more' }
-    ], [tabs, language])
+    const allItems = useMemo(() => {
+        if (isPlanificadorOnly) {
+            return tabs
+        }
+        return [
+            ...tabs,
+            { label: language === 'es' ? 'Más' : 'More', icon: Grid3X3, path: '__drawer__', id: 'more' }
+        ]
+    }, [tabs, isPlanificadorOnly, language])
 
     // Find active index
     const activeIndex = useMemo(() => {

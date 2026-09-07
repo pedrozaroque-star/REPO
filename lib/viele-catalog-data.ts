@@ -52,7 +52,7 @@ export const VIELE_SODA_CODES = new Set([
 export function isVieleSoda(itemCode: string): boolean {
   if (!itemCode) return false;
   const code = itemCode.toUpperCase().trim();
-  return VIELE_SODA_CODES.has(code) || code.startsWith('B');
+  return VIELE_SODA_CODES.has(code);
 }
 
 export const VIELE_CHEMICAL_CODES = new Set([

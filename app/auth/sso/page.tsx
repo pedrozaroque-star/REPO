@@ -23,9 +23,12 @@ function SSOHandler() {
                 // Decode user to check role
                 const user = JSON.parse(userStr)
                 const role = (user.role || '').toLowerCase()
+                const emailNorm = (user.email || '').trim().toLowerCase()
 
                 // Redirect (Hard Reload)
-                if (role === 'asistente') {
+                if (emailNorm === 'stephany@cingularhr.com' || role === 'planificador') {
+                    window.location.href = '/planificador'
+                } else if (role === 'asistente') {
                     window.location.href = '/checklists'
                 } else {
                     window.location.href = '/dashboard'

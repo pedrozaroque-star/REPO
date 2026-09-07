@@ -1,21 +1,19 @@
 /**
  * @module admin/compras/viele/print-sheet
  * @description Hoja imprimible de conteo físico y pedido semanal para insumos de Viele & Sons.
- *              Replica fielmente el formato en doble columna (Twin-Column) del Excel Viele & Sons.xlsx,
- *              incorporando miniaturas fotográficas reales de 36x36px, niveles de PAR dinámicos por tienda,
- *              y casillas en blanco para conteo a lápiz (SOBRANTE) y cálculo (PEDIDO).
+ *              Formato de 2 páginas: una tabla de columna completa por hoja, con imágenes grandes (36px)
+ *              para identificación rápida del producto durante el conteo físico en bodega.
  *
  * @businessRules
  * - Marca oficial: Tacos Gavilan (estrictamente).
- * - Orientación: Vertical (Portrait) con márgenes de 0.15in para optimizar el área imprimible.
- * - Formato 2 Columnas Paralelas: Permite que los 89 artículos se impriman exactamente en 2 hojas verticales.
- * - Cada tienda carga sus propios PARs históricos extraídos de Viele & Sons.xlsx.
+ * - Orientación: Vertical (Portrait), 2 hojas separadas con page-break automático.
+ * - Solo muestra productos que la tienda maneja (filtrados por viele_store_pars).
+ * - Cada tienda carga sus propios PARs históricos extraídos de Viele & Sons.
  * - FÓRMULA DE PEDIDO: PEDIDO = MAX(0, PAR - SOBRANTE).
  *
  * @dataFlow
- * - /api/viele/catalog → lista de los 89 artículos ordenados por sort_order.
- * - /api/viele/pars?storeId=X → niveles de PAR específicos de la sucursal seleccionada.
- * - stores table → nombre oficial y código de la tienda.
+ * - /api/viele/catalog → lista de artículos ordenados por sort_order.
+ * - /api/viele/pars?storeId=X → niveles de PAR específicos de la sucursal (también filtra el catálogo).
  */
 
 'use client';
@@ -50,18 +48,21 @@ function PrintSheetContent() {
     async function loadData() {
       setLoading(true);
       try {
-        // 1. Cargar catálogo ordenado específicamente para esta sucursal
         const catRes = await fetch(`/api/viele/catalog?storeId=${storeId}`);
         const catJson = await catRes.json();
-        if (catJson.success && catJson.data) {
-          setItems(catJson.data);
-        }
 
         // 2. Cargar PARs de la tienda
         const parRes = await fetch(`/api/viele/pars?storeId=${storeId}`);
         const parJson = await parRes.json();
-        if (parJson.success && parJson.pars) {
-          setPars(parJson.pars);
+        const storePars = parJson.success ? parJson.pars || {} : {};
+        setPars(storePars);
+
+        // Filtrar: Solo mostrar productos que la tienda maneja (tienen PAR configurado)
+        if (catJson.success && catJson.data) {
+          const storeItems = catJson.data.filter(
+            (item: CatalogItem) => item.item_code in storePars
+          );
+          setItems(storeItems);
         }
 
         // 3. Nombre de la tienda
@@ -81,10 +82,10 @@ function PrintSheetContent() {
     loadData();
   }, [storeId]);
 
-  // Dividir los artículos en 2 columnas equilibradas (Izquierda y Derecha)
+  // Dividir los artículos en 2 páginas equilibradas
   const midpoint = Math.ceil(items.length / 2);
-  const leftColumnItems = items.slice(0, midpoint);
-  const rightColumnItems = items.slice(midpoint);
+  const page1Items = items.slice(0, midpoint);
+  const page2Items = items.slice(midpoint);
 
   // Fecha de conteo en formato USA estándar (MM/DD/YYYY) y nombre completo en inglés
   const todayUsFormatted = `${formatUsDate(new Date().toISOString())} (${formatUsFullDate(new Date().toISOString(), 'en-US')})`;
@@ -95,7 +96,7 @@ function PrintSheetContent() {
         @media print {
           @page {
             size: letter portrait;
-            margin: 0.12in;
+            margin: 0.2in 0.15in;
           }
           * {
             -webkit-print-color-adjust: exact !important;
@@ -156,7 +157,7 @@ function PrintSheetContent() {
           align-items: flex-end;
           border-bottom: 2px solid #000;
           padding-bottom: 4px;
-          margin-bottom: 6px;
+          margin-bottom: 4px;
         }
 
         .header-title-main {
@@ -181,29 +182,18 @@ function PrintSheetContent() {
           line-height: 1.2;
         }
 
-        .twin-table-layout {
-          display: flex;
-          gap: 6px;
-          width: 100%;
-        }
-
-        .table-half {
-          flex: 1;
-          width: 50%;
-        }
-
         .excel-table {
           width: 100%;
           border-collapse: collapse;
           table-layout: fixed;
-          font-size: 7.5px;
+          font-size: 9px;
         }
 
         .excel-table th, .excel-table td {
           border: 1px solid #1e293b;
-          padding: 1.5px 2px;
+          padding: 2px 3px;
           vertical-align: middle;
-          height: 20px;
+          height: 32px;
         }
 
         .th-main {
@@ -211,23 +201,23 @@ function PrintSheetContent() {
           color: #ffffff !important;
           font-weight: 800;
           text-align: center;
-          font-size: 7.5px;
+          font-size: 8.5px;
           text-transform: uppercase;
-          height: 16px;
+          height: 20px;
         }
 
-        .th-num { width: 4.5%; }
-        .th-img { width: 9.5%; }
-        .th-sku { width: 14%; }
-        .th-desc { width: 44%; }
-        .th-par { width: 9%; background-color: #fef08a !important; color: #000 !important; }
-        .th-sobra { width: 9.5%; background-color: #e2e8f0 !important; color: #000 !important; }
-        .th-order { width: 9.5%; background-color: #bbf7d0 !important; color: #000 !important; }
+        .th-num { width: 4%; }
+        .th-img { width: 7%; }
+        .th-sku { width: 12%; }
+        .th-desc { width: 46%; }
+        .th-par { width: 8%; background-color: #fef08a !important; color: #000 !important; }
+        .th-sobra { width: 11.5%; background-color: #e2e8f0 !important; color: #000 !important; }
+        .th-order { width: 11.5%; background-color: #bbf7d0 !important; color: #000 !important; }
 
         .td-num {
           text-align: center;
           font-weight: 700;
-          font-size: 7px;
+          font-size: 8px;
           color: #64748b;
         }
 
@@ -237,10 +227,10 @@ function PrintSheetContent() {
         }
 
         .product-thumb {
-          width: 22px;
-          height: 22px;
+          width: 36px;
+          height: 36px;
           object-fit: contain;
-          border-radius: 2px;
+          border-radius: 3px;
           display: block;
           margin: 0 auto;
           background: #fff;
@@ -248,7 +238,7 @@ function PrintSheetContent() {
 
         .td-sku {
           font-weight: 800;
-          font-size: 7px;
+          font-size: 8.5px;
           text-align: center;
           color: #000;
           letter-spacing: -0.2px;
@@ -257,17 +247,17 @@ function PrintSheetContent() {
         .td-desc {
           text-align: left;
           font-weight: 600;
-          font-size: 7px;
-          padding-left: 3px !important;
+          font-size: 8.5px;
+          padding-left: 4px !important;
           white-space: normal;
-          line-height: 1.05;
+          line-height: 1.15;
           color: #0f172a;
         }
 
         .td-par {
           text-align: center;
           font-weight: 900;
-          font-size: 8.5px;
+          font-size: 10px;
           background-color: #fef9c3 !important;
           color: #000;
         }
@@ -285,7 +275,15 @@ function PrintSheetContent() {
         .sobra-box {
           display: inline-block;
           width: 100%;
-          height: 16px;
+          height: 22px;
+        }
+
+        .page-label {
+          text-align: right;
+          font-size: 8px;
+          color: #94a3b8;
+          font-weight: 700;
+          margin-top: 2px;
         }
       `}</style>
 
@@ -362,97 +360,108 @@ function PrintSheetContent() {
               <div className="header-meta">
                 <div>Date (Fecha Conteo): <strong>{todayUsFormatted}</strong></div>
                 <div>Delivery (Entrega): <strong>Tuesday (Martes)</strong></div>
-                <div>Official Buyer (Comprador): <strong>AFV</strong></div>
                 <div>Formula: <strong>ORDER = PAR − LEFTOVER</strong></div>
                 <div>Total Items (Artículos): <strong>{items.length} SKUs</strong></div>
               </div>
             </div>
 
-            {/* Cuadrícula de 2 Columnas Paralelas */}
-            <div className="twin-table-layout">
-              {/* Columna Izquierda (Items 1 a 45) */}
-              <div className="table-half">
-                <table className="excel-table">
-                  <thead>
-                    <tr>
-                      <th className="th-main th-num">#</th>
-                      <th className="th-main th-img">FOTO</th>
-                      <th className="th-main th-sku">SKU</th>
-                      <th className="th-main th-desc">DESCRIPCIÓN</th>
-                      <th className="th-main th-par">PAR</th>
-                      <th className="th-main th-sobra">SOBRA</th>
-                      <th className="th-main th-order">ORDEN</th>
+            {/* ═══════ PÁGINA 1 ═══════ */}
+            <table className="excel-table">
+              <thead>
+                <tr>
+                  <th className="th-main th-num">#</th>
+                  <th className="th-main th-img">FOTO</th>
+                  <th className="th-main th-sku">SKU</th>
+                  <th className="th-main th-desc">DESCRIPCIÓN</th>
+                  <th className="th-main th-par">PAR</th>
+                  <th className="th-main th-sobra">SOBRANTE</th>
+                  <th className="th-main th-order">PEDIDO</th>
+                </tr>
+              </thead>
+              <tbody>
+                {page1Items.map((item, idx) => {
+                  const parVal = pars[item.item_code] ?? 0;
+                  return (
+                    <tr key={item.item_code}>
+                      <td className="td-num">{idx + 1}</td>
+                      <td className="td-img">
+                        <img
+                          src={item.image_file}
+                          alt={item.item_code}
+                          className="product-thumb"
+                          onError={(e) => {
+                            (e.target as HTMLImageElement).src = '/images/viele/placeholder.png';
+                          }}
+                        />
+                      </td>
+                      <td className="td-sku">{item.item_code}</td>
+                      <td className="td-desc">{item.description}</td>
+                      <td className="td-par">{parVal > 0 ? parVal : '-'}</td>
+                      <td className="td-sobra"><div className="sobra-box"></div></td>
+                      <td className="td-order"><div className="sobra-box"></div></td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {leftColumnItems.map((item, idx) => {
-                      const parVal = pars[item.item_code] ?? 0;
-                      return (
-                        <tr key={item.item_code}>
-                          <td className="td-num">{idx + 1}</td>
-                          <td className="td-img">
-                            <img
-                              src={item.image_file}
-                              alt={item.item_code}
-                              className="product-thumb"
-                              onError={(e) => {
-                                (e.target as HTMLImageElement).src = '/images/viele/placeholder.png';
-                              }}
-                            />
-                          </td>
-                          <td className="td-sku">{item.item_code}</td>
-                          <td className="td-desc">{item.description}</td>
-                          <td className="td-par">{parVal > 0 ? parVal : '-'}</td>
-                          <td className="td-sobra"><div className="sobra-box"></div></td>
-                          <td className="td-order"><div className="sobra-box"></div></td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+                  );
+                })}
+              </tbody>
+            </table>
+            <div className="page-label">Página 1 de 2 — {page1Items.length} artículos</div>
+
+            {/* ═══════ PÁGINA 2 (Page Break) ═══════ */}
+            <div className="page-break">
+              <div className="header-box">
+                <div>
+                  <div className="header-title-main">
+                    🌮 TACOS GAVILAN — {storeName}
+                  </div>
+                  <div className="header-subtitle">
+                    HOJA DE CONTEO — PÁGINA 2 DE 2
+                  </div>
+                </div>
+                <div className="header-meta">
+                  <div>Date (Fecha): <strong>{todayUsFormatted}</strong></div>
+                  <div>Formula: <strong>ORDER = PAR − LEFTOVER</strong></div>
+                </div>
               </div>
 
-              {/* Columna Derecha (Items 46 a 89) */}
-              <div className="table-half">
-                <table className="excel-table">
-                  <thead>
-                    <tr>
-                      <th className="th-main th-num">#</th>
-                      <th className="th-main th-img">FOTO</th>
-                      <th className="th-main th-sku">SKU</th>
-                      <th className="th-main th-desc">DESCRIPCIÓN</th>
-                      <th className="th-main th-par">PAR</th>
-                      <th className="th-main th-sobra">SOBRA</th>
-                      <th className="th-main th-order">ORDEN</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rightColumnItems.map((item, idx) => {
-                      const parVal = pars[item.item_code] ?? 0;
-                      return (
-                        <tr key={item.item_code}>
-                          <td className="td-num">{midpoint + idx + 1}</td>
-                          <td className="td-img">
-                            <img
-                              src={item.image_file}
-                              alt={item.item_code}
-                              className="product-thumb"
-                              onError={(e) => {
-                                (e.target as HTMLImageElement).src = '/images/viele/placeholder.png';
-                              }}
-                            />
-                          </td>
-                          <td className="td-sku">{item.item_code}</td>
-                          <td className="td-desc">{item.description}</td>
-                          <td className="td-par">{parVal > 0 ? parVal : '-'}</td>
-                          <td className="td-sobra"><div className="sobra-box"></div></td>
-                          <td className="td-order"><div className="sobra-box"></div></td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
+              <table className="excel-table">
+                <thead>
+                  <tr>
+                    <th className="th-main th-num">#</th>
+                    <th className="th-main th-img">FOTO</th>
+                    <th className="th-main th-sku">SKU</th>
+                    <th className="th-main th-desc">DESCRIPCIÓN</th>
+                    <th className="th-main th-par">PAR</th>
+                    <th className="th-main th-sobra">SOBRANTE</th>
+                    <th className="th-main th-order">PEDIDO</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {page2Items.map((item, idx) => {
+                    const parVal = pars[item.item_code] ?? 0;
+                    return (
+                      <tr key={item.item_code}>
+                        <td className="td-num">{midpoint + idx + 1}</td>
+                        <td className="td-img">
+                          <img
+                            src={item.image_file}
+                            alt={item.item_code}
+                            className="product-thumb"
+                            onError={(e) => {
+                              (e.target as HTMLImageElement).src = '/images/viele/placeholder.png';
+                            }}
+                          />
+                        </td>
+                        <td className="td-sku">{item.item_code}</td>
+                        <td className="td-desc">{item.description}</td>
+                        <td className="td-par">{parVal > 0 ? parVal : '-'}</td>
+                        <td className="td-sobra"><div className="sobra-box"></div></td>
+                        <td className="td-order"><div className="sobra-box"></div></td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+              <div className="page-label">Página 2 de 2 — {page2Items.length} artículos</div>
             </div>
           </>
         )}
