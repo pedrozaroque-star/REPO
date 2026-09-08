@@ -13,16 +13,18 @@
  * 4. Replicación Inteligente: Si una tienda tiene < 50% de los turnos respecto a la semana anterior, se ofrece replicación respetando turnos existentes (upsert).
  * 5. Roles permitidos: Admin y Supervisor.
  * 6. Sincronización Automática con Planificador: Cuando los managers de tienda publican sus horarios en `/planificador` (tabla `shifts`), los turnos de Managers y Asistentes se sincronizan automáticamente a `schedules` en `/horarios`.
+ * 7. Sincronización de Ausencias RONOS: Detecta días de Enfermedad (Sick Leave) y Vacaciones (PTO) de RONOS para líderes de tienda. Las ausencias NUNCA cubren turnos (coversBlock = false), disparando alertas en semáforos.
  * 
  * @dataFlow
  * - Supabase tables: `schedules` (turnos), `users` (colaboradores activos), `stores` (sucursales y asignación de supervisores), `shifts` (turnos de tienda).
  * - Sincronización en tiempo real vía `loadGlobalData` y filtros locales en `filterLocalData`.
  * - Sincronización con Planificador vía `/api/schedule/sync-planner` y `lib/sync-planner-to-schedules.ts`.
+ * - Sincronización de ausencias RONOS vía `/api/schedule/sync-ronos`, cron `/api/cron/sync-ronos-absences` y `lib/sync-ronos-absences.ts`.
  * 
  * @notes
  * - La vista de escritorio conserva la tabla quincenal completa (14 días con drag & drop).
  * - La vista móvil ofrece navegación por pestañas de tiendas, carrusel de 7 días con semáforo, y tarjetas táctiles de colaboradores.
- * - Botón de sincronización manual con Planificador disponible tanto en el Dashboard como en el Editor.
+ * - Botón de sincronización manual con Planificador y con RONOS disponible tanto en el Dashboard como en el Editor.
  */
 
 'use client'
@@ -37,7 +39,8 @@ import {
     X, Clock, Coffee, Sun, Sunrise, Moon, MoonStar,
     Calendar, User, Save, Trash2, ArrowRight, Sparkles, Zap, Store,
     ChevronLeft, ChevronRight, ShieldCheck, AlertTriangle, AlertCircle,
-    Briefcase, Activity, ShieldAlert, CheckCircle2, Edit3, Plus, Users, Check
+    Briefcase, Activity, ShieldAlert, CheckCircle2, Edit3, Plus, Users, Check,
+    Palmtree, FileText
 } from 'lucide-react'
 import SurpriseLoader from '@/components/SurpriseLoader'
 import { useLanguage } from '@/lib/i18n'
@@ -53,7 +56,20 @@ const PRESETS = [
     { id: 'cierre', label: 'Cierre', start: '17:00', end: '02:00', icon: <MoonStar size={16} />, color: 'bg-purple-100 text-purple-900 group-hover:bg-purple-200' },
     { id: 'cierre_fds', label: 'Cierre FDS', start: '17:00', end: '04:00', icon: <Sparkles size={16} />, color: 'bg-fuchsia-100 text-fuchsia-900 group-hover:bg-fuchsia-200' },
     { id: 'visita', label: 'Visita Sup.', start: '09:00', end: '17:00', icon: <User size={16} />, color: 'bg-cyan-50 text-cyan-800 border-2 border-dashed border-cyan-200' },
+    { id: 'enfermedad', label: 'Enfermedad', start: '00:00', end: '00:00', icon: <AlertCircle size={16} />, color: 'bg-rose-100 text-rose-800 border border-rose-300 dark:bg-rose-950/60 dark:text-rose-200 dark:border-rose-800' },
+    { id: 'vacaciones', label: 'Vacaciones', start: '00:00', end: '00:00', icon: <Palmtree size={16} />, color: 'bg-sky-100 text-sky-800 border border-sky-300 dark:bg-sky-950/60 dark:text-sky-200 dark:border-sky-800' },
+    { id: 'permiso', label: 'Permiso', start: '00:00', end: '00:00', icon: <FileText size={16} />, color: 'bg-violet-100 text-violet-800 border border-violet-300 dark:bg-violet-950/60 dark:text-violet-200 dark:border-violet-800' },
 ]
+
+// Helper para identificar turnos de ausencia (Enfermedad / Vacaciones / Permiso)
+const getAbsenceType = (shift: any): 'sick' | 'vacation' | 'permission' | null => {
+    if (!shift) return null;
+    const label = (shift.shift_label || '').toLowerCase();
+    if (label.includes('enferm') || label.includes('sick')) return 'sick';
+    if (label.includes('vacac') || label.includes('vacat')) return 'vacation';
+    if (label.includes('permis') || label.includes('leave') || label.includes('unpaid')) return 'permission';
+    return null;
+};
 
 // --- UTILIDADES ---
 const getMonday = (d: Date) => {
@@ -98,6 +114,21 @@ const getMinutes = (timeStr: string) => {
 const coversBlock = (shift: any, blockStartHour: number, blockEndHour: number) => {
     if (!shift || !shift.start_time || !shift.end_time) return false;
 
+    // Las ausencias oficiales (Enfermedad / Vacaciones / Descanso) NUNCA cubren bloques operativos
+    const label = (shift.shift_label || '').toLowerCase();
+    if (
+        label.includes('enferm') ||
+        label.includes('sick') ||
+        label.includes('vacac') ||
+        label.includes('vacat') ||
+        label.includes('off') ||
+        label.includes('descanso') ||
+        label.includes('ausenc') ||
+        label.includes('absence')
+    ) {
+        return false;
+    }
+
     let start = getMinutes(shift.start_time);
     let end = getMinutes(shift.end_time);
 
@@ -120,7 +151,6 @@ const coversBlock = (shift: any, blockStartHour: number, blockEndHour: number) =
 };
 
 
-// --- SEMÁFORO (LÓGICA OPERATIVA 4H + COMODÍN) ---
 // --- SEMÁFORO (LÓGICA OPERATIVA 4H + COMODÍN FINITO) ---
 const calculateDailyStatus = (
     t: any,
@@ -168,10 +198,19 @@ const calculateDailyStatus = (
         missingPM: !finalPM
     };
 
-    // CASO 1: Sin personal capturado (Pendiente) o turnos sin horas validas
-    const hasValidShifts = dayShifts.some(s => s.start_time && s.end_time);
+    // CASO 1: Sin personal capturado (Pendiente) o solo turnos inválidos
+    const hasValidShifts = dayShifts.some(s => {
+        if (!s.start_time || !s.end_time) return false;
+        const label = (s.shift_label || '').toLowerCase();
+        return !label.includes('enferm') && !label.includes('sick') && !label.includes('vacac') && !label.includes('vacat') && !label.includes('off') && !label.includes('descanso');
+    });
 
-    if (dayShifts.length === 0 || !hasValidShifts) {
+    const hasAbsences = dayShifts.some(s => {
+        const label = (s.shift_label || '').toLowerCase();
+        return label.includes('enferm') || label.includes('sick') || label.includes('vacac') || label.includes('vacat');
+    });
+
+    if (dayShifts.length === 0 || (!hasValidShifts && !hasAbsences)) {
         return {
             ...baseResult,
             status: 'empty',
@@ -460,6 +499,7 @@ function ScheduleManager() {
     const [replicationLoading, setReplicationLoading] = useState(false);
     const [replicationCandidates, setReplicationCandidates] = useState<{ id: string, name: string, existingCount: number }[]>([]);
     const [syncingPlanner, setSyncingPlanner] = useState(false);
+    const [syncingRonos, setSyncingRonos] = useState(false);
 
     const weekStart = getMonday(currentDate)
     const weekDays = Array.from({ length: 14 }).map((_, i) => addDays(weekStart, i))
@@ -999,6 +1039,47 @@ function ScheduleManager() {
         }
     };
 
+    // 🔄 SINCRONIZACIÓN MANUAL DE AUSENCIAS CON RONOS (Enfermedad & Vacaciones)
+    const handleSyncFromRonos = async () => {
+        if (syncingRonos) return;
+        setSyncingRonos(true);
+        try {
+            const startStr = formatDateISO(weekStart);
+            const endStr = formatDateISO(addDays(weekStart, 13)); // Sincroniza la quincena completa visualizada
+            const targetStoreParam = selectedSupervisorId ? 'all' : (selectedStoreId || 'all');
+
+            const res = await fetch('/api/schedule/sync-ronos', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    store_id: targetStoreParam,
+                    start_date: startStr,
+                    end_date: endStr,
+                    weeks_to_scan: 4,
+                    force_refresh: true
+                })
+            });
+
+            const data = await res.json();
+            if (!res.ok || !data.success) {
+                throw new Error(data.error || 'Error al sincronizar ausencias de RONOS');
+            }
+
+            await loadGlobalData();
+            const count = data.totalSynced !== undefined ? data.totalSynced : (data.records?.length || 0);
+            if (count > 0) {
+                alert(t('schedule.sync_ronos_success', { n: count }));
+            } else {
+                alert(t('schedule.sync_ronos_empty'));
+            }
+        } catch (e: any) {
+            console.error("Error sincronizando ausencias con RONOS:", e);
+            alert(e.message || 'Error al sincronizar ausencias de RONOS');
+        } finally {
+            setSyncingRonos(false);
+        }
+    };
+
     // 🔗 DEEP LINKING: Cargar tienda y fecha desde URL (Notificaciones)
     useEffect(() => {
         const storeId = searchParams.get('store_id')
@@ -1156,12 +1237,16 @@ function ScheduleManager() {
         if (!editingShift || !canEdit) return;
         const supabase = await getSupabase()
         const dateStr = formatDateISO(editingShift.date);
-        const isDelete = !editingShift.start || !editingShift.end;
+        const isAbsence = editingShift.presetId === 'enfermedad' || editingShift.presetId === 'vacaciones' || editingShift.presetId === 'permiso';
+        const isDelete = (!editingShift.start || !editingShift.end) && !isAbsence;
 
         let labelToSave = 'Custom';
-        const preset = PRESETS.find(p => p.start === editingShift.start?.slice(0, 5) && p.end === editingShift.end?.slice(0, 5));
+        const preset = PRESETS.find(p => p.start === editingShift.start?.slice(0, 5) && p.end === editingShift.end?.slice(0, 5) && p.id !== 'enfermedad' && p.id !== 'vacaciones' && p.id !== 'permiso');
         if (preset) labelToSave = preset.label;
         else if (editingShift.presetId === 'visita') labelToSave = 'Visita Sup.';
+        else if (editingShift.presetId === 'enfermedad') labelToSave = 'Enfermedad';
+        else if (editingShift.presetId === 'vacaciones') labelToSave = 'Vacaciones';
+        else if (editingShift.presetId === 'permiso') labelToSave = 'Permiso';
 
         const targetStoreId = parseInt(editingShift.storeId || selectedStoreId); // INTENTAR USAR ID DEL MODAL, SI NO EL SELECCIONADO
         if (!targetStoreId || isNaN(targetStoreId)) {
@@ -1169,13 +1254,16 @@ function ScheduleManager() {
             return;
         }
 
+        const startTime = isAbsence ? '00:00:00' : editingShift.start;
+        const endTime = isAbsence ? '00:00:00' : editingShift.end;
+
         const newEntry = {
             user_id: parseInt(editingShift.userId),
             store_id: targetStoreId,
             date: dateStr,
             shift_label: labelToSave,
-            start_time: editingShift.start,
-            end_time: editingShift.end,
+            start_time: startTime,
+            end_time: endTime,
             role: editingShift.userRole
         }
 
@@ -1190,11 +1278,19 @@ function ScheduleManager() {
 
     const openEditModal = (user: any, date: Date, currentShift: any, storeId?: string) => {
         if (!canEdit) return;
+        let initialPreset = 'off';
+        if (currentShift) {
+            const abs = getAbsenceType(currentShift);
+            if (abs === 'sick') initialPreset = 'enfermedad';
+            else if (abs === 'vacation') initialPreset = 'vacaciones';
+            else if (abs === 'permission') initialPreset = 'permiso';
+            else initialPreset = 'custom';
+        }
         setEditingShift({
             userId: user.id, userName: user.full_name, userRole: user.role,
             storeId: storeId, // GUARDAR STORE ID
             date: date, start: currentShift?.start_time || '', end: currentShift?.end_time || '',
-            presetId: currentShift ? 'custom' : 'off'
+            presetId: initialPreset
         })
     }
 
@@ -1397,6 +1493,16 @@ function ScheduleManager() {
                             >
                                 <Zap size={16} className={`text-indigo-600 dark:text-indigo-400 ${syncingPlanner ? 'animate-spin' : ''}`} />
                                 <span>{syncingPlanner ? t('schedule.syncing_planner') : t('schedule.sync_planner')}</span>
+                            </button>
+
+                            <button
+                                onClick={handleSyncFromRonos}
+                                disabled={syncingRonos}
+                                title={t('schedule.ronos_synced')}
+                                className="px-4 py-2.5 rounded-xl text-xs font-bold bg-rose-50 dark:bg-rose-900/40 text-rose-700 dark:text-rose-300 hover:bg-rose-100 dark:hover:bg-rose-900/60 border border-rose-200 dark:border-rose-800 transition-all flex items-center gap-2 shadow-sm disabled:opacity-50"
+                            >
+                                <Activity size={16} className={`text-rose-600 dark:text-rose-400 ${syncingRonos ? 'animate-spin' : ''}`} />
+                                <span>{syncingRonos ? t('schedule.syncing_ronos') : t('schedule.sync_ronos_absences')}</span>
                             </button>
 
                             <div className="hidden md:flex bg-white dark:bg-slate-900 px-4 py-2 rounded-xl border border-gray-100 dark:border-slate-800 shadow-sm items-center gap-2">
@@ -1607,6 +1713,16 @@ function ScheduleManager() {
                                 <span className="hidden sm:inline">{syncingPlanner ? t('schedule.syncing_planner') : t('schedule.sync_planner')}</span>
                                 <span className="sm:hidden">{syncingPlanner ? '...' : 'Sync'}</span>
                             </button>
+                            <button
+                                onClick={handleSyncFromRonos}
+                                disabled={syncingRonos}
+                                title={t('schedule.ronos_synced')}
+                                className="px-3.5 py-2.5 rounded-xl text-xs font-bold bg-rose-50 dark:bg-rose-900/40 text-rose-700 dark:text-rose-300 hover:bg-rose-100 dark:hover:bg-rose-900/60 border border-rose-200 dark:border-rose-800 transition-all flex items-center gap-1.5 shadow-sm disabled:opacity-50"
+                            >
+                                <Activity size={15} className={`text-rose-600 dark:text-rose-400 ${syncingRonos ? 'animate-spin' : ''}`} />
+                                <span className="hidden sm:inline">{syncingRonos ? t('schedule.syncing_ronos') : t('schedule.sync_ronos_absences')}</span>
+                                <span className="sm:hidden">{syncingRonos ? '...' : 'RONOS'}</span>
+                            </button>
                         </div>
                     </div>
 
@@ -1798,9 +1914,38 @@ function ScheduleManager() {
                                     </div>
                                     <div className="flex items-center gap-2">
                                         {currentSupShift ? (
-                                            <span className="px-3 py-1 rounded-lg bg-indigo-600 text-white text-xs font-black">
-                                                {formatTime12h(currentSupShift.start_time?.slice(0, 5))} - {formatTime12h(currentSupShift.end_time?.slice(0, 5))}
-                                            </span>
+                                            (() => {
+                                                const abs = getAbsenceType(currentSupShift);
+                                                if (abs === 'sick') {
+                                                    return (
+                                                        <span className="px-3 py-1 rounded-lg bg-rose-600 text-white text-xs font-black flex items-center gap-1">
+                                                            <AlertCircle size={12} />
+                                                            {t('schedule.sick')}
+                                                        </span>
+                                                    );
+                                                }
+                                                if (abs === 'vacation') {
+                                                    return (
+                                                        <span className="px-3 py-1 rounded-lg bg-sky-600 text-white text-xs font-black flex items-center gap-1">
+                                                            <Palmtree size={12} />
+                                                            {t('schedule.vacation')}
+                                                        </span>
+                                                    );
+                                                }
+                                                if (abs === 'permission') {
+                                                    return (
+                                                        <span className="px-3 py-1 rounded-lg bg-violet-600 text-white text-xs font-black flex items-center gap-1">
+                                                            <FileText size={12} />
+                                                            {t('schedule.permission')}
+                                                        </span>
+                                                    );
+                                                }
+                                                return (
+                                                    <span className="px-3 py-1 rounded-lg bg-indigo-600 text-white text-xs font-black">
+                                                        {formatTime12h(currentSupShift.start_time?.slice(0, 5))} - {formatTime12h(currentSupShift.end_time?.slice(0, 5))}
+                                                    </span>
+                                                );
+                                            })()
                                         ) : (
                                             <span className="px-3 py-1 rounded-lg bg-white dark:bg-slate-800 text-gray-500 dark:text-slate-400 text-xs font-bold border border-dashed border-gray-300 dark:border-slate-600">
                                                 {t('schedule.off')}
@@ -1880,14 +2025,58 @@ function ScheduleManager() {
                                                         {/* Turno / Botón de Acción */}
                                                         <div className="shrink-0 flex items-center gap-2">
                                                             {currentShift ? (
-                                                                <div className={`px-3 py-1.5 rounded-xl text-xs font-bold flex flex-col items-end ${preset ? preset.color : 'bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-200'}`}>
-                                                                    <span className="font-black text-xs">
-                                                                        {formatTime12h(currentShift.start_time?.slice(0, 5))} - {formatTime12h(currentShift.end_time?.slice(0, 5))}
-                                                                    </span>
-                                                                    <span className="text-[10px] opacity-75 font-medium">
-                                                                        {currentShift.shift_label || 'Custom'}
-                                                                    </span>
-                                                                </div>
+                                                                (() => {
+                                                                    const abs = getAbsenceType(currentShift);
+                                                                    if (abs === 'sick') {
+                                                                        return (
+                                                                            <div className="px-3 py-1.5 rounded-xl text-xs font-bold flex flex-col items-end bg-rose-100 text-rose-800 dark:bg-rose-950/70 dark:text-rose-200 border border-rose-300 dark:border-rose-800 shadow-sm">
+                                                                                <span className="font-black text-xs flex items-center gap-1 text-rose-700 dark:text-rose-300">
+                                                                                    <AlertCircle size={12} />
+                                                                                    {t('schedule.sick')}
+                                                                                </span>
+                                                                                <span className="text-[10px] text-rose-500 dark:text-rose-400 font-bold uppercase tracking-wider">
+                                                                                    RONOS
+                                                                                </span>
+                                                                            </div>
+                                                                        );
+                                                                    }
+                                                                    if (abs === 'vacation') {
+                                                                        return (
+                                                                            <div className="px-3 py-1.5 rounded-xl text-xs font-bold flex flex-col items-end bg-sky-100 text-sky-800 dark:bg-sky-950/70 dark:text-sky-200 border border-sky-300 dark:border-sky-800 shadow-sm">
+                                                                                <span className="font-black text-xs flex items-center gap-1 text-sky-700 dark:text-sky-300">
+                                                                                    <Palmtree size={12} />
+                                                                                    {t('schedule.vacation')}
+                                                                                </span>
+                                                                                <span className="text-[10px] text-sky-500 dark:text-sky-400 font-bold uppercase tracking-wider">
+                                                                                    RONOS
+                                                                                </span>
+                                                                            </div>
+                                                                        );
+                                                                    }
+                                                                    if (abs === 'permission') {
+                                                                        return (
+                                                                            <div className="px-3 py-1.5 rounded-xl text-xs font-bold flex flex-col items-end bg-violet-100 text-violet-800 dark:bg-violet-950/70 dark:text-violet-200 border border-violet-300 dark:border-violet-800 shadow-sm">
+                                                                                <span className="font-black text-xs flex items-center gap-1 text-violet-700 dark:text-violet-300">
+                                                                                    <FileText size={12} />
+                                                                                    {t('schedule.permission')}
+                                                                                </span>
+                                                                                <span className="text-[10px] text-violet-500 dark:text-violet-400 font-bold uppercase tracking-wider">
+                                                                                    RONOS
+                                                                                </span>
+                                                                            </div>
+                                                                        );
+                                                                    }
+                                                                    return (
+                                                                        <div className={`px-3 py-1.5 rounded-xl text-xs font-bold flex flex-col items-end ${preset ? preset.color : 'bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-200'}`}>
+                                                                            <span className="font-black text-xs">
+                                                                                {formatTime12h(currentShift.start_time?.slice(0, 5))} - {formatTime12h(currentShift.end_time?.slice(0, 5))}
+                                                                            </span>
+                                                                            <span className="text-[10px] opacity-75 font-medium">
+                                                                                {currentShift.shift_label || 'Custom'}
+                                                                            </span>
+                                                                        </div>
+                                                                    );
+                                                                })()
                                                             ) : (
                                                                 <div className="px-3 py-1.5 rounded-xl border border-dashed border-gray-300 dark:border-slate-600 text-gray-400 text-xs font-medium flex items-center gap-1">
                                                                     <MoonStar size={12} />
@@ -2007,19 +2196,61 @@ function ScheduleManager() {
                                                 let cardClass = "bg-transparent hover:bg-white/50 border border-transparent";
 
                                                 if (currentShift) {
-                                                    const preset = PRESETS.find(p => p.start === currentShift.start_time?.slice(0, 5) && p.end === currentShift.end_time?.slice(0, 5));
-                                                    const color = preset ? preset.color : 'bg-indigo-100 text-indigo-900 group-hover:bg-indigo-200';
-                                                    cardClass = `${color} shadow-sm group-hover:shadow-md transform transition-all duration-200 ${canEdit ? 'hover:-translate-y-1' : ''}`;
-                                                    cardContent = (
-                                                        <div className="flex flex-col items-center justify-center w-full h-full p-1 gap-0">
-                                                            <span className="text-[18px] font-medium tracking-tight opacity-95 leading-none">
-                                                                {formatTime12h(currentShift.start_time?.slice(0, 5))}
-                                                            </span>
-                                                            <span className="text-[18px] font-medium tracking-tight opacity-95 leading-none">
-                                                                {formatTime12h(currentShift.end_time?.slice(0, 5))}
-                                                            </span>
-                                                        </div>
-                                                    );
+                                                    const abs = getAbsenceType(currentShift);
+                                                    if (abs === 'sick') {
+                                                        cardClass = `bg-rose-100 text-rose-800 dark:bg-rose-950/70 dark:text-rose-200 border border-rose-300 dark:border-rose-800 shadow-sm group-hover:shadow-md transform transition-all duration-200 ${canEdit ? 'hover:-translate-y-1' : ''}`;
+                                                        cardContent = (
+                                                            <div className="flex flex-col items-center justify-center w-full h-full p-1 gap-0.5">
+                                                                <span className="text-[12px] font-black uppercase tracking-wider flex items-center gap-1 leading-none text-rose-700 dark:text-rose-300">
+                                                                    <AlertCircle size={13} className="text-rose-600 dark:text-rose-400 shrink-0" />
+                                                                    {t('schedule.sick')}
+                                                                </span>
+                                                                <span className="text-[9px] font-extrabold uppercase tracking-widest text-rose-500 dark:text-rose-400 opacity-90 leading-none">
+                                                                    RONOS
+                                                                </span>
+                                                            </div>
+                                                        );
+                                                    } else if (abs === 'vacation') {
+                                                        cardClass = `bg-sky-100 text-sky-800 dark:bg-sky-950/70 dark:text-sky-200 border border-sky-300 dark:border-sky-800 shadow-sm group-hover:shadow-md transform transition-all duration-200 ${canEdit ? 'hover:-translate-y-1' : ''}`;
+                                                        cardContent = (
+                                                            <div className="flex flex-col items-center justify-center w-full h-full p-1 gap-0.5">
+                                                                <span className="text-[12px] font-black uppercase tracking-wider flex items-center gap-1 leading-none text-sky-700 dark:text-sky-300">
+                                                                    <Palmtree size={13} className="text-sky-600 dark:text-sky-400 shrink-0" />
+                                                                    {t('schedule.vacation')}
+                                                                </span>
+                                                                <span className="text-[9px] font-extrabold uppercase tracking-widest text-sky-500 dark:text-sky-400 opacity-90 leading-none">
+                                                                    RONOS
+                                                                </span>
+                                                            </div>
+                                                        );
+                                                    } else if (abs === 'permission') {
+                                                        cardClass = `bg-violet-100 text-violet-800 dark:bg-violet-950/70 dark:text-violet-200 border border-violet-300 dark:border-violet-800 shadow-sm group-hover:shadow-md transform transition-all duration-200 ${canEdit ? 'hover:-translate-y-1' : ''}`;
+                                                        cardContent = (
+                                                            <div className="flex flex-col items-center justify-center w-full h-full p-1 gap-0.5">
+                                                                <span className="text-[12px] font-black uppercase tracking-wider flex items-center gap-1 leading-none text-violet-700 dark:text-violet-300">
+                                                                    <FileText size={13} className="text-violet-600 dark:text-violet-400 shrink-0" />
+                                                                    {t('schedule.permission')}
+                                                                </span>
+                                                                <span className="text-[9px] font-extrabold uppercase tracking-widest text-violet-500 dark:text-violet-400 opacity-90 leading-none">
+                                                                    RONOS
+                                                                </span>
+                                                            </div>
+                                                        );
+                                                    } else {
+                                                        const preset = PRESETS.find(p => p.start === currentShift.start_time?.slice(0, 5) && p.end === currentShift.end_time?.slice(0, 5) && p.id !== 'enfermedad' && p.id !== 'vacaciones' && p.id !== 'permiso');
+                                                        const color = preset ? preset.color : 'bg-indigo-100 text-indigo-900 group-hover:bg-indigo-200';
+                                                        cardClass = `${color} shadow-sm group-hover:shadow-md transform transition-all duration-200 ${canEdit ? 'hover:-translate-y-1' : ''}`;
+                                                        cardContent = (
+                                                            <div className="flex flex-col items-center justify-center w-full h-full p-1 gap-0">
+                                                                <span className="text-[18px] font-medium tracking-tight opacity-95 leading-none">
+                                                                    {formatTime12h(currentShift.start_time?.slice(0, 5))}
+                                                                </span>
+                                                                <span className="text-[18px] font-medium tracking-tight opacity-95 leading-none">
+                                                                    {formatTime12h(currentShift.end_time?.slice(0, 5))}
+                                                                </span>
+                                                            </div>
+                                                        );
+                                                    }
                                                 }
 
                                                 return (
@@ -2176,19 +2407,61 @@ function ScheduleManager() {
                                                                             let cardClass = "bg-transparent hover:bg-gray-100 border border-transparent";
 
                                                                             if (currentShift) {
-                                                                                const preset = PRESETS.find(p => p.start === currentShift.start_time?.slice(0, 5) && p.end === currentShift.end_time?.slice(0, 5));
-                                                                                const color = preset ? preset.color : 'bg-slate-100 text-slate-700 group-hover:bg-slate-200';
-                                                                                cardClass = `${color} shadow-sm group-hover:shadow-md transform transition-all duration-200 ${canEdit ? 'hover:-translate-y-1' : ''}`;
-                                                                                cardContent = (
-                                                                                    <div className="flex flex-col items-center justify-center w-full h-full p-1 gap-0">
-                                                                                        <span className="text-[18px] font-medium tracking-tight opacity-95 leading-none">
-                                                                                            {formatTime12h(currentShift.start_time?.slice(0, 5))}
-                                                                                        </span>
-                                                                                        <span className="text-[18px] font-medium tracking-tight opacity-95 leading-none">
-                                                                                            {formatTime12h(currentShift.end_time?.slice(0, 5))}
-                                                                                        </span>
-                                                                                    </div>
-                                                                                );
+                                                                                const abs = getAbsenceType(currentShift);
+                                                                                if (abs === 'sick') {
+                                                                                    cardClass = `bg-rose-100 text-rose-800 dark:bg-rose-950/70 dark:text-rose-200 border border-rose-300 dark:border-rose-800 shadow-sm group-hover:shadow-md transform transition-all duration-200 ${canEdit ? 'hover:-translate-y-1' : ''}`;
+                                                                                    cardContent = (
+                                                                                        <div className="flex flex-col items-center justify-center w-full h-full p-1 gap-0.5">
+                                                                                            <span className="text-[12px] font-black uppercase tracking-wider flex items-center gap-1 leading-none text-rose-700 dark:text-rose-300">
+                                                                                                <AlertCircle size={13} className="text-rose-600 dark:text-rose-400 shrink-0" />
+                                                                                                {t('schedule.sick')}
+                                                                                            </span>
+                                                                                            <span className="text-[9px] font-extrabold uppercase tracking-widest text-rose-500 dark:text-rose-400 opacity-90 leading-none">
+                                                                                                RONOS
+                                                                                            </span>
+                                                                                        </div>
+                                                                                    );
+                                                                                } else if (abs === 'vacation') {
+                                                                                    cardClass = `bg-sky-100 text-sky-800 dark:bg-sky-950/70 dark:text-sky-200 border border-sky-300 dark:border-sky-800 shadow-sm group-hover:shadow-md transform transition-all duration-200 ${canEdit ? 'hover:-translate-y-1' : ''}`;
+                                                                                    cardContent = (
+                                                                                        <div className="flex flex-col items-center justify-center w-full h-full p-1 gap-0.5">
+                                                                                            <span className="text-[12px] font-black uppercase tracking-wider flex items-center gap-1 leading-none text-sky-700 dark:text-sky-300">
+                                                                                                <Palmtree size={13} className="text-sky-600 dark:text-sky-400 shrink-0" />
+                                                                                                {t('schedule.vacation')}
+                                                                                            </span>
+                                                                                            <span className="text-[9px] font-extrabold uppercase tracking-widest text-sky-500 dark:text-sky-400 opacity-90 leading-none">
+                                                                                                RONOS
+                                                                                            </span>
+                                                                                        </div>
+                                                                                    );
+                                                                                } else if (abs === 'permission') {
+                                                                                    cardClass = `bg-violet-100 text-violet-800 dark:bg-violet-950/70 dark:text-violet-200 border border-violet-300 dark:border-violet-800 shadow-sm group-hover:shadow-md transform transition-all duration-200 ${canEdit ? 'hover:-translate-y-1' : ''}`;
+                                                                                    cardContent = (
+                                                                                        <div className="flex flex-col items-center justify-center w-full h-full p-1 gap-0.5">
+                                                                                            <span className="text-[12px] font-black uppercase tracking-wider flex items-center gap-1 leading-none text-violet-700 dark:text-violet-300">
+                                                                                                <FileText size={13} className="text-violet-600 dark:text-violet-400 shrink-0" />
+                                                                                                {t('schedule.permission')}
+                                                                                            </span>
+                                                                                            <span className="text-[9px] font-extrabold uppercase tracking-widest text-violet-500 dark:text-violet-400 opacity-90 leading-none">
+                                                                                                RONOS
+                                                                                            </span>
+                                                                                        </div>
+                                                                                    );
+                                                                                } else {
+                                                                                    const preset = PRESETS.find(p => p.start === currentShift.start_time?.slice(0, 5) && p.end === currentShift.end_time?.slice(0, 5) && p.id !== 'enfermedad' && p.id !== 'vacaciones' && p.id !== 'permiso');
+                                                                                    const color = preset ? preset.color : 'bg-slate-100 text-slate-700 group-hover:bg-slate-200';
+                                                                                    cardClass = `${color} shadow-sm group-hover:shadow-md transform transition-all duration-200 ${canEdit ? 'hover:-translate-y-1' : ''}`;
+                                                                                    cardContent = (
+                                                                                        <div className="flex flex-col items-center justify-center w-full h-full p-1 gap-0">
+                                                                                            <span className="text-[18px] font-medium tracking-tight opacity-95 leading-none">
+                                                                                                {formatTime12h(currentShift.start_time?.slice(0, 5))}
+                                                                                            </span>
+                                                                                            <span className="text-[18px] font-medium tracking-tight opacity-95 leading-none">
+                                                                                                {formatTime12h(currentShift.end_time?.slice(0, 5))}
+                                                                                            </span>
+                                                                                        </div>
+                                                                                    );
+                                                                                }
                                                                             } else if (dayStatus.status === 'bad') {
                                                                                 cardClass = "bg-red-50/50 border-2 border-dashed border-red-200 hover:bg-red-100 hover:border-red-300 animate-pulse";
                                                                                 cardContent = <div className="w-1.5 h-1.5 rounded-full bg-red-200 group-hover:bg-red-300"></div>;
@@ -2302,7 +2575,7 @@ function ScheduleManager() {
                                             <button
                                                 onClick={() => setEditingShift({ ...editingShift, start: '', end: '', presetId: 'off' })}
                                                 className={`p-3 rounded-lg border text-sm font-bold flex items-center justify-center gap-2 transition-all
-                                                    ${!editingShift.start
+                                                    ${(!editingShift.start || editingShift.presetId === 'off') && editingShift.presetId !== 'enfermedad' && editingShift.presetId !== 'vacaciones' && editingShift.presetId !== 'permiso'
                                                         ? 'bg-indigo-600 border-indigo-600 text-white shadow-md shadow-indigo-200'
                                                         : 'bg-white dark:bg-slate-800 border-indigo-100 dark:border-slate-700 text-indigo-600 dark:text-indigo-400 hover:border-indigo-300 dark:hover:border-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/30'}`}
                                             >
@@ -2310,8 +2583,8 @@ function ScheduleManager() {
                                                 <span>{t('schedule.off')}</span>
                                             </button>
 
-                                            {PRESETS.map(p => {
-                                                const isSelected = editingShift.start === p.start && editingShift.end === p.end;
+                                            {PRESETS.filter(p => p.id !== 'enfermedad' && p.id !== 'vacaciones' && p.id !== 'permiso').map(p => {
+                                                const isSelected = editingShift.presetId === p.id || (editingShift.start === p.start && editingShift.end === p.end && editingShift.presetId !== 'off' && editingShift.presetId !== 'enfermedad' && editingShift.presetId !== 'vacaciones' && editingShift.presetId !== 'permiso');
                                                 return (
                                                     <button
                                                         key={p.id}
@@ -2325,6 +2598,52 @@ function ScheduleManager() {
                                                     </button>
                                                 );
                                             })}
+                                        </div>
+                                    </div>
+
+                                    {/* Ausencias Especiales (Enfermedad / Vacaciones / Permiso) */}
+                                    <div className="space-y-2">
+                                        <label className="text-xs font-bold text-rose-900 dark:text-rose-300 uppercase tracking-wider block flex items-center gap-1.5">
+                                            <AlertCircle size={14} className="text-rose-600" />
+                                            {t('schedule.absence')}
+                                        </label>
+                                        <div className="grid grid-cols-3 gap-2">
+                                            <button
+                                                type="button"
+                                                onClick={() => setEditingShift({ ...editingShift, start: '00:00', end: '00:00', presetId: 'enfermedad' })}
+                                                className={`p-2.5 rounded-lg border text-xs font-bold flex items-center justify-center gap-1.5 transition-all ${
+                                                    editingShift.presetId === 'enfermedad'
+                                                        ? 'bg-rose-600 border-rose-600 text-white shadow-md shadow-rose-200'
+                                                        : 'bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-900 text-rose-700 dark:text-rose-300 hover:bg-rose-100 dark:hover:bg-rose-900/40'
+                                                }`}
+                                            >
+                                                <AlertCircle size={14} />
+                                                <span>{t('schedule.sick')}</span>
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => setEditingShift({ ...editingShift, start: '00:00', end: '00:00', presetId: 'vacaciones' })}
+                                                className={`p-2.5 rounded-lg border text-xs font-bold flex items-center justify-center gap-1.5 transition-all ${
+                                                    editingShift.presetId === 'vacaciones'
+                                                        ? 'bg-sky-600 border-sky-600 text-white shadow-md shadow-sky-200'
+                                                        : 'bg-sky-50 dark:bg-sky-950/40 border-sky-200 dark:border-sky-900 text-sky-700 dark:text-sky-300 hover:bg-sky-100 dark:hover:bg-sky-900/40'
+                                                }`}
+                                            >
+                                                <Palmtree size={14} />
+                                                <span>{t('schedule.vacation')}</span>
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => setEditingShift({ ...editingShift, start: '00:00', end: '00:00', presetId: 'permiso' })}
+                                                className={`p-2.5 rounded-lg border text-xs font-bold flex items-center justify-center gap-1.5 transition-all ${
+                                                    editingShift.presetId === 'permiso'
+                                                        ? 'bg-violet-600 border-violet-600 text-white shadow-md shadow-violet-200'
+                                                        : 'bg-violet-50 dark:bg-violet-950/40 border-violet-200 dark:border-violet-900 text-violet-700 dark:text-violet-300 hover:bg-violet-100 dark:hover:bg-violet-900/40'
+                                                }`}
+                                            >
+                                                <FileText size={14} />
+                                                <span>{t('schedule.permission')}</span>
+                                            </button>
                                         </div>
                                     </div>
 

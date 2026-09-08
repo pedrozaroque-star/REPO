@@ -795,7 +795,12 @@ async function querySchedules(args: any): Promise<string> {
     if (!byUser[uid]) {
       byUser[uid] = { name: u?.name || uid.slice(0, 8), role: u?.role || '', store: u?.store || idToName[s.store_id] || '', days: {} }
     }
-    const time = s.start_time && s.end_time ? `${s.start_time.slice(0,5)}-${s.end_time.slice(0,5)}` : (s.shift_label || 'ON')
+    const isAbsence = s.shift_label === 'Enfermedad' || s.shift_label === 'Vacaciones' || s.shift_label === 'Permiso';
+    const time = isAbsence
+      ? `[${s.shift_label}]`
+      : (s.start_time && s.end_time && (s.start_time !== '00:00:00' || s.end_time !== '00:00:00')
+        ? `${s.start_time.slice(0, 5)}-${s.end_time.slice(0, 5)}`
+        : (s.shift_label || 'ON'));
     byUser[uid].days[s.date] = time
   })
 

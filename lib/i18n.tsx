@@ -611,6 +611,16 @@ export const dictionaries: Record<Language, Dictionary> = {
             sync_planner_desc: 'Importar turnos publicados de Managers y Asistentes desde el Planificador.',
             sync_planner_success: 'Sincronización completada: {n} turnos de liderazgo actualizados.',
             sync_planner_empty: 'No se encontraron turnos de liderazgo publicados para este periodo.',
+            sick: 'Enfermedad',
+            vacation: 'Vacaciones',
+            permission: 'Permiso',
+            absence: 'Ausencia',
+            ronos_synced: 'Sincronizado con RONOS',
+            sync_ronos_absences: 'Sincronizar RONOS',
+            syncing_ronos: 'Sincronizando ausencias...',
+            sync_ronos_success: 'Sincronización RONOS: {n} ausencias detectadas y actualizadas.',
+            sync_ronos_empty: 'No se encontraron nuevas ausencias registradas en RONOS.',
+            absence_alert: 'Alerta de Ausencia: Personal ausente no cubre turnos operativos.',
         },
         // INSPECTIONS
         inspections: {
@@ -4008,6 +4018,16 @@ export const dictionaries: Record<Language, Dictionary> = {
             sync_planner_desc: 'Import published Manager and Assistant shifts from Planner.',
             sync_planner_success: 'Sync completed: {n} leadership shifts updated.',
             sync_planner_empty: 'No published leadership shifts found for this period.',
+            sick: 'Sick Leave',
+            vacation: 'Vacation',
+            permission: 'Permission / Leave',
+            absence: 'Absence',
+            ronos_synced: 'Synced with RONOS',
+            sync_ronos_absences: 'Sync RONOS',
+            syncing_ronos: 'Syncing absences...',
+            sync_ronos_success: 'RONOS Sync: {n} absences detected and updated.',
+            sync_ronos_empty: 'No new absences recorded in RONOS.',
+            absence_alert: 'Absence Alert: Absent staff does not cover store operations.',
         },
         // INSPECTIONS
         inspections: {
