@@ -89,7 +89,14 @@ export async function GET(req: Request) {
       dbQuery = dbQuery.eq('order_category', categoryFilter);
     }
 
-    const { data, error } = await dbQuery.limit(50);
+    const yearFilter = searchParams.get('year');
+    if (yearFilter && /^\d{4}$/.test(yearFilter)) {
+      dbQuery = dbQuery
+        .gte('order_date', `${yearFilter}-01-01`)
+        .lte('order_date', `${yearFilter}-12-31`);
+    }
+
+    const { data, error } = await dbQuery.limit(200);
 
     if (error) {
       return NextResponse.json({ success: false, error: error.message }, { status: 500 });

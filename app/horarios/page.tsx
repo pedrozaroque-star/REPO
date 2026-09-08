@@ -12,14 +12,17 @@
  * 3. Comodín Finito del Supervisor: El turno del supervisor puede cubrir una falta de personal en una tienda, pero es un recurso finito diario.
  * 4. Replicación Inteligente: Si una tienda tiene < 50% de los turnos respecto a la semana anterior, se ofrece replicación respetando turnos existentes (upsert).
  * 5. Roles permitidos: Admin y Supervisor.
+ * 6. Sincronización Automática con Planificador: Cuando los managers de tienda publican sus horarios en `/planificador` (tabla `shifts`), los turnos de Managers y Asistentes se sincronizan automáticamente a `schedules` en `/horarios`.
  * 
  * @dataFlow
- * - Supabase tables: `schedules` (turnos), `users` (colaboradores activos), `stores` (sucursales y asignación de supervisores).
+ * - Supabase tables: `schedules` (turnos), `users` (colaboradores activos), `stores` (sucursales y asignación de supervisores), `shifts` (turnos de tienda).
  * - Sincronización en tiempo real vía `loadGlobalData` y filtros locales en `filterLocalData`.
+ * - Sincronización con Planificador vía `/api/schedule/sync-planner` y `lib/sync-planner-to-schedules.ts`.
  * 
  * @notes
  * - La vista de escritorio conserva la tabla quincenal completa (14 días con drag & drop).
  * - La vista móvil ofrece navegación por pestañas de tiendas, carrusel de 7 días con semáforo, y tarjetas táctiles de colaboradores.
+ * - Botón de sincronización manual con Planificador disponible tanto en el Dashboard como en el Editor.
  */
 
 'use client'
@@ -456,6 +459,7 @@ function ScheduleManager() {
     const [showReplicationModal, setShowReplicationModal] = useState(false);
     const [replicationLoading, setReplicationLoading] = useState(false);
     const [replicationCandidates, setReplicationCandidates] = useState<{ id: string, name: string, existingCount: number }[]>([]);
+    const [syncingPlanner, setSyncingPlanner] = useState(false);
 
     const weekStart = getMonday(currentDate)
     const weekDays = Array.from({ length: 14 }).map((_, i) => addDays(weekStart, i))
@@ -956,6 +960,45 @@ function ScheduleManager() {
         }
     };
 
+    // 🔄 SINCRONIZACIÓN MANUAL CON PLANIFICADOR
+    const handleSyncFromPlanner = async () => {
+        if (syncingPlanner) return;
+        setSyncingPlanner(true);
+        try {
+            const startStr = formatDateISO(weekStart);
+            const endStr = formatDateISO(addDays(weekStart, 13)); // Sincroniza la quincena completa (Semana 1 y Semana 2)
+            const targetStoreParam = selectedStoreId || 'all';
+
+            const res = await fetch('/api/schedule/sync-planner', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    store_id: targetStoreParam,
+                    start_date: startStr,
+                    end_date: endStr
+                })
+            });
+
+            const data = await res.json();
+            if (!res.ok || !data.success) {
+                throw new Error(data.error || 'Error al sincronizar con el Planificador');
+            }
+
+            await loadGlobalData();
+            const count = data.totalSynced !== undefined ? data.totalSynced : (data.result?.syncedShiftsCount || 0);
+            if (count > 0) {
+                alert(t('schedule.sync_planner_success', { n: count }));
+            } else {
+                alert(t('schedule.sync_planner_empty'));
+            }
+        } catch (e: any) {
+            console.error("Error sincronizando con el planificador:", e);
+            alert(e.message || 'Error al sincronizar con el Planificador');
+        } finally {
+            setSyncingPlanner(false);
+        }
+    };
+
     // 🔗 DEEP LINKING: Cargar tienda y fecha desde URL (Notificaciones)
     useEffect(() => {
         const storeId = searchParams.get('store_id')
@@ -1346,6 +1389,16 @@ function ScheduleManager() {
                         <div className="flex items-center gap-3 w-full md:w-auto">
                             <WeekSelector currentDate={currentDate} onDateChange={setCurrentDate} weekStart={weekStart} />
 
+                            <button
+                                onClick={handleSyncFromPlanner}
+                                disabled={syncingPlanner}
+                                title={t('schedule.sync_planner_desc')}
+                                className="px-4 py-2.5 rounded-xl text-xs font-bold bg-indigo-50 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 border border-indigo-200 dark:border-indigo-800 transition-all flex items-center gap-2 shadow-sm disabled:opacity-50"
+                            >
+                                <Zap size={16} className={`text-indigo-600 dark:text-indigo-400 ${syncingPlanner ? 'animate-spin' : ''}`} />
+                                <span>{syncingPlanner ? t('schedule.syncing_planner') : t('schedule.sync_planner')}</span>
+                            </button>
+
                             <div className="hidden md:flex bg-white dark:bg-slate-900 px-4 py-2 rounded-xl border border-gray-100 dark:border-slate-800 shadow-sm items-center gap-2">
                                 <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></div>
                                 <span className="text-xs font-bold text-gray-600 dark:text-slate-300">{t('dashboard.red_alert')}</span>
@@ -1544,6 +1597,16 @@ function ScheduleManager() {
                                 <span className="px-4 py-2 rounded-md text-xs font-black bg-gray-100 dark:bg-slate-800 text-gray-400 dark:text-slate-500 border border-gray-200 dark:border-slate-700">{t('schedule.empty')}</span>
                             </div>
                             <WeekSelector currentDate={currentDate} onDateChange={setCurrentDate} weekStart={weekStart} />
+                            <button
+                                onClick={handleSyncFromPlanner}
+                                disabled={syncingPlanner}
+                                title={t('schedule.sync_planner_desc')}
+                                className="px-3.5 py-2.5 rounded-xl text-xs font-bold bg-indigo-50 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 border border-indigo-200 dark:border-indigo-800 transition-all flex items-center gap-1.5 shadow-sm disabled:opacity-50"
+                            >
+                                <Zap size={15} className={`text-indigo-600 dark:text-indigo-400 ${syncingPlanner ? 'animate-spin' : ''}`} />
+                                <span className="hidden sm:inline">{syncingPlanner ? t('schedule.syncing_planner') : t('schedule.sync_planner')}</span>
+                                <span className="sm:hidden">{syncingPlanner ? '...' : 'Sync'}</span>
+                            </button>
                         </div>
                     </div>
 

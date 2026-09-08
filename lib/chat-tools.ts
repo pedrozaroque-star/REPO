@@ -113,7 +113,8 @@ export const TOOL_DECLARATIONS = [
       properties: {
         start_date: { type: 'STRING', description: 'Week start date YYYY-MM-DD' },
         end_date: { type: 'STRING', description: 'Week end date YYYY-MM-DD' },
-        employee_name: { type: 'STRING', description: 'Optional employee name filter' }
+        employee_name: { type: 'STRING', description: 'Optional employee name filter' },
+        store_name: { type: 'STRING', description: 'Optional store name filter (e.g. "Lynwood", "Azusa")' }
       },
       required: ['start_date', 'end_date']
     }
@@ -801,6 +802,11 @@ async function querySchedules(args: any): Promise<string> {
   if (args.employee_name) {
     const filter = args.employee_name.toLowerCase()
     Object.keys(byUser).forEach(k => { if (!byUser[k].name.toLowerCase().includes(filter)) delete byUser[k] })
+  }
+
+  if (args.store_name) {
+    const storeFilter = args.store_name.toLowerCase()
+    Object.keys(byUser).forEach(k => { if (!byUser[k].store.toLowerCase().includes(storeFilter)) delete byUser[k] })
   }
 
   const lines = Object.values(byUser).sort((a, b) => a.name.localeCompare(b.name))

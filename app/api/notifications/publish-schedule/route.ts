@@ -31,6 +31,7 @@ import {
     CalendarStoreInfo,
     CalendarShiftItem
 } from '@/lib/calendar-helper'
+import { syncPlannerToSchedules } from '@/lib/sync-planner-to-schedules'
 
 // Helper to extract California local hour (0-23) immune to UTC server drift
 function getLAHour(d: Date): number {
@@ -279,6 +280,20 @@ export async function POST(req: Request) {
         if (!shifts || shifts.length === 0) {
             console.warn('⚠️ [API] No published shifts found for store:', store_id, 'IDs:', body.shift_ids?.length || 0)
             return NextResponse.json({ success: true, stats: { email: 0, errors: 0 }, message: 'No published shifts found to notify' })
+        }
+
+        // 🔄 AUTO-SYNC: Sincronizar turnos de Managers y Asistentes con el módulo Horarios (/horarios)
+        try {
+            console.log(`🔄 [API] Sincronizando turnos de liderazgo con Horarios para tienda ${store_id} (${start_date} a ${end_date})...`);
+            const syncResult = await syncPlannerToSchedules({
+                storeExternalId: store_id,
+                startDate: start_date,
+                endDate: end_date,
+                customClient: supabase
+            });
+            console.log(`✅ [API] Horarios sincronizados con éxito: ${syncResult.syncedShiftsCount} turnos para ${syncResult.storeName}`);
+        } catch (syncErr: any) {
+            console.error('⚠️ [API] Advertencia no bloqueante al sincronizar Horarios:', syncErr.message);
         }
 
         // 3. Identify Employees (Target explicit list or all in view)
