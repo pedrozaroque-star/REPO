@@ -16,6 +16,7 @@
  *
  * @notes
  * - [2026-09-07] Refactorización a tema claro del sistema para alineación completa con el layout corporativo.
+ * - [2026-09-07] Formato estándar con separadores de miles ($X,XXX.XX y X,XXX) con formatCurrency y formatNumber.
  */
 
 'use client';
@@ -24,7 +25,7 @@ import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useLanguage } from '@/lib/i18n';
-import { VIELE_STORE_ACCOUNTS, formatUsDate, formatUsFullDate } from '@/lib/viele-api';
+import { VIELE_STORE_ACCOUNTS, formatUsDate, formatUsFullDate, formatCurrency, formatNumber } from '@/lib/viele-api';
 import { 
   ArrowLeft, 
   History, 
@@ -371,10 +372,10 @@ function OrderHistoryContent() {
                           {order.buyer_name}
                         </td>
                         <td className="py-3 px-4 text-center tabular-nums font-bold text-amber-800">
-                          {order.total_cases}
+                          {formatNumber(order.total_cases)}
                         </td>
                         <td className="py-3 px-4 text-right tabular-nums font-bold text-slate-900">
-                          ${order.total_amount?.toFixed(2) || '0.00'}
+                          {formatCurrency(order.total_amount)}
                         </td>
                         <td className="py-3 px-4 text-center">
                           <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold ${
@@ -481,11 +482,11 @@ function OrderHistoryContent() {
                     </div>
                     <div>
                       <span className="text-slate-500 font-bold block">Total Cajas:</span>
-                      <strong className="text-amber-800 font-mono text-sm">{orderDetail.order.total_cases}</strong>
+                      <strong className="text-amber-800 font-mono text-sm">{formatNumber(orderDetail.order.total_cases)}</strong>
                     </div>
                     <div>
                       <span className="text-slate-500 font-bold block">Total Facturado:</span>
-                      <strong className="text-slate-900 font-mono text-sm">${orderDetail.order.total_amount?.toFixed(2)}</strong>
+                      <strong className="text-slate-900 font-mono text-sm">{formatCurrency(orderDetail.order.total_amount)}</strong>
                     </div>
                   </div>
 
@@ -508,11 +509,11 @@ function OrderHistoryContent() {
                           <tr key={item.id} className="hover:bg-slate-50/70">
                             <td className="py-2 px-3 font-bold text-amber-800">{item.item_code}</td>
                             <td className="py-2 px-3 font-sans text-slate-800 font-medium">{item.description}</td>
-                            <td className="py-2 px-3 text-center text-slate-600">{item.par_quantity}</td>
-                            <td className="py-2 px-3 text-center text-slate-600">{item.leftover_quantity}</td>
-                            <td className="py-2 px-3 text-center font-bold text-emerald-700 text-sm">{item.order_quantity}</td>
-                            <td className="py-2 px-3 text-right text-slate-600">${item.unit_price.toFixed(2)}</td>
-                            <td className="py-2 px-3 text-right font-bold text-slate-900">${item.extended_amount.toFixed(2)}</td>
+                            <td className="py-2 px-3 text-center text-slate-600">{formatNumber(item.par_quantity)}</td>
+                            <td className="py-2 px-3 text-center text-slate-600">{formatNumber(item.leftover_quantity)}</td>
+                            <td className="py-2 px-3 text-center font-bold text-emerald-700 text-sm">{formatNumber(item.order_quantity)}</td>
+                            <td className="py-2 px-3 text-right text-slate-600">{formatCurrency(item.unit_price)}</td>
+                            <td className="py-2 px-3 text-right font-bold text-slate-900">{formatCurrency(item.extended_amount)}</td>
                           </tr>
                         ))}
                       </tbody>

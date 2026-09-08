@@ -28,6 +28,8 @@
  *   5) Paso 2 de confirmación final (POST /checkout/ con validate_confirm=validate_confirm).
  *   6) Limpieza final higiénica del carrito.
  *   Cabeceras User-Agent, Origin, Referer y Accept idénticas a Google Chrome en Windows para no levantar alertas.
+ * - [2026-09-07] Implementación de helpers formatCurrency y formatNumber con estándar estadounidense (en-US)
+ *   y separador de miles obligatorio ($X,XXX.XX y X,XXX) para toda la UI de compras y auditoría Viele.
  */
 
 import { isVieleSoda } from './viele-catalog-data';
@@ -110,6 +112,25 @@ export function formatUsFullDate(dateStr: string | null | undefined, locale = 'e
     });
   }
   return cleanDate;
+}
+
+/**
+ * Formatea un importe numérico a moneda con separador de miles en estándar estadounidense ($X,XXX.XX)
+ */
+export function formatCurrency(amount: number | null | undefined): string {
+  if (amount === null || amount === undefined || isNaN(Number(amount))) return '$0.00';
+  return '$' + Number(amount).toLocaleString('en-US', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  });
+}
+
+/**
+ * Formatea un número o cantidad de cajas con separador de miles estándar de EE.UU. (e.g. 1,215)
+ */
+export function formatNumber(val: number | null | undefined): string {
+  if (val === null || val === undefined || isNaN(Number(val))) return '0';
+  return Number(val).toLocaleString('en-US');
 }
 
 /**

@@ -36,6 +36,7 @@
  * - [2026-09-07] Refactorización total de interfaz visual para respetar la paleta oficial clara de SM TEG.
  * - [2026-09-07] Edición dinámica de niveles PAR directamente en tabla con persistencia atómica en viele_store_pars.
  * - [2026-09-07] Corrección de partición de facturas eliminando startsWith('B') para evitar que platos BG6IN se clasifiquen como sodas.
+ * - [2026-09-07] Estandarización obligatoria de separadores de miles ($X,XXX.XX y X,XXX) con formatCurrency y formatNumber.
  */
 
 'use client';
@@ -44,7 +45,7 @@ import { useState, useEffect, useMemo, useRef, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useLanguage } from '@/lib/i18n';
-import { VIELE_STORE_ACCOUNTS, formatUsDate, formatUsFullDate } from '@/lib/viele-api';
+import { VIELE_STORE_ACCOUNTS, formatUsDate, formatUsFullDate, formatCurrency, formatNumber } from '@/lib/viele-api';
 import { isVieleSoda } from '@/lib/viele-catalog-data';
 import { 
   Printer, 
@@ -825,21 +826,21 @@ function VieleOrderContent() {
                 <span>🥤</span> Factura 1: Sodas (BIB)
               </span>
               <span className="text-xs text-indigo-700 font-semibold">
-                {summary.sodas.itemsCount} SKUs pedidos
+                {formatNumber(summary.sodas.itemsCount)} SKUs pedidos
               </span>
             </div>
             <div className="flex items-baseline justify-between mt-2">
               <div>
                 <span className="text-2xl font-bold text-indigo-950 tabular-nums">
-                  ${summary.sodas.grandTotal.toFixed(2)}
+                  {formatCurrency(summary.sodas.grandTotal)}
                 </span>
                 <span className="block text-[11px] text-slate-500 font-medium">
-                  Subtotal: ${summary.sodas.subtotal.toFixed(2)} + Tax (9.5%): ${summary.sodas.estTax.toFixed(2)}
+                  Subtotal: {formatCurrency(summary.sodas.subtotal)} + Tax (9.5%): {formatCurrency(summary.sodas.estTax)}
                 </span>
               </div>
               <div className="text-right">
                 <span className="text-xl font-bold text-indigo-700 tabular-nums">
-                  {summary.sodas.totalCases}
+                  {formatNumber(summary.sodas.totalCases)}
                 </span>
                 <span className="block text-[10px] uppercase font-semibold text-slate-400">cajas</span>
               </div>
@@ -857,21 +858,21 @@ function VieleOrderContent() {
                 <span>📦</span> Factura 2: Insumos Generales
               </span>
               <span className="text-xs text-amber-700 font-semibold">
-                {summary.general.itemsCount} SKUs pedidos
+                {formatNumber(summary.general.itemsCount)} SKUs pedidos
               </span>
             </div>
             <div className="flex items-baseline justify-between mt-2">
               <div>
                 <span className="text-2xl font-bold text-amber-950 tabular-nums">
-                  ${summary.general.grandTotal.toFixed(2)}
+                  {formatCurrency(summary.general.grandTotal)}
                 </span>
                 <span className="block text-[11px] text-slate-500 font-medium">
-                  Subtotal: ${summary.general.subtotal.toFixed(2)} + Tax (9.5%): ${summary.general.estTax.toFixed(2)}
+                  Subtotal: {formatCurrency(summary.general.subtotal)} + Tax (9.5%): {formatCurrency(summary.general.estTax)}
                 </span>
               </div>
               <div className="text-right">
                 <span className="text-xl font-bold text-amber-700 tabular-nums">
-                  {summary.general.totalCases}
+                  {formatNumber(summary.general.totalCases)}
                 </span>
                 <span className="block text-[10px] uppercase font-semibold text-slate-400">cajas</span>
               </div>
@@ -891,15 +892,15 @@ function VieleOrderContent() {
             <div className="flex items-baseline justify-between mt-2">
               <div>
                 <span className="text-2xl font-bold text-emerald-950 tabular-nums">
-                  ${summary.grandTotal.toFixed(2)}
+                  {formatCurrency(summary.grandTotal)}
                 </span>
                 <span className="block text-[11px] text-slate-500 font-medium">
-                  Subtotal: ${summary.subtotal.toFixed(2)} + Tax: ${summary.estTax.toFixed(2)}
+                  Subtotal: {formatCurrency(summary.subtotal)} + Tax: {formatCurrency(summary.estTax)}
                 </span>
               </div>
               <div className="text-right">
                 <span className="text-xl font-bold text-emerald-700 tabular-nums">
-                  {summary.totalCases}
+                  {formatNumber(summary.totalCases)}
                 </span>
                 <span className="block text-[10px] uppercase font-semibold text-slate-400">cajas totales</span>
               </div>
@@ -1038,7 +1039,7 @@ function VieleOrderContent() {
 
                       {/* Precio Unitario (Sincronizado automáticamente) */}
                       <td className="py-2.5 px-4 text-right tabular-nums text-slate-700 text-xs font-medium">
-                        ${item.unit_price.toFixed(2)}
+                        {formatCurrency(item.unit_price)}
                       </td>
 
                       {/* Nivel PAR editable con flechas ↑↓ y Enter */}
@@ -1144,7 +1145,7 @@ function VieleOrderContent() {
 
                       {/* Importe Extendido */}
                       <td className="py-2.5 px-4 text-right tabular-nums font-semibold text-xs text-slate-900">
-                        ${extendedAmount.toFixed(2)}
+                        {formatCurrency(extendedAmount)}
                       </td>
                     </tr>
                   );
@@ -1165,7 +1166,7 @@ function VieleOrderContent() {
                 {t('viele.summary.ordered_items')}
               </span>
               <span className="text-lg font-bold text-slate-900 tabular-nums">
-                {summary.orderedItemsCount} <span className="text-xs font-normal text-slate-400">/ {catalog.length}</span>
+                {formatNumber(summary.orderedItemsCount)} <span className="text-xs font-normal text-slate-400">/ {formatNumber(catalog.length)}</span>
               </span>
             </div>
 
@@ -1174,27 +1175,27 @@ function VieleOrderContent() {
                 {t('viele.summary.total_cases')}
               </span>
               <span className="text-xl font-bold text-slate-800 tabular-nums">
-                {summary.totalCases} <span className="text-xs font-normal text-slate-500">cajas</span>
+                {formatNumber(summary.totalCases)} <span className="text-xs font-normal text-slate-500">cajas</span>
               </span>
             </div>
 
             {/* Factura 1: Sodas */}
             <div className="border-l border-slate-200 pl-5 hidden sm:block">
               <span className="text-[11px] text-indigo-700 uppercase font-bold flex items-center gap-1">
-                <span>🥤</span> Sodas ({summary.sodas.totalCases} cjs)
+                <span>🥤</span> Sodas ({formatNumber(summary.sodas.totalCases)} cjs)
               </span>
               <span className="text-base font-bold text-indigo-950 tabular-nums">
-                ${summary.sodas.grandTotal.toFixed(2)}
+                {formatCurrency(summary.sodas.grandTotal)}
               </span>
             </div>
 
             {/* Factura 2: Insumos */}
             <div className="border-l border-slate-200 pl-5 hidden sm:block">
               <span className="text-[11px] text-amber-700 uppercase font-bold flex items-center gap-1">
-                <span>📦</span> Insumos ({summary.general.totalCases} cjs)
+                <span>📦</span> Insumos ({formatNumber(summary.general.totalCases)} cjs)
               </span>
               <span className="text-base font-bold text-amber-950 tabular-nums">
-                ${summary.general.grandTotal.toFixed(2)}
+                {formatCurrency(summary.general.grandTotal)}
               </span>
             </div>
 
@@ -1209,7 +1210,7 @@ function VieleOrderContent() {
                 </span>
               </div>
               <span className="text-2xl font-bold text-emerald-700 tabular-nums">
-                ${summary.grandTotal.toFixed(2)}
+                {formatCurrency(summary.grandTotal)}
               </span>
             </div>
           </div>
@@ -1309,9 +1310,9 @@ function VieleOrderContent() {
                       <span>🥤</span> Factura 1 (Sodas BIB):
                     </span>
                     <div className="text-right tabular-nums">
-                      <span className="font-semibold text-indigo-950">{summary.sodas.totalCases} cajas</span>
+                      <span className="font-semibold text-indigo-950">{formatNumber(summary.sodas.totalCases)} cajas</span>
                       <span className="text-slate-400 mx-1">•</span>
-                      <strong className="text-indigo-700 font-bold">${summary.sodas.grandTotal.toFixed(2)}</strong>
+                      <strong className="text-indigo-700 font-bold">{formatCurrency(summary.sodas.grandTotal)}</strong>
                     </div>
                   </div>
                 )}
@@ -1321,9 +1322,9 @@ function VieleOrderContent() {
                       <span>📦</span> Factura 2 (Insumos Generales):
                     </span>
                     <div className="text-right tabular-nums">
-                      <span className="font-semibold text-amber-950">{summary.general.totalCases} cajas</span>
+                      <span className="font-semibold text-amber-950">{formatNumber(summary.general.totalCases)} cajas</span>
                       <span className="text-slate-400 mx-1">•</span>
-                      <strong className="text-amber-700 font-bold">${summary.general.grandTotal.toFixed(2)}</strong>
+                      <strong className="text-amber-700 font-bold">{formatCurrency(summary.general.grandTotal)}</strong>
                     </div>
                   </div>
                 )}
@@ -1336,7 +1337,7 @@ function VieleOrderContent() {
 
               <div className="flex justify-between border-t border-slate-200 pt-2 text-base">
                 <span className="text-slate-700 font-bold">{t('viele.modal.total_label')}</span>
-                <strong className="text-emerald-700 font-bold tabular-nums text-lg">${summary.grandTotal.toFixed(2)}</strong>
+                <strong className="text-emerald-700 font-bold tabular-nums text-lg">{formatCurrency(summary.grandTotal)}</strong>
               </div>
             </div>
 
@@ -1491,7 +1492,7 @@ function VieleOrderContent() {
                     </span>
                   </div>
                   <span className="text-sm font-bold tabular-nums text-indigo-700">
-                    ${submitSuccess.sodasTotal?.toFixed(2) || '0.00'}
+                    {formatCurrency(submitSuccess.sodasTotal)}
                   </span>
                 </div>
 
@@ -1506,14 +1507,14 @@ function VieleOrderContent() {
                     </span>
                   </div>
                   <span className="text-sm font-bold tabular-nums text-amber-700">
-                    ${submitSuccess.generalTotal?.toFixed(2) || '0.00'}
+                    {formatCurrency(submitSuccess.generalTotal)}
                   </span>
                 </div>
 
                 <div className="flex items-center justify-between border-t border-slate-200 pt-2 text-xs">
                   <span className="text-slate-500 font-bold">Total Facturado Combinado:</span>
                   <span className="text-base font-bold tabular-nums text-emerald-700">
-                    ${submitSuccess.totalAmount?.toFixed(2) || '0.00'}
+                    {formatCurrency(submitSuccess.totalAmount)}
                   </span>
                 </div>
               </div>
