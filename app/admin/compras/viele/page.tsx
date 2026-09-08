@@ -28,11 +28,14 @@
  * - PUT /api/viele/custom-order → Persiste el nuevo orden tras soltar (drop) una fila.
  * - DELETE /api/viele/custom-order?storeId=X → Restablece al orden oficial del Order Guide.
  * - GET /api/viele/pars?storeId=X → PARs base de inventario para la sucursal seleccionada.
+ * - PUT /api/viele/pars → Guarda actualizaciones de niveles PAR para la sucursal en viele_store_pars.
  * - POST /api/viele/orders → Envío de orden (borrador local o live checkout contra Viele API).
  *
  * @notes
  * - [2026-09-07] Implementación de Drag & Drop por sucursal y formato de fechas USA (MM/DD/YYYY).
  * - [2026-09-07] Refactorización total de interfaz visual para respetar la paleta oficial clara de SM TEG.
+ * - [2026-09-07] Edición dinámica de niveles PAR directamente en tabla con persistencia atómica en viele_store_pars.
+ * - [2026-09-07] Corrección de partición de facturas eliminando startsWith('B') para evitar que platos BG6IN se clasifiquen como sodas.
  */
 
 'use client';
