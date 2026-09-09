@@ -395,12 +395,7 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                         : 'Análisis integral de Food Cost por sucursal, rendimiento de carnes y margen por platillo'
                 },
                 {
-                    name: (
-                        <div className="flex items-center gap-2">
-                            <span>{t('items.supplier_prices') || 'Radar de Precios'}</span>
-                            <span className="text-[10px] bg-red-100 dark:bg-red-950/60 text-red-600 dark:text-red-400 border border-red-300 dark:border-red-700 px-1.5 py-0.5 rounded font-black tracking-widest">NUEVO</span>
-                        </div>
-                    ),
+                    name: t('items.supplier_prices') || 'Radar de Precios',
                     plainName: 'Radar de Precios',
                     path: '/admin/precios-proveedores',
                     icon: <Calculator size={20} />,
@@ -635,7 +630,7 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
     const renderNavItem = (item: MenuItem, groupId: string, isMobile: boolean = false) => {
         const isActive = pathname === item.path || (item.path !== '/dashboard' && pathname.startsWith(item.path + '/'))
         const colors = GROUP_COLORS[groupId] || GROUP_COLORS.operaciones
-        const hasNewBadge = item.path === '/inventory/orders' || item.path === '/inventory/uniforms' || item.path === '/caja-fuerte'
+        const hasNewBadge = item.path === '/basecamp'
 
         return (
             <Link
