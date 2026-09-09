@@ -28,6 +28,7 @@
  */
 
 import { NextResponse } from 'next/server'
+import { verifyAuthToken } from '@/lib/auth-server'
 import { createClient } from '@supabase/supabase-js'
 import {
   fetchProjects,
@@ -368,13 +369,34 @@ export async function GET(request: Request) {
   const mockRequest = new Request(request.url, {
     method: 'POST',
     body: JSON.stringify({ full: false }),
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(authHeader ? { 'Authorization': authHeader } : {}),
+    },
   })
 
   return POST(mockRequest)
 }
 
 export async function POST(request: Request) {
+  // Dual Gate: CRON_SECRET or authenticated user session
+  const authHeader = request.headers.get('authorization')
+  const isCron = process.env.CRON_SECRET && authHeader === `Bearer ${process.env.CRON_SECRET}`
+  if (!isCron) {
+      const cookieHeader = request.headers.get('cookie') || ''
+      const cookieMatch = cookieHeader.match(/teg_token=([^;]+)/)
+      const cookieToken = cookieMatch ? cookieMatch[1] : null
+      const bearerToken = authHeader ? authHeader.replace(/^Bearer\s+/i, '').trim() : null
+      const token = cookieToken || bearerToken
+      if (!token) {
+          return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      }
+      const user = verifyAuthToken(token)
+      if (!user) {
+          return NextResponse.json({ error: 'Invalid Token' }, { status: 401 })
+      }
+  }
+
   const supabase = getSyncClient()
   const counters = createCounters()
   const startTime = Date.now()

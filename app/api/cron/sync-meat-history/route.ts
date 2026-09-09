@@ -181,11 +181,6 @@ export async function GET(request: Request) {
             for (const targetDateStr of targetDates) {
                 const businessDate = targetDateStr.replace(/-/g, '')
                 
-                await supabase.from('meat_consumption_history')
-                    .delete()
-                    .eq('business_date', targetDateStr)
-                    .eq('store_id', store.id);
-
                 const buckets = new Map<string, number>()
                 
                 let page = 1
@@ -304,6 +299,10 @@ export async function GET(request: Request) {
             }
             
             if (inserts.length > 0) {
+                await supabase.from('meat_consumption_history')
+                    .delete()
+                    .eq('business_date', targetDateStr)
+                    .eq('store_id', store.id);
                 const { error } = await supabase.from('meat_consumption_history').insert(inserts)
                 if (error) console.error("Error inserting:", error.message)
                 else results.push({ store: store.name, rows: inserts.length })

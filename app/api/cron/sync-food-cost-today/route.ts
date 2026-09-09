@@ -40,15 +40,7 @@ export async function GET(request: Request) {
 
         console.log(`⏰ [CRON FC TODAY] Sincronizando Food Cost "Hoy": ${todayStr}`)
 
-        // 2. Borrar cache previa para forzar recálculo
-        const { error: deleteError } = await supabase
-            .from('food_cost_daily_cache')
-            .delete()
-            .eq('business_date', todayStr)
-
-        if (deleteError) {
-            console.error(`⚠️ [CRON FC TODAY] Error borrando cache para ${todayStr}:`, deleteError.message)
-        }
+        // 2. Llamar a la API de food-cost (usa upsert atómico internamente — no necesita DELETE previo)
 
         // 3. Llamar a la API de food-cost que ya hace el cálculo y write-through
         const baseUrl = process.env.VERCEL_URL 

@@ -1239,7 +1239,7 @@ export async function syncAllStoresSimplifyHrRates(): Promise<{
     console.warn('⚠️ [SimplifyHR] Fallaron todas las tiendas en vivo. Activando fallback offline de Supabase...')
     await loadFallbackRatesFromSupabase()
   } else {
-    persistConsolidatedRatesInSupabase(allRates).catch(err => {
+    await persistConsolidatedRatesInSupabase(allRates).catch(err => {
       console.warn('[SimplifyHR] Error en persistencia consolidada Supabase:', err.message)
     })
   }

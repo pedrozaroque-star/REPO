@@ -34,13 +34,17 @@ import type { SalesPacketData, SiteMappingConfig } from '@/lib/accounting-journa
 
 export const maxDuration = 300
 
-export async function GET() {
+export async function GET(request: Request) {
   const startTime = Date.now()
   console.log('═══════════════════════════════════════════════════════════════════════')
   console.log('⏰ [sync-accounting] INICIANDO CENTINELA AUTOMÁTICO DE CONCILIACIÓN (7 DÍAS)')
   console.log('═══════════════════════════════════════════════════════════════════════')
 
   try {
+    const authHeader = request.headers.get('authorization')
+    if (process.env.CRON_SECRET && authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
     // 1. Calculate business dates in Los Angeles timezone using exact Intl parts
     const laFormatter = new Intl.DateTimeFormat('en-US', {
       timeZone: 'America/Los_Angeles',

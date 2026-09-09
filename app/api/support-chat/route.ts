@@ -425,6 +425,9 @@ SM TEG is a Next.js 14 web application with:
 - **Auth**: Custom JWT-based authentication with role-based access control
 The platform uses a cache-first strategy: data is fetched from Toast POS and cached in Supabase tables (sales_daily_cache, food_cost_daily_cache, punches) for instant retrieval.
 
+## AUTOMATED SYNCHRONIZATION (CRON JOBS)
+The system runs 25 automated jobs (Vercel Cron) that synchronize data from Toast POS, QuickBooks, RONOS, Google Reviews, Basecamp, and SimplifyHR into Supabase. All cron endpoints are protected with CRON_SECRET authentication. Endpoints that also have manual trigger buttons in the dashboard (Sync QuickBooks, Sync Discounts, Sync Basecamp) use "Dual Gate" authentication — they accept either CRON_SECRET from Vercel or a valid user session (teg_token JWT). Key schedules: Sales sync runs daily at 7:01 AM LA, Labor at 8:00 AM & 12:50 PM, Accounting at 7:15 AM, PMIX at 11:00 AM, Food Cost at 12:00 PM, Reviews every 4 hours, Food Cost Today and Sales Today every 5 minutes, Meat History every 10 minutes, Smart Rebalance every 20 minutes, Drive-Thru every 5 minutes, Basecamp hourly, Supplier Prices weekdays at 6:00 AM, and System Health daily at 8:00 AM. The business day runs 6:00 AM to 5:59 AM next day (America/Los_Angeles timezone). All timezone calculations use dynamic offset detection to handle both PDT and PST correctly.
+
 ## PASSWORD & PREFERENCES
 - To change your password: Go to your **Profile** (click your avatar in the top-right corner) → **Settings** → **Change Password**. Enter your current password, then your new password twice.
 - Preferences: In Settings, you can change your **language** (English/Spanish), **theme** (Light/Dark/System), and **notification preferences**.

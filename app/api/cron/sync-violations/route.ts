@@ -172,6 +172,10 @@ export async function POST(req: Request) {
 }
 
 async function handleSyncViolations(req: Request) {
+    const authHeader = req.headers.get('authorization')
+    if (process.env.CRON_SECRET && authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
     const startTime = Date.now()
     const url = new URL(req.url)
 

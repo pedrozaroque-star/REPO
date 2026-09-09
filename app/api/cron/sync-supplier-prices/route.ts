@@ -31,7 +31,7 @@ import { sendSupplierPriceAlertEmail, PriceIncreaseItem } from '@/lib/supplier-p
 import { syncVielePurchasesCatalog } from '@/lib/viele-price-sync'
 
 export const dynamic = 'force-dynamic'
-export const maxDuration = 60
+export const maxDuration = 300
 
 async function handleSync(request: NextRequest) {
   // Validar CRON_SECRET solo si está configurado en el entorno

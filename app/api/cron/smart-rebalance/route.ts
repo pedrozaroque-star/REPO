@@ -15,10 +15,21 @@ import { getAuthToken, getToastRestaurants } from '@/lib/toast-api'
 import { scheduleBreaksWithDemand, LearnedPreference } from '@/lib/breaks-engine'
 import { generateSmartForecast } from '@/lib/intelligence'
 
+function getLAOffset(): string {
+    const parts = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'America/Los_Angeles',
+        timeZoneName: 'longOffset'
+    }).formatToParts(new Date())
+    const tz = parts.find(p => p.type === 'timeZoneName')?.value
+    return tz ? tz.replace('GMT', '').replace(':', '') : '-0700'
+}
+
 // Initialize Supabase
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co'
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder'
 const supabase = createClient(supabaseUrl, supabaseKey)
+
+export const maxDuration = 300
 
 export async function GET(req: Request) {
     // 🔒 Security check (Vercel Cron header or token)
@@ -57,8 +68,9 @@ export async function GET(req: Request) {
 
             // 2. Get Toast Real Punches (cubriendo el día de negocio completo de Los Ángeles: 6 AM a 6 AM)
             const tmrw = new Date(new Date(today + 'T12:00:00Z').getTime() + 86400000).toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
-            const startIso = `${today}T06:00:00.000-0700`
-            const endIso = `${tmrw}T06:00:00.000-0700`
+            const laOffset = getLAOffset()
+            const startIso = `${today}T06:00:00.000${laOffset}`
+            const endIso = `${tmrw}T06:00:00.000${laOffset}`
             const punchRes = await fetch(`https://ws-api.toasttab.com/labor/v1/timeEntries?startDate=${startIso}&endDate=${endIso}`, {
                 headers: { 'Authorization': `Bearer ${token}`, 'Toast-Restaurant-External-ID': store.id }
             })

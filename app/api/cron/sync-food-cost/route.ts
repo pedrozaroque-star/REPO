@@ -140,15 +140,7 @@ export async function GET(request: Request) {
                     continue
                 }
 
-                // 4. Borrar cache anterior para este día (igual que sync-sales)
-                const { error: deleteError } = await supabase
-                    .from('food_cost_daily_cache')
-                    .delete()
-                    .eq('business_date', dateStr)
-
-                if (deleteError) {
-                    console.error(`⚠️ [CRON FOOD-COST] Error borrando cache para ${dateStr}:`, deleteError.message)
-                }
+                // 4. Llamar a la API de food-cost que ya hace upsert atómico internamente
 
                 // 5. Llamar a la API de food-cost que ya tiene todo el cálculo + write-through
                 // Construimos la URL interna (mismo servidor)

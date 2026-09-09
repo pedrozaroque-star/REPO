@@ -125,6 +125,10 @@ interface Store {
 }
 
 export async function GET(request: Request) {
+    const authHeader = request.headers.get('authorization')
+    if (process.env.CRON_SECRET && authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
     console.log('[CRON] Starting Strict Google Reviews Sync...')
 
     if (!CLIENT_ID || !CLIENT_SECRET || !REFRESH_TOKEN) {

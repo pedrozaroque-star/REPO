@@ -12,6 +12,7 @@
 
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { verifyAuthToken } from '@/lib/auth-server'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 300
@@ -115,6 +116,23 @@ export async function GET(request: Request) {
 // ═══════════════════════════════════════════════════════════════════
 export async function POST(request: Request) {
     try {
+        // Dual Gate: CRON_SECRET or authenticated user session
+        const authHeader = request.headers.get('authorization')
+        const isCron = process.env.CRON_SECRET && authHeader === `Bearer ${process.env.CRON_SECRET}`
+        if (!isCron) {
+            const cookieHeader = request.headers.get('cookie') || ''
+            const cookieMatch = cookieHeader.match(/teg_token=([^;]+)/)
+            const cookieToken = cookieMatch ? cookieMatch[1] : null
+            const bearerToken = authHeader ? authHeader.replace(/^Bearer\s+/i, '').trim() : null
+            const token = cookieToken || bearerToken
+            if (!token) {
+                return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+            }
+            const user = verifyAuthToken(token)
+            if (!user) {
+                return NextResponse.json({ error: 'Invalid Token' }, { status: 401 })
+            }
+        }
         const body = await request.json();
         const dateStr = body.date;
         if (!dateStr) {

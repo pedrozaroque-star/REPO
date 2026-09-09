@@ -19,6 +19,10 @@ export const dynamic = 'force-dynamic' // No caching
 export const maxDuration = 300 // 5 minutes max (Vercel Pro)
 
 export async function GET(request: Request) {
+    const authHeader = request.headers.get('authorization')
+    if (process.env.CRON_SECRET && authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
     console.log('[CRON] Starting Labor Sync...')
     const supabase = await getSupabaseClient()
 
