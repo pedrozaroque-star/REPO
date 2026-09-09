@@ -67,78 +67,55 @@ Antes de modificar, analizar o trabajar con cualquier módulo del sistema, **el 
 ## 🤖 REGLA OBLIGATORIA: Sincronización de Conocimiento del Asistente (TEG Assistant Sync)
 Cada vez que se cree, modifique, elimine o actualice una característica, lógica de negocio, endpoint de API, o tabla de base de datos en el sistema, **el desarrollador/agente DEBE de inmediato actualizar el prompt del asistente** en `app/api/support-chat/route.ts` y sus herramientas de chat en `lib/chat-tools.ts`. Esto garantiza que el TEG Assistant AI aprenda de cada actualización del sistema y mantenga un dominio preciso del 100% del ecosistema en tiempo real.
 
-### 📌 REGLA DE COMMIT Y PUSH: Sincronización Obligatoria de Documentación y Módulo TSX
-Cada vez que se realice un commit a GitHub y se haga push, **el desarrollador/agente DEBE actualizar de manera obligatoria**:
-1. El repositorio de datos del módulo nativo TSX (`scripts/[mes]_full_data.json` y `lib/reports-data.ts` vía `node scripts/export-reports-data-ts.js`), registrando el desglose de horas y descripción bilingüe de actividades para el dashboard nativo `/admin/reporte-actividades`.
-2. El prompt y herramientas de chat de soporte del Asistente IA para reflejar los cambios realizados en el sistema.
+### 📌 REGLA DE COMMIT Y PUSH: Sincronización de Asistente IA
+Cada vez que se realice un commit a GitHub y se haga push de una nueva funcionalidad, endpoint o cambio de arquitectura:
+1. El desarrollador/agente debe actualizar el prompt y herramientas de chat de soporte del Asistente IA (`app/api/support-chat/route.ts` y `lib/chat-tools.ts`) para reflejar los cambios realizados en el sistema si aplica.
+2. **PROHIBIDO**: NO actualizar archivos de reportes ni horas en commits rutinarios de desarrollo. Dicha labor está estrictamente asignada al Chat de Pendientes.
 
 ### 📌 REGLA OBLIGATORIA: Nombre Oficial de la Marca
 El nombre oficial de la empresa y marca es estrictamente **Tacos Gavilan** (NUNCA "Tacos El Gavilan"). Todos los correos electrónicos, comunicaciones corporativas, títulos, documentación, prompts de IA y respuestas deben usar exclusivamente **Tacos Gavilan**.
 
 ---
 
-## 📊 REGLA OBLIGATORIA: Registro Exhaustivo de TODAS las Actividades en el Módulo Nativo TSX (/admin/reporte-actividades)
-**Ninguna actividad realizada en cualquier conversación puede quedar fuera del registro mensual en el módulo nativo TSX** (`app/admin/reporte-actividades/page.tsx` y `lib/reports-data.ts`). El módulo nativo es la fuente oficial de horas trabajadas y DEBE reflejar el 100% del esfuerzo real invertido.
-
-> [!IMPORTANT]
-> **PROHIBICIÓN ESTRICTA DE GENERACIÓN DE HTML Y PDFS:**
-> Queda estrictamente prohibido generar archivos HTML (`pendientes_*.html`) o compilar PDFs (`Reporte_*.pdf`, `generate-all-desktop-pdfs.js`). Todo el registro y visualización ejecutiva se gestiona 100% en el componente nativo Next.js/React TSX `/admin/reporte-actividades`.
-
-### Qué se DEBE registrar (sin excepción):
-1. **Código y commits** — Desarrollo de módulos, bug fixes, features, refactors, migraciones SQL
-2. **Tech Packs y fichas técnicas** — Documentos de especificaciones para fabricantes o proveedores (uniformes, desechables, carnes, lácteos, etc.)
-3. **RFQ y documentos de licitación** — Bidding volumes, solicitudes de cotización, portfolios de negociación
-4. **Correos profesionales** — Redacción y envío de correos a proveedores, fabricantes, socios comerciales
-5. **Análisis de datos** — Análisis de CSV, Excel, auditorías de inventario, análisis laboral, reportes financieros
-6. **Generación de imágenes y assets** — Imágenes de productos, referencias para fabricantes, mockups de UI
-7. **Investigación y planificación** — Diseño de arquitectura, evaluación de proveedores, research técnico
-8. **Pruebas y validación** — Testing en sitio, verificación con gerentes, QA de módulos
-9. **Presentaciones y documentación operativa** — Guías, manuales, dashboards ejecutivos
-10. **Soporte y debugging** — Resolución de incidentes reportados por usuarios, diagnóstico de errores en producción
-
-### Protocolo de registro:
-- **Al finalizar CADA sesión de trabajo**, el agente DEBE verificar que la actividad ya tenga una fila correspondiente en la tabla de horas de `scripts/[mes]_full_data.json` y actualizar `lib/reports-data.ts` ejecutando `node scripts/export-reports-data-ts.js`.
-- **Al hacer commit/push**, el agente DEBE escanear TODAS las conversaciones activas del mes para detectar actividades no registradas.
-- **Cada fila** debe incluir: fecha, rango horario, horas, módulos involucrados (badges), y descripción bilingüe (ES/EN) detallada.
-- **Las actividades que NO generan commits** (tech packs, correos, análisis) son IGUAL de importantes que el código y DEBEN tener su propia fila con horas asignadas.
-- **El resumen de esfuerzo por módulo** en el dashboard debe reflejar TODAS las categorías de trabajo, incluyendo "Tech Packs, RFQ y Negociación con Proveedores" cuando aplique.
-
-### Verificación cruzada:
-Al actualizar los datos, el agente DEBE cruzar estas fuentes para detectar trabajo faltante:
-- `git log` — Commits del mes
-- Directorios de conversaciones (`~/.gemini/antigravity/brain/*/`) — Archivos generados, imágenes, spec sheets
-- Transcripts de conversaciones — Solicitudes del usuario que resultaron en entregables
+## 🛑 REGLA OBLIGATORIA: AISLAMIENTO EXCLUSIVO DE REPORTES Y HORAS AL CHAT DE PENDIENTES
+> [!CAUTION]
+> **PROHIBICIÓN ESTRICTA PARA CHATS DE DESARROLLO / OTRAS CONVERSACIONES:**
+> Queda **TERMINANTEMENTE PROHIBIDO** que cualquier conversación, subagente o chat enfocado en tareas de desarrollo específicas (ej. Viele & Sons, RONOS, Radar de Precios, Descansos, Toast, Inventario, Contabilidad, etc.) realice actualizaciones de horas o reportes.
+> 
+> En dichos chats de desarrollo está **ESTRICTAMENTE PROHIBIDO**:
+> 1. Modificar, editar o crear `scripts/*_full_data.json` (ej. `scripts/september_full_data.json`).
+> 2. Modificar o editar `lib/reports-data.ts`.
+> 3. Ejecutar scripts de reportes como `node scripts/export-reports-data-ts.js`.
+> 4. Generar archivos HTML (`pendientes_*.html`) o compilar PDFs de horas.
+> 5. Escanear transcripciones de otros chats para conciliar horas.
+> 
+> **Motivo**: Carlos trabaja en múltiples tareas simultáneas y el auto-registro en cada chat consume tiempo innecesario y ralentiza el flujo de trabajo. En los chats de desarrollo, el agente DEBE concentrarse al 100% en la funcionalidad técnica solicitada y terminarla sin tocar los módulos de reportes.
 
 ---
 
-## ⏱️ REGLA OBLIGATORIA: Protocolo de Auto-Registro en Tiempo Real, Conciliación Multi-Chat y Fusión No Destructiva (Multi-Chat Forensic Reconciliation & Non-Destructive Merge Protocol)
+## 📊 REGLA OBLIGATORIA: Gestión Centralizada de Horas (EXCLUSIVA del Chat de Pendientes)
+**La actualización, conciliación y registro de horas y actividades mensuales se ejecuta ÚNICA Y EXCLUSIVAMENTE en el Chat Dedicado de Pendientes y Reportes** (`Conversation ID: 72f704bf-fc24-425d-8dbd-e2a211289a28` o conversación oficial de control de pendientes):
 
-**Queda estrictamente prohibido que cualquier sesión, bloque de desarrollo, auditoría, análisis o conversación termine sin registrar de inmediato las horas trabajadas en el módulo nativo TSX (`lib/reports-data.ts` / `/admin/reporte-actividades`) o que se sobreescriban/omitan sesiones concurrentes de otros chats.**
+1. **Fuente Oficial Única**:
+   - El módulo nativo TSX (`app/admin/reporte-actividades/page.tsx` y `lib/reports-data.ts`) es la fuente oficial ejecutiva de horas trabajadas y actividades.
+   - Queda estrictamente prohibido generar archivos HTML (`pendientes_*.html`) o compilar PDFs (`Reporte_*.pdf`). Todo se gestiona en el componente nativo TSX.
 
-1. **Escaneo y Conciliación Multi-Chat Obligatoria (Multi-Chat Cross-Scan)**:
-   - Dado que Carlos trabaja simultáneamente en múltiples conversaciones (ej. Ventas Toast, Radar de Precios, Descansos, MilesIQ, Cohesion, RONOS, etc.), el agente TIENE LA OBLIGACIÓN de escanear los directorios de transcripciones (`C:\Users\pedro\.gemini\antigravity\brain\*\.system_generated\logs\transcript.jsonl`) y el `git log` antes de actualizar la tabla de horas.
-   - Debe cruzar 4 fuentes de verdad:
-     a) `transcript.jsonl` de todos los chats activos del día (para capturar peticiones, análisis de CSVs, diseño de tech packs y correos).
-     b) `git log` del día (para capturar todos los commits, archivos modificados y branches).
-     c) Base de datos de Supabase (`schedules` table para los turnos reales de Carlos como General Manager en Lynwood #14, `user_id: 25`).
-     d) Archivos de entregables generados fuera de git.
+2. **Protocolo de Conciliación Centralizada (Solo en el Chat de Pendientes)**:
+   - Cuando el usuario solicite en el Chat de Pendientes actualizar reportes u horas, el agente de este chat es el ÚNICO autorizado para realizar el escaneo multi-chat cruzando:
+     a) Transcripciones de todos los chats activos (`C:\Users\pedro\.gemini\antigravity\brain\*\.system_generated\logs\transcript.jsonl`) para capturar solicitudes, análisis, tech packs y correos.
+     b) `git log` del mes/día para detectar commits de todos los branches y conversaciones.
+     c) Base de datos de Supabase (`schedules` table para los turnos de Carlos como General Manager en Lynwood #14, `user_id: 25`).
+     d) Archivos de entregables generados fuera de git (Tech Packs, RFQs, correos, análisis de datos).
 
-2. **Fusión Acumulativa No Destructiva (Non-Destructive Cumulative Merge)**:
-   - **Regla Estricta**: NUNCA reemplazar la fila de un día asumiendo únicamente el trabajo de la conversación actual.
-   - Si el día actual ya cuenta con registros o sesiones previas:
+3. **Fusión Acumulativa No Destructiva (Non-Destructive Cumulative Merge)**:
+   - Al actualizar en el Chat de Pendientes, NUNCA sobreescribir sesiones existentes del mismo día:
      * **Horarios (Time Slots)**: Se concatenan todas las sesiones separadas por ` & ` (ej. `6:09 AM - 8:30 AM & 11:30 AM - 1:45 PM & 4:30 PM - 5:30 PM & 7:15 PM - 9:30 PM`).
      * **Horas Totales**: Se suman aritméticamente las horas de cada bloque (`hours = sum(session_hours)`).
-     * **Viñetas de Descripción**: Se anexan con `<br>• ` todas las actividades realizadas en el día sin sobreescribir ni resumir las sesiones anteriores.
-     * **Badges Temáticos**: Se unen en un conjunto único sin duplicados (ej. `['Radar de Precios', 'Viele & Sons v3', 'Descansos IA', 'Cohesion']`).
+     * **Viñetas de Descripción**: Se anexan con `<br>• ` todas las actividades sin perder registros anteriores.
+     * **Badges**: Se unen sin duplicados.
 
-3. **Inclusión Obligatoria de Actividades No-Code**:
-   - Todo trabajo técnico u operativo (redacción de Tech Packs, análisis de datos en Excel/CSV, correos de licitación a proveedores, presentaciones ejecutivas y diseño de arquitectura) DEBE tener su fila con horas asignadas, incluso si no generó un commit directo en el repositorio.
-
-4. **Actualización Directa al Módulo Nativo TSX (Cero PDFs / Cero HTMLs)**:
-   - Tras registrar o actualizar el archivo de datos del mes (`scripts/[mes]_full_data.json`), el agente DEBE ejecutar automáticamente `node scripts/export-reports-data-ts.js` para propagar los cambios inmediatamente a `lib/reports-data.ts`, reflejándose en `/admin/reporte-actividades`. NO compilar ni generar PDFs ni archivos HTML.
-
-5. **Cero Dependencia de Petición del Usuario**:
-   - El usuario NO debe tener que recordar o pedir que se registren las horas. El agente lo ejecuta proactivamente en segundo plano en cada intervención.
+4. **Propagación a Producción**:
+   - Tras actualizar `scripts/[mes]_full_data.json`, el agente del Chat de Pendientes ejecuta `node scripts/export-reports-data-ts.js` para compilar `lib/reports-data.ts`, verifica TypeScript (`npx tsc --noEmit`) y realiza commit/push.
 
 ---
 
