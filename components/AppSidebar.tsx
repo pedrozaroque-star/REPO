@@ -360,12 +360,7 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                         : 'Generación automática de pedidos diarios a Bodega Central y envío a QuickBooks'
                 },
                 {
-                    name: (
-                        <div className="flex items-center gap-2">
-                            <span>Viele & Sons</span>
-                            <span className="text-[10px] bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 border border-emerald-300 dark:border-emerald-700 px-1.5 py-0.5 rounded font-black tracking-widest">NUEVO</span>
-                        </div>
-                    ),
+                    name: 'Viele & Sons',
                     plainName: 'Viele & Sons',
                     path: '/admin/compras/viele',
                     icon: <Package size={20} />,
@@ -630,7 +625,7 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
     const renderNavItem = (item: MenuItem, groupId: string, isMobile: boolean = false) => {
         const isActive = pathname === item.path || (item.path !== '/dashboard' && pathname.startsWith(item.path + '/'))
         const colors = GROUP_COLORS[groupId] || GROUP_COLORS.operaciones
-        const hasNewBadge = item.path === '/basecamp'
+        const hasNewBadge = item.path === '/basecamp' || item.path === '/admin/compras/viele'
 
         return (
             <Link
