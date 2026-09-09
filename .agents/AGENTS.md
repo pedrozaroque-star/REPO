@@ -67,10 +67,14 @@ Antes de modificar, analizar o trabajar con cualquier módulo del sistema, **el 
 ## 🤖 REGLA OBLIGATORIA: Sincronización de Conocimiento del Asistente (TEG Assistant Sync)
 Cada vez que se cree, modifique, elimine o actualice una característica, lógica de negocio, endpoint de API, o tabla de base de datos en el sistema, **el desarrollador/agente DEBE de inmediato actualizar el prompt del asistente** en `app/api/support-chat/route.ts` y sus herramientas de chat en `lib/chat-tools.ts`. Esto garantiza que el TEG Assistant AI aprenda de cada actualización del sistema y mantenga un dominio preciso del 100% del ecosistema en tiempo real.
 
-### 📌 REGLA DE COMMIT Y PUSH: Sincronización de Asistente IA
-Cada vez que se realice un commit a GitHub y se haga push de una nueva funcionalidad, endpoint o cambio de arquitectura:
-1. El desarrollador/agente debe actualizar el prompt y herramientas de chat de soporte del Asistente IA (`app/api/support-chat/route.ts` y `lib/chat-tools.ts`) para reflejar los cambios realizados en el sistema si aplica.
-2. **PROHIBIDO**: NO actualizar archivos de reportes ni horas en commits rutinarios de desarrollo. Dicha labor está estrictamente asignada al Chat de Pendientes.
+### 📌 REGLA ESTRICTA DE COMMITS: Solo por Solicitud Explícita del Usuario
+- **PROHIBICIÓN DE AUTO-COMMITS**: Queda **TERMINANTEMENTE PROHIBIDO** que cualquier agente o subagente ejecute `git commit` o `git push` de forma automática o por iniciativa propia.
+- **SOLO BAJO INSTRUCCIÓN DIRECTA**: El agente **ÚNICAMENTE** debe hacer commit y push cuando Carlos (el usuario) lo solicite o autorice expresamente en la conversación (ej. *"commit"*, *"haz commit"*, *"sube esto"*).
+- Al finalizar un desarrollo, corrección o análisis, el agente debe reportar el resultado, validar que TypeScript no tenga errores (`npx tsc --noEmit`) y **esperar la indicación del usuario**.
+- **Cuando el usuario ordene el commit**:
+  1. Correr `npx tsc --noEmit` para garantizar cero errores antes de hacer el commit.
+  2. Si se agregaron/modificaron features o endpoints, actualizar el prompt y herramientas del Asistente IA (`app/api/support-chat/route.ts` y `lib/chat-tools.ts`).
+  3. **PROHIBIDO**: En chats de desarrollo, NO tocar reportes ni horas (`scripts/*_full_data.json` o `lib/reports-data.ts`). Dicha labor está estrictamente asignada al Chat de Pendientes.
 
 ### 📌 REGLA OBLIGATORIA: Nombre Oficial de la Marca
 El nombre oficial de la empresa y marca es estrictamente **Tacos Gavilan** (NUNCA "Tacos El Gavilan"). Todos los correos electrónicos, comunicaciones corporativas, títulos, documentación, prompts de IA y respuestas deben usar exclusivamente **Tacos Gavilan**.
