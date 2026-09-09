@@ -504,17 +504,17 @@
     "store": "Lynwood"
   },
   "2026-08-24": {
-    "start": "12:00 PM",
-    "end": "8:00 PM",
-    "hours": 8,
-    "label": "Custom",
+    "start": "12:00 AM",
+    "end": "12:00 AM",
+    "hours": 0,
+    "label": "Permiso",
     "store": "Lynwood"
   },
   "2026-08-25": {
-    "start": "2:00 PM",
-    "end": "10:00 PM",
-    "hours": 8,
-    "label": "Intermedio",
+    "start": "12:00 AM",
+    "end": "12:00 AM",
+    "hours": 0,
+    "label": "Permiso",
     "store": "Lynwood"
   },
   "2026-08-26": {
@@ -1519,38 +1519,38 @@
     "store": "Lynwood"
   },
   "2026-09-04": {
-    "start": "3:00 PM",
-    "end": "11:00 PM",
-    "hours": 8,
-    "label": "Custom",
+    "start": "12:00 AM",
+    "end": "12:00 AM",
+    "hours": 0,
+    "label": "Enfermedad",
     "store": "Lynwood"
   },
   "2026-09-05": {
-    "start": "3:00 PM",
-    "end": "11:00 PM",
-    "hours": 8,
+    "start": "8:30 AM",
+    "end": "5:00 PM",
+    "hours": 8.5,
     "label": "Custom",
     "store": "Lynwood"
   },
   "2026-09-06": {
-    "start": "1:00 PM",
-    "end": "7:00 PM",
-    "hours": 6,
+    "start": "8:30 AM",
+    "end": "5:40 PM",
+    "hours": 9.17,
     "label": "Custom",
     "store": "Lynwood"
   },
   "2026-09-07": {
-    "start": "8:00 AM",
+    "start": "9:00 AM",
     "end": "5:00 PM",
-    "hours": 9,
-    "label": "Custom",
+    "hours": 8,
+    "label": "Mañana",
     "store": "Lynwood"
   },
   "2026-09-08": {
-    "start": "2:00 PM",
-    "end": "10:00 PM",
+    "start": "9:00 AM",
+    "end": "5:00 PM",
     "hours": 8,
-    "label": "Intermedio",
+    "label": "Mañana",
     "store": "Lynwood"
   },
   "2026-09-09": {
@@ -1561,24 +1561,101 @@
     "store": "Lynwood"
   },
   "2026-09-11": {
-    "start": "3:00 PM",
-    "end": "11:00 PM",
+    "start": "9:00 AM",
+    "end": "5:00 PM",
     "hours": 8,
-    "label": "Custom",
+    "label": "Mañana",
     "store": "Lynwood"
   },
   "2026-09-12": {
-    "start": "3:00 PM",
-    "end": "11:00 PM",
+    "start": "9:00 AM",
+    "end": "5:00 PM",
     "hours": 8,
-    "label": "Custom",
+    "label": "Mañana",
     "store": "Lynwood"
   },
   "2026-09-13": {
-    "start": "1:00 PM",
-    "end": "7:00 PM",
-    "hours": 6,
-    "label": "Custom",
+    "start": "9:00 AM",
+    "end": "5:00 PM",
+    "hours": 8,
+    "label": "Mañana",
+    "store": "Lynwood"
+  },
+  "2026-08-28": {
+    "start": "12:00 AM",
+    "end": "12:00 AM",
+    "hours": 0,
+    "label": "Vacaciones",
+    "store": "Lynwood"
+  },
+  "2026-08-29": {
+    "start": "12:00 AM",
+    "end": "12:00 AM",
+    "hours": 0,
+    "label": "Vacaciones",
+    "store": "Lynwood"
+  },
+  "2026-08-30": {
+    "start": "12:00 AM",
+    "end": "12:00 AM",
+    "hours": 0,
+    "label": "Vacaciones",
+    "store": "Lynwood"
+  },
+  "2026-09-10": {
+    "start": "9:00 AM",
+    "end": "5:00 PM",
+    "hours": 8,
+    "label": "Mañana",
+    "store": "Lynwood"
+  },
+  "2026-09-14": {
+    "start": "9:00 AM",
+    "end": "5:00 PM",
+    "hours": 8,
+    "label": "Mañana",
+    "store": "Lynwood"
+  },
+  "2026-09-15": {
+    "start": "9:00 AM",
+    "end": "5:00 PM",
+    "hours": 8,
+    "label": "Mañana",
+    "store": "Lynwood"
+  },
+  "2026-09-16": {
+    "start": "9:00 AM",
+    "end": "5:00 PM",
+    "hours": 8,
+    "label": "Mañana",
+    "store": "Lynwood"
+  },
+  "2026-09-17": {
+    "start": "9:00 AM",
+    "end": "5:00 PM",
+    "hours": 8,
+    "label": "Mañana",
+    "store": "Lynwood"
+  },
+  "2026-09-18": {
+    "start": "9:00 AM",
+    "end": "5:00 PM",
+    "hours": 8,
+    "label": "Mañana",
+    "store": "Lynwood"
+  },
+  "2026-09-19": {
+    "start": "9:00 AM",
+    "end": "5:00 PM",
+    "hours": 8,
+    "label": "Mañana",
+    "store": "Lynwood"
+  },
+  "2026-09-20": {
+    "start": "9:00 AM",
+    "end": "5:00 PM",
+    "hours": 8,
+    "label": "Mañana",
     "store": "Lynwood"
   }
 }

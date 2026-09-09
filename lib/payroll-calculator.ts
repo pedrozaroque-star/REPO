@@ -157,7 +157,17 @@ export const CINGULAR_RATE_OVERRIDES: Record<string, { payRate: number; billRate
   'salvador hernandez': { payRate: 20.40, billRate: 25.70, otBillRate: 38.56 },
   'salvador velazquez': { payRate: 20.40, billRate: 25.70, otBillRate: 38.56 },
 
+  // Sucursal Hollywood (TEG - Hollywood #2 / Company ID: 26)
+  'alfonso carrillo': { payRate: 37.99, billRate: 47.30 }, // General Manager ($37.99/hr -> $3,039.20 bi-weekly gross)
+  'angel romero': { payRate: 22.42, billRate: 28.25, otBillRate: 42.37 },
+  'angel flores': { payRate: 22.42, billRate: 28.25, otBillRate: 42.37 },
+  'juan pablo tecua montiel': { payRate: 20.47, billRate: 25.79, otBillRate: 38.69 },
+  'juan montiel': { payRate: 20.47, billRate: 25.79, otBillRate: 38.69 },
+  'manuel ricardo aju tzep': { payRate: 18.42, billRate: 23.21, otBillRate: 34.81 },
+  'manuel aju': { payRate: 18.42, billRate: 23.21, otBillRate: 34.81 },
+
   // General Manager (Salaried) & Empleados Verificados - Lynwood #14
+
   'carlos velazquez': { payRate: 37.93, billRate: 47.22 }, // $78,884/yr ($37.93/hr paystub legal rounded rate -> $3,034.40 with PTO)
   'heidy rodarte': { payRate: 19.88, billRate: 25.05, otBillRate: 37.58 }, // Factura Cingular TEGL-0023 ($1,312.48 gross / $1,653.80 bill)
 

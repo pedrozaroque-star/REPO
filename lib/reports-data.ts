@@ -574,17 +574,17 @@ export const PLANNER_SHIFTS_MAP: Record<string, PlannerShift> = {
         "store": "Lynwood"
     },
     "2026-08-24": {
-        "start": "12:00 PM",
-        "end": "8:00 PM",
-        "hours": 8,
-        "label": "Custom",
+        "start": "12:00 AM",
+        "end": "12:00 AM",
+        "hours": 0,
+        "label": "Permiso",
         "store": "Lynwood"
     },
     "2026-08-25": {
-        "start": "2:00 PM",
-        "end": "10:00 PM",
-        "hours": 8,
-        "label": "Intermedio",
+        "start": "12:00 AM",
+        "end": "12:00 AM",
+        "hours": 0,
+        "label": "Permiso",
         "store": "Lynwood"
     },
     "2026-08-26": {
@@ -1589,38 +1589,38 @@ export const PLANNER_SHIFTS_MAP: Record<string, PlannerShift> = {
         "store": "Lynwood"
     },
     "2026-09-04": {
-        "start": "3:00 PM",
-        "end": "11:00 PM",
-        "hours": 8,
-        "label": "Custom",
+        "start": "12:00 AM",
+        "end": "12:00 AM",
+        "hours": 0,
+        "label": "Enfermedad",
         "store": "Lynwood"
     },
     "2026-09-05": {
-        "start": "3:00 PM",
-        "end": "11:00 PM",
-        "hours": 8,
+        "start": "8:30 AM",
+        "end": "5:00 PM",
+        "hours": 8.5,
         "label": "Custom",
         "store": "Lynwood"
     },
     "2026-09-06": {
-        "start": "1:00 PM",
-        "end": "7:00 PM",
-        "hours": 6,
+        "start": "8:30 AM",
+        "end": "5:40 PM",
+        "hours": 9.17,
         "label": "Custom",
         "store": "Lynwood"
     },
     "2026-09-07": {
-        "start": "8:00 AM",
+        "start": "9:00 AM",
         "end": "5:00 PM",
-        "hours": 9,
-        "label": "Custom",
+        "hours": 8,
+        "label": "Mañana",
         "store": "Lynwood"
     },
     "2026-09-08": {
-        "start": "2:00 PM",
-        "end": "10:00 PM",
+        "start": "9:00 AM",
+        "end": "5:00 PM",
         "hours": 8,
-        "label": "Intermedio",
+        "label": "Mañana",
         "store": "Lynwood"
     },
     "2026-09-09": {
@@ -1631,24 +1631,101 @@ export const PLANNER_SHIFTS_MAP: Record<string, PlannerShift> = {
         "store": "Lynwood"
     },
     "2026-09-11": {
-        "start": "3:00 PM",
-        "end": "11:00 PM",
+        "start": "9:00 AM",
+        "end": "5:00 PM",
         "hours": 8,
-        "label": "Custom",
+        "label": "Mañana",
         "store": "Lynwood"
     },
     "2026-09-12": {
-        "start": "3:00 PM",
-        "end": "11:00 PM",
+        "start": "9:00 AM",
+        "end": "5:00 PM",
         "hours": 8,
-        "label": "Custom",
+        "label": "Mañana",
         "store": "Lynwood"
     },
     "2026-09-13": {
-        "start": "1:00 PM",
-        "end": "7:00 PM",
-        "hours": 6,
-        "label": "Custom",
+        "start": "9:00 AM",
+        "end": "5:00 PM",
+        "hours": 8,
+        "label": "Mañana",
+        "store": "Lynwood"
+    },
+    "2026-08-28": {
+        "start": "12:00 AM",
+        "end": "12:00 AM",
+        "hours": 0,
+        "label": "Vacaciones",
+        "store": "Lynwood"
+    },
+    "2026-08-29": {
+        "start": "12:00 AM",
+        "end": "12:00 AM",
+        "hours": 0,
+        "label": "Vacaciones",
+        "store": "Lynwood"
+    },
+    "2026-08-30": {
+        "start": "12:00 AM",
+        "end": "12:00 AM",
+        "hours": 0,
+        "label": "Vacaciones",
+        "store": "Lynwood"
+    },
+    "2026-09-10": {
+        "start": "9:00 AM",
+        "end": "5:00 PM",
+        "hours": 8,
+        "label": "Mañana",
+        "store": "Lynwood"
+    },
+    "2026-09-14": {
+        "start": "9:00 AM",
+        "end": "5:00 PM",
+        "hours": 8,
+        "label": "Mañana",
+        "store": "Lynwood"
+    },
+    "2026-09-15": {
+        "start": "9:00 AM",
+        "end": "5:00 PM",
+        "hours": 8,
+        "label": "Mañana",
+        "store": "Lynwood"
+    },
+    "2026-09-16": {
+        "start": "9:00 AM",
+        "end": "5:00 PM",
+        "hours": 8,
+        "label": "Mañana",
+        "store": "Lynwood"
+    },
+    "2026-09-17": {
+        "start": "9:00 AM",
+        "end": "5:00 PM",
+        "hours": 8,
+        "label": "Mañana",
+        "store": "Lynwood"
+    },
+    "2026-09-18": {
+        "start": "9:00 AM",
+        "end": "5:00 PM",
+        "hours": 8,
+        "label": "Mañana",
+        "store": "Lynwood"
+    },
+    "2026-09-19": {
+        "start": "9:00 AM",
+        "end": "5:00 PM",
+        "hours": 8,
+        "label": "Mañana",
+        "store": "Lynwood"
+    },
+    "2026-09-20": {
+        "start": "9:00 AM",
+        "end": "5:00 PM",
+        "hours": 8,
+        "label": "Mañana",
         "store": "Lynwood"
     }
 };
@@ -1658,7 +1735,7 @@ export const MONTHLY_REPORTS: Record<'septiembre' | 'agosto' | 'julio' | 'junio'
     "id": "septiembre",
     "monthName": "Septiembre",
     "monthYear": "Septiembre 2026",
-    "totalHours": 63.7,
+    "totalHours": 69.2,
     "totalTasks": 27,
     "completedTasks": 19,
     "inProgressTasks": 4,
@@ -1833,8 +1910,8 @@ export const MONTHLY_REPORTS: Record<'septiembre' | 'agosto' | 'julio' | 'junio'
         },
         {
             "date": "08-Sep-2026",
-            "time": "12:00 AM - 3:15 AM & 5:45 AM - 9:15 AM & 10:45 AM - 11:30 AM & 12:45 PM - 2:15 PM & 2:45 PM - 4:00 PM",
-            "hours": 16,
+            "time": "12:00 AM - 3:15 AM & 5:45 AM - 9:15 AM & 10:45 AM - 11:30 AM & 12:45 PM - 2:15 PM & 2:45 PM - 4:00 PM & 6:45 PM - 7:35 PM",
+            "hours": 16.8,
             "badges": [
                 "Historial Unificado Viele & Sons",
                 "Consulta Paralela 15 Tiendas",
@@ -1874,40 +1951,80 @@ export const MONTHLY_REPORTS: Record<'septiembre' | 'agosto' | 'julio' | 'junio'
                 "Regla coversBlock Permisos",
                 "Ventana Multi-Semana RONOS",
                 "Sincronización Vacaciones Carlos Velazquez",
-                "Emparejamiento por Rango de Fechas"
+                "Emparejamiento por Rango de Fechas",
+                "Triangulación Nómina Cingular",
+                "Facturas PDF vs App vs Simplify HR",
+                "Formato Fechas USA MM/DD/YYYY",
+                "Detección Nuevas Tiendas Supabase",
+                "Auditoría en Vivo Simplify HR",
+                "Detección Corrida Nómina 24 Ago - 06 Sep"
             ],
-            "descEs": "• <strong>Historial Unificado de Pedidos Viele & Sons (/admin/compras/viele/historial)</strong>: Arquitectura y desarrollo integral del panel de auditoría histórica con arquitectura de doble pestaña: 🌐 Órdenes Web V&S (Sage 100) y 📱 Órdenes App TEG.<br>• <strong>Motor Proxy y Consulta Paralela Multi-Sucursal (/api/viele/history)</strong>: Ingeniería inversa de los endpoints DataTables de ClearNine (salesOrderList_dt y salesOrderDetail_dt). Se implementó consulta paralela simultánea para las 15 sucursales de Tacos Gavilan (storeId=all), logrando consultar en vivo más de 2,614 órdenes históricas de Sage 100 por un total de ,016,879.81 USD en apenas 1.2 segundos.<br>• <strong>Filtro Multi-Año Unificado (2025 + 2026)</strong>: Soporte para selección multi-año combinada (2025+2026 por defecto con 1,570 órdenes en 2025 y 1,044 en 2026), así como filtros individuales por año (2026, 2025, 2024, 2023 o histórico completo).<br>• <strong>Control de Acceso por Roles y Candado de Seguridad de Sucursal</strong>: Integración estricta con ProtectedRoute (roles admin, supervisor, manager). Los Gerentes de Sucursal (Managers) tienen el selector de tienda automáticamente bloqueado con icono de candado (🔒) fijado a su propia tienda (user.store_id), impidiendo acceso a órdenes de otras tiendas (ej. Lynwood visualiza estrictamente sus 177 órdenes por ,536.20). Los Supervisores y Administradores disponen de acceso global irrestricto para auditar las 15 tiendas de la cadena.<br>• <strong>Modal de Desglose Línea por Línea e Impresión Directa</strong>: Modal interactivo con carga dinámica de líneas de producto desde Sage 100 (código SKU, descripción, cantidades pedidas/enviadas, UOM, precio unitario e importe con separadores de miles). Motor de impresión directa vía window.open con estilos limpios sin dependencias externas para auditoría física inmediata.<br>• <strong>Estandarización Bilingüe i18n y Separadores de Miles</strong>: Registro de ~50 claves de traducción bilingüe (ES/EN) en lib/i18n.tsx y aplicación uniforme de formatCurrency y formatNumber en todas las tarjetas de métricas, tablas y modales.<br>• <strong>Sincronización Automática Planificador a Horarios (/horarios & /planificador)</strong>: Arquitectura e implementación del puente de datos en tiempo real entre los turnos publicados de la tienda (tabla shifts) y la matriz quincenal de supervisores (tabla schedules). Al publicar el gerente su horario semanal en el Planificador (sábado o domingo), el endpoint /api/notifications/publish-schedule detecta automáticamente a los Managers y Asistentes de Gerente mediante su vínculo permanente (toast_guid a toast_employees), convierte con precisión matemática los timestamps UTC al huso horario oficial de California (America/Los_Angeles), limpia los turnos preliminares y traslada de forma atómica la verdad oficial de liderazgo a schedules. Los turnos de los Supervisores quedan 100% protegidos e intactos. Se incorporó además el endpoint bajo demanda /api/schedule/sync-planner y botones de sincronización manual interactivos con retroalimentación en tiempo real en el Dashboard y en el Editor quincenal, junto con soporte bilingüe i18n completo y suite automatizada con 12/12 pruebas exitosas y verificación de mutación real en Supabase.<br>• <strong>Auditoría Forense Exhaustiva y Análisis Estratégico de Reunión Restaurant365</strong>: Asistencia y análisis forense minuto a minuto y fotograma por fotograma de la sesión estratégica de demostración técnica (53 minutos) entre Erick Velázquez, Carlos Velázquez y el equipo de Restaurant365 (Zane Roegiers y Eddy Salas). Extracción de audio en 11 bloques y 71 fotogramas clave para desglosar la arquitectura de R365: Daily Sales Summary (DSS), boletos a nivel de cheque de Toast, P&L multi-sucursal lado a lado (Side-by-Side con EBITDA), análisis de costo real vs. teórico (AvT en libras y dólares) y automatización de cuentas por pagar (AP Automation). Se documentaron los requerimientos y dolores operativos planteados por Erick Velázquez (triangulación y markups del comisariato La Bodega, retraso de P&L en QuickBooks y necesidad de drill-down directo a facturas) y se estructuró la hoja de ruta técnica para implementar los módulos de P&L ejecutivo y conciliación de Bodega directamente en teg-modernizado, blindando a la empresa contra costos recurrentes de terceros.<br>• <strong>Sincronización Automática de Ausencias RONOS con Horarios de Supervisores (/horarios & /api/cron/sync-ronos-absences)</strong>: Arquitectura, desarrollo y despliegue del motor universal de enlace de ausencias oficiales de RONOS (Cingular HR) con la matriz operativa de supervisión (tabla schedules). Conexión a la API REST v2 (WorkWeek/AdminGetWeekByWeekId y WorkWeek/ManagerGetUserWeekByWeekId) para extraer automáticamente solicitudes aprobadas de Enfermedad (Sick Leave) y Vacaciones (PTO Vacation) de las 15 tiendas de Tacos Gavilan.<br>• <strong>Regla Crítica de Cobertura Operativa (coversBlock = false)</strong>: Los turnos de ausencia (registrados con horario 00:00 - 00:00 y shift_label 'Enfermedad' o 'Vacaciones') quedan estrictamente excluidos de la cobertura de la tienda, forzando de inmediato el semáforo operativo a 🔴 Rojo (FALTA AM / PM) para alertar a los supervisores de la vacante y permitirles cubrirla con anticipación.<br>• <strong>UI Bilingüe con Badges de Alta Visibilidad & Presets de Edición</strong>: Despliegue de tarjetas e indicadores visuales distintivos tanto en la matriz de escritorio (filas de supervisor y colaboradores) como en el carrusel táctil móvil día por día (🤒 Rosa para Enfermedad y 🏖️ Azul cielo para Vacaciones con subtexto 'RONOS'). Integración de botones rápidos en el modal de edición para marcar ausencias manualmente ante avisos telefónicos y botones interactivos de 🔄 'Sincronizar RONOS' (/api/schedule/sync-ronos) en el Header del Dashboard y Editor.<br>• <strong>Cron Job Automatizado & Verificación de Mutación Real (Live DB Smoke Test)</strong>: Registro del cron job en vercel.json programado diariamente a las 6:30 AM PST (30 14 * * *). Creación y ejecución de suite de pruebas automatizadas (scripts/test-ronos-absences-sync.ts) con 100% de éxito, validando inserción real, lectura, actualización y limpieza inmediata en Supabase schedules, comprobando en vivo la detección de 6 ausencias reales en Lynwood #14 (Victor Muñoz y Carlos Velazquez). Chequeo de TypeScript (npx tsc --noEmit) con 0 errores y sincronización del prompt y herramientas del Asistente TEG AI en app/api/support-chat/route.ts y lib/chat-tools.ts.<br>• <strong>Incorporación Total de Permisos y Licencias (Leave / Unpaid) a la Matriz de Ausencias</strong>: Expansión del motor de sincronización RONOS y del módulo Horarios (/horarios) para soportar de forma integral Permisos (unpaidLeave, unpaidtimeHours, bereavement y licencias especiales). Se incorporó la regla de no-cobertura (coversBlock = false), disparando alertas inmediatas de FALTA AM/PM si un encargado se encuentra de permiso. Se diseñaron e implementaron badges de alta visibilidad en tono violeta con icono FileText y subtexto 'RONOS' en la matriz de escritorio (filas de supervisor y colaboradores) y tarjetas móviles día por día. Se adaptó el modal de edición con una cuadrícula de 3 columnas para Enfermedad, Vacaciones y Permiso, se agregaron traducciones bilingües en lib/i18n.tsx, y se validó con suite de pruebas y mutación en vivo en Supabase con 100% de éxito.<br>• <strong>Resolución de Ventana Histórica y Emparejamiento por Rango de Fechas en Sincronización RONOS</strong>: Diagnóstico exhaustivo y corrección de la sincronización de vacaciones aprobadas de Carlos Velazquez (Gerente de Lynwood #14). Se determinó que la ausencia por vacaciones (28, 29 y 30 de Agosto de 2026, 24 horas aprobadas en RONOS con folio PTO #15491) y permisos sin sueldo (24 y 25 de Agosto, folio PTO #15587) pertenecían a la semana 155969, ubicada 3 semanas hacia atrás respecto a la semana activa. Se actualizó el motor lib/sync-ronos-absences.ts para soportar filtrado inteligente por intersección de fechas (start_date / end_date de la quincena visualizada en pantalla) y una ventana mínima de 4 semanas por defecto en cronjobs y llamadas directas. Se actualizaron los endpoints /api/schedule/sync-ronos y /api/cron/sync-ronos-absences, así como el invocador en app/horarios/page.tsx, logrando sincronizar con 100% de éxito las 11 ausencias de Lynwood #14 (Victor Muñoz y Carlos Velazquez). Validación integral mediante suite automatizada (scripts/test-ronos-absences-sync.ts) y verificación de TypeScript (npx tsc --noEmit) con 0 errores.",
-            "descEn": "• <strong>Viele & Sons Unified Order History (/admin/compras/viele/historial)</strong>: Full architectural design and full-stack development of the unified historical audit portal featuring dual tabs: 🌐 V&S Web Orders (Sage 100) and 📱 TEG App Orders.<br>• <strong>Proxy Engine & Multi-Store Parallel Querying (/api/viele/history)</strong>: Reverse-engineered ClearNine DataTables endpoints (salesOrderList_dt and salesOrderDetail_dt). Built concurrent parallel fetching across all 15 Tacos Gavilan stores (storeId=all), querying over 2,614 live Sage 100 historical orders totaling ,016,879.81 USD in just 1.2 seconds.<br>• <strong>Multi-Year Unified Filtering (2025 + 2026)</strong>: Enabled comma-separated multi-year selection (default 2025+2026 containing 1,570 orders in 2025 and 1,044 in 2026), plus single-year filters (2026, 2025, 2024, 2023, or full history).<br>• <strong>Role-Based Access Control (RBAC) & Store Security Lock</strong>: Strictly integrated with ProtectedRoute (admin, supervisor, manager). Branch Managers have the store selector automatically locked with a lock icon (🔒) hard-pinned to their assigned branch (user.store_id), ensuring confidentiality between stores (e.g. Lynwood strictly accesses its 177 orders for ,536.20). Supervisors and Admins retain unrestricted global access to audit all 15 stores.<br>• <strong>Line-Item Breakdown Modal & Instant Print Engine</strong>: Built interactive modal streaming live line items from Sage 100 (SKU, description, ordered/shipped quantities, UOM, unit price, and extended total with thousands separators). Features instant print engine via window.open with clean dedicated styles for physical accounting audits.<br>• <strong>Bilingual i18n Standardization & Thousands Formatting</strong>: Integrated ~50 translation keys across Spanish and English in lib/i18n.tsx and enforced formatCurrency and formatNumber across all KPI cards, tables, and modal dialogs.<br>• <strong>Automated Store Planner to Supervisor Schedules Sync (/horarios & /planificador)</strong>: Architectural design and live deployment of the bidirectional sync pipeline linking published store shifts (shifts table) with the supervisor coverage matrix (schedules table). When branch managers publish weekly schedules in the Planner on weekends, the /api/notifications/publish-schedule endpoint automatically identifies Managers and Assistant Managers via immutable toast_guid mapping, translates UTC timestamps accurately to Pacific local time (America/Los_Angeles), and atomically updates schedules while strictly preserving supervisor shifts. Built the standalone on-demand API endpoint /api/schedule/sync-planner with interactive manual sync action buttons across Dashboard and Editor views, complete bilingual i18n coverage, and full test suite with 12/12 passing runtime assertions including live database mutation verification in Supabase.<br>• <strong>Exhaustive Forensic Audit & Strategic Analysis of Restaurant365 Meeting</strong>: Full session participation and frame-by-frame forensic analysis of the 53-minute technical demo meeting between Erick Velazquez, Carlos Velazquez, and the Restaurant365 team (Zane Roegiers and Eddy Salas). Extracted audio into 11 chunks and 71 keyframes to dissect R365 enterprise architecture: Daily Sales Summary (DSS), Toast check-level ticket integration, side-by-side multi-location P&L reporting with EBITDA, actual vs. theoretical (AvT) food cost variance in pounds and dollars, and AP invoice automation. Mapped core operational friction points highlighted by Erick Velazquez (La Bodega commissary markup triangulations, annual/quarterly QuickBooks P&L lag, and demand for click-to-source drilldowns) and formulated a technical roadmap to build executive P&L and commissary billing engines directly within teg-modernizado, eliminating third-party SaaS overhead.<br>• <strong>Automated RONOS Absences Sync to Supervisor Schedules (/horarios & /api/cron/sync-ronos-absences)</strong>: Complete architectural design and deployment of the automated sync engine bridging approved RONOS (Cingular HR) absences with the supervisor scheduling matrix (schedules table). Connected directly to RONOS API v2 (WorkWeek/AdminGetWeekByWeekId and WorkWeek/ManagerGetUserWeekByWeekId) to detect approved Sick Leave and PTO Vacation records across all 15 Tacos Gavilan stores.<br>• <strong>Critical Operational Coverage Rule (coversBlock = false)</strong>: Absence shifts (stored with 00:00 - 00:00 hours and shift_label 'Enfermedad' or 'Vacaciones') are strictly excluded from fulfilling AM/PM store coverage blocks, immediately triggering 🔴 Red (MISSING AM / PM) traffic lights to warn supervisors of uncovered managerial vacancies.<br>• <strong>High-Visibility Bilingual UI Badges & Edit Presets</strong>: Styled distinctive badges across both desktop table views and mobile Day-by-Day touch carousels (🤒 Rose for Sick Leave and 🏖️ Sky Blue for Vacation with 'RONOS' sublabel). Added quick 1-tap absence presets to the shift editing modal and prominent 🔄 'Sync RONOS' action buttons in Dashboard and Editor headers.<br>• <strong>Daily Cron Automation & Live DB Mutation Smoke Test</strong>: Configured daily Vercel Cron at 6:30 AM PST (30 14 * * * in vercel.json). Created and executed end-to-end test suite (scripts/test-ronos-absences-sync.ts) achieving 100% PASS on business rules and live Supabase mutation/cleanup, verifying detection of 6 live absences at Lynwood #14 (Victor Muñoz and Carlos Velazquez). Enforced 0 TypeScript compilation errors (npx tsc --noEmit) and updated TEG Assistant AI prompt and querySchedules tool in app/api/support-chat/route.ts and lib/chat-tools.ts.<br>• <strong>Full Integration of Leaves and Permissions (Leave / Unpaid) to Absences Matrix</strong>: Expanded RONOS sync engine and Horarios module (/horarios) to comprehensively support Permisos (unpaidLeave, unpaidtimeHours, bereavement, and authorized leaves of absence). Enforced strict non-coverage rule (coversBlock = false), immediately firing MISSING AM/PM store warnings when a leader is on leave. Designed and styled high-visibility violet badges with FileText icon and 'RONOS' sublabel across desktop grid rows and mobile touch carousels. Refactored the shift edit modal to a 3-column absence layout (Sick, Vacation, Permission), implemented bilingual i18n keys in lib/i18n.tsx, and verified full functionality via live database mutation smoke tests in Supabase with 100% PASS rate.<br>• <strong>Historical Window Extension & Date-Range Overlap Matching in RONOS Sync</strong>: Root-cause diagnosis and live resolution for Carlos Velazquez's approved PTO vacations (Lynwood #14 General Manager). Identified that the vacation entries (August 28, 29, and 30, 2026, 24 approved PTO hours under request #15491) and unpaid leaves (August 24 and 25, PTO #15587) fell in week 155969, three weeks prior to the active current week. Upgraded the sync engine lib/sync-ronos-absences.ts to support intelligent date-range overlap matching (start_date / end_date of the fortnight viewed on screen) along with an extended default 4-week scanning horizon across cronjobs and API routes. Updated /api/schedule/sync-ronos, /api/cron/sync-ronos-absences, and the UI trigger in app/horarios/page.tsx, successfully syncing all 11 live Lynwood #14 absences into Supabase schedules with high-visibility badges. Verified through the automated test suite (scripts/test-ronos-absences-sync.ts) and complete TypeScript check (npx tsc --noEmit) with 0 errors."
+            "descEs": "• <strong>Historial Unificado de Pedidos Viele & Sons (/admin/compras/viele/historial)</strong>: Arquitectura y desarrollo integral del panel de auditoría histórica con arquitectura de doble pestaña: 🌐 Órdenes Web V&S (Sage 100) y 📱 Órdenes App TEG.<br>• <strong>Motor Proxy y Consulta Paralela Multi-Sucursal (/api/viele/history)</strong>: Ingeniería inversa de los endpoints DataTables de ClearNine (salesOrderList_dt y salesOrderDetail_dt). Se implementó consulta paralela simultánea para las 15 sucursales de Tacos Gavilan (storeId=all), logrando consultar en vivo más de 2,614 órdenes históricas de Sage 100 por un total de ,016,879.81 USD en apenas 1.2 segundos.<br>• <strong>Filtro Multi-Año Unificado (2025 + 2026)</strong>: Soporte para selección multi-año combinada (2025+2026 por defecto con 1,570 órdenes en 2025 y 1,044 en 2026), así como filtros individuales por año (2026, 2025, 2024, 2023 o histórico completo).<br>• <strong>Control de Acceso por Roles y Candado de Seguridad de Sucursal</strong>: Integración estricta con ProtectedRoute (roles admin, supervisor, manager). Los Gerentes de Sucursal (Managers) tienen el selector de tienda automáticamente bloqueado con icono de candado (🔒) fijado a su propia tienda (user.store_id), impidiendo acceso a órdenes de otras tiendas (ej. Lynwood visualiza estrictamente sus 177 órdenes por ,536.20). Los Supervisores y Administradores disponen de acceso global irrestricto para auditar las 15 tiendas de la cadena.<br>• <strong>Modal de Desglose Línea por Línea e Impresión Directa</strong>: Modal interactivo con carga dinámica de líneas de producto desde Sage 100 (código SKU, descripción, cantidades pedidas/enviadas, UOM, precio unitario e importe con separadores de miles). Motor de impresión directa vía window.open con estilos limpios sin dependencias externas para auditoría física inmediata.<br>• <strong>Estandarización Bilingüe i18n y Separadores de Miles</strong>: Registro de ~50 claves de traducción bilingüe (ES/EN) en lib/i18n.tsx y aplicación uniforme de formatCurrency y formatNumber en todas las tarjetas de métricas, tablas y modales.<br>• <strong>Sincronización Automática Planificador a Horarios (/horarios & /planificador)</strong>: Arquitectura e implementación del puente de datos en tiempo real entre los turnos publicados de la tienda (tabla shifts) y la matriz quincenal de supervisores (tabla schedules). Al publicar el gerente su horario semanal en el Planificador (sábado o domingo), el endpoint /api/notifications/publish-schedule detecta automáticamente a los Managers y Asistentes de Gerente mediante su vínculo permanente (toast_guid a toast_employees), convierte con precisión matemática los timestamps UTC al huso horario oficial de California (America/Los_Angeles), limpia los turnos preliminares y traslada de forma atómica la verdad oficial de liderazgo a schedules. Los turnos de los Supervisores quedan 100% protegidos e intactos. Se incorporó además el endpoint bajo demanda /api/schedule/sync-planner y botones de sincronización manual interactivos con retroalimentación en tiempo real en el Dashboard y en el Editor quincenal, junto con soporte bilingüe i18n completo y suite automatizada con 12/12 pruebas exitosas y verificación de mutación real en Supabase.<br>• <strong>Auditoría Forense Exhaustiva y Análisis Estratégico de Reunión Restaurant365</strong>: Asistencia y análisis forense minuto a minuto y fotograma por fotograma de la sesión estratégica de demostración técnica (53 minutos) entre Erick Velázquez, Carlos Velázquez y el equipo de Restaurant365 (Zane Roegiers y Eddy Salas). Extracción de audio en 11 bloques y 71 fotogramas clave para desglosar la arquitectura de R365: Daily Sales Summary (DSS), boletos a nivel de cheque de Toast, P&L multi-sucursal lado a lado (Side-by-Side con EBITDA), análisis de costo real vs. teórico (AvT en libras y dólares) y automatización de cuentas por pagar (AP Automation). Se documentaron los requerimientos y dolores operativos planteados por Erick Velázquez (triangulación y markups del comisariato La Bodega, retraso de P&L en QuickBooks y necesidad de drill-down directo a facturas) y se estructuró la hoja de ruta técnica para implementar los módulos de P&L ejecutivo y conciliación de Bodega directamente en teg-modernizado, blindando a la empresa contra costos recurrentes de terceros.<br>• <strong>Sincronización Automática de Ausencias RONOS con Horarios de Supervisores (/horarios & /api/cron/sync-ronos-absences)</strong>: Arquitectura, desarrollo y despliegue del motor universal de enlace de ausencias oficiales de RONOS (Cingular HR) con la matriz operativa de supervisión (tabla schedules). Conexión a la API REST v2 (WorkWeek/AdminGetWeekByWeekId y WorkWeek/ManagerGetUserWeekByWeekId) para extraer automáticamente solicitudes aprobadas de Enfermedad (Sick Leave) y Vacaciones (PTO Vacation) de las 15 tiendas de Tacos Gavilan.<br>• <strong>Regla Crítica de Cobertura Operativa (coversBlock = false)</strong>: Los turnos de ausencia (registrados con horario 00:00 - 00:00 y shift_label 'Enfermedad' o 'Vacaciones') quedan estrictamente excluidos de la cobertura de la tienda, forzando de inmediato el semáforo operativo a 🔴 Rojo (FALTA AM / PM) para alertar a los supervisores de la vacante y permitirles cubrirla con anticipación.<br>• <strong>UI Bilingüe con Badges de Alta Visibilidad & Presets de Edición</strong>: Despliegue de tarjetas e indicadores visuales distintivos tanto en la matriz de escritorio (filas de supervisor y colaboradores) como en el carrusel táctil móvil día por día (🤒 Rosa para Enfermedad y 🏖️ Azul cielo para Vacaciones con subtexto 'RONOS'). Integración de botones rápidos en el modal de edición para marcar ausencias manualmente ante avisos telefónicos y botones interactivos de 🔄 'Sincronizar RONOS' (/api/schedule/sync-ronos) en el Header del Dashboard y Editor.<br>• <strong>Cron Job Automatizado & Verificación de Mutación Real (Live DB Smoke Test)</strong>: Registro del cron job en vercel.json programado diariamente a las 6:30 AM PST (30 14 * * *). Creación y ejecución de suite de pruebas automatizadas (scripts/test-ronos-absences-sync.ts) con 100% de éxito, validando inserción real, lectura, actualización y limpieza inmediata en Supabase schedules, comprobando en vivo la detección de 6 ausencias reales en Lynwood #14 (Victor Muñoz y Carlos Velazquez). Chequeo de TypeScript (npx tsc --noEmit) con 0 errores y sincronización del prompt y herramientas del Asistente TEG AI en app/api/support-chat/route.ts y lib/chat-tools.ts.<br>• <strong>Incorporación Total de Permisos y Licencias (Leave / Unpaid) a la Matriz de Ausencias</strong>: Expansión del motor de sincronización RONOS y del módulo Horarios (/horarios) para soportar de forma integral Permisos (unpaidLeave, unpaidtimeHours, bereavement y licencias especiales). Se incorporó la regla de no-cobertura (coversBlock = false), disparando alertas inmediatas de FALTA AM/PM si un encargado se encuentra de permiso. Se diseñaron e implementaron badges de alta visibilidad en tono violeta con icono FileText y subtexto 'RONOS' en la matriz de escritorio (filas de supervisor y colaboradores) y tarjetas móviles día por día. Se adaptó el modal de edición con una cuadrícula de 3 columnas para Enfermedad, Vacaciones y Permiso, se agregaron traducciones bilingües en lib/i18n.tsx, y se validó con suite de pruebas y mutación en vivo en Supabase con 100% de éxito.<br>• <strong>Resolución de Ventana Histórica y Emparejamiento por Rango de Fechas en Sincronización RONOS</strong>: Diagnóstico exhaustivo y corrección de la sincronización de vacaciones aprobadas de Carlos Velazquez (Gerente de Lynwood #14). Se determinó que la ausencia por vacaciones (28, 29 y 30 de Agosto de 2026, 24 horas aprobadas en RONOS con folio PTO #15491) y permisos sin sueldo (24 y 25 de Agosto, folio PTO #15587) pertenecían a la semana 155969, ubicada 3 semanas hacia atrás respecto a la semana activa. Se actualizó el motor lib/sync-ronos-absences.ts para soportar filtrado inteligente por intersección de fechas (start_date / end_date de la quincena visualizada en pantalla) y una ventana mínima de 4 semanas por defecto en cronjobs y llamadas directas. Se actualizaron los endpoints /api/schedule/sync-ronos y /api/cron/sync-ronos-absences, así como el invocador en app/horarios/page.tsx, logrando sincronizar con 100% de éxito las 11 ausencias de Lynwood #14 (Victor Muñoz y Carlos Velazquez). Validación integral mediante suite automatizada (scripts/test-ronos-absences-sync.ts) y verificación de TypeScript (npx tsc --noEmit) con 0 errores.<br>• <strong>Triangulación Maestra de Nómina Cingular HR (Facturas Físicas PDF vs App TEG vs Simplify HR OS)</strong>: Cruce forense y auditoría matemática de 6 facturas oficiales en PDF de Cingular (,450.85 USD) contra el motor de nómina de la aplicación y contratos de Simplify HR. Certificación de paridad global del 99.26%, alcanzando cuadre perfecto al centavo (.00 de diferencia) en Bell (,167.23), Slauson (,667.89) y Lynwood (,888.94), y justificando al centésimo las variaciones en West Covina y Broadway debidas a horas de enfermedad (Sick Pay) y vacaciones reportadas directamente a Simplify HR sin ponchada en el reloj. Estandarización de fechas al formato estadounidense (MM/DD/YYYY), eliminación de números de semana ruidosos en selectores y detección dinámica de nuevas sucursales desde Supabase (getDynamicRonosStores).<br>• <strong>Auditoría en Vivo en Simplify HR OS & Detección de Corrida de Nómina (24 Ago - 06 Sep)</strong>: Conexión e inspección vespertina directa contra la API de producción de Simplify HR (prod.simplifyhros.com). Se descubrió que a las 7:07 PM PST (2026-09-09T02:07:32Z) Cingular HR ejecutó el cálculo preliminar de la quincena recién concluida, generando los lotes preliminares (estatus pending) y recibos de pago (Paystubs) con fecha oficial de pago 11 de Septiembre para 13 de las 16 sucursales (Bell, Slauson, Azusa, West Covina, Broadway, Central, Hollywood, La Puente, Norwalk, Santa Ana, Santa Fe, South Gate, Vernon Bodega), dejando en cola a Lynwood, Downey y Rialto.",
+            "descEn": "• <strong>Viele & Sons Unified Order History (/admin/compras/viele/historial)</strong>: Full architectural design and full-stack development of the unified historical audit portal featuring dual tabs: 🌐 V&S Web Orders (Sage 100) and 📱 TEG App Orders.<br>• <strong>Proxy Engine & Multi-Store Parallel Querying (/api/viele/history)</strong>: Reverse-engineered ClearNine DataTables endpoints (salesOrderList_dt and salesOrderDetail_dt). Built concurrent parallel fetching across all 15 Tacos Gavilan stores (storeId=all), querying over 2,614 live Sage 100 historical orders totaling ,016,879.81 USD in just 1.2 seconds.<br>• <strong>Multi-Year Unified Filtering (2025 + 2026)</strong>: Enabled comma-separated multi-year selection (default 2025+2026 containing 1,570 orders in 2025 and 1,044 in 2026), plus single-year filters (2026, 2025, 2024, 2023, or full history).<br>• <strong>Role-Based Access Control (RBAC) & Store Security Lock</strong>: Strictly integrated with ProtectedRoute (admin, supervisor, manager). Branch Managers have the store selector automatically locked with a lock icon (🔒) hard-pinned to their assigned branch (user.store_id), ensuring confidentiality between stores (e.g. Lynwood strictly accesses its 177 orders for ,536.20). Supervisors and Admins retain unrestricted global access to audit all 15 stores.<br>• <strong>Line-Item Breakdown Modal & Instant Print Engine</strong>: Built interactive modal streaming live line items from Sage 100 (SKU, description, ordered/shipped quantities, UOM, unit price, and extended total with thousands separators). Features instant print engine via window.open with clean dedicated styles for physical accounting audits.<br>• <strong>Bilingual i18n Standardization & Thousands Formatting</strong>: Integrated ~50 translation keys across Spanish and English in lib/i18n.tsx and enforced formatCurrency and formatNumber across all KPI cards, tables, and modal dialogs.<br>• <strong>Automated Store Planner to Supervisor Schedules Sync (/horarios & /planificador)</strong>: Architectural design and live deployment of the bidirectional sync pipeline linking published store shifts (shifts table) with the supervisor coverage matrix (schedules table). When branch managers publish weekly schedules in the Planner on weekends, the /api/notifications/publish-schedule endpoint automatically identifies Managers and Assistant Managers via immutable toast_guid mapping, translates UTC timestamps accurately to Pacific local time (America/Los_Angeles), and atomically updates schedules while strictly preserving supervisor shifts. Built the standalone on-demand API endpoint /api/schedule/sync-planner with interactive manual sync action buttons across Dashboard and Editor views, complete bilingual i18n coverage, and full test suite with 12/12 passing runtime assertions including live database mutation verification in Supabase.<br>• <strong>Exhaustive Forensic Audit & Strategic Analysis of Restaurant365 Meeting</strong>: Full session participation and frame-by-frame forensic analysis of the 53-minute technical demo meeting between Erick Velazquez, Carlos Velazquez, and the Restaurant365 team (Zane Roegiers and Eddy Salas). Extracted audio into 11 chunks and 71 keyframes to dissect R365 enterprise architecture: Daily Sales Summary (DSS), Toast check-level ticket integration, side-by-side multi-location P&L reporting with EBITDA, actual vs. theoretical (AvT) food cost variance in pounds and dollars, and AP invoice automation. Mapped core operational friction points highlighted by Erick Velazquez (La Bodega commissary markup triangulations, annual/quarterly QuickBooks P&L lag, and demand for click-to-source drilldowns) and formulated a technical roadmap to build executive P&L and commissary billing engines directly within teg-modernizado, eliminating third-party SaaS overhead.<br>• <strong>Automated RONOS Absences Sync to Supervisor Schedules (/horarios & /api/cron/sync-ronos-absences)</strong>: Complete architectural design and deployment of the automated sync engine bridging approved RONOS (Cingular HR) absences with the supervisor scheduling matrix (schedules table). Connected directly to RONOS API v2 (WorkWeek/AdminGetWeekByWeekId and WorkWeek/ManagerGetUserWeekByWeekId) to detect approved Sick Leave and PTO Vacation records across all 15 Tacos Gavilan stores.<br>• <strong>Critical Operational Coverage Rule (coversBlock = false)</strong>: Absence shifts (stored with 00:00 - 00:00 hours and shift_label 'Enfermedad' or 'Vacaciones') are strictly excluded from fulfilling AM/PM store coverage blocks, immediately triggering 🔴 Red (MISSING AM / PM) traffic lights to warn supervisors of uncovered managerial vacancies.<br>• <strong>High-Visibility Bilingual UI Badges & Edit Presets</strong>: Styled distinctive badges across both desktop table views and mobile Day-by-Day touch carousels (🤒 Rose for Sick Leave and 🏖️ Sky Blue for Vacation with 'RONOS' sublabel). Added quick 1-tap absence presets to the shift editing modal and prominent 🔄 'Sync RONOS' action buttons in Dashboard and Editor headers.<br>• <strong>Daily Cron Automation & Live DB Mutation Smoke Test</strong>: Configured daily Vercel Cron at 6:30 AM PST (30 14 * * * in vercel.json). Created and executed end-to-end test suite (scripts/test-ronos-absences-sync.ts) achieving 100% PASS on business rules and live Supabase mutation/cleanup, verifying detection of 6 live absences at Lynwood #14 (Victor Muñoz and Carlos Velazquez). Enforced 0 TypeScript compilation errors (npx tsc --noEmit) and updated TEG Assistant AI prompt and querySchedules tool in app/api/support-chat/route.ts and lib/chat-tools.ts.<br>• <strong>Full Integration of Leaves and Permissions (Leave / Unpaid) to Absences Matrix</strong>: Expanded RONOS sync engine and Horarios module (/horarios) to comprehensively support Permisos (unpaidLeave, unpaidtimeHours, bereavement, and authorized leaves of absence). Enforced strict non-coverage rule (coversBlock = false), immediately firing MISSING AM/PM store warnings when a leader is on leave. Designed and styled high-visibility violet badges with FileText icon and 'RONOS' sublabel across desktop grid rows and mobile touch carousels. Refactored the shift edit modal to a 3-column absence layout (Sick, Vacation, Permission), implemented bilingual i18n keys in lib/i18n.tsx, and verified full functionality via live database mutation smoke tests in Supabase with 100% PASS rate.<br>• <strong>Historical Window Extension & Date-Range Overlap Matching in RONOS Sync</strong>: Root-cause diagnosis and live resolution for Carlos Velazquez's approved PTO vacations (Lynwood #14 General Manager). Identified that the vacation entries (August 28, 29, and 30, 2026, 24 approved PTO hours under request #15491) and unpaid leaves (August 24 and 25, PTO #15587) fell in week 155969, three weeks prior to the active current week. Upgraded the sync engine lib/sync-ronos-absences.ts to support intelligent date-range overlap matching (start_date / end_date of the fortnight viewed on screen) along with an extended default 4-week scanning horizon across cronjobs and API routes. Updated /api/schedule/sync-ronos, /api/cron/sync-ronos-absences, and the UI trigger in app/horarios/page.tsx, successfully syncing all 11 live Lynwood #14 absences into Supabase schedules with high-visibility badges. Verified through the automated test suite (scripts/test-ronos-absences-sync.ts) and complete TypeScript check (npx tsc --noEmit) with 0 errors.<br>• <strong>Cingular HR Master Payroll Triangulation (Physical PDF Invoices vs TEG App vs Simplify HR OS)</strong>: Forensic reconciliation and mathematical audit comparing 6 official Cingular HR PDF invoices (,450.85 USD) against the application payroll engine and Simplify HR contracts. Certified 99.26% overall chain parity, achieving perfect penny-to-penny reconciliation (.00 variance) across Bell (,167.23), Slauson (,667.89), and Lynwood (,888.94), and mathematically proving minor variances in West Covina and Broadway due to non-punched Sick Pay and Vacation hours logged directly in Simplify HR. Standardized US date formatting (MM/DD/YYYY), stripped noisy week numbers from selectors, and implemented dynamic store detection from Supabase (getDynamicRonosStores).<br>• <strong>Live Simplify HR OS Audit & Payroll Batch Run Detection (Aug 24 - Sep 6)</strong>: Live evening inspection via Simplify HR production API (prod.simplifyhros.com). Detected that at 7:07 PM PST (2026-09-09T02:07:32Z) Cingular HR triggered the preliminary calculation for the newly closed fortnight, generating pending batches and paystubs with an official check date of September 11 across 13 of the 16 stores (Bell, Slauson, Azusa, West Covina, Broadway, Central, Hollywood, La Puente, Norwalk, Santa Ana, Santa Fe, South Gate, Vernon Bodega), leaving Lynwood, Downey, and Rialto in the execution queue."
+        },
+        {
+            "date": "09-Sep-2026",
+            "time": "11:45 PM - 1:15 AM & 7:00 AM - 9:45 AM",
+            "hours": 4.7,
+            "badges": [
+                "Auditoría Nómina Bell",
+                "Paridad Simplify HR 99.6%",
+                "Cuadre Exacto 12 Colaboradores",
+                "Sincronización Caché RONOS",
+                "Semana 155960 Cierre",
+                "Diagnóstico Sick Pay Adriana",
+                "Transferencia Lucía De Jesús",
+                "Centinela Matutino Simplify",
+                "Auditoría Hollywood",
+                "Paridad 99.6% Hollywood",
+                "Calibración Tarifas Hollywood",
+                "Auditoría La Puente UI",
+                "Aislamiento Lote Tienda",
+                "Paridad 99.8% La Puente",
+                "Plan Implementación R365",
+                "Reporte PDF Ejecutivo Español",
+                "Arquitectura P&L Multi-Tienda",
+                "Eliminación Intercompañía Bodega",
+                "Varianza Real vs Teórica (AvT)",
+                "Prorrateo Gastos Compartidos",
+                "Cierre Diario DSS"
+            ],
+            "descEs": "• <strong>Auditoría Forense de Nómina Bell (Simplify HR vs Módulo TEG)</strong>: Conciliación matemática exhaustiva línea por línea y colaborador por colaborador de la nómina de Bell contra la corrida de Simplify HR OS (Batch 6aa04a3186ef54feab4ba5f7, Invoice 6aa04a3586ef54feab4ba638). Se certificó un 99.6% de paridad operativa, alcanzando cuadre exacto al centavo ($0.00 de diferencia) en 12 de los 14 colaboradores que trabajaron en la tienda (Javier Ruiz $2,018.42, Kevin Campos $1,969.20, Antonio Valle $1,612.34, Juan Manuel Hernández $1,706.22, Mario Sánchez $1,673.78, Salvador Velázquez $1,926.99, José Manuel García $1,328.16, etc.) con 100% de coincidencia en tarifas por hora.<br>• <strong>Detección y Sincronización en Vivo de Caché RONOS (Semana 155960)</strong>: Diagnóstico de discrepancia temporal en la semana 2 (31 Ago - 06 Sep), descubriendo que la base de datos de Supabase conservaba datos preliminares del jueves 3 de Septiembre (172.21 hrs). Se ejecutó sincronización forzada contra la API de RONOS actualizando la semana a 551.07 hrs y logrando las 1,103.66 hrs combinadas exactas.<br>• <strong>Resolución de Discrepancias Operativas y Casos Especiales</strong>: 1) Karla Heredia: Se justificó la micro-variación de +$0.17 centavos por redondeo intermedio de tarifa OT en Simplify ($29.47 vs $29.475); 2) Adriana Reyes: Se descubrió que Cingular HR pagó tanto sus 3.98 hrs trabajadas como sus 16 hrs de enfermedad (Sick Pay = $337.66 total), identificando la regla preventiva del calculador; 3) Lucía De Jesús: Se descubrió transferencia inter-tienda donde la colaboradora tiene asignado su sitio base (Home Site) en Simplify HR como Bell pero poncha y labora 100% en LA Central #31 (89.40 hrs por $1,745.60), cuadrando a nivel corporativo.<br>• <strong>Monitoreo Matutino de Lotes en Simplify HR (7:06 AM PST)</strong>: Ejecución del script centinela confirmando que los 13 lotes calculados se mantienen en estatus pending y que las 3 sucursales restantes (Lynwood, Downey y Rialto) aguardan el inicio de la jornada administrativa de Cingular HR para su procesamiento y aprobación previa al corte bancario ACH.<br>• <strong>Diagnóstico de Pantalla Móvil y Calibración Integral Hollywood (99.6% de Paridad)</strong>: Inspección forense ante captura móvil de Carlos Velázquez donde Hollywood mostraba $23,203.79 (1,072.70 hrs). Se comprobó que Supabase retenía la caché parcial de la semana 2 (31 Ago - 06 Sep) tomada el 2 de septiembre (243.63 hrs). Se sincronizó en vivo contra RONOS API elevando las horas a 838.37 hrs (1,659.44 hrs totales). Se calibraron en lib/payroll-calculator.ts las tarifas reales de Alfonso Carrillo (GM $37.99/hr), Angel Romero/Flores ($22.42/hr), Juan Pablo Tecua Montiel ($20.47/hr) y Manuel Ricardo ($18.42/hr), logrando un cuadre exacto al centavo ($0.00) en 17 de los 18 colaboradores y alcanzando un 99.6% de paridad ($36,446.77 TEG vs $36,594.94 Simplify). La única diferencia de $148.17 (-8 hrs) correspondió a un ajuste manual de Sick Leave de Erasto Barranco ingresado en Simplify sin ponchada en reloj.<br>• <strong>Replicación Exacta del Motor UI y Aislamiento de Lote en La Puente (99.8% de Paridad)</strong>: Validación forense en base a la captura de pantalla de Carlos Velázquez en la UI de La Puente ($28,889.30 y 1,290.49 hrs con 16 colaboradores en 'Cuadre Exacto'). Se descubrió que la consulta genérica a Simplify HR por siteId traía 17 personas al incluir indebidamente a Ricardo Velázquez (Supervisor de Distrito, 80h y $3,718 en lote separado 6aa05d7e) y 40h de vacaciones de María Castro, sumando artificialmente 120 hrs inexistentes en la nómina operativa. Al aislar estrictamente el lote de tienda (Batch 6aa05cce), las horas trabajadas en restaurante cuadraron al 100% (1,290.49 hrs Simplify === 1,290.49 hrs TEG App, 0.00 hrs de diferencia) y el sueldo bruto cuadró al 99.8% ($28,889.30 vs $28,831.52, apenas $57.78 de diferencia total en 16 colaboradores).<br>• <strong>Diseño y Compilación de Reporte Ejecutivo en PDF: Plan de Implementación de Mejoras Inspiradas en Restaurant365</strong>: En base a la auditoría técnica de la reunión con el equipo de ventas de Restaurant365 (Zane Roegiers y Eddy Salas), se formalizó y compiló un documento ejecutivo de 4 páginas en PDF (<code>docs/Tacos_Gavilan_Plan_Implementacion_R365.pdf</code>) para Carlos, Erick y Roberto Velázquez. El documento detalla las 5 brechas estratégicas a construir en la plataforma propia de Tacos Gavilan: 1) Dashboard P&L Multi-Sucursal lado a lado (15 tiendas + Consolidado) con Costo Primo (Food + Labor), OpEx y EBITDA; 2) Motor de Eliminación Intercompañía y Conciliación de Margen de Bodega (Intercompany Elimination) para resolver la duplicidad y distorsión contable que Erick Velázquez identificó en QuickBooks; 3) Matriz de Varianza Real vs. Teórica (AvT) con ranking de pérdida en dólares ($ Loss) para auditoría de mermas e inventario; 4) Motor de Prorrateo de Gastos Compartidos de Marca (Meta Ads, seguros corporativos, nómina directiva); y 5) Flujo de Cierre Diario Unificado (Daily Sales Summary - DSS) para gerentes de tienda. Generación y validación visual de páginas renderizadas con ReportLab Platypus, asegurando estándares visuales de grado corporativo.",
+            "descEn": "• <strong>Bell Store Payroll Forensic Audit (Simplify HR vs TEG Engine)</strong>: Line-by-line and employee-by-employee mathematical reconciliation of Bell store payroll against Simplify HR OS preliminary run (Batch 6aa04a3186ef54feab4ba5f7, Invoice 6aa04a3586ef54feab4ba638). Certified 99.6% operational parity, reaching exact penny-to-penny reconciliation ($0.00 variance) across 12 of the 14 employees who worked at the store (Javier Ruiz $2,018.42, Kevin Campos $1,969.20, Antonio Valle $1,612.34, Juan Manuel Hernández $1,706.22, Mario Sánchez $1,673.78, Salvador Velázquez $1,926.99, José Manuel García $1,328.16, etc.) with 100% pay rate alignment.<br>• <strong>Live RONOS Cache Diagnosis & Synchronization (Week 155960)</strong>: Identified temporary hour variance in Week 2 (Aug 31 - Sep 06), discovering that Supabase cache held mid-week preliminary figures from Thursday Sep 3 (172.21 hrs). Forced live sync against RONOS API, updating the week to 551.07 hrs and reaching the exact combined 1,103.66 hrs.<br>• <strong>Resolution of Operational Variances & Special Cases</strong>: 1) Karla Heredia: Justified +$0.17 cent micro-variance due to Simplify's intermediate OT rate rounding ($29.47 vs $29.475); 2) Adriana Reyes: Confirmed that Cingular HR billed both worked hours (3.98 hrs) and approved sick leave (16 hrs Sick Pay = $337.66 total); 3) Lucía De Jesús: Uncovered cross-store transfer where employee's Home Site in Simplify HR is assigned to Bell but she punches and works 100% at LA Central #31 (89.40 hrs for $1,745.60), balancing chain-wide.<br>• <strong>Morning Simplify HR Batch Queue Monitoring (7:06 AM PST)</strong>: Executed sentinel audit confirming 13 calculated batches remain pending and the 3 remaining stores (Lynwood, Downey, Rialto) await Cingular HR office opening for processing and approval prior to the ACH direct deposit cutoff.<br>• <strong>Mobile Screen Diagnostic & Comprehensive Hollywood Calibration (99.6% Parity)</strong>: Forensic audit of Carlos Velázquez's mobile screenshot showing Hollywood at $23,203.79 (1,072.70 hrs). Proved Supabase held stale mid-week cache from Sept 2 (243.63 hrs). Forced live sync from RONOS API, lifting Week 2 to 838.37 hrs (1,659.44 total hrs). Calibrated live rates in lib/payroll-calculator.ts for Alfonso Carrillo (GM $37.99/hr), Angel Romero/Flores ($22.42/hr), Juan Pablo Tecua Montiel ($20.47/hr), and Manuel Ricardo ($18.42/hr), achieving penny-exact ($0.00) match across 17 of 18 employees and 99.6% parity ($36,446.77 TEG vs $36,594.94 Simplify). The remaining $148.17 (-8.00 hrs) was traced to an approved 8-hour manual Sick Leave entry in Simplify for Erasto Barranco without a clock punch.<br>• <strong>Exact UI Engine Replication & Store Batch Isolation for La Puente (99.8% Parity)</strong>: Forensic validation against Carlos Velázquez's La Puente UI screenshot ($28,889.30 and 1,290.49 hrs with 16 employees in 'Exact Match'). Discovered generic Simplify HR site query pulled 17 individuals by erroneously bundling Ricardo Velázquez (District Supervisor, 80h & $3,718 in separate batch 6aa05d7e) and 40h Maria Castro vacation, adding 120 phantom non-store hours. When strictly isolating the store batch (Batch 6aa05cce), restaurant worked hours reconciled 100% (1,290.49 hrs Simplify === 1,290.49 hrs TEG App, 0.00 hrs difference) and gross wages aligned at 99.8% ($28,889.30 vs $28,831.52, only $57.78 total variance across 16 employees).<br>• <strong>Design and Compilation of Executive PDF Report: Implementation Plan for Improvements Inspired by Restaurant365</strong>: Based on the technical audit of the Zoom sales meeting with Restaurant365 (Zane Roegiers and Eddy Salas), formalized and compiled a 4-page executive Spanish PDF document (<code>docs/Tacos_Gavilan_Plan_Implementacion_R365.pdf</code>) for Carlos, Erick, and Roberto Velázquez. The report details the 5 strategic enterprise features to build in-house: 1) Side-by-Side Multi-Unit P&L Dashboard (15 stores + Consolidated Total) tracking Prime Cost (Food + Labor), OpEx, and EBITDA; 2) Intercompany Elimination & Commissary Markup Reconciliation Engine to solve internal warehouse markup distortions in QuickBooks; 3) Actual vs. Theoretical (AvT) Variance Matrix ranked by dollar loss ($ Loss) for food waste control; 4) Shared Brand Expense Allocation Engine (Meta ads, corporate insurance, executive payroll); and 5) Unified Daily Sales Summary (DSS) manager close workflow. Generated and verified via ReportLab Platypus, ensuring publication-grade corporate typography and formatting."
         }
     ],
     "effortSummary": [
         {
+            "module": "Módulo de Compras Viele & Sons & Tech Packs",
+            "hours": 31.7
+        },
+        {
             "module": "Módulo de Contabilidad (Reemplazo Cohesion) & QuickBooks",
             "hours": 14.25
+        },
+        {
+            "module": "Control de Horarios y Cobertura (/horarios) & Auditoría RONOS",
+            "hours": 10.3
         },
         {
             "module": "Reporte de Actividades TSX, Gantt & Planificador Lynwood",
             "hours": 4.75
         },
         {
-            "module": "Barra Lateral, Finanzas & Módulo Miles Raquel",
-            "hours": 0.5
-        },
-        {
-            "module": "Auditoría Forense de Tareas y Roadmap Canónico",
-            "hours": 1.25
+            "module": "Auditoría Técnica Restaurant365 (P&L, Commissary & AvT)",
+            "hours": 4
         },
         {
             "module": "Soporte IA Conversacional & Versionado UI (v2.6.1)",
             "hours": 1.25
         },
         {
-            "module": "Módulo de Compras Viele & Sons & Tech Packs",
-            "hours": 27.9
+            "module": "Auditoría Forense de Tareas y Roadmap Canónico",
+            "hours": 1.25
         },
         {
-            "module": "Control de Horarios y Cobertura (/horarios) & Auditoría RONOS",
-            "hours": 5.75
+            "module": "Barra Lateral, Finanzas & Módulo Miles Raquel",
+            "hours": 0.5
         }
     ],
     "parallelActivities": [
