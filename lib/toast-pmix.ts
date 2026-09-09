@@ -14,6 +14,7 @@
  * - Implementa un mecanismo de caché autosanable (`pmix_daily_cache`) para evitar llamadas duplicadas y costosas al API.
  * - Dado el límite estricto de Toast API, las fechas se procesan de forma estrictamente secuencial para evitar errores 429.
  * - [2026-07-26] BUGFIX: Evita usar caché de PMIX incompleta (creada por pedidos a futuro o catering antes del día operativo real) comprobando que `updated_at` (en Los Angeles time) no sea anterior a `business_date`.
+ * - [2026-09-09] BUGFIX & HARDENING: Escritura de caché convertida a síncrona (await) para evitar pérdida de promesas en serverless. Añadido candado de seguridad (Guard Clause) que bloquea Live Fetch a Toast en fechas con más de 120 días de antigüedad cuando no se solicite forzado explícito (skipCache).
  */
 import { getAuthToken, getDiningOptions } from './toast-api'
 import { getSupabaseAdminClient } from '@/lib/supabase'
@@ -171,6 +172,15 @@ export async function getProductMix(options: ProductMixOptions): Promise<Product
                     continue;
                 }
             }
+        }
+
+        // DEFENSIVE GUARD: Prevenir saturación de Toast API (Error 429 y Timeout 504)
+        // Si no está en caché y la fecha tiene más de 120 días, NO llamar a Toast en vivo a menos que se fuerce explícitamente (skipCache: true)
+        const targetDateObj = new Date(dateStr + 'T00:00:00')
+        const daysAgo = Math.floor((new Date(todayLa + 'T00:00:00').getTime() - targetDateObj.getTime()) / (1000 * 60 * 60 * 24))
+        if (!options.skipCache && daysAgo > 120) {
+            console.warn(`[PMIX LIVE FETCH BLOCKED] Fecha ${dateStr} (${daysAgo} días atrás) no está en caché. Se omite llamada a Toast API para evitar Error 429 y Timeout 504.`)
+            continue
         }
 
         console.log(`[PMIX LIVE FETCH] ${dateStr} (${businessDate})...`)
@@ -407,17 +417,16 @@ export async function getProductMix(options: ProductMixOptions): Promise<Product
             // But this is PMIX cache.
             console.log(`[PMIX Cache WRITE] Saving ${dayItems.length} items for ${dateStr} (${storeId})...`)
 
-            // Fire and forget
-            supabase.from('pmix_daily_cache').upsert({
+            // Write-through cache (awaited for serverless safety)
+            const { error: writeErr } = await supabase.from('pmix_daily_cache').upsert({
                 store_id: storeId,
                 business_date: dateStr,
                 items: dayItems,
                 updated_at: new Date().toISOString()
             }, { onConflict: 'store_id,business_date' })
-                .then(({ error }) => {
-                    if (error) console.error(`[PMIX Cache WRITE] Error for ${dateStr}:`, error)
-                    else console.log(`[PMIX Cache WRITE] Success for ${dateStr}`)
-                })
+
+            if (writeErr) console.error(`[PMIX Cache WRITE] Error for ${dateStr}:`, writeErr)
+            else console.log(`[PMIX Cache WRITE] Success for ${dateStr}`)
         }
     }
 

@@ -12,6 +12,7 @@
  * 
  * @notes
  * - La caché autosanable invalidará estos registros en futuras consultas si la fecha de actualización `updated_at` es anterior a la fecha operativa.
+ * - [2026-09-09] OPTIMIZATION: Removido el segundo upsert redundante a pmix_daily_cache ya que getProductMix persiste la data automáticamente con await.
  */
 import { NextResponse } from 'next/server'
 import { getProductMix } from '@/lib/toast-pmix'
@@ -65,17 +66,6 @@ export async function GET(request: Request) {
                         mergeDiningOptions: false,
                         skipCache: true
                     })
-
-                    if (items.length > 0) {
-                        const { error } = await supabase.from('pmix_daily_cache').upsert({
-                            store_id: store.external_id,
-                            business_date: dateStr,
-                            items: items,
-                            updated_at: new Date().toISOString()
-                        }, { onConflict: 'store_id,business_date' })
-
-                        if (error) throw error
-                    }
 
                     results.push({ store: store.name, date: dateStr, items: items.length, status: 'synced_and_saved' })
                 } catch (e: any) {

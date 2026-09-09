@@ -407,6 +407,16 @@ export const TOOL_DECLARATIONS = [
         limit: { type: 'NUMBER', description: 'Optional result limit (default 20)' }
       }
     }
+  },
+  {
+    name: 'check_system_health',
+    description: 'Check live system health for Supabase (database latency, storage vs 8GB spend cap, active connections) and Vercel (frontend status, latency). Can send an alert/report email to carlos@tacosgavilan.com if send_email is true.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        send_email: { type: 'BOOLEAN', description: 'Whether to send an immediate health summary email to carlos@tacosgavilan.com (default false)' }
+      }
+    }
   }
 ]
 
@@ -414,6 +424,7 @@ export const TOOL_DECLARATIONS = [
 export async function executeTool(name: string, args: any): Promise<string> {
   try {
     switch (name) {
+      case 'check_system_health': return await checkSystemHealthTool(args)
       case 'calculate_cingular_payroll': return await calculateCingularPayrollTool(args)
       case 'query_ronos_labor_audit': return await queryRonosLaborAudit(args)
       case 'query_supplier_prices': return await querySupplierPrices(args)
@@ -2222,4 +2233,54 @@ async function queryVieleProcurement(args: any): Promise<string> {
   return res
 }
 
+/**
+ * Centinela de Salud del Sistema (Supabase & Vercel)
+ */
+async function checkSystemHealthTool(args: any): Promise<string> {
+  try {
+    const { runSystemHealthCheck, sendHealthAlertEmail } = await import('@/lib/system-health-sentinel')
+    const report = await runSystemHealthCheck()
+    let emailStatus = ''
 
+    if (args?.send_email) {
+      const sent = await sendHealthAlertEmail(report, true)
+      emailStatus = sent
+        ? '\n\n📧 **Reporte de salud enviado exitosamente por correo a carlos@tacosgavilan.com**'
+        : '\n\n⚠️ No se pudo enviar el correo de alerta (verificar credenciales SMTP).'
+    }
+
+    const badge = report.overallStatus === 'HEALTHY'
+      ? '🟢 **ÓPTIMO / HEALTHY**'
+      : report.overallStatus === 'WARNING'
+        ? '🟡 **ADVERTENCIA / WARNING**'
+        : '🔴 **EMERGENCIA / CRITICAL**'
+
+    let msg = `### 🛡️ Estado de Salud del Sistema — Supabase & Vercel\n\n`
+    msg += `* **Estado General:** ${badge}\n`
+    msg += `* **Almacenamiento Supabase:** **${report.storage.estimatedTotalGb} GB** ocupados de **${report.storage.maxDiskGb} GB** (${report.storage.usagePercent}% de uso)\n`
+    msg += `* **Espacio Libre:** **${report.storage.headroomGb} GB** restantes antes del límite de Spend Cap (8.0 GB)\n`
+    msg += `* **Umbral Preventivo:** 6.0 GB (75%) | **Umbral Crítico:** 7.2 GB (90%)\n`
+    msg += `* **Latencia Supabase:** ${report.databaseLatencyMs} ms\n`
+    msg += `* **Vercel Producción:** ${report.vercelProduction.isHealthy ? '200 OK' : 'ERROR'} (Latencia: ${report.vercelProduction.latencyMs} ms)\n`
+    msg += `* **Sincronización Toast:** ${report.toastSync.activeStoresToday} sucursales con ventas registradas hoy\n\n`
+
+    if (report.alerts.length > 0) {
+      msg += `⚠️ **Alertas detectadas:**\n`
+      for (const a of report.alerts) {
+        msg += `- ${a}\n`
+      }
+      msg += '\n'
+    }
+
+    if (report.recommendedAction) {
+      msg += `> 🛠️ **Acción Requerida:** ${report.recommendedAction}\n`
+    } else {
+      msg += `> ✅ **Diagnóstico:** Los servidores cuentan con suficiente holgura de memoria, CPU y almacenamiento. No se requiere comprar recursos ni ejecutar acciones en este momento.\n`
+    }
+
+    msg += emailStatus
+    return msg
+  } catch (err: any) {
+    return `Error ejecutando diagnóstico de salud: ${err.message}`
+  }
+}

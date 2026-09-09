@@ -546,6 +546,16 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                         ? 'Periodic staff performance reviews and skills evaluation (Evaluación de desempeño del personal)'
                         : 'Evaluación periódica de desempeño y habilidades del personal de tienda'
                 },
+                {
+                    name: t('items.system_health'),
+                    plainName: 'Salud del Sistema',
+                    path: '/admin/salud-sistema',
+                    icon: <Shield size={20} />,
+                    roles: ['admin'],
+                    tooltip: language === 'en'
+                        ? 'Real-time infrastructure health, Supabase disk vs 8GB spend cap, and automated email alerts (Guardián del Sistema)'
+                        : 'Monitoreo en tiempo real de infraestructura, almacenamiento vs Spend Cap y alertas automáticas por correo'
+                },
             ]
         }
     ]

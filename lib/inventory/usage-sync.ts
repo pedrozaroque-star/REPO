@@ -17,6 +17,9 @@
  * @dataFlow
  *   Toast PMIX (`pmix_daily_cache`) → Recetas (Standard + Virtual) → Conversión de Unidades
  *   → inventory_usage_log (Supabase)
+ *
+ * @notes
+ *   - [2026-09-09] BUGFIX: Corregido error en fallback de caché donde se consultaba la columna inexistente 'pmix_data' en lugar de 'items'.
  */
 
 import { getSupabaseAdminClient } from '@/lib/supabase'
@@ -146,13 +149,15 @@ export async function syncDailyInventoryUsage(
     // Intentar leer de cache
     const { data: cacheRow } = await supabase
       .from('pmix_daily_cache')
-      .select('pmix_data')
+      .select('items')
       .eq('store_id', toastExternalId)
       .eq('business_date', businessDate)
       .single()
 
-    if (cacheRow?.pmix_data) {
-      pmixItems = typeof cacheRow.pmix_data === 'string' ? JSON.parse(cacheRow.pmix_data) : cacheRow.pmix_data
+    if (cacheRow?.items) {
+      pmixItems = Array.isArray(cacheRow.items)
+        ? cacheRow.items
+        : (typeof cacheRow.items === 'string' ? JSON.parse(cacheRow.items) : [])
     }
   }
 
