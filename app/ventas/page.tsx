@@ -8,7 +8,7 @@
  * - Dynamic dining options mapping and delivery channel segregation (Uber, DoorDash, Grubhub).
  * @dataFlow
  * - Client -> /api/ventas (Toast + Supabase Cache) -> Live Projections -> Food Cost Sync -> Recharts Dashboard.
- * @notes Self-heals historical discrepancies silently via /api/integrity/verify-day.
+ * @notes Self-heals historical discrepancies silently via /api/integrity/verify-day. Validates food cost cache store completeness (>= 14 stores, FC% > 0) before accepting cache.
  */
 'use client'
 
@@ -662,9 +662,20 @@ function SalesPageContent() {
                 (new Date(eDate + 'T00:00:00').getTime() - new Date(sDate + 'T00:00:00').getTime()) / (1000 * 60 * 60 * 24)
             ) + 1
 
+            const cachedStoresCount = Object.keys(cacheJson.byStore || {}).length
+
+            // Cache is considered complete only if:
+            // 1) All days in range are represented
+            // 2) At least 14 stores are present (out of 15 active stores in Tacos Gavilan)
+            // 3) Food cost percentage > 0 and totalSales > 0
+            const isCacheComplete = cacheJson.daysWithData >= rangeDays &&
+                cachedStoresCount >= 14 &&
+                cacheJson.costPercentage > 0 &&
+                cacheJson.totalSales > 0
+
             if (cacheJson.totalCost > 0) {
                 if (signal?.aborted) return
-                // Cache hit (full or partial) — use pre-calculated data immediately
+                // Cache hit (full or partial) — use pre-calculated data immediately for instant display
                 setFoodCostData({
                     totalCost: cacheJson.totalCost,
                     totalSales: cacheJson.totalSales,
@@ -672,24 +683,22 @@ function SalesPageContent() {
                     byStore: cacheJson.byStore || {},
                     byStoreName: cacheJson.byStoreName || {}
                 })
-                console.log(`[FoodCost] ⚡ Cache hit: ${cacheJson.daysWithData}/${cacheJson.totalDaysInRange} days`)
+                console.log(`[FoodCost] ⚡ Cache hit: ${cacheJson.daysWithData}/${cacheJson.totalDaysInRange} days (${cachedStoresCount} stores, FC: ${cacheJson.costPercentage}%)`)
 
-                // If cache is complete (all days covered), we're done
-                if (cacheJson.daysWithData >= rangeDays) {
+                // If cache is complete (all days covered AND all stores present with valid sales/FC), we're done
+                if (isCacheComplete) {
                     return
                 }
-                // Otherwise, fall through to fill remaining gaps (below)
+                console.log(`[FoodCost] ⚠️ Cache is partial (${cachedStoresCount}/15 stores, FC: ${cacheJson.costPercentage}%). Refreshing live calculation...`)
             }
 
-            // Step 2A: Single-day cache miss — direct full calculation (proven, fast path)
+            // Step 2A: Single-day cache miss or partial cache — direct full calculation (proven, fast path)
             // This handles "Today" and "Yesterday" reliably by reading the API response directly
             if (sDate === eDate) {
-                console.log(`[FoodCost] 🔄 Cache miss for ${sDate}, falling back to full calculation...`)
+                console.log(`[FoodCost] 🔄 Cache miss or partial for ${sDate}, falling back to full calculation...`)
                 const fullRes = await fetch(`/api/inventory/food-cost?storeId=all&startDate=${sDate}&endDate=${eDate}`, { signal })
                 const fullJson = await fullRes.json()
                 
-                if (signal?.aborted) return
-
                 if (signal?.aborted) return
 
                 if (fullJson.data && fullJson.data.length > 0) {
@@ -737,14 +746,15 @@ function SalesPageContent() {
                     cursor.setDate(cursor.getDate() + 1)
                 }
 
-                // For each date without cache, trigger full calculation (auto-caches via write-through)
+                // For each date without complete cache, trigger full calculation (auto-caches via write-through)
                 let filledAny = false
                 for (const date of allDates) {
-                    // Quick check: does this specific day have cache?
+                    // Quick check: does this specific day have complete cache?
                     const dayCheck = await fetch(`/api/inventory/food-cost-cache?startDate=${date}&endDate=${date}`)
                     const dayJson = await dayCheck.json()
-                    if (dayJson.totalCost > 0) {
-                        continue // Already cached, skip
+                    const dayStoresCount = Object.keys(dayJson.byStore || {}).length
+                    if (dayJson.totalCost > 0 && dayStoresCount >= 14 && dayJson.costPercentage > 0) {
+                        continue // Already cached and complete, skip
                     }
 
                     // Cache miss for this day — calculate (also writes to cache via write-through)

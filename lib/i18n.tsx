@@ -29,6 +29,21 @@ export const dictionaries: Record<Language, Dictionary> = {
             search: 'Buscar',
             clear: 'Limpiar',
         },
+        changelog: {
+            modal_title: 'Historial de Versiones y Novedades',
+            modal_subtitle: 'Registro canónico de lanzamientos, arquitectura y mejoras de SM TEG',
+            current_version: 'Versión Actual',
+            latest_badge: 'ACTUAL',
+            view_history: 'Ver Registro de Cambios',
+            system_status: 'Estado de Producción',
+            close: 'Cerrar',
+            key_milestones: 'Hitos Operativos y Técnicos',
+            released_on: 'Publicado el',
+            stage_production: 'Producción Activa',
+            branch_label: 'Rama Principal (main)',
+            production_desc: 'Despliegues continuos validados sin interrupción de servicio',
+            total_releases: 'Versiones Registradas',
+        },
         // TOP NAV
         nav: {
             title: 'Sistema de Monitoreo',
@@ -3469,6 +3484,21 @@ export const dictionaries: Record<Language, Dictionary> = {
             save: 'Save',
             search: 'Search',
             clear: 'Clear',
+        },
+        changelog: {
+            modal_title: 'Version History & Release Notes',
+            modal_subtitle: 'Canonical release log, architecture, and system improvements',
+            current_version: 'Current Version',
+            latest_badge: 'CURRENT',
+            view_history: 'View Changelog',
+            system_status: 'Production Status',
+            close: 'Close',
+            key_milestones: 'Operational & Technical Milestones',
+            released_on: 'Released on',
+            stage_production: 'Active Production',
+            branch_label: 'Official Branch (main)',
+            production_desc: 'Continuous deployments validated with zero downtime',
+            total_releases: 'Recorded Releases',
         },
         // TOP NAV
         nav: {

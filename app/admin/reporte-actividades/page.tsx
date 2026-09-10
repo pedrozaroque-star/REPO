@@ -23,6 +23,8 @@
 import React, { useState, useMemo } from 'react';
 import ProtectedRoute from '@/components/ProtectedRoute';
 import { useLanguage } from '@/lib/i18n';
+import { SYSTEM_VERSION } from '@/lib/version';
+import { ChangelogModal } from '@/components/ChangelogModal';
 import {
     MONTHLY_REPORTS,
     PLANNER_SHIFTS_MAP,
@@ -219,8 +221,9 @@ function cleanText(text: string): string {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function ExecutiveReportDashboard() {
-    const { language } = useLanguage();
+    const { t, language } = useLanguage();
     const [selectedMonth, setSelectedMonth] = useState<MonthKey>('septiembre');
+    const [changelogOpen, setChangelogOpen] = useState(false);
     const [activeTab, setActiveTab] = useState<TabKey>('actividades');
     const [searchQuery, setSearchQuery] = useState('');
     const [selectedModuleFilter, setSelectedModuleFilter] = useState<string>('todos');
@@ -349,9 +352,15 @@ function ExecutiveReportDashboard() {
                                     <span className="text-[11px] font-black tracking-widest text-slate-500 dark:text-slate-400 uppercase">
                                         Tacos Gavilan • Dirección de Sistemas & Desarrollo
                                     </span>
-                                    <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-orange-100 dark:bg-orange-950/80 text-orange-700 dark:text-orange-300 border border-orange-300 dark:border-orange-700">
-                                        SM TEG v2.6.1
-                                    </span>
+                                    <button
+                                        type="button"
+                                        onClick={() => setChangelogOpen(true)}
+                                        className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-orange-100 dark:bg-orange-950/80 text-orange-700 dark:text-orange-300 border border-orange-300 dark:border-orange-700 hover:bg-orange-200 dark:hover:bg-orange-900/90 transition-all cursor-pointer flex items-center gap-1 group shadow-2xs"
+                                        title={t('changelog.view_history')}
+                                    >
+                                        <span>{SYSTEM_VERSION.brand} {SYSTEM_VERSION.version}</span>
+                                        <Sparkles className="w-2.5 h-2.5 opacity-70 group-hover:opacity-100 transition-opacity" />
+                                    </button>
                                 </div>
                                 <h1 className="text-base sm:text-lg font-black text-slate-900 dark:text-white tracking-tight">
                                     {language === 'en' ? 'Executive Development & Operational Roadmap' : 'Reporte Ejecutivo de Actividades & Auditoría de Roadmap'}
@@ -526,13 +535,13 @@ function ExecutiveReportDashboard() {
                         </div>
                         <div className="space-y-0.5">
                             <div className="text-base font-black text-slate-900 dark:text-white truncate">
-                                {selectedMonth === 'septiembre' && 'Contabilidad Cohesion & v2.6.1'}
+                                {selectedMonth === 'septiembre' && `Cohesion, Viele, RONOS & ${SYSTEM_VERSION.version}`}
                                 {selectedMonth === 'agosto' && 'RONOS HR, MilesIQ & Viele v3'}
                                 {selectedMonth === 'julio' && 'Preparador KDS & Tableros TV'}
                                 {selectedMonth === 'junio' && 'Telemetría Drive-Thru Nitro'}
                             </div>
                             <div className="text-xs text-slate-400 font-medium truncate">
-                                {selectedMonth === 'septiembre' && 'Validación dual QBO y catálogo local'}
+                                {selectedMonth === 'septiembre' && 'Compras V&S, ausencias RONOS, QBO y centinela'}
                                 {selectedMonth === 'agosto' && 'Auditoría Cingular, nóminas y geofencing'}
                                 {selectedMonth === 'julio' && 'Menús digitales y órdenes automáticas'}
                                 {selectedMonth === 'junio' && 'Integración sensores de ventanilla'}
@@ -1021,6 +1030,12 @@ function ExecutiveReportDashboard() {
                     </div>
                 )}
             </main>
+
+            {/* ── Modal de Historial de Versiones y Changelog ── */}
+            <ChangelogModal
+                isOpen={changelogOpen}
+                onClose={() => setChangelogOpen(false)}
+            />
         </div>
     );
 }

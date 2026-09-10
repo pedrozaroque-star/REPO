@@ -18,6 +18,7 @@ import {
 import { motion, AnimatePresence } from 'framer-motion'
 import { useLanguage } from '@/lib/i18n'
 import { SYSTEM_VERSION } from '@/lib/version'
+import { ChangelogModal } from './ChangelogModal'
 
 const BasecampIcon = ({ size = 20 }: { size?: number }) => (
     <svg 
@@ -101,6 +102,7 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
         operaciones: true, finanzas: true, analisis: false, inventario: false, equipo: false, gestion: false,
     })
     const [userDropdownOpen, setUserDropdownOpen] = useState(false)
+    const [changelogOpen, setChangelogOpen] = useState(false)
     const dropdownRef = useRef<HTMLDivElement>(null)
     const mobileDropdownRef = useRef<HTMLDivElement>(null)
 
@@ -833,8 +835,16 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
 
                     <div className="h-px bg-slate-100 dark:bg-slate-800 mx-1" />
 
-                    {/* ── App Info & Version Counter ── */}
-                    <div className="px-3 py-2 my-1 mx-1 rounded-xl bg-gradient-to-r from-emerald-50 via-teal-50/70 to-emerald-50 dark:from-emerald-950/50 dark:via-teal-950/30 dark:to-emerald-950/50 border border-emerald-300/80 dark:border-emerald-700/70 flex items-center justify-between shadow-xs">
+                    {/* ── App Info & Version Counter (Click to open Changelog Modal) ── */}
+                    <button
+                        type="button"
+                        onClick={() => {
+                            setChangelogOpen(true)
+                            setUserDropdownOpen(false)
+                        }}
+                        className="w-full text-left px-3 py-2 my-1 mx-1 rounded-xl bg-gradient-to-r from-emerald-50 via-teal-50/70 to-emerald-50 dark:from-emerald-950/50 dark:via-teal-950/30 dark:to-emerald-950/50 border border-emerald-300/80 dark:border-emerald-700/70 flex items-center justify-between shadow-xs hover:border-emerald-400 dark:hover:border-emerald-500 hover:shadow-sm transition-all cursor-pointer group"
+                        title={t('changelog.view_history')}
+                    >
                         <div className="flex items-center gap-2">
                             <span className="relative flex h-2 w-2">
                                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
@@ -843,19 +853,20 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                             <div className="flex flex-col">
                                 <span className="text-[11px] font-black text-emerald-900 dark:text-emerald-200 tracking-tight flex items-center gap-1.5">
                                     {SYSTEM_VERSION.brand}
-                                    <span className="px-1.5 py-0.2 bg-emerald-600 text-white dark:bg-emerald-500 dark:text-slate-950 rounded-md text-[9px] font-mono font-black shadow-xs">
+                                    <span className="px-1.5 py-0.2 bg-emerald-600 text-white dark:bg-emerald-500 dark:text-slate-950 rounded-md text-[9px] font-mono font-black shadow-xs group-hover:scale-105 transition-transform">
                                         {SYSTEM_VERSION.version}
                                     </span>
                                 </span>
-                                <span className="text-[9px] font-semibold text-emerald-700 dark:text-emerald-400">
+                                <span className="text-[9px] font-semibold text-emerald-700 dark:text-emerald-400 flex items-center gap-1">
                                     {language === 'es' ? SYSTEM_VERSION.labelEs : SYSTEM_VERSION.labelEn}
+                                    <Sparkles className="w-2.5 h-2.5 opacity-60 group-hover:opacity-100 transition-opacity" />
                                 </span>
                             </div>
                         </div>
-                        <span className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded-md bg-white/90 dark:bg-slate-900/90 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 shadow-2xs">
+                        <span className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded-md bg-white/90 dark:bg-slate-900/90 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 shadow-2xs group-hover:bg-emerald-100 dark:group-hover:bg-emerald-900/50 transition-colors">
                             {SYSTEM_VERSION.year}
                         </span>
-                    </div>
+                    </button>
 
                     <div className="h-px bg-slate-100 dark:bg-slate-800 mx-1" />
 
@@ -1125,8 +1136,16 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
 
                             <div className="h-px bg-slate-100 dark:bg-slate-800 mx-1" />
 
-                            {/* ── App Info & Version Counter ── */}
-                            <div className="px-3 py-2 my-1 mx-1 rounded-xl bg-gradient-to-r from-emerald-50 via-teal-50/70 to-emerald-50 dark:from-emerald-950/50 dark:via-teal-950/30 dark:to-emerald-950/50 border border-emerald-300/80 dark:border-emerald-700/70 flex items-center justify-between shadow-xs">
+                            {/* ── App Info & Version Counter (Click to open Changelog Modal) ── */}
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setChangelogOpen(true)
+                                    setUserDropdownOpen(false)
+                                }}
+                                className="w-full text-left px-3 py-2 my-1 mx-1 rounded-xl bg-gradient-to-r from-emerald-50 via-teal-50/70 to-emerald-50 dark:from-emerald-950/50 dark:via-teal-950/30 dark:to-emerald-950/50 border border-emerald-300/80 dark:border-emerald-700/70 flex items-center justify-between shadow-xs hover:border-emerald-400 dark:hover:border-emerald-500 hover:shadow-sm transition-all cursor-pointer group"
+                                title={t('changelog.view_history')}
+                            >
                                 <div className="flex items-center gap-2">
                                     <span className="relative flex h-2 w-2">
                                         <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
@@ -1135,19 +1154,20 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                                     <div className="flex flex-col">
                                         <span className="text-[11px] font-black text-emerald-900 dark:text-emerald-200 tracking-tight flex items-center gap-1.5">
                                             {SYSTEM_VERSION.brand}
-                                            <span className="px-1.5 py-0.2 bg-emerald-600 text-white dark:bg-emerald-500 dark:text-slate-950 rounded-md text-[9px] font-mono font-black shadow-xs">
+                                            <span className="px-1.5 py-0.2 bg-emerald-600 text-white dark:bg-emerald-500 dark:text-slate-950 rounded-md text-[9px] font-mono font-black shadow-xs group-hover:scale-105 transition-transform">
                                                 {SYSTEM_VERSION.version}
                                             </span>
                                         </span>
-                                        <span className="text-[9px] font-semibold text-emerald-700 dark:text-emerald-400">
+                                        <span className="text-[9px] font-semibold text-emerald-700 dark:text-emerald-400 flex items-center gap-1">
                                             {language === 'es' ? SYSTEM_VERSION.labelEs : SYSTEM_VERSION.labelEn}
+                                            <Sparkles className="w-2.5 h-2.5 opacity-60 group-hover:opacity-100 transition-opacity" />
                                         </span>
                                     </div>
                                 </div>
-                                <span className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded-md bg-white/90 dark:bg-slate-900/90 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 shadow-2xs">
+                                <span className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded-md bg-white/90 dark:bg-slate-900/90 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 shadow-2xs group-hover:bg-emerald-100 dark:group-hover:bg-emerald-900/50 transition-colors">
                                     {SYSTEM_VERSION.year}
                                 </span>
-                            </div>
+                            </button>
 
                             <div className="h-px bg-slate-100 dark:bg-slate-800 mx-1" />
 
@@ -1226,6 +1246,12 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                     </>
                 )}
             </AnimatePresence>
+
+            {/* ── Modal de Historial de Versiones y Changelog ── */}
+            <ChangelogModal
+                isOpen={changelogOpen}
+                onClose={() => setChangelogOpen(false)}
+            />
         </>
     )
 }

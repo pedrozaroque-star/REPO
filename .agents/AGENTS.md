@@ -119,7 +119,17 @@ El nombre oficial de la empresa y marca es estrictamente **Tacos Gavilan** (NUNC
      * **Badges**: Se unen sin duplicados.
 
 4. **Propagación a Producción**:
-   - Tras actualizar `scripts/[mes]_full_data.json`, el agente del Chat de Pendientes ejecuta `node scripts/export-reports-data-ts.js` para compilar `lib/reports-data.ts`, verifica TypeScript (`npx tsc --noEmit`) y realiza commit/push.
+   - Tras actualizar `scripts/[mes]_full_data.json`, el agente del Chat de Pendientes ejecuta `node scripts/export-reports-data-ts.js` para compilar `lib/reports-data.ts`, verifica TypeScript (`npx tsc --noEmit`) y realiza commit/push cuando sea solicitado por el usuario.
+
+5. **Versionado Automático SemVer y Registro en Changelog (`lib/version.ts`)**:
+   - En cada ciclo de consolidación de actividades o previo a cada commit/push autorizado por el usuario, el agente del Chat de Pendientes TIENE LA OBLIGACIÓN AUTOMÁTICA de:
+     * Auditar los commits y desarrollos completados desde el último hito.
+     * Incrementar la versión SemVer en `lib/version.ts` (`v[MAJOR].[MINOR].[PATCH]`) según la magnitud del cambio:
+       - **MINOR** (`v2.X.0`): Nuevos módulos funcionales completos (ej. Viele & Sons, Salud del Sistema).
+       - **PATCH** (`v2.X.X`): Mejoras, puentes, calibraciones y correcciones operativas.
+     * Agregar el nuevo bloque estructurado en `VERSION_HISTORY` con títulos y viñetas descriptivas en español e inglés.
+     * Sincronizar la versión en el prompt del Asistente IA (`app/api/support-chat/route.ts`).
+   - Esto garantiza que el número de versión y el modal visual de Changelog se mantengan permanentemente actualizados en tiempo real sin requerir recordatorios del usuario.
 
 ---
 

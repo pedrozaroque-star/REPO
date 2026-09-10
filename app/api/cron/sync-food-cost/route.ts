@@ -143,10 +143,13 @@ export async function GET(request: Request) {
                 // 4. Llamar a la API de food-cost que ya hace upsert atómico internamente
 
                 // 5. Llamar a la API de food-cost que ya tiene todo el cálculo + write-through
-                // Construimos la URL interna (mismo servidor)
-                const baseUrl = process.env.VERCEL_URL 
-                    ? `https://${process.env.VERCEL_URL}` 
-                    : 'http://localhost:3000'
+                const baseUrl = process.env.NEXT_PUBLIC_APP_URL 
+                    ? process.env.NEXT_PUBLIC_APP_URL.replace(/\/$/, '')
+                    : (process.env.VERCEL_PROJECT_PRODUCTION_URL 
+                        ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` 
+                        : (process.env.VERCEL_URL 
+                            ? `https://${process.env.VERCEL_URL}` 
+                            : 'http://localhost:3000'))
                 
                 const apiUrl = `${baseUrl}/api/inventory/food-cost?storeId=all&startDate=${dateStr}&endDate=${dateStr}`
                 

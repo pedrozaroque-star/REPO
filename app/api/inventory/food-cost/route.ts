@@ -26,6 +26,7 @@
  * @notes
  *   - [2026-06-01] FIX: costs.ts clasificaba 'raw'/'cooked' como packaging → $0 food cost en party trays.
  *   - [2026-06-01] net_sales en cache se toma de sales_daily_cache (no del PMIX) para paridad con Ventas.
+ *   - [2026-09-10] FIX: Write-through cache restricted to storeId='all' to prevent partial 1-store cache poisoning.
  *   - La normalización defensiva de modifiers (cap qty) protege contra cache corrupto antiguo.
  */
 import { NextRequest, NextResponse } from 'next/server'
@@ -648,8 +649,9 @@ export async function GET(request: NextRequest) {
                 salesNetSalesMap!.set(r.store_id, current + (Number(r.net_sales) || 0))
             })
 
-            // Write-through cache ONLY for single-day requests
-            if (startDate === endDate) {
+            // Write-through cache ONLY for single-day requests across ALL stores
+            // Prevents partial cache poisoning when querying an individual store
+            if (startDate === endDate && (!storeId || storeId === 'all')) {
                 const storeAgg = new Map<string, any>()
                 report.forEach(item => {
                     const sid = item.store_id || 'unknown'
