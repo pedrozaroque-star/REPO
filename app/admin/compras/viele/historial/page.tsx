@@ -53,6 +53,7 @@ interface AppOrder {
   linked_order_number?: string; order_date: string; ship_date: string; status: string;
   total_cases: number; subtotal_amount: number; tax_amount: number; total_amount: number;
   buyer_name: string; customer_po_no: string; created_at: string;
+  items_count?: number; total_catalog_items?: number;
 }
 interface AppOrderItem {
   id: number; item_code: string; description: string; uom: string; unit_price: number;
@@ -417,7 +418,14 @@ function OrderHistoryContent() {
                           <td className="py-3 px-4 text-center tabular-nums text-slate-700 text-xs font-medium">{formatUsDate(order.order_date)}</td>
                           <td className="py-3 px-4 text-center tabular-nums text-emerald-700 font-semibold text-xs">{formatUsDate(order.ship_date)}</td>
                           <td className="py-3 px-4 text-slate-700 text-xs font-bold">{order.buyer_name}</td>
-                          <td className="py-3 px-4 text-center tabular-nums font-bold text-amber-800">{formatNumber(order.total_cases)}</td>
+                          <td className="py-3 px-4 text-center tabular-nums">
+                            <span className="font-bold text-slate-800 text-xs">
+                              {order.items_count !== undefined ? `${order.items_count}/${order.total_catalog_items || 87}` : `${formatNumber(order.total_cases)}`}
+                            </span>
+                            <span className="text-[10px] text-slate-400 block font-normal">
+                              {formatNumber(order.total_cases)} {t('viele.historial.cases_short')}
+                            </span>
+                          </td>
                           <td className="py-3 px-4 text-right tabular-nums font-bold text-slate-900">{formatCurrency(order.total_amount)}</td>
                           <td className="py-3 px-4 text-center">
                             <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold ${order.status === 'cancelled' ? 'bg-rose-50 text-rose-700 border border-rose-200' : isConf ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-amber-50 text-amber-700 border border-amber-200'}`}>

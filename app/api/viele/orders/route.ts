@@ -76,7 +76,8 @@ export async function GET(req: Request) {
         buyer_name,
         customer_po_no,
         created_at,
-        stores (id, name, code)
+        stores (id, name, code),
+        viele_order_items (id)
       `)
       .order('created_at', { ascending: false });
 
@@ -102,7 +103,17 @@ export async function GET(req: Request) {
       return NextResponse.json({ success: false, error: error.message }, { status: 500 });
     }
 
-    return NextResponse.json({ success: true, count: data?.length || 0, orders: data });
+    const mappedOrders = (data || []).map((o: any) => {
+      const itemsCount = Array.isArray(o.viele_order_items) ? o.viele_order_items.length : 0;
+      const { viele_order_items, ...rest } = o;
+      return {
+        ...rest,
+        items_count: itemsCount,
+        total_catalog_items: 87
+      };
+    });
+
+    return NextResponse.json({ success: true, count: mappedOrders.length, orders: mappedOrders });
   } catch (err: any) {
     return NextResponse.json({ success: false, error: err.message }, { status: 500 });
   }
