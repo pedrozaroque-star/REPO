@@ -27,6 +27,10 @@ import { supabaseAdmin } from '@/lib/supabase'
 import { generateJournalLines, calculateExpectedCash, formatDocNumber } from '@/lib/accounting-journal'
 import type { SalesPacketData, SiteMappingConfig } from '@/lib/accounting-journal'
 import { fetchToastAccountingData } from '@/lib/toast-accounting'
+import { fetchToastData } from '@/lib/toast-api'
+
+export const dynamic = 'force-dynamic'
+export const maxDuration = 300
 
 export async function GET(request: NextRequest) {
   try {
@@ -117,9 +121,32 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to read sales cache', details: cacheErr.message }, { status: 500 })
     }
 
-    if (!salesCache || salesCache.length === 0) {
+    let activeSalesCache = salesCache || []
+    if (activeSalesCache.length === 0) {
+      console.log(`[Accounting] No sales cache for ${startDate} to ${endDate}. Auto-syncing from Toast API...`)
+      try {
+        await fetchToastData({
+          storeIds: 'all',
+          startDate,
+          endDate,
+          groupBy: 'day',
+          skipCache: true
+        })
+        const { data: refreshedCache } = await supabaseAdmin
+          .from('sales_daily_cache')
+          .select('*')
+          .in('store_id', allQueryIds)
+          .gte('business_date', startDate)
+          .lte('business_date', endDate)
+        activeSalesCache = refreshedCache || []
+      } catch (syncErr: any) {
+        console.warn('[Accounting] Auto-sync Toast failed:', syncErr.message)
+      }
+    }
+
+    if (activeSalesCache.length === 0) {
       return NextResponse.json({ 
-        error: 'No sales data found in cache for the specified date range. Run Toast sync first.',
+        error: 'No sales data found in cache or Toast for the specified date range.',
         startDate, endDate, storeCount: mappings.length
       }, { status: 404 })
     }
@@ -128,7 +155,7 @@ export async function POST(request: NextRequest) {
     const generated: any[] = []
     const errors: any[] = []
 
-    for (const sale of salesCache) {
+    for (const sale of activeSalesCache) {
       const mapping = mappings.find(m => 
         String(m.store_id) === String(sale.store_id) || 
         (m.stores as any)?.external_id === sale.store_id ||
@@ -152,6 +179,7 @@ export async function POST(request: NextRequest) {
               total_taxes: toastData.totalTaxes,
               for_here_sales: toastData.forHereSales,
               to_go_sales: toastData.toGoSales,
+              drive_thru_sales: toastData.driveThruSales,
               toast_online_sales: toastData.toastOnlineSales,
               uber_delivery_sales: toastData.uberDeliverySales,
               uber_takeout_sales: toastData.uberTakeoutSales,
@@ -159,6 +187,9 @@ export async function POST(request: NextRequest) {
               doordash_delivery_sales: toastData.doordashDeliverySales,
               grubhub_delivery_sales: toastData.grubhubDeliverySales,
               grubhub_takeout_sales: toastData.grubhubTakeoutSales,
+              deferred_gift_cards: toastData.deferredSalesGiftCards,
+              gift_card_redemption: toastData.giftCardRedemption,
+              delivery_service_charges: toastData.deliveryServiceCharges,
               tax_paid_by_uber: toastData.taxPaidByUber,
               sales_tax: toastData.salesTax,
               marketplace_tax: toastData.marketplaceTax,
@@ -168,6 +199,7 @@ export async function POST(request: NextRequest) {
               grubhub_payment: toastData.grubhubPayment,
               credit_card_deposit: toastData.creditCardDeposit,
               credit_card_fees: toastData.creditCardFees,
+              credit_card_other_deductions: toastData.creditCardOtherDeductions,
               cash_deposits: toastData.cashDeposit,
             }
           } catch (toastErr: any) {

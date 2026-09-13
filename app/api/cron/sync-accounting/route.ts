@@ -207,6 +207,7 @@ export async function GET(request: Request) {
             total_taxes: toastData.totalTaxes,
             for_here_sales: toastData.forHereSales,
             to_go_sales: toastData.toGoSales,
+            drive_thru_sales: toastData.driveThruSales,
             toast_online_sales: toastData.toastOnlineSales,
             uber_delivery_sales: toastData.uberDeliverySales,
             uber_takeout_sales: toastData.uberTakeoutSales,
@@ -214,6 +215,9 @@ export async function GET(request: Request) {
             doordash_delivery_sales: toastData.doordashDeliverySales,
             grubhub_delivery_sales: toastData.grubhubDeliverySales,
             grubhub_takeout_sales: toastData.grubhubTakeoutSales,
+            deferred_gift_cards: toastData.deferredSalesGiftCards,
+            gift_card_redemption: toastData.giftCardRedemption,
+            delivery_service_charges: toastData.deliveryServiceCharges,
             tax_paid_by_uber: toastData.taxPaidByUber,
             sales_tax: toastData.salesTax,
             marketplace_tax: toastData.marketplaceTax,
@@ -223,6 +227,7 @@ export async function GET(request: Request) {
             grubhub_payment: toastData.grubhubPayment,
             credit_card_deposit: toastData.creditCardDeposit,
             credit_card_fees: toastData.creditCardFees,
+            credit_card_other_deductions: toastData.creditCardOtherDeductions,
             cash_deposits: toastData.cashDeposit
           }
 

@@ -38,6 +38,13 @@ export default function FoodCostNavigationTabs() {
             path: '/inventory/costs',
             icon: <UtensilsCrossed size={16} />,
             exactMatch: false
+        },
+        {
+            id: 'varianza',
+            label: language === 'en' ? '⚖️ AvT Dollar Loss' : '⚖️ Varianza AvT ($ Pérdida)',
+            path: '/admin/food-cost/varianza',
+            icon: <Scale size={16} />,
+            exactMatch: false
         }
     ]
 

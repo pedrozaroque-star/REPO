@@ -663,27 +663,27 @@ async function generatePerfect5PageManual() {
       <div class="step-box">
         <div class="step-header">
           <span class="step-num">3</span>
-          <span class="step-title">Publicar Todo el Día con 1 Solo Clic</span>
+          <span class="step-title">Entrar al Detalle y Revisar el Desglose (Clic en la celda)</span>
         </div>
         <p class="step-desc">
-          Al llegar por la mañana y ver que las tiendas de ayer están en verde (<strong>Listo</strong>), solo presionas el botón azul: <strong>"Publicar Todo el Día"</strong>. En unos 10 segundos, las 15 tiendas se mandan a QuickBooks con sus nombres oficiales (ej. <code>AZUSA-20260902</code>, <code>DOWNEY-20260902</code>).
+          Al dar clic sobre cualquier sucursal, entras a la pantalla de desglose completo para validar la información:
         </p>
+        <ul class="clean-list">
+          <li><strong>Ventas por Canal</strong>: For Here, To Go, Drive Thru, Online, Uber Eats, DoorDash y GrubHub.</li>
+          <li><strong>Conciliación de Efectivo</strong>: Efectivo Esperado vs Depósito Bancario capturado y Sobrante/Faltante.</li>
+          <li><strong>Póliza de Diario</strong>: Desglose contable con Débitos y Créditos perfectamente cuadrados al centavo.</li>
+          <li><strong>Botón "Recalcular"</strong>: Para refrescar desde Toast POS si la tienda hizo ajustes de última hora.</li>
+        </ul>
       </div>
 
       <div class="step-box">
         <div class="step-header">
           <span class="step-num">4</span>
-          <span class="step-title">Ver el Detalle de una Tienda (Clic en la celda)</span>
+          <span class="step-title">Publicar a QuickBooks Online desde el Desglose</span>
         </div>
         <p class="step-desc">
-          Si das clic a cualquier sucursal, entras a la pantalla de detalle idéntica a Cohesion:
+          Una vez verificado que el depósito bancario y las ventas cuadren, en la esquina superior derecha presionas el botón azul: <strong>"Publicar a QuickBooks"</strong>. El sistema valida que la póliza esté balanceada, que no existan órdenes abiertas en la sucursal y la envía con su número oficial (ej. <code>AZUSA-20260902</code>).
         </p>
-        <ul class="clean-list">
-          <li><strong>Ventas</strong>: For Here, To Go, Drive Thru, Online, Uber, DoorDash y GrubHub.</li>
-          <li><strong>Efectivo</strong>: Efectivo Esperado vs Depósito Bancario vs Sobrante/Faltante.</li>
-          <li><strong>Asiento Contable</strong>: Desglose de 18 cuentas con Débitos y Créditos exactos.</li>
-          <li><strong>Botón "Recalcular"</strong>: Para refrescar desde Toast en vivo si la tienda hizo algún cambio.</li>
-        </ul>
       </div>
 
       <div class="step-box">

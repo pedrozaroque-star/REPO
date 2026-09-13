@@ -27,6 +27,7 @@ export interface SalesPacketData {
 
   for_here_sales: number;
   to_go_sales: number;
+  drive_thru_sales?: number;
   toast_online_sales?: number;
   uber_delivery_sales: number;
   uber_takeout_sales: number;
@@ -34,6 +35,10 @@ export interface SalesPacketData {
   doordash_delivery_sales: number;
   grubhub_delivery_sales: number;
   grubhub_takeout_sales?: number;
+
+  deferred_gift_cards?: number;
+  delivery_service_charges?: number;
+  gift_card_redemption?: number;
 
   tax_paid_by_uber: number;
   sales_tax: number;
@@ -46,6 +51,7 @@ export interface SalesPacketData {
 
   credit_card_deposit: number;
   credit_card_fees: number;
+  credit_card_other_deductions?: number;
   cash_deposits: number;
 }
 
@@ -90,6 +96,9 @@ export function generateJournalLines(salesData: SalesPacketData, siteMapping: Si
     addLine('40050', 'Toast Online', 0, salesData.toast_online_sales, 'Dining Option: Toast Online');
   }
   addLine('40050', 'To Go', 0, salesData.to_go_sales, 'Dining Option: To Go');
+  if (salesData.drive_thru_sales) {
+    addLine('40050', 'Drive Thru', 0, salesData.drive_thru_sales, 'Dining Option: Drive Thru');
+  }
   addLine('40060', 'Uber Eats - Delivery', 0, salesData.uber_delivery_sales, 'Dining Option: Uber Eats - Delivery');
   addLine('40060', 'Uber Eats Takeout', 0, salesData.uber_takeout_sales, 'Dining Option: Uber Eats Takeout');
   addLine('40062', 'DoorDash - Takeout', 0, salesData.doordash_takeout_sales, 'Dining Option: DoorDash - Takeout');
@@ -99,17 +108,30 @@ export function generateJournalLines(salesData: SalesPacketData, siteMapping: Si
     addLine('40063', 'Grubhub - Takeout', 0, salesData.grubhub_takeout_sales, 'Dining Option: Grubhub - Takeout');
   }
   
+  if (salesData.delivery_service_charges) {
+    addLine('51030', 'Delivery Service', 0, salesData.delivery_service_charges, 'Service Charge: Delivery Service');
+  }
+  if (salesData.deferred_gift_cards) {
+    addLine('20500', 'Deferred Sales - Gift Cards', 0, salesData.deferred_gift_cards, 'Deferred Sales: Gift Cards');
+  }
+
   addLine('12050', 'Tax Paid by Uber Eats', 0, salesData.tax_paid_by_uber, 'Tax Paid by Facilitator');
   addLine('24001', 'Sales Tax', 0, salesData.sales_tax, `Tax Rate: ${siteMapping.sales_tax_rate_name}`);
   addLine('24001', 'Marketplace Facilitator Taxes', 0, salesData.marketplace_tax, 'Tax Rate: Marketplace Facilitator Taxes Not Paid');
 
   // --- DEBITS ---
+  if (salesData.gift_card_redemption) {
+    addLine('20500', 'Gift Card Redemption', salesData.gift_card_redemption, 0, 'Payment Other: Gift Card Redeemed');
+  }
   addLine(siteMapping.bank_account, 'EBT', salesData.ebt_amount, 0, 'Payment Other: EBT');
   addLine('12050', 'Uber Eats', salesData.uber_payment, 0, 'Payment Other: Uber Eats');
   addLine('12053', 'DoorDash', salesData.doordash_payment, 0, 'Payment Other: DoorDash');
   addLine('12054', 'GrubHub', salesData.grubhub_payment, 0, 'Payment Other: GrubHub');
   addLine(siteMapping.bank_account, 'Credit Card Deposit', salesData.credit_card_deposit, 0, 'Combined Credit Card Deposit');
   addLine('51030', 'Credit Card Fees', salesData.credit_card_fees, 0, 'Credit Cards: Merchant Fees');
+  if (salesData.credit_card_other_deductions) {
+    addLine(siteMapping.bank_account, 'Credit Card Other Deductions', salesData.credit_card_other_deductions, 0, 'Credit Cards: Other Deductions');
+  }
   addLine('13200', 'Deposit To Bank', salesData.cash_deposits, 0, 'Cash Deposits');
 
   // --- CASH OVER / SHORT (51050) ---
@@ -209,14 +231,21 @@ export function formatDocNumber(storeName: string, date: string): string {
  * Formula: Total Gross Receipts - Non-Cash Payments = Expected Cash
  */
 export function calculateExpectedCash(salesData: SalesPacketData): number {
-  const totalGrossReceipts = round(salesData.net_sales + salesData.total_taxes);
+  const totalGrossReceipts = round(
+    salesData.net_sales + 
+    salesData.total_taxes + 
+    (salesData.deferred_gift_cards || 0) + 
+    (salesData.delivery_service_charges || 0)
+  );
   const nonCashPayments = round(
     salesData.credit_card_deposit +
     salesData.credit_card_fees +
+    (salesData.credit_card_other_deductions || 0) +
     salesData.uber_payment +
     salesData.doordash_payment +
     salesData.grubhub_payment +
-    salesData.ebt_amount
+    salesData.ebt_amount +
+    (salesData.gift_card_redemption || 0)
   );
   return round(totalGrossReceipts - nonCashPayments);
 }

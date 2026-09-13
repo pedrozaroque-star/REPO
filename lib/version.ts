@@ -20,20 +20,76 @@ export interface VersionMilestone {
 }
 
 export const SYSTEM_VERSION = {
-    version: 'v2.8.0',
-    versionNumber: '2.8.0',
+    version: 'v2.9.1',
+    versionNumber: '2.9.1',
     releaseMonthEs: 'Septiembre 2026',
     releaseMonthEn: 'September 2026',
     stage: 'Producción',
     stageEn: 'Production',
     year: '2026',
-    labelEs: 'Septiembre 2026 • SM TEG v2.8.0',
-    labelEn: 'September 2026 • SM TEG v2.8.0',
+    labelEs: 'Septiembre 2026 • SM TEG v2.9.1',
+    labelEn: 'September 2026 • SM TEG v2.9.1',
     brand: 'SM TEG',
-    lastUpdated: '2026-09-09'
+    lastUpdated: '2026-09-13'
 } as const;
 
 export const VERSION_HISTORY: readonly VersionMilestone[] = [
+    {
+        version: 'v2.9.1',
+        date: '13-Sep-2026',
+        titleEs: 'Blindaje Transaccional Viele & Sons y Lectura Fiscal Sage 100',
+        titleEn: 'Viele & Sons Transactional Hardening & Sage 100 Tax Integration',
+        highlightsEs: [
+            'Vaciado higiénico forzado del carrito vía fixupcheckoutdetail con cantidad cero en sesión activa',
+            'Aislamiento estricto de artículos por lote (evita absorción de productos ajenos en checkout)',
+            'Extracción fiscal en tiempo real de Sage 100 (salesOrder_doc) capturando taxes reales sobre químicos',
+            'Aumento de tamaño de letra y optimización de legibilidad en Hoja de Conteo Imprimible'
+        ],
+        highlightsEn: [
+            'Forced hygienic cart purge via fixupcheckoutdetail setting quantity to zero in active session',
+            'Strict item batch isolation preventing residual cart items from entering checkout',
+            'Real-time Sage 100 tax breakdown extraction (salesOrder_doc) capturing exact chemical sales tax',
+            'Font size enhancement and improved readability on physical Print Sheet'
+        ]
+    },
+    {
+        version: 'v2.9.0',
+        date: '11-Sep-2026',
+        titleEs: 'Paridad Total Cohesion, Toast Accounting y Control de Pólizas',
+        titleEn: 'Full Cohesion Parity, Toast Accounting & Policy Publishing Flow',
+        highlightsEs: [
+            'Resolución automática de nombres de cajeros en órdenes abiertas (Step 11) cruzando contra toast_employees',
+            'Segregación contable de Gift Cards (cuenta pasivo 20500 diferida y redenciones debito)',
+            'Deducción de comisiones bancarias reales de Toast POS y retenciones Toast Capital MCA',
+            'Segregación contable de ventas de Drive Thru y cargos por servicio de entrega (51030)',
+            'Flujo de publicación individual a QuickBooks dentro de cada póliza (/contabilidad/[packetId]) con auditoría previa'
+        ],
+        highlightsEn: [
+            'Automated cashier resolution for open checks (Step 11) via toast_employees cross-table lookup',
+            'Segregated Gift Card accounting (liability account 20500 deferred sales and debit redemptions)',
+            'Deduction of real Toast POS bank processing fees and Toast Capital MCA repayments',
+            'Segregated general ledger breakdown for Drive Thru sales and delivery service charges (51030)',
+            'In-packet QuickBooks publishing workflow (/contabilidad/[packetId]) enforcing pre-sync audit'
+        ]
+    },
+    {
+        version: 'v2.8.1',
+        date: '10-Sep-2026',
+        titleEs: 'Blindaje de Caché Food Cost y Acotamiento de Pólizas',
+        titleEn: 'Food Cost Cache Shielding & Week-Scoped Policies',
+        highlightsEs: [
+            'Blindaje de caché food_cost_daily_cache restringiendo el guardado a consultas consolidadas globales con >= 14 tiendas',
+            'Migración del cron sync-food-cost-today a ejecución directa in-process para eliminar timeouts de Vercel',
+            'Triangulación forense de cheques físicos Cingular Lynwood #14 contra logs detallados de RONOS y Simplify HR',
+            'Optimización de /contabilidad para procesar exclusivamente la semana activa seleccionada en UI'
+        ],
+        highlightsEn: [
+            'food_cost_daily_cache hardening restricting write-through strictly to consolidated runs with >= 14 stores',
+            'Migrated sync-food-cost-today cron to direct in-process execution eliminating Vercel timeouts',
+            'Forensic reconciliation of Cingular physical checks (Lynwood #14) against RONOS detailed CSVs and Simplify HR',
+            'Optimized /contabilidad policy generation to strictly process the active selected week in UI'
+        ]
+    },
     {
         version: 'v2.8.0',
         date: '09-Sep-2026',

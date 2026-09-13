@@ -165,32 +165,68 @@ export async function PATCH(
         sales_tax_rate_name: storeName,
       }
 
-      const salesData: SalesPacketData = {
-        net_sales: Number(packet.net_sales) || 0,
-        total_taxes: Number(packet.total_taxes) || 0,
-        for_here_sales: Number(packet.dine_in_sales) || 0,
-        to_go_sales: Number(packet.togo_sales) || 0,
-        uber_delivery_sales: Number(packet.uber_delivery_sales) || 0,
-        uber_takeout_sales: Number(packet.uber_takeout_sales) || 0,
-        doordash_takeout_sales: Number(packet.doordash_takeout_sales) || 0,
-        doordash_delivery_sales: Number(packet.doordash_delivery_sales) || 0,
-        grubhub_delivery_sales: Number(packet.grubhub_sales) || 0,
-        tax_paid_by_uber: Number(packet.facilitator_tax_paid) || 0,
-        sales_tax: Number(packet.sales_tax) || 0,
-        marketplace_tax: Number(packet.marketplace_facilitator_tax) || 0,
-        ebt_amount: Number(packet.ebt_amount) || 0,
-        uber_payment: Number(packet.uber_payment) || 0,
-        doordash_payment: Number(packet.doordash_payment) || 0,
-        grubhub_payment: Number(packet.grubhub_payment) || 0,
-        credit_card_deposit: Number(packet.credit_card_deposit) || 0,
-        credit_card_fees: Number(packet.credit_card_fees) || 0,
-        cash_deposits: cash_deposit,
+      // When updating cash deposit, preserve the exact existing lines (including drive thru, gift cards, etc.)
+      // and update line 13200 (Deposit To Bank) and 51050 (Cash Over/Short) directly
+      const existingLines: any[] = (packet.journal_lines || []).map((l: any) => ({ ...l }))
+      const depositLine = existingLines.find((l: any) => l.account === '13200')
+      if (depositLine) {
+        depositLine.debit = Math.round(cash_deposit * 100) / 100
       }
 
-      const journal = generateJournalLines(salesData, siteConfig)
-      updatePayload.journal_lines = journal.lines
-      updatePayload.journal_total_debits = journal.totalDebits
-      updatePayload.journal_total_credits = journal.totalCredits
+      // Recalculate or add/remove 51050 Cash Over/Short
+      const cashDiff = Math.round((cash_deposit - expectedCash) * 100) / 100
+      let overShortLine = existingLines.find((l: any) => l.account === '51050')
+
+      if (cashDiff === 0) {
+        // No overage or shortage
+        if (overShortLine) {
+          const idx = existingLines.indexOf(overShortLine)
+          if (idx !== -1) existingLines.splice(idx, 1)
+        }
+      } else if (cashDiff > 0) {
+        // Sobrante (Credit 51050)
+        if (!overShortLine) {
+          overShortLine = {
+            account: '51050',
+            memo: 'Cash Over/(Short)',
+            debit: 0,
+            credit: cashDiff,
+            sourceMemo: 'Cash Overage',
+            location: siteConfig.location,
+            className: siteConfig.className,
+          }
+          existingLines.push(overShortLine)
+        } else {
+          overShortLine.debit = 0
+          overShortLine.credit = cashDiff
+          overShortLine.sourceMemo = 'Cash Overage'
+        }
+      } else {
+        // Faltante (Debit 51050)
+        if (!overShortLine) {
+          overShortLine = {
+            account: '51050',
+            memo: 'Cash Over/(Short)',
+            debit: Math.abs(cashDiff),
+            credit: 0,
+            sourceMemo: 'Cash Shortage',
+            location: siteConfig.location,
+            className: siteConfig.className,
+          }
+          existingLines.push(overShortLine)
+        } else {
+          overShortLine.debit = Math.abs(cashDiff)
+          overShortLine.credit = 0
+          overShortLine.sourceMemo = 'Cash Shortage'
+        }
+      }
+
+      const totalDebits = Math.round(existingLines.reduce((sum: number, l: any) => sum + (Number(l.debit) || 0), 0) * 100) / 100
+      const totalCredits = Math.round(existingLines.reduce((sum: number, l: any) => sum + (Number(l.credit) || 0), 0) * 100) / 100
+
+      updatePayload.journal_lines = existingLines
+      updatePayload.journal_total_debits = totalDebits
+      updatePayload.journal_total_credits = totalCredits
     }
 
     // 5. Handle notes update

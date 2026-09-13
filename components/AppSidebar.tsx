@@ -13,7 +13,7 @@ import {
     DollarSign, TrendingUp, Calendar, MessageSquare, CalendarCheck, UserCog,
     Monitor, ChefHat, Zap, X, PanelLeftClose, PanelLeft, RefreshCw,
     Settings, Keyboard, HelpCircle, ExternalLink, Moon, Sun, Globe, Shield,
-    CalendarDays, Sparkles, Info, UserCircle, Menu, Folder, Truck, Timer, Shirt, Car, Calculator, Package
+    CalendarDays, Sparkles, Info, UserCircle, Menu, Folder, Truck, Timer, Shirt, Car, Calculator, Package, BarChart3
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useLanguage } from '@/lib/i18n'
@@ -209,6 +209,16 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
             title: t('sections.finance_accounting') || 'FINANZAS Y CONTABILIDAD',
             id: 'finanzas',
             items: [
+                {
+                    name: t('items.pnl') || 'P&L Multi-Sucursal',
+                    plainName: 'P&L Multi-Sucursal',
+                    path: '/admin/pnl',
+                    icon: <BarChart3 size={20} />,
+                    roles: ['admin'],
+                    tooltip: language === 'en'
+                        ? 'Multi-unit side-by-side Profit & Loss statement across all 15 stores with intercompany elimination'
+                        : 'Estado de Resultados multi-sucursal lado a lado de las 15 tiendas con eliminación intercompañía'
+                },
                 {
                     name: 'Cohesion',
                     plainName: 'Cohesion',

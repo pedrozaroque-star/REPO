@@ -417,6 +417,20 @@ export const TOOL_DECLARATIONS = [
         send_email: { type: 'BOOLEAN', description: 'Whether to send an immediate health summary email to carlos@tacosgavilan.com (default false)' }
       }
     }
+  },
+  {
+    name: 'query_pnl_consolidated',
+    description: 'Query Comparative Store-by-Store Profit & Loss (P&L) and Consolidated Chain EBITDA with Bodega markup elimination toggle (store vs corporate mode). Shows Net Sales, Food Cost, Labor Cost, Prime Cost, Operating Expenses (Rent, Utilities, etc.), Shared Marketing, and EBITDA.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        start_date: { type: 'STRING', description: 'Start date YYYY-MM-DD' },
+        end_date: { type: 'STRING', description: 'End date YYYY-MM-DD' },
+        bodega_mode: { type: 'STRING', description: 'Mode: "corporate" (eliminates ~10% internal bodega markup, default) or "store" (shows store cost as billed by Bodega)' },
+        store_name: { type: 'STRING', description: 'Optional store name filter (e.g. "Lynwood", "Central"). Omit for chain-wide P&L.' }
+      },
+      required: ['start_date', 'end_date']
+    }
   }
 ]
 
@@ -424,6 +438,7 @@ export const TOOL_DECLARATIONS = [
 export async function executeTool(name: string, args: any): Promise<string> {
   try {
     switch (name) {
+      case 'query_pnl_consolidated': return await queryPnlConsolidatedTool(args)
       case 'check_system_health': return await checkSystemHealthTool(args)
       case 'calculate_cingular_payroll': return await calculateCingularPayrollTool(args)
       case 'query_ronos_labor_audit': return await queryRonosLaborAudit(args)
@@ -2284,3 +2299,184 @@ async function checkSystemHealthTool(args: any): Promise<string> {
     return `Error ejecutando diagnóstico de salud: ${err.message}`
   }
 }
+
+/**
+ * P&L Multi-Sucursal Comparativo & Consolidado con Eliminación de Margen Bodega
+ */
+async function queryPnlConsolidatedTool(args: any): Promise<string> {
+  try {
+    const startDate = args.start_date
+    const endDate = args.end_date
+    const bodegaMode = args.bodega_mode === 'store' ? 'store' : 'corporate'
+    const storeFilter = args.store_name?.trim()?.toLowerCase()
+
+    // 1. Fetch active stores
+    const { data: stores } = await supabaseAdmin
+      .from('stores')
+      .select('id, name, external_id')
+      .eq('is_active', true)
+      .order('id')
+
+    if (!stores || stores.length === 0) return 'No se encontraron sucursales activas en el sistema.'
+
+    // 2. Fetch sales and labor from sales_daily_cache
+    const { data: salesData } = await supabaseAdmin
+      .from('sales_daily_cache')
+      .select('store_id, store_name, net_sales, labor_cost')
+      .gte('business_date', startDate)
+      .lte('business_date', endDate)
+
+    // 3. Fetch food cost
+    const { data: foodCostData } = await supabaseAdmin
+      .from('food_cost_daily_cache')
+      .select('store_id, store_name, total_cost')
+      .gte('business_date', startDate)
+      .lte('business_date', endDate)
+
+    // 4. Fetch store operating expenses
+    const { data: opExData } = await supabaseAdmin
+      .from('store_operating_expenses')
+      .select('*')
+
+    // 5. Fetch shared brand expenses
+    const { data: sharedExpenses } = await supabaseAdmin
+      .from('shared_brand_expenses')
+      .select('*')
+
+    // Days ratio for monthly prorating
+    const d1 = new Date(startDate).getTime()
+    const d2 = new Date(endDate).getTime()
+    const days = Math.max(1, Math.round((d2 - d1) / (1000 * 60 * 60 * 24)) + 1)
+    const monthRatio = days / 30
+
+    // Factor de eliminación de margen interno de La Bodega en carnes/insumos (~10%)
+    const BODEGA_ELIMINATION_FACTOR = 0.90
+
+    // Map aggregates
+    interface StorePnl {
+      storeId: string
+      storeName: string
+      netSales: number
+      foodCost: number
+      laborCost: number
+      operatingExpenses: number
+      sharedExpenses: number
+    }
+
+    const map = new Map<string, StorePnl>()
+    stores.forEach(s => {
+      const sId = String(s.id)
+      map.set(sId, {
+        storeId: sId,
+        storeName: clean(s.name),
+        netSales: 0,
+        foodCost: 0,
+        laborCost: 0,
+        operatingExpenses: 0,
+        sharedExpenses: 0
+      })
+    })
+
+    ;(salesData || []).forEach(r => {
+      const sId = String(r.store_id)
+      const target = map.get(sId)
+      if (target) {
+        target.netSales += Number(r.net_sales) || 0
+        target.laborCost += Number(r.labor_cost) || 0
+      }
+    })
+
+    ;(foodCostData || []).forEach(r => {
+      const sId = String(r.store_id)
+      const target = map.get(sId)
+      if (target) {
+        let cost = Number(r.total_cost) || 0
+        if (bodegaMode === 'corporate') {
+          cost = cost * BODEGA_ELIMINATION_FACTOR
+        }
+        target.foodCost += cost
+      }
+    })
+
+    ;(opExData || []).forEach(o => {
+      const sId = String(o.store_id)
+      const target = map.get(sId)
+      if (target) {
+        const monthlySum = (Number(o.rent) || 0) +
+          (Number(o.cam) || 0) +
+          (Number(o.utilities) || 0) +
+          (Number(o.repairs_maintenance) || 0) +
+          (Number(o.supplies) || 0) +
+          (Number(o.insurance) || 0) +
+          (Number(o.other) || 0)
+        target.operatingExpenses += monthlySum * monthRatio
+      }
+    })
+
+    // Prorate shared brand expenses
+    const totalChainSales = Array.from(map.values()).reduce((sum, s) => sum + s.netSales, 0)
+    const storeCount = map.size
+
+    ;(sharedExpenses || []).forEach(exp => {
+      const allocatedTotal = (Number(exp.total_amount) || 0) * monthRatio
+      map.forEach(store => {
+        let storeShare = 0
+        if (exp.allocation_method === 'even_split' || totalChainSales === 0) {
+          storeShare = allocatedTotal / Math.max(1, storeCount)
+        } else {
+          storeShare = allocatedTotal * (store.netSales / totalChainSales)
+        }
+        store.sharedExpenses += storeShare
+      })
+    })
+
+    let filteredList = Array.from(map.values())
+    if (storeFilter) {
+      filteredList = filteredList.filter(s => s.storeName.toLowerCase().includes(storeFilter))
+    }
+
+    const safePct = (part: number, whole: number) => whole > 0 ? ((part / whole) * 100).toFixed(1) : '0.0'
+
+    // Consolidated totals
+    let totSales = 0, totFood = 0, totLabor = 0, totOpEx = 0, totShared = 0
+    filteredList.forEach(s => {
+      totSales += s.netSales
+      totFood += s.foodCost
+      totLabor += s.laborCost
+      totOpEx += s.operatingExpenses
+      totShared += s.sharedExpenses
+    })
+
+    const totPrime = totFood + totLabor
+    const totEbitda = totSales - totPrime - totOpEx - totShared
+
+    const modeLabel = bodegaMode === 'corporate' 
+      ? '🏢 **Modo Corporativo (Eliminación Margen Bodega ~10% Activa)**' 
+      : '🏪 **Modo Tienda (Costo Facturado por Bodega a Sucursal)**'
+
+    let out = `### 📊 Estado de Resultados P&L — Tacos Gavilan\n`
+    out += `* **Periodo:** ${startDate} al ${endDate} (${days} días)\n`
+    out += `* **Perspectiva:** ${modeLabel}\n\n`
+    out += '| Sucursal | Ventas Netas | Costo Comida | Labor | Costo Primo | Gastos Op. | EBITDA | Margen % |\n'
+    out += '| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n'
+
+    filteredList.forEach(s => {
+      const prime = s.foodCost + s.laborCost
+      const opex = s.operatingExpenses + s.sharedExpenses
+      const ebitda = s.netSales - prime - opex
+      const pct = safePct(ebitda, s.netSales)
+      const emoji = Number(pct) >= 20 ? '🟢' : Number(pct) >= 15 ? '🟡' : '🔴'
+      out += `| ${s.storeName} | ${fmt$(s.netSales)} | ${fmt$(s.foodCost)} (${safePct(s.foodCost, s.netSales)}%) | ${fmt$(s.laborCost)} (${safePct(s.laborCost, s.netSales)}%) | ${fmt$(prime)} (${safePct(prime, s.netSales)}%) | ${fmt$(opex)} | ${fmt$(ebitda)} | ${emoji} ${pct}% |\n`
+    })
+
+    if (!storeFilter || filteredList.length > 1) {
+      const totPct = safePct(totEbitda, totSales)
+      out += `| **TOTAL CADENA** | **${fmt$(totSales)}** | **${fmt$(totFood)} (${safePct(totFood, totSales)}%)** | **${fmt$(totLabor)} (${safePct(totLabor, totSales)}%)** | **${fmt$(totPrime)} (${safePct(totPrime, totSales)}%)** | **${fmt$(totOpEx + totShared)}** | **${fmt$(totEbitda)}** | **${totPct}%** |\n`
+    }
+
+    return out
+  } catch (err: any) {
+    return `Error consultando P&L consolidado: ${err.message}`
+  }
+}
+

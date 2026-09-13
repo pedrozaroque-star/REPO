@@ -144,17 +144,71 @@ function extractInputVal(html: string, name: string): string {
 
 /**
  * Vacía completamente el carrito de compras de Viele & Sons
+ * Ejecuta DELETE en la API y purga vía fixupcheckoutdetail poniendo cantidades en 0
  */
 export async function clearVieleCart(cookieHeader: string): Promise<boolean> {
   try {
-    const res = await fetch(`${BASE_URL}/api/v3/shopping_cart`, {
+    // 1. DELETE /api/v3/shopping_cart
+    await fetch(`${BASE_URL}/api/v3/shopping_cart`, {
       method: 'DELETE',
       headers: {
         'Cookie': cookieHeader,
         'User-Agent': BROWSER_USER_AGENT
       }
     });
-    return res.ok;
+
+    // 2. Cargar /checkout/ para verificar si existen items residuales en el carrito
+    const chkRes = await fetch(`${BASE_URL}/checkout/`, {
+      headers: {
+        'Cookie': cookieHeader,
+        'User-Agent': BROWSER_USER_AGENT,
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+      }
+    });
+
+    if (chkRes.ok) {
+      const html = await chkRes.text();
+      const rowKeys = [...html.matchAll(/name="rowKey\[\]"\s+value="([^"]+)"/gi)].map(m => m[1]);
+      const itemIds = [...html.matchAll(/name="itemID\[\]"\s+value="([^"]+)"/gi)].map(m => m[1]);
+
+      if (rowKeys.length > 0) {
+        // Purgar ítems poniendo cantidades en 0 vía fixupcheckoutdetail
+        const clearParams = new URLSearchParams();
+        clearParams.append('action', 'fixupcheckoutdetail');
+        clearParams.append('siteRoot', `${BASE_URL}/`);
+        clearParams.append('rnd982g', Math.random().toString());
+
+        const inputMatches = [...html.matchAll(/<input[^>]+name="([^"]+)"[^>]*value="([^"]*)"/gi)];
+        inputMatches.forEach(m => {
+          const name = m[1];
+          const val = m[2];
+          if (name === 'quantity[]' || name.startsWith('quantity_')) {
+            clearParams.append(name, '0');
+          } else if (name !== 'action') {
+            clearParams.append(name, val);
+          }
+        });
+
+        rowKeys.forEach((_, idx) => {
+          clearParams.append(`quantity_${idx}`, '0');
+        });
+        clearParams.append('rows', rowKeys.length.toString());
+
+        await fetch(`${BASE_URL}/ajax.php`, {
+          method: 'POST',
+          headers: {
+            'Cookie': cookieHeader,
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'X-Requested-With': 'XMLHttpRequest',
+            'User-Agent': BROWSER_USER_AGENT,
+            'Referer': `${BASE_URL}/checkout/`
+          },
+          body: clearParams.toString()
+        });
+      }
+    }
+
+    return true;
   } catch {
     return false;
   }
@@ -433,12 +487,28 @@ async function executeBatchCheckout(
     const comments = (req.notes || '').trim().slice(0, 256);
     const shipDateFormatted = formatShipDateForViele(req.shipDate);
 
+    // Aislamiento estricto de lote: filtrar exclusivamente los productos pertenecientes a este lote
+    const targetCodes = new Set(batchItems.map(i => i.itemCode.trim().toUpperCase()));
+    const validIndices: number[] = [];
+    for (let i = 0; i < itemIds.length; i++) {
+      if (targetCodes.has(itemIds[i].trim().toUpperCase())) {
+        validIndices.push(i);
+      }
+    }
+
+    if (validIndices.length === 0) {
+      await clearVieleCart(cookies);
+      return { success: false, error: `Ninguno de los productos del lote ${category} fue localizado en la pantalla de checkout de Viele.` };
+    }
+
     const step1Form = new URLSearchParams();
-    rowKeys.forEach(rk => step1Form.append('rowKey[]', rk));
-    itemIds.forEach(id => step1Form.append('itemID[]', id));
-    salesUms.forEach(um => step1Form.append('salesUM[]', um));
-    quantities.forEach(q => step1Form.append('quantity[]', q));
-    step1Form.append('rows', rowKeys.length.toString());
+    validIndices.forEach(idx => {
+      step1Form.append('rowKey[]', rowKeys[idx]);
+      step1Form.append('itemID[]', itemIds[idx]);
+      step1Form.append('salesUM[]', salesUms[idx]);
+      step1Form.append('quantity[]', quantities[idx]);
+    });
+    step1Form.append('rows', validIndices.length.toString());
     step1Form.append('CustomerPO', po);
     step1Form.append('BillToName', billToName);
     step1Form.append('ConfirmTo', confirmTo);
@@ -515,8 +585,10 @@ async function executeBatchCheckout(
 
     // PASO 2: Envío definitivo de confirmación (validate_confirm=validate_confirm)
     const step2Form = new URLSearchParams();
-    itemIds.forEach(id => step2Form.append('itemID[]', id));
-    salesUms.forEach(um => step2Form.append('salesUM[]', um));
+    validIndices.forEach(idx => {
+      step2Form.append('itemID[]', itemIds[idx]);
+      step2Form.append('salesUM[]', salesUms[idx]);
+    });
     step2Form.append('CreditCardType', '');
     step2Form.append('validate_confirm', 'validate_confirm');
 
@@ -550,15 +622,45 @@ async function executeBatchCheckout(
       };
     }
 
+    // Extraer desglose financiero oficial exacto calculado por Sage 100 de Viele (Subtotal, Tax real, Total real)
+    let finalSubtotal = subtotalAmount;
+    let finalTax = taxAmount;
+    let finalTotal = totalAmount;
+
+    try {
+      const docRes = await fetch(`${BASE_URL}/api/salesOrder_doc?orderNo=${orderNumber}`, {
+        headers: {
+          'Cookie': cookies,
+          'User-Agent': BROWSER_USER_AGENT,
+          'Accept': 'application/json, text/javascript, */*; q=0.01'
+        }
+      });
+      if (docRes.ok) {
+        const docData = await docRes.json();
+        const html = docData?.HTMLDoc || '';
+        const netMatch = html.match(/Net Order:\s*<\/strong><\/td><td[^>]*><strong>\$?([\d,]+\.\d{2})/i);
+        const taxMatch = html.match(/Sales Tax:\s*<\/strong><\/td><td[^>]*><strong>\$?([\d,]+\.\d{2})/i);
+        const totMatch = html.match(/Order Total:\s*<\/strong><\/td><td[^>]*><strong>\$?([\d,]+\.\d{2})/i);
+
+        if (totMatch) {
+          if (netMatch) finalSubtotal = parseFloat(netMatch[1].replace(/,/g, ''));
+          if (taxMatch) finalTax = parseFloat(taxMatch[1].replace(/,/g, ''));
+          finalTotal = parseFloat(totMatch[1].replace(/,/g, ''));
+        }
+      }
+    } catch (docErr) {
+      console.warn('No se pudo extraer el desglose fiscal exacto de Viele:', docErr);
+    }
+
     return {
       success: true,
       result: {
         orderNumber,
         orderCategory: category,
         totalCases,
-        subtotalAmount,
-        taxAmount,
-        totalAmount,
+        subtotalAmount: finalSubtotal,
+        taxAmount: finalTax,
+        totalAmount: finalTotal,
         items: batchItems,
         vieleRawResponse: { rawExcerpt: step2Html.slice(0, 500) }
       }

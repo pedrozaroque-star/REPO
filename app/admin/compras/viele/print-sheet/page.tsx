@@ -161,7 +161,7 @@ function PrintSheetContent() {
         }
 
         .header-title-main {
-          font-size: 14px;
+          font-size: 15px;
           font-weight: 900;
           letter-spacing: 0.5px;
           text-transform: uppercase;
@@ -169,7 +169,7 @@ function PrintSheetContent() {
         }
 
         .header-subtitle {
-          font-size: 9px;
+          font-size: 9.5px;
           font-weight: 700;
           color: #475569;
           margin-top: 1px;
@@ -177,16 +177,16 @@ function PrintSheetContent() {
 
         .header-meta {
           text-align: right;
-          font-size: 8.5px;
+          font-size: 9px;
           color: #334155;
-          line-height: 1.2;
+          line-height: 1.25;
         }
 
         .excel-table {
           width: 100%;
           border-collapse: collapse;
           table-layout: fixed;
-          font-size: 9px;
+          font-size: 10px;
         }
 
         .excel-table th, .excel-table td {
@@ -199,26 +199,27 @@ function PrintSheetContent() {
         .th-main {
           background-color: #0f172a !important;
           color: #ffffff !important;
-          font-weight: 800;
+          font-weight: 900;
           text-align: center;
-          font-size: 8.5px;
+          font-size: 10px;
           text-transform: uppercase;
-          height: 20px;
+          letter-spacing: 0.5px;
+          height: 22px;
         }
 
-        .th-num { width: 4%; }
-        .th-img { width: 7%; }
-        .th-sku { width: 12%; }
-        .th-desc { width: 46%; }
-        .th-par { width: 8%; background-color: #fef08a !important; color: #000 !important; }
-        .th-sobra { width: 11.5%; background-color: #e2e8f0 !important; color: #000 !important; }
-        .th-order { width: 11.5%; background-color: #bbf7d0 !important; color: #000 !important; }
+        .th-num { width: 3.5%; }
+        .th-img { width: 6.5%; }
+        .th-sku { width: 11%; }
+        .th-desc { width: 51%; }
+        .th-par { width: 7%; background-color: #fef08a !important; color: #000 !important; }
+        .th-sobra { width: 10.5%; background-color: #e2e8f0 !important; color: #000 !important; }
+        .th-order { width: 10.5%; background-color: #bbf7d0 !important; color: #000 !important; }
 
         .td-num {
           text-align: center;
           font-weight: 700;
-          font-size: 8px;
-          color: #64748b;
+          font-size: 9.5px;
+          color: #475569;
         }
 
         .td-img {
@@ -238,26 +239,28 @@ function PrintSheetContent() {
 
         .td-sku {
           font-weight: 800;
-          font-size: 8.5px;
+          font-size: 11px;
           text-align: center;
-          color: #000;
+          color: #0f172a;
           letter-spacing: -0.2px;
+          font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
         }
 
         .td-desc {
           text-align: left;
-          font-weight: 600;
-          font-size: 8.5px;
-          padding-left: 4px !important;
+          font-weight: 700;
+          font-size: 13px;
+          padding-left: 8px !important;
+          padding-right: 4px !important;
           white-space: normal;
-          line-height: 1.15;
-          color: #0f172a;
+          line-height: 1.25;
+          color: #000000;
         }
 
         .td-par {
           text-align: center;
           font-weight: 900;
-          font-size: 10px;
+          font-size: 12px;
           background-color: #fef9c3 !important;
           color: #000;
         }
@@ -280,10 +283,10 @@ function PrintSheetContent() {
 
         .page-label {
           text-align: right;
-          font-size: 8px;
+          font-size: 8.5px;
           color: #94a3b8;
           font-weight: 700;
-          margin-top: 2px;
+          margin-top: 3px;
         }
       `}</style>
 
@@ -331,8 +334,8 @@ function PrintSheetContent() {
           onClick={() => window.print()}
           style={{
             background: '#059669', color: 'white', border: 'none',
-            padding: '8px 22px', borderRadius: 8, cursor: 'pointer',
-            fontWeight: '900', fontSize: 14, display: 'flex', alignItems: 'center', gap: 8,
+            padding: '9px 24px', borderRadius: 8, cursor: 'pointer',
+            fontWeight: '900', fontSize: 15, display: 'flex', alignItems: 'center', gap: 8,
             boxShadow: '0 2px 8px rgba(5,150,105,0.3)'
           }}>
           🖨️ Imprimir Hoja

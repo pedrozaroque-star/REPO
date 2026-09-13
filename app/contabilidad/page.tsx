@@ -23,7 +23,7 @@
 import React, { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ChevronLeft, ChevronRight, CheckCircle2, CheckCircle, Circle, AlertCircle, PlayCircle, Loader2, Settings, Sparkles, Send, AlertTriangle, Clock, XCircle } from 'lucide-react'
+import { ChevronLeft, ChevronRight, CheckCircle2, CheckCircle, Circle, AlertCircle, PlayCircle, Loader2, Settings, Sparkles, AlertTriangle, Clock, XCircle } from 'lucide-react'
 import { useLanguage } from '@/lib/i18n'
 import { createClient } from '@/lib/supabase-client'
 
@@ -75,7 +75,6 @@ export default function AccountingPage() {
   const [packets, setPackets] = useState<Packet[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isGenerating, setIsGenerating] = useState(false)
-  const [isPublishingAll, setIsPublishingAll] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
 
@@ -98,6 +97,11 @@ export default function AccountingPage() {
 
   const startDateStr = weekDays[0].toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
   const endDateStr = weekDays[6].toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
+
+  // Format the selected week range for display
+  const formattedWeekRange = React.useMemo(() => {
+    return `${weekDays[0].toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} — ${weekDays[6].toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+  }, [weekDays])
 
   const loadData = async () => {
     setIsLoading(true)
@@ -149,6 +153,7 @@ export default function AccountingPage() {
     setCurrentDate(next)
   }
 
+  // Generate entries for the currently selected week (Mon - Sun)
   const handleGenerate = async () => {
     setIsGenerating(true)
     setError(null)
@@ -161,7 +166,7 @@ export default function AccountingPage() {
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Failed to generate entries')
-      setSuccessMessage(`${t('accounting.alert_generate_success') || 'Pólizas generadas exitosamente'}: ${data.generated || 0} ${language === 'en' ? 'entries generated' : 'pólizas procesadas'}`)
+      setSuccessMessage(`${t('accounting.alert_generate_success') || 'Pólizas generadas exitosamente'}: ${data.generated || 0} ${language === 'en' ? `entries processed for week (${startDateStr} to ${endDateStr})` : `pólizas procesadas para la semana (${startDateStr} al ${endDateStr})`}`)
       await loadData()
     } catch (err: any) {
       console.error(err)
@@ -171,38 +176,26 @@ export default function AccountingPage() {
     }
   }
 
-  const handlePublishAll = async (targetDateOverride?: string) => {
-    let targetDate = targetDateOverride
-    if (!targetDate) {
-      const yesterday = new Date()
-      yesterday.setDate(yesterday.getDate() - 1)
-      targetDate = yesterday.toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
-    }
-
-    const confirmMsg = language === 'en'
-      ? `Publish all ready journal entries for ${targetDate} to QuickBooks Online?`
-      : `¿Publicar todas las pólizas listas del ${targetDate} a QuickBooks Online?`
-    
-    if (!window.confirm(confirmMsg)) return
-
-    setIsPublishingAll(true)
+  // Quick helper to regenerate a single day if needed from column header
+  const handleGenerateDay = async (dateStr: string) => {
+    setIsGenerating(true)
     setError(null)
     setSuccessMessage(null)
     try {
-      const res = await fetch('/api/accounting/packets/publish-batch', {
+      const res = await fetch('/api/accounting/packets', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ businessDate: targetDate })
+        body: JSON.stringify({ startDate: dateStr, endDate: dateStr })
       })
       const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'Failed to batch publish entries')
-      setSuccessMessage(`${t('accounting.alert_publish_success') || 'Publicación exitosa'}: ${data.published || 0} ${language === 'en' ? 'stores published to QuickBooks' : 'sucursales enviadas a QuickBooks'}`)
+      if (!res.ok) throw new Error(data.error || 'Failed to generate entries')
+      setSuccessMessage(`${t('accounting.alert_generate_success') || 'Pólizas generadas exitosamente'}: ${data.generated || 0} ${language === 'en' ? `entries processed for ${dateStr}` : `pólizas procesadas para el ${dateStr}`}`)
       await loadData()
     } catch (err: any) {
       console.error(err)
-      setError(err.message || 'Error publishing batch to QuickBooks')
+      setError(err.message || 'An error occurred generating packets')
     } finally {
-      setIsPublishingAll(false)
+      setIsGenerating(false)
     }
   }
 
@@ -247,17 +240,10 @@ export default function AccountingPage() {
             onClick={handleGenerate}
             disabled={isGenerating || isLoading}
             className="bg-slate-900 hover:bg-slate-800 dark:bg-slate-700 dark:hover:bg-slate-600 text-white rounded-xl px-4 py-2.5 text-sm font-bold transition-all disabled:opacity-50 flex items-center shadow-sm"
+            title={language === 'en' ? `Generate entries for week ${startDateStr} to ${endDateStr}` : `Generar pólizas para la semana del ${startDateStr} al ${endDateStr}`}
           >
             {isGenerating ? <Loader2 className="w-4 h-4 mr-2 animate-spin text-blue-400" /> : <Sparkles className="w-4 h-4 mr-2 text-blue-400" />}
             {t('accounting.btn_generate') || 'Generar Pólizas'}
-          </button>
-          <button
-            onClick={() => handlePublishAll()}
-            disabled={isPublishingAll || isLoading}
-            className="bg-blue-600 hover:bg-blue-700 text-white rounded-xl px-4 py-2.5 text-sm font-bold transition-all flex items-center shadow-md shadow-blue-600/20 disabled:opacity-50"
-          >
-            {isPublishingAll ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Send className="w-4 h-4 mr-2" />}
-            {t('accounting.btn_publish_all') || 'Publicar Todo el Día'}
           </button>
         </div>
       </div>
@@ -282,7 +268,7 @@ export default function AccountingPage() {
         {/* Toolbar */}
         <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50/70 dark:bg-slate-900/50">
           <div className="flex items-center gap-3">
-            <button onClick={handlePrevWeek} className="p-2 hover:bg-white dark:hover:bg-slate-800 rounded-xl transition-all border border-slate-200 dark:border-slate-700 shadow-sm">
+            <button onClick={handlePrevWeek} className="p-2 hover:bg-white dark:hover:bg-slate-800 rounded-xl transition-all border border-slate-200 dark:border-slate-700 shadow-sm" title={language === 'en' ? 'Previous week' : 'Semana anterior'}>
               <ChevronLeft className="w-5 h-5 text-slate-700 dark:text-slate-300" />
             </button>
             <span className="font-bold text-base px-2 text-slate-800 dark:text-slate-200">
@@ -290,7 +276,7 @@ export default function AccountingPage() {
               {' — '}
               {weekDays[6].toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
             </span>
-            <button onClick={handleNextWeek} className="p-2 hover:bg-white dark:hover:bg-slate-800 rounded-xl transition-all border border-slate-200 dark:border-slate-700 shadow-sm">
+            <button onClick={handleNextWeek} className="p-2 hover:bg-white dark:hover:bg-slate-800 rounded-xl transition-all border border-slate-200 dark:border-slate-700 shadow-sm" title={language === 'en' ? 'Next week' : 'Semana siguiente'}>
               <ChevronRight className="w-5 h-5 text-slate-700 dark:text-slate-300" />
             </button>
           </div>
@@ -315,13 +301,13 @@ export default function AccountingPage() {
                         </span>
                         <button
                           type="button"
-                          onClick={() => handlePublishAll(dateStr)}
-                          disabled={isPublishingAll || isLoading}
-                          title={`${t('accounting.btn_publish_day') || 'Publicar Día'}: ${dateStr}`}
-                          className="mt-1.5 inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/60 hover:bg-blue-100 dark:hover:bg-blue-900 rounded-lg border border-blue-200 dark:border-blue-800 transition-colors disabled:opacity-40"
+                          onClick={() => handleGenerateDay(dateStr)}
+                          disabled={isGenerating || isLoading}
+                          title={`${t('accounting.btn_generate') || 'Generar'}: ${dateStr}`}
+                          className="mt-1.5 inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-bold text-slate-500 hover:text-blue-600 dark:text-slate-400 dark:hover:text-blue-400 bg-white/60 dark:bg-slate-800/60 hover:bg-blue-50 dark:hover:bg-blue-900/40 rounded-lg border border-slate-200 dark:border-slate-700/60 transition-colors disabled:opacity-40"
                         >
-                          <Send className="w-2.5 h-2.5" />
-                          <span>{t('accounting.btn_publish_day') || 'Publicar'}</span>
+                          <Sparkles className="w-2.5 h-2.5 text-blue-500" />
+                          <span>{t('accounting.btn_recalculate') || 'Recalcular'}</span>
                         </button>
                       </div>
                     </th>

@@ -22,6 +22,7 @@
  */
 
 import { getAuthToken } from './toast-api'
+import { supabaseAdmin } from '@/lib/supabase'
 
 const TOAST_API_HOST = process.env.TOAST_API_HOST || 'https://ws-api.toasttab.com'
 
@@ -45,6 +46,7 @@ export interface ToastAccountingData {
   totalTaxes: number
   forHereSales: number
   toGoSales: number
+  driveThruSales: number
   toastOnlineSales: number
   uberDeliverySales: number
   uberTakeoutSales: number
@@ -55,8 +57,12 @@ export interface ToastAccountingData {
   salesTax: number
   marketplaceTax: number
   taxPaidByUber: number
+  deferredSalesGiftCards: number
+  giftCardRedemption: number
+  deliveryServiceCharges: number
   creditCardGross: number
   creditCardFees: number
+  creditCardOtherDeductions: number
   creditCardDeposit: number
   ebtAmount: number
   uberPayment: number
@@ -78,18 +84,34 @@ export async function fetchToastAccountingData(
 ): Promise<ToastAccountingData> {
   const token = await getAuthToken()
 
-  // 1. Obtener Dining Options Map
-  const optRes = await fetch(`${TOAST_API_HOST}/config/v2/diningOptions`, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Toast-Restaurant-External-ID': storeExternalId,
-    },
-  })
+  // 1. Obtener Dining Options Map y Alternate Payment Types Map (para EBT y delivery)
+  const [optRes, altRes] = await Promise.all([
+    fetch(`${TOAST_API_HOST}/config/v2/diningOptions`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Toast-Restaurant-External-ID': storeExternalId,
+      },
+    }),
+    fetch(`${TOAST_API_HOST}/config/v2/alternatePaymentTypes`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Toast-Restaurant-External-ID': storeExternalId,
+      },
+    }).catch(() => null),
+  ])
 
   const diningOptions = await optRes.json()
   const diningMap: Record<string, string> = {}
   for (const opt of diningOptions || []) {
     diningMap[opt.guid] = opt.name
+  }
+
+  const altMap: Record<string, string> = {}
+  if (altRes && altRes.ok) {
+    const altData = await altRes.json()
+    for (const alt of altData || []) {
+      if (alt.guid && alt.name) altMap[alt.guid] = alt.name
+    }
   }
 
   // 2. Consultar ordersBulk con campos de estado de orden y checks
@@ -115,11 +137,18 @@ export async function fetchToastAccountingData(
     'checks.paidDate',
     'checks.paymentStatus',
     'checks.appliedDiscounts',
+    'checks.appliedServiceCharges',
+    'checks.server',
     'checks.payments.type',
     'checks.payments.amount',
     'checks.payments.tipAmount',
     'checks.payments.refundAmount',
     'checks.payments.voided',
+    'checks.payments.server',
+    'checks.payments.cardType',
+    'checks.payments.originalProcessingFee',
+    'checks.payments.mcaRepaymentAmount',
+    'checks.payments.paymentStatus',
     'checks.payments.otherPayment',
     'checks.payments.paymentInstrument',
     'checks.payments.displayName',
@@ -129,6 +158,10 @@ export async function fetchToastAccountingData(
     'checks.selections.taxInclusion',
     'checks.selections.voided',
     'checks.selections.refundDetails',
+    'checks.selections.item.name',
+    'checks.selections.itemGroup.name',
+    'checks.selections.displayName',
+    'checks.selections.giftCard',
   ].join(',')
   url.searchParams.append('fields', fields)
 
@@ -158,6 +191,7 @@ export async function fetchToastAccountingData(
   // Acumuladores de Ventas
   let forHere = 0
   let toGo = 0
+  let driveThru = 0
   let toastOnline = 0
   let uberDel = 0
   let uberTake = 0
@@ -170,7 +204,13 @@ export async function fetchToastAccountingData(
   let marketplaceTax = 0
   let taxPaidByUber = 0
 
+  let deferredSalesGiftCards = 0
+  let giftCardRedemption = 0
+  let deliveryServiceCharges = 0
+
   let creditCardGross = 0
+  let creditCardActualFees = 0
+  let creditCardOtherDeductions = 0
   let ebtAmount = 0
   let uberPayment = 0
   let doordashPayment = 0
@@ -215,19 +255,28 @@ export async function fetchToastAccountingData(
       const orderTax = (order.checks || [])
         .filter((c: any) => !c.voided && !c.deleted)
         .reduce((sum: number, c: any) => sum + Number(c.taxAmount || 0), 0)
+
+      const sGuid = order.server?.guid || order.server?.id || (typeof order.server === 'string' ? order.server : null) ||
+        order.checks?.[0]?.server?.guid || order.checks?.[0]?.server?.id ||
+        order.checks?.[0]?.payments?.[0]?.server?.guid || order.checks?.[0]?.payments?.[0]?.server?.id ||
+        order.creator?.guid
+
+      const directServerName = (order.server as any)?.displayName || (order.server as any)?.name || (order.checks?.[0]?.server as any)?.displayName || ''
+
       openOrdersList.push({
         orderId: order.guid,
         orderNumber: order.displayNumber || order.guid?.slice(0, 8),
         openedDate: order.openedDate || '',
         closedDate: order.closedDate || null,
-        serverName: (order.server as any)?.displayName || 'Desconocido',
+        serverName: directServerName || 'Desconocido',
         amount: Math.round(Math.max(0, orderTotal - orderTax) * 100) / 100,
         taxAmount: Math.round(orderTax * 100) / 100,
         totalAmount: Math.round(orderTotal * 100) / 100,
         paymentStatus: order.checks?.[0]?.paymentStatus || 'OPEN',
         status: checkIssues.some(i => i.includes('Desbalanceada')) ? 'OUT_OF_BALANCE' : 'OPEN',
         reason: checkIssues.join('; ') || 'Orden no cerrada en Toast POS',
-      })
+        _serverGuid: sGuid,
+      } as any)
     }
 
     // --- CÁLCULO DE VENTAS Y PAGOS ---
@@ -243,6 +292,13 @@ export async function fetchToastAccountingData(
       const checkTax = Number(check.taxAmount || 0)
       totalTax += checkTax
 
+      // Service charges aplicados en el check (ej: delivery service charge Cohesion cuenta 51030)
+      if (check.appliedServiceCharges) {
+        for (const sc of check.appliedServiceCharges) {
+          deliveryServiceCharges += Number(sc.chargeAmount || sc.amount || 0)
+        }
+      }
+
       // Calcular Net Sales del check: Sum(Item.Price) - Sum(Discounts) - Sum(Item.Refunds) - UnlinkedRefunds
       let checkNet = 0
       let selRefunds = 0
@@ -255,7 +311,14 @@ export async function fetchToastAccountingData(
           p -= rAmt
           selRefunds += rAmt
         }
-        checkNet += p
+
+        // Detección de Ventas de Tarjetas de Regalo (Gift Card Sales -> 20500 Deferred Sales)
+        const sName = ((sel.item?.name || '') + ' ' + (sel.itemGroup?.name || '') + ' ' + (sel.displayName || '')).toLowerCase()
+        if (sel.giftCard || sName.includes('gift card')) {
+          deferredSalesGiftCards += p
+        } else {
+          checkNet += p
+        }
       }
 
       if (check.appliedDiscounts) {
@@ -295,7 +358,9 @@ export async function fetchToastAccountingData(
         marketplaceTax += checkTax
       } else if (optName.includes('online')) {
         toastOnline += checkNet
-      } else if (optName.includes('to go') || optName.includes('kiosk') || optName.includes('curbside') || optName.includes('phone') || optName.includes('drive')) {
+      } else if (dOptionRaw.toLowerCase().includes('drive') || optName.includes('drive')) {
+        driveThru += checkNet
+      } else if (optName.includes('to go') || optName.includes('kiosk') || optName.includes('curbside') || optName.includes('phone')) {
         toGo += checkNet
       } else {
         forHere += checkNet
@@ -304,17 +369,29 @@ export async function fetchToastAccountingData(
       // Clasificar pagos
       for (const p of check.payments || []) {
         if (p.voided) continue
+        if (p.paymentStatus === 'DENIED' || p.paymentStatus === 'FAILED') continue
+
         const amt = Number(p.amount || 0)
         const pType = (p.type || '').toUpperCase()
-        const pName = (p.displayName || p.paymentInstrument?.displayName || p.otherPayment?.name || '').toLowerCase()
+        const altName = p.otherPayment?.guid ? (altMap[p.otherPayment.guid] || '') : (p.otherPayment?.name || '')
+        const pName = (altName || p.displayName || p.paymentInstrument?.displayName || '').toLowerCase()
 
-        // EBT se valida primero para evitar enmascaramiento con CREDIT
-        if (pName.includes('ebt') || (p.otherPayment && pName.includes('ebt'))) {
+        // Toast Capital / MCA Repayment Deduction
+        if (p.mcaRepaymentAmount) {
+          creditCardOtherDeductions += Number(p.mcaRepaymentAmount || 0)
+        }
+
+        // Redención de Tarjetas de Regalo (Gift Card Redemption -> 20500)
+        if (pType === 'GIFT_CARD' || pType.includes('GIFT') || pName.includes('gift card')) {
+          giftCardRedemption += amt
+        } else if (pName.includes('ebt')) {
+          // EBT se valida para evitar enmascaramiento con CREDIT
           ebtAmount += amt
         } else if (pType === 'CASH') {
           cashDeposit += amt
         } else if (pType === 'CREDIT') {
           creditCardGross += amt
+          creditCardActualFees += Number(p.originalProcessingFee || 0)
         } else if (pName.includes('uber') || pName.includes('postmates')) {
           uberPayment += amt
         } else if (pName.includes('doordash') || pName.includes('dash')) {
@@ -336,6 +413,7 @@ export async function fetchToastAccountingData(
 
   forHere = r(forHere)
   toGo = r(toGo)
+  driveThru = r(driveThru)
   toastOnline = r(toastOnline)
   uberDel = r(uberDel)
   uberTake = r(uberTake)
@@ -344,12 +422,16 @@ export async function fetchToastAccountingData(
   ghDel = r(ghDel)
   ghTake = r(ghTake)
 
-  const netSales = r(forHere + toGo + toastOnline + uberDel + uberTake + ddDel + ddTake + ghDel + ghTake)
+  const netSales = r(forHere + toGo + driveThru + toastOnline + uberDel + uberTake + ddDel + ddTake + ghDel + ghTake)
   totalTax = r(totalTax)
   marketplaceTax = r(marketplaceTax)
   taxPaidByUber = r(taxPaidByUber)
   const salesTax = r(totalTax - marketplaceTax - taxPaidByUber)
   const grossSales = r(netSales + totalTax)
+
+  deferredSalesGiftCards = r(deferredSalesGiftCards)
+  giftCardRedemption = r(giftCardRedemption)
+  deliveryServiceCharges = r(deliveryServiceCharges)
 
   creditCardGross = r(creditCardGross)
   ebtAmount = r(ebtAmount)
@@ -358,9 +440,50 @@ export async function fetchToastAccountingData(
   grubhubPayment = r(grubhubPayment)
   cashDeposit = r(cashDeposit)
 
-  // En Cohesion: Credit Card Fees tasa promedio histórica de Toast (~2.036%)
-  const ccFees = creditCardGross > 0 ? r(creditCardGross * 0.02036) : 0
-  const ccDeposit = r(creditCardGross - ccFees)
+  // En Cohesion: Credit Card Fees reales de Toast (originalProcessingFee)
+  creditCardActualFees = r(creditCardActualFees)
+  creditCardOtherDeductions = r(creditCardOtherDeductions)
+  const ccFees = creditCardActualFees > 0 ? creditCardActualFees : (creditCardGross > 0 ? r(creditCardGross * 0.01919) : 0)
+  const ccDeposit = r(creditCardGross - ccFees - creditCardOtherDeductions)
+
+  // Resolver nombres reales de cajeros/meseros desde toast_employees
+  if (openOrdersList.length > 0) {
+    const guidsToLookup = Array.from(
+      new Set(
+        openOrdersList
+          .map((o: any) => o._serverGuid)
+          .filter((g: any): g is string => Boolean(g && typeof g === 'string'))
+      )
+    )
+
+    if (guidsToLookup.length > 0) {
+      try {
+        const { data: employees } = await supabaseAdmin
+          .from('toast_employees')
+          .select('toast_guid, v2_toast_guid, first_name, last_name, chosen_name')
+          .or(`toast_guid.in.(${guidsToLookup.join(',')}),v2_toast_guid.in.(${guidsToLookup.join(',')})`)
+
+        const empMap = new Map<string, string>()
+        employees?.forEach((emp: any) => {
+          const fullName = (emp.chosen_name || `${emp.first_name || ''} ${emp.last_name || ''}`).replace(/\s+/g, ' ').trim()
+          if (emp.toast_guid) empMap.set(emp.toast_guid, fullName)
+          if (emp.v2_toast_guid) empMap.set(emp.v2_toast_guid, fullName)
+        })
+
+        for (const ord of openOrdersList) {
+          const sGuid = (ord as any)._serverGuid
+          if (sGuid && empMap.has(sGuid)) {
+            ord.serverName = empMap.get(sGuid)!
+          } else if (ord.serverName === 'Desconocido' && sGuid) {
+            ord.serverName = `Cajero (${sGuid.slice(0, 8)})`
+          }
+          delete (ord as any)._serverGuid
+        }
+      } catch (empErr: any) {
+        console.warn('[Accounting] Could not resolve employee names for open orders:', empErr.message)
+      }
+    }
+  }
 
   const openOrdersCount = openOrdersList.length
   const hasOpenOrders = openOrdersCount > 0 || outOfBalanceOrdersCount > 0
@@ -375,6 +498,7 @@ export async function fetchToastAccountingData(
     totalTaxes: totalTax,
     forHereSales: forHere,
     toGoSales: toGo,
+    driveThruSales: driveThru,
     toastOnlineSales: toastOnline,
     uberDeliverySales: uberDel,
     uberTakeoutSales: uberTake,
@@ -385,8 +509,12 @@ export async function fetchToastAccountingData(
     salesTax,
     marketplaceTax,
     taxPaidByUber,
+    deferredSalesGiftCards,
+    giftCardRedemption,
+    deliveryServiceCharges,
     creditCardGross,
     creditCardFees: ccFees,
+    creditCardOtherDeductions,
     creditCardDeposit: ccDeposit,
     ebtAmount,
     uberPayment,

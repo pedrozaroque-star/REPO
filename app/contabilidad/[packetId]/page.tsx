@@ -643,14 +643,22 @@ export default function PacketDetailPage() {
             </div>
             <div className="flex justify-between text-slate-500 dark:text-slate-400">
               <span>{t('accounting.label_fees') || 'Comisiones Bancarias'}</span>
-              <span className="font-mono font-semibold text-rose-600 dark:text-rose-400">{formatCurrency(packet.cc_fees)}</span>
+              <span className="font-mono font-semibold text-rose-600 dark:text-rose-400">-{formatCurrency(packet.cc_fees)}</span>
             </div>
+            {packet.journal_lines?.some((l: any) => l.memo.includes('Other Deductions')) && (
+              <div className="flex justify-between text-amber-600 dark:text-amber-400">
+                <span>Toast Capital / Otras Deducciones</span>
+                <span className="font-mono font-semibold">
+                  -{formatCurrency(packet.journal_lines.find((l: any) => l.memo.includes('Other Deductions'))?.debit || 0)}
+                </span>
+              </div>
+            )}
           </div>
         </Card>
 
         {/* 7. Other Payments Card */}
         <Card className="col-span-1 md:col-span-2 lg:col-span-2">
-          <h2 className="text-base font-bold text-slate-900 dark:text-white mb-4">{t('accounting.section_other_payments') || 'Cuentas por Cobrar de Aplicaciones y EBT'}</h2>
+          <h2 className="text-base font-bold text-slate-900 dark:text-white mb-4">{t('accounting.section_other_payments') || 'Cuentas por Cobrar de Aplicaciones, Tarjetas de Regalo y EBT'}</h2>
           <div className="overflow-x-auto">
             <table className="w-full text-sm divide-y divide-slate-100 dark:divide-slate-800">
               <thead>
@@ -686,6 +694,18 @@ export default function PacketDetailPage() {
                   <td className="py-2.5 text-right text-slate-400">$0.00</td>
                   <td className="py-2.5 text-right font-bold text-slate-900 dark:text-white">{formatCurrency(packet.ebt_amount)}</td>
                 </tr>
+                {packet.journal_lines?.some((l: any) => l.memo.includes('Gift Card')) && (
+                  <tr>
+                    <td className="py-2.5 font-sans font-bold text-emerald-700 dark:text-emerald-400">Tarjetas de Regalo Canjeadas (Gift Cards)</td>
+                    <td className="py-2.5 text-right font-semibold text-emerald-700 dark:text-emerald-400">
+                      {formatCurrency(packet.journal_lines.find((l: any) => l.memo.includes('Gift Card') && l.debit > 0)?.debit || 0)}
+                    </td>
+                    <td className="py-2.5 text-right text-slate-400">$0.00</td>
+                    <td className="py-2.5 text-right font-bold text-emerald-700 dark:text-emerald-400">
+                      {formatCurrency(packet.journal_lines.find((l: any) => l.memo.includes('Gift Card') && l.debit > 0)?.debit || 0)}
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>

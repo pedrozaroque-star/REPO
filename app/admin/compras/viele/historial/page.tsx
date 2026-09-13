@@ -33,7 +33,7 @@ import { useLanguage } from '@/lib/i18n';
 import { VIELE_STORE_ACCOUNTS, formatUsDate, formatCurrency, formatNumber } from '@/lib/viele-api';
 import ProtectedRoute, { useAuth } from '@/components/ProtectedRoute';
 import {
-  ArrowLeft, History, Package, DollarSign, Search, Eye, X, CheckCircle,
+  ArrowLeft, History, Package, DollarSign, Search, Eye, X, CheckCircle, XCircle,
   FileText, Globe, Smartphone, Printer, BarChart3, ShoppingCart, Lock
 } from 'lucide-react';
 
@@ -420,8 +420,8 @@ function OrderHistoryContent() {
                           <td className="py-3 px-4 text-center tabular-nums font-bold text-amber-800">{formatNumber(order.total_cases)}</td>
                           <td className="py-3 px-4 text-right tabular-nums font-bold text-slate-900">{formatCurrency(order.total_amount)}</td>
                           <td className="py-3 px-4 text-center">
-                            <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold ${isConf ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-amber-50 text-amber-700 border border-amber-200'}`}>
-                              {isConf ? <><CheckCircle className="w-3 h-3" />{t('viele.historial.status_confirmed')}</> : t('viele.historial.status_draft')}
+                            <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold ${order.status === 'cancelled' ? 'bg-rose-50 text-rose-700 border border-rose-200' : isConf ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-amber-50 text-amber-700 border border-amber-200'}`}>
+                              {order.status === 'cancelled' ? <><XCircle className="w-3 h-3 text-rose-500" />{t('viele.historial.status_cancelled')}</> : isConf ? <><CheckCircle className="w-3 h-3" />{t('viele.historial.status_confirmed')}</> : t('viele.historial.status_draft')}
                             </span>
                           </td>
                           <td className="py-3 px-4 text-center">
@@ -459,8 +459,8 @@ function OrderHistoryContent() {
                       {detailModal.source === 'web' ? `🌐 ${t('viele.historial.source_web')}` : `📱 ${t('viele.historial.source_app')}`}
                     </span>
                     {detailModal.status && (
-                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${(detailModal.status === 'Complete' || detailModal.status === 'confirmed') ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-amber-50 text-amber-700 border border-amber-200'}`}>
-                        {detailModal.status === 'Complete' ? `✅ ${t('viele.historial.status_complete')}` : detailModal.status === 'confirmed' ? `✅ ${t('viele.historial.status_confirmed')}` : detailModal.status}
+                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${detailModal.status === 'cancelled' ? 'bg-rose-50 text-rose-700 border border-rose-200' : (detailModal.status === 'Complete' || detailModal.status === 'confirmed') ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-amber-50 text-amber-700 border border-amber-200'}`}>
+                        {detailModal.status === 'cancelled' ? `🚫 ${t('viele.historial.status_cancelled')}` : detailModal.status === 'Complete' ? `✅ ${t('viele.historial.status_complete')}` : detailModal.status === 'confirmed' ? `✅ ${t('viele.historial.status_confirmed')}` : detailModal.status}
                       </span>
                     )}
                   </div>
