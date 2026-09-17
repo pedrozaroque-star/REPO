@@ -1142,7 +1142,7 @@ function SalesPageContent() {
                                         <span>{t('sales.updated')}: {lastUpdated.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}</span>
                                     )}
                                 </span>
-                                {data?.groupByMode === 'hour' && data?.rawRows?.some((r: any) => r.projectionMeta) && (
+                                {data?.rawRows?.some((r: any) => r.projectionMeta) && (
                                     <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-100 dark:border-indigo-500/20 text-indigo-700 dark:text-indigo-400 text-xs font-medium shadow-sm ml-1 mt-1 md:mt-0 max-w-full">
                                         <TrendingUp size={14} className="shrink-0" />
                                         <span>
@@ -1151,7 +1151,26 @@ function SalesPageContent() {
                                                 if (selectedStore !== 'all') {
                                                     targetRows = targetRows.filter((r: any) => r.storeName === selectedStore || r.name === selectedStore || r.storeId === selectedStore);
                                                 }
-                                                const rowsWithMeta = targetRows.filter((r: any) => r.projectionMeta);
+                                                const projectionFingerprint = (r: any) => {
+                                                    // In hourly mode, midnight–5:59 AM belongs to the selected
+                                                    // business day, even though periodStart has next calendar date.
+                                                    const date = data.groupByMode === 'hour'
+                                                        ? startDate
+                                                        : String(r.periodStart || startDate).slice(0, 10);
+                                                    const meta = r.projectionMeta || {};
+                                                    // Toast can expose the same store through two identifiers. V3.1
+                                                    // metadata is identical for both rows, so it is the stable identity.
+                                                    if (meta.model === 'Intelligence v3.1') {
+                                                        return `${date}|${Number(r.projectedSales || 0).toFixed(4)}|${Number(meta.base_tickets || 0).toFixed(4)}|${Number(meta.avg_check_used || 0).toFixed(4)}`;
+                                                    }
+                                                    return `${date}|${r.storeId || r.storeName || r.name}`;
+                                                };
+                                                const uniqueProjectionRows = new Map<string, any>();
+                                                targetRows.filter((r: any) => r.projectionMeta).forEach((r: any) => {
+                                                    const key = projectionFingerprint(r);
+                                                    if (!uniqueProjectionRows.has(key)) uniqueProjectionRows.set(key, r);
+                                                });
+                                                const rowsWithMeta = Array.from(uniqueProjectionRows.values());
                                                 if (rowsWithMeta.length === 0) {
                                                     return (
                                                         <>
@@ -1172,10 +1191,15 @@ function SalesPageContent() {
                                                 let countTicketGrowth = 0;
                                                 let maxEventMult = 1.0;
                                                 let isV3 = false;
+                                                let confidenceLow = 0;
+                                                let confidenceHigh = 0;
+                                                let totalEventBoostDollars = 0;
+                                                const storesWithEvents: string[] = [];
+                                                const detectedEvents: string[] = [];
                                                 
                                                 rowsWithMeta.forEach((r: any) => {
                                                     const m = r.projectionMeta;
-                                                    if (m.base_tickets && Number(m.base_tickets) > 0) {
+                                                    if (m.model === 'Intelligence v3.1' && m.base_tickets && Number(m.base_tickets) > 0) {
                                                         totalTickets += Number(m.base_tickets);
                                                         isV3 = true;
                                                     }
@@ -1187,8 +1211,28 @@ function SalesPageContent() {
                                                         sumTicketGrowth += (Number(m.ticket_growth_factor) - 1) * 100;
                                                         countTicketGrowth++;
                                                     }
-                                                    if (m.holiday_multiplier && Number(m.holiday_multiplier) > maxEventMult) {
-                                                        maxEventMult = Number(m.holiday_multiplier);
+                                                    if (m.holiday_multiplier && Number(m.holiday_multiplier) > 1.0) {
+                                                        const storeMult = Number(m.holiday_multiplier);
+                                                        if (storeMult > maxEventMult) {
+                                                            maxEventMult = storeMult;
+                                                        }
+                                                        const storeBase = Number(m.base_sales) || (Number(r.projectedSales) / storeMult);
+                                                        totalEventBoostDollars += storeBase * (storeMult - 1);
+                                                        const storeName = r.storeName || '';
+                                                        if (storeName && !storesWithEvents.includes(storeName)) {
+                                                            storesWithEvents.push(storeName);
+                                                        }
+                                                    }
+                                                    if (m.methodology) {
+                                                        const match = String(m.methodology).match(/event\(s\):\s*(.+)$/i);
+                                                        if (match && match[1]) {
+                                                            match[1].split(',').forEach((name: string) => {
+                                                                const trimmed = name.trim();
+                                                                if (trimmed && !detectedEvents.includes(trimmed)) {
+                                                                    detectedEvents.push(trimmed);
+                                                                }
+                                                            });
+                                                        }
                                                     }
                                                     if (m.base_sales) totalBase += m.base_sales;
                                                     if (m.growth_factor) {
@@ -1201,23 +1245,36 @@ function SalesPageContent() {
                                                             weatherPenalty = Math.round((1 - Number(m.weather_factor)) * 100);
                                                         }
                                                     }
+                                                    if (Number.isFinite(Number(m.confidence_low))) confidenceLow += Number(m.confidence_low);
+                                                    if (Number.isFinite(Number(m.confidence_high))) confidenceHigh += Number(m.confidence_high);
                                                 });
                                                 
                                                 let explanation = "";
                                                 if (isV3 && totalTickets > 0 && countAvgCheck > 0) {
                                                     const avgCheck = sumAvgCheck / countAvgCheck;
-                                                    const avgTrafficGrowth = countTicketGrowth > 0 ? sumTicketGrowth / countTicketGrowth : 0;
+                                                    // Explain the business formula in the same order it is calculated.
                                                     explanation = ` ~${Math.round(totalTickets).toLocaleString()} ${t('sales.projection.expected_guests')} × $${avgCheck.toFixed(2)} ${t('sales.projection.avg_check_label')}`;
-                                                    if (countTicketGrowth > 0) {
+                                                    if (countTicketGrowth > 0 && Math.abs(sumTicketGrowth / countTicketGrowth) >= 0.1) {
+                                                        const avgTrafficGrowth = sumTicketGrowth / countTicketGrowth;
                                                         explanation += ` (${t('sales.projection.traffic_growth_label')}: ${avgTrafficGrowth >= 0 ? '+' : ''}${avgTrafficGrowth.toFixed(1)}%)`;
                                                     }
-                                                    if (maxEventMult > 1.0) {
-                                                        explanation += ` 🌟 +${((maxEventMult - 1) * 100).toFixed(0)}% ${t('sales.projection.event_boost')}`;
+                                                    const effectiveEventBoostPct = selectedStore === 'all'
+                                                        ? (totalBase > 0 ? (totalEventBoostDollars / totalBase) * 100 : 0)
+                                                        : (maxEventMult > 1.0 ? (maxEventMult - 1) * 100 : 0);
+
+                                                    if (effectiveEventBoostPct >= 0.5) {
+                                                        const eventNamesLabel = detectedEvents.length > 0
+                                                            ? ` (${detectedEvents.slice(0, 2).join(', ')}${detectedEvents.length > 2 ? ` +${detectedEvents.length - 2}` : ''})`
+                                                            : '';
+                                                        explanation += ` 🌟 +${effectiveEventBoostPct.toFixed(1)}% ${t('sales.projection.event_boost')}${eventNamesLabel}`;
+                                                    } else if (effectiveEventBoostPct >= 0.1 && selectedStore === 'all' && storesWithEvents.length > 0) {
+                                                        const localStoreLabel = storesWithEvents.length <= 2 ? storesWithEvents.join(', ') : `${storesWithEvents.length} tiendas`;
+                                                        const eventNamesLabel = detectedEvents.length > 0 ? ` (${detectedEvents[0]})` : '';
+                                                        explanation += ` 🌟 Evento local en ${localStoreLabel}: +${((maxEventMult - 1) * 100).toFixed(1)}%${eventNamesLabel}`;
                                                     }
                                                     if (hasWeather) {
                                                         explanation += ` 🌧️ -${weatherPenalty || 5}% ${t('sales.projection.weather_adjusted_label')}`;
                                                     }
-                                                } else {
                                                     if (totalBase > 0) {
                                                         explanation += ` ${t('sales.projection.base_of')} $${totalBase.toLocaleString('en-US', {minimumFractionDigits: 0, maximumFractionDigits: 0})}`;
                                                     } else {
@@ -1243,20 +1300,24 @@ function SalesPageContent() {
                                                 
                                                 const uniqueStoreProjs = new Map<string, number>()
                                                 targetRows.forEach((r: any) => {
-                                                    if (r.storeId && !uniqueStoreProjs.has(r.storeId)) {
-                                                        uniqueStoreProjs.set(r.storeId, r.projectedSales || 0)
+                                                    const key = projectionFingerprint(r);
+                                                    if (!uniqueStoreProjs.has(key)) {
+                                                        uniqueStoreProjs.set(key, r.projectedSales || 0)
                                                     }
                                                 })
                                                 const totalProj = Array.from(uniqueStoreProjs.values()).reduce((sum, v) => sum + v, 0);
                                                 if (totalProj > 0) {
-                                                    explanation += ` ➔ ${t('sales.projection.total_projected')}: $${totalProj.toLocaleString('en-US', {minimumFractionDigits: 0, maximumFractionDigits: 0})}.`;
+                                                    explanation += ` ${t('sales.projection.total_projected')}: $${totalProj.toLocaleString('en-US', {minimumFractionDigits: 0, maximumFractionDigits: 0})}.`;
+                                                    if (confidenceLow > 0 && confidenceHigh >= confidenceLow) {
+                                                        explanation += ` ${t('sales.projection.operating_range')}: $${confidenceLow.toLocaleString('en-US', {maximumFractionDigits: 0})}–$${confidenceHigh.toLocaleString('en-US', {maximumFractionDigits: 0})}.`;
+                                                    }
                                                 } else {
                                                     explanation += ".";
                                                 }
                                                 
                                                 return (
                                                     <>
-                                                        <strong>{isV3 ? t('sales.projection.guest_centric_title') : t('sales.projection.title')}:</strong> {t('sales.projection.calculated_using')}{explanation}
+                                                        <strong>{isV3 ? t('sales.projection.guest_centric_title') : t('sales.projection.title')}:</strong>{isV3 ? explanation : ` ${t('sales.projection.calculated_using')}${explanation}`}
                                                     </>
                                                 );
                                             })()}

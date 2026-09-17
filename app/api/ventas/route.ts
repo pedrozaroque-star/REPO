@@ -106,7 +106,7 @@ export async function GET(request: NextRequest) {
                         let hourlyMap: Record<number, number> = {};
                         let projMeta: any = {};
 
-                        if (cached) {
+                        if (cached?.meta?.model === 'Intelligence v3.1') {
                             totalSales = cached.total_sales;
                             hourlyMap = cached.hourly_data || {};
                             projMeta = cached.meta || {};
@@ -126,7 +126,7 @@ export async function GET(request: NextRequest) {
                                 business_date: startDate,
                                 total_sales: totalSales,
                                 meta: {
-                                    model: 'Intelligence v3.0',
+                                    model: 'Intelligence v3.1',
                                     growth_factor: forecast.growth_factor_applied,
                                     base_sales: forecast.base_sales,
                                     base_tickets: forecast.base_tickets,
@@ -136,11 +136,14 @@ export async function GET(request: NextRequest) {
                                     weather_adjusted: forecast.weather_adjustment || false,
                                     weather_factor: forecast.weather_factor,
                                     methodology: forecast.methodology,
+                                    confidence_low: forecast.confidence_low,
+                                    confidence_high: forecast.confidence_high,
+                                    sample_size: forecast.sample_size,
                                     generated_at: new Date().toISOString()
                                 }
                             });
                             projMeta = {
-                                model: 'Intelligence v3.0',
+                                model: 'Intelligence v3.1',
                                 growth_factor: forecast.growth_factor_applied,
                                 base_sales: forecast.base_sales,
                                 base_tickets: forecast.base_tickets,
@@ -150,6 +153,9 @@ export async function GET(request: NextRequest) {
                                 weather_adjusted: forecast.weather_adjustment || false,
                                 weather_factor: forecast.weather_factor,
                                 methodology: forecast.methodology,
+                                confidence_low: forecast.confidence_low,
+                                confidence_high: forecast.confidence_high,
+                                sample_size: forecast.sample_size,
                             };
                         }
 
@@ -216,7 +222,7 @@ export async function GET(request: NextRequest) {
                         .in('business_date', targetDatesArr);
                     
                     if (cachedProjections) {
-                        cachedProjections.forEach(row => {
+                        cachedProjections.filter(row => row.meta?.model === 'Intelligence v3.1').forEach(row => {
                             projectionCache.set(`${row.store_id}|${row.business_date}`, {
                                 total: row.total_sales,
                                 hourly: row.hourly_data || {},
@@ -247,7 +253,7 @@ export async function GET(request: NextRequest) {
                                 total: forecast.total_sales,
                                 hourly: hourlyMap,
                                 meta: {
-                                    model: 'Intelligence v3.0',
+                                    model: 'Intelligence v3.1',
                                     growth_factor: forecast.growth_factor_applied,
                                     base_sales: forecast.base_sales,
                                     base_tickets: forecast.base_tickets,
@@ -257,6 +263,9 @@ export async function GET(request: NextRequest) {
                                     weather_adjusted: forecast.weather_adjustment || false,
                                     weather_factor: forecast.weather_factor,
                                     methodology: forecast.methodology,
+                                    confidence_low: forecast.confidence_low,
+                                    confidence_high: forecast.confidence_high,
+                                    sample_size: forecast.sample_size,
                                 }
                             })
 
@@ -267,7 +276,7 @@ export async function GET(request: NextRequest) {
                                 total_sales: forecast.total_sales,
                                 hourly_data: hourlyMap,
                                 meta: {
-                                    model: 'Intelligence v3.0',
+                                    model: 'Intelligence v3.1',
                                     growth_factor: forecast.growth_factor_applied,
                                     base_sales: forecast.base_sales,
                                     base_tickets: forecast.base_tickets,
@@ -277,6 +286,9 @@ export async function GET(request: NextRequest) {
                                     weather_adjusted: forecast.weather_adjustment || false,
                                     weather_factor: forecast.weather_factor,
                                     methodology: forecast.methodology,
+                                    confidence_low: forecast.confidence_low,
+                                    confidence_high: forecast.confidence_high,
+                                    sample_size: forecast.sample_size,
                                     generated_at: new Date().toISOString()
                                 }
                             })

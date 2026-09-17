@@ -22,7 +22,12 @@ export function getDistanceAdjustedMultiplier(baseMultiplier: number, distance: 
     if (eventScope === 'national' && !hasVenue) return clampEventMultiplier(baseMultiplier)
     if (!Number.isFinite(distance) || distance < 0) return 1
     const deviation = clampEventMultiplier(baseMultiplier) - 1
-    return 1 + deviation * Math.exp(-distance / 8)
+    // Radio de decaimiento por distancia (en millas):
+    // Para recintos físicos en Los Ángeles, el radio de influencia para comida rápida / tacos es hiperlocal:
+    // - scope 'local': 2.5 millas (teatros, clubes, foros pequeños)
+    // - scope 'regional' / 'national' con venue: 3.5 millas (estadios como Dodger Stadium, SoFi, BMO, Hollywood Bowl)
+    const decayRadius = eventScope === 'local' ? 2.5 : 3.5
+    return 1 + deviation * Math.exp(-distance / decayRadius)
 }
 
 export function combineEventMultipliers(multipliers: number[]): number {

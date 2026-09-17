@@ -94,6 +94,10 @@ async function _cachedQuery(key: string, queryFn: () => Promise<any>) {
  */
 export async function generateSmartForecast(storeId: string, targetDateStr: string, forceRecalculate: boolean = false): Promise<DayForecast> {
     const supabase = getSupabase()
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(targetDateStr)
+        || Number.isNaN(new Date(`${targetDateStr}T12:00:00Z`).getTime())) {
+        throw new Error('targetDateStr must be a real YYYY-MM-DD date')
+    }
     // FORCE NOON to avoid Timezone Shift (e.g. UTC midnight -> Previous Day 4pm PST)
     const targetDate = new Date(targetDateStr + 'T12:00:00')
 
@@ -110,7 +114,7 @@ export async function generateSmartForecast(storeId: string, targetDateStr: stri
             .eq('business_date', targetDateStr)
             .single()
 
-        if (cachedProj && cachedProj.total_sales > 0) {
+        if (cachedProj && cachedProj.total_sales > 0 && cachedProj.meta?.model === 'Intelligence v3.1') {
             lockedTotalSales = Number(cachedProj.total_sales);
             if (cachedProj.hourly_data && Object.keys(cachedProj.hourly_data).length > 0) {
                 lockedHourlyData = cachedProj.hourly_data;
@@ -128,9 +132,12 @@ export async function generateSmartForecast(storeId: string, targetDateStr: stri
                 cachedEntries.forEach(([hStr, pSales, pTickets]) => {
                     const hour = Number(hStr)
                     const sales = Number(pSales)
-                    if (!Number.isFinite(hour) || !Number.isFinite(sales) || sales < 0) return
+                    if (!Number.isFinite(hour) || hour < 6 || hour > 29 || !Number.isFinite(sales) || sales < 0) return
                     const cachedTickets = Number(pTickets)
-                    const tickets = Number.isFinite(cachedTickets) && cachedTickets >= 0 ? cachedTickets : sales / 25
+                    const avgCheck = Number(cachedProj.meta?.avg_check_used)
+                    const tickets = Number.isFinite(cachedTickets) && cachedTickets >= 0
+                        ? cachedTickets
+                        : sales / (Number.isFinite(avgCheck) && avgCheck > 0 ? avgCheck : 25)
                     // Reverse calculate required staff (approximate)
                     const reqK = Math.ceil(sales / CAPACITY_RULES.KITCHEN_SALES_PER_HOUR_MEDIAN)
                     const reqF = Math.ceil(tickets / CAPACITY_RULES.CASHIER_TICKETS_PER_HOUR_MEDIAN)
@@ -146,11 +153,26 @@ export async function generateSmartForecast(storeId: string, targetDateStr: stri
                 })
                 hours.sort((a, b) => a.hour - b.hour)
                 
-                return {
+                const cachedHourTotal = hours.reduce((sum, hour) => sum + hour.projected_sales, 0)
+                if (hours.length === 0 || Math.abs(cachedHourTotal - lockedTotalSales) > Math.max(1, lockedTotalSales * 0.001)) {
+                    // A partial or legacy curve cannot be a single source of truth: rebuild it below.
+                    lockedHourlyData = null
+                } else return {
                     date: targetDateStr,
                     store_id: storeId,
                     total_sales: lockedTotalSales,
-                    growth_factor_applied: 1.0,
+                    base_sales: Number(cachedProj.meta?.base_sales) || undefined,
+                    base_tickets: Number(cachedProj.meta?.base_tickets) || undefined,
+                    avg_check_used: Number(cachedProj.meta?.avg_check_used) || undefined,
+                    ticket_growth_factor: Number(cachedProj.meta?.ticket_growth_factor) || undefined,
+                    holiday_multiplier: Number(cachedProj.meta?.holiday_multiplier) || undefined,
+                    weather_factor: Number(cachedProj.meta?.weather_factor) || undefined,
+                    weather_adjustment: Boolean(cachedProj.meta?.weather_adjusted),
+                    methodology: cachedProj.meta?.methodology,
+                    confidence_low: Number(cachedProj.meta?.confidence_low) || undefined,
+                    confidence_high: Number(cachedProj.meta?.confidence_high) || undefined,
+                    sample_size: Number(cachedProj.meta?.sample_size) || undefined,
+                    growth_factor_applied: Number(cachedProj.meta?.growth_factor) || 1.0,
                     hours
                 }
             } else if (lockedTotalSales > 0) {
@@ -259,7 +281,7 @@ export async function generateSmartForecast(storeId: string, targetDateStr: stri
     const historyPoints = await _cachedQuery(`hist_${storeId}_${compDays.join(',')}`, async () => {
         const { data } = await supabase
             .from('sales_daily_cache')
-            .select('business_date, net_sales, order_count, total_tickets, hourly_data, hourly_tickets')
+            .select('business_date, net_sales, order_count, hourly_data, hourly_tickets')
             .eq('store_id', storeId)
             .in('business_date', compDays)
             .gt('net_sales', 0)
@@ -349,14 +371,20 @@ export async function generateSmartForecast(storeId: string, targetDateStr: stri
     const recentComparables = await _cachedQuery(`recent8_${storeId}_${recentComparableDates.join(',')}`, async () => {
         const { data, error } = await supabase
             .from('sales_daily_cache')
-            .select('business_date, net_sales, order_count, total_tickets, hourly_data, hourly_tickets')
+            .select('business_date, net_sales, order_count, hourly_data, hourly_tickets')
             .eq('store_id', storeId)
             .in('business_date', recentComparableDates)
             .gt('net_sales', 0)
         if (error) throw new Error(`Recent comparable query failed: ${error.message}`)
         return data || []
     })
-    if (recentComparables.length >= 4) {
+    // Holiday peers are the more specific signal. Do not overwrite them with normal
+    // same-weekday observations when a historical occurrence of this event exists.
+    // Raw event totals are only stable enough to replace the current operating
+    // baseline after four completed occurrences. Until then the recent robust
+    // base remains primary and Event Intelligence may add verified adjustments.
+    const usesHolidayPeers = Boolean(specialEventPeers?.length && historyPoints.length >= 4)
+    if (recentComparables.length >= 4 && !usesHolidayPeers) {
         const ordered = [...recentComparables].sort((a: any, b: any) => a.business_date.localeCompare(b.business_date))
         const observations = ordered.map((row: any, index: number) => ({ value: Number(row.net_sales), weight: index + 1 }))
         const ticketObservations = ordered.map((row: any, index: number) => ({ value: ticketCount(row), weight: index + 1 }))
@@ -393,7 +421,7 @@ export async function generateSmartForecast(storeId: string, targetDateStr: stri
         const recentHistory = await _cachedQuery(`recent4_${storeId}_${recentDates.join(',')}`, async () => {
             const { data } = await supabase
                 .from('sales_daily_cache')
-                .select('net_sales, order_count, total_tickets, hourly_data, hourly_tickets')
+                .select('net_sales, order_count, hourly_data, hourly_tickets')
                 .eq('store_id', storeId)
                 .in('business_date', recentDates)
                 .gt('net_sales', 0) // Filter out closed days
@@ -475,7 +503,7 @@ export async function generateSmartForecast(storeId: string, targetDateStr: stri
     const salesRecent28 = await _cachedQuery(`rec28_${storeId}_${dRecStartStr}_${dRecEndStr}`, async () => {
         const { data } = await supabase
             .from('sales_daily_cache')
-            .select('net_sales, business_date, total_tickets')
+            .select('net_sales, business_date, order_count, hourly_tickets')
             .eq('store_id', storeId)
             .gte('business_date', dRecStartStr)
             .lte('business_date', dRecEndStr)
@@ -487,7 +515,7 @@ export async function generateSmartForecast(storeId: string, targetDateStr: stri
     const salesLastYearSafe = await _cachedQuery(`ly28_${storeId}_${dLYStartStr}_${dLYEndStr}`, async () => {
         let { data, error } = await supabase
             .from('sales_daily_cache')
-            .select('net_sales, business_date, total_tickets')
+            .select('net_sales, business_date, order_count, hourly_tickets')
             .eq('store_id', storeId)
             .gte('business_date', dLYStartStr)
             .lte('business_date', dLYEndStr)
@@ -523,15 +551,15 @@ export async function generateSmartForecast(storeId: string, targetDateStr: stri
     if (sumLastYearShort > 1000) salesGrowthShort = sumRecentShort / sumLastYearShort
 
     // 2. Ticket Growth Factors
-    const sumTicketsRecent28 = salesRecent28?.reduce((a: any, b: any) => a + (b.total_tickets || 0), 0) || 0
-    const sumTicketsLastYear28 = (salesLastYearSafe as any[])?.reduce((a: any, b: any) => a + (b.total_tickets || 0), 0) || 0
+    const sumTicketsRecent28 = salesRecent28?.reduce((a: number, b: any) => a + ticketCount(b), 0) || 0
+    const sumTicketsLastYear28 = (salesLastYearSafe as any[])?.reduce((a: number, b: any) => a + ticketCount(b), 0) || 0
     let ticketGrowth28 = 1.0
     if (sumTicketsLastYear28 > 100) ticketGrowth28 = sumTicketsRecent28 / sumTicketsLastYear28
 
     const sumTicketsRecentShort = salesRecent28?.filter((s: any) => s.business_date >= dShortStart.toISOString().split('T')[0])
-        .reduce((a: any, b: any) => a + (b.total_tickets || 0), 0) || 0
+        .reduce((a: number, b: any) => a + ticketCount(b), 0) || 0
     const sumTicketsLastYearShort = (salesLastYearSafe as any[])?.filter((s: any) => s.business_date >= dLastYearShort.toISOString().split('T')[0])
-        .reduce((a: any, b: any) => a + (b.total_tickets || 0), 0) || 0
+        .reduce((a: number, b: any) => a + ticketCount(b), 0) || 0
     let ticketGrowthShort = 1.0
     if (sumTicketsLastYearShort > 100) ticketGrowthShort = sumTicketsRecentShort / sumTicketsLastYearShort
 
@@ -558,17 +586,17 @@ export async function generateSmartForecast(storeId: string, targetDateStr: stri
     // We need to fetch "Last 4 Weeks" ACTUALS to calculate trend.
     // The previous code had "sumRecent28". Let's reuse that but filter carefully.
 
-    // RE-FETCH RECENT TREND DATA (Last 21 Days - More reactive to current month)
+    // RE-FETCH RECENT TREND DATA (last 28 complete days = four same weekdays).
     // Anchored to the exact same 'dRecentEnd' (Prior Sunday) so intra-week days don't shift the trend.
     const trendStartDate = new Date(dRecentEnd)
-    trendStartDate.setDate(trendStartDate.getDate() - 21 + 1) // +1 because the query is .gte 
+    trendStartDate.setDate(trendStartDate.getDate() - 28 + 1) // +1 because the query is .gte
 
     const tsDStr = trendStartDate.toISOString().split('T')[0]
     const teDStr = dRecentEnd.toISOString().split('T')[0]
     const recentTrendData = await _cachedQuery(`trend_${storeId}_${tsDStr}_${teDStr}`, async () => {
         const { data } = await supabase
             .from('sales_daily_cache')
-            .select('business_date, net_sales, order_count, total_tickets, hourly_tickets')
+            .select('business_date, net_sales, order_count, hourly_tickets')
             .eq('store_id', storeId)
             .gte('business_date', tsDStr)
             .lte('business_date', teDStr)
@@ -670,6 +698,14 @@ export async function generateSmartForecast(storeId: string, targetDateStr: stri
         growthFactorTickets = Math.min(growthFactorTickets, 1.05)
     }
 
+    // The recent eight-week anchor already contains the current traffic level.
+    // Applying the trend again would double-count the same movement and was the
+    // source of the September overprojection observed in the production check.
+    if (recentComparables.length >= 4 && !usesHolidayPeers) {
+        growthFactorSales = 1.0
+        growthFactorTickets = 1.0
+    }
+
     // v3.0: Compute currentAvgCheck from last 4 same-weekday actuals
     {
         const avgCheckData = recentTrendData?.filter((d: any) => {
@@ -706,7 +742,7 @@ export async function generateSmartForecast(storeId: string, targetDateStr: stri
     let eventMethodology = ''
     try {
         const { getEventMultiplier } = await import('@/lib/event-intelligence')
-        const isHolidayComp = Boolean(specialEventPeers && specialEventPeers.length > 0)
+        const isHolidayComp = usesHolidayPeers
         const eventResult = await getEventMultiplier(storeId, targetDateStr, isHolidayComp)
         eventMultiplier = eventResult.multiplier
         eventMethodology = eventResult.methodology

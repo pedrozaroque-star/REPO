@@ -49,8 +49,12 @@ export async function getEventMultiplier(
     const adjustedEvents = events.map((event: any) => {
         // If this forecast is already using an apples-to-apples holiday comp (e.g. Grito vs Grito),
         // the holiday impact is ALREADY in the historical base tickets.
-        // Neutralize event_type === 'holiday' to 1.0 to prevent double-counting.
-        if (isHolidayComp && event.event_type === 'holiday') {
+        // Neutralize event_type === 'holiday' or duplicate holiday celebrations to 1.0 to prevent double-counting.
+        const isHolidayDuplicate = isHolidayComp && (
+            event.event_type === 'holiday' ||
+            /grito|independencia|independence|cinco de mayo|halloween|thanksgiving|navidad|christmas|año nuevo|new year/i.test(event.event_name)
+        )
+        if (isHolidayDuplicate) {
             return { ...event, adjusted_multiplier: 1.0, is_baked_in: true }
         }
 

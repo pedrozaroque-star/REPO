@@ -47,7 +47,7 @@ export async function POST(request: NextRequest) {
         // Generate projections for requested days
         const projections: Record<string, number> = {}
         const meta: Record<string, any> = {
-            model: 'Intelligence v3.0',
+            model: 'Intelligence v3.1',
             generatedAt: new Date().toISOString(),
             storeId,
             weekStart,
@@ -123,7 +123,7 @@ export async function POST(request: NextRequest) {
                         total_sales: forecast.total_sales,
                         hourly_data: hourlyMap,
                         meta: {
-                            model: 'Intelligence v3.0',
+                            model: 'Intelligence v3.1',
                             growth_factor: forecast.growth_factor_applied,
                             base_sales: forecast.base_sales,
                             base_tickets: forecast.base_tickets,

@@ -214,7 +214,7 @@ export const TOOL_DECLARATIONS = [
   },
   {
     name: 'query_forecast',
-    description: 'Generate a highly detailed hourly sales and labor projection (cooks and cashiers required per hour) for any store and date using the 4-layer smart-hybrid AI forecasting model.',
+    description: 'Generate a detailed hourly sales and labor projection using Intelligence v3.1: robust eight-week ticket baseline, median average check, specific historical event peers when available, confidence range, and a normalized 6 AM–5:59 AM curve.',
     parameters: {
       type: 'OBJECT',
       properties: {
@@ -1306,12 +1306,12 @@ async function queryForecast(args: any): Promise<string> {
     const trafficSign = Number(trafficPercent) >= 0 ? '+' : ''
 
     const lines = [
-      `🔮 **Smart Forecast Projection (Intelligence v3.0) for ${storeName} on ${targetDate}**`,
+      `🔮 **Smart Forecast Projection (Intelligence v3.1) for ${storeName} on ${targetDate}**`,
       `================================================================`,
       `*   **Metodología:** ${forecast.methodology || 'ticket-based'}`,
       forecast.base_tickets ? `*   **Clientes Base Esperados (Tickets):** ${Math.round(forecast.base_tickets).toLocaleString()}` : `*   **Base Historical Sales:** ${fmt$(forecast.base_sales || 0)}`,
       forecast.avg_check_used ? `*   **Ticket Promedio Actual (Avg Check):** ${fmt$(forecast.avg_check_used)}` : '',
-      `*   **Crecimiento de Tráfico Aplicado:** ${trafficSign}${trafficPercent}%`,
+      Math.abs(Number(trafficPercent)) >= 0.1 ? `*   **Crecimiento de Tráfico Aplicado:** ${trafficSign}${trafficPercent}%` : '*   **Base reciente:** el nivel de tráfico ya está incorporado; no se duplica tendencia.',
       forecast.holiday_multiplier ? `*   **Multiplicador de Evento/Día Especial:** ${forecast.holiday_multiplier.toFixed(3)}x` : '',
       `*   **Ajuste de Clima:** ${forecast.weather_adjustment ? `⚠️ Factor ${forecast.weather_factor ?? 0.95}` : '✅ Clima Normal (1.0x)'}`,
       `*   **Ventas Netas Proyectadas:** **${fmt$(forecast.total_sales || 0)}**`,

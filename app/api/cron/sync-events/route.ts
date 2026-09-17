@@ -43,47 +43,52 @@ export async function GET(request: Request) {
         // Build today's date in PST for the prompt
         const now = new Date()
         const todayPST = now.toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
+        const dayName = now.toLocaleDateString('es-ES', { weekday: 'long', timeZone: 'America/Los_Angeles' })
+        const maxDate = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000)
+        const maxDatePST = maxDate.toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
 
-        const PROMPT_TEXT = `Hoy es ${todayPST}. Busca en internet eventos importantes programados para los próximos 14 días en el Condado de Los Angeles y ciudades cercanas (Azusa, Bell, Downey, Hollywood, Huntington Park, Los Angeles, La Puente, Lynwood, Norwalk, Rialto, Santa Ana, South Gate, West Covina, Inglewood).
+        const PROMPT_TEXT = `Hoy es ${dayName} ${todayPST} (Zona horaria Pacific Time / America/Los_Angeles).
+El rango de búsqueda de eventos futuros es estrictamente desde HOY ${todayPST} hasta el ${maxDatePST}.
 
-Busca específicamente:
-- Deportes: Lakers, Dodgers, Rams, Chargers, LAFC, Galaxy, Kings, Angels, UFC, boxing en SoFi Stadium (33.9534,-118.3390), Crypto.com Arena (34.0430,-118.2673), Dodger Stadium (34.0739,-118.2400), BMO Stadium (34.0126,-118.2845), Angel Stadium (33.8003,-117.8827)
-- Conciertos grandes (>5000 personas): The Forum (33.9583,-118.3416), Hollywood Bowl (34.1122,-118.3390), Rose Bowl (34.1613,-118.1676), SoFi Stadium, Crypto.com Arena
-- Eventos culturales hispanos/latinos: Fiestas Patrias, ferias, festivales, procesiones religiosas, celebraciones comunitarias
-- Días festivos: federales, estatales, escolares
-- Alertas meteorológicas severas: olas de calor, tormentas, Santa Ana winds
+Busca en internet eventos importantes programados para los próximos 14 días en el Condado de Los Angeles y ciudades cercanas (Azusa, Bell, Downey, Hollywood, Huntington Park, Los Angeles, La Puente, Lynwood, Norwalk, Rialto, Santa Ana, South Gate, West Covina, Inglewood).
 
-INCLUYE la latitud y longitud del venue para CADA evento que tenga lugar físico.
+REGLAS CRÍTICAS DE PRECISIÓN DE FECHAS (OBLIGATORIAS):
+1. CERO EVENTOS PASADOS: NUNCA incluyas eventos que ocurrieron ayer o en días anteriores. Si un artículo periodístico dice "anoche", "celebró", "se presentó el miércoles" o reporta un evento ya finalizado (conciertos o partidos concluidos), DESCÁRTALO de inmediato.
+2. FECHA REAL DE CARTELERA: Busca y confirma la fecha exacta programada en la cartelera o calendario oficial del recinto (Hollywood Bowl, Crypto.com Arena, SoFi Stadium, BMO Stadium, Dodger Stadium, The Forum, Rose Bowl, etc.). NUNCA asumas que un evento ocurre hoy solo porque la noticia se publicó hoy o hace unas horas.
+3. COHERENCIA DE FECHA: Confirma que la fecha YYYY-MM-DD corresponda exactamente al día futuro en que se celebrará la función o partido.
+4. NO DUPLICAR FERIADOS NACIONALES: Feriados como 15-16 de Septiembre (Grito), Cinco de Mayo, Halloween, Thanksgiving ya están integrados en el sistema central. Solo captura conciertos masivos, eventos deportivos de grandes ligas (NFL, NBA, MLB, MLS, UFC), festivales con sede física y alertas de clima severo.
 
-Multiplicadores históricos de calibración para ventas de restaurantes:
-- Cinco de Mayo: 1.25-1.40 (boost fuerte)
-- Halloween: 1.20 (boost)
-- Labor Day: 1.15 (boost)
-- Super Bowl Sunday: 0.88 (baja, gente en casa)
-- Father's Day: 0.85 (baja, familias en casa)
-- 4th of July: 0.78 (baja fuerte, parrilladas en casa)
-- Thanksgiving: 0.35 (caída severa)
-- Christmas Eve: 0.40 (caída severa)
-- Evento deportivo grande cercano: 1.02-1.06 (boost leve)
-- Concierto masivo cercano: 1.02-1.05 (boost leve)
-- Lluvia fuerte: 0.85-0.95 (baja)
+Busca específicamente en recintos clave:
+- SoFi Stadium (33.9534,-118.3390)
+- Crypto.com Arena (34.0430,-118.2673)
+- Dodger Stadium (34.0739,-118.2400)
+- BMO Stadium (34.0126,-118.2845)
+- Hollywood Bowl (34.1122,-118.3390)
+- The Forum / Kia Forum (33.9583,-118.3416)
+- Rose Bowl (34.1613,-118.1676)
+- Angel Stadium (33.8003,-117.8827)
+
+Multiplicadores históricos de calibración para ventas de restaurantes de tacos:
+- Partido deportivo masivo o concierto masivo cercano (>20k personas): 1.03 - 1.06
+- Concierto o evento mediano (5k-20k personas): 1.02 - 1.04
+- Lluvia fuerte o tormenta severa: 0.85 - 0.95
 
 Responde ÚNICAMENTE con un array JSON válido. Cada objeto debe tener:
 {
   "event_date": "YYYY-MM-DD",
-  "event_name": "nombre del evento",
+  "event_name": "nombre oficial del evento",
   "event_type": "sports|cultural|holiday|concert|festival|weather|school|community",
   "event_scope": "national|regional|local",
   "impact_prediction": "very_high_boost|high_boost|moderate_boost|slight_boost|neutral|slight_drop|high_drop|severe_drop",
-  "impact_multiplier": 1.00,
+  "impact_multiplier": 1.03,
   "confidence": "high|medium|low",
-  "description": "descripción en español del impacto esperado en ventas de restaurantes",
-  "venue_name": "nombre o null",
+  "description": "descripción concisa en español indicando artista/equipos y fecha confirmada",
+  "venue_name": "nombre del recinto o null",
   "venue_latitude": 34.0000,
   "venue_longitude": -118.0000
 }
 
-Si no encuentras eventos, devuelve un array vacío [].`
+Si no encuentras eventos nuevos programados para el rango, devuelve un array vacío [].`
 
         // Call Gemini API with Google Search Grounding (REST, same pattern as support-chat)
         const response = await fetch(
@@ -95,7 +100,7 @@ Si no encuentras eventos, devuelve un array vacío [].`
                     contents: [{ parts: [{ text: PROMPT_TEXT }] }],
                     tools: [{ googleSearch: {} }],
                     generationConfig: {
-                        temperature: 0.2,
+                        temperature: 0.1,
                     }
                 })
             }
@@ -133,19 +138,43 @@ Si no encuentras eventos, devuelve un array vacío [].`
         for (const event of events) {
             if (!event.event_date || !event.event_name) continue
 
+            // 1. Validación estricta de formato ISO YYYY-MM-DD
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(event.event_date)) {
+                console.warn(`[sync-events] Descartado por formato inválido: "${event.event_name}" (${event.event_date})`)
+                continue
+            }
+
+            // 2. DESCARTAR EVENTOS PASADOS: Nunca guardar eventos anteriores a hoy
+            if (event.event_date < todayPST) {
+                console.warn(`[sync-events] Descartado por ser fecha pasada: "${event.event_name}" (${event.event_date} < ${todayPST})`)
+                continue
+            }
+
+            // 3. DESCARTAR EVENTOS FUERA DEL RANGO DE 14 DÍAS
+            if (event.event_date > maxDatePST) {
+                console.warn(`[sync-events] Descartado por estar fuera de ventana: "${event.event_name}" (${event.event_date} > ${maxDatePST})`)
+                continue
+            }
+
+            // 4. Clampear multiplicador para seguridad (0.35 a 1.40)
+            const rawMult = Number(event.impact_multiplier)
+            const clampedMultiplier = Number.isFinite(rawMult)
+                ? Math.min(1.40, Math.max(0.35, rawMult))
+                : 1.0
+
             const { error } = await supabase.from('event_intelligence').upsert({
                 event_date: event.event_date,
-                event_name: event.event_name,
+                event_name: event.event_name.trim(),
                 event_type: event.event_type || 'other',
                 event_scope: event.event_scope || 'regional',
                 impact_prediction: event.impact_prediction || 'neutral',
-                impact_multiplier: event.impact_multiplier || 1.0,
+                impact_multiplier: clampedMultiplier,
                 confidence: event.confidence || 'medium',
                 description: event.description || null,
                 source: 'gemini_search',
                 venue_name: event.venue_name || null,
-                venue_latitude: event.venue_latitude || null,
-                venue_longitude: event.venue_longitude || null,
+                venue_latitude: Number.isFinite(Number(event.venue_latitude)) ? Number(event.venue_latitude) : null,
+                venue_longitude: Number.isFinite(Number(event.venue_longitude)) ? Number(event.venue_longitude) : null,
                 raw_search_data: { raw: rawText.substring(0, 1000), fetched_at: todayPST },
             }, { onConflict: 'event_date,event_name' })
 

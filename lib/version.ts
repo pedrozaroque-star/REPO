@@ -20,20 +20,40 @@ export interface VersionMilestone {
 }
 
 export const SYSTEM_VERSION = {
-    version: 'v2.10.2',
-    versionNumber: '2.10.2',
+    version: 'v2.10.3',
+    versionNumber: '2.10.3',
     releaseMonthEs: 'Septiembre 2026',
     releaseMonthEn: 'September 2026',
     stage: 'Producción',
     stageEn: 'Production',
     year: '2026',
-    labelEs: 'Septiembre 2026 • SM TEG v2.10.2',
-    labelEn: 'September 2026 • SM TEG v2.10.2',
+    labelEs: 'Septiembre 2026 • SM TEG v2.10.3',
+    labelEn: 'September 2026 • SM TEG v2.10.3',
     brand: 'SM TEG',
     lastUpdated: '2026-09-17'
 } as const;
 
 export const VERSION_HISTORY: readonly VersionMilestone[] = [
+    {
+        version: 'v2.10.3',
+        date: '17-Sep-2026',
+        titleEs: 'Calibración de Atenuación de Eventos (Hollywood Bowl), Transparencia en Ventas y Sync Cron',
+        titleEn: 'Event Distance-Decay Calibration (Hollywood Bowl), Sales UI Transparency & Sync Cron',
+        highlightsEs: [
+            'Calibración de decaimiento por distancia geográfica para eventos masivos (Hollywood Bowl / Concierto Andrea Bocelli), focalizando el impacto en sucursal #8 sin inflar tiendas lejanas',
+            'Transparencia ejecutiva en /ventas con tooltips e insignias de eventos detallando nombre, recinto, distancia en millas y factor de impacto',
+            'Robustecimiento del cron de sincronización de eventos (/api/cron/sync-events) con validación estricta de coordenadas y parseo de fechas',
+            'Script de recálculo masivo scripts/refresh-v31-week.ts para actualizar y cachear proyecciones semanales V3.1 en Supabase con JWT',
+            'Briefing técnico-metodológico para Roberto Velázquez sobre la arquitectura Forecast V3.1 (tickets × ticket promedio y lookback de 8 semanas)'
+        ],
+        highlightsEn: [
+            'Geographical distance-decay calibration for massive venue events (Hollywood Bowl / Andrea Bocelli concert), isolating impact to store #8 Hollywood without inflating distant stores',
+            'Executive transparency in /ventas rendering badges and tooltips detailing event name, venue, distance in miles, and impact multiplier',
+            'Hardened local events synchronization cron (/api/cron/sync-events) with strict coordinate validation and robust date parsing',
+            'Batch recalculation script scripts/refresh-v31-week.ts regenerating and caching authenticated V3.1 projections in Supabase',
+            'Technical methodological briefing for Roberto Velázquez on Forecast V3.1 architecture (tickets × median ticket and 8-week lookback)'
+        ]
+    },
     {
         version: 'v2.10.2',
         date: '17-Sep-2026',

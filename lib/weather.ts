@@ -30,9 +30,11 @@ export async function getStoreWeatherForecast(storeId: string, targetDate: strin
     if (!store || !store.latitude || !store.longitude) return null
 
     // 2. Check if date is within reliable forecast range (0-7 days)
-    const todayString = new Intl.DateTimeFormat('en-CA', {
+    const dateParts = new Intl.DateTimeFormat('en-US', {
         timeZone: 'America/Los_Angeles', year: 'numeric', month: '2-digit', day: '2-digit'
-    }).format(new Date())
+    }).formatToParts(new Date())
+    const part = (type: string) => dateParts.find(value => value.type === type)?.value
+    const todayString = `${part('year')}-${part('month')}-${part('day')}`
     const today = Date.parse(`${todayString}T12:00:00Z`)
     const target = Date.parse(`${targetDate}T12:00:00Z`)
     if (!Number.isFinite(target)) return null
