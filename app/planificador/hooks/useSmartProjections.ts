@@ -1,10 +1,9 @@
 /**
- * useSmartProjections - Hybrid Hook
- * 
- * PRIMARY: Calls the Intelligence Engine API (/api/projections/generate)
- * FALLBACK: Uses legacy local calculation if API fails
- * 
- * This provides a safe migration path with A/B comparison logging.
+ * @module useSmartProjections
+ * @description Hook del Planificador que obtiene proyecciones congeladas desde Intelligence y conserva el cálculo legado como contingencia.
+ * @businessRules La generación requiere sesión JWT y trabaja por semana/tienda seleccionada.
+ * @dataFlow Planificador -> API autenticada de proyecciones -> estado editable de la semana.
+ * @notes El token se envía en cada generación para que el backend aplique rol y alcance de tienda.
  */
 
 import { useState, useCallback } from 'react'
@@ -32,7 +31,10 @@ export function useSmartProjections(storeGuid: string | undefined, weekStartInpu
 
             const response = await fetch('/api/projections/generate', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${localStorage.getItem('teg_token') || ''}`
+                },
                 body: JSON.stringify({
                     storeId: storeGuid,
                     weekStart: weekStartStr,
@@ -46,7 +48,7 @@ export function useSmartProjections(storeGuid: string | undefined, weekStartInpu
 
             const data = await response.json()
 
-            if (!data.success || !data.projections) {
+            if (!data.success || data.partial || !data.projections) {
                 throw new Error(data.error || 'Invalid API response')
             }
 
@@ -254,42 +256,35 @@ export function useSmartProjections(storeGuid: string | undefined, weekStartInpu
         if (!storeGuid) return
 
         setIsGenerating(true)
-
-        // Normalize weekStart to string
-        let weekStartStr: string
-        if (typeof weekStartInput === 'string') {
-            weekStartStr = weekStartInput
-        } else {
-            const d = new Date(weekStartInput)
-            weekStartStr = formatDateISO(d)
-        }
-
-        let newProjections: Record<string, string> = {}
-
-        // TRY INTELLIGENCE FIRST (if enabled)
-        if (USE_INTELLIGENCE_API) {
-            const intelligenceResult = await generateViaIntelligenceAPI(weekStartStr, force)
-
-            if (intelligenceResult && Object.keys(intelligenceResult).length > 0) {
-                newProjections = intelligenceResult
-
+        try {
+            // Normalize weekStart to string
+            let weekStartStr: string
+            if (typeof weekStartInput === 'string') {
+                weekStartStr = weekStartInput
             } else {
-                // FALLBACK TO LEGACY
+                const d = new Date(weekStartInput)
+                weekStartStr = formatDateISO(d)
+            }
 
+            let newProjections: Record<string, string> = {}
+            if (USE_INTELLIGENCE_API) {
+                const intelligenceResult = await generateViaIntelligenceAPI(weekStartStr, force)
+                if (intelligenceResult && Object.keys(intelligenceResult).length > 0) {
+                    newProjections = intelligenceResult
+                } else {
+                    newProjections = await generateViaLegacy()
+                }
+            } else {
                 newProjections = await generateViaLegacy()
             }
-        } else {
-            // INTELLIGENCE DISABLED - Use Legacy directly
-            newProjections = await generateViaLegacy()
+
+            if (Object.keys(newProjections).length > 0) {
+                setProjections(prev => ({ ...prev, ...newProjections }))
+            }
+            return newProjections
+        } finally {
+            setIsGenerating(false)
         }
-
-
-        if (Object.keys(newProjections).length > 0) {
-            setProjections(prev => ({ ...prev, ...newProjections }))
-        }
-
-        setIsGenerating(false)
-        return newProjections
 
     }, [storeGuid, weekStartInput])
 

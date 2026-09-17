@@ -1,27 +1,45 @@
 /**
- * API: /api/projections/generate
- * 
- * Generates sales projections using the Intelligence Engine (v2.1)
- * This replaces the legacy useSmartProjections client-side calculation
- * 
- * Input: { storeId: string, weekStart: string (YYYY-MM-DD) }
- * Output: { projections: Record<string, number>, meta: {...} }
+ * @module api/projections/generate
+ * @description Genera y congela proyecciones de venta mediante Intelligence V3.
+ * @businessRules Solo usuarios autenticados de operaciones pueden generar; managers se limitan a su tienda; máximo 31 días por solicitud.
+ * @dataFlow Cliente autenticado -> validación de tienda/fecha -> intelligence.ts -> sales_projections_cache -> respuesta JSON.
+ * @notes La caché guarda `hourly_data` como mapa hora->venta para mantener compatibilidad con Ventas.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
 import { generateSmartForecast } from '@/lib/intelligence'
 import { addDays, format } from 'date-fns'
+import { verifyAuthToken } from '@/lib/auth-server'
+
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
+
+function isRealIsoDate(value: unknown): value is string {
+    if (typeof value !== 'string' || !ISO_DATE.test(value)) return false
+    const parsed = new Date(`${value}T12:00:00Z`)
+    return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value
+}
 
 export async function POST(request: NextRequest) {
     try {
+        const token = request.headers.get('Authorization')?.replace(/^Bearer\s+/i, '').trim()
+            || request.cookies.get('teg_token')?.value
+        const user = token ? verifyAuthToken(token) : null
+        if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+        if (!['admin', 'supervisor', 'manager'].includes(user.user_role)) {
+            return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+        }
+
         const body = await request.json()
         const { storeId, weekStart, days = 7 } = body
 
-        if (!storeId || !weekStart) {
+        if (typeof storeId !== 'string' || !storeId.trim() || !isRealIsoDate(weekStart)) {
             return NextResponse.json(
-                { error: 'Missing required fields: storeId, weekStart' },
+                { error: 'Invalid storeId or weekStart; expected a real YYYY-MM-DD date' },
                 { status: 400 }
             )
+        }
+        if (!Number.isInteger(days) || days < 1 || days > 31) {
+            return NextResponse.json({ error: 'days must be an integer between 1 and 31' }, { status: 400 })
         }
 
         console.log(`📊 [Intelligence API] Generating projections for store=${storeId}, week=${weekStart}, days=${days}`)
@@ -29,7 +47,7 @@ export async function POST(request: NextRequest) {
         // Generate projections for requested days
         const projections: Record<string, number> = {}
         const meta: Record<string, any> = {
-            model: 'Intelligence v2.1',
+            model: 'Intelligence v3.0',
             generatedAt: new Date().toISOString(),
             storeId,
             weekStart,
@@ -46,8 +64,17 @@ export async function POST(request: NextRequest) {
             targetDates.push(format(addDays(startDate, i), 'yyyy-MM-dd'));
         }
 
-        const { createClient } = await import('@supabase/supabase-js');
-        const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!);
+        const { getSupabaseAdminClient } = await import('@/lib/supabase');
+        const supabase = await getSupabaseAdminClient();
+
+        const { data: requestedStore, error: storeError } = await supabase
+            .from('stores').select('id, external_id').eq('external_id', storeId).maybeSingle()
+        if (storeError || !requestedStore) return NextResponse.json({ error: 'Store not found' }, { status: 404 })
+        const assignedStore = user.user_metadata?.store_id
+        if (user.user_role === 'manager'
+            && (assignedStore == null || ![requestedStore.id, requestedStore.external_id].some(value => String(value) === String(assignedStore)))) {
+            return NextResponse.json({ error: 'Manager is not assigned to this store' }, { status: 403 })
+        }
 
         let cachedProjections: Record<string, any> = {};
         if (!forceRecalc) {
@@ -84,7 +111,8 @@ export async function POST(request: NextRequest) {
                 }
 
                 // Generate new forecast
-                const forecast = await generateSmartForecast(storeId, dateStr)
+                const forecast = await generateSmartForecast(storeId, dateStr, forceRecalc)
+                const hourlyMap = Object.fromEntries(forecast.hours.map(hour => [String(hour.hour), hour.projected_sales]))
 
                 // Save to Cache
                 const { error: upsertError } = await supabase
@@ -93,11 +121,21 @@ export async function POST(request: NextRequest) {
                         store_id: storeId,
                         business_date: dateStr,
                         total_sales: forecast.total_sales,
-                        hourly_data: forecast.hours || [],
+                        hourly_data: hourlyMap,
                         meta: {
-                            model: 'Intelligence v2.1',
+                            model: 'Intelligence v3.0',
                             growth_factor: forecast.growth_factor_applied,
+                            base_sales: forecast.base_sales,
+                            base_tickets: forecast.base_tickets,
+                            avg_check_used: forecast.avg_check_used,
+                            ticket_growth_factor: forecast.ticket_growth_factor,
+                            holiday_multiplier: forecast.holiday_multiplier,
                             weather_adjusted: forecast.weather_adjustment || false,
+                            weather_factor: forecast.weather_factor,
+                            methodology: forecast.methodology,
+                            confidence_low: forecast.confidence_low,
+                            confidence_high: forecast.confidence_high,
+                            sample_size: forecast.sample_size,
                             generated_at: new Date().toISOString()
                         },
                         updated_at: new Date().toISOString()
@@ -122,10 +160,9 @@ export async function POST(request: NextRequest) {
 
                 console.log(`  ✅ ${dateStr}: $${Math.round(forecast.total_sales).toLocaleString()} (NEW generation, growth: ${forecast.growth_factor_applied.toFixed(2)})`)
 
-            } catch (dayError: any) {
+                } catch (dayError: any) {
                 console.error(`  ❌ ${dateStr}: Failed - ${dayError.message}`)
-                // Don't fail the entire request, just skip this day
-                projections[dateStr] = 0
+                // Omit failed dates; zero is a valid closed-day projection and must not represent an error.
                 meta.dailyDetails.push({
                     date: dateStr,
                     error: dayError.message
@@ -135,11 +172,14 @@ export async function POST(request: NextRequest) {
 
         console.log(`📊 [Intelligence API] Complete. ${Object.keys(projections).length} days generated.`)
 
+        const errors = meta.dailyDetails.filter((detail: any) => detail.error)
         return NextResponse.json({
             success: true,
+            partial: errors.length > 0,
+            errors,
             projections,
             meta
-        })
+        }, { status: errors.length > 0 ? 207 : 200 })
 
     } catch (error: any) {
         console.error('[Intelligence API] Fatal error:', error)
@@ -150,23 +190,6 @@ export async function POST(request: NextRequest) {
     }
 }
 
-// Also support GET for simple testing
-export async function GET(request: NextRequest) {
-    const { searchParams } = new URL(request.url)
-    const storeId = searchParams.get('storeId')
-    const weekStart = searchParams.get('weekStart')
-
-    if (!storeId || !weekStart) {
-        return NextResponse.json({
-            error: 'Missing query params: storeId, weekStart',
-            example: '/api/projections/generate?storeId=abc123&weekStart=2026-02-03'
-        }, { status: 400 })
-    }
-
-    // Redirect to POST logic
-    const mockRequest = {
-        json: async () => ({ storeId, weekStart })
-    } as NextRequest
-
-    return POST(mockRequest)
+export async function GET() {
+    return NextResponse.json({ error: 'Use authenticated POST to generate projections' }, { status: 405 })
 }

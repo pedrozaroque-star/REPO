@@ -1,6 +1,17 @@
 
-import { createClient } from '@supabase/supabase-js'
-import { addDays, format, subYears } from 'date-fns'
+/**
+ * @module SalesForecastIntelligence
+ * @description Motor canónico de proyección diaria y horaria de ventas para Tacos Gavilan.
+ * @businessRules
+ * - El día operativo comprende de 6:00 AM a 5:59 AM del día siguiente.
+ * - La venta se proyecta como tráfico (tickets) por ticket promedio cuando existen datos confiables.
+ * - Una proyección guardada permanece congelada salvo recálculo explícito.
+ * @dataFlow sales_daily_cache + stores + eventos + clima -> forecast diario -> curva horaria y dotación.
+ * @notes La curva horaria se normaliza al total diario para impedir inflación por huecos o doble conteo después de medianoche.
+ */
+
+import { subYears } from 'date-fns'
+import { empiricalConfidenceBand, robustAverageCheck, robustWeightedMean, safeRatio } from '@/lib/forecast-statistics'
 
 // --- CONSTANTS FROM INTELLIGENCE MINING (2025 Analysis) ---
 export const CAPACITY_RULES = {
@@ -41,6 +52,26 @@ export interface DayForecast {
     growth_factor_applied: number
     weather_adjustment?: boolean
     hours: OperatingHour[]
+    // v3.0 Transparency Fields (Guest-Centric Model)
+    base_tickets?: number          // Historical ticket count used as base
+    avg_check_used?: number        // Current average check (últimas 4 semanas)
+    ticket_growth_factor?: number  // Traffic growth factor (tickets only, immune to price inflation)
+    holiday_multiplier?: number    // Holiday impact multiplier (1.0 = no impact)
+    weather_factor?: number        // Weather factor (1.0 = no impact)
+    methodology?: string           // 'ticket-based' | 'dollar-fallback'
+    confidence_low?: number
+    confidence_high?: number
+    sample_size?: number
+}
+
+function ticketCount(row: any): number {
+    const direct = Number(row?.order_count ?? row?.total_tickets)
+    if (Number.isFinite(direct) && direct > 0) return direct
+    if (!row?.hourly_tickets || typeof row.hourly_tickets !== 'object') return 0
+    return Object.values(row.hourly_tickets).reduce<number>((sum, value) => {
+        const numeric = Number(value)
+        return sum + (Number.isFinite(numeric) && numeric > 0 ? numeric : 0)
+    }, 0)
 }
 
 // Add simple fast memory cache to avoid blasting Supabase 300+ times per API hit
@@ -61,63 +92,72 @@ async function _cachedQuery(key: string, queryFn: () => Promise<any>) {
  * 2. Trend Adjustment: Calculates 2026 vs 2025 growth for the last 4 weeks.
  * 3. Granularity: Reconstructs hourly curve from historical hourly percents.
  */
-export async function generateSmartForecast(storeId: string, targetDateStr: string): Promise<DayForecast> {
+export async function generateSmartForecast(storeId: string, targetDateStr: string, forceRecalculate: boolean = false): Promise<DayForecast> {
     const supabase = getSupabase()
     // FORCE NOON to avoid Timezone Shift (e.g. UTC midnight -> Previous Day 4pm PST)
     const targetDate = new Date(targetDateStr + 'T12:00:00')
 
-    // 🌟 MASTER FIX: SINGLE SOURCE OF TRUTH (CACHE PRIORITY) 🌟
-    // Before doing any complex math, check if we already have a locked/cached projection.
-    const { data: cachedProj } = await supabase
-        .from('sales_projections_cache')
-        .select('total_sales, hourly_data, meta')
-        .eq('store_id', storeId)
-        .eq('business_date', targetDateStr)
-        .single()
-
     let lockedTotalSales = null;
     let lockedHourlyData = null;
 
-    if (cachedProj && cachedProj.total_sales > 0) {
-        lockedTotalSales = Number(cachedProj.total_sales);
-        if (cachedProj.hourly_data && Object.keys(cachedProj.hourly_data).length > 0) {
-            lockedHourlyData = cachedProj.hourly_data;
-        }
-        
-        // If we have BOTH total and hourly, we can bypass the entire expensive calculation!
-        if (lockedTotalSales > 0 && lockedHourlyData) {
-            console.log(`🔒 [INTELLIGENCE] Using fully cached projection for ${storeId} on ${targetDateStr}: $${lockedTotalSales}`)
-            
-            // Reconstruct hours array
-            const hours: OperatingHour[] = []
-            Object.entries(lockedHourlyData).forEach(([hStr, pSales]) => {
-                const hour = Number(hStr)
-                const sales = Number(pSales)
-                // Reverse calculate required staff (approximate)
-                const reqK = Math.ceil(sales / CAPACITY_RULES.KITCHEN_SALES_PER_HOUR_MEDIAN)
-                const reqF = Math.ceil(Math.ceil(sales / 25) / CAPACITY_RULES.CASHIER_TICKETS_PER_HOUR_MEDIAN) // Assuming avg ticket $25
-                
-                hours.push({
-                    hour,
-                    projected_sales: sales,
-                    projected_tickets: Math.ceil(sales / 25),
-                    required_kitchen: Math.max(CAPACITY_RULES.MIN_KITCHEN, reqK),
-                    required_foh: Math.max(CAPACITY_RULES.MIN_CASHIERS, reqF),
-                    reasoning: 'Loaded from Single Source of Truth Cache'
-                })
-            })
-            
-            return {
-                date: targetDateStr,
-                store_id: storeId,
-                total_sales: lockedTotalSales,
-                growth_factor_applied: 1.0,
-                hours
+    if (!forceRecalculate) {
+        // 🌟 MASTER FIX: SINGLE SOURCE OF TRUTH (CACHE PRIORITY) 🌟
+        // Before doing any complex math, check if we already have a locked/cached projection.
+        const { data: cachedProj } = await supabase
+            .from('sales_projections_cache')
+            .select('total_sales, hourly_data, meta')
+            .eq('store_id', storeId)
+            .eq('business_date', targetDateStr)
+            .single()
+
+        if (cachedProj && cachedProj.total_sales > 0) {
+            lockedTotalSales = Number(cachedProj.total_sales);
+            if (cachedProj.hourly_data && Object.keys(cachedProj.hourly_data).length > 0) {
+                lockedHourlyData = cachedProj.hourly_data;
             }
-        } else if (lockedTotalSales > 0) {
-            // We have a total, but no hourly curve (e.g. overridden in Planificador without saving curve).
-            // We must continue the calculation to get the historical curve, but we will force the TOTAL to equal lockedTotalSales.
-            console.log(`🔒 [INTELLIGENCE] Found cached total for ${storeId} on ${targetDateStr}: $${lockedTotalSales}. Calculating curve...`)
+            
+            // If we have BOTH total and hourly, we can bypass the entire expensive calculation!
+            if (lockedTotalSales > 0 && lockedHourlyData) {
+                console.log(`🔒 [INTELLIGENCE] Using fully cached projection for ${storeId} on ${targetDateStr}: $${lockedTotalSales}`)
+                
+                // Reconstruct hours array
+                const hours: OperatingHour[] = []
+                const cachedEntries = Array.isArray(lockedHourlyData)
+                    ? lockedHourlyData.map((row: any) => [row?.hour, row?.projected_sales, row?.projected_tickets] as const)
+                    : Object.entries(lockedHourlyData).map(([hour, sales]) => [hour, sales, undefined] as const)
+                cachedEntries.forEach(([hStr, pSales, pTickets]) => {
+                    const hour = Number(hStr)
+                    const sales = Number(pSales)
+                    if (!Number.isFinite(hour) || !Number.isFinite(sales) || sales < 0) return
+                    const cachedTickets = Number(pTickets)
+                    const tickets = Number.isFinite(cachedTickets) && cachedTickets >= 0 ? cachedTickets : sales / 25
+                    // Reverse calculate required staff (approximate)
+                    const reqK = Math.ceil(sales / CAPACITY_RULES.KITCHEN_SALES_PER_HOUR_MEDIAN)
+                    const reqF = Math.ceil(tickets / CAPACITY_RULES.CASHIER_TICKETS_PER_HOUR_MEDIAN)
+                    
+                    hours.push({
+                        hour,
+                        projected_sales: sales,
+                        projected_tickets: tickets,
+                        required_kitchen: Math.max(CAPACITY_RULES.MIN_KITCHEN, reqK),
+                        required_foh: Math.max(CAPACITY_RULES.MIN_CASHIERS, reqF),
+                        reasoning: 'Loaded from Single Source of Truth Cache'
+                    })
+                })
+                hours.sort((a, b) => a.hour - b.hour)
+                
+                return {
+                    date: targetDateStr,
+                    store_id: storeId,
+                    total_sales: lockedTotalSales,
+                    growth_factor_applied: 1.0,
+                    hours
+                }
+            } else if (lockedTotalSales > 0) {
+                // We have a total, but no hourly curve (e.g. overridden in Planificador without saving curve).
+                // We must continue the calculation to get the historical curve, but we will force the TOTAL to equal lockedTotalSales.
+                console.log(`🔒 [INTELLIGENCE] Found cached total for ${storeId} on ${targetDateStr}: $${lockedTotalSales}. Calculating curve...`)
+            }
         }
     }
 
@@ -162,6 +202,8 @@ export async function generateSmartForecast(storeId: string, targetDateStr: stri
 
 
     let baseSales = 0
+    let baseTickets = 0 // v3.0: Historical ticket count base
+    let currentAvgCheck = 0 // v3.0: Current average check (last 4 weeks same weekday)
     let hourlySalesDist: Record<string, number> = {}
     let hourlyTicketDist: Record<string, number> = {}
 
@@ -217,7 +259,7 @@ export async function generateSmartForecast(storeId: string, targetDateStr: stri
     const historyPoints = await _cachedQuery(`hist_${storeId}_${compDays.join(',')}`, async () => {
         const { data } = await supabase
             .from('sales_daily_cache')
-            .select('business_date, net_sales, hourly_data, hourly_tickets')
+            .select('business_date, net_sales, order_count, total_tickets, hourly_data, hourly_tickets')
             .eq('store_id', storeId)
             .in('business_date', compDays)
             .gt('net_sales', 0)
@@ -228,6 +270,7 @@ export async function generateSmartForecast(storeId: string, targetDateStr: stri
         // Calculate Weighted Average
         let totalWeight = 0
         let weightedSales = 0
+        let weightedTickets = 0 // v3.0: Ticket-based base
         const weightedHrS: Record<string, number> = {}
         const weightedHrT: Record<string, number> = {}
 
@@ -267,7 +310,7 @@ export async function generateSmartForecast(storeId: string, targetDateStr: stri
 
             totalWeight += weight // Denominator keeps full weight
             weightedSales += (pt.net_sales * dayShiftFactor * weight) // Numerator gets adjusted value
-
+            weightedTickets += (ticketCount(pt) * dayShiftFactor * weight)
 
 
             if (pt.hourly_data) {
@@ -283,6 +326,7 @@ export async function generateSmartForecast(storeId: string, targetDateStr: stri
         })
 
         baseSales = weightedSales / totalWeight
+        baseTickets = totalWeight > 0 ? weightedTickets / totalWeight : 0 // v3.0: Historical ticket count base
 
         // Normalize hourly
         Object.keys(weightedHrS).forEach(h => hourlySalesDist[h] = weightedHrS[h] / totalWeight)
@@ -293,6 +337,46 @@ export async function generateSmartForecast(storeId: string, targetDateStr: stri
     } else {
         // Strict 0 triggers safety net
         baseSales = 0
+    }
+
+    // V3.1 recent comparable anchor: eight completed instances of the same weekday.
+    // This is the backtested primary base; annual peers remain available for trend/event context.
+    const recentComparableDates = Array.from({ length: 8 }, (_, index) => {
+        const date = new Date(targetDate)
+        date.setUTCDate(date.getUTCDate() - ((index + 1) * 7))
+        return date.toISOString().slice(0, 10)
+    })
+    const recentComparables = await _cachedQuery(`recent8_${storeId}_${recentComparableDates.join(',')}`, async () => {
+        const { data, error } = await supabase
+            .from('sales_daily_cache')
+            .select('business_date, net_sales, order_count, total_tickets, hourly_data, hourly_tickets')
+            .eq('store_id', storeId)
+            .in('business_date', recentComparableDates)
+            .gt('net_sales', 0)
+        if (error) throw new Error(`Recent comparable query failed: ${error.message}`)
+        return data || []
+    })
+    if (recentComparables.length >= 4) {
+        const ordered = [...recentComparables].sort((a: any, b: any) => a.business_date.localeCompare(b.business_date))
+        const observations = ordered.map((row: any, index: number) => ({ value: Number(row.net_sales), weight: index + 1 }))
+        const ticketObservations = ordered.map((row: any, index: number) => ({ value: ticketCount(row), weight: index + 1 }))
+        baseSales = robustWeightedMean(observations)
+        const recentTicketBase = robustWeightedMean(ticketObservations)
+        if (recentTicketBase > 0) baseTickets = recentTicketBase
+
+        const hourKeys = new Set<string>()
+        ordered.forEach((row: any) => {
+            Object.keys(row.hourly_data || {}).forEach(key => hourKeys.add(key))
+            Object.keys(row.hourly_tickets || {}).forEach(key => hourKeys.add(key))
+        })
+        for (const hour of hourKeys) {
+            hourlySalesDist[hour] = robustWeightedMean(ordered.map((row: any, index: number) => ({
+                value: Number(row.hourly_data?.[hour] || 0), weight: index + 1
+            })))
+            hourlyTicketDist[hour] = robustWeightedMean(ordered.map((row: any, index: number) => ({
+                value: Number(row.hourly_tickets?.[hour] || 0), weight: index + 1
+            })))
+        }
     }
 
     // --- SAFETY NET: FALLBACK TO RECENT TREND IF NO HISTORY ---
@@ -309,7 +393,7 @@ export async function generateSmartForecast(storeId: string, targetDateStr: stri
         const recentHistory = await _cachedQuery(`recent4_${storeId}_${recentDates.join(',')}`, async () => {
             const { data } = await supabase
                 .from('sales_daily_cache')
-                .select('net_sales, hourly_data, hourly_tickets')
+                .select('net_sales, order_count, total_tickets, hourly_data, hourly_tickets')
                 .eq('store_id', storeId)
                 .in('business_date', recentDates)
                 .gt('net_sales', 0) // Filter out closed days
@@ -340,6 +424,7 @@ export async function generateSmartForecast(storeId: string, targetDateStr: stri
 
             // Average it out
             baseSales = totalS / recentHistory.length
+            baseTickets = recentHistory.reduce((sum: number, day: any) => sum + ticketCount(day), 0) / recentHistory.length
 
             Object.keys(avgHourlyS).forEach(h => avgHourlyS[h] = avgHourlyS[h] / recentHistory.length)
             Object.keys(avgHourlyT).forEach(h => avgHourlyT[h] = avgHourlyT[h] / recentHistory.length)
@@ -483,7 +568,7 @@ export async function generateSmartForecast(storeId: string, targetDateStr: stri
     const recentTrendData = await _cachedQuery(`trend_${storeId}_${tsDStr}_${teDStr}`, async () => {
         const { data } = await supabase
             .from('sales_daily_cache')
-            .select('business_date, net_sales, hourly_tickets')
+            .select('business_date, net_sales, order_count, total_tickets, hourly_tickets')
             .eq('store_id', storeId)
             .gte('business_date', tsDStr)
             .lte('business_date', teDStr)
@@ -550,8 +635,53 @@ export async function generateSmartForecast(storeId: string, targetDateStr: stri
         growthFactorSales = Math.min(growthFactorSales, 1.05)
     }
 
-    // Apply same logic to Tickets? For now just mirror Sales factor
-    let growthFactorTickets = growthFactorSales; // Simplified alignment
+    // v3.0: Calculate TICKET growth separately (immune to price inflation)
+    // Blend: 60% specific weekday ticket trend + 40% global ticket trend
+    let specificTicketTrend = 1.0
+    if (recentTrendData && recentTrendData.length > 0) {
+        const recentSameWeekdays = recentTrendData.filter((d: any) => {
+            const dt = new Date(d.business_date)
+            return dt.getUTCDay() === targetDayOfWeek
+        })
+        // Sum hourly_tickets for recent same weekdays
+        let sumRecentTickets = 0, countRecentTickets = 0
+        recentSameWeekdays.forEach((d: any) => {
+            if (d.hourly_tickets) {
+                const dayTickets = Object.values(d.hourly_tickets as Record<string, number>).reduce((a, b) => a + Number(b), 0)
+                if (dayTickets > 10) { sumRecentTickets += dayTickets; countRecentTickets++ }
+            }
+        })
+        // Compare to historical comp ticket counts
+        let sumHistTickets = 0, countHistTickets = 0
+        const safeHP = historyPoints || []
+        safeHP.forEach((h: any) => {
+            const tickets = ticketCount(h)
+            if (tickets > 10) { sumHistTickets += tickets; countHistTickets++ }
+        })
+        if (countRecentTickets > 0 && countHistTickets > 0) {
+            specificTicketTrend = (sumRecentTickets / countRecentTickets) / (sumHistTickets / countHistTickets)
+        }
+    }
+    let globalTicketGrowth = ticketGrowth28 > 0 ? ticketGrowth28 : 1.0
+    let growthFactorTickets = (specificTicketTrend * 0.6) + (globalTicketGrowth * 0.4)
+    // v3.0: Tighter clamp for tickets (prevents outliers like Slauson +20%)
+    growthFactorTickets = Math.min(Math.max(growthFactorTickets, 0.92), 1.15)
+    if (earlyCloseHour !== null) {
+        growthFactorTickets = Math.min(growthFactorTickets, 1.05)
+    }
+
+    // v3.0: Compute currentAvgCheck from last 4 same-weekday actuals
+    {
+        const avgCheckData = recentTrendData?.filter((d: any) => {
+            const dt = new Date(d.business_date)
+            return dt.getUTCDay() === targetDayOfWeek
+        }) || []
+        const fallbackCheck = safeRatio(baseSales, baseTickets, 18.50)
+        currentAvgCheck = robustAverageCheck(avgCheckData.map((day: any) => ({
+            sales: Number(day.net_sales),
+            tickets: ticketCount(day)
+        })), fallbackCheck)
+    }
 
     // --- WEATHER INTEL ---
     const { getStoreWeatherForecast } = await import('@/lib/weather')
@@ -560,12 +690,28 @@ export async function generateSmartForecast(storeId: string, targetDateStr: stri
 
     try {
         const weather = await getStoreWeatherForecast(storeId, targetDateStr)
-        if (weather && weather.isSevere) {
-            weatherFactor = 0.95 // -5% Impact (Conservative: Delivery offsets foot traffic loss)
-            weatherNote = `Severe Weather Alert: ${weather.condition} (${weather.precipProb}%)`
+        if (weather) {
+            // v3.0: Use graduated weatherFactor from weather module (0.70/0.85/0.95/1.0)
+            weatherFactor = (weather as any).weatherFactor ?? (weather.isSevere ? 0.95 : 1.0)
+            if (weatherFactor < 1.0) {
+                weatherNote = `Weather: ${weather.condition} (${weather.precipProb}% precip) → factor ${weatherFactor}`
+            }
         }
     } catch (e) {
         // Ignore weather errors, proceed with baseline
+    }
+
+    // v3.0: EVENT INTELLIGENCE — Query events for this date
+    let eventMultiplier = 1.0
+    let eventMethodology = ''
+    try {
+        const { getEventMultiplier } = await import('@/lib/event-intelligence')
+        const isHolidayComp = Boolean(specialEventPeers && specialEventPeers.length > 0)
+        const eventResult = await getEventMultiplier(storeId, targetDateStr, isHolidayComp)
+        eventMultiplier = eventResult.multiplier
+        eventMethodology = eventResult.methodology
+    } catch (e) {
+        // Event intelligence is optional — if table doesn't exist yet, proceed without it
     }
 
     // --- HOLIDAY LOGIC: VALENTINE'S DAY ---
@@ -577,11 +723,26 @@ export async function generateSmartForecast(storeId: string, targetDateStr: stri
     //    Object.keys(hourlyTicketDist).forEach(h => hourlyTicketDist[h] *= 1.05)
     // }
 
-    // APPLY FACTORS SEPARATELY
-    let projectedTotal = baseSales * growthFactorSales * weatherFactor
+    // v3.0: TICKET-BASED PROJECTION FORMULA
+    // Instead of: baseSales($$) × growthFactor($$)
+    // We use:     baseTickets × ticketGrowth × currentAvgCheck × eventMultiplier × weatherFactor
+    // This is IMMUNE to price inflation because tickets and avg check are separated
+    let projectedTotal: number
+    let projectionMethodology = 'dollar-fallback'
+
+    if (baseTickets > 0 && currentAvgCheck > 0) {
+        // PRIMARY: Ticket-based (v3.0)
+        projectedTotal = baseTickets * growthFactorTickets * currentAvgCheck * eventMultiplier * weatherFactor
+        projectionMethodology = 'ticket-based'
+    } else {
+        // FALLBACK: Dollar-based (v2 legacy) — only when ticket data is unavailable
+        projectedTotal = baseSales * growthFactorSales * eventMultiplier * weatherFactor
+        projectionMethodology = 'dollar-fallback'
+    }
+
     let overrideMultiplier = 1.0;
 
-    if (lockedTotalSales !== null && lockedTotalSales > 0) {
+    if (!forceRecalculate && lockedTotalSales !== null && lockedTotalSales > 0) {
         console.log(`🔒 [INTELLIGENCE] Overriding calculated total ($${projectedTotal}) with Locked Cache ($${lockedTotalSales})`)
         if (projectedTotal > 0) {
             overrideMultiplier = lockedTotalSales / projectedTotal;
@@ -596,6 +757,11 @@ export async function generateSmartForecast(storeId: string, targetDateStr: stri
     // We fetch both standard and weekly_hours to apply specific day logic.
     let dbOpenHour: number | null = null
     let dbCloseHour: number | null = null // Optional logic if we want to trim end
+    const parseOperatingHour = (time: string, closing: boolean): number | null => {
+        const [hour, minute = 0] = time.split(':').map(Number)
+        if (!Number.isInteger(hour) || hour < 0 || hour > 23 || !Number.isInteger(minute) || minute < 0 || minute > 59) return null
+        return closing && minute > 0 ? hour + 1 : hour
+    }
 
     try {
         const { data: storeInfo } = await supabase
@@ -606,8 +772,8 @@ export async function generateSmartForecast(storeId: string, targetDateStr: stri
 
         if (storeInfo) {
             // 1. Default to standard hours
-            if (storeInfo.opening_time) dbOpenHour = parseInt(storeInfo.opening_time.split(':')[0], 10)
-            if (storeInfo.closing_time) dbCloseHour = parseInt(storeInfo.closing_time.split(':')[0], 10)
+            if (storeInfo.opening_time) dbOpenHour = parseOperatingHour(storeInfo.opening_time, false)
+            if (storeInfo.closing_time) dbCloseHour = parseOperatingHour(storeInfo.closing_time, true)
 
             // 2. Check for Day-Specific Override in weekly_hours
             // weekly_hours structure: [{ day: 1, open: '10:00', close: '23:00' }, ...]
@@ -619,10 +785,10 @@ export async function generateSmartForecast(storeId: string, targetDateStr: stri
             if (storeInfo.weekly_hours && Array.isArray(storeInfo.weekly_hours)) {
                 const dayConfig = storeInfo.weekly_hours.find((c: any) => c.day === dayOfWeek)
                 if (dayConfig && dayConfig.open) {
-                    dbOpenHour = parseInt(dayConfig.open.split(':')[0], 10)
+                    dbOpenHour = parseOperatingHour(dayConfig.open, false)
                 }
                 if (dayConfig && dayConfig.close) {
-                    dbCloseHour = parseInt(dayConfig.close.split(':')[0], 10)
+                    dbCloseHour = parseOperatingHour(dayConfig.close, true)
                 }
             }
         }
@@ -633,55 +799,47 @@ export async function generateSmartForecast(storeId: string, targetDateStr: stri
     // 4. Build Hourly Projection
     const hours: OperatingHour[] = []
 
-    // Standard business hours 8am - 12am (allow 24h though)
-    // EXTENDED: Iterate up to 30 (6 AM next day) to capture late night sales
-    for (let h = 0; h < 30; h++) {
-        // MAPPING LOGIC:
-        // Hours 0-23 map directly.
-        // Hours 24-29 map to 0-5 of the NEXT day (or same day early morning).
-        // Since historical data is usually stored as 0-23, we check:
-        // If h >= 24, look for sales at h - 24.
+    const normalizeHour = (hour: number | null): number | null => {
+        if (hour === null || !Number.isFinite(hour)) return null
+        return hour < 6 ? hour + 24 : hour
+    }
+    const configuredOpen = normalizeHour(dbOpenHour) ?? 6
+    let configuredClose = dbCloseHour ?? 30
+    if (configuredClose <= configuredOpen) configuredClose += 24
+    const effectiveOpen = Math.max(configuredOpen, normalizeHour(lateOpenHour) ?? configuredOpen)
+    const effectiveClose = Math.min(configuredClose, normalizeHour(earlyCloseHour) ?? configuredClose)
+    const activeHours: number[] = []
+    for (let hour = 6; hour < 30; hour++) {
+        if (hour >= effectiveOpen && hour < effectiveClose) activeHours.push(hour)
+    }
 
-        const lookupHour = h >= 24 ? h - 24 : h
+    const historicalValue = (distribution: Record<string, number>, hour: number): number => {
+        const extended = Number(distribution[String(hour)])
+        const clock = Number(distribution[String(hour >= 24 ? hour - 24 : hour)])
+        const value = Number.isFinite(extended) && extended >= 0 ? extended : clock
+        return Number.isFinite(value) && value >= 0 ? value : 0
+    }
 
-        const histSales = Number(hourlySalesDist[lookupHour] || 0)
-        const histTickets = Number(hourlyTicketDist[lookupHour] || 0)
+    // Complete gaps in the weight vector before normalization. This preserves the daily total.
+    const salesWeights = activeHours.map(hour => historicalValue(hourlySalesDist, hour))
+    const ticketWeights = activeHours.map(hour => historicalValue(hourlyTicketDist, hour))
+    for (let index = 0; index < activeHours.length; index++) {
+        if (salesWeights[index] <= 0 && index > 0 && salesWeights[index - 1] > 0) salesWeights[index] = salesWeights[index - 1] * 0.85
+        if (ticketWeights[index] <= 0 && index > 0 && ticketWeights[index - 1] > 0) ticketWeights[index] = ticketWeights[index - 1] * 0.85
+    }
+    const salesWeightTotal = salesWeights.reduce((sum, value) => sum + value, 0)
+    const ticketWeightTotal = ticketWeights.reduce((sum, value) => sum + value, 0)
+    const projectedTicketsTotal = currentAvgCheck > 0
+        ? safeRatio(projectedTotal, currentAvgCheck, 0)
+        : baseTickets * growthFactorTickets * eventMultiplier * weatherFactor
 
-        // Apply distinct growth factors AND weather AND cache override multiplier
-        let projSales = histSales * growthFactorSales * weatherFactor * overrideMultiplier
-        let projTickets = histTickets * growthFactorTickets * weatherFactor * overrideMultiplier
-
-        // --- OPERATING HOURS ENFORCEMENT ---
-        // Late Open (e.g. 11am) OR Early Close (e.g. 4pm)
-        // Note: Logic for 24+ might need adjustment if LateOpen applies to next day?
-        // Assuming holiday hours apply to the main business day.
-
-        if (
-            (lateOpenHour !== null && h < lateOpenHour) ||
-            (earlyCloseHour !== null && h >= earlyCloseHour) ||
-            // ENFORCE DB OPENING HOURS (Standard Day)
-            // If DB says open at 10 AM, prevent sales at 9 AM (h=9).
-            // Only apply to morning hours (h < 24) to avoid killing late night (h=25).
-            (dbOpenHour !== null && h < 24 && h < dbOpenHour)
-        ) {
-            projSales = 0
-            projTickets = 0
-        }
-
-        // FALLBACK: If hourly tickets missing, estimate from Average Ticket Value (ATV)
-        // Avg Ticket = Total Sales / Total Tickets (Day level)
-        // If Data missing, assume $25.00 avg ticket conservative
-        if (projTickets === 0 && projSales > 0) {
-            const dayTotalSales = Object.values(hourlySalesDist).reduce((a: any, b: any) => Number(a) + Number(b), 0) as number
-            const dayTotalTickets = Object.values(hourlyTicketDist).reduce((a: any, b: any) => Number(a) + Number(b), 0) as number
-
-            let atv = 25.0
-            if (dayTotalSales > 0 && dayTotalTickets > 0) {
-                atv = dayTotalSales / dayTotalTickets
-            }
-
-            projTickets = projSales / atv
-        }
+    for (let index = 0; index < activeHours.length; index++) {
+        const h = activeHours[index]
+        const uniformWeight = activeHours.length > 0 ? 1 / activeHours.length : 0
+        const salesRatio = salesWeightTotal > 0 ? salesWeights[index] / salesWeightTotal : uniformWeight
+        const ticketRatio = ticketWeightTotal > 0 ? ticketWeights[index] / ticketWeightTotal : salesRatio
+        const projSales = projectedTotal * salesRatio
+        const projTickets = projectedTicketsTotal * ticketRatio
 
         // APPLY INTELLIGENCE RULES
         // Cashiers: Based on tickets
@@ -694,39 +852,6 @@ export async function generateSmartForecast(storeId: string, targetDateStr: stri
         if (reqKitchen < CAPACITY_RULES.MIN_KITCHEN && projSales > 0) reqKitchen = CAPACITY_RULES.MIN_KITCHEN
         if (projSales === 0) reqKitchen = 0 // Closed
 
-        // GAP FILLING: If sales are 0 but store is OPEN (based on DB hours), extrapolate!
-        // This handles cases where hours were recently extended (so history is 0)
-        let effectiveClose = dbCloseHour
-        if (dbCloseHour !== null && dbOpenHour !== null) {
-            if (dbCloseHour < dbOpenHour) effectiveClose = dbCloseHour + 24
-        }
-
-        // Only trigger if we are in the "active" window (after open, before close)
-        // And we have a valid previous hour to extrapolate from
-        if (projSales === 0
-            && dbOpenHour !== null
-            && effectiveClose !== null
-            && h >= dbOpenHour
-            && h < effectiveClose
-            && hours.length > 0
-            && hours[hours.length - 1].projected_sales > 0) {
-
-            // Extrapolate: Decay last hour by 15% to be conservative
-            const lastSales = hours[hours.length - 1].projected_sales
-            // Don't carry over huge spikes, cap decay
-            projSales = lastSales * 0.85
-
-            // Also extrapolate tickets
-            const lastTickets = hours[hours.length - 1].projected_tickets
-            projTickets = lastTickets * 0.85
-            // Ensure capacity is recalculated for gap-filled hours
-            reqCashiers = Math.ceil(projTickets / CAPACITY_RULES.CASHIER_TICKETS_PER_HOUR_MEDIAN)
-            if (reqCashiers < CAPACITY_RULES.MIN_CASHIERS) reqCashiers = CAPACITY_RULES.MIN_CASHIERS
-
-            reqKitchen = Math.ceil(projSales / CAPACITY_RULES.KITCHEN_SALES_PER_HOUR_MEDIAN)
-            if (reqKitchen < CAPACITY_RULES.MIN_KITCHEN) reqKitchen = CAPACITY_RULES.MIN_KITCHEN
-        }
-
         hours.push({
             hour: h,
             projected_sales: projSales,
@@ -737,38 +862,13 @@ export async function generateSmartForecast(storeId: string, targetDateStr: stri
         })
     }
 
-    // --- SMART TRIM: Remove trailing inactive hours ---
-    // But keep open until Closing Time if known
-    let lastActiveIndex = hours.length - 1
+    const finalTotalSales = hours.reduce((acc, h) => acc + h.projected_sales, 0)
 
-    // 1. Find last actual sale
-    while (lastActiveIndex > 0) {
-        if (hours[lastActiveIndex].projected_sales > 0) break
-        lastActiveIndex--
-    }
-
-    // 2. Enforce minimum visual duration based on DB Closing Time
-    if (dbCloseHour !== null) {
-        let closeH = dbCloseHour
-        // If close < open, assume next day (e.g. Open 10, Close 2 -> Close 26)
-        // If close > open (Open 10, Close 23), use 23.
-        // We need dbOpenHour to be sure.
-        const openH = dbOpenHour || 9
-        if (closeH < openH) closeH += 24
-
-        // If store closes at 2am (26), we want to show up to hour 26
-        // But only if it's within our 30h window
-        if (closeH < 30) {
-            lastActiveIndex = Math.max(lastActiveIndex, closeH)
-        }
-    }
-
-    // Keep up to lastActiveIndex + 1 (buffer for closing visual)
-    const cutOffIndex = Math.min(lastActiveIndex + 1, hours.length - 1)
-    const trimmedHours = hours.slice(0, cutOffIndex + 1)
-
-    // RE-CALCULATE TOTAL FROM TRIMMED HOURS
-    const finalTotalSales = trimmedHours.reduce((acc, h) => acc + h.projected_sales, 0)
+    const confidenceScale = safeRatio(finalTotalSales, baseSales, 1)
+    const confidence = empiricalConfidenceBand(
+        recentComparables.map((row: any) => Number(row.net_sales) * confidenceScale),
+        finalTotalSales
+    )
 
     return {
         date: targetDateStr,
@@ -777,6 +877,16 @@ export async function generateSmartForecast(storeId: string, targetDateStr: stri
         base_sales: baseSales,
         growth_factor_applied: growthFactorSales,
         weather_adjustment: weatherFactor < 1.0,
-        hours: trimmedHours
+        hours,
+        // v3.0 Transparency Fields
+        base_tickets: baseTickets > 0 ? baseTickets : undefined,
+        avg_check_used: currentAvgCheck > 0 ? currentAvgCheck : undefined,
+        ticket_growth_factor: growthFactorTickets,
+        holiday_multiplier: eventMultiplier !== 1.0 ? eventMultiplier : undefined,
+        weather_factor: weatherFactor !== 1.0 ? weatherFactor : undefined,
+        methodology: projectionMethodology + (eventMethodology ? ` | ${eventMethodology}` : ''),
+        confidence_low: confidence.low,
+        confidence_high: confidence.high,
+        sample_size: confidence.sampleSize,
     }
 }

@@ -21,7 +21,13 @@
  *     * Penalizaciones de Comida / Otros: OTHER_HRS * BILL_RATE.
  *
  * @dataFlow
- *   RONOS `ronos_employee_timecards_cache` + Toast `toast_employees.wage_data` -> `payroll-calculator` -> Reporte Conciliado Cingular HR.
+ *   RONOS `ronos_employee_timecards_cache` + Simplify HR OS Paystubs (`getSitePaystubs`) + Toast `toast_employees.wage_data` -> `payroll-calculator` -> Reporte Conciliado Cingular HR.
+ *
+ * @notes
+ *   - Auto-reconciliación con Simplify HR OS Paystubs: Cuando Cingular corre la nómina oficial, la app extrae automáticamente
+ *     los recibos de nómina aprobados (`getSitePaystubs`) para capturar días de enfermedad (Sick Leave) y vacaciones (PTO)
+ *     que fueron aprobados administrativamente pero omitidos en el reloj checador de RONOS (ej. Erasto Barranco 8h sick en Hollywood).
+ *   - Sincroniza tarifas reales aprobadas de salario y horas extras, evitando discrepancias de redondeo y cuadrando al centavo ($0.00).
  */
 
 import { supabaseAdmin } from './supabase'
@@ -853,6 +859,7 @@ export async function calculateCingularPayrollReport(
 
   // 4. Calcular importes exactos empleado por empleado
   const employeeItems: CingularEmployeePayrollItem[] = []
+  const usedPaystubIds = new Set<string>()
 
   empAggregation.forEach((agg, uId) => {
     const rawNormName = String(agg?.fullName || '').toLowerCase().trim().replace(/\s+/g, ' ')
@@ -861,15 +868,34 @@ export async function calculateCingularPayrollReport(
     const detectedTitle = String(titleMap.get(rawNormName) || titleMap.get(normName) || agg?.jobTitle || 'Crew')
 
     // Buscar si existe recibo oficial aprobado de Simplify HR OS para este colaborador y periodo
-    const matchingStub = paystubMap.get(normName) ||
-      paystubMap.get(rawNormName) ||
-      (agg.pin ? paystubMap.get(agg.pin) : undefined) ||
-      Array.from(paystubMap.values()).find(s => {
-        const sName = (s.employeeName || `${s.firstName || ''} ${s.lastName || ''}`).toLowerCase().replace(/,/g, ' ')
-        return (normName.length > 5 && sName.includes(normName)) || (sName.length > 5 && normName.includes(sName))
-      })
+    // Deduplicación estricta: un recibo solo puede asignarse a un colaborador
+    const matchingStub = Array.from(paystubMap.values()).find(s => {
+      if (usedPaystubIds.has(s.id)) return false
+      // 1. Coincidencia por PIN / employeeNumber si coincide
+      if (agg.pin && s.employeeNumber && agg.pin === s.employeeNumber) return true
+      // 2. Coincidencia por nombre normalizado
+      const sName = (s.employeeName || `${s.firstName || ''} ${s.lastName || ''}`).toLowerCase().replace(/,/g, ' ').replace(/\s+/g, ' ').trim()
+      const sNorm2 = (s.firstName && s.lastName) ? `${s.firstName} ${s.lastName}`.toLowerCase().replace(/\s+/g, ' ').trim() : ''
+      const isNameMatch = sName === normName || sNorm2 === normName || sName === rawNormName
+
+      if (isNameMatch) {
+        // Si hay duplicados con el mismo nombre en RONOS (ej. un registro activo y uno inactivo con 0h),
+        // preferir siempre el que tiene horas trabajadas reales
+        const hasWorkedHours = agg.totalHours > 0 || agg.regularHours > 0 || agg.overtimeHours > 0
+        if (!hasWorkedHours && s.grossWages && s.grossWages > 0) {
+          const otherWithHours = Array.from(empAggregation.values()).some(other => {
+            const oName = normalizeRonosName(String(other?.fullName || '').toLowerCase().trim().replace(/\s+/g, ' '))
+            return oName === normName && (other.totalHours > 0 || other.regularHours > 0)
+          })
+          if (otherWithHours) return false
+        }
+        return true
+      }
+      return false
+    })
 
     if (matchingStub) {
+      usedPaystubIds.add(matchingStub.id)
       // Auto-enriquecimiento de horas oficiales aprobadas de Sick / Vacation si RONOS no las registró en el reloj
       const stubSick = (matchingStub.earnings || [])
         .filter(e => e.paycodeName === 'SICK' || e.type === 'SICK')
@@ -935,6 +961,11 @@ export async function calculateCingularPayrollReport(
         payRate = stubReg.rate
         billRate = Math.round((payRate * CINGULAR_HOURLY_MARKUP_FACTOR + Number.EPSILON) * 100) / 100
       }
+      const stubOt = matchingStub.earnings?.find(e => e.paycodeName === 'OVERTIME' || e.type === 'OVERTIME')
+      if (stubOt && stubOt.rate && stubOt.rate > 0) {
+        overrideOtPayRate = stubOt.rate
+        otBillRate = Math.round((overrideOtPayRate * CINGULAR_HOURLY_MARKUP_FACTOR + Number.EPSILON) * 100) / 100
+      }
     }
 
     // 2. Ajustes de horas de vacaciones y overrides secundarios
@@ -946,10 +977,10 @@ export async function calculateCingularPayrollReport(
       if (exactOverride.overtimeHours !== undefined) {
         overrideOvertimeHours = exactOverride.overtimeHours
       }
-      if (exactOverride.otBillRate) {
+      if (exactOverride.otBillRate && (!otBillRate || otBillRate <= 0)) {
         otBillRate = exactOverride.otBillRate
       }
-      if (exactOverride.otPayRate) {
+      if (exactOverride.otPayRate && (!overrideOtPayRate || overrideOtPayRate <= 0)) {
         overrideOtPayRate = exactOverride.otPayRate
       }
       if (payRate <= 0) {

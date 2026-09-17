@@ -1146,51 +1146,99 @@ function SalesPageContent() {
                                     <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-100 dark:border-indigo-500/20 text-indigo-700 dark:text-indigo-400 text-xs font-medium shadow-sm ml-1 mt-1 md:mt-0 max-w-full">
                                         <TrendingUp size={14} className="shrink-0" />
                                         <span>
-                                            <strong>{t('sales.projection.title')}:</strong> {t('sales.projection.calculated_using')}
                                             {(() => {
                                                 let targetRows = data.rawRows;
                                                 if (selectedStore !== 'all') {
                                                     targetRows = targetRows.filter((r: any) => r.storeName === selectedStore || r.name === selectedStore || r.storeId === selectedStore);
                                                 }
                                                 const rowsWithMeta = targetRows.filter((r: any) => r.projectionMeta);
-                                                if (rowsWithMeta.length === 0) return t('sales.projection.last_year_sales_fallback');
+                                                if (rowsWithMeta.length === 0) {
+                                                    return (
+                                                        <>
+                                                            <strong>{t('sales.projection.title')}:</strong> {t('sales.projection.calculated_using')}{t('sales.projection.last_year_sales_fallback')}
+                                                        </>
+                                                    );
+                                                }
                                                 
                                                 let totalBase = 0;
                                                 let sumGrowth = 0;
                                                 let countGrowth = 0;
                                                 let hasWeather = false;
+                                                let weatherPenalty = 0;
+                                                let totalTickets = 0;
+                                                let sumAvgCheck = 0;
+                                                let countAvgCheck = 0;
+                                                let sumTicketGrowth = 0;
+                                                let countTicketGrowth = 0;
+                                                let maxEventMult = 1.0;
+                                                let isV3 = false;
                                                 
                                                 rowsWithMeta.forEach((r: any) => {
                                                     const m = r.projectionMeta;
+                                                    if (m.base_tickets && Number(m.base_tickets) > 0) {
+                                                        totalTickets += Number(m.base_tickets);
+                                                        isV3 = true;
+                                                    }
+                                                    if (m.avg_check_used && Number(m.avg_check_used) > 0) {
+                                                        sumAvgCheck += Number(m.avg_check_used);
+                                                        countAvgCheck++;
+                                                    }
+                                                    if (m.ticket_growth_factor) {
+                                                        sumTicketGrowth += (Number(m.ticket_growth_factor) - 1) * 100;
+                                                        countTicketGrowth++;
+                                                    }
+                                                    if (m.holiday_multiplier && Number(m.holiday_multiplier) > maxEventMult) {
+                                                        maxEventMult = Number(m.holiday_multiplier);
+                                                    }
                                                     if (m.base_sales) totalBase += m.base_sales;
                                                     if (m.growth_factor) {
                                                         sumGrowth += (m.growth_factor - 1) * 100;
                                                         countGrowth++;
                                                     }
-                                                    if (m.weather_adjusted) hasWeather = true;
+                                                    if (m.weather_adjusted || (m.weather_factor && Number(m.weather_factor) < 1.0)) {
+                                                        hasWeather = true;
+                                                        if (m.weather_factor) {
+                                                            weatherPenalty = Math.round((1 - Number(m.weather_factor)) * 100);
+                                                        }
+                                                    }
                                                 });
                                                 
                                                 let explanation = "";
-                                                if (totalBase > 0) {
-                                                    explanation += `${t('sales.projection.base_of')} $${totalBase.toLocaleString('en-US', {minimumFractionDigits: 0, maximumFractionDigits: 0})}`;
+                                                if (isV3 && totalTickets > 0 && countAvgCheck > 0) {
+                                                    const avgCheck = sumAvgCheck / countAvgCheck;
+                                                    const avgTrafficGrowth = countTicketGrowth > 0 ? sumTicketGrowth / countTicketGrowth : 0;
+                                                    explanation = ` ~${Math.round(totalTickets).toLocaleString()} ${t('sales.projection.expected_guests')} × $${avgCheck.toFixed(2)} ${t('sales.projection.avg_check_label')}`;
+                                                    if (countTicketGrowth > 0) {
+                                                        explanation += ` (${t('sales.projection.traffic_growth_label')}: ${avgTrafficGrowth >= 0 ? '+' : ''}${avgTrafficGrowth.toFixed(1)}%)`;
+                                                    }
+                                                    if (maxEventMult > 1.0) {
+                                                        explanation += ` 🌟 +${((maxEventMult - 1) * 100).toFixed(0)}% ${t('sales.projection.event_boost')}`;
+                                                    }
+                                                    if (hasWeather) {
+                                                        explanation += ` 🌧️ -${weatherPenalty || 5}% ${t('sales.projection.weather_adjusted_label')}`;
+                                                    }
                                                 } else {
-                                                    explanation += `${t('sales.projection.the_sales')}`;
-                                                }
-                                                
-                                                const d = new Date(startDate + 'T12:00:00');
-                                                d.setDate(d.getDate() - 364);
-                                                const lastYearStr = d.toLocaleDateString(language === 'es' ? 'es-ES' : 'en-US', { 
-                                                    weekday: 'long', year: 'numeric', month: 'short', day: 'numeric' 
-                                                });
-                                                
-                                                explanation += `${t('sales.projection.last_year_same_day')} (${lastYearStr})`;
-                                                
-                                                if (countGrowth > 0) {
-                                                    const avgGrowth = sumGrowth / countGrowth;
-                                                    explanation += `${t('sales.projection.adjusted_trend')}${avgGrowth > 0 ? '+' : ''}${avgGrowth.toFixed(1)}%)`;
-                                                }
-                                                if (hasWeather) {
-                                                    explanation += `${t('sales.projection.weather_penalty')}`;
+                                                    if (totalBase > 0) {
+                                                        explanation += ` ${t('sales.projection.base_of')} $${totalBase.toLocaleString('en-US', {minimumFractionDigits: 0, maximumFractionDigits: 0})}`;
+                                                    } else {
+                                                        explanation += ` ${t('sales.projection.the_sales')}`;
+                                                    }
+                                                    
+                                                    const d = new Date(startDate + 'T12:00:00');
+                                                    d.setDate(d.getDate() - 364);
+                                                    const lastYearStr = d.toLocaleDateString(language === 'es' ? 'es-ES' : 'en-US', { 
+                                                        weekday: 'long', year: 'numeric', month: 'short', day: 'numeric' 
+                                                    });
+                                                    
+                                                    explanation += ` ${t('sales.projection.last_year_same_day')} (${lastYearStr})`;
+                                                    
+                                                    if (countGrowth > 0) {
+                                                        const avgGrowth = sumGrowth / countGrowth;
+                                                        explanation += `${t('sales.projection.adjusted_trend')}${avgGrowth > 0 ? '+' : ''}${avgGrowth.toFixed(1)}%)`;
+                                                    }
+                                                    if (hasWeather) {
+                                                        explanation += `${t('sales.projection.weather_penalty')}`;
+                                                    }
                                                 }
                                                 
                                                 const uniqueStoreProjs = new Map<string, number>()
@@ -1206,7 +1254,11 @@ function SalesPageContent() {
                                                     explanation += ".";
                                                 }
                                                 
-                                                return explanation;
+                                                return (
+                                                    <>
+                                                        <strong>{isV3 ? t('sales.projection.guest_centric_title') : t('sales.projection.title')}:</strong> {t('sales.projection.calculated_using')}{explanation}
+                                                    </>
+                                                );
                                             })()}
                                         </span>
                                     </div>

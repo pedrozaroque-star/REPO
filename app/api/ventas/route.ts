@@ -125,18 +125,31 @@ export async function GET(request: NextRequest) {
                                 store_id: storeId,
                                 business_date: startDate,
                                 total_sales: totalSales,
-                                hourly_data: hourlyMap,
                                 meta: {
-                                    model: 'Intelligence v2.1',
+                                    model: 'Intelligence v3.0',
                                     growth_factor: forecast.growth_factor_applied,
+                                    base_sales: forecast.base_sales,
+                                    base_tickets: forecast.base_tickets,
+                                    avg_check_used: forecast.avg_check_used,
+                                    ticket_growth_factor: forecast.ticket_growth_factor,
+                                    holiday_multiplier: forecast.holiday_multiplier,
                                     weather_adjusted: forecast.weather_adjustment || false,
+                                    weather_factor: forecast.weather_factor,
+                                    methodology: forecast.methodology,
                                     generated_at: new Date().toISOString()
                                 }
                             });
                             projMeta = {
+                                model: 'Intelligence v3.0',
                                 growth_factor: forecast.growth_factor_applied,
+                                base_sales: forecast.base_sales,
+                                base_tickets: forecast.base_tickets,
+                                avg_check_used: forecast.avg_check_used,
+                                ticket_growth_factor: forecast.ticket_growth_factor,
+                                holiday_multiplier: forecast.holiday_multiplier,
                                 weather_adjusted: forecast.weather_adjustment || false,
-                                base_sales: forecast.base_sales
+                                weather_factor: forecast.weather_factor,
+                                methodology: forecast.methodology,
                             };
                         }
 
@@ -234,9 +247,16 @@ export async function GET(request: NextRequest) {
                                 total: forecast.total_sales,
                                 hourly: hourlyMap,
                                 meta: {
+                                    model: 'Intelligence v3.0',
                                     growth_factor: forecast.growth_factor_applied,
+                                    base_sales: forecast.base_sales,
+                                    base_tickets: forecast.base_tickets,
+                                    avg_check_used: forecast.avg_check_used,
+                                    ticket_growth_factor: forecast.ticket_growth_factor,
+                                    holiday_multiplier: forecast.holiday_multiplier,
                                     weather_adjusted: forecast.weather_adjustment || false,
-                                    base_sales: forecast.base_sales
+                                    weather_factor: forecast.weather_factor,
+                                    methodology: forecast.methodology,
                                 }
                             })
 
@@ -247,8 +267,16 @@ export async function GET(request: NextRequest) {
                                 total_sales: forecast.total_sales,
                                 hourly_data: hourlyMap,
                                 meta: {
-                                    model: 'Intelligence v2.1',
+                                    model: 'Intelligence v3.0',
                                     growth_factor: forecast.growth_factor_applied,
+                                    base_sales: forecast.base_sales,
+                                    base_tickets: forecast.base_tickets,
+                                    avg_check_used: forecast.avg_check_used,
+                                    ticket_growth_factor: forecast.ticket_growth_factor,
+                                    holiday_multiplier: forecast.holiday_multiplier,
+                                    weather_adjusted: forecast.weather_adjustment || false,
+                                    weather_factor: forecast.weather_factor,
+                                    methodology: forecast.methodology,
                                     generated_at: new Date().toISOString()
                                 }
                             })

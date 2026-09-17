@@ -1,5 +1,11 @@
 
-// lib/holidays.ts
+/**
+ * @module HolidayCalendar
+ * @description Calendario de fechas especiales y horarios excepcionales usados por las proyecciones de Tacos Gavilan.
+ * @businessRules Solo se permiten comparativos estrictamente anteriores a la fecha proyectada; el día laboral termina a las 5:59 AM.
+ * @dataFlow Fecha objetivo -> pares históricos, nombre, impacto y ajustes de horario -> motor de proyección.
+ * @notes Las categorías de impacto son señales operativas; no sustituyen una calibración histórica por evento y tienda.
+ */
 
 export interface HolidayMapping {
     name: string
@@ -49,6 +55,14 @@ export const HOLIDAY_CALENDAR: HolidayMapping[] = [
         date2025: "2025-02-14",
         date2024: "2024-02-14",
         date2023: "2023-02-14",
+        impact: 'HIGH'
+    },
+    {
+        name: "Víspera del Grito (Sep 15)",
+        date2026: "2026-09-15",
+        date2025: "2025-09-15",
+        date2024: "2024-09-15",
+        date2023: "2023-09-15",
         impact: 'HIGH'
     },
     {
@@ -161,6 +175,14 @@ export const HOLIDAY_CALENDAR: HolidayMapping[] = [
         impact: 'HIGH'
     },
     {
+        name: "Día de Muertos",
+        date2026: "2026-11-02",
+        date2025: "2025-11-02",
+        date2024: "2024-11-02",
+        date2023: "2023-11-02",
+        impact: 'HIGH'
+    },
+    {
         name: "Thanksgiving",
         date2026: "2026-11-26",
         date2025: "2025-11-27",
@@ -214,15 +236,15 @@ export function getComparativeDates(targetDate: string): string[] | null {
     const h = HOLIDAY_CALENDAR.find(h =>
         h.date2026 === targetDate ||
         h.date2025 === targetDate ||
-        h.date2024 === targetDate
+        h.date2024 === targetDate ||
+        h.date2023 === targetDate
     )
 
     if (h) {
         // Return historical peers
-        const peers = []
-        if (h.date2025 && h.date2025 !== targetDate) peers.push(h.date2025)
-        if (h.date2024 && h.date2024 !== targetDate) peers.push(h.date2024)
-        if (h.date2023 && h.date2023 !== targetDate) peers.push(h.date2023)
+        const peers = [h.date2026, h.date2025, h.date2024, h.date2023]
+            .filter(date => date && date < targetDate)
+            .sort((a, b) => b.localeCompare(a))
         return peers
     }
 
@@ -267,4 +289,18 @@ export function getHolidayLateOpen(targetDate: string): number | null {
         h.date2023 === targetDate
     )
     return h && h.lateOpenHour ? h.lateOpenHour : null
+}
+
+/**
+ * Returns a numeric multiplier for holiday impact on sales.
+ * HIGH = +10% boost, LOW = -20% penalty, NEUTRAL/null = no change.
+ * CLOSED is handled separately (returns 0 sales).
+ */
+export function getHolidayMultiplier(targetDate: string): number {
+    const impact = getHolidayImpact(targetDate)
+    if (!impact || impact === 'NEUTRAL') return 1.0
+    if (impact === 'HIGH') return 1.10
+    if (impact === 'LOW') return 0.80
+    if (impact === 'CLOSED') return 0.0
+    return 1.0
 }

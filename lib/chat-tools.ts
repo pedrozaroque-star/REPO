@@ -359,7 +359,7 @@ export const TOOL_DECLARATIONS = [
   },
   {
     name: 'calculate_cingular_payroll',
-    description: 'Calculate and reconcile official Cingular HR payroll, gross pay (TOT PAY), 25.98% markup fee, and total invoiced amount (TOT BILL) with exact exempt/non-exempt breakdown and PTO (sick/vacation) for any Tacos Gavilan store.',
+    description: 'Calculate and reconcile official Cingular HR payroll, gross pay (TOT PAY), 26.00% markup fee, and total invoiced amount (TOT BILL) with exact exempt/non-exempt breakdown, automatic Simplify HR OS Paystubs cross-referencing for administrative Sick/Vacation PTO, and penny-to-penny reconciliation for any Tacos Gavilan store.',
     parameters: {
       type: 'OBJECT',
       properties: {
@@ -431,6 +431,17 @@ export const TOOL_DECLARATIONS = [
       },
       required: ['start_date', 'end_date']
     }
+  },
+  {
+    name: 'query_upcoming_events',
+    description: 'Query upcoming sports games (SoFi Stadium, Dodger Stadium, Crypto.com, BMO), concerts (Hollywood Bowl, The Forum), festivals, Hispanic cultural events, holidays, and their distance-adjusted sales impact for Tacos Gavilan stores from the event_intelligence database.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        target_date: { type: 'STRING', description: 'Optional specific date YYYY-MM-DD. If omitted, queries all upcoming events in the next 14 days.' },
+        store_name: { type: 'STRING', description: 'Optional store name to calculate distance-adjusted impact for that specific location.' }
+      }
+    }
   }
 ]
 
@@ -460,6 +471,7 @@ export async function executeTool(name: string, args: any): Promise<string> {
       case 'query_violations_budgets': return await queryViolationsBudgets(args)
       case 'query_product_mix': return await queryProductMix(args)
       case 'query_forecast': return await queryForecast(args)
+      case 'query_upcoming_events': return await queryUpcomingEvents(args)
       case 'calculate_breaks': return await calculateBreaks(args)
       case 'analyze_performance': return await analyzePerformance(args)
       case 'query_safe_counts': return await querySafeCounts(args)
@@ -1289,17 +1301,27 @@ async function queryForecast(args: any): Promise<string> {
   try {
     const forecast = await generateSmartForecast(storeId, targetDate)
     
+    const trafficGrowth = forecast.ticket_growth_factor ?? forecast.growth_factor_applied ?? 1.0
+    const trafficPercent = ((trafficGrowth - 1.0) * 100).toFixed(1)
+    const trafficSign = Number(trafficPercent) >= 0 ? '+' : ''
+
     const lines = [
-      `🔮 **Smart Forecast Projection for ${storeName} on ${targetDate}**`,
+      `🔮 **Smart Forecast Projection (Intelligence v3.0) for ${storeName} on ${targetDate}**`,
       `================================================================`,
-      `*   **Base Historical Sales:** ${fmt$(forecast.base_sales || 0)}`,
-      `*   **Growth Factor Applied:** ${((forecast.growth_factor_applied || 1.0) * 100).toFixed(1)}%`,
-      `*   **Weather Adjustment:** ${forecast.weather_adjustment ? '⚠️ Severe Weather Penalty Applied (-5%)' : '✅ None'}`,
-      `*   **Projected Net Sales:** **${fmt$(forecast.total_sales || 0)}**`,
+      `*   **Metodología:** ${forecast.methodology || 'ticket-based'}`,
+      forecast.base_tickets ? `*   **Clientes Base Esperados (Tickets):** ${Math.round(forecast.base_tickets).toLocaleString()}` : `*   **Base Historical Sales:** ${fmt$(forecast.base_sales || 0)}`,
+      forecast.avg_check_used ? `*   **Ticket Promedio Actual (Avg Check):** ${fmt$(forecast.avg_check_used)}` : '',
+      `*   **Crecimiento de Tráfico Aplicado:** ${trafficSign}${trafficPercent}%`,
+      forecast.holiday_multiplier ? `*   **Multiplicador de Evento/Día Especial:** ${forecast.holiday_multiplier.toFixed(3)}x` : '',
+      `*   **Ajuste de Clima:** ${forecast.weather_adjustment ? `⚠️ Factor ${forecast.weather_factor ?? 0.95}` : '✅ Clima Normal (1.0x)'}`,
+      `*   **Ventas Netas Proyectadas:** **${fmt$(forecast.total_sales || 0)}**`,
+      forecast.confidence_low != null && forecast.confidence_high != null
+        ? `*   **Rango Operativo:** ${fmt$(forecast.confidence_low)} – ${fmt$(forecast.confidence_high)} (${forecast.sample_size || 0} comparables)`
+        : '',
       ``,
       `| Hour | Projected Sales | Projected Tickets | Required Cooks | Required Cashiers | Reasoning |`,
       `| :--- | :-------------- | :---------------- | :------------- | :---------------- | :-------- |`
-    ]
+    ].filter(Boolean)
     
     const sortedHours = [...(forecast.hours || [])].sort((a, b) => a.hour - b.hour)
     const maxSales = forecast.hours?.reduce((m, hr) => hr.projected_sales > m ? hr.projected_sales : m, 0) || 1
@@ -1318,6 +1340,49 @@ async function queryForecast(args: any): Promise<string> {
     return lines.join('\n')
   } catch (error: any) {
     return `Error generating forecast: ${error.message}`
+  }
+}
+
+// ── 15.1 Upcoming Events (Event Intelligence) ──
+async function queryUpcomingEvents(args: any): Promise<string> {
+  try {
+    const todayPST = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
+    let query = supabaseAdmin
+      .from('event_intelligence')
+      .select('*')
+      .order('event_date', { ascending: true })
+
+    if (args.target_date) {
+      query = query.eq('event_date', args.target_date)
+    } else {
+      query = query.gte('event_date', todayPST).limit(20)
+    }
+
+    const { data: events, error } = await query
+    if (error) return `Error al consultar eventos: ${error.message}`
+    if (!events || events.length === 0) {
+      return `📅 No hay eventos especiales registrados ${args.target_date ? `para el ${args.target_date}` : 'para los próximos 14 días'}. La proyección operará bajo tráfico regular.`
+    }
+
+    const lines = [
+      `🎉 **Eventos Detectados por Event Intelligence (${events.length})**`,
+      `================================================================`
+    ]
+
+    for (const ev of events) {
+      const scopeBadge = ev.event_scope === 'national' ? '🇺🇸 Nacional' : ev.venue_name ? `📍 ${ev.venue_name}` : '🏙️ Regional'
+      const impactEmoji = ev.impact_multiplier > 1.05 ? '🔥 Boost Alto' : ev.impact_multiplier > 1.0 ? '📈 Boost Leve' : ev.impact_multiplier < 0.8 ? '📉 Caída Fuerte' : ev.impact_multiplier < 0.95 ? '⚠️ Baja' : '⚖️ Neutral'
+      
+      lines.push(
+        `• **${ev.event_date}** — **${ev.event_name}** (${scopeBadge})`,
+        `  - Tipo: ${ev.event_type} | Impacto Base: **${ev.impact_multiplier}x** (${impactEmoji})`,
+        `  - ${ev.description || 'Sin descripción'}`
+      )
+    }
+
+    return lines.join('\n')
+  } catch (e: any) {
+    return `Error consultando eventos: ${e.message}`
   }
 }
 
@@ -2486,4 +2551,3 @@ async function queryPnlConsolidatedTool(args: any): Promise<string> {
     return `Error consultando P&L consolidado: ${err.message}`
   }
 }
-

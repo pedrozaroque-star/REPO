@@ -1,5 +1,5 @@
 {
-  "totalHours": 126.3,
+  "totalHours": 131,
   "rows": [
     {
       "date": "01-Sep-2026",
@@ -401,6 +401,23 @@
       ],
       "descEs": "• <strong>Auditoría Forense y Conciliación 1:1 de Facturas PEO Cingular HR (Chat abc9e2a6)</strong>: Triangulación minuciosa contra facturas oficiales de nómina (invoice-TEGL-0025, TEGL-0026 Lynwood, TEGB-0018 Bell, TEGD-0008 Downey, TEGS-0039 South Gate y TEGH-0009 Hollywood). Detección y justificación de variaciones por finiquito (caso renuncia Fernando Lacayo en Lynwood con cheque manual en Simplify HR sin ponchada en reloj), compensaciones extraordinarias y tiempos libres pagados (PTO Sick/Vacation).<br>• <strong>Reingeniería del Motor de Nómina & Cron Centinela Diario de las 11:59 AM</strong>: Expansión mayor de lib/payroll-calculator.ts (+556 líneas), lib/simplifyhr-api.ts (+265 líneas) y creación del cron /api/cron/sync-daily-payroll (/api/cron/sync-simplify-rates) que corre diario a las 11:59 AM en vercel.json para sincronizar automáticamente las tarifas reales de Simplify HR hacia Supabase garantizando lecturas instantáneas en la UI sin desajustes quincenales.<br>• <strong>GAVILAN MIX Edición Navideña & Branding Festivo de Comedor</strong>: Curación exhaustiva de 300 videos musicales navideños (1970 a 2026) aptos para restaurantes familiares. Diseño de marcos festivos en los bordes con esferas decorativas personalizadas con el logo circular oficial de Tacos Gavilan.<br>• <strong>Blindaje de Reproducción en Tienda & Desanclado de Reproductores Fallidos</strong>: Mejora en el lanzador EXE para auto-eliminar carpetas residuales de videos obsoletos en el escritorio de las computadoras de tienda, desanclando automáticamente Windows Media Player y reproductores antiguos de la barra de tareas de Windows para evitar que los gerentes abran reproductores que se congelan.<br>• <strong>Compilación de Contexto Maestro de Nómina & Elevación SemVer v2.10.1</strong>: Redacción y aprobación del documento de arquitectura ejecutiva payroll_context_master.md documentando todas las reglas fiscales y de markup (~24.51% asalariados vs 26.00% no exentos) de Cingular HR.",
       "descEn": "• <strong>Cingular HR PEO Invoices Forensic Audit & 1:1 Reconciliation (Conversation abc9e2a6)</strong>: Comprehensive triangulation against official corporate invoices (invoice-TEGL-0025/26 Lynwood, TEGB-0018 Bell, TEGD-0008 Downey, TEGS-0039 South Gate, and TEGH-0009 Hollywood). Reconciled variances from final termination payouts (Fernando Lacayo resignation in Lynwood processed manually in Simplify HR without clock punches) and non-clocked paid time off (PTO Sick/Vacation).<br>• <strong>Payroll Engine Overhaul & 11:59 AM Daily Sentinel Cron</strong>: Massive expansion of lib/payroll-calculator.ts (+556 lines), lib/simplifyhr-api.ts (+265 lines), and engineered daily 11:59 AM cron job /api/cron/sync-daily-payroll in vercel.json to silently sync live pay rates from Simplify HR into Supabase for zero-latency UI rendering.<br>• <strong>GAVILAN MIX Christmas TV Edition & Festive Store Branding</strong>: Curated 300 holiday music videos (1970-2026) filtered for family dining rooms. Designed decorative holiday border overlays featuring custom Christmas ornaments stamped with the official circular Tacos Gavilan logo.<br>• <strong>Store Playback Hardening & Legacy Taskbar Unpinning</strong>: Enhanced standalone EXE launcher to automatically purge obsolete desktop video folders and silently unpin legacy Windows Media Player from the Windows Taskbar, ensuring restaurant managers exclusively launch the stable 24/7 engine.<br>• <strong>Payroll Architecture Master Documentation & SemVer v2.10.1 Bump</strong>: Authored and finalized comprehensive executive blueprint payroll_context_master.md documenting all PEO tax brackets, exempt markup (~24.51%), and non-exempt markups (26.00%)."
+    },
+    {
+      "date": "17-Sep-2026",
+      "time": "1:15 AM - 1:35 AM & 9:25 AM - 1:45 PM",
+      "hours": 4.7,
+      "badges": [
+        "Forecast V3.1 Tráfico (Tickets × Prom)",
+        "Normalización Horaria Estricta",
+        "Eliminación Duplicación 12–5 AM",
+        "Protección JWT API Proyecciones",
+        "Simulación Retrospectiva 900 Casos",
+        "Eventos Atenuación Continua Distancia",
+        "Feriados sin Fuga Temporal",
+        "Versionado SemVer v2.10.2"
+      ],
+      "descEs": "• <strong>Auditoría Profunda y Refactorización del Motor de Proyecciones (Forecast V3.1)</strong>: En sesión de desarrollo matutina (chat f59a6005) motivada por la retroalimentación de Roberto Velázquez, análisis exhaustivo del flujo de proyecciones en lib/intelligence.ts, lib/forecast-statistics.ts y app/planificador. Transición a modelo basado en tráfico (tickets × ticket promedio) con base histórica de 8 semanas del mismo día, pesos de recencia y Winsorization (percentiles 10/90) para blindar el pronóstico contra anomalías de venta atípicas.<br>• <strong>Simulación Retrospectiva Masiva (900 Combinaciones Tienda/Día)</strong>: Validación empírica entre el 19 de julio y el 16 de septiembre de 2026 sobre las 15 sucursales. Se certificó una reducción del WAPE por tienda/día de 6.59% a 5.65%, reducción del sesgo de subproyección a -1.21% y descenso del error consolidado diario de 4.95% a 3.05%.<br>• <strong>Corrección de Bugs Críticos en Curva Horaria & Límites de Tienda</strong>: 1) Normalización estricta de la curva horaria garantizando que la suma de horas coincide idénticamente con el total proyectado, erradicando el bug de inflado de huecos (donde $1,000 se convertían en $3,359); 2) Eliminación de colisión en horas de 12:00 a 5:00 AM (0-5 vs 24-29); 3) Respeto del horario real de cierre por tienda.<br>• <strong>Blindaje de Eventos, Clima & API con JWT</strong>: Composición simétrica de eventos opuestos independiente del orden de filas, atenuación continua por distancia geográfica real contra las 15 tiendas, neutralización de eventos sin ubicación, comparativos de feriados estrictamente anteriores (cero fuga temporal), restricción climática a ventana 0-7 días (America/Los_Angeles), protección del endpoint /api/projections/generate con JWT y control de roles, y liberación garantizada del estado de carga en el Planificador.<br>• <strong>Versionado SemVer v2.10.2 & Sincronización del Asistente</strong>: Elevación de la versión oficial en lib/version.ts y actualización del prompt del Asistente IA en app/api/support-chat/route.ts.",
+      "descEn": "• <strong>Deep Audit & Forecasting Engine Refactor (Forecast V3.1)</strong>: In dedicated morning session (conversation f59a6005) prompted by executive feedback from Roberto Velázquez, conducted deep audit of projection pipeline in lib/intelligence.ts, lib/forecast-statistics.ts, and app/planificador. Transitioned to traffic-based model (tickets × median average ticket) with 8-week same-weekday baseline, recency weights, and Winsorization (10th/90th percentile capping) to shield forecasts against atypical spikes or drops.<br>• <strong>Massive Retrospective Simulation (900 Store/Day Combinations)</strong>: Empirically validated across all 15 branches from July 19 to September 16, 2026. Certified WAPE reduction per store/day from 6.59% to 5.65%, under-projection bias reduction to -1.21%, and consolidated daily error drop from 4.95% to 3.05%.<br>• <strong>Critical Bug Fixes in Hourly Curves & Store Hours</strong>: 1) Strictly normalized hourly distribution ensuring the sum of all hourly slots strictly matches the projected daily total, eliminating gap-filling inflation (where $1,000 inflated to $3,359); 2) Eliminated 12:00-5:00 AM hour collision (0-5 vs 24-29); 3) Enforced actual store closing cutoffs.<br>• <strong>Event Intelligence, Weather & JWT Security Hardening</strong>: Symmetric composition of opposing events independent of database row order, continuous distance decay from verified store coordinates, neutralization of unverified local events, strictly retrospective holiday benchmarks (zero future leakage), weather restricted to 0-7 day window in America/Los_Angeles, JWT session enforcement on /api/projections/generate with role validation, and resilient loading state release in Planner UI.<br>• <strong>SemVer v2.10.2 Bump & AI Assistant Sync</strong>: Upgraded canonical system version in lib/version.ts and synchronized TEG Assistant prompt in app/api/support-chat/route.ts."
     }
   ],
   "effort": [
@@ -429,11 +446,15 @@
       "hours": 6.75
     },
     {
+      "module": "Motor de Proyecciones de Ventas (Forecast V3.1) & Event Intelligence",
+      "hours": 4.7
+    },
+    {
       "module": "Infraestructura, Centinela Supabase/Vercel & Alertas Email",
       "hours": 4.75
     },
     {
-      "module": "Soporte IA Conversacional, Changelog Modal & Versionado UI (v2.10.1)",
+      "module": "Soporte IA Conversacional, Changelog Modal & Versionado UI (v2.10.2)",
       "hours": 3.25
     },
     {

@@ -20,20 +20,40 @@ export interface VersionMilestone {
 }
 
 export const SYSTEM_VERSION = {
-    version: 'v2.10.1',
-    versionNumber: '2.10.1',
+    version: 'v2.10.2',
+    versionNumber: '2.10.2',
     releaseMonthEs: 'Septiembre 2026',
     releaseMonthEn: 'September 2026',
     stage: 'Producción',
     stageEn: 'Production',
     year: '2026',
-    labelEs: 'Septiembre 2026 • SM TEG v2.10.1',
-    labelEn: 'September 2026 • SM TEG v2.10.1',
+    labelEs: 'Septiembre 2026 • SM TEG v2.10.2',
+    labelEn: 'September 2026 • SM TEG v2.10.2',
     brand: 'SM TEG',
     lastUpdated: '2026-09-17'
 } as const;
 
 export const VERSION_HISTORY: readonly VersionMilestone[] = [
+    {
+        version: 'v2.10.2',
+        date: '17-Sep-2026',
+        titleEs: 'Motor de Proyecciones de Ventas V3.1 (Estadística Robusta, Normalización Horaria y Seguridad JWT)',
+        titleEn: 'Sales Forecast Engine V3.1 (Robust Statistics, Hourly Normalization & JWT Security)',
+        highlightsEs: [
+            'Proyección basada en tráfico (tickets × ticket promedio) con base de 8 semanas, pesos de recencia y Winsorization anti-anomalías',
+            'Curva horaria normalizada con suma idéntica al total diario, eliminando duplicación 12–5 AM e inflación de huecos',
+            'Comparativos de feriados estrictamente anteriores sin fuga temporal y composición simétrica de eventos con atenuación por distancia',
+            'Blindaje de API de proyecciones con JWT, validación estricta de parámetros, control de roles y cron de eventos locales',
+            'Reducción del WAPE simulado en 900 tienda/día de 6.59% a 5.65% y del error consolidado diario de 4.95% a 3.05%'
+        ],
+        highlightsEn: [
+            'Traffic-based forecast (tickets × average ticket) with 8-week baseline, recency weights, and Winsorization outlier clipping',
+            'Strictly normalized hourly curve ensuring hourly sum matches daily total, eliminating 12–5 AM collision and gap inflation',
+            'Retrospective holiday comparatives preventing future data leakage and symmetric event composition with continuous distance decay',
+            'Secured forecast API with JWT session tokens, strict role enforcement, 31-day ceiling, and local events sync cron',
+            'Reduced retrospective simulated WAPE across 900 store/days from 6.59% to 5.65% and consolidated daily error from 4.95% to 3.05%'
+        ]
+    },
     {
         version: 'v2.10.1',
         date: '17-Sep-2026',
