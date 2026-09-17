@@ -498,6 +498,7 @@ function RonosLaborAuditContent() {
   const [selectedBiWeeklyPeriod, setSelectedBiWeeklyPeriod] = useState<string>('')
   const [payrollSearch, setPayrollSearch] = useState<string>('')
   const [payrollFilterType, setPayrollFilterType] = useState<'all' | 'exact' | 'saving' | 'variance' | 'pto' | 'violations'>('all')
+  const [payrollInvoiceMode, setPayrollInvoiceMode] = useState<'consolidated' | 'regular' | 'supplemental'>('consolidated')
 
   // Chain / Multi-Store View States
   const [chainSortField, setChainSortField] = useState<'hours' | 'ot' | 'penalties' | 'penaltyCost' | 'compliance' | 'store'>('hours')
@@ -794,10 +795,16 @@ function RonosLaborAuditContent() {
   }
 
   // 4. Fetch Payroll Data (Tab 4)
-  const fetchPayroll = async (companyId: number, periodId?: number | string, isBiWeekly = true) => {
+  const fetchPayroll = async (
+    companyId: number,
+    periodId?: number | string,
+    isBiWeekly = true,
+    mode?: 'consolidated' | 'regular' | 'supplemental'
+  ) => {
     setPayrollLoading(true)
     try {
-      let url = `/api/ronos/payroll?companyId=${companyId}&biWeekly=${isBiWeekly}`
+      const activeMode = mode || payrollInvoiceMode
+      let url = `/api/ronos/payroll?companyId=${companyId}&biWeekly=${isBiWeekly}&mode=${activeMode}`
       if (periodId) {
         url += `&weekIds=${periodId}`
       }
@@ -1258,6 +1265,8 @@ function RonosLaborAuditContent() {
     return computeCingularBiWeeklyPeriods(weeks)
   }, [weeks])
 
+  const resolvedPayrollPeriodId = payrollBiWeekly ? (selectedBiWeeklyPeriod || biWeeklyPeriods[0]?.id || '') : (selectedWeekId || '')
+
   // Navegación de empleado individual siguiente / anterior
   const handleNavigateEmployee = (direction: 'next' | 'prev') => {
     if (!selectedEmployeeDetail || !storeData?.employees) return
@@ -1365,6 +1374,21 @@ function RonosLaborAuditContent() {
     : storeData?.storeName
     ? storeData.storeName
     : 'Lynwood'
+
+  // Cálculos consolidados para el Bloque Maestro de Salida de Caja (Tab 4: Facturación)
+  const payrollSupplementalsList = Array.isArray(payrollData?.supplementalsList) ? payrollData.supplementalsList : []
+  const payrollSupplementalsCount = payrollSupplementalsList.length
+  const payrollSupplementalsTotalAmount = payrollSupplementalsList.reduce((acc: number, s: any) => acc + (Number(s?.invoicedAmount) || 0), 0)
+
+  const payrollMasterCashOutflow = payrollInvoiceMode === 'consolidated'
+    ? (Number(payrollData?.totalInvoicedAmount) || 0)
+    : payrollInvoiceMode === 'regular'
+    ? (Number(payrollData?.totalInvoicedAmount) || 0) + payrollSupplementalsTotalAmount
+    : payrollSupplementalsTotalAmount
+
+  const payrollRegularPortion = payrollInvoiceMode === 'regular'
+    ? (Number(payrollData?.totalInvoicedAmount) || 0)
+    : (payrollMasterCashOutflow - payrollSupplementalsTotalAmount)
 
   return (
     <div className="min-h-screen bg-[#f8fafc] dark:bg-slate-950 text-slate-800 dark:text-slate-100 font-sans transition-colors duration-200">
@@ -2744,7 +2768,7 @@ function RonosLaborAuditContent() {
 
                   {/* Export Official Cingular CSV */}
                   <a
-                    href={`/api/ronos/payroll?companyId=${selectedCompanyId}&weekIds=${payrollBiWeekly ? (selectedBiWeeklyPeriod || biWeeklyPeriods[0]?.id || '') : (selectedWeekId || '')}&biWeekly=${payrollBiWeekly}&format=csv`}
+                    href={`/api/ronos/payroll?companyId=${selectedCompanyId}&weekIds=${resolvedPayrollPeriodId}&biWeekly=${payrollBiWeekly}&mode=${payrollInvoiceMode}&format=csv`}
                     download
                     className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-[#43a047] hover:bg-[#388e3c] text-white font-bold text-xs shadow-xs cursor-pointer"
                   >
@@ -2785,7 +2809,7 @@ function RonosLaborAuditContent() {
                       value={selectedBiWeeklyPeriod}
                       onChange={(e) => {
                         setSelectedBiWeeklyPeriod(e.target.value)
-                        fetchPayroll(selectedCompanyId, e.target.value, true)
+                        fetchPayroll(selectedCompanyId, e.target.value, true, payrollInvoiceMode)
                       }}
                       className="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold cursor-pointer"
                     >
@@ -2801,7 +2825,7 @@ function RonosLaborAuditContent() {
                       onChange={(e) => {
                         const wId = Number(e.target.value)
                         setSelectedWeekId(wId)
-                        fetchPayroll(selectedCompanyId, wId, false)
+                        fetchPayroll(selectedCompanyId, wId, false, payrollInvoiceMode)
                       }}
                       className="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold cursor-pointer"
                     >
@@ -2824,7 +2848,7 @@ function RonosLaborAuditContent() {
                       onChange={() => {
                         setPayrollBiWeekly(true)
                         const periodId = selectedBiWeeklyPeriod || biWeeklyPeriods[0]?.id || ''
-                        fetchPayroll(selectedCompanyId, periodId, true)
+                        fetchPayroll(selectedCompanyId, periodId, true, payrollInvoiceMode)
                       }}
                       className="accent-[#0288d1]"
                     />
@@ -2837,7 +2861,7 @@ function RonosLaborAuditContent() {
                       checked={!payrollBiWeekly}
                       onChange={() => {
                         setPayrollBiWeekly(false)
-                        fetchPayroll(selectedCompanyId, selectedWeekId, false)
+                        fetchPayroll(selectedCompanyId, selectedWeekId, false, payrollInvoiceMode)
                       }}
                       className="accent-[#0288d1]"
                     />
@@ -2845,6 +2869,233 @@ function RonosLaborAuditContent() {
                   </label>
                 </div>
               </div>
+
+              {/* ═══════════════════════════════════════════════════════════════════════════ */}
+              {/* SELECTOR DE MODO DE FACTURACIÓN (BATCH SELECTOR)                            */}
+              {/* ═══════════════════════════════════════════════════════════════════════════ */}
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 p-1.5 rounded-xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPayrollInvoiceMode('consolidated')
+                    fetchPayroll(selectedCompanyId, resolvedPayrollPeriodId, payrollBiWeekly, 'consolidated')
+                  }}
+                  disabled={payrollLoading}
+                  className={`flex-1 flex flex-col items-start px-4 py-2.5 rounded-lg text-left transition-all cursor-pointer ${
+                    payrollInvoiceMode === 'consolidated'
+                      ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs border border-slate-300 dark:border-slate-700 font-bold'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white font-medium'
+                  }`}
+                >
+                  <div className="flex items-center gap-1.5 text-xs">
+                    <span className="text-amber-500">🌟</span>
+                    <span className="font-bold">{t('ronos.batch_consolidated')}</span>
+                  </div>
+                  <span className="text-[10px] text-slate-500 mt-0.5">
+                    {t('ronos.batch_consolidated_desc')}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPayrollInvoiceMode('regular')
+                    fetchPayroll(selectedCompanyId, resolvedPayrollPeriodId, payrollBiWeekly, 'regular')
+                  }}
+                  disabled={payrollLoading}
+                  className={`flex-1 flex flex-col items-start px-4 py-2.5 rounded-lg text-left transition-all cursor-pointer ${
+                    payrollInvoiceMode === 'regular'
+                      ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs border border-slate-300 dark:border-slate-700 font-bold'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white font-medium'
+                  }`}
+                >
+                  <div className="flex items-center gap-1.5 text-xs">
+                    <span>📄</span>
+                    <span className="font-bold">{t('ronos.batch_regular')}</span>
+                  </div>
+                  <span className="text-[10px] text-slate-500 mt-0.5">
+                    {t('ronos.batch_regular_desc')}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPayrollInvoiceMode('supplemental')
+                    fetchPayroll(selectedCompanyId, resolvedPayrollPeriodId, payrollBiWeekly, 'supplemental')
+                  }}
+                  disabled={payrollLoading}
+                  className={`flex-1 flex flex-col items-start px-4 py-2.5 rounded-lg text-left transition-all cursor-pointer ${
+                    payrollInvoiceMode === 'supplemental'
+                      ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs border border-slate-300 dark:border-slate-700 font-bold'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white font-medium'
+                  }`}
+                >
+                  <div className="flex items-center justify-between w-full text-xs">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-amber-500">⚡</span>
+                      <span className="font-bold">{t('ronos.batch_supplemental')}</span>
+                    </div>
+                    {payrollSupplementalsCount > 0 && (
+                      <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-900/60 dark:text-amber-300">
+                        {payrollSupplementalsCount}
+                      </span>
+                    )}
+                  </div>
+                  <span className="text-[10px] text-slate-500 mt-0.5">
+                    {t('ronos.batch_supplemental_desc')}
+                  </span>
+                </button>
+              </div>
+
+              {/* ═══════════════════════════════════════════════════════════════════════════ */}
+              {/* BLOQUE MAESTRO DE SALIDA DE CAJA (CASH OUTFLOW MASTER CARD)                 */}
+              {/* ═══════════════════════════════════════════════════════════════════════════ */}
+              <div className="relative overflow-hidden rounded-2xl border-2 border-emerald-500/40 bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white p-6 shadow-lg">
+                <div className="absolute -top-10 -right-10 w-48 h-48 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
+                <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 relative z-10">
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap mb-2">
+                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                        {payrollInvoiceMode === 'consolidated' ? '🌟 Consolidado Total' : payrollInvoiceMode === 'regular' ? '📄 Factura Ordinaria' : '⚡ Finiquitos Separados'}
+                      </span>
+                      {payrollData?.invoiceId && (
+                        <span className="px-2 py-0.5 rounded text-[11px] font-mono font-bold bg-slate-800 text-slate-300 border border-slate-700">
+                          ID: {payrollData.invoiceId}
+                        </span>
+                      )}
+                      {payrollSupplementalsCount > 0 && payrollInvoiceMode === 'consolidated' && (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                          {payrollSupplementalsCount} Finiquito(s) Incluido(s)
+                        </span>
+                      )}
+                    </div>
+                    <h3 className="text-sm font-semibold text-slate-300">
+                      {t('ronos.kpi_cash_outflow_title')}
+                    </h3>
+                    <div className="flex items-baseline gap-3 mt-1">
+                      <span className="text-4xl sm:text-5xl font-black tracking-tight text-white">
+                        ${(payrollData?.totalInvoicedAmount ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </span>
+                      <span className="text-xs font-semibold text-emerald-400">
+                        USD
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-400 mt-1 max-w-xl">
+                      {t('ronos.kpi_cash_outflow_subtitle')}
+                    </p>
+                  </div>
+
+                  {/* Sub-tarjetas de desglose de desembolso */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 w-full lg:w-auto shrink-0">
+                    <div className="bg-slate-800/80 rounded-xl p-3 border border-slate-700/60 min-w-[170px]">
+                      <div className="flex items-center justify-between text-[11px] text-slate-400 font-semibold mb-1">
+                        <span>{t('ronos.sub_regular_invoice')}</span>
+                        <span className="font-mono text-[10px] text-slate-500">{payrollData?.storeCode || 'REG'}</span>
+                      </div>
+                      <div className="text-lg font-bold text-white">
+                        ${payrollRegularPortion.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </div>
+                      <div className="text-[10px] text-slate-400 mt-0.5">
+                        {payrollInvoiceMode === 'supplemental' ? 'Omitido en vista finiquito' : `${payrollData?.salariedCount ? (payrollData.totalEmployees - payrollSupplementalsCount) : (payrollData?.totalEmployees || 0)} colaboradores`}
+                      </div>
+                    </div>
+
+                    <div className={`rounded-xl p-3 border min-w-[170px] ${payrollSupplementalsCount > 0 ? 'bg-amber-950/30 border-amber-500/40' : 'bg-slate-800/80 border-slate-700/60'}`}>
+                      <div className="flex items-center justify-between text-[11px] font-semibold mb-1">
+                        <span className={payrollSupplementalsCount > 0 ? 'text-amber-300' : 'text-slate-400'}>{t('ronos.sub_supplemental_invoice')}</span>
+                        <span className="font-mono text-[10px] text-amber-400/80">{payrollSupplementalsCount > 0 ? `${payrollSupplementalsCount} CHK` : '0'}</span>
+                      </div>
+                      <div className={`text-lg font-bold ${payrollSupplementalsCount > 0 ? 'text-amber-300' : 'text-white'}`}>
+                        ${payrollSupplementalsTotalAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </div>
+                      <div className="text-[10px] text-slate-400 mt-0.5 truncate max-w-[150px]">
+                        {payrollSupplementalsCount > 0 ? payrollSupplementalsList[0]?.employeeFullName : 'Sin finiquitos'}
+                      </div>
+                    </div>
+
+                    <div className="bg-slate-800/80 rounded-xl p-3 border border-slate-700/60 min-w-[170px]">
+                      <div className="flex items-center justify-between text-[11px] text-slate-400 font-semibold mb-1">
+                        <span>{t('ronos.sub_non_taxable')}</span>
+                        <span className="font-mono text-[10px] text-slate-500">$0 Tax</span>
+                      </div>
+                      <div className="text-lg font-bold text-white">
+                        $0.00
+                      </div>
+                      <div className="text-[10px] text-slate-400 mt-0.5">
+                        Millas / Reembolsos
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* ═══════════════════════════════════════════════════════════════════════════ */}
+              {/* BANNER DINÁMICO DE FACTURAS SUPLEMENTARIAS / FINIQUITOS                     */}
+              {/* ═══════════════════════════════════════════════════════════════════════════ */}
+              {payrollSupplementalsCount > 0 && (
+                <div className="p-4 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-300 dark:border-amber-700/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+                  <div className="flex items-start gap-3">
+                    <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                    <div>
+                      <h4 className="text-xs font-bold text-amber-900 dark:text-amber-200 flex items-center gap-2">
+                        <span>{t('ronos.alert_supplemental_found')}</span>
+                        <span className="px-2 py-0.2 rounded-full text-[10px] bg-amber-200 text-amber-900 dark:bg-amber-900 dark:text-amber-100">
+                          {payrollSupplementalsCount} Factura(s)
+                        </span>
+                      </h4>
+                      <p className="text-xs text-amber-800 dark:text-amber-300 mt-0.5">
+                        {t('ronos.alert_supplemental_desc')}
+                      </p>
+                      <div className="mt-1 space-y-0.5">
+                        {payrollSupplementalsList.map((s: any, idx: number) => (
+                          <div key={idx} className="text-xs text-amber-900 dark:text-amber-200 font-semibold">
+                            • <span className="underline">{s.employeeFullName}</span> — Factura <span className="font-mono">{s.invoiceCode}</span> por <span className="font-bold">${(Number(s?.invoicedAmount) || 0).toFixed(2)}</span> (Cheque #{s.checkNumber || '001843'})
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+                    {payrollInvoiceMode !== 'consolidated' && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPayrollInvoiceMode('consolidated')
+                          fetchPayroll(selectedCompanyId, resolvedPayrollPeriodId, payrollBiWeekly, 'consolidated')
+                        }}
+                        className="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs shadow-xs cursor-pointer"
+                      >
+                        {t('ronos.btn_view_consolidated')}
+                      </button>
+                    )}
+                    {payrollInvoiceMode !== 'supplemental' && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPayrollInvoiceMode('supplemental')
+                          fetchPayroll(selectedCompanyId, resolvedPayrollPeriodId, payrollBiWeekly, 'supplemental')
+                        }}
+                        className="px-3 py-1.5 rounded-lg bg-amber-100 hover:bg-amber-200 text-amber-900 dark:bg-amber-900/40 dark:text-amber-200 font-bold text-xs border border-amber-300 dark:border-amber-700 cursor-pointer"
+                      >
+                        {t('ronos.btn_view_supplemental')}
+                      </button>
+                    )}
+                    {payrollInvoiceMode !== 'regular' && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPayrollInvoiceMode('regular')
+                          fetchPayroll(selectedCompanyId, resolvedPayrollPeriodId, payrollBiWeekly, 'regular')
+                        }}
+                        className="px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-800 dark:bg-slate-800 dark:text-slate-200 font-bold text-xs border border-slate-300 dark:border-slate-700 cursor-pointer"
+                      >
+                        {t('ronos.btn_view_regular')}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
 
               {/* 4 Financial KPI Summary Cards */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2">

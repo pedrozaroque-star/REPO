@@ -20,20 +20,76 @@ export interface VersionMilestone {
 }
 
 export const SYSTEM_VERSION = {
-    version: 'v2.9.1',
-    versionNumber: '2.9.1',
+    version: 'v2.10.1',
+    versionNumber: '2.10.1',
     releaseMonthEs: 'Septiembre 2026',
     releaseMonthEn: 'September 2026',
     stage: 'Producción',
     stageEn: 'Production',
     year: '2026',
-    labelEs: 'Septiembre 2026 • SM TEG v2.9.1',
-    labelEn: 'September 2026 • SM TEG v2.9.1',
+    labelEs: 'Septiembre 2026 • SM TEG v2.10.1',
+    labelEn: 'September 2026 • SM TEG v2.10.1',
     brand: 'SM TEG',
-    lastUpdated: '2026-09-13'
+    lastUpdated: '2026-09-17'
 } as const;
 
 export const VERSION_HISTORY: readonly VersionMilestone[] = [
+    {
+        version: 'v2.10.1',
+        date: '17-Sep-2026',
+        titleEs: 'Conciliación de Facturas PEO Cingular HR, Sincronizador Diario de Tarifas y Edición Navideña GAVILAN MIX',
+        titleEn: 'Cingular HR PEO Invoice Reconciliation, Daily Pay Rate Sync & GAVILAN MIX Christmas Edition',
+        highlightsEs: [
+            'Motor de conciliación matemática 1:1 contra facturas reales de Cingular HR (TEGL-0025/26, TEGB-0018, TEGD-0008, TEGS-0039, TEGH-0009)',
+            'Cron centinela diario (/api/cron/sync-daily-payroll) a las 11:59 AM para sincronización automática de tarifas desde Simplify HR hacia Supabase',
+            'Soporte para finiquitos, cheques complementarios y tiempo libre remunerado (PTO Sick/Vacation) en el calculador de nómina',
+            'Lanzador EXE autónomo de 1 clic para GAVILAN MIX con auto-limpieza de carpetas obsoletas y desanclado de reproductores antiguos de la barra de tareas',
+            'Edición Navideña de pantallas de comedor: 300 videos festivos (1970-2026) con marco decorativo y esferas con logo Tacos Gavilan'
+        ],
+        highlightsEn: [
+            '1:1 mathematical reconciliation engine against real Cingular HR PEO invoices (TEGL-0025/26, TEGB-0018, TEGD-0008, TEGS-0039, TEGH-0009)',
+            'Daily 11:59 AM sentinel cron (/api/cron/sync-daily-payroll) for automated pay rate synchronization from Simplify HR into Supabase',
+            'Payroll engine handling for final termination checks, supplemental payroll, and non-clocked paid time off (PTO Sick/Vacation)',
+            'Standalone 1-click Windows EXE launcher for GAVILAN MIX featuring legacy folder auto-cleanup and taskbar player unpinning',
+            'Christmas TV Edition: 300 curated holiday music videos (1970-2026) with festive borders and branded Tacos Gavilan holiday ornaments'
+        ]
+    },
+    {
+        version: 'v2.10.0',
+        date: '14-Sep-2026',
+        titleEs: 'P&L Ejecutivo Consolidado, Varianza AvT (Paridad R365) y Ecosistema GAVILAN MIX',
+        titleEn: 'Consolidated Executive P&L, AvT Variance (R365 Parity) & GAVILAN MIX Ecosystem',
+        highlightsEs: [
+            'Nuevo módulo de Estado de Resultados (/admin/pnl) consolidado y por sucursal con Ventas, Food Cost, Labor, Comisiones y EBITDA',
+            'Módulo de Varianza de Food Cost (/admin/food-cost/varianza) comparando costo teórico vs real en dólares con semáforos de tolerancia',
+            'Ecosistema GAVILAN MIX con curación musical, censura inteligente de letras y automatización en pantalla secundaria para tiendas',
+            'Simulaciones forenses de estrés y casos extremos para pedidos de insumos y bebidas en Viele & Sons'
+        ],
+        highlightsEn: [
+            'New Consolidated Income Statement module (/admin/pnl) per store and chain-wide tracking Sales, Food Cost, Labor, and EBITDA',
+            'Food Cost Variance module (/admin/food-cost/varianza) comparing theoretical vs actual usage in dollars with tolerance alerts',
+            'GAVILAN MIX store TV ecosystem with automated lyrics censorship, parallel downloads, and secondary monitor playback',
+            'Forensic stress simulations and edge-case validation between TEG app and live Viele & Sons portal'
+        ]
+    },
+    {
+        version: 'v2.9.2',
+        date: '13-Sep-2026',
+        titleEs: 'Corrección de Bugs Críticos en Módulo de Captura Viele & Sons',
+        titleEn: 'Critical Bug Fixes in Viele & Sons Capture Module',
+        highlightsEs: [
+            'Eliminado bug de espejismo visual: items sin estado real en React se mostraban con pedido sugerido pero se perdían al enviar',
+            'Sincronización de orderRows al restablecer orden oficial: previene desincronización catálogo vs estado',
+            'Eliminado setCatalog duplicado en inicialización que causaba flash de catálogo sin filtrar',
+            'Auditoría exhaustiva línea por línea con 5 subagentes especializados en paralelo'
+        ],
+        highlightsEn: [
+            'Fixed phantom fallback bug: items without real React state showed suggested order but were silently lost on submit',
+            'OrderRows sync on official order reset: prevents catalog vs state desynchronization',
+            'Removed duplicate setCatalog in loadData that caused unfiltered catalog flash',
+            'Exhaustive line-by-line audit with 5 specialized parallel subagents'
+        ]
+    },
     {
         version: 'v2.9.1',
         date: '13-Sep-2026',

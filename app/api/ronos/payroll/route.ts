@@ -28,6 +28,7 @@ export async function GET(request: Request) {
     const weekIdsParam = searchParams.get('weekIds')
     const format = searchParams.get('format') || 'json' // 'json' | 'csv'
     const isBiWeekly = searchParams.get('biWeekly') !== 'false'
+    const mode = (searchParams.get('mode') as 'regular' | 'supplemental' | 'consolidated') || 'consolidated'
 
     const isChain = companyIdParam === '0' || companyIdParam === 'all' || companyIdParam === 'chain'
     const ronosCompanyId = isChain ? 0 : (companyIdParam ? parseInt(companyIdParam, 10) : 34)
@@ -96,7 +97,7 @@ export async function GET(request: Request) {
           const sWeeks = storeWeeksMap.get(store.ronosCompanyId)
           if (!sWeeks || sWeeks.length === 0) return null
           try {
-            return await calculateCingularPayrollReport(store.ronosCompanyId, sWeeks, isBiWeekly)
+            return await calculateCingularPayrollReport(store.ronosCompanyId, sWeeks, isBiWeekly, mode)
           } catch (err: any) {
             console.warn(`Error en nómina corporativa para ${store.tegName}:`, err?.message)
             return null
@@ -107,6 +108,10 @@ export async function GET(request: Request) {
       const validReports = reports.filter(Boolean) as CingularInvoiceSummaryReport[]
 
       report = {
+        invoiceId: mode === 'supplemental' ? 'CHAIN-SUPPLEMENTAL' : mode === 'regular' ? 'CHAIN-REGULAR' : 'CHAIN-CONSOLIDADO',
+        invoiceMode: mode,
+        supplementalsCount: validReports.reduce((s, r) => s + (r.supplementalsCount || 0), 0),
+        supplementalsList: validReports.flatMap(r => r.supplementalsList || []),
         storeId: 0,
         storeCode: 'CHAIN',
         storeName: 'Todas las Tiendas (Cadena Completa)',
@@ -150,7 +155,7 @@ export async function GET(request: Request) {
         }
       }
 
-      report = await calculateCingularPayrollReport(ronosCompanyId, weekIds, isBiWeekly)
+      report = await calculateCingularPayrollReport(ronosCompanyId, weekIds, isBiWeekly, mode)
     }
 
     if (format === 'csv') {
@@ -158,7 +163,7 @@ export async function GET(request: Request) {
       return new NextResponse(csvData, {
         headers: {
           'Content-Type': 'text/csv; charset=utf-8',
-          'Content-Disposition': `attachment; filename="Cingular_Payroll_${report.storeCode}_${new Date().toISOString().slice(0, 10)}.csv"`
+          'Content-Disposition': `attachment; filename="Cingular_Payroll_${report.storeCode}_${mode.toUpperCase()}_${new Date().toISOString().slice(0, 10)}.csv"`
         }
       })
     }

@@ -55,4 +55,8 @@ next-env.d.ts
 # large temporary audit dumps
 cohesion_dump/
 data/qb_historical_entries_2026.json
-
+temp_hr.json
+*.csv
+transcript_analysis_*
+test_api.py
+script.py

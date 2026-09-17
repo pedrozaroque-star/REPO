@@ -26,7 +26,13 @@
 
 import { supabaseAdmin } from './supabase'
 import { RONOS_STORES_MAP, getRonosStoreAudit } from './ronos-api'
-import { getSimplifyHrRateForEmployee, ensureSimplifyRatesLoaded } from './simplifyhr-api'
+import {
+  getSimplifyHrRateForEmployee,
+  ensureSimplifyRatesLoaded,
+  RONOS_TO_SIMPLIFY_SITE_MAP,
+  getSitePaystubs,
+  SimplifyHrPaystub
+} from './simplifyhr-api'
 
 export const CINGULAR_HOURLY_MARKUP_FACTOR = 1.26 // 26.00% markup oficial Cingular HR (Confirmado por Raquel)
 export const DEFAULT_BASE_HOURLY_RATE = 16.90 // California QSR baseline
@@ -102,11 +108,15 @@ export interface CingularInvoiceSummaryReport {
   auditAlertsCount: number
   auditSavingsAmount: number
   reconciliationPercentage: number
+  // Soporte Multi-Lote / Facturas Suplementarias (Finiquitos vs Regular vs Consolidado)
+  invoiceMode?: 'regular' | 'supplemental' | 'consolidated'
+  supplementalsCount?: number
+  supplementalsList?: SupplementalInvoiceInfo[]
   employees: CingularEmployeePayrollItem[]
 }
 
 // Registro oficial de tarifas de facturación de Cingular HR (Master Rates)
-export const CINGULAR_RATE_OVERRIDES: Record<string, { payRate: number; billRate: number; otBillRate?: number }> = {
+export const CINGULAR_RATE_OVERRIDES: Record<string, { payRate: number; billRate: number; otBillRate?: number; otPayRate?: number; vacationHours?: number; overtimeHours?: number }> = {
   'ana diaz': { payRate: 16.90, billRate: 21.29, otBillRate: 31.94 },
   'axel zamora': { payRate: 16.90, billRate: 21.29, otBillRate: 31.94 },
   'carolina sarabia': { payRate: 16.90, billRate: 21.29, otBillRate: 31.94 },
@@ -114,8 +124,8 @@ export const CINGULAR_RATE_OVERRIDES: Record<string, { payRate: number; billRate
   'esmeralda nicolas': { payRate: 17.90, billRate: 22.55, otBillRate: 33.83 },
   'freddie gurrusquieta': { payRate: 19.90, billRate: 25.07, otBillRate: 37.61 },
   'fredy leonardo tzalam pop': { payRate: 16.90, billRate: 21.29, otBillRate: 31.94 },
-  'gilberto zepeda aguilar': { payRate: 18.90, billRate: 23.81, otBillRate: 35.71884 },
-  'gilberto aguilar': { payRate: 18.90, billRate: 23.81, otBillRate: 35.71884 },
+  'gilberto zepeda aguilar': { payRate: 18.90, billRate: 23.81, otBillRate: 35.72 },
+  'gilberto aguilar': { payRate: 18.90, billRate: 23.81, otBillRate: 35.72 },
   'jesse julian alatorre quezada': { payRate: 21.87, billRate: 27.56, otBillRate: 41.33 },
   'jesse quezada': { payRate: 21.87, billRate: 27.56, otBillRate: 41.33 },
   'jesus alberto felipe miguel': { payRate: 17.40, billRate: 21.92, otBillRate: 32.89 },
@@ -123,20 +133,20 @@ export const CINGULAR_RATE_OVERRIDES: Record<string, { payRate: number; billRate
   'jovana garcia': { payRate: 39.90, billRate: 49.68, otBillRate: 49.68 },
   'julian orozco bravo': { payRate: 17.40, billRate: 21.92, otBillRate: 32.89 },
   'julian bravo': { payRate: 17.40, billRate: 21.92, otBillRate: 32.89 },
-  'marcos zamora ortiz': { payRate: 17.81, billRate: 22.44, otBillRate: 33.6491 },
+  'marcos zamora ortiz': { payRate: 17.81, billRate: 22.44, otBillRate: 33.65 },
   'maria rivera': { payRate: 22.40, billRate: 28.22, otBillRate: 42.34 },
   'maria d jimenez': { payRate: 16.90, billRate: 21.29, otBillRate: 31.94 },
   'misael aguilar estrada': { payRate: 18.90, billRate: 23.81, otBillRate: 35.72 },
   'misael aguilar': { payRate: 18.90, billRate: 23.81, otBillRate: 35.72 },
-  'rafael lopez': { payRate: 20.90, billRate: 26.33, otBillRate: 39.49975 },
+  'rafael lopez': { payRate: 20.90, billRate: 26.33, otBillRate: 39.50 },
   'robinson adriano orozco': { payRate: 18.90, billRate: 23.81, otBillRate: 35.72 },
   'robinson orozco': { payRate: 18.90, billRate: 23.81, otBillRate: 35.72 },
-  'rolando miguel zetina': { payRate: 17.90, billRate: 22.55, otBillRate: 33.82926 },
-  'rolando miguel': { payRate: 17.90, billRate: 22.55, otBillRate: 33.82926 },
+  'rolando miguel zetina': { payRate: 17.90, billRate: 22.55, otBillRate: 33.83 },
+  'rolando miguel': { payRate: 17.90, billRate: 22.55, otBillRate: 33.83 },
   'santos hernandez': { payRate: 16.90, billRate: 21.29, otBillRate: 31.94 },
   'senia yasmini del cid martinez': { payRate: 17.40, billRate: 21.92, otBillRate: 32.89 },
   'senia martinez': { payRate: 17.40, billRate: 21.92, otBillRate: 32.89 },
-  'sueam martinez': { payRate: 17.40, billRate: 21.92, otBillRate: 32.890625 },
+  'sueam martinez': { payRate: 17.40, billRate: 21.92, otBillRate: 32.89 },
 
   // Sucursal Bell (TEG - Bell #13)
   'adriana reyes': { payRate: 16.90, billRate: 21.29, otBillRate: 31.94 },
@@ -150,12 +160,53 @@ export const CINGULAR_RATE_OVERRIDES: Record<string, { payRate: number; billRate
   'jose garcia': { payRate: 17.65, billRate: 22.24, otBillRate: 33.36 },
   'jose manuel garcia': { payRate: 17.65, billRate: 22.24, otBillRate: 33.36 },
   'juan manuel hernandez': { payRate: 19.90, billRate: 25.07, otBillRate: 37.61 },
-  'karla heredia': { payRate: 19.65, billRate: 24.76, otBillRate: 37.14 },
+  'karla heredia': { payRate: 19.65, billRate: 24.76, otBillRate: 37.13, otPayRate: 29.48 },
   'kevin campos': { payRate: 20.90, billRate: 26.33, otBillRate: 39.50 },
   'mario sanchez': { payRate: 18.90, billRate: 23.81, otBillRate: 35.72 },
   'paola castaneda': { payRate: 16.90, billRate: 21.29, otBillRate: 31.94 },
   'salvador hernandez': { payRate: 20.40, billRate: 25.70, otBillRate: 38.56 },
   'salvador velazquez': { payRate: 20.40, billRate: 25.70, otBillRate: 38.56 },
+
+  // Sucursal Downey (TEG - Downey #16 / Company ID: 32 / TEGD-0008)
+  'jesus olivares': { payRate: 33.80, billRate: 42.08 }, // General Manager ($70,304/yr -> $33.80/hr / $2,704.00 gross / $3,366.40 billed)
+  'adelina lopez': { payRate: 20.90, billRate: 26.33, otBillRate: 39.50 },
+  'carlos morales': { payRate: 19.40, billRate: 24.44, otBillRate: 36.67 },
+  'daniela castro gamboa': { payRate: 16.90, billRate: 21.29, otBillRate: 31.94 },
+  'daniela castro': { payRate: 16.90, billRate: 21.29, otBillRate: 31.94 },
+  'gabriel vargas': { payRate: 16.90, billRate: 21.29, otBillRate: 31.94 },
+  'gabriela rodriguez': { payRate: 18.40, billRate: 23.18, otBillRate: 34.78 },
+  'jorge sifuentes': { payRate: 20.90, billRate: 26.33, otBillRate: 39.50 },
+  'jose luis hernandez': { payRate: 20.90, billRate: 26.33, otBillRate: 39.50 },
+  'jose hernandez': { payRate: 20.90, billRate: 26.33, otBillRate: 39.50 },
+  'juan ruiz': { payRate: 16.90, billRate: 21.29, otBillRate: 31.94 },
+  'leonardo jose guillen orozco': { payRate: 16.90, billRate: 21.29, otBillRate: 31.94 },
+  'leonardo orozco': { payRate: 16.90, billRate: 21.29, otBillRate: 31.94 },
+  'libni sarai santizo reyes': { payRate: 17.40, billRate: 21.92, otBillRate: 32.89 },
+  'libni sarai santizo': { payRate: 17.40, billRate: 21.92, otBillRate: 32.89 },
+  'libni santizo': { payRate: 17.40, billRate: 21.92, otBillRate: 32.89 },
+  'luis antonio gutierrez': { payRate: 18.40, billRate: 23.18, otBillRate: 34.78 },
+  'luis gutierrez': { payRate: 18.40, billRate: 23.18, otBillRate: 34.78 },
+  'margarita gutierrez chairez': { payRate: 19.90, billRate: 25.07, otBillRate: 37.61 },
+  'margarita chairez': { payRate: 19.90, billRate: 25.07, otBillRate: 37.61 },
+  'marisol velasco': { payRate: 18.90, billRate: 23.81, otBillRate: 35.72 },
+  'marvin hernandez': { payRate: 17.40, billRate: 21.92, otBillRate: 32.89 },
+  'miguel andrey lopez briceno': { payRate: 17.40, billRate: 21.92, otBillRate: 32.89 },
+  'miguel lopez briceno': { payRate: 17.40, billRate: 21.92, otBillRate: 32.89 },
+  'oscar hernandez': { payRate: 19.40, billRate: 24.44, otBillRate: 36.67 },
+  'oscar luis noa rodriguez': { payRate: 20.90, billRate: 26.33, otBillRate: 39.50 },
+  'oscar noa': { payRate: 20.90, billRate: 26.33, otBillRate: 39.50 },
+  'rafael jimenez merino': { payRate: 18.40, billRate: 23.18, otBillRate: 34.78 },
+  'rafael merino': { payRate: 18.40, billRate: 23.18, otBillRate: 34.78 },
+  'ramiro fernandez': { payRate: 21.65, billRate: 27.28, otBillRate: 40.91 },
+  'rodolfo del cid batres': { payRate: 17.40, billRate: 21.92, otBillRate: 32.89 },
+  'rodolfo del cid': { payRate: 17.40, billRate: 21.92, otBillRate: 32.89 },
+  'sandra maria antonio mendoza': { payRate: 16.90, billRate: 21.29, otBillRate: 31.94 },
+  'sandra antonio': { payRate: 16.90, billRate: 21.29, otBillRate: 31.94 },
+  'sinecio agustin': { payRate: 19.40, billRate: 24.44, otBillRate: 36.67 },
+  'sofia magdalena cortez': { payRate: 17.40, billRate: 21.92, otBillRate: 32.89 },
+  'sofia cortez': { payRate: 17.40, billRate: 21.92, otBillRate: 32.89 },
+  'tiare alor': { payRate: 16.90, billRate: 21.29, otBillRate: 31.94 },
+  'viviana cervantes': { payRate: 17.40, billRate: 21.92, otBillRate: 32.89 },
 
   // Sucursal Hollywood (TEG - Hollywood #2 / Company ID: 26)
   'alfonso carrillo': { payRate: 37.99, billRate: 47.30 }, // General Manager ($37.99/hr -> $3,039.20 bi-weekly gross)
@@ -168,7 +219,7 @@ export const CINGULAR_RATE_OVERRIDES: Record<string, { payRate: number; billRate
 
   // General Manager (Salaried) & Empleados Verificados - Lynwood #14
 
-  'carlos velazquez': { payRate: 37.93, billRate: 47.22 }, // $78,884/yr ($37.93/hr paystub legal rounded rate -> $3,034.40 with PTO)
+  'carlos velazquez': { payRate: 37.925, billRate: 47.22 }, // $78,884/yr ($37.925/hr exact rate -> $3,034.00 gross)
   'heidy rodarte': { payRate: 19.88, billRate: 25.05, otBillRate: 37.58 }, // Factura Cingular TEGL-0023 ($1,312.48 gross / $1,653.80 bill)
 
   // 4 District Supervisors (Asalariados asignados a tienda base en Facturas Cingular HR)
@@ -328,6 +379,9 @@ const RONOS_NAME_CORRECTIONS: Record<string, string> = {
   'wilson marroquin': 'wilson adolfo marroquin rivera',
   'delia arreaga': 'delia josefina arreaga ajiataz',
   'roger lopez martinez': 'roger alexis lopez martinez',
+
+  // Nombre diferente entre RONOS y Cingular HR (misma persona, mismo horario)
+  'angel flores': 'angel romero',  // Hollywood: RONOS='Angel Flores', Cingular='Angel Romero' (EMP 266148, $22.42/hr)
 }
 
 /**
@@ -338,15 +392,80 @@ function normalizeRonosName(name: string): string {
   return RONOS_NAME_CORRECTIONS[norm] || norm
 }
 
+export interface SupplementalInvoiceInfo {
+  ronosCompanyId: number
+  employeeNamePattern: string
+  employeeFullName: string
+  invoiceCode: string
+  checkNumber?: string
+  netPay?: number
+  invoicedAmount?: number
+  hours?: number
+  regularHours?: number
+  overtimeHours?: number
+  payRate?: number
+  billRate?: number
+  grossPay?: number
+  reason: 'finiquito' | 'off_cycle' | 'ajuste'
+  description: string
+}
+
+/**
+ * Catálogo de Facturas Suplementarias / Finiquitos emitidos por Cingular HR.
+ * Permite conciliar cheques físicos separados (off-cycle / terminations bajo Cal. Labor Code § 201/202).
+ */
+export const CINGULAR_SUPPLEMENTAL_INVOICES: SupplementalInvoiceInfo[] = [
+  {
+    ronosCompanyId: 34,
+    employeeNamePattern: 'lacayo',
+    employeeFullName: 'Fernando Lacayo Cisne',
+    invoiceCode: 'TEGL-0026',
+    checkNumber: '001843',
+    netPay: 1504.33,
+    invoicedAmount: 2337.38,
+    hours: 104.21,
+    regularHours: 93.06,
+    overtimeHours: 11.15,
+    payRate: 16.90,
+    billRate: 21.29,
+    grossPay: 1855.36,
+    reason: 'finiquito',
+    description: 'Finiquito por renuncia voluntaria (Cheque físico #001843 por $1,504.33 netos / Factura Cingular TEGL-0026 por $2,337.38)'
+  },
+  {
+    ronosCompanyId: 328,
+    employeeNamePattern: 'alberto rodriguez',
+    employeeFullName: 'Alberto Rodriguez',
+    invoiceCode: 'TEGS-OFFCYCLE',
+    checkNumber: 'OFF-CYCLE',
+    netPay: 1200.00,
+    invoicedAmount: 1893.82,
+    hours: 79.71,
+    regularHours: 76.36,
+    overtimeHours: 3.35,
+    payRate: 18.47,
+    billRate: 23.27,
+    grossPay: 1503.16,
+    reason: 'finiquito',
+    description: 'Baja laboral / Finiquito off-cycle (79.71 hrs trabajadas en RONOS no incluidas en factura ordinaria TEGS-0039)'
+  }
+]
+
 /**
  * Empleados que Cingular factura bajo otra entidad/tienda aunque ponchen en la sucursal
  * indicada en RONOS. Se excluyen del cálculo de la tienda donde poncharon.
  * Clave = ronosCompanyId, Valor = lista de fragmentos de nombre normalizados (lowercase)
  */
-const CINGULAR_EMPLOYEE_EXCLUSIONS: Record<number, string[]> = {
+export const CINGULAR_CROSS_ENTITY_EXCLUSIONS: Record<number, string[]> = {
   // Azusa (#4 / TEGA / Company 24): Arnoldo y Ricardo son facturados por Cingular
   // bajo otra entidad, no aparecen en invoice TEGA-0009
+  24: ['arnoldo balladares', 'ricardo joel escobar']
+}
+
+export const CINGULAR_EMPLOYEE_EXCLUSIONS: Record<number, string[]> = {
   24: ['arnoldo balladares', 'ricardo joel escobar'],
+  34: ['fernando lacayo cisne', 'fernando lacayo'],
+  328: ['alberto rodriguez']
 }
 
 /**
@@ -373,30 +492,30 @@ export function isEmployeeSalaried(jobTitle?: string, fullName?: string, payRate
 
   // 1. Verificación por Nombres de Gerentes Generales (GMs) y Directivos Oficiales (Precedencia Absoluta)
   if (
-    name.includes('jovana garcia') ||
-    name.includes('carlos velazquez') ||
-    name.includes('jesus ramos') ||
-    name.includes('aaron hernandez') ||
-    name.includes('aaron chay') ||
-    name.includes('lucia reyes') ||
-    name.includes('benjamin nunez') ||
-    name.includes('benjamin nuñez') ||
-    name.includes('alfonso carrillo') ||
-    name.includes('bernabe ramirez') ||
-    name.includes('julio valadez') ||
-    name.includes('marco salgado') ||
-    name.includes('marco antonio salgado') ||
-    name.includes('erick martinez') ||
-    name.includes('jesus olivares') ||
-    name.includes('eloy velazquez') ||
+    name === 'jovana garcia' ||
+    name === 'carlos velazquez' ||
+    name === 'jesus ramos' ||
+    name === 'aaron hernandez' ||
+    name === 'aaron chay' ||
+    name === 'lucia reyes' ||
+    name === 'benjamin nunez' ||
+    name === 'benjamin nuñez' ||
+    name === 'alfonso carrillo' ||
+    name === 'bernabe ramirez' ||
+    name === 'julio valadez' ||
+    name === 'marco salgado' ||
+    name === 'marco antonio salgado' ||
+    name === 'erick martinez' ||
+    name === 'jesus olivares' ||
+    name === 'eloy velazquez' ||
     // 4 Supervisores de Distrito (Asalariados asignados por tienda para facturación)
-    name.includes('willian aguilar') ||
-    name.includes('wilian aguilar') ||
-    name.includes('ricardo velazquez') ||
-    name.includes('ricardo velázquez') ||
-    name.includes('javier pastor') ||
-    name.includes('estefani duran') ||
-    name.includes('estefani durán')
+    name === 'willian aguilar' ||
+    name === 'wilian aguilar' ||
+    name === 'ricardo velazquez' ||
+    name === 'ricardo velázquez' ||
+    name === 'javier pastor' ||
+    name === 'estefani duran' ||
+    name === 'estefani durán'
   ) {
     return true
   }
@@ -460,13 +579,16 @@ export async function calculateCingularPayrollReport(
     biWeekly?: boolean
     useLiveRates?: boolean
     syncSimplify?: boolean
+    invoiceMode?: 'regular' | 'supplemental' | 'consolidated'
   },
   rawWeekIds?: (number | string)[] | string | number,
-  isBiWeeklyParam = true
+  isBiWeeklyParam = true,
+  invoiceModeParam: 'regular' | 'supplemental' | 'consolidated' = 'regular'
 ): Promise<CingularInvoiceSummaryReport> {
   let ronosCompanyId = 34
   let rawWeeks: (number | string)[] = []
   let isBiWeekly = isBiWeeklyParam
+  let invoiceMode: 'regular' | 'supplemental' | 'consolidated' = invoiceModeParam
 
   if (typeof companyIdOrParams === 'object' && companyIdOrParams !== null) {
     ronosCompanyId = Number(companyIdOrParams.ronosCompanyId || companyIdOrParams.companyId || 34)
@@ -479,10 +601,12 @@ export async function calculateCingularPayrollReport(
       rawWeeks = [pWeeks]
     }
     isBiWeekly = companyIdOrParams.isBiWeekly ?? companyIdOrParams.biWeekly ?? true
+    invoiceMode = companyIdOrParams.invoiceMode || invoiceModeParam
   } else {
     ronosCompanyId = Number(companyIdOrParams || 34)
     rawWeeks = Array.isArray(rawWeekIds) ? rawWeekIds : typeof rawWeekIds === 'string' ? rawWeekIds.split(',').map(s => s.trim()) : typeof rawWeekIds === 'number' ? [rawWeekIds] : []
     isBiWeekly = isBiWeeklyParam
+    invoiceMode = invoiceModeParam
   }
 
   const weekIds: number[] = rawWeeks
@@ -512,6 +636,21 @@ export async function calculateCingularPayrollReport(
   const periodEndDate = Array.isArray(wWeeks) && wWeeks.length > 0 && wWeeks[wWeeks.length - 1]?.end_date
     ? String(wWeeks[wWeeks.length - 1].end_date).substring(0, 10)
     : ''
+
+  // 1.5. Consultar recibos oficiales (Paystubs) de Simplify HR OS para reconciliación automática de PTO y salarios
+  const simplifySiteId = RONOS_TO_SIMPLIFY_SITE_MAP[ronosCompanyId]
+  let sitePaystubs: SimplifyHrPaystub[] = []
+  if (simplifySiteId && periodStartDate) {
+    try {
+      const allStubs = await getSitePaystubs(simplifySiteId, 100)
+      sitePaystubs = (allStubs || []).filter(s => {
+        const pStart = (s.payPeriodStart || s.periodStart || '').substring(0, 10)
+        return pStart === periodStartDate
+      })
+    } catch (err: any) {
+      console.warn(`[PayrollCalculator] Error consultando paystubs de Simplify HR para company ${ronosCompanyId}:`, err?.message)
+    }
+  }
 
   // 2. Obtener tarjetas de tiempo de Supabase
   let { data: timecards, error: tErr } = await supabaseAdmin
@@ -604,8 +743,14 @@ export async function calculateCingularPayrollReport(
   //  B) ronos_employee_mappings: Empleados mapeados a otra tienda en nuestro sistema
   const transferredOutUserIds = new Set<number>()
 
-  // Fuente A: Exclusiones verificadas por nombre (Cingular los factura en otra entidad)
-  const storeExclusions = CINGULAR_EMPLOYEE_EXCLUSIONS[ronosCompanyId] || []
+  // Fuente A: Exclusiones de otra entidad y empleados verificados no facturados en lote regular
+  const crossEntityExclusions = [
+    ...(CINGULAR_CROSS_ENTITY_EXCLUSIONS[ronosCompanyId] || []),
+    ...(CINGULAR_EMPLOYEE_EXCLUSIONS[ronosCompanyId] || [])
+  ]
+
+  // Facturas suplementarias / finiquitos registrados para esta sucursal (ej: Fernando Lacayo en Lynwood)
+  const storeSupplementals = CINGULAR_SUPPLEMENTAL_INVOICES.filter(s => s.ronosCompanyId === ronosCompanyId)
 
   // Fuente B: Mapeos en otras tiendas desde ronos_employee_mappings
   const { data: allMappings } = await supabaseAdmin
@@ -651,8 +796,14 @@ export async function calculateCingularPayrollReport(
     if (String(card.pin || '') === '1111' || cardName.includes('manager default') || cardName.startsWith('manager ')) return
     // Fix #1a: Omitir empleados transferidos por UID (detectados vía ronos_employee_mappings)
     if (transferredOutUserIds.has(uId)) return
-    // Fix #1b: Omitir empleados excluidos por nombre (Cingular los factura en otra entidad)
-    if (storeExclusions.some(excl => cardName.includes(excl))) return
+    // Fix #1b: Omitir colaboradores facturados bajo otra entidad (ej: Arnoldo / Ricardo en Azusa)
+    if (crossEntityExclusions.some(excl => cardName.includes(excl))) return
+
+    const isSupp = storeSupplementals.some(s => cardName.includes(s.employeeNamePattern.toLowerCase()))
+    // Si estamos en modo 'regular', excluir finiquitos de la factura ordinaria
+    if (invoiceMode === 'regular' && isSupp) return
+    // Si estamos en modo 'supplemental', conservar solo finiquitos
+    if (invoiceMode === 'supplemental' && !isSupp) return
 
     let agg = empAggregation.get(uId)
     if (!agg) {
@@ -686,6 +837,20 @@ export async function calculateCingularPayrollReport(
     agg.holidayHours += safeNum(card.holiday_hours)
   })
 
+  // 3.5. Construir índice de recibos oficiales de Simplify HR OS para reconciliación automática
+  const paystubMap = new Map<string, SimplifyHrPaystub>()
+  for (const stub of sitePaystubs) {
+    const rawName = (stub.employeeName || `${stub.firstName || ''} ${stub.lastName || ''}`).trim()
+    const norm1 = rawName.toLowerCase().replace(/,/g, ' ').replace(/\s+/g, ' ').trim()
+    paystubMap.set(norm1, stub)
+    if (rawName.includes(',')) {
+      const [last, first] = rawName.split(',').map(s => s.trim())
+      const norm2 = `${first} ${last}`.toLowerCase().replace(/\s+/g, ' ').trim()
+      paystubMap.set(norm2, stub)
+    }
+    if (stub.employeeNumber) paystubMap.set(String(stub.employeeNumber).trim(), stub)
+  }
+
   // 4. Calcular importes exactos empleado por empleado
   const employeeItems: CingularEmployeePayrollItem[] = []
 
@@ -695,49 +860,116 @@ export async function calculateCingularPayrollReport(
     const normName = normalizeRonosName(rawNormName)
     const detectedTitle = String(titleMap.get(rawNormName) || titleMap.get(normName) || agg?.jobTitle || 'Crew')
 
+    // Buscar si existe recibo oficial aprobado de Simplify HR OS para este colaborador y periodo
+    const matchingStub = paystubMap.get(normName) ||
+      paystubMap.get(rawNormName) ||
+      (agg.pin ? paystubMap.get(agg.pin) : undefined) ||
+      Array.from(paystubMap.values()).find(s => {
+        const sName = (s.employeeName || `${s.firstName || ''} ${s.lastName || ''}`).toLowerCase().replace(/,/g, ' ')
+        return (normName.length > 5 && sName.includes(normName)) || (sName.length > 5 && normName.includes(sName))
+      })
+
+    if (matchingStub) {
+      // Auto-enriquecimiento de horas oficiales aprobadas de Sick / Vacation si RONOS no las registró en el reloj
+      const stubSick = (matchingStub.earnings || [])
+        .filter(e => e.paycodeName === 'SICK' || e.type === 'SICK')
+        .reduce((sum, e) => sum + Number(e.units ?? e.hours ?? 0), 0)
+      const stubVac = (matchingStub.earnings || [])
+        .filter(e => e.paycodeName === 'VACATION' || e.type === 'VACATION')
+        .reduce((sum, e) => sum + Number(e.units ?? e.hours ?? 0), 0)
+      const stubHol = (matchingStub.earnings || [])
+        .filter(e => e.paycodeName === 'HOLIDAY' || e.type === 'HOLIDAY')
+        .reduce((sum, e) => sum + Number(e.units ?? e.hours ?? 0), 0)
+
+      if (stubSick > 0 && agg.sickHours < stubSick) {
+        agg.sickHours = stubSick
+      }
+      if (stubVac > 0 && agg.vacationHours < stubVac) {
+        agg.vacationHours = stubVac
+      }
+      if (stubHol > 0 && agg.holidayHours < stubHol) {
+        agg.holidayHours = stubHol
+      }
+    }
+
     // Determinar Pay Rate & Bill Rate
-    // Cascada de prioridad:
-    //   1. Simplify HR Live Rates (fuente primaria real — cubre las 16 tiendas)
-    //   2. CINGULAR_RATE_OVERRIDES (override manual para correcciones verificadas contra invoice)
-    //   3. Toast Wage Data (fallback)
+    // Cascada de prioridad oficial:
+    //   1. Simplify HR OS (fuente primaria obligatoria de contrato — 497 empleados en Supabase simplify_employee_rates)
+    //   2. CINGULAR_RATE_OVERRIDES (ajustes de horas de vacaciones y excepciones históricas)
+    //   3. Toast Wage Data (fallback secundario)
     //   4. Default por rol (último recurso)
     let payRate = 0
     let billRate = 0
     let otBillRate = 0
+    let overrideOtPayRate = 0
+    let overrideVacationHours = 0
+    let overrideOvertimeHours: number | undefined = undefined
 
-    // 1. OVERRIDE OFICIAL: Tarifas verificadas contra la Factura oficial de Cingular
+    // 1. FUENTE PRIMARIA OBLIGATORIA: Simplify HR OS (Store-Scoped por Company ID y Nombre de Tienda)
+    const storeNameLower = (storeMeta?.tegName || '').toLowerCase().trim()
+    const storeCodeLower = (storeMeta?.tegCode || '').toLowerCase().trim()
+    const simplifyRate =
+      getSimplifyHrRateForEmployee(normName, ronosCompanyId) ||
+      (storeNameLower ? getSimplifyHrRateForEmployee(normName, storeNameLower) : null) ||
+      (storeCodeLower ? getSimplifyHrRateForEmployee(normName, storeCodeLower) : null) ||
+      (agg.pin ? getSimplifyHrRateForEmployee(agg.pin, ronosCompanyId) : null) ||
+      (agg.pin ? getSimplifyHrRateForEmployee(agg.pin) : null) ||
+      getSimplifyHrRateForEmployee(normName)
+
+    if (simplifyRate && simplifyRate.payRate > 0) {
+      payRate = simplifyRate.payRate
+      billRate = simplifyRate.billRate
+      otBillRate = simplifyRate.otBillRate || 0
+      overrideOtPayRate = simplifyRate.otPayRate || 0
+    }
+
+    // Si el recibo oficial de Simplify HR trae una tarifa aprobada en el lote, usarla con máxima prioridad
+    const stubSalary = matchingStub?.earnings?.find(e => e.paycodeName === 'SALARY' || e.type === 'SALARY')
+    if (stubSalary && stubSalary.rate && stubSalary.rate > 0) {
+      payRate = stubSalary.rate
+      billRate = Math.round((payRate * 1.2451 + Number.EPSILON) * 100) / 100
+      otBillRate = billRate
+    } else if (matchingStub) {
+      const stubReg = matchingStub.earnings?.find(e => e.paycodeName === 'REGULAR' || e.type === 'REGULAR')
+      if (stubReg && stubReg.rate && stubReg.rate > 0 && (!payRate || payRate === DEFAULT_BASE_HOURLY_RATE)) {
+        payRate = stubReg.rate
+        billRate = Math.round((payRate * CINGULAR_HOURLY_MARKUP_FACTOR + Number.EPSILON) * 100) / 100
+      }
+    }
+
+    // 2. Ajustes de horas de vacaciones y overrides secundarios
     const exactOverride = CINGULAR_RATE_OVERRIDES[normName] || (agg.fullName ? CINGULAR_RATE_OVERRIDES[agg.fullName.toLowerCase().trim()] : null)
     if (exactOverride) {
-      payRate = exactOverride.payRate
-      billRate = exactOverride.billRate
-      otBillRate = exactOverride.otBillRate || 0
-    } else {
-      // 2. FUENTE PRIMARIA: Simplify HR OS (Store-Scoped por Company ID y Nombre de Tienda)
-      const storeNameLower = (storeMeta?.tegName || '').toLowerCase().trim()
-      const storeCodeLower = (storeMeta?.tegCode || '').toLowerCase().trim()
-      const simplifyRate =
-        getSimplifyHrRateForEmployee(normName, ronosCompanyId) ||
-        (storeNameLower ? getSimplifyHrRateForEmployee(normName, storeNameLower) : null) ||
-        (storeCodeLower ? getSimplifyHrRateForEmployee(normName, storeCodeLower) : null) ||
-        (agg.pin ? getSimplifyHrRateForEmployee(agg.pin, ronosCompanyId) : null) ||
-        (agg.pin ? getSimplifyHrRateForEmployee(agg.pin) : null) ||
-        getSimplifyHrRateForEmployee(normName)
-
-      if (simplifyRate && simplifyRate.payRate > 0) {
-        payRate = simplifyRate.payRate
-        billRate = simplifyRate.billRate
+      if (exactOverride.vacationHours) {
+        overrideVacationHours = exactOverride.vacationHours
       }
-
-      // Coincidencia parcial con longitud mínima de 8 caracteres
+      if (exactOverride.overtimeHours !== undefined) {
+        overrideOvertimeHours = exactOverride.overtimeHours
+      }
+      if (exactOverride.otBillRate) {
+        otBillRate = exactOverride.otBillRate
+      }
+      if (exactOverride.otPayRate) {
+        overrideOtPayRate = exactOverride.otPayRate
+      }
       if (payRate <= 0) {
-        for (const [key, val] of Object.entries(CINGULAR_RATE_OVERRIDES)) {
-          if (key.length < 8) continue
-          if (normName.includes(key) || key.includes(normName)) {
-            payRate = val.payRate
-            billRate = val.billRate
-            otBillRate = val.otBillRate || 0
-            break
-          }
+        payRate = exactOverride.payRate
+        billRate = exactOverride.billRate
+        if (!otBillRate) otBillRate = exactOverride.otBillRate || 0
+        if (!overrideOtPayRate) overrideOtPayRate = exactOverride.otPayRate || 0
+      }
+    }
+
+    if (payRate <= 0) {
+      for (const [key, val] of Object.entries(CINGULAR_RATE_OVERRIDES)) {
+        if (key.length < 8) continue
+        if (normName.includes(key) || key.includes(normName)) {
+          payRate = val.payRate
+          billRate = val.billRate
+          otBillRate = val.otBillRate || 0
+          overrideOtPayRate = val.otPayRate || 0
+          if (val.vacationHours) overrideVacationHours = val.vacationHours
+          break
         }
       }
     }
@@ -801,7 +1033,7 @@ export async function calculateCingularPayrollReport(
     let invOther = 0
     let totBill = 0
 
-    const otPayRate = Math.round((payRate * 1.5 + Number.EPSILON) * 100) / 100
+    const otPayRate = overrideOtPayRate > 0 ? overrideOtPayRate : Math.round((payRate * 1.5 + Number.EPSILON) * 100) / 100
     const dtPayRate = Math.round((payRate * 2.0 + Number.EPSILON) * 100) / 100
     const dtBillRate = salaried
       ? billRate
@@ -821,13 +1053,13 @@ export async function calculateCingularPayrollReport(
         const roundedHourlyBill = Number(safeNum(billRate).toFixed(2))
         salHrs = Math.max(0, baseSalHrs - totalPto)
 
-        grossReg = Number((salHrs * roundedHourlyPay).toFixed(2))
-        grossOther = Number((totalPto * roundedHourlyPay).toFixed(2))
-        totPay = Number((grossReg + grossOther).toFixed(2))
+        totPay = Number((baseSalHrs * payRate).toFixed(2))
+        grossOther = Number((totalPto * payRate).toFixed(2))
+        grossReg = Number((totPay - grossOther).toFixed(2))
 
-        invReg = Number((salHrs * roundedHourlyBill).toFixed(2))
-        invOther = Number((totalPto * roundedHourlyBill).toFixed(2))
-        totBill = Number((invReg + invOther).toFixed(2))
+        totBill = Number((baseSalHrs * billRate).toFixed(2))
+        invOther = Number((totalPto * billRate).toFixed(2))
+        invReg = Number((totBill - invOther).toFixed(2))
       } else {
         salHrs = baseSalHrs
         grossReg = Number((salHrs * payRate).toFixed(2))
@@ -846,12 +1078,10 @@ export async function calculateCingularPayrollReport(
         const cVac = Number(safeNum(card.vacation_hours).toFixed(2))
         const cHol = Number(safeNum(card.holiday_hours).toFixed(2))
 
-        // Fix #2: Cuando un empleado tiene horas de Sick Pay >= horas regulares y no tiene OT/DT,
-        // Cingular trata el Sick Pay como reemplazo de las horas regulares (no las suma).
-        // Observado en invoice TEGA-0009: Jenifer tenía 11.26 hrs regulares + 16 hrs sick en RONOS,
-        // pero Cingular solo facturó las 16 hrs de sick, omitiendo las 11.26 regulares.
-        // Regla: Si sick >= regular Y no hay OT ni DT, las regulares son cubiertas por el sick.
-        if (cSick > 0 && cSick >= cReg && cOt === 0 && cDt === 0) {
+        // Fix #2: Caso específico verificado en Azusa (TEGA-0009) para Jenifer Blandon:
+        // Cingular facturó 16 hrs de sick pay omitiendo las 11.26 hrs de ponchadas regulares en RONOS.
+        // En general, horas regulares trabajadas y horas de Sick Pay se facturan y pagan ambas (ej. Adriana Reyes en Bell).
+        if ((normName.includes('blandon') || normName.includes('brandon')) && cSick > 0 && cSick >= cReg && cOt === 0 && cDt === 0) {
           cReg = 0
         }
 
@@ -908,6 +1138,63 @@ export async function calculateCingularPayrollReport(
       invDt = Number(safeNum(invDt).toFixed(2))
       invOther = Number(safeNum(invOther).toFixed(2))
       totBill = Number(safeNum(totBill).toFixed(2))
+
+      // Ajuste de horas de vacaciones verificadas contra nómina oficial
+      // (ej. Sinecio Agustin en Downey: 32h en RONOS por 4 días registrados, pero Cingular pagó la semana completa de 40h)
+      if (overrideVacationHours > 0 && overrideVacationHours !== vacHrs) {
+        const deltaVac = overrideVacationHours - vacHrs
+        vacHrs = overrideVacationHours
+        const deltaPay = Number((deltaVac * payRate).toFixed(2))
+        const deltaBill = Number((deltaVac * billRate).toFixed(2))
+        grossOther = Number((grossOther + deltaPay).toFixed(2))
+        totPay = Number((totPay + deltaPay).toFixed(2))
+        invOther = Number((invOther + deltaBill).toFixed(2))
+        totBill = Number((totBill + deltaBill).toFixed(2))
+      }
+
+      // Reconciliación automática de PTO oficial (Sick / Vacation / Holiday) desde Simplify HR OS
+      if (agg.sickHours > sickHrs) {
+        const deltaSick = Number((agg.sickHours - sickHrs).toFixed(2))
+        sickHrs = agg.sickHours
+        const deltaPay = Number((deltaSick * payRate).toFixed(2))
+        const deltaBill = Number((deltaSick * billRate).toFixed(2))
+        grossOther = Number((grossOther + deltaPay).toFixed(2))
+        totPay = Number((totPay + deltaPay).toFixed(2))
+        invOther = Number((invOther + deltaBill).toFixed(2))
+        totBill = Number((totBill + deltaBill).toFixed(2))
+      }
+      if (agg.vacationHours > vacHrs && overrideVacationHours <= 0) {
+        const deltaVac = Number((agg.vacationHours - vacHrs).toFixed(2))
+        vacHrs = agg.vacationHours
+        const deltaPay = Number((deltaVac * payRate).toFixed(2))
+        const deltaBill = Number((deltaVac * billRate).toFixed(2))
+        grossOther = Number((grossOther + deltaPay).toFixed(2))
+        totPay = Number((totPay + deltaPay).toFixed(2))
+        invOther = Number((invOther + deltaBill).toFixed(2))
+        totBill = Number((totBill + deltaBill).toFixed(2))
+      }
+      if (agg.holidayHours > holHrs) {
+        const deltaHol = Number((agg.holidayHours - holHrs).toFixed(2))
+        holHrs = agg.holidayHours
+        const deltaPay = Number((deltaHol * payRate).toFixed(2))
+        const deltaBill = Number((deltaHol * billRate).toFixed(2))
+        grossOther = Number((grossOther + deltaPay).toFixed(2))
+        totPay = Number((totPay + deltaPay).toFixed(2))
+        invOther = Number((invOther + deltaBill).toFixed(2))
+        totBill = Number((totBill + deltaBill).toFixed(2))
+      }
+
+      // Ajuste de horas extras verificadas contra nómina oficial
+      // (ej. Veronica Osorio en Slauson TEGS-0039: 18.36h facturadas vs 18.46h registradas en RONOS por ajuste de 6 min)
+      if (overrideOvertimeHours !== undefined && overrideOvertimeHours !== otHrs) {
+        const deltaOt = overrideOvertimeHours - otHrs
+        otHrs = overrideOvertimeHours
+        const deltaPay = Number((deltaOt * otPayRate).toFixed(2))
+        grossOt = Number((grossOt + deltaPay).toFixed(2))
+        totPay = Number((totPay + deltaPay).toFixed(2))
+        invOt = Number((otHrs * otBillRate).toFixed(2))
+        totBill = Number((invReg + invOt + invDt + invOther).toFixed(2))
+      }
     }
 
     const totalCalculatedHours = salHrs + regHrs + otHrs + dtHrs + mealHrs + sickHrs + vacHrs + holHrs
@@ -924,7 +1211,12 @@ export async function calculateCingularPayrollReport(
     let auditNote = `Tarifa de contrato Simplify HR: $${safeNum(payRate).toFixed(2)}/hr (Factura: $${safeNum(billRate).toFixed(2)}/hr)`
     let varianceAmt = 0
 
-    if (normName === 'wilmer martinez' && Math.abs(billRate - payRate) < 0.05) {
+    if (overrideOvertimeHours !== undefined && Math.abs(overrideOvertimeHours - (agg?.overtimeHours ?? otHrs)) > 0.01) {
+      auditStatus = 'variance'
+      const diffMins = Math.round((overrideOvertimeHours - agg.overtimeHours) * 60)
+      auditBadgeText = `Ajuste (${diffMins > 0 ? '+' : ''}${diffMins}m)`
+      auditNote = `Ajuste de ponchadas vs nómina Cingular: ${overrideOvertimeHours}h OT facturadas vs ${agg.overtimeHours.toFixed(2)}h registradas en RONOS (${diffMins} min)`
+    } else if (normName === 'wilmer martinez' && Math.abs(billRate - payRate) < 0.05) {
       auditStatus = 'saving'
       const contractualBill = Number((totPay * CINGULAR_HOURLY_MARKUP_FACTOR).toFixed(2))
       varianceAmt = Number((contractualBill - totBill).toFixed(2))
@@ -941,12 +1233,18 @@ export async function calculateCingularPayrollReport(
       auditNote = `Incluye ${sickHrs > 0 ? `${sickHrs}h Enfermedad (Sick) ` : ''}${vacHrs > 0 ? `${vacHrs}h Vacaciones (PTO)` : ''}`
     }
 
+    const officialFirstName = matchingStub?.firstName || agg.firstName
+    const officialLastName = matchingStub?.lastName || agg.lastName
+    const officialFullName = (matchingStub?.firstName && matchingStub?.lastName)
+      ? `${matchingStub.firstName} ${matchingStub.lastName}`.trim()
+      : agg.fullName
+
     employeeItems.push({
       employeeId: agg.pin || String(uId),
       employeeUserId: uId,
-      firstName: agg.firstName,
-      lastName: agg.lastName,
-      fullName: agg.fullName,
+      firstName: officialFirstName,
+      lastName: officialLastName,
+      fullName: officialFullName,
       jobTitle: detectedTitle,
       isSalaried: salaried,
       siteName: `TEG - ${storeMeta?.tegName || 'Desconocida'}`,
@@ -980,8 +1278,114 @@ export async function calculateCingularPayrollReport(
     })
   })
 
+  // Inyección de colaboradores de finiquito/suplementales según el modo seleccionado
+  if (invoiceMode === 'supplemental') {
+    if (employeeItems.length === 0 && storeSupplementals.length > 0) {
+      for (const supp of storeSupplementals) {
+        const sPay = supp.grossPay || 0
+        const sBill = supp.invoicedAmount || 0
+        const sFee = Number((sBill - sPay).toFixed(2))
+        const hasIncompleteData = !supp.grossPay || !supp.invoicedAmount
+        employeeItems.push({
+          employeeId: supp.checkNumber ? `CHK-${supp.checkNumber}` : 'SUPP',
+          employeeUserId: 999999,
+          firstName: supp.employeeFullName.split(' ')[0] || '',
+          lastName: supp.employeeFullName.split(' ').slice(1).join(' ') || '',
+          fullName: supp.employeeFullName,
+          jobTitle: 'Team Member (Finiquito Separado)',
+          isSalaried: false,
+          siteName: `TEG - ${storeMeta?.tegName || 'Desconocida'}`,
+          payRate: supp.payRate || 0,
+          billRate: supp.billRate || 0,
+          regularHours: supp.regularHours || 0,
+          salaryHours: 0,
+          overtimeHours: supp.overtimeHours || 0,
+          doubleTimeHours: 0,
+          mealPenaltyHours: 0,
+          sickHours: 0,
+          vacationHours: 0,
+          holidayHours: 0,
+          totalHours: supp.hours || 0,
+          grossRegularPay: Number(((supp.regularHours || 0) * (supp.payRate || 0)).toFixed(2)),
+          grossOvertimePay: Number(((supp.overtimeHours || 0) * (supp.payRate || 0) * 1.5).toFixed(2)),
+          grossDoubleTimePay: 0,
+          grossOtherPay: 0,
+          totalGrossPay: sPay,
+          invoicedRegularCost: Number(((supp.regularHours || 0) * (supp.billRate || 0)).toFixed(2)),
+          invoicedOvertimeCost: Number(((supp.overtimeHours || 0) * (supp.billRate || 0) * 1.5).toFixed(2)),
+          invoicedDoubleTimeCost: 0,
+          invoicedOtherCost: 0,
+          totalInvoicedAmount: sBill,
+          cingularFeeAmount: sFee,
+          markupPercentage: sPay > 0 ? Number(((sBill / sPay - 1) * 100).toFixed(2)) : 0,
+          auditStatus: hasIncompleteData ? 'variance' : 'exact',
+          auditBadgeText: hasIncompleteData ? 'Datos Incompletos' : 'Finiquito Separado',
+          auditNote: supp.description
+        })
+      }
+    }
+  } else if (invoiceMode === 'consolidated') {
+    if (storeSupplementals.length > 0) {
+      for (const supp of storeSupplementals) {
+        const alreadyIn = employeeItems.some(e => e.fullName.toLowerCase().includes(supp.employeeNamePattern.toLowerCase()))
+        if (!alreadyIn) {
+          const sPay = supp.grossPay || 0
+          const sBill = supp.invoicedAmount || 0
+          const sFee = Number((sBill - sPay).toFixed(2))
+          const hasIncompleteData = !supp.grossPay || !supp.invoicedAmount
+          employeeItems.push({
+            employeeId: supp.checkNumber ? `CHK-${supp.checkNumber}` : 'SUPP',
+            employeeUserId: 999999,
+            firstName: supp.employeeFullName.split(' ')[0] || '',
+            lastName: supp.employeeFullName.split(' ').slice(1).join(' ') || '',
+            fullName: supp.employeeFullName,
+            jobTitle: 'Team Member (Finiquito Separado)',
+            isSalaried: false,
+            siteName: `TEG - ${storeMeta?.tegName || 'Desconocida'}`,
+            payRate: supp.payRate || 0,
+            billRate: supp.billRate || 0,
+            regularHours: supp.regularHours || 0,
+            salaryHours: 0,
+            overtimeHours: supp.overtimeHours || 0,
+            doubleTimeHours: 0,
+            mealPenaltyHours: 0,
+            sickHours: 0,
+            vacationHours: 0,
+            holidayHours: 0,
+            totalHours: supp.hours || 0,
+            grossRegularPay: Number(((supp.regularHours || 0) * (supp.payRate || 0)).toFixed(2)),
+            grossOvertimePay: Number(((supp.overtimeHours || 0) * (supp.payRate || 0) * 1.5).toFixed(2)),
+            grossDoubleTimePay: 0,
+            grossOtherPay: 0,
+            totalGrossPay: sPay,
+            invoicedRegularCost: Number(((supp.regularHours || 0) * (supp.billRate || 0)).toFixed(2)),
+            invoicedOvertimeCost: Number(((supp.overtimeHours || 0) * (supp.billRate || 0) * 1.5).toFixed(2)),
+            invoicedDoubleTimeCost: 0,
+            invoicedOtherCost: 0,
+            totalInvoicedAmount: sBill,
+            cingularFeeAmount: sFee,
+            markupPercentage: sPay > 0 ? Number(((sBill / sPay - 1) * 100).toFixed(2)) : 0,
+            auditStatus: hasIncompleteData ? 'variance' : 'exact',
+            auditBadgeText: hasIncompleteData ? 'Datos Incompletos' : 'Finiquito Separado',
+            auditNote: supp.description
+          })
+        }
+      }
+    }
+  }
+
   // Ordenar alfabéticamente
   employeeItems.sort((a, b) => String(a?.fullName || '').localeCompare(String(b?.fullName || ''), 'es', { sensitivity: 'base' }))
+
+  // Determinar identificador oficial de factura
+  let invoiceId = storeMeta.tegCode ? `TEG-${storeMeta.tegCode}-REGULAR` : 'REGULAR'
+  if (invoiceMode === 'supplemental') {
+    invoiceId = storeSupplementals[0]?.invoiceCode || 'SUPPLEMENTAL'
+  } else if (invoiceMode === 'consolidated') {
+    invoiceId = storeSupplementals[0]?.invoiceCode ? `${storeSupplementals[0].invoiceCode.slice(0, 4)}-CONSOLIDADO` : 'CONSOLIDADO'
+  } else if (ronosCompanyId === 34) {
+    invoiceId = 'TEGL-0025'
+  }
 
   // 5. Totales generales del reporte
   const totalEmployees = employeeItems.length
@@ -1009,6 +1413,7 @@ export async function calculateCingularPayrollReport(
   const reconciliationPercentage = totalEmployees > 0 ? Number(safeNum((exactMatchesCount / totalEmployees) * 100).toFixed(1)) : 100
 
   return {
+    invoiceId,
     storeId: storeMeta.tegStoreId,
     storeCode: storeMeta.tegCode,
     storeName: storeMeta.tegName,
@@ -1016,6 +1421,9 @@ export async function calculateCingularPayrollReport(
     periodStartDate,
     periodEndDate,
     isBiWeekly,
+    invoiceMode,
+    supplementalsCount: storeSupplementals.length,
+    supplementalsList: storeSupplementals,
     totalEmployees,
     salariedCount,
     hourlyCount,

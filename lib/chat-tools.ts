@@ -2056,19 +2056,26 @@ ${storeRows}`
     targetCompanyId = matched.ronosCompanyId
   }
 
-  const report = await calculateCingularPayrollReport(targetCompanyId, weekIds, isBiWeekly)
+  const report = await calculateCingularPayrollReport(targetCompanyId, weekIds, isBiWeekly, 'consolidated')
 
   const topEmployees = report.employees.slice(0, 10).map(e =>
-    `- **${e.fullName}** (${e.isSalaried ? 'Asalariado/Exempt' : 'Por Hora/Non-Exempt'} - ${e.jobTitle}): ${e.totalHours}h (Reg: ${e.regularHours}h, OT: ${e.overtimeHours}h, Sick: ${e.sickHours}h, Vac: ${e.vacationHours}h) ➔ Salario: $${e.totalGrossPay.toFixed(2)} | Facturado: $${e.totalInvoicedAmount.toFixed(2)} (Fee: +$${e.cingularFeeAmount.toFixed(2)})`
+    `- **${e.fullName}** (${e.isSalaried ? 'Asalariado/Exempt' : 'Por Hora/Non-Exempt'} - ${e.jobTitle}): ${e.totalHours}h (Reg: ${e.regularHours}h, OT: ${e.overtimeHours}h, Sick: ${e.sickHours}h, Vac: ${e.vacationHours}h) ➔ Salario: $${e.totalGrossPay.toFixed(2)} | Facturado: $${e.totalInvoicedAmount.toFixed(2)} (Fee: +$${e.cingularFeeAmount.toFixed(2)})${e.auditBadgeText ? ` [${e.auditBadgeText}]` : ''}`
   ).join('\n')
+
+  let suppNote = ''
+  if (report.supplementalsCount && report.supplementalsCount > 0 && report.supplementalsList) {
+    suppNote = `\n- ⚡ **Facturas de Finiquito Separadas (${report.supplementalsCount})**: ` +
+      report.supplementalsList.map(s => `${s.employeeFullName} (${s.invoiceCode}: $${(Number(s.invoicedAmount) || 0).toFixed(2)})`).join(', ')
+  }
 
   return `💼 **Reporte de Nómina & Facturación Cingular HR (PEO) — ${report.storeName} (${report.storeCode}):**
 - **Periodo**: ${report.isBiWeekly ? 'Bisemanal (2 semanas / Ciclo de Factura)' : 'Semanal Individual'}
+- **Identificador de Factura**: **${report.invoiceId || 'CONSOLIDADO'}**
 - **Personal en Nómina**: ${report.totalEmployees} colaboradores (${report.salariedCount} Asalariados Exempt / ${report.hourlyCount} Por Hora Non-Exempt)
 - **Horas Totales**: **${report.totalHours} hrs** (Regulares: ${report.totalRegularHours}h | Asalariadas: ${report.totalSalaryHours}h | Overtime: ${report.totalOvertimeHours}h | Enfermedad: ${report.totalSickHours}h | Vacaciones: ${report.totalVacationHours}h)
 - **Salarios Brutos (TOT PAY)**: **$${report.totalGrossPay.toLocaleString('en-US', { minimumFractionDigits: 2 })}**
-- **Facturación Total Cingular (TOT BILL)**: **$${report.totalInvoicedAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}**
-- **Margen Cingular (Cingular Fee)**: **$${report.totalCingularFee.toLocaleString('en-US', { minimumFractionDigits: 2 })}** (Markup Efectivo: **${report.effectiveMarkupPercentage}%**)
+- **Total Salida de Caja / Facturación (TOT BILL)**: **$${report.totalInvoicedAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}**
+- **Margen Cingular (Cingular Fee)**: **$${report.totalCingularFee.toLocaleString('en-US', { minimumFractionDigits: 2 })}** (Markup Efectivo: **${report.effectiveMarkupPercentage}%**)${suppNote}
 
 📋 **Desglose de Colaboradores (Muestra):**
 ${topEmployees}

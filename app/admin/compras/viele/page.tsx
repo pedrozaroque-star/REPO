@@ -37,6 +37,11 @@
  * - [2026-09-07] Edición dinámica de niveles PAR directamente en tabla con persistencia atómica en viele_store_pars.
  * - [2026-09-07] Corrección de partición de facturas eliminando startsWith('B') para evitar que platos BG6IN se clasifiquen como sodas.
  * - [2026-09-07] Estandarización obligatoria de separadores de miles ($X,XXX.XX y X,XXX) con formatCurrency y formatNumber.
+ * - [2026-09-13] FIX CRÍTICO: Eliminado fallback fantasma (líneas 950-956 originales) que creaba un espejismo visual.
+ *   Items que no existían en orderRows se mostraban con PAR/pedido correcto pero se perdían silenciosamente al enviar.
+ * - [2026-09-13] FIX CRÍTICO: handleResetToOfficialOrder ahora filtra catálogo por PARs y sincroniza orderRows.
+ *   Antes, al restablecer orden oficial, catalog se llenaba con 87+ items pero orderRows no se actualizaba.
+ * - [2026-09-13] FIX MENOR: Eliminado setCatalog duplicado en loadData que causaba flash de catálogo sin filtrar.
  */
 
 'use client';
@@ -189,8 +194,6 @@ function VieleOrderContent() {
         }
 
         if (catJson.success && catJson.data) {
-          setCatalog(catJson.data);
-
           const storePars = parJson.success ? parJson.pars || {} : {};
           setPars(storePars);
 
@@ -314,7 +317,35 @@ function VieleOrderContent() {
         const catRes = await fetch(`/api/viele/catalog?storeId=${storeId}`);
         const catJson = await catRes.json();
         if (catJson.success && catJson.data) {
-          setCatalog(catJson.data);
+          // Filtrar catálogo por PARs para mantener sincronización con orderRows
+          const filteredCatalog = (catJson.data as CatalogItem[]).filter(
+            (item: CatalogItem) => item.item_code in pars
+          );
+          setCatalog(filteredCatalog);
+
+          // Sincronizar orderRows: preservar datos existentes, agregar items faltantes
+          setOrderRows(prev => {
+            const updated = { ...prev };
+            filteredCatalog.forEach((item: CatalogItem) => {
+              if (!updated[item.item_code]) {
+                const par = pars[item.item_code] ?? 0;
+                updated[item.item_code] = {
+                  item,
+                  par,
+                  leftover: '',
+                  suggested: par,
+                  finalOrder: par
+                };
+              } else {
+                // Actualizar referencia al item (puede cambiar sort_order)
+                updated[item.item_code] = {
+                  ...updated[item.item_code],
+                  item
+                };
+              }
+            });
+            return updated;
+          });
         }
         setCustomOrderToast(t('viele.official_order_active'));
         setTimeout(() => setCustomOrderToast(null), 3500);
@@ -947,13 +978,11 @@ function VieleOrderContent() {
               </thead>
               <tbody className="divide-y divide-slate-100 text-sm">
                 {filteredItems.map((item, index) => {
-                  const row = orderRows[item.item_code] || {
-                    item,
-                    par: pars[item.item_code] ?? 0,
-                    leftover: '',
-                    suggested: pars[item.item_code] ?? 0,
-                    finalOrder: pars[item.item_code] ?? 0
-                  };
+                  // GUARD: Solo renderizar items que existen en el estado real de orderRows.
+                  // Previene el bug de "espejismo visual" donde un item se mostraba con PAR/pedido
+                  // correcto visualmente, pero no existía en el estado de React y se perdía al enviar.
+                  const row = orderRows[item.item_code];
+                  if (!row) return null;
 
                   const isOrdered = row.finalOrder > 0;
                   const extendedAmount = row.finalOrder * item.unit_price;

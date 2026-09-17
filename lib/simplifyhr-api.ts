@@ -201,30 +201,44 @@ export interface SimplifyHrPaystub {
   invoiceItemId?: string
   batchId?: string
   userId: string
+  employeeName?: string
+  firstName?: string
+  lastName?: string
+  employeeNumber?: string
   eorId?: string
   siteId?: string
+  siteName?: string
   assignmentId?: string
   checkDate?: string
+  payPeriodStart?: string
+  payPeriodEnd?: string
   periodStart?: string
   periodEnd?: string
+  status?: string
   grossWages?: number
   netPay?: number
   earnings?: Array<{
     type?: string
+    paycodeName?: string
+    systemCode?: string
     hours?: number
+    units?: number
     rate?: number
     amount?: number
   }>
   employeeTaxes?: Array<{
     type?: string
+    taxType?: string
     amount?: number
   }>
   employerTaxes?: Array<{
     type?: string
+    taxType?: string
     amount?: number
   }>
   deductions?: Array<{
     type?: string
+    code?: string
     amount?: number
   }>
   ytdGrossWages?: number
@@ -244,7 +258,7 @@ const DEFAULT_PASS = process.env.SIMPLIFYHR_PASS || 'Canasta@323'
 const BASE_API = 'https://prod.simplifyhros.com'
 
 // In-Memory Rate Cache para acceso ultra-rápido
-let cachedSimplifyRates: Map<string, { payRate: number; billRate: number; otPayRate?: number | null; isSalaried: boolean; jobTitle: string; storeName?: string }> | null = null
+let cachedSimplifyRates: Map<string, { payRate: number; billRate: number; otPayRate?: number | null; otBillRate?: number; isSalaried: boolean; jobTitle: string; storeName?: string }> | null = null
 let lastRatesSyncTime = 0
 let ratesSyncInProgress: Promise<void> | null = null
 
@@ -728,6 +742,76 @@ export async function getPaystubDetail(paystubId: string): Promise<SimplifyHrPay
   }
 }
 
+/**
+ * Obtiene los recibos de nómina (Paystubs) de una sucursal completa desde Simplify HR OS.
+ * Útil para conciliar directamente contra la corrida oficial de nómina de Cingular HR.
+ */
+export async function getSitePaystubs(siteId: string, limit = 100): Promise<SimplifyHrPaystub[]> {
+  try {
+    const result = await callSimplifyHrApi<any>('payroll/paystubs', {
+      params: { siteId, limit },
+      maxRetries: 2
+    })
+    const stubs = Array.isArray(result) ? result : (result?.paystubs || [])
+
+    return stubs.map((s: any) => ({
+      id: s.id,
+      invoiceId: s.invoiceId,
+      invoiceItemId: s.invoiceItemId,
+      batchId: s.batchId,
+      userId: s.userId,
+      employeeName: s.employeeName || `${s.lastName || ''}, ${s.firstName || ''}`.trim(),
+      firstName: s.firstName,
+      lastName: s.lastName,
+      employeeNumber: s.employeeNumber,
+      eorId: s.eorId,
+      siteId: s.siteId || siteId,
+      siteName: s.siteName,
+      assignmentId: s.assignmentId,
+      checkDate: s.payDate || s.checkDate,
+      payPeriodStart: s.payPeriodStart || s.periodStart,
+      payPeriodEnd: s.payPeriodEnd || s.periodEnd,
+      periodStart: s.payPeriodStart || s.periodStart,
+      periodEnd: s.payPeriodEnd || s.periodEnd,
+      status: s.status,
+      grossWages: Number(s.grossWages || 0),
+      netPay: Number(s.netPay || 0),
+      earnings: (s.earnings || []).map((e: any) => ({
+        type: e.paycodeName || e.type,
+        paycodeName: e.paycodeName || e.type,
+        systemCode: e.systemCode,
+        hours: Number(e.units ?? e.hours ?? 0),
+        units: Number(e.units ?? e.hours ?? 0),
+        rate: Number(e.rate || 0),
+        amount: Number(e.amount || 0)
+      })),
+      employeeTaxes: (s.employeeTaxes || []).map((t: any) => ({
+        type: t.type || t.taxType,
+        taxType: t.taxType || t.type,
+        amount: Number(t.amount || 0)
+      })),
+      employerTaxes: (s.employerTaxes || []).map((t: any) => ({
+        type: t.type || t.taxType,
+        taxType: t.taxType || t.type,
+        amount: Number(t.amount || 0)
+      })),
+      deductions: (s.deductions || s.preTaxDeductions || []).map((d: any) => ({
+        type: d.code || d.type,
+        code: d.code || d.type,
+        amount: Number(d.actualAmount ?? d.amount ?? 0)
+      })),
+      ytdGrossWages: Number(s.ytdGrossWages || 0),
+      ytdNetPay: Number(s.ytdNetPay || 0),
+      ytdFederalTax: Number(s.ytdFederalTax || 0),
+      ytdStateTax: Number(s.ytdStateTax || 0)
+    }))
+  } catch (err: any) {
+    if (err.message && err.message.includes('[404]')) return []
+    console.warn(`[SimplifyHR] No se pudieron obtener paystubs para siteId=${siteId}: ${err.message}`)
+    return []
+  }
+}
+
 // ==========================================
 // EXTRACCIÓN CONCURRENTE RESILIENTE POR SITIO
 // ==========================================
@@ -855,6 +939,53 @@ async function loadFallbackRatesFromSupabase(): Promise<void> {
 
   try {
     const { supabaseAdmin } = await import('./supabase')
+    const { data: rates, error: sErr } = await supabaseAdmin
+      .from('simplify_employee_rates')
+      .select('*')
+
+    if (rates && rates.length > 0) {
+      for (const r of rates) {
+        const rateInfo = {
+          payRate: Number(r.pay_rate),
+          billRate: Number(r.bill_rate),
+          otPayRate: r.ot_pay_rate != null ? Number(r.ot_pay_rate) : null,
+          otBillRate: r.ot_bill_rate != null ? Number(r.ot_bill_rate) : undefined,
+          isSalaried: Boolean(r.is_salaried),
+          jobTitle: r.job_title || 'Employee',
+          storeName: r.store_name
+        }
+
+        const norm = r.normalized_name
+        const fl = r.first_last_name
+        const cId = r.ronos_company_id
+        const sName = (r.store_name || '').toLowerCase().trim()
+
+        // 1. Claves compuestas con ámbito estricto de tienda (Store-Scoped)
+        if (cId) {
+          cachedSimplifyRates.set(`${cId}:${norm}`, rateInfo)
+          if (fl) cachedSimplifyRates.set(`${cId}:${fl}`, rateInfo)
+          if (r.employee_id) cachedSimplifyRates.set(`${cId}:id:${r.employee_id}`, rateInfo)
+        }
+        if (sName) {
+          cachedSimplifyRates.set(`${sName}:${norm}`, rateInfo)
+          if (fl) cachedSimplifyRates.set(`${sName}:${fl}`, rateInfo)
+        }
+        if (r.employee_id) {
+          cachedSimplifyRates.set(`id:${r.employee_id}`, rateInfo)
+        }
+
+        // 2. Clave global con regla anti-degradación
+        const existingGlobal = cachedSimplifyRates.get(norm)
+        if (!existingGlobal || rateInfo.payRate >= existingGlobal.payRate) {
+          cachedSimplifyRates.set(norm, rateInfo)
+          if (fl) cachedSimplifyRates.set(fl, rateInfo)
+        }
+      }
+      console.log(`[SimplifyHR] ⚡ Cargadas ${rates.length} tarifas oficiales desde Supabase simplify_employee_rates`)
+      return
+    }
+
+    // Fallback secundario a toast_employees si la tabla aún estuviera vacía
     const { data: employees } = await supabaseAdmin
       .from('toast_employees')
       .select('first_name, last_name, wage_data')
@@ -901,11 +1032,21 @@ export async function syncSimplifyHrRates(ronosCompanyId?: number): Promise<{
   success: boolean
   syncedCount: number
   siteId: string
-  rates: Record<string, { payRate: number; billRate: number; otPayRate?: number | null; isSalaried: boolean; jobTitle: string }>
+  rates: Record<string, { payRate: number; billRate: number; otPayRate?: number | null; otBillRate?: number; isSalaried: boolean; jobTitle: string }>
 }> {
+  const compId = ronosCompanyId || 34
   const siteId = (ronosCompanyId && RONOS_TO_SIMPLIFY_SITE_MAP[ronosCompanyId])
     ? RONOS_TO_SIMPLIFY_SITE_MAP[ronosCompanyId]
     : '657a2e35555bf12601f56284'
+
+  const STORE_NAMES: Record<number, string> = {
+    34: 'Lynwood', 26: 'Hollywood', 29: 'Bell', 30: 'Broadway',
+    31: 'LA Central', 27: 'Huntington Park', 328: 'Slauson',
+    33: 'South Gate', 28: 'Vernon (Bodega)', 24: 'Azusa',
+    32: 'Downey', 37: 'La Puente', 292: 'Norwalk',
+    25: 'Rialto', 35: 'Santa Ana', 36: 'West Covina'
+  }
+  const storeName = STORE_NAMES[compId] || `Store ${compId}`
 
   if (!cachedSimplifyRates) {
     cachedSimplifyRates = new Map()
@@ -913,43 +1054,87 @@ export async function syncSimplifyHrRates(ronosCompanyId?: number): Promise<{
 
   try {
     const data = await extractAllSimplifyHrSalaries(siteId, 6, false)
-    const ratesObj: Record<string, { payRate: number; billRate: number; otPayRate?: number | null; isSalaried: boolean; jobTitle: string }> = {}
+    const ratesObj: Record<string, { payRate: number; billRate: number; otPayRate?: number | null; otBillRate?: number; isSalaried: boolean; jobTitle: string }> = {}
 
+    // Deduplicar empleados por employeeID para evitar errores de colisión en PostgreSQL upsert
+    const empMap = new Map<string, SimplifyHrEmployeeRecord>()
     for (const emp of data.employees) {
       if (!emp.payRate || emp.payRate <= 0) continue
+      const empKey = String(emp.employeeID || emp.id).trim()
+      const existing = empMap.get(empKey)
+      if (!existing || emp.payRate > existing.payRate) {
+        empMap.set(empKey, emp)
+      }
+    }
 
-      const normName = emp.fullName.toLowerCase().trim().replace(/\s+/g, ' ')
+    const rowsToUpsert = []
+
+    for (const emp of empMap.values()) {
+      const normName = normalizeNameForMatch(emp.fullName)
+      const fl = firstAndLast(normName)
       const isSalaried = emp.payType === 'Yearly' || emp.payRate > 1000
       const hourlyPay = isSalaried ? Math.round((emp.payRate / 2080) * 100) / 100 : emp.payRate
       const billRate = isSalaried
         ? Math.round(hourlyPay * 1.2451 * 100) / 100     // Salaried: 24.51%
         : Math.round(hourlyPay * 1.26 * 100) / 100       // Hourly: 26.00% (Confirmado por Raquel)
+      const otBillRate = isSalaried ? billRate : Math.round(hourlyPay * 1.5 * 1.26 * 100) / 100
 
       const rateInfo = {
         payRate: hourlyPay,
         billRate,
-        otPayRate: emp.otPayRate,
+        otPayRate: emp.otPayRate || (isSalaried ? null : Math.round(hourlyPay * 1.5 * 100) / 100),
+        otBillRate,
         isSalaried,
-        jobTitle: emp.title || emp.jobPosition || 'Employee'
+        jobTitle: emp.title || emp.jobPosition || 'Employee',
+        storeName
       }
 
       // 1. Claves compuestas con ámbito estricto de tienda (Store-Scoped)
-      cachedSimplifyRates.set(`${ronosCompanyId}:${normName}`, rateInfo)
+      cachedSimplifyRates.set(`${compId}:${normName}`, rateInfo)
+      if (fl) cachedSimplifyRates.set(`${compId}:${fl}`, rateInfo)
+      cachedSimplifyRates.set(`${storeName.toLowerCase()}:${normName}`, rateInfo)
+      if (fl) cachedSimplifyRates.set(`${storeName.toLowerCase()}:${fl}`, rateInfo)
       if (emp.employeeID) {
-        cachedSimplifyRates.set(`${ronosCompanyId}:id:${emp.employeeID}`, rateInfo)
+        cachedSimplifyRates.set(`${compId}:id:${emp.employeeID}`, rateInfo)
         cachedSimplifyRates.set(`id:${emp.employeeID}`, rateInfo)
       }
-      // 2. Clave global con regla anti-degradación (nunca sobreescribir con tarifa menor)
+      // 2. Clave global con regla anti-degradación
       const existingGlobal = cachedSimplifyRates.get(normName)
       if (!existingGlobal || hourlyPay >= existingGlobal.payRate) {
         cachedSimplifyRates.set(normName, rateInfo)
+        if (fl) cachedSimplifyRates.set(fl, rateInfo)
       }
       ratesObj[normName] = rateInfo
+
+      rowsToUpsert.push({
+        employee_id: emp.employeeID || emp.id,
+        site_id: siteId,
+        ronos_company_id: compId,
+        full_name: emp.fullName,
+        normalized_name: normName,
+        first_last_name: fl,
+        pay_rate: hourlyPay,
+        bill_rate: billRate,
+        ot_pay_rate: rateInfo.otPayRate,
+        ot_bill_rate: otBillRate,
+        pay_type: emp.payType || (isSalaried ? 'Yearly' : 'Hourly'),
+        annual_salary: isSalaried ? emp.payRate : null,
+        is_salaried: isSalaried,
+        job_title: rateInfo.jobTitle,
+        store_name: storeName,
+        synced_at: new Date().toISOString()
+      })
     }
 
-    persistRatesInSupabaseBackground(data.employees).catch(err => {
-      console.warn('[SimplifyHR] Error en persistencia background Supabase:', err.message)
-    })
+    if (rowsToUpsert.length > 0) {
+      const { supabaseAdmin } = await import('./supabase')
+      const { error: upsertErr } = await supabaseAdmin
+        .from('simplify_employee_rates')
+        .upsert(rowsToUpsert, { onConflict: 'employee_id,site_id' })
+      if (upsertErr) {
+        console.warn('[SimplifyHR] Error guardando simplify_employee_rates:', upsertErr.message)
+      }
+    }
 
     lastRatesSyncTime = Date.now()
 
@@ -1033,7 +1218,7 @@ const fuzzyMatchCache = new Map<string, string | null>()
 export function getSimplifyHrRateForEmployee(
   nameOrId: string,
   storeIdOrCode?: number | string
-): { payRate: number; billRate: number; otPayRate?: number | null; isSalaried: boolean; jobTitle: string } | null {
+): { payRate: number; billRate: number; otPayRate?: number | null; otBillRate?: number; isSalaried: boolean; jobTitle: string; storeName?: string } | null {
   if (!cachedSimplifyRates || cachedSimplifyRates.size === 0) return null
 
   const key = normalizeNameForMatch(nameOrId)
@@ -1042,8 +1227,10 @@ export function getSimplifyHrRateForEmployee(
   // 0. Búsqueda prioritaria con ámbito estricto de tienda (Store-Scoped)
   if (storeIdOrCode != null) {
     const sKey = String(storeIdOrCode).toLowerCase().trim()
+    const fl = firstAndLast(key)
     const storeScoped =
       cachedSimplifyRates.get(`${sKey}:${key}`) ||
+      cachedSimplifyRates.get(`${sKey}:${fl}`) ||
       cachedSimplifyRates.get(`${sKey}:id:${nameOrId}`)
     if (storeScoped) return storeScoped
   }
@@ -1180,10 +1367,21 @@ export async function syncAllStoresSimplifyHrRates(): Promise<{
           console.log(`📡 [SimplifyHR] Extrayendo salarios de ${storeName}...`)
           const data = await extractAllSimplifyHrSalaries(siteId, 6, false)
 
+          // Deduplicar empleados por employeeID para evitar colisión en PostgreSQL upsert
+          const empMap = new Map<string, SimplifyHrEmployeeRecord>()
           for (const emp of data.employees) {
             if (!emp.payRate || emp.payRate <= 0) continue
+            const empKey = String(emp.employeeID || emp.id).trim()
+            const existing = empMap.get(empKey)
+            if (!existing || emp.payRate > existing.payRate) {
+              empMap.set(empKey, emp)
+            }
+          }
 
-            const normName = emp.fullName.toLowerCase().trim().replace(/\s+/g, ' ')
+          const rowsToUpsert = []
+          for (const emp of empMap.values()) {
+            const normName = normalizeNameForMatch(emp.fullName)
+            const fl = firstAndLast(normName)
             const isSalaried = emp.payType === 'Yearly' || emp.payRate > 1000
             const hourlyPay = isSalaried ? Math.round((emp.payRate / 2080) * 100) / 100 : emp.payRate
             const billRate = isSalaried
@@ -1194,7 +1392,8 @@ export async function syncAllStoresSimplifyHrRates(): Promise<{
             const rateInfo = {
               payRate: hourlyPay,
               billRate,
-              otPayRate: emp.otPayRate || (isSalaried ? null : hourlyPay * 1.5),
+              otPayRate: emp.otPayRate || (isSalaried ? null : Math.round(hourlyPay * 1.5 * 100) / 100),
+              otBillRate,
               isSalaried,
               jobTitle: emp.title || emp.jobPosition || 'Employee',
               storeName
@@ -1202,7 +1401,9 @@ export async function syncAllStoresSimplifyHrRates(): Promise<{
 
             // 1. Claves compuestas con ámbito estricto de tienda (Store-Scoped)
             cachedSimplifyRates!.set(`${companyId}:${normName}`, rateInfo)
+            if (fl) cachedSimplifyRates!.set(`${companyId}:${fl}`, rateInfo)
             cachedSimplifyRates!.set(`${storeName.toLowerCase()}:${normName}`, rateInfo)
+            if (fl) cachedSimplifyRates!.set(`${storeName.toLowerCase()}:${fl}`, rateInfo)
             if (emp.employeeID) {
               cachedSimplifyRates!.set(`${companyId}:id:${emp.employeeID}`, rateInfo)
               cachedSimplifyRates!.set(`id:${emp.employeeID}`, rateInfo)
@@ -1211,13 +1412,43 @@ export async function syncAllStoresSimplifyHrRates(): Promise<{
             const existingGlobal = cachedSimplifyRates!.get(normName)
             if (!existingGlobal || hourlyPay >= existingGlobal.payRate) {
               cachedSimplifyRates!.set(normName, rateInfo)
+              if (fl) cachedSimplifyRates!.set(fl, rateInfo)
             }
             allRates[`${companyId}:${normName}`] = rateInfo
             allRates[normName] = rateInfo
+
+            rowsToUpsert.push({
+              employee_id: emp.employeeID || emp.id,
+              site_id: siteId,
+              ronos_company_id: companyId,
+              full_name: emp.fullName,
+              normalized_name: normName,
+              first_last_name: fl,
+              pay_rate: hourlyPay,
+              bill_rate: billRate,
+              ot_pay_rate: rateInfo.otPayRate,
+              ot_bill_rate: otBillRate,
+              pay_type: emp.payType || (isSalaried ? 'Yearly' : 'Hourly'),
+              annual_salary: isSalaried ? emp.payRate : null,
+              is_salaried: isSalaried,
+              job_title: rateInfo.jobTitle,
+              store_name: storeName,
+              synced_at: new Date().toISOString()
+            })
           }
 
-          console.log(`  ✅ ${storeName}: ${data.employees.length} empleados sincronizados`)
-          return { ronosCompanyId: companyId, storeName, siteId, employeeCount: data.employees.length, success: true as const }
+          if (rowsToUpsert.length > 0) {
+            const { supabaseAdmin } = await import('./supabase')
+            const { error: upsertErr } = await supabaseAdmin
+              .from('simplify_employee_rates')
+              .upsert(rowsToUpsert, { onConflict: 'employee_id,site_id' })
+            if (upsertErr) {
+              console.warn(`[SimplifyHR] Error guardando ${storeName}:`, upsertErr.message)
+            }
+          }
+
+          console.log(`  ✅ ${storeName}: ${rowsToUpsert.length} empleados sincronizados y guardados en Supabase`)
+          return { ronosCompanyId: companyId, storeName, siteId, employeeCount: rowsToUpsert.length, success: true as const }
         } catch (err: any) {
           console.error(`  ❌ Error extrayendo ${storeName}: ${err.message}`)
           return { ronosCompanyId: companyId, storeName, siteId, employeeCount: 0, success: false as const, error: err.message }

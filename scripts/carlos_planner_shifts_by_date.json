@@ -1609,46 +1609,39 @@
     "label": "Mañana",
     "store": "Lynwood"
   },
-  "2026-09-14": {
+  "2026-09-11": {
     "start": "9:00 AM",
     "end": "5:00 PM",
     "hours": 8,
     "label": "Mañana",
+    "store": "Lynwood"
+  },
+  "2026-09-12": {
+    "start": "9:00 AM",
+    "end": "5:00 PM",
+    "hours": 8,
+    "label": "Mañana",
+    "store": "Lynwood"
+  },
+  "2026-09-13": {
+    "start": "9:00 AM",
+    "end": "5:00 PM",
+    "hours": 8,
+    "label": "Mañana",
+    "store": "Lynwood"
+  },
+  "2026-09-14": {
+    "start": "12:00 PM",
+    "end": "8:00 PM",
+    "hours": 8,
+    "label": "Custom",
     "store": "Lynwood"
   },
   "2026-09-15": {
-    "start": "9:00 AM",
-    "end": "5:00 PM",
+    "start": "2:00 PM",
+    "end": "10:00 PM",
     "hours": 8,
-    "label": "Mañana",
-    "store": "Lynwood"
-  },
-  "2026-09-16": {
-    "start": "9:00 AM",
-    "end": "5:00 PM",
-    "hours": 8,
-    "label": "Mañana",
-    "store": "Lynwood"
-  },
-  "2026-09-17": {
-    "start": "9:00 AM",
-    "end": "5:00 PM",
-    "hours": 8,
-    "label": "Mañana",
-    "store": "Lynwood"
-  },
-  "2026-09-18": {
-    "start": "9:00 AM",
-    "end": "5:00 PM",
-    "hours": 8,
-    "label": "Mañana",
-    "store": "Lynwood"
-  },
-  "2026-09-19": {
-    "start": "9:00 AM",
-    "end": "5:00 PM",
-    "hours": 8,
-    "label": "Mañana",
+    "label": "Intermedio",
     "store": "Lynwood"
   },
   "2026-09-20": {
