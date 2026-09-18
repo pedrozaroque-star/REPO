@@ -179,11 +179,37 @@ function getLocalHourMinute(tMs: number): { hour: number; minute: number } {
     return { hour, minute }
 }
 
+function normalizeOperatingHours(rawHours: any): OperatingHour[] {
+    if (!rawHours) return []
+    if (Array.isArray(rawHours)) {
+        return rawHours.map(h => ({
+            hour: Number(h.hour),
+            projected_sales: Number(h.projected_sales ?? (h as any).sales ?? 0),
+            projected_tickets: Number(h.projected_tickets ?? (h as any).tickets ?? 0),
+            required_kitchen: Number(h.required_kitchen ?? 0),
+            required_foh: Number(h.required_foh ?? 0),
+            reasoning: String(h.reasoning ?? '')
+        }))
+    }
+    if (typeof rawHours === 'object') {
+        return Object.entries(rawHours).map(([hStr, s]) => ({
+            hour: Number(hStr),
+            projected_sales: Number(s ?? 0),
+            projected_tickets: 0,
+            required_kitchen: 0,
+            required_foh: 0,
+            reasoning: ''
+        })).sort((a, b) => a.hour - b.hour)
+    }
+    return []
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 //  ZONA DE PICO SEGÚN TURNO (AM: 11-14h, PM: 18-20h)
 // ─────────────────────────────────────────────────────────────────────────────
 
-function getPeakHoursForShift(shiftStartMs: number, shiftEndMs: number, operatingHours: OperatingHour[]): { start: number; end: number } {
+function getPeakHoursForShift(shiftStartMs: number, shiftEndMs: number, rawOperatingHours: OperatingHour[]): { start: number; end: number } {
+    const operatingHours = normalizeOperatingHours(rawOperatingHours);
     const midMs = shiftStartMs + (shiftEndMs - shiftStartMs) / 2;
     const { hour } = getLocalHourMinute(midMs);
     // Según reglas: AM inicia 6am hasta 5pm. PM inicia 5pm hasta 5am.
@@ -259,7 +285,8 @@ function isInPeakZoneForShift(tMs: number, shiftStartMs: number, shiftEndMs: num
 //  HEATMAP (solo para scoring)
 // ─────────────────────────────────────────────────────────────────────────────
 
-function buildHeatFn(operatingHours: OperatingHour[], shiftStartMs?: number, shiftEndMs?: number): (tMs: number) => number {
+function buildHeatFn(rawOperatingHours: OperatingHour[], shiftStartMs?: number, shiftEndMs?: number): (tMs: number) => number {
+    const operatingHours = normalizeOperatingHours(rawOperatingHours);
     const MOCK: Record<number, number> = {
         6: 10, 7: 30, 8: 80, 9: 150, 10: 300, 11: 600, 12: 950, 13: 850, 14: 400,
         15: 250, 16: 300, 17: 500, 18: 800, 19: 900, 20: 750, 21: 500, 22: 300, 23: 150,
@@ -353,7 +380,8 @@ function assignCohorts(shifts: any[]): void {
 //  EXPORT PRINCIPAL
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function scheduleBreaksWithDemand(shifts: Shift[], operatingHours: OperatingHour[], learnedPrefs: LearnedPreference[] = []): Shift[] {
+export function scheduleBreaksWithDemand(shifts: Shift[], rawOperatingHours: OperatingHour[], learnedPrefs: LearnedPreference[] = []): Shift[] {
+    const operatingHours = normalizeOperatingHours(rawOperatingHours);
     console.warn('%c🧠 BREAKS ENGINE V25 — ESPACIADO ESTRICTO (30/45 min entre distintos)', 'background:#0f2447;color:#60a5fa;font-size:14px;font-weight:bold;padding:4px 10px;border-radius:4px')
 
     // getHeat se re-asigna por cada turno para normalizar AM/PM independientemente.

@@ -19,13 +19,34 @@ function isRealIsoDate(value: unknown): value is string {
     return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value
 }
 
+function formatHourlyArray(hourlyData: any): Array<{ hour: number; projected_sales: number; projected_tickets?: number }> {
+    if (Array.isArray(hourlyData)) {
+        return hourlyData.map((h: any) => ({
+            hour: Number(h.hour),
+            projected_sales: Number(h.projected_sales ?? h.sales ?? 0),
+            projected_tickets: Number(h.projected_tickets ?? h.tickets ?? 0)
+        }))
+    }
+    if (hourlyData && typeof hourlyData === 'object') {
+        return Object.entries(hourlyData).map(([hourStr, sales]) => ({
+            hour: Number(hourStr),
+            projected_sales: Number(sales ?? 0),
+            projected_tickets: 0
+        })).sort((a, b) => a.hour - b.hour)
+    }
+    return []
+}
+
 export async function POST(request: NextRequest) {
     try {
         const token = request.headers.get('Authorization')?.replace(/^Bearer\s+/i, '').trim()
             || request.cookies.get('teg_token')?.value
         const user = token ? verifyAuthToken(token) : null
         if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-        if (!['admin', 'supervisor', 'manager'].includes(user.user_role)) {
+        
+        const roleLower = String(user.user_role || '').toLowerCase().trim()
+        const isAllowedRole = ['admin', 'administrador', 'supervisor', 'manager', 'gerente', 'store_leader'].includes(roleLower)
+        if (!isAllowedRole) {
             return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
         }
 
@@ -67,13 +88,29 @@ export async function POST(request: NextRequest) {
         const { getSupabaseAdminClient } = await import('@/lib/supabase');
         const supabase = await getSupabaseAdminClient();
 
-        const { data: requestedStore, error: storeError } = await supabase
-            .from('stores').select('id, external_id').eq('external_id', storeId).maybeSingle()
+        let storeQuery = supabase.from('stores').select('id, external_id')
+        if (typeof storeId === 'number' || /^\d+$/.test(String(storeId))) {
+            storeQuery = storeQuery.eq('id', Number(storeId))
+        } else {
+            storeQuery = storeQuery.eq('external_id', storeId)
+        }
+        const { data: requestedStore, error: storeError } = await storeQuery.maybeSingle()
         if (storeError || !requestedStore) return NextResponse.json({ error: 'Store not found' }, { status: 404 })
-        const assignedStore = user.user_metadata?.store_id
-        if (user.user_role === 'manager'
-            && (assignedStore == null || ![requestedStore.id, requestedStore.external_id].some(value => String(value) === String(assignedStore)))) {
-            return NextResponse.json({ error: 'Manager is not assigned to this store' }, { status: 403 })
+
+        const assignedStore = user.user_metadata?.store_id ?? (user as any).store_id
+        const storeScope = user.user_metadata?.store_scope ?? (user as any).store_scope
+        const allowedStores = [
+            assignedStore,
+            ...(Array.isArray(storeScope) ? storeScope : [])
+        ].filter(Boolean).map(String)
+
+        if (['manager', 'gerente'].includes(roleLower) && allowedStores.length > 0) {
+            const matchesAssigned = allowedStores.some(val =>
+                String(val) === String(requestedStore.id) || String(val) === String(requestedStore.external_id)
+            )
+            if (!matchesAssigned) {
+                return NextResponse.json({ error: 'Manager is not assigned to this store' }, { status: 403 })
+            }
         }
 
         let cachedProjections: Record<string, any> = {};
@@ -102,7 +139,7 @@ export async function POST(request: NextRequest) {
                         total_sales: cached.total_sales,
                         growth_factor: cached.meta?.growth_factor || 1.0,
                         weather_adjusted: cached.meta?.weather_adjusted || false,
-                        hourly_breakdown: cached.hourly_data || [],
+                        hourly_breakdown: formatHourlyArray(cached.hourly_data),
                         cached: true,
                         updated_at: cached.updated_at
                     });
@@ -154,13 +191,13 @@ export async function POST(request: NextRequest) {
                     total_sales: forecast.total_sales,
                     growth_factor: forecast.growth_factor_applied,
                     weather_adjusted: forecast.weather_adjustment || false,
-                    hourly_breakdown: forecast.hours || [],
+                    hourly_breakdown: formatHourlyArray(forecast.hours),
                     cached: false
                 })
 
                 console.log(`  ✅ ${dateStr}: $${Math.round(forecast.total_sales).toLocaleString()} (NEW generation, growth: ${forecast.growth_factor_applied.toFixed(2)})`)
 
-                } catch (dayError: any) {
+            } catch (dayError: any) {
                 console.error(`  ❌ ${dateStr}: Failed - ${dayError.message}`)
                 // Omit failed dates; zero is a valid closed-day projection and must not represent an error.
                 meta.dailyDetails.push({

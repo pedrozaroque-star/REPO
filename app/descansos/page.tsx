@@ -820,20 +820,33 @@ export default function DescansosPage() {
             
             // Definimos la tarea lenta (Toast API y Projections) que no bloquea la interfaz si hay Bypass
             const fetchSlowData = async () => {
+                const authToken = typeof window !== 'undefined' ? (localStorage.getItem('teg_token') || '') : ''
                 const [_, projData] = await Promise.all([
                     pullToastPunches(false),
                     fetch('/api/projections/generate', {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
+                        headers: { 
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${authToken}`
+                        },
                         body: JSON.stringify({ storeId: storeGuid, weekStart: dateStr, days: 1 })
                     }).then(r => r.json()).catch(e => { console.error(e); return null; })
                 ]);
 
-                let hoursToDraw = []
+                let hoursToDraw: any[] = []
                 if (projData?.meta?.dailyDetails?.length > 0) {
                     const dayMatch = projData.meta.dailyDetails.find((d: any) => d.date === dateStr)
                     if (dayMatch && dayMatch.hourly_breakdown) {
-                        hoursToDraw = dayMatch.hourly_breakdown
+                        const raw = dayMatch.hourly_breakdown
+                        if (Array.isArray(raw)) {
+                            hoursToDraw = raw
+                        } else if (raw && typeof raw === 'object') {
+                            hoursToDraw = Object.entries(raw).map(([h, sales]) => ({
+                                hour: Number(h),
+                                projected_sales: Number(sales || 0),
+                                projected_tickets: 0
+                            })).sort((a, b) => a.hour - b.hour)
+                        }
                     }
                 }
                 setOperatingHours(hoursToDraw);
@@ -1247,7 +1260,8 @@ export default function DescansosPage() {
                         <div className="absolute top-10 bottom-0 left-64 right-0 z-[5] pointer-events-none overflow-hidden rounded-br-xl">
                             {Array.from({ length: TOTAL_HOURS }).map((_, i) => {
                                 const h = START_HOUR + i;
-                                const hData = operatingHours?.find(o => o.hour === h || o.hour === (h >= 24 ? h - 24 : -1));
+                                const safeOperatingHours = Array.isArray(operatingHours) ? operatingHours : [];
+                                const hData = safeOperatingHours.find(o => o.hour === h || o.hour === (h >= 24 ? h - 24 : -1));
                                 let sales = hData?.projected_sales || 0;
 
                                 // ── NORMALIZACIÓN PER-TURNO ──
@@ -1258,18 +1272,18 @@ export default function DescansosPage() {
                                 const isAmHour = h >= 6 && h < 17;
                                 let maxSales = 0;
 
-                                if (operatingHours?.length > 0) {
+                                if (safeOperatingHours.length > 0) {
                                     const windowStart = isAmHour ? 6 : 17;
                                     const windowEnd = isAmHour ? 17 : 29;
-                                    for (const o of operatingHours) {
+                                    for (const o of safeOperatingHours) {
                                         const oH = Number(o.hour);
-                                        if (oH >= windowStart && oH < windowEnd && o.projected_sales > maxSales) {
-                                            maxSales = o.projected_sales;
+                                        if (oH >= windowStart && oH < windowEnd && (o.projected_sales || 0) > maxSales) {
+                                            maxSales = o.projected_sales || 0;
                                         }
                                     }
                                     // Fallback: si la ventana no tiene datos, usar max global
                                     if (maxSales < 10) {
-                                        maxSales = Math.max(...operatingHours.map(o => o.projected_sales));
+                                        maxSales = Math.max(...safeOperatingHours.map(o => o.projected_sales || 0));
                                     }
                                 }
 
