@@ -28,7 +28,7 @@ import { getSupabaseAdminClient } from '@/lib/supabase'
 import { syncVielePortalDirect } from '@/lib/vendor-scraper'
 import { ESTIMATED_ANNUAL_VOLUMES, DEFAULT_ANNUAL_VOLUME } from '@/lib/constants/supplier-volumes'
 import { sendSupplierPriceAlertEmail, PriceIncreaseItem } from '@/lib/supplier-price-email'
-import { syncVielePurchasesCatalog } from '@/lib/viele-price-sync'
+import { syncVielePurchasesCatalog, syncVieleOrderGuides } from '@/lib/viele-price-sync'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 300
@@ -301,6 +301,13 @@ async function handleSync(request: NextRequest) {
     const vielePurchasesSync = await syncVielePurchasesCatalog(scrapeResult.items)
     console.log(`[Cron:SyncSupplierPrices] 🛒 viele_items sincronizado: ${vielePurchasesSync.totalUpdated} precios actualizados, ${vielePurchasesSync.totalNew} productos nuevos.`)
 
+    // 6.7. SINCRONIZACIÓN DE ORDER GUIDES POR TIENDA
+    // Login a cada tienda, jala su Order Guide de V&S, y actualiza viele_store_sort_orders
+    // Detecta items nuevos y los inserta en viele_items automáticamente
+    console.log('[Cron:SyncSupplierPrices] 📋 Sincronizando Order Guides de todas las tiendas...')
+    const orderGuideSync = await syncVieleOrderGuides()
+    console.log(`[Cron:SyncSupplierPrices] 📋 Order Guides sincronizados: ${orderGuideSync.storesSynced}/${orderGuideSync.storesSynced + orderGuideSync.storesFailed} tiendas, ${orderGuideSync.totalItemsSynced} items, ${orderGuideSync.newItemsDetected.length} nuevos.`)
+
     // 7. Enviar Alerta por Correo a Directivos si se detectaron variaciones (Aumentos o Rebajas de Precio)
     let emailAlertSent = false
     let emailMessageId: string | undefined
@@ -343,6 +350,9 @@ async function handleSync(request: NextRequest) {
           viele_purchases_new: vielePurchasesSync.totalNew,
           viele_purchases_increases: vielePurchasesSync.totalIncreases,
           viele_purchases_decreases: vielePurchasesSync.totalDecreases,
+          order_guide_stores_synced: orderGuideSync.storesSynced,
+          order_guide_stores_failed: orderGuideSync.storesFailed,
+          order_guide_new_items: orderGuideSync.newItemsDetected,
           email_sent: emailAlertSent,
           email_message_id: emailMessageId || null,
           duration_ms: durationMs,
@@ -373,6 +383,13 @@ async function handleSync(request: NextRequest) {
         totalDecreases: vielePurchasesSync.totalDecreases,
         totalNew: vielePurchasesSync.totalNew,
         newItemsList: vielePurchasesSync.newItemsList
+      },
+      orderGuideSync: {
+        storesSynced: orderGuideSync.storesSynced,
+        storesFailed: orderGuideSync.storesFailed,
+        totalItemsSynced: orderGuideSync.totalItemsSynced,
+        newItemsDetected: orderGuideSync.newItemsDetected,
+        durationMs: orderGuideSync.durationMs
       },
       emailAlertSent,
       emailMessageId,

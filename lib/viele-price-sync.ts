@@ -33,6 +33,7 @@
 import { getSupabaseAdminClient } from '@/lib/supabase';
 import { ParsedSupplierItem } from './supplier-price-parser';
 import { isVieleSoda, isVieleChemical } from './viele-catalog-data';
+import { loginViele, fetchVieleOrderGuide, VIELE_STORE_ACCOUNTS } from './viele-api';
 
 /**
  * Diccionario oficial de reemplazos de SKUs de Viele & Sons.
@@ -377,4 +378,159 @@ export async function syncVielePurchasesCatalog(
       errorMessage: err.message
     };
   }
+}
+
+/**
+ * Resultado de la sincronización de Order Guides por tienda
+ */
+export interface OrderGuideSyncResult {
+  success: boolean;
+  storesSynced: number;
+  storesFailed: number;
+  totalItemsSynced: number;
+  newItemsDetected: string[];
+  durationMs: number;
+  details: Array<{ storeId: number; storeName: string; items: number; status: 'ok' | 'error'; error?: string }>;
+}
+
+/**
+ * Sincroniza el Order Guide de Viele & Sons para TODAS las tiendas.
+ * - Login real a cada cuenta de tienda en V&S
+ * - Extrae la lista completa del Order Guide con su posición (DisplayOrder)
+ * - Upserta en viele_store_sort_orders para que la app muestre el mismo orden que V&S
+ * - Si detecta un item nuevo que no existe en viele_items, lo inserta automáticamente
+ */
+export async function syncVieleOrderGuides(): Promise<OrderGuideSyncResult> {
+  const startTime = Date.now();
+  const supabase = await getSupabaseAdminClient();
+  const details: OrderGuideSyncResult['details'] = [];
+  const allNewItems: string[] = [];
+  let totalItemsSynced = 0;
+
+  // Obtener catálogo existente para detectar items nuevos
+  const { data: existingItems } = await supabase
+    .from('viele_items')
+    .select('item_code');
+  const existingCodes = new Set((existingItems || []).map(i => i.item_code.trim().toUpperCase()));
+
+  // Obtener max sort_order actual para asignar a items nuevos
+  const { data: maxSortData } = await supabase
+    .from('viele_items')
+    .select('sort_order')
+    .order('sort_order', { ascending: false })
+    .limit(1);
+  let maxSortOrder = maxSortData?.[0]?.sort_order || 0;
+
+  const storeIds = Object.keys(VIELE_STORE_ACCOUNTS).map(Number);
+
+  for (const storeId of storeIds) {
+    const account = VIELE_STORE_ACCOUNTS[storeId];
+    if (!account) continue;
+
+    try {
+      // 1. Login a la tienda
+      const loginRes = await loginViele(account.email, account.password);
+      if (!loginRes.success) {
+        details.push({ storeId, storeName: account.storeName, items: 0, status: 'error', error: `Login falló: ${loginRes.error}` });
+        continue;
+      }
+
+      // 2. Jalar Order Guide
+      const guideRes = await fetchVieleOrderGuide(loginRes.cookieHeader);
+      if (!guideRes.success || !guideRes.items || guideRes.items.length === 0) {
+        details.push({ storeId, storeName: account.storeName, items: 0, status: 'error', error: `Order Guide vacío: ${guideRes.error || 'sin items'}` });
+        continue;
+      }
+
+      const guideItems = guideRes.items;
+
+      // 3. Preparar upserts para viele_store_sort_orders
+      const sortUpserts: Array<{ store_id: number; item_code: string; sort_order: number }> = [];
+
+      for (let i = 0; i < guideItems.length; i++) {
+        const item = guideItems[i];
+        const itemCode = (item.ItemID || '').trim().toUpperCase();
+        if (!itemCode) continue;
+
+        const position = parseInt(item.DisplayOrder) || (i + 1);
+        sortUpserts.push({
+          store_id: storeId,
+          item_code: itemCode,
+          sort_order: position
+        });
+
+        // 4. Detectar items nuevos que no existen en viele_items
+        if (!existingCodes.has(itemCode)) {
+          maxSortOrder++;
+          const isSoda = isVieleSoda(itemCode);
+          const isChemical = isVieleChemical(itemCode);
+          const category = inferVieleCategory(item.Description || '', itemCode);
+          const price = parseFloat(item.Price) || 0;
+
+          const { error: insertErr } = await supabase
+            .from('viele_items')
+            .insert([{
+              item_code: itemCode,
+              description: (item.Description || '').trim(),
+              uom: (item.UnitOfMeasure || 'CS').toUpperCase(),
+              unit_price: price,
+              category,
+              image_file: `/images/viele/${itemCode}.jpg`,
+              sort_order: maxSortOrder,
+              is_active: true,
+              is_soda: isSoda,
+              is_chemical: isChemical,
+              is_taxable: false,
+              price_status: 'new',
+              last_scanned_at: new Date().toISOString()
+            }]);
+
+          if (!insertErr) {
+            existingCodes.add(itemCode);
+            allNewItems.push(itemCode);
+            console.log(`[OrderGuideSync] ✨ Nuevo item detectado en ${account.storeName}: ${itemCode} - ${item.Description}`);
+          }
+        }
+      }
+
+      // 5. Borrar sort orders viejos de esta tienda y reinsertar
+      if (sortUpserts.length > 0) {
+        await supabase
+          .from('viele_store_sort_orders')
+          .delete()
+          .eq('store_id', storeId);
+
+        const { error: upsertErr } = await supabase
+          .from('viele_store_sort_orders')
+          .insert(sortUpserts);
+
+        if (upsertErr) {
+          console.warn(`[OrderGuideSync] ⚠️ Error insertando sort orders para ${account.storeName}:`, upsertErr.message);
+          details.push({ storeId, storeName: account.storeName, items: sortUpserts.length, status: 'error', error: upsertErr.message });
+        } else {
+          totalItemsSynced += sortUpserts.length;
+          details.push({ storeId, storeName: account.storeName, items: sortUpserts.length, status: 'ok' });
+        }
+      }
+    } catch (err: any) {
+      console.error(`[OrderGuideSync] ❌ Error en ${account.storeName}:`, err.message);
+      details.push({ storeId, storeName: account.storeName, items: 0, status: 'error', error: err.message });
+    }
+  }
+
+  const durationMs = Date.now() - startTime;
+  const storesSynced = details.filter(d => d.status === 'ok').length;
+  const storesFailed = details.filter(d => d.status === 'error').length;
+
+  console.log(`[OrderGuideSync] ✅ Completado en ${durationMs}ms: ${storesSynced}/${storeIds.length} tiendas, ${totalItemsSynced} items, ${allNewItems.length} nuevos.`);
+
+  return {
+    success: storesFailed === 0,
+    storesSynced,
+    storesFailed,
+    totalItemsSynced,
+    newItemsDetected: allNewItems,
+    durationMs,
+    details
+  };
 }

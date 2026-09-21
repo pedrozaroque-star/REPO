@@ -19,6 +19,7 @@
  * - Cada fila se limpia de HTML tags y se normaliza a un objeto tipado.
  *
  * @notes
+ * - [2026-09-21] Fix: extractYear() reemplaza .substring(0,4) para soportar YYYYMMDD, MM/DD/YYYY y YYYY-MM-DD.
  * - [2026-09-08] Soporte multi-tienda paralelo (storeId=all) y multi-año (year=2025,2026).
  * - [2026-09-08] Creación inicial del endpoint proxy.
  */
@@ -37,6 +38,27 @@ function clean(val: any): string {
 /** Parsea un string tipo "$2,689.26" a número */
 function parseDollar(s: string): number {
   return parseFloat(s.replace(/[$,]/g, '')) || 0;
+}
+
+/**
+ * Extrae el año de un string de fecha de ClearNine.
+ * Soporta:
+ * - YYYYMMDD (ej: "20260920") → "2026"
+ * - MM/DD/YYYY (ej: "09/20/2026") → "2026"
+ * - YYYY-MM-DD (ej: "2026-09-20") → "2026"
+ * Retorna string vacío si no puede parsear.
+ */
+function extractYear(rawDate: string): string {
+  if (!rawDate) return '';
+  // YYYYMMDD (8 dígitos sin separadores)
+  if (/^\d{8}$/.test(rawDate)) return rawDate.substring(0, 4);
+  // MM/DD/YYYY
+  if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(rawDate)) return rawDate.split('/')[2];
+  // YYYY-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}/.test(rawDate)) return rawDate.substring(0, 4);
+  // Fallback: tomar los primeros 4 dígitos
+  const m = rawDate.match(/(\d{4})/);
+  return m ? m[1] : '';
 }
 
 /** Fetch orders for a single store, filtered by year(s) */
@@ -74,7 +96,7 @@ async function fetchStoreOrders(
     const orders: any[] = [];
     for (const row of aaData) {
       const rawDate = clean(row[6]);
-      const rowYear = rawDate.substring(0, 4);
+      const rowYear = extractYear(rawDate);
 
       if (years.length > 0 && !years.includes(rowYear)) continue;
 

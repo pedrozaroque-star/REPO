@@ -522,14 +522,15 @@ function VieleOrderContent() {
       }
     });
 
-    const sodaTax = parseFloat((sodaSubtotal * 0.095).toFixed(2));
-    const sodaGrandTotal = parseFloat((sodaSubtotal + sodaTax).toFixed(2));
+    // Tax = 0 antes del envío. El tax real lo confirma V&S después del checkout.
+    const sodaTax = 0;
+    const sodaGrandTotal = parseFloat(sodaSubtotal.toFixed(2));
 
-    const generalTax = parseFloat((generalSubtotal * 0.095).toFixed(2));
-    const generalGrandTotal = parseFloat((generalSubtotal + generalTax).toFixed(2));
+    const generalTax = 0;
+    const generalGrandTotal = parseFloat(generalSubtotal.toFixed(2));
 
-    const estTax = parseFloat((subtotal * 0.095).toFixed(2));
-    const grandTotal = parseFloat((subtotal + estTax).toFixed(2));
+    const estTax = 0;
+    const grandTotal = parseFloat(subtotal.toFixed(2));
 
     return {
       orderedItemsCount,
@@ -866,7 +867,7 @@ function VieleOrderContent() {
                   {formatCurrency(summary.sodas.grandTotal)}
                 </span>
                 <span className="block text-[11px] text-slate-500 font-medium">
-                  Subtotal: {formatCurrency(summary.sodas.subtotal)} + Tax (9.5%): {formatCurrency(summary.sodas.estTax)}
+                  Subtotal: {formatCurrency(summary.sodas.subtotal)} · Tax pendiente de confirmación por V&S
                 </span>
               </div>
               <div className="text-right">
@@ -898,7 +899,7 @@ function VieleOrderContent() {
                   {formatCurrency(summary.general.grandTotal)}
                 </span>
                 <span className="block text-[11px] text-slate-500 font-medium">
-                  Subtotal: {formatCurrency(summary.general.subtotal)} + Tax (9.5%): {formatCurrency(summary.general.estTax)}
+                  Subtotal: {formatCurrency(summary.general.subtotal)} · Tax pendiente de confirmación por V&S
                 </span>
               </div>
               <div className="text-right">
@@ -926,7 +927,7 @@ function VieleOrderContent() {
                   {formatCurrency(summary.grandTotal)}
                 </span>
                 <span className="block text-[11px] text-slate-500 font-medium">
-                  Subtotal: {formatCurrency(summary.subtotal)} + Tax: {formatCurrency(summary.estTax)}
+                  Subtotal productos: {formatCurrency(summary.subtotal)} · Tax confirmado por V&S al enviar
                 </span>
               </div>
               <div className="text-right">
