@@ -359,11 +359,11 @@ export const TOOL_DECLARATIONS = [
   },
   {
     name: 'calculate_cingular_payroll',
-    description: 'Calculate and reconcile official Cingular HR payroll, gross pay (TOT PAY), 26.00% markup fee, and total invoiced amount (TOT BILL) with exact exempt/non-exempt breakdown, automatic Simplify HR OS Paystubs cross-referencing for administrative Sick/Vacation PTO, and penny-to-penny reconciliation for any Tacos Gavilan store.',
+    description: 'Calculate and audit Cingular HR payroll across the 5 real evidence statuses (reconciled, estimated, requires_investigation, insufficient_data, error). Chain calculations use limited concurrency and explicitly report failed stores as partial results. Administrative supervisor amounts are included only when the exact Simplify HR paystub and native IDs are verified; pending relationships never add money, hours, rates, or markup.',
     parameters: {
       type: 'OBJECT',
       properties: {
-        store_name: { type: 'STRING', description: 'Store name (e.g. "West Covina", "Lynwood", "Central", "Slauson")' },
+        store_name: { type: 'STRING', description: 'Store name (e.g. "West Covina", "Lynwood", "Central", "Slauson", or "all" / "chain")' },
         week_ids: { type: 'ARRAY', items: { type: 'NUMBER' }, description: 'Array of 1 or 2 week IDs (e.g. [154246, 154247] for biweekly)' },
         is_biweekly: { type: 'BOOLEAN', description: 'Whether to calculate for biweekly period (2 weeks) or single week' }
       }
@@ -2057,94 +2057,43 @@ ${storeRows}`
 ${topViolators ? `🚨 **Colaboradores con Alertas de Nómina:**\n${topViolators}` : '✅ *No se detectaron penalizaciones ni anomalías en esta sucursal.*'}`
 }
 
+/** RONOS: consulta de lectura; distingue proyección, recibos aprobados y factura. */
 async function calculateCingularPayrollTool(args: any): Promise<string> {
-  const storeInput = (args.store_name || '').toLowerCase().trim()
+  const requested = String(args.store_name || '').toLowerCase().trim()
   const isBiWeekly = args.is_biweekly !== false
-  const weekIds: number[] = Array.isArray(args.week_ids) && args.week_ids.length > 0 ? args.week_ids : []
-
-  // Consulta consolidada para toda la cadena (15 tiendas + Bodega Central)
-  if (storeInput === 'all' || storeInput === 'chain' || storeInput === 'todas' || storeInput === 'cadena' || storeInput === '') {
-    let grandGross = 0, grandBill = 0, grandFee = 0, grandHours = 0, grandEmps = 0
-    const storeSummaries: Array<{ name: string; emps: number; hours: number; gross: number; bill: number; fee: number }> = []
-
-    for (const store of RONOS_STORES_MAP) {
-      try {
-        const report = await calculateCingularPayrollReport(store.ronosCompanyId, weekIds, isBiWeekly)
-        grandGross += report.totalGrossPay
-        grandBill += report.totalInvoicedAmount
-        grandFee += report.totalCingularFee
-        grandHours += report.totalHours
-        grandEmps += report.totalEmployees
-        storeSummaries.push({
-          name: report.storeName,
-          emps: report.totalEmployees,
-          hours: report.totalHours,
-          gross: report.totalGrossPay,
-          bill: report.totalInvoicedAmount,
-          fee: report.totalCingularFee
-        })
-      } catch (err: any) {
-        console.warn(`Error calculating payroll for ${store.tegName}:`, err?.message)
-      }
-    }
-
-    const sortedStores = storeSummaries.sort((a, b) => b.bill - a.bill)
-    const storeRows = sortedStores.map((st, i) =>
-      `| ${i + 1}. ${st.name} | ${st.emps} | ${st.hours.toFixed(0)}h | $${st.gross.toLocaleString('en-US', { minimumFractionDigits: 2 })} | **$${st.bill.toLocaleString('en-US', { minimumFractionDigits: 2 })}** | $${st.fee.toLocaleString('en-US', { minimumFractionDigits: 2 })} |`
-    ).join('\n')
-
-    const effectiveMarkup = grandGross > 0 ? ((grandFee / grandGross) * 100).toFixed(2) : '25.98'
-
-    return `💼 **Proyección Consolidada de Nómina & Facturas Cingular HR — Toda la Empresa (15 Sucursales + Bodega Central):**
-- **Periodo**: ${isBiWeekly ? 'Bisemanal (2 Semanas / Ciclo de Factura Oficial)' : 'Semanal Individual'}
-- **Ubicaciones Calculadas**: ${storeSummaries.length} centros de trabajo
-- **Colaboradores en Nómina**: **${grandEmps} colaboradores**
-- **Horas Totales Trabajadas**: **${grandHours.toLocaleString('en-US', { minimumFractionDigits: 2 })} hrs**
-- **Salario Bruto Acumulado (TOT PAY)**: **$${grandGross.toLocaleString('en-US', { minimumFractionDigits: 2 })}**
-- **Facturación Proyectada Cingular (TOT BILL)**: **$${grandBill.toLocaleString('en-US', { minimumFractionDigits: 2 })}**
-- **Comisión / Fee Cingular Total**: **$${grandFee.toLocaleString('en-US', { minimumFractionDigits: 2 })}** (Markup Efectivo: **${effectiveMarkup}%**)
-- **Proyección Mensual Estimada (2 Quincenas)**: **$${(grandBill * 2).toLocaleString('en-US', { minimumFractionDigits: 2 })}**
-
-| # Ubicación | Personal | Horas | Salario Bruto | Facturado Cingular | Fee PEO |
-|---|---|---|---|---|---|
-${storeRows}`
+  const weekIds = Array.isArray(args.week_ids) ? args.week_ids.map(Number) : []
+  if (weekIds.length !== (isBiWeekly ? 2 : 1) || weekIds.some((id: number)=>!Number.isSafeInteger(id)||id<=0) || new Set(weekIds).size!==weekIds.length) {
+    return 'Selecciona el período de RONOS: se requiere una semana o dos semanas de la misma quincena. Esta consulta no sincroniza fuentes ni modifica pagos.'
   }
-
-  // Consulta individual por sucursal
-  let targetCompanyId = 34 // Default Lynwood
-  const matched = RONOS_STORES_MAP.find(st =>
-    st.tegName.toLowerCase().includes(storeInput) ||
-    st.tegCode.toLowerCase().includes(storeInput) ||
-    st.ronosName.toLowerCase().includes(storeInput)
-  )
-  if (matched) {
-    targetCompanyId = matched.ronosCompanyId
+  const {data:reference,error} = await supabaseAdmin.from('ronos_work_weeks').select('company_id, start_date, end_date').in('week_id',weekIds)
+  if(error || reference?.length!==weekIds.length || new Set(reference.map(w=>w.company_id)).size!==1) return 'No se pudo verificar el período solicitado. No hay un total certificado.'
+  const chain = ['', 'all', 'chain', 'todas', 'cadena'].includes(requested)
+  const stores = chain ? RONOS_STORES_MAP : RONOS_STORES_MAP.filter(st=>
+    [st.tegName,st.tegCode,st.ronosName].some(n=>n.toLowerCase().includes(requested)))
+  if(!stores.length || (!chain && stores.length!==1)) return 'La tienda no es inequívoca. Indica su nombre completo.'
+  const reports: Awaited<ReturnType<typeof calculateCingularPayrollReport>>[]=[]
+  const failures:string[]=[]
+  for(const store of stores) {
+    try {
+      const {data:weeks,error:weekError}=await supabaseAdmin.from('ronos_work_weeks').select('week_id')
+        .eq('company_id',store.ronosCompanyId).in('start_date',reference.map(w=>w.start_date))
+      if(weekError || weeks?.length!==weekIds.length) throw new Error('Período incompleto')
+      reports.push(await calculateCingularPayrollReport(store.ronosCompanyId,weeks.map(w=>w.week_id),isBiWeekly,'consolidated'))
+    } catch { failures.push(store.tegName) }
   }
+  if(!reports.length) return 'No fue posible calcular las tiendas solicitadas. No debe presentarse un cero como resultado.'
+  const money=(n:unknown)=>typeof n==='number'&&Number.isFinite(n)?fmt$(n):'No disponible'
+  const rows=reports.map(r=>`| ${r.storeName} | ${money(r.calculationCoverageComplete ? r.totalInvoicedAmount : null)} | ${money(r.totalApprovedGrossPay)} | ${money(r.invoiceReconciliation?.officialBilledAmount)} | ${money(r.isPartial ? null : r.invoiceReconciliation?.billingVariance)} |`).join('\n')
+  return `**Comparación de nómina RONOS — ${reports[0].periodStartDate} a ${reports[0].periodEndDate}**
+Consulta de lectura. El recálculo usa conceptos y tarifas de recibos aprobados; los cargos de agencia son una proyección independiente. La estimación por reloj se conserva separada. La factura no ajusta el cálculo.
 
-  const report = await calculateCingularPayrollReport(targetCompanyId, weekIds, isBiWeekly, 'consolidated')
+| Tienda | Facturación recalculada | Bruto aprobado Simplify | Factura documental | Cálculo menos factura |
+|---|---:|---:|---:|---:|
+${rows}
 
-  const topEmployees = report.employees.slice(0, 10).map(e =>
-    `- **${e.fullName}** (${e.isSalaried ? 'Asalariado/Exempt' : 'Por Hora/Non-Exempt'} - ${e.jobTitle}): ${e.totalHours}h (Reg: ${e.regularHours}h, OT: ${e.overtimeHours}h, Sick: ${e.sickHours}h, Vac: ${e.vacationHours}h) ➔ Salario: $${e.totalGrossPay.toFixed(2)} | Facturado: $${e.totalInvoicedAmount.toFixed(2)} (Fee: +$${e.cingularFeeAmount.toFixed(2)})${e.auditBadgeText ? ` [${e.auditBadgeText}]` : ''}`
-  ).join('\n')
-
-  let suppNote = ''
-  if (report.supplementalsCount && report.supplementalsCount > 0 && report.supplementalsList) {
-    suppNote = `\n- ⚡ **Facturas de Finiquito Separadas (${report.supplementalsCount})**: ` +
-      report.supplementalsList.map(s => `${s.employeeFullName} (${s.invoiceCode}: $${(Number(s.invoicedAmount) || 0).toFixed(2)})`).join(', ')
-  }
-
-  return `💼 **Reporte de Nómina & Facturación Cingular HR (PEO) — ${report.storeName} (${report.storeCode}):**
-- **Periodo**: ${report.isBiWeekly ? 'Bisemanal (2 semanas / Ciclo de Factura)' : 'Semanal Individual'}
-- **Identificador de Factura**: **${report.invoiceId || 'CONSOLIDADO'}**
-- **Personal en Nómina**: ${report.totalEmployees} colaboradores (${report.salariedCount} Asalariados Exempt / ${report.hourlyCount} Por Hora Non-Exempt)
-- **Horas Totales**: **${report.totalHours} hrs** (Regulares: ${report.totalRegularHours}h | Asalariadas: ${report.totalSalaryHours}h | Overtime: ${report.totalOvertimeHours}h | Enfermedad: ${report.totalSickHours}h | Vacaciones: ${report.totalVacationHours}h)
-- **Salarios Brutos (TOT PAY)**: **$${report.totalGrossPay.toLocaleString('en-US', { minimumFractionDigits: 2 })}**
-- **Total Salida de Caja / Facturación (TOT BILL)**: **$${report.totalInvoicedAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}**
-- **Margen Cingular (Cingular Fee)**: **$${report.totalCingularFee.toLocaleString('en-US', { minimumFractionDigits: 2 })}** (Markup Efectivo: **${report.effectiveMarkupPercentage}%**)${suppNote}
-
-📋 **Desglose de Colaboradores (Muestra):**
-${topEmployees}
-${report.employees.length > 10 ? `\n*... y ${report.employees.length - 10} colaboradores adicionales en nómina.*` : ''}`
+${failures.length ? 'Cobertura parcial. No disponibles: '+failures.join(', ')+'.' : 'Tiendas consultadas: '+reports.length+'.'}
+${reports.map(r=>r.storeName+': '+(r.dataWarnings||[]).join(' ')).join('\n')}
+Una diferencia negativa indica factura mayor al cálculo; no prueba un cobro indebido sin validar conceptos, período, población y contrato. Sin exportaciones CSV.`
 }
 
 // ── 26. Query User Chat History ──

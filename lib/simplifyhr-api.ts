@@ -20,7 +20,8 @@
  *   Simplify HR OS API (prod.simplifyhros.com) -> simplifyhr-api (Retry/Backoff) -> Normalización -> Supabase Cache -> Payroll Calculator.
  *
  * @notes
- *   - Utiliza credenciales corporativas (raquel@tacosgavilan.com / Carlos.Velazquez@tacosgavilan.com).
+ *   - Desde 2026-09-17 persiste `assignmentId` e `isRonosSynced` para enlazar tarifas con ponchadas RONOS sin nombres.
+ *   - Utiliza credenciales corporativas configuradas de forma segura en variables de entorno (SIMPLIFYHR_USER / SIMPLIFYHR_PASS).
  *   - Resuelve el error 502 Bad Gateway limitando la concurrencia global a máx. 3 llamadas simultáneas.
  *   - Persistencia optimizada en Supabase mediante precarga de datos en memoria para reducir 1,160 consultas a < 10.
  */
@@ -215,6 +216,8 @@ export interface SimplifyHrPaystub {
   periodStart?: string
   periodEnd?: string
   status?: string
+  jobTitle?: string
+  type?: string
   grossWages?: number
   netPay?: number
   earnings?: Array<{
@@ -253,8 +256,6 @@ export interface SimplifyHrPaystub {
 let cachedAuthSession: SimplifyHrAuthSession | null = null
 let authInFlightPromise: Promise<string> | null = null
 
-const DEFAULT_USER = process.env.SIMPLIFYHR_USER || 'raquel@tacosgavilan.com'
-const DEFAULT_PASS = process.env.SIMPLIFYHR_PASS || 'Canasta@323'
 const BASE_API = 'https://prod.simplifyhros.com'
 
 // In-Memory Rate Cache para acceso ultra-rápido
@@ -354,6 +355,12 @@ const globalApiLimiter = new ConcurrencyLimiter(6)
 // AUTENTICACIÓN CON MUTEX Y REINTENTOS
 // ==========================================
 export async function getSimplifyHrAuthToken(forceRefresh = false): Promise<string> {
+  const user = process.env.SIMPLIFYHR_USER
+  const pass = process.env.SIMPLIFYHR_PASS
+  if (!user || !pass) {
+    throw new Error('Variables de entorno SIMPLIFYHR_USER o SIMPLIFYHR_PASS no configuradas')
+  }
+
   const now = Date.now()
 
   // Si ya tenemos un token válido con más de 2 minutos de vigencia, retornarlo de inmediato
@@ -383,8 +390,8 @@ export async function getSimplifyHrAuthToken(forceRefresh = false): Promise<stri
             'Referer': 'https://www.simplifyhros.com/'
           },
           body: JSON.stringify({
-            emailAddress: DEFAULT_USER,
-            password: DEFAULT_PASS
+            emailAddress: user,
+            password: pass
           }),
           signal: controller.signal
         })
@@ -404,7 +411,7 @@ export async function getSimplifyHrAuthToken(forceRefresh = false): Promise<stri
           accessToken: data.AccessToken,
           refreshToken: data.RefreshToken,
           expiresAt: Date.now() + expiresInMs,
-          email: DEFAULT_USER
+          email: user
         }
 
         return cachedAuthSession.idToken
@@ -1110,6 +1117,8 @@ export async function syncSimplifyHrRates(ronosCompanyId?: number): Promise<{
         employee_id: emp.employeeID || emp.id,
         site_id: siteId,
         ronos_company_id: compId,
+        ronos_assignment_id: emp.assignmentId || null,
+        ronos_synced: emp.isRonosSynced === true,
         full_name: emp.fullName,
         normalized_name: normName,
         first_last_name: fl,
@@ -1235,79 +1244,12 @@ export function getSimplifyHrRateForEmployee(
     if (storeScoped) return storeScoped
   }
 
-  // 1. Match EXACTO (ID universal primero, luego nombre global)
+  // 1. Match EXACTO por ID o nombre normalizado exacto
   const exact = cachedSimplifyRates.get(`id:${nameOrId}`) || cachedSimplifyRates.get(key)
   if (exact) return exact
 
-  // 2. Revisar caché de fuzzy matches previos
-  if (fuzzyMatchCache.has(key)) {
-    const cached = fuzzyMatchCache.get(key)
-    if (!cached) return null
-    return cachedSimplifyRates.get(cached) || null
-  }
-
-  // 3. Match por PRIMER + ÚLTIMO nombre (ignora middle names)
-  //    "juan pablo tecua montiel" → busca "juan montiel" en las claves
-  const fl = firstAndLast(key)
-  for (const [cacheKey, val] of cachedSimplifyRates) {
-    if (cacheKey.startsWith('id:')) continue
-    if (firstAndLast(cacheKey) === fl) {
-      fuzzyMatchCache.set(key, cacheKey)
-      return val
-    }
-  }
-
-  // 4. Match por INCLUSIÓN (un nombre contiene al otro)
-  //    "wilson adolfo marroquin rivera" contiene "wilson marroquin"
-  for (const [cacheKey, val] of cachedSimplifyRates) {
-    if (cacheKey.startsWith('id:')) continue
-    if (cacheKey.length < 8) continue
-    if (key.includes(cacheKey) || cacheKey.includes(key)) {
-      fuzzyMatchCache.set(key, cacheKey)
-      return val
-    }
-  }
-
-  // 5. Match FUZZY con Levenshtein (para typos: Cardoso↔Cardozo, Hernandez↔Hernadez)
-  //    Solo si el nombre tiene al menos 10 caracteres para evitar falsos positivos
-  if (key.length >= 10) {
-    let bestMatch: string | null = null
-    let bestDist = Infinity
-
-    for (const [cacheKey] of cachedSimplifyRates) {
-      if (cacheKey.startsWith('id:')) continue
-      // Solo comparar nombres de longitud similar (±5 chars)
-      if (Math.abs(cacheKey.length - key.length) > 5) continue
-
-      const dist = levenshtein(key, cacheKey)
-      // Umbral: max 2 edits para nombres largos, 1 para nombres cortos
-      const threshold = key.length >= 15 ? 3 : 2
-      if (dist <= threshold && dist < bestDist) {
-        bestDist = dist
-        bestMatch = cacheKey
-      }
-    }
-
-    if (bestMatch) {
-      fuzzyMatchCache.set(key, bestMatch)
-      return cachedSimplifyRates.get(bestMatch) || null
-    }
-  }
-
-  // 6. Match por primer + último nombre con Levenshtein (para "Gutierrez" vs "Gutierres")
-  if (fl.length >= 8) {
-    for (const [cacheKey, val] of cachedSimplifyRates) {
-      if (cacheKey.startsWith('id:')) continue
-      const cfl = firstAndLast(cacheKey)
-      if (cfl.length >= 8 && levenshtein(fl, cfl) <= 2) {
-        fuzzyMatchCache.set(key, cacheKey)
-        return val
-      }
-    }
-  }
-
-  // No match encontrado
-  fuzzyMatchCache.set(key, null)
+  // REGLA OBLIGATORIA (AGENTE 3): CERO fuzzy matching ni adivinación por similitud de nombres.
+  // Si no hay coincidencia exacta por ID o nombre, retorna null para no falsear tarifas ni evidencia.
   return null
 }
 
@@ -1421,6 +1363,8 @@ export async function syncAllStoresSimplifyHrRates(): Promise<{
               employee_id: emp.employeeID || emp.id,
               site_id: siteId,
               ronos_company_id: companyId,
+              ronos_assignment_id: emp.assignmentId || null,
+              ronos_synced: emp.isRonosSynced === true,
               full_name: emp.fullName,
               normalized_name: normName,
               first_last_name: fl,

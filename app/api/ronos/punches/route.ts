@@ -14,23 +14,75 @@
  */
 
 import { NextResponse } from 'next/server'
-import { getRonosStoreAudit, getRonosChainWideAudit, getRonosChainWideStoreAudit, getRonosWeeks, getDynamicRonosStores } from '@/lib/ronos-api'
+import { getRonosStoreAudit, getRonosChainWideAudit, getRonosChainWideStoreAudit, getRonosWeeks, getDynamicRonosStores, RonosWeekNotFoundError } from '@/lib/ronos-api'
+import { verifyAdminAuth } from '@/lib/auth-server'
 
 export const dynamic = 'force-dynamic'
 
 export async function GET(request: Request) {
   try {
+    const auth = verifyAdminAuth(request)
+    if (!auth.authorized) {
+      return NextResponse.json(
+        { success: false, error: auth.error },
+        { status: auth.status || 401 }
+      )
+    }
+
     const { searchParams } = new URL(request.url)
+
+    // 1. Bloqueo inmediato de format=csv antes de cualquier procesamiento
+    const formatParam = searchParams.get('format')
+    if (formatParam && formatParam.toLowerCase() === 'csv') {
+      return NextResponse.json(
+        { success: false, error: 'El formato CSV no está permitido por razones de seguridad e integridad.' },
+        { status: 400 }
+      )
+    }
+
+    // 2. Validación estricta de mode
     const modeParam = searchParams.get('mode')
+    const validModes = ['store', 'chain', 'weeks', 'stores']
+    if (modeParam && !validModes.includes(modeParam)) {
+      return NextResponse.json(
+        { success: false, error: `Modo inválido: '${modeParam}'. Modos válidos: ${validModes.join(', ')}` },
+        { status: 400 }
+      )
+    }
+
+    // 3. Validación estricta de companyId (debe ser estrictamente numérico)
+    const companyIdParam = searchParams.get('companyId')
+    if (companyIdParam !== null && !/^\d+$/.test(companyIdParam)) {
+      return NextResponse.json(
+        { success: false, error: 'Parámetro companyId inválido: debe ser numérico' },
+        { status: 400 }
+      )
+    }
+
+    // 4. Validación estricta de weekId (debe ser estrictamente numérico)
+    const weekIdParam = searchParams.get('weekId')
+    if (weekIdParam !== null && !/^\d+$/.test(weekIdParam)) {
+      return NextResponse.json(
+        { success: false, error: 'Parámetro weekId inválido: debe ser numérico' },
+        { status: 400 }
+      )
+    }
+
+    // 5. Validación estricta de startDate (YYYY-MM-DD)
+    const startDateParam = searchParams.get('startDate') || undefined
+    if (startDateParam && !/^\d{4}-\d{2}-\d{2}$/.test(startDateParam)) {
+      return NextResponse.json(
+        { success: false, error: 'Parámetro startDate inválido: debe tener formato YYYY-MM-DD' },
+        { status: 400 }
+      )
+    }
+
     const isChain = modeParam === 'chain' || searchParams.get('chain') === 'true'
     const mode = isChain ? 'chain' : (modeParam || 'store') // 'store' | 'chain' | 'weeks' | 'stores'
-    const companyIdParam = searchParams.get('companyId')
-    const weekIdParam = searchParams.get('weekId')
 
     const ronosCompanyId = companyIdParam ? parseInt(companyIdParam, 10) : 34 // Default: Lynwood
     const weekId = weekIdParam ? parseInt(weekIdParam, 10) : undefined
 
-    const startDateParam = searchParams.get('startDate') || undefined
     const forceLive = searchParams.get('force') === 'true' || searchParams.get('live') === 'true'
 
     const antiCacheHeaders = {
@@ -88,12 +140,14 @@ export async function GET(request: Request) {
     }, { headers: antiCacheHeaders })
   } catch (error: any) {
     console.error('Error en /api/ronos/punches:', error)
+    const isNotFound = error instanceof RonosWeekNotFoundError || error?.statusCode === 400 || error?.name === 'RonosWeekNotFoundError' || /no encontrada|inexistente|not found/i.test(error?.message || '')
+    const status = isNotFound ? 400 : (error?.statusCode || 500)
     return NextResponse.json(
       {
         success: false,
         error: error.message || 'Error al consultar datos de RONOS'
       },
-      { status: 500, headers: { 'Cache-Control': 'no-store, no-cache, max-age=0' } }
+      { status, headers: { 'Cache-Control': 'no-store, no-cache, max-age=0' } }
     )
   }
 }

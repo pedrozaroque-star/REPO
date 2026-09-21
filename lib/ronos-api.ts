@@ -205,6 +205,7 @@ export interface RonosDailyPunchesRecord {
 export interface RonosEmployeeTimecard {
   employeeUserId: number
   employeeId: number
+  ronosAssignmentId?: string | null
   firstName: string
   lastName: string
   fullName: string
@@ -259,6 +260,15 @@ export interface RonosStoreAuditSummary {
   complianceScorePercent: number
   complianceScore?: number
   employees: RonosEmployeeTimecard[]
+  failedStores?: Array<{
+    storeId: number
+    storeName: string
+    ronosCompanyId: number
+    error: string
+  }>
+  failedStoresCount?: number
+  isPartial?: boolean
+  isFromCache?: boolean
 }
 
 export interface RonosChainWideAuditSummary {
@@ -301,14 +311,112 @@ export interface RonosChainWideAuditSummary {
     complianceScore: number
     isBodega?: boolean
   }>
+  failedStores?: Array<{
+    storeId: number
+    storeName: string
+    ronosCompanyId: number
+    error: string
+  }>
+  failedStoresCount?: number
+  isPartial?: boolean
 }
 
 // ============================================================================
 // CONFIGURACIÓN Y CONSTANTES
 // ============================================================================
 
-const DEFAULT_USER = process.env.RONOS_USER || 'carlos@tacosgavilan.com'
-const DEFAULT_PASS = process.env.RONOS_PASS || 'Carlos@tegly26'
+export const LA_TIMEZONE = 'America/Los_Angeles'
+
+/**
+ * Error tipado para peticiones con semana inexistente o no encontrada en RONOS.
+ * Devuelve código HTTP 400 en endpoints API.
+ */
+export class RonosWeekNotFoundError extends Error {
+  public statusCode = 400
+  constructor(message: string) {
+    super(message)
+    this.name = 'RonosWeekNotFoundError'
+  }
+}
+
+/**
+ * Retorna la fecha oficial de negocio (YYYY-MM-DD) en la zona horaria 'America/Los_Angeles'.
+ * Regla de negocio Tacos Gavilan:
+ * El día laboral inicia a las 6:00 AM y finaliza a las 5:59:59 AM del día siguiente.
+ * De 00:00:00 a 05:59:59 AM, el día de negocio corresponde al día civil anterior.
+ * De 06:00:00 a 23:59:59 PM, el día de negocio corresponde al día civil actual.
+ */
+export function getPacificBusinessDate(date: Date | string | number = new Date()): string {
+  const d = typeof date === 'object' && date instanceof Date ? date : new Date(date)
+  if (isNaN(d.getTime())) return ''
+
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: LA_TIMEZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false
+  }).formatToParts(d)
+
+  const getPart = (type: string) => parts.find(p => p.type === type)?.value || ''
+  const year = parseInt(getPart('year'), 10)
+  const month = parseInt(getPart('month'), 10) - 1
+  const day = parseInt(getPart('day'), 10)
+  const hour = parseInt(getPart('hour'), 10)
+
+  const calDate = new Date(Date.UTC(year, month, day))
+  if (hour < 6) {
+    calDate.setUTCDate(calDate.getUTCDate() - 1)
+  }
+  return calDate.toISOString().substring(0, 10)
+}
+
+/**
+ * Determina si una semana laboral de RONOS ya cerró su período operacional.
+ * Regla de negocio:
+ * Una semana concluye su calendario en su endDate (ej. Domingo). El turno nocturno
+ * de ese último día finaliza a las 5:59:59 AM del Lunes siguiente en 'America/Los_Angeles'.
+ * A las 5:59:59 AM la semana permanece abierta; a partir de las 6:00:00 AM del Lunes,
+ * el período queda oficialmente cerrado.
+ */
+export function isWeekClosed(week: { endDate?: string }, asOfDate: Date | string | number = new Date()): boolean {
+  if (!week?.endDate) return false
+  const cleanEnd = week.endDate.substring(0, 10)
+  if (!cleanEnd) return false
+  const currentBusinessDate = getPacificBusinessDate(asOfDate)
+  return currentBusinessDate > cleanEnd
+}
+
+/**
+ * Ordena las semanas cronológicamente de forma consistente.
+ * Por defecto 'desc' (la semana más reciente primero).
+ */
+export function sortWeeksChronologically(weeks: RonosWorkWeek[], direction: 'asc' | 'desc' = 'desc'): RonosWorkWeek[] {
+  return [...weeks].sort((a, b) => {
+    const timeA = new Date(a.startDate).getTime() || 0
+    const timeB = new Date(b.startDate).getTime() || 0
+    if (timeA !== timeB) {
+      return direction === 'desc' ? timeB - timeA : timeA - timeB
+    }
+    return direction === 'desc' ? (b.weekId || 0) - (a.weekId || 0) : (a.weekId || 0) - (b.weekId || 0)
+  })
+}
+
+/**
+ * Verifica si los registros de caché de tarjetas de tiempo están completos para una tienda y semana.
+ * Cada sucursal de Tacos Gavilan cuenta con 15+ colaboradores; menos de 5 registros indica caché parcial.
+ */
+export function isCacheComplete(rows: any[] | null | undefined): boolean {
+  if (!rows || !Array.isArray(rows) || rows.length < 5) return false
+  const validCards = rows.filter(r => r && (r.employee_user_id || r.employeeUserId))
+  return validCards.length >= 5
+}
+
+const DEFAULT_USER = process.env.RONOS_USER
+const DEFAULT_PASS = process.env.RONOS_PASS
 const BASE_API = 'https://ronos.com/api/v2.0'
 const ESTIMATED_HOURLY_RATE = 19.50
 const REQUEST_TIMEOUT_MS = 25000
@@ -428,8 +536,14 @@ export async function getRonosAuthToken(forceRefresh = false): Promise<string> {
   }
 
   authPromiseMutex = (async () => {
-    const username = DEFAULT_USER
-    const password = DEFAULT_PASS
+    const username = process.env.RONOS_USER
+    const password = process.env.RONOS_PASS
+
+    if (!username || !password) {
+      authPromiseMutex = null
+      throw new Error('Configuración incompleta: Las variables de entorno RONOS_USER y RONOS_PASS no están configuradas.')
+    }
+
     const params = new URLSearchParams()
     params.append('grant_type', 'password')
     params.append('username', username)
@@ -566,9 +680,8 @@ const weeksMemoryCache = new Map<number, { data: RonosWorkWeek[]; timestamp: num
 export async function getRonosWeeks(ronosCompanyId: number, forceRefresh = false): Promise<RonosWorkWeek[]> {
   const cachedMem = weeksMemoryCache.get(ronosCompanyId)
   if (!forceRefresh && cachedMem && (Date.now() - cachedMem.timestamp) < 15 * 60 * 1000) {
-    const latestMemEnd = new Date(cachedMem.data[0]?.endDate || '').getTime()
-    if (latestMemEnd >= Date.now() - 24 * 60 * 60 * 1000) {
-      return cachedMem.data
+    if (cachedMem.data.length > 0) {
+      return sortWeeksChronologically(cachedMem.data, 'desc')
     }
   }
 
@@ -588,11 +701,10 @@ export async function getRonosWeeks(ronosCompanyId: number, forceRefresh = false
           endDate: String(w.end_date || '')
         })).filter(w => w.weekId > 0)
 
-        const latestDbEnd = new Date(parsed[0]?.endDate || '').getTime()
-        // Si la semana más reciente en base de datos sigue vigente, usar caché
-        if (latestDbEnd >= Date.now() - 24 * 60 * 60 * 1000) {
-          weeksMemoryCache.set(ronosCompanyId, { data: parsed, timestamp: Date.now() })
-          return parsed
+        const sortedDbWeeks = sortWeeksChronologically(parsed, 'desc')
+        if (sortedDbWeeks.length > 0) {
+          weeksMemoryCache.set(ronosCompanyId, { data: sortedDbWeeks, timestamp: Date.now() })
+          return sortedDbWeeks
         }
       }
     } catch (err) {
@@ -620,9 +732,12 @@ export async function getRonosWeeks(ronosCompanyId: number, forceRefresh = false
       endDate: String(w?.endDate || w?.end_date || w?.EndDate || '')
     })).filter(w => w.weekId > 0)
 
-    if (normalized.length > 0) {
-      weeksMemoryCache.set(ronosCompanyId, { data: normalized, timestamp: Date.now() })
-      const rowsToUpsert = normalized.slice(0, 8).map(w => ({
+    // Ordenar explícitamente por fecha cronológica descendente de forma consistente
+    const sortedWeeks = sortWeeksChronologically(normalized, 'desc')
+
+    if (sortedWeeks.length > 0) {
+      weeksMemoryCache.set(ronosCompanyId, { data: sortedWeeks, timestamp: Date.now() })
+      const rowsToUpsert = sortedWeeks.slice(0, 16).map(w => ({
         week_id: w.weekId,
         company_id: w.companyId,
         start_date: w.startDate,
@@ -640,7 +755,7 @@ export async function getRonosWeeks(ronosCompanyId: number, forceRefresh = false
       })
     }
 
-    return normalized
+    return sortedWeeks
   } catch (apiErr: any) {
     console.error(`[RONOS Weeks] Error crítico consultando semanas para compañía ${ronosCompanyId}:`, apiErr?.message || String(apiErr))
     return []
@@ -709,7 +824,9 @@ export function analyzeDayCompliance(
       } else if (currentMealStart) {
         const startMs = safeTimestamp(currentMealStart?.localTime || currentMealStart?.punchTime)
         const endMs = safeTimestamp(p?.localTime || p?.punchTime)
-        const duration = (startMs > 0 && endMs > startMs) ? Math.max(0, Math.round((endMs - startMs) / 60000)) : 0
+        // Medición exacta en segundos para no redondear 29m30s a 30m (Labor Code § 512 / Donohue v. AMN Services)
+        const durationSeconds = (startMs > 0 && endMs > startMs) ? Math.max(0, Math.floor((endMs - startMs) / 1000)) : 0
+        const durationMinutesExact = Number((durationSeconds / 60).toFixed(2))
 
         const inTimeMs = safeTimestamp(inPunch?.localTime || inPunch?.punchTime)
         const hoursWorkedBefore = (inTimeMs > 0 && startMs > inTimeMs) ? (startMs - inTimeMs) / (1000 * 60 * 60) : 0
@@ -721,7 +838,7 @@ export function analyzeDayCompliance(
           startPhoto: currentMealStart?.photoURL,
           endTime: p?.localTime || p?.punchTime,
           endPhoto: p?.photoURL,
-          durationMinutes: duration,
+          durationMinutes: durationMinutesExact,
           hoursWorkedBeforeMeal: Number(hoursWorkedBefore.toFixed(2))
         })
 
@@ -787,12 +904,16 @@ export function analyzeDayCompliance(
 
   mealBreaks.forEach((m) => {
     if (m.endTime) {
-      if (m.durationMinutes < 29.5 && m.durationMinutes > 0) {
+      // En California (Labor Code § 512 / IWC Wage Order 5), el descanso de comida debe ser de 30 minutos ininterrumpidos completos (1,800 segundos).
+      // Cualquier descanso menor a 30.0 minutos (incluso 29m 30s) constituye un descanso corto legalmente sancionable.
+      if (m.durationMinutes < 30.0 && m.durationMinutes > 0) {
+        const fullMins = Math.floor(m.durationMinutes)
+        const remSecs = Math.round((m.durationMinutes - fullMins) * 60)
         violations.push({
           type: 'MEAL_PENALTY_SHORT',
           severity: 'danger',
           title: m.index === 1 ? 'Lunch Corto (< 30 min)' : `Lunch #${m.index} Corto (< 30 min)`,
-          description: `El descanso #${m.index} duró solo ${m.durationMinutes} min (mínimo legal requerido: 30 min).`,
+          description: `El descanso #${m.index} duró solo ${fullMins}m ${remSecs > 0 ? `${remSecs}s ` : ''}(${m.durationMinutes} min). La ley exige 30 minutos ininterrumpidos completos.`,
           estimatedCostUsd: hourlyWage,
           minutes: m.durationMinutes
         })
@@ -865,6 +986,184 @@ export function analyzeDayCompliance(
   }
 }
 
+/**
+ * Obtiene la lista completa de colaboradores de una semana laboral en RONOS,
+ * implementando paginación dinámica exhaustiva (pageSize, pageIndex, hasMore)
+ * para eliminar cualquier truncamiento en tiendas con más de 100 colaboradores.
+ */
+export async function getRonosWeekEmployees(
+  ronosCompanyId: number,
+  weekId: number,
+  pageSize = 100
+): Promise<any[]> {
+  let pageIndex = 0
+  const allEmployees: any[] = []
+  const seenUserIds = new Set<number>()
+  let hasMore = true
+
+  while (hasMore) {
+    const pageData = await callRonosApi<any>('WorkWeek/AdminGetWeekByWeekId', {
+      searchTerm: null,
+      companyId: ronosCompanyId,
+      weekId,
+      departmentId: 0,
+      pageNumber: pageIndex,
+      pageIndex: pageIndex,
+      pageSize,
+      sort: 'FirstName',
+      showInactive: 0,
+      payType: 0,
+      internalSalariedRules: false
+    })
+
+    const pageItems: any[] = Array.isArray(pageData)
+      ? pageData
+      : Array.isArray(pageData?.results)
+        ? pageData.results
+        : Array.isArray(pageData?.employees)
+          ? pageData.employees
+          : Array.isArray(pageData?.data)
+            ? pageData.data
+            : []
+
+    for (const item of pageItems) {
+      if (!item) continue
+      const uId = safeNum(item.employeeUserId || item.userId || item.id)
+      if (uId > 0) {
+        if (!seenUserIds.has(uId)) {
+          seenUserIds.add(uId)
+          allEmployees.push(item)
+        }
+      } else {
+        allEmployees.push(item)
+      }
+    }
+
+    const totalRecords = safeNum(pageData?.totalRecords || pageData?.total || pageData?.count)
+    const hasMoreFlag = typeof pageData?.hasMore === 'boolean' ? pageData.hasMore : undefined
+
+    if (hasMoreFlag === false) {
+      hasMore = false
+    } else if (pageItems.length === 0) {
+      hasMore = false
+    } else if (pageItems.length < pageSize) {
+      hasMore = false
+    } else if (totalRecords > 0 && allEmployees.length >= totalRecords) {
+      hasMore = false
+    } else {
+      pageIndex++
+      if (pageIndex > 50) break // Guardrail de seguridad
+    }
+  }
+
+  return allEmployees
+}
+
+/**
+ * Reconstruye un RonosStoreAuditSummary desde la última caché válida de Supabase
+ * garantizando que si la API de RONOS falla, los usuarios no queden sin datos.
+ */
+export async function getCachedStoreAudit(
+  ronosCompanyId: number,
+  weekId: number,
+  storeMeta: RonosStoreMapping,
+  selectedWeek: RonosWorkWeek
+): Promise<RonosStoreAuditSummary | null> {
+  try {
+    const { data: cachedCards, error: cErr } = await supabaseAdmin
+      .from('ronos_employee_timecards_cache')
+      .select('*')
+      .eq('company_id', ronosCompanyId)
+      .eq('week_id', weekId)
+
+    if (cErr || !cachedCards || cachedCards.length === 0) {
+      return null
+    }
+
+    const employeeTimecards: RonosEmployeeTimecard[] = cachedCards.map((c: any) => {
+      const weeklyHours = safeNum(c.total_weekly_hours)
+      const regHours = safeNum(c.regular_hours)
+      const otHours = safeNum(c.overtime_hours)
+      const dtHours = safeNum(c.double_time_hours)
+      const mealPenaltyCount = safeNum(c.meal_penalty_count)
+      const empVacationHours = safeNum(c.vacation_hours)
+      const empSickHours = safeNum(c.sick_hours)
+      const empHolidayHours = safeNum(c.holiday_hours)
+      const empBereavementHours = safeNum(c.bereavement_hours)
+      const empUnpaidHours = safeNum(c.unpaid_leave_hours)
+      const broken = !!c.broken_hours
+      const penaltyCost = Number((mealPenaltyCount * ESTIMATED_HOURLY_RATE).toFixed(2))
+
+      return {
+        employeeUserId: safeNum(c.employee_user_id),
+        employeeId: safeNum(c.employee_id),
+        ronosAssignmentId: c.ronos_assignment_id ? String(c.ronos_assignment_id).trim() : null,
+        firstName: c.first_name || '',
+        lastName: c.last_name || '',
+        fullName: c.full_name || `Empleado #${c.employee_user_id}`,
+        pin: c.pin || '',
+        jobTitle: c.job_title || 'Colaborador',
+        totalWeeklyHours: weeklyHours,
+        regularHours: regHours,
+        overtimeHours: otHours,
+        doubleTimeHours: dtHours,
+        vacationHours: empVacationHours,
+        sickHours: empSickHours,
+        holidayHours: empHolidayHours,
+        bereavementHours: empBereavementHours,
+        unpaidLeaveHours: empUnpaidHours,
+        mealPenaltyCount,
+        brokenHours: broken,
+        lockTimecard: false,
+        days: [],
+        totalViolationsCount: mealPenaltyCount,
+        totalEstimatedPenaltyCostUsd: penaltyCost
+      }
+    })
+
+    const activeEmployeesCount = employeeTimecards.filter(e => e.totalWeeklyHours > 0 || (e.vacationHours || 0) > 0 || (e.sickHours || 0) > 0).length
+    const totalChainHours = employeeTimecards.reduce((sum, e) => sum + e.totalWeeklyHours, 0)
+    const totalRegularHours = employeeTimecards.reduce((sum, e) => sum + e.regularHours, 0)
+    const totalOvertimeHours = employeeTimecards.reduce((sum, e) => sum + e.overtimeHours, 0)
+    const totalDoubleTimeHours = employeeTimecards.reduce((sum, e) => sum + e.doubleTimeHours, 0)
+    const totalMealPenaltiesCount = employeeTimecards.reduce((sum, e) => sum + safeNum(e.mealPenaltyCount), 0)
+    const totalBrokenTimecardsCount = employeeTimecards.filter(e => e.brokenHours).length
+    const totalEstimatedPenaltyCostUsd = employeeTimecards.reduce((sum, e) => sum + safeNum(e.totalEstimatedPenaltyCostUsd), 0)
+    const totalEstimatedOvertimeCostUsd = (totalOvertimeHours * ESTIMATED_HOURLY_RATE * 1.5) + (totalDoubleTimeHours * ESTIMATED_HOURLY_RATE * 2.0)
+    const totalShiftsEstimated = Math.max(1, activeEmployeesCount * 5)
+    const complianceScorePercent = Math.max(0, Math.min(100, Math.round(100 - ((totalMealPenaltiesCount / totalShiftsEstimated) * 100))))
+
+    return {
+      storeId: storeMeta.tegStoreId,
+      storeCode: storeMeta.tegCode,
+      storeName: storeMeta.tegName,
+      ronosCompanyId,
+      weekId,
+      startDate: selectedWeek?.startDate || '',
+      endDate: selectedWeek?.endDate || '',
+      totalEmployees: cachedCards.length,
+      totalEmployeesCount: cachedCards.length,
+      activeEmployeesCount,
+      totalWeeklyHours: Number(totalChainHours.toFixed(2)),
+      totalChainHours: Number(totalChainHours.toFixed(2)),
+      totalRegularHours: Number(totalRegularHours.toFixed(2)),
+      totalOvertimeHours: Number(totalOvertimeHours.toFixed(2)),
+      totalDoubleTimeHours: Number(totalDoubleTimeHours.toFixed(2)),
+      totalMealPenaltiesCount,
+      totalBrokenTimecardsCount,
+      totalEstimatedPenaltyCostUsd: Number(totalEstimatedPenaltyCostUsd.toFixed(2)),
+      totalEstimatedOvertimeCostUsd: Number(totalEstimatedOvertimeCostUsd.toFixed(2)),
+      complianceScorePercent,
+      complianceScore: complianceScorePercent,
+      isFromCache: true,
+      employees: employeeTimecards.sort((a, b) => (b.totalWeeklyHours || 0) - (a.totalWeeklyHours || 0))
+    }
+  } catch (err: any) {
+    console.warn('[getCachedStoreAudit] Error recuperando caché:', err?.message)
+    return null
+  }
+}
+
 // ============================================================================
 // AUDITORÍA DE TIENDA INDIVIDUAL
 // ============================================================================
@@ -890,45 +1189,63 @@ export async function getRonosStoreAudit(
     throw new Error(`No se encontraron semanas registradas para la tienda ${storeMeta.ronosName}`)
   }
 
-  const selectedWeek = targetWeekId ? weeks.find(w => w.weekId === targetWeekId) || weeks[0] : weeks[0]
-  if (!selectedWeek) {
-    throw new Error(`No se encontró semana válida para ${storeMeta.ronosName}`)
+  let selectedWeek: RonosWorkWeek
+  if (targetWeekId) {
+    const found = weeks.find(w => w.weekId === targetWeekId)
+    if (!found) {
+      throw new RonosWeekNotFoundError(`Semana ${targetWeekId} no encontrada para la tienda ${storeMeta.ronosName} (ID: ${ronosCompanyId}). No se permite sustitución silenciosa de semanas.`)
+    }
+    selectedWeek = found
+  } else {
+    selectedWeek = weeks[0]
   }
+
   const weekId = safeNum(selectedWeek.weekId)
-  const isCurrentWeek = weeks[0]?.weekId === weekId
+  const isClosed = isWeekClosed(selectedWeek)
 
   const cacheKey = `${ronosCompanyId}_${weekId}`
   if (forceRefresh) {
     storeAuditCache.delete(cacheKey)
   }
   const cached = storeAuditCache.get(cacheKey)
-  const ttl = isCurrentWeek ? AUDIT_CACHE_TTL_MS : AUDIT_PAST_WEEK_TTL_MS
+  const ttl = !isClosed ? AUDIT_CACHE_TTL_MS : AUDIT_PAST_WEEK_TTL_MS
   if (!forceRefresh && cached && (Date.now() - cached.timestamp) < ttl) {
     return cached.data
   }
 
-  const weekData = await callRonosApi<any>('WorkWeek/AdminGetWeekByWeekId', {
-    searchTerm: null,
-    companyId: ronosCompanyId,
-    weekId,
-    departmentId: 0,
-    pageNumber: 0,
-    pageSize: 100,
-    sort: 'FirstName',
-    showInactive: 0,
-    payType: 0,
-    internalSalariedRules: false
-  })
+  let rawEmployees: any[] = []
+  try {
+    rawEmployees = await getRonosWeekEmployees(ronosCompanyId, weekId)
+  } catch (apiErr: any) {
+    console.warn(`[RONOS Store Audit] Error al consultar API de RONOS para tienda ${storeMeta.ronosName} (${ronosCompanyId}), semana ${weekId}: ${apiErr?.message}. Comprobando caché de rescate en Supabase...`)
+    const fallback = await getCachedStoreAudit(ronosCompanyId, weekId, storeMeta, selectedWeek)
+    if (fallback && fallback.employees.length > 0) {
+      console.log(`[RONOS Store Audit] Rescate exitoso: utilizando última caché válida de Supabase (${fallback.employees.length} colaboradores).`)
+      storeAuditCache.set(cacheKey, { data: fallback, timestamp: Date.now() })
+      return fallback
+    }
+    throw apiErr
+  }
 
-  const rawEmployees: any[] = Array.isArray(weekData)
-    ? weekData
-    : Array.isArray(weekData?.results)
-      ? weekData.results
-      : Array.isArray(weekData?.employees)
-        ? weekData.employees
-        : Array.isArray(weekData?.data)
-          ? weekData.data
-          : []
+  // Cargar asignaciones nativas previas para conservar ronos_assignment_id si el colaborador no tuvo ponchadas en esta semana
+  const existingAssignmentsMap = new Map<number, string>()
+  try {
+    const { data: existingRows } = await supabaseAdmin
+      .from('ronos_employee_timecards_cache')
+      .select('employee_user_id, ronos_assignment_id')
+      .eq('company_id', ronosCompanyId)
+      .eq('week_id', weekId)
+    if (existingRows) {
+      existingRows.forEach((r: any) => {
+        const uId = safeNum(r.employee_user_id)
+        if (uId > 0 && r.ronos_assignment_id) {
+          existingAssignmentsMap.set(uId, String(r.ronos_assignment_id).trim())
+        }
+      })
+    }
+  } catch (err) {
+    console.warn('[RONOS Audit] Error consultando asignaciones existentes en caché:', err)
+  }
 
   let storeExternalId: string | undefined = undefined
   try {
@@ -1095,39 +1412,29 @@ export async function getRonosStoreAudit(
         toastEmail = savedMap.toast_email || null
         toastJobTitle = savedMap.toast_job_title || null
         mappingType = savedMap.mapping_type || (toastEmail ? 'manual' : 'unmapped')
-      } else if (allToastEmployees.length > 0 && empFullName.length >= 3) {
-        let bestMatch: ToastEmployeeCandidate | null = null
-        let bestScore = 0
-
-        for (const t of allToastEmployees) {
-          if (usedToastIds.has(t.id)) continue
-          const score = calculateNameSimilarity(empFullName, t.full_name)
-          if (score > bestScore) {
-            bestScore = score
-            bestMatch = t
-          }
-        }
-
-        if (bestScore >= 70 && bestMatch) {
-          usedToastIds.add(bestMatch.id)
-          toastEmployeeId = bestMatch.id
-          toastGuid = bestMatch.toast_guid
-          toastFullName = bestMatch.full_name
-          toastEmail = bestMatch.email
-          toastJobTitle = bestMatch.job_title || null
-          mappingType = 'auto'
-        }
       }
+      // REGLA OBLIGATORIA: CERO auto-mapping por similitud de nombres.
+      // Sin mapeo explícito en Supabase, el colaborador permanece 'unmapped'.
 
       const displayJobTitle = toastJobTitle || emp.title || emp.jobTitle || 'Colaborador'
       const simplifyInfo = getSimplifyHrRateForEmployee(empFullName) || getSimplifyHrRateForEmployee(String(empUserId))
       const isSalariedEmp = simplifyInfo
         ? simplifyInfo.isSalaried
         : isEmployeeSalaried(displayJobTitle, empFullName)
+      const employeeHourlyWage = (simplifyInfo?.payRate && simplifyInfo.payRate > 0) ? simplifyInfo.payRate : ESTIMATED_HOURLY_RATE
+
+      const punchAssignmentId = days
+        .flatMap(d => d.punches)
+        .map(p => p.assignmentId ? String(p.assignmentId).trim() : '')
+        .find(Boolean) || null
+
+      const rawAssignmentId = emp?.assignmentId || emp?.AssignmentId || emp?.ronos_assignment_id || emp?.ronosAssignmentId || null
+      const ronosAssignmentId = punchAssignmentId || (rawAssignmentId ? String(rawAssignmentId).trim() : null) || existingAssignmentsMap.get(empUserId) || null
 
       return {
         employeeUserId: empUserId,
         employeeId: empId,
+        ronosAssignmentId: ronosAssignmentId || null,
         firstName: emp.firstName || '',
         lastName: emp.lastName || '',
         fullName: empFullName || `Empleado #${empUserId}`,
@@ -1146,14 +1453,15 @@ export async function getRonosStoreAudit(
         holidayHours: empHolidayHours,
         bereavementHours: empBereavementHours,
         unpaidLeaveHours: empUnpaidHours,
-        // Solo penalizaciones oficiales de RONOS o turnos >6h con lunch omitido por completo (MEAL_PENALTY_MISSED)
+        // Solo penalizaciones reconocidas oficialmente por RONOS o turnos >6h con lunch omitido por completo (MEAL_PENALTY_MISSED)
         mealPenaltyCount: safeNum(emp.mealPenalty) || days.reduce((count, d) => count + (d.violations.some(v => v.type === 'MEAL_PENALTY_MISSED') ? 1 : 0), 0),
         brokenHours: broken,
         lockTimecard: !!emp.locktimecard,
         active: emp.active !== false && (weeklyHours > 0 || empVacationHours > 0 || empSickHours > 0 || (days && days.length > 0)),
         days,
         totalViolationsCount: empViolationsCount,
-        totalEstimatedPenaltyCostUsd: Number(empPenaltyCost.toFixed(2)),
+        // No monetizar penalizaciones no reconocidas: el pasivo financiero solo devenga por penalizaciones oficiales
+        totalEstimatedPenaltyCostUsd: Number(((safeNum(emp.mealPenalty) || days.reduce((count, d) => count + (d.violations.some(v => v.type === 'MEAL_PENALTY_MISSED') ? 1 : 0), 0)) * employeeHourlyWage).toFixed(2)),
         toastEmployeeId,
         toastGuid,
         toastFullName,
@@ -1169,21 +1477,13 @@ export async function getRonosStoreAudit(
   const totalOvertimeHours = employeeTimecards.reduce((sum, e) => sum + e.overtimeHours, 0)
   const totalDoubleTimeHours = employeeTimecards.reduce((sum, e) => sum + e.doubleTimeHours, 0)
   const totalBrokenTimecardsCount = employeeTimecards.filter(e => e.brokenHours).length
-
-  let totalMealPenaltiesCount = 0
-  let totalEstimatedPenaltyCostUsd = 0
-
-  employeeTimecards.forEach((emp) => {
-    emp?.days?.forEach((d) => {
-      const dayMealViolations = (d?.violations || []).filter(v => v?.type?.startsWith('MEAL_PENALTY'))
-      if (dayMealViolations.length > 0) {
-        totalMealPenaltiesCount += 1
-        totalEstimatedPenaltyCostUsd += safeNum(dayMealViolations[0]?.estimatedCostUsd, ESTIMATED_HOURLY_RATE)
-      }
-    })
-  })
-
   const totalEstimatedOvertimeCostUsd = (totalOvertimeHours * ESTIMATED_HOURLY_RATE * 1.5) + (totalDoubleTimeHours * ESTIMATED_HOURLY_RATE * 2.0)
+
+  // Métricas de penalizaciones reconocidas y pasivo monetario verificado
+  const totalMealPenaltiesCount = employeeTimecards.reduce((sum, e) => sum + safeNum(e.mealPenaltyCount), 0)
+  const totalEstimatedPenaltyCostUsd = employeeTimecards.reduce((sum, e) => sum + safeNum(e.totalEstimatedPenaltyCostUsd), 0)
+
+  // Índice de Cumplimiento basado en turnos con penalizaciones oficiales
   const totalShiftsEstimated = Math.max(1, activeEmployeesCount * 5)
   const complianceScorePercent = Math.max(0, Math.min(100, Math.round(100 - ((totalMealPenaltiesCount / totalShiftsEstimated) * 100))))
 
@@ -1212,50 +1512,46 @@ export async function getRonosStoreAudit(
     employees: employeeTimecards.sort((a, b) => (b.totalWeeklyHours || 0) - (a.totalWeeklyHours || 0))
   }
 
-  // Persistir en caché de Supabase de forma segura
+  const timecardsToCache = employeeTimecards
+    .filter(emp => emp && emp.employeeUserId > 0)
+    .map(emp => ({
+      company_id: ronosCompanyId,
+      week_id: weekId,
+      employee_user_id: emp.employeeUserId,
+      employee_id: emp.employeeId ? Number(emp.employeeId) : null,
+      ronos_assignment_id: emp.ronosAssignmentId || null,
+      full_name: emp.fullName,
+      first_name: emp.firstName,
+      last_name: emp.lastName,
+      pin: emp.pin,
+      job_title: emp.jobTitle,
+      regular_hours: emp.regularHours,
+      overtime_hours: emp.overtimeHours,
+      double_time_hours: emp.doubleTimeHours,
+      total_weekly_hours: emp.totalWeeklyHours,
+      meal_penalty_count: emp.mealPenaltyCount,
+      sick_hours: emp.sickHours || 0,
+      vacation_hours: emp.vacationHours || 0,
+      holiday_hours: emp.holidayHours || 0,
+      bereavement_hours: emp.bereavementHours || 0,
+      unpaid_leave_hours: emp.unpaidLeaveHours || 0,
+      broken_hours: emp.brokenHours,
+      active: emp.totalWeeklyHours > 0 || (emp.vacationHours || 0) > 0 || (emp.sickHours || 0) > 0,
+      updated_at: new Date().toISOString()
+    }))
+
+  // Persistir en caché de Supabase de forma atómica y no destructiva (sin DELETE previo)
   try {
-    if (forceRefresh) {
-      await supabaseAdmin
-        .from('ronos_employee_timecards_cache')
-        .delete()
-        .eq('company_id', ronosCompanyId)
-        .eq('week_id', weekId)
-    }
-
-    const timecardsToCache = employeeTimecards
-      .filter(emp => emp && emp.employeeUserId > 0)
-      .map(emp => ({
-        company_id: ronosCompanyId,
-        week_id: weekId,
-        employee_user_id: emp.employeeUserId,
-        employee_id: emp.employeeId ? Number(emp.employeeId) : null,
-        full_name: emp.fullName,
-        first_name: emp.firstName,
-        last_name: emp.lastName,
-        pin: emp.pin,
-        job_title: emp.jobTitle,
-        regular_hours: emp.regularHours,
-        overtime_hours: emp.overtimeHours,
-        double_time_hours: emp.doubleTimeHours,
-        total_weekly_hours: emp.totalWeeklyHours,
-        meal_penalty_count: emp.mealPenaltyCount,
-        sick_hours: emp.sickHours || 0,
-        vacation_hours: emp.vacationHours || 0,
-        holiday_hours: emp.holidayHours || 0,
-        bereavement_hours: emp.bereavementHours || 0,
-        unpaid_leave_hours: emp.unpaidLeaveHours || 0,
-        broken_hours: emp.brokenHours,
-        active: emp.totalWeeklyHours > 0 || (emp.vacationHours || 0) > 0 || (emp.sickHours || 0) > 0,
-        updated_at: new Date().toISOString()
-      }))
-
     if (timecardsToCache.length > 0) {
-      const { error } = await supabaseAdmin
+      const { error: upsertErr } = await supabaseAdmin
         .from('ronos_employee_timecards_cache')
         .upsert(timecardsToCache, { onConflict: 'company_id,week_id,employee_user_id' })
-      if (error) {
-        console.warn('[RONOS Cache Upsert Error]:', error?.message || error)
+
+      if (upsertErr) {
+        console.warn('[RONOS Cache Upsert Error]:', upsertErr?.message || upsertErr)
       }
+    } else {
+      console.warn(`[RONOS Cache] No se sobreescribe caché para tienda ${ronosCompanyId}, semana ${weekId} porque la respuesta no contiene tarjetas de tiempo válidas.`)
     }
   } catch (err: any) {
     console.warn('Error persisting timecards cache to Supabase:', err?.message)
@@ -1279,12 +1575,17 @@ export async function getRonosChainWideAudit(
   targetStartDate?: string,
   forceLive: boolean = false
 ): Promise<RonosChainWideAuditSummary> {
-  // 1. Determinar la fecha de inicio objetivo (targetStartDate)
+  // 1. Obtener catálogo dinámico de tiendas de Supabase
+  const dynamicStores = await getDynamicRonosStores()
+  const storesToAudit = dynamicStores.length > 0 ? dynamicStores : RONOS_STORES_MAP
+  const failedStores: Array<{ storeId: number; storeName: string; ronosCompanyId: number; error: string }> = []
+
+  // Determinar la fecha de inicio objetivo (targetStartDate)
   let resolvedStartDate = targetStartDate
 
   if (!resolvedStartDate && targetWeekId) {
     // Buscar la fecha de la semana en alguna tienda
-    for (const store of RONOS_STORES_MAP) {
+    for (const store of storesToAudit) {
       const weeks = await getRonosWeeks(store.ronosCompanyId)
       const matching = weeks.find(w => w.weekId === targetWeekId)
       if (matching?.startDate) {
@@ -1292,49 +1593,77 @@ export async function getRonosChainWideAudit(
         break
       }
     }
+    if (!resolvedStartDate) {
+      throw new RonosWeekNotFoundError(`Semana ${targetWeekId} no encontrada en ninguna tienda de RONOS. No se permite sustitución silenciosa de semanas.`)
+    }
   }
 
   // Si aún no hay fecha objetivo, obtener la semana cerrada más reciente de Lynwood (ID 34)
   if (!resolvedStartDate) {
     const lynwoodWeeks = await getRonosWeeks(34)
     if (lynwoodWeeks.length > 0) {
-      const isWeek0Future = new Date(lynwoodWeeks[0]?.endDate || '').getTime() > Date.now()
-      const defaultWeek = isWeek0Future && lynwoodWeeks.length > 1 ? lynwoodWeeks[1] : lynwoodWeeks[0]
+      const defaultWeek = lynwoodWeeks.find(w => isWeekClosed(w)) || lynwoodWeeks[0]
       resolvedStartDate = defaultWeek?.startDate ? defaultWeek.startDate.substring(0, 10) : undefined
     }
   }
 
-  // 2. Procesar las 16 tiendas en paralelo con control de concurrencia
+  // 2. Procesar todas las tiendas en paralelo con control de concurrencia
   const storeAudits = await mapConcurrent(
-    RONOS_STORES_MAP,
+    storesToAudit,
     8,
     async (store) => {
       try {
         const weeks = await getRonosWeeks(store.ronosCompanyId, forceLive)
-        if (!weeks || weeks.length === 0) return null
+        if (!weeks || weeks.length === 0) {
+          failedStores.push({
+            storeId: store.tegStoreId,
+            storeName: store.tegName,
+            ronosCompanyId: store.ronosCompanyId,
+            error: 'No se encontraron semanas en RONOS'
+          })
+          return null
+        }
 
         let matchingWeek = resolvedStartDate
           ? weeks.find(w => w.startDate?.startsWith(resolvedStartDate!))
           : undefined
 
         if (!matchingWeek) {
-          const isWeek0Future = new Date(weeks[0]?.endDate || '').getTime() > Date.now()
-          matchingWeek = isWeek0Future && weeks.length > 1 ? weeks[1] : weeks[0]
+          if (resolvedStartDate) {
+            console.warn(`[RONOS] Tienda ${store.tegName} (${store.ronosCompanyId}) no tiene semana para ${resolvedStartDate}`)
+            failedStores.push({
+              storeId: store.tegStoreId,
+              storeName: store.tegName,
+              ronosCompanyId: store.ronosCompanyId,
+              error: `Sin semana para fecha ${resolvedStartDate}`
+            })
+            return null
+          }
+          const defaultWeek = weeks.find(w => isWeekClosed(w)) || weeks[0]
+          matchingWeek = defaultWeek
         }
 
-        if (!matchingWeek?.weekId) return null
+        if (!matchingWeek?.weekId) {
+          failedStores.push({
+            storeId: store.tegStoreId,
+            storeName: store.tegName,
+            ronosCompanyId: store.ronosCompanyId,
+            error: 'ID de semana no disponible'
+          })
+          return null
+        }
 
         const storeWeekId = matchingWeek.weekId
 
-        // Verificar si tenemos datos completos en caché
+        // Verificar si tenemos datos completos en caché (detectando y reparando caché parcial si fuese necesario)
         if (!forceLive) {
           const { data: cached } = await supabaseAdmin
             .from('ronos_employee_timecards_cache')
-            .select('regular_hours, overtime_hours, double_time_hours, meal_penalty_count, broken_hours')
+            .select('regular_hours, overtime_hours, double_time_hours, meal_penalty_count, broken_hours, employee_user_id')
             .eq('company_id', store.ronosCompanyId)
             .eq('week_id', storeWeekId)
 
-          if (cached && cached.length > 0) {
+          if (isCacheComplete(cached)) {
             let storeHours = 0
             let storeOt = 0
             let storeDt = 0
@@ -1342,7 +1671,7 @@ export async function getRonosChainWideAudit(
             let storeBroken = 0
             let activeCount = 0
 
-            cached.forEach((r: any) => {
+            cached!.forEach((r: any) => {
               if (!r) return
               const reg = safeNum(r?.regular_hours)
               const ot = safeNum(r?.overtime_hours)
@@ -1382,6 +1711,8 @@ export async function getRonosChainWideAudit(
               estimatedPenaltyCostUsd: Number(penaltyCost.toFixed(2)),
               complianceScore: compliance
             }
+          } else if (cached && cached.length > 0) {
+            console.log(`[RONOS Chain] Caché parcial detectada para tienda ${store.tegName} (${cached.length} registros). Recuperando únicamente esta tienda desde RONOS...`)
           }
         }
 
@@ -1410,6 +1741,12 @@ export async function getRonosChainWideAudit(
         }
       } catch (err: any) {
         console.error(`Error auditando tienda ${store.tegName}:`, err.message)
+        failedStores.push({
+          storeId: store.tegStoreId,
+          storeName: store.tegName,
+          ronosCompanyId: store.ronosCompanyId,
+          error: err?.message || 'Error en auditoría'
+        })
         return null
       }
     }
@@ -1429,6 +1766,9 @@ export async function getRonosChainWideAudit(
 
   return {
     totalStores: validStores.length,
+    failedStores,
+    failedStoresCount: failedStores.length,
+    isPartial: failedStores.length > 0,
     totalChainEmployees,
     totalActiveEmployees: totalChainEmployees,
     chainActiveEmployees: totalChainEmployees,
@@ -1459,11 +1799,17 @@ export async function getRonosChainWideStoreAudit(
   targetStartDate?: string,
   forceLive: boolean = false
 ): Promise<RonosStoreAuditSummary> {
-  // 1. Determinar targetStartDate
+  // 1. Obtener catálogo dinámico de tiendas
+  const dynamicStores = await getDynamicRonosStores()
+  const storesToAudit = dynamicStores.length > 0 ? dynamicStores : RONOS_STORES_MAP
+
+  const failedStores: Array<{ storeId: number; storeName: string; ronosCompanyId: number; error: string }> = []
+
+  // Determinar targetStartDate
   let resolvedStartDate = targetStartDate
 
   if (!resolvedStartDate && targetWeekId) {
-    for (const store of RONOS_STORES_MAP) {
+    for (const store of storesToAudit) {
       const weeks = await getRonosWeeks(store.ronosCompanyId)
       const matching = weeks.find(w => w.weekId === targetWeekId)
       if (matching?.startDate) {
@@ -1471,36 +1817,64 @@ export async function getRonosChainWideStoreAudit(
         break
       }
     }
+    if (!resolvedStartDate) {
+      throw new RonosWeekNotFoundError(`Semana ${targetWeekId} no encontrada en ninguna tienda de RONOS. No se permite sustitución silenciosa de semanas.`)
+    }
   }
 
   if (!resolvedStartDate) {
     const lynwoodWeeks = await getRonosWeeks(34)
     if (lynwoodWeeks.length > 0) {
-      const isWeek0Future = new Date(lynwoodWeeks[0]?.endDate || '').getTime() > Date.now()
-      const defaultWeek = isWeek0Future && lynwoodWeeks.length > 1 ? lynwoodWeeks[1] : lynwoodWeeks[0]
+      const defaultWeek = lynwoodWeeks.find(w => isWeekClosed(w)) || lynwoodWeeks[0]
       resolvedStartDate = defaultWeek?.startDate ? defaultWeek.startDate.substring(0, 10) : undefined
     }
   }
 
-  // 2. Procesar las 16 tiendas en paralelo con control de concurrencia
+  // 2. Procesar todas las tiendas en paralelo con control de concurrencia
   const storeAudits = await mapConcurrent(
-    RONOS_STORES_MAP,
+    storesToAudit,
     8,
     async (store) => {
       try {
         const weeks = await getRonosWeeks(store.ronosCompanyId, forceLive)
-        if (!weeks || weeks.length === 0) return null
+        if (!weeks || weeks.length === 0) {
+          failedStores.push({
+            storeId: store.tegStoreId,
+            storeName: store.tegName,
+            ronosCompanyId: store.ronosCompanyId,
+            error: 'No se encontraron semanas en RONOS'
+          })
+          return null
+        }
 
         let matchingWeek = resolvedStartDate
           ? weeks.find(w => w.startDate?.startsWith(resolvedStartDate!))
           : undefined
 
         if (!matchingWeek) {
-          const isWeek0Future = new Date(weeks[0]?.endDate || '').getTime() > Date.now()
-          matchingWeek = isWeek0Future && weeks.length > 1 ? weeks[1] : weeks[0]
+          if (resolvedStartDate) {
+            console.warn(`[RONOS] Tienda ${store.tegName} (${store.ronosCompanyId}) no tiene semana para ${resolvedStartDate}`)
+            failedStores.push({
+              storeId: store.tegStoreId,
+              storeName: store.tegName,
+              ronosCompanyId: store.ronosCompanyId,
+              error: `Sin semana para fecha ${resolvedStartDate}`
+            })
+            return null
+          }
+          const defaultWeek = weeks.find(w => isWeekClosed(w)) || weeks[0]
+          matchingWeek = defaultWeek
         }
 
-        if (!matchingWeek?.weekId) return null
+        if (!matchingWeek?.weekId) {
+          failedStores.push({
+            storeId: store.tegStoreId,
+            storeName: store.tegName,
+            ronosCompanyId: store.ronosCompanyId,
+            error: 'ID de semana no disponible'
+          })
+          return null
+        }
 
         const audit = await getRonosStoreAudit(store.ronosCompanyId, matchingWeek.weekId, forceLive)
         if (audit && Array.isArray(audit.employees)) {
@@ -1513,6 +1887,12 @@ export async function getRonosChainWideStoreAudit(
         return audit
       } catch (err: any) {
         console.error(`Error obteniendo empleados de ${store.tegName}:`, err?.message)
+        failedStores.push({
+          storeId: store.tegStoreId,
+          storeName: store.tegName,
+          ronosCompanyId: store.ronosCompanyId,
+          error: err?.message || 'Error en auditoría'
+        })
         return null
       }
     }
@@ -1573,7 +1953,10 @@ export async function getRonosChainWideStoreAudit(
     totalEstimatedOvertimeCostUsd: Number(totalEstimatedOvertimeCostUsd.toFixed(2)),
     complianceScorePercent,
     complianceScore: complianceScorePercent,
-    employees: allEmployees
+    employees: allEmployees,
+    failedStores,
+    failedStoresCount: failedStores.length,
+    isPartial: failedStores.length > 0
   }
 }
 

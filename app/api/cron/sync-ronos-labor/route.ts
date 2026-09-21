@@ -8,15 +8,29 @@
  *
  * @dataFlow
  *   Vercel Cron -> GET /api/cron/sync-ronos-labor -> ronos-api -> Auditoría global de nómina.
+ *
+ * @notes
+ *   Falla cerrada cuando CRON_SECRET no existe o no coincide; nunca expone el consolidado públicamente.
  */
 
 import { NextResponse } from 'next/server'
 import { getRonosChainWideAudit } from '@/lib/ronos-api'
+import { getCronSecret } from '@/lib/auth-server'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
 
 export async function GET(request: Request) {
+  const cronSecret = getCronSecret()
+  const authorization = request.headers.get('authorization') || request.headers.get('Authorization')
+  if (!cronSecret) {
+    console.error('[sync-ronos-labor] CRON_SECRET no está configurado')
+    return NextResponse.json({ success: false, error: 'Servicio de cron no configurado' }, { status: 503 })
+  }
+  if (authorization !== `Bearer ${cronSecret}`) {
+    return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
+  }
+
   const startTime = Date.now()
 
   try {

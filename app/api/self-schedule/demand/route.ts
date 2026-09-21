@@ -1,3 +1,14 @@
+/**
+ * @module api/self-schedule/demand
+ * @description Proporciona el mapa de demanda horaria proyectada de cocina y salón para la interfaz de auto-programación.
+ * @businessRules
+ * - Acceso exclusivo para administradores y supervisores (Admin/Supervisor).
+ * - Calcula la demanda de personal por hora aplicando reglas de capacidad sobre las proyecciones de ventas de Intelligence V3.1.
+ * - Soporta horarios de apertura y cierre dinámicos por tienda (incluyendo horarios extendidos de madrugada > 24h).
+ * @dataFlow Cliente (Auto-Schedule / Demand Map) -> GET /api/self-schedule/demand -> generateSmartForecast -> JSON con desglose por hora.
+ * @notes Horas de madrugada (0:00 a 5:59 AM) se indexan de 24 a 29.
+ */
+
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuthToken } from '@/lib/auth-server'
 import { supabaseAdmin } from '@/lib/supabase'
@@ -11,21 +22,22 @@ import { getLeadershipAvailability, LeadershipByShift, getDefaultLeadership } fr
  */
 export async function GET(request: NextRequest) {
     try {
-        // 🛡️ AUTH CHECK - Admin/Manager only
+        // 🛡️ AUTH CHECK - Admin/Supervisor only
         const authHeader = request.headers.get('Authorization')
         if (!authHeader) {
             return NextResponse.json({ error: 'Missing Authorization Header' }, { status: 401 })
         }
 
-        const token = authHeader.replace('Bearer ', '')
+        const token = authHeader.replace(/^Bearer\s+/i, '').trim()
         const user = verifyAuthToken(token)
 
         if (!user) {
             return NextResponse.json({ error: 'Invalid Token' }, { status: 401 })
         }
 
-        if (user.user_role !== 'admin' && user.user_role !== 'supervisor') {
-            return NextResponse.json({ error: 'Forbidden: Admin/Manager only' }, { status: 403 })
+        const roleLower = String(user.user_role || '').toLowerCase().trim()
+        if (!['admin', 'supervisor', 'administrador'].includes(roleLower)) {
+            return NextResponse.json({ error: 'Forbidden: Admin/Supervisor only' }, { status: 403 })
         }
 
         const { searchParams } = new URL(request.url)

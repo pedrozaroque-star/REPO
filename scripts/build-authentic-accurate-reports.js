@@ -419,7 +419,7 @@ const catalog26 = [
     auditJune: '',
     auditJuly: '',
     auditAugust: '<strong>✓ Completado e Implementado (Agosto 2026).</strong> Sistema de extracción, auditoría y cruce de nóminas Simplify vs RONOS, motor de cálculo de billing PEO para 15 empresas/sucursales, visor de paystubs y detección automática de discrepancias salariales y horas extra.',
-    auditSeptember: '<strong>✓ Completado e Integrado en Producción.</strong> Auditoría quincenal continua de nóminas y conciliación de costos de personal.',
+    auditSeptember: "<strong>En progreso: correcciones locales verificadas al 19-Sep-2026; sin desplegar.</strong> Auditoría de 14 facturas, reparación de identidad nativa, PTO/salarios, importación documental, cálculo independiente y UI sin CSV. Pruebas de 12 tiendas y TypeScript aprobadas. Pendientes: 15 vínculos de asistencia, 2 identificadores PDF, documentos complementarios y vigencia contractual; no se afirma conciliación completa ni sobrecargos de la agencia.",
     steps: [
       'Extracción forense de nóminas y timbrados de Simplify y RONOS.',
       'Motor de conciliación PEO con cálculo de cargas sociales y fees.',
@@ -485,14 +485,14 @@ const augustTasks = catalog26.map(t => {
     };
 });
 
-// 4. BUILD SEPTEMBER TASKS (27 Tasks: 19 Comp, 4 Prog, 4 Pend)
+// 4. BUILD SEPTEMBER TASKS (27 Tasks: 18 Comp, 5 Prog, 4 Pend)
 const septemberTasks = catalog26.map(t => {
     let status = 'pendiente';
     let statusLabel = '⏳ Pendiente';
-    if ([1, 2, 3, 4, 5, 6, 8, 13, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27].includes(t.num)) {
+    if ([1, 2, 3, 4, 5, 6, 8, 13, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26].includes(t.num)) {
         status = 'completado';
         statusLabel = '✓ Completado';
-    } else if ([7, 9, 15, 16].includes(t.num)) {
+    } else if ([7, 9, 15, 16, 27].includes(t.num)) {
         status = 'progreso';
         statusLabel = '⚡ En Progreso';
     }

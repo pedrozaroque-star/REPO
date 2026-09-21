@@ -1,13 +1,43 @@
+/**
+ * @module api/login
+ * @description Endpoint de autenticación central para usuarios del sistema TEG (administradores, supervisores, gerentes y empleados).
+ *
+ * @businessRules
+ * - Autenticación con verificación de contraseña segura vía bcrypt.
+ * - Genera token JWT compatible con Supabase PostgREST para RLS de usuarios autenticados.
+ * - Asigna roles operativos (admin, supervisor, manager, asistente) y alcance de tiendas (store_scope).
+ *
+ * @dataFlow
+ * - POST /api/login { email, password } -> Supabase users / toast_employees -> bcrypt.compare() -> JWT token en cookie/payload.
+ *
+ * @notes
+ * - Fail-closed: verificación estricta de SUPABASE_JWT_SECRET en el servidor; sin secretos por defecto hardcodeados.
+ */
+
 import { NextResponse } from 'next/server'
 import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const SUPABASE_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-const JWT_SECRET = process.env.SUPABASE_JWT_SECRET || process.env.JWT_SECRET || 'your-secret-key-change-this-in-production'
 
 export async function POST(request: Request) {
   try {
+    // Verificación fail-closed: Sin fallback hardcodeado
+    const rawSecret = process.env.SUPABASE_JWT_SECRET || process.env.JWT_SECRET
+    if (!rawSecret || !rawSecret.trim()) {
+      console.error('❌ Server authentication configuration error: JWT_SECRET / SUPABASE_JWT_SECRET no configurado')
+      return NextResponse.json(
+        { error: 'Server authentication configuration error' },
+        { status: 500 }
+      )
+    }
+
+    // IMPORTANT: Supabase PostgREST uses the SUPABASE_JWT_SECRET as a RAW STRING
+    // to verify JWTs, NOT decoded from base64. Using the raw string ensures our
+    // custom tokens pass Supabase RLS policies for 'authenticated' role.
+    const secret = rawSecret.trim().replace(/^"(.*)"$/, '$1')
+
     const { email, password } = await request.json()
 
     if (!email) {
@@ -18,12 +48,6 @@ export async function POST(request: Request) {
     }
 
     const normalizedEmail = email.trim().toLowerCase()
-
-    // Get JWT secret ready
-    // IMPORTANT: Supabase PostgREST uses the SUPABASE_JWT_SECRET as a RAW STRING
-    // to verify JWTs, NOT decoded from base64. Using the raw string ensures our
-    // custom tokens pass Supabase RLS policies for 'authenticated' role.
-    const secret = JWT_SECRET.trim().replace(/^"(.*)"$/, '$1')
 
     // ============================================
     // STEP 1: Check USERS table (admins/managers)

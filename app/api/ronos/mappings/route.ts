@@ -18,13 +18,43 @@ import { NextResponse } from 'next/server'
 import { getStoreEmployeeMappings, saveEmployeeMapping } from '@/lib/ronos-mapping'
 import { RONOS_STORES_MAP, getDynamicRonosStores } from '@/lib/ronos-api'
 import { supabaseAdmin } from '@/lib/supabase'
+import { verifyAdminAuth } from '@/lib/auth-server'
 
 export const dynamic = 'force-dynamic'
 
 export async function GET(req: Request) {
   try {
+    const auth = verifyAdminAuth(req)
+    if (!auth.authorized) {
+      return NextResponse.json(
+        { success: false, error: auth.error },
+        { status: auth.status || 401 }
+      )
+    }
+
     const { searchParams } = new URL(req.url)
+
+    // 1. Bloqueo inmediato de format=csv
+    const formatParam = searchParams.get('format')
+    if (formatParam && formatParam.toLowerCase() === 'csv') {
+      return NextResponse.json(
+        { success: false, error: 'El formato CSV no está permitido por razones de seguridad.' },
+        { status: 400 }
+      )
+    }
+
     const companyIdParam = searchParams.get('companyId')
+    // Validación estricta con regex: sólo numérico o 'all'/'chain'
+    if (companyIdParam !== null && companyIdParam !== 'all' && companyIdParam !== 'chain' && !/^\d+$/.test(companyIdParam)) {
+      return NextResponse.json(
+        { success: false, error: 'Parámetro companyId inválido: debe ser numérico o all/chain' },
+        { status: 400 }
+      )
+    }
+
+    const weekIdParam = searchParams.get('weekId')
+    const targetWeekId = weekIdParam && /^\d+$/.test(weekIdParam) ? parseInt(weekIdParam, 10) : undefined
+
     const isChain = companyIdParam === '0' || companyIdParam === 'all' || companyIdParam === 'chain'
     const companyId = isChain ? 0 : (companyIdParam ? parseInt(companyIdParam, 10) : 34)
 
@@ -32,7 +62,7 @@ export async function GET(req: Request) {
     if (isChain) {
       const storesList = await getDynamicRonosStores()
       const allResults = await Promise.all(
-        storesList.map(s => getStoreEmployeeMappings(s.ronosCompanyId).catch(() => null))
+        storesList.map(s => getStoreEmployeeMappings(s.ronosCompanyId, targetWeekId).catch(() => null))
       )
       const valid = allResults.filter(Boolean) as any[]
       const combinedMappings = valid.flatMap(v => v.mappings || [])
@@ -51,10 +81,12 @@ export async function GET(req: Request) {
           manuallyMatched: combinedMappings.filter(m => m.mappingType === 'manual').length,
           inactive: combinedMappings.filter(m => m.mappingType === 'inactive').length,
           unmapped: combinedMappings.filter(m => m.mappingType === 'unmapped').length
-        }
+        },
+        storeName: 'Cadena Completa (16 Ubicaciones)',
+        periodLabel: targetWeekId ? `Semana #${targetWeekId}` : 'Semana Actual'
       }
     } else {
-      result = await getStoreEmployeeMappings(companyId)
+      result = await getStoreEmployeeMappings(companyId, targetWeekId)
     }
 
     return NextResponse.json({
@@ -72,50 +104,59 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   try {
-    const body = await req.json()
-    const targetCompanyId = Number(body.ronosCompanyId || body.companyId)
-
-    if (!targetCompanyId) {
+    const auth = verifyAdminAuth(req)
+    if (!auth.authorized) {
       return NextResponse.json(
-        { success: false, error: 'Falta parámetro obligatorio: companyId / ronosCompanyId' },
+        { success: false, error: auth.error },
+        { status: auth.status || 401 }
+      )
+    }
+
+    const { searchParams } = new URL(req.url)
+    if (searchParams.get('format')?.toLowerCase() === 'csv') {
+      return NextResponse.json(
+        { success: false, error: 'El formato CSV no está permitido por razones de seguridad.' },
         { status: 400 }
       )
     }
 
-    // Caso A: Auto-Vincular Todo por Lote (Auto-Map All)
-    if (body.autoMapAll) {
-      const storeMappings = await getStoreEmployeeMappings(targetCompanyId)
-      const autoMatches = storeMappings.mappings.filter(m => m.mappingType === 'auto' && m.toastEmployeeId)
+    const body = await req.json().catch(() => ({}))
 
-      let savedCount = 0
-      for (const item of autoMatches) {
-        if (!item.toastEmployeeId) continue
-        await saveEmployeeMapping({
-          ronosEmployeeUserId: item.ronosEmployeeUserId,
-          ronosEmployeeId: item.ronosEmployeeId,
-          ronosCompanyId: targetCompanyId,
-          ronosFullName: item.ronosFullName,
-          ronosPin: item.ronosPin,
-          ronosJobTitle: item.ronosJobTitle,
-          toastEmployeeId: item.toastEmployeeId,
-          toastGuid: item.toastGuid,
-          toastFullName: item.toastFullName,
-          toastEmail: item.toastEmail,
-          mappingType: 'auto',
-          isConfirmed: true,
-          notes: 'Auto-vinculado por coincidencia de PIN y nombre'
-        })
-        savedCount++
-      }
-
-      return NextResponse.json({
-        success: true,
-        message: `Se vincularon automáticamente ${savedCount} colaboradores`,
-        savedCount
-      })
+    if (body.format && String(body.format).toLowerCase() === 'csv') {
+      return NextResponse.json(
+        { success: false, error: 'El formato CSV no está permitido por razones de seguridad.' },
+        { status: 400 }
+      )
     }
 
-    // Caso B: Guardado Individual
+    const rawCompanyId = body.ronosCompanyId ?? body.companyId
+    if (rawCompanyId === undefined || rawCompanyId === null || !/^\d+$/.test(String(rawCompanyId))) {
+      return NextResponse.json(
+        { success: false, error: 'Parámetro companyId / ronosCompanyId inválido o no numérico' },
+        { status: 400 }
+      )
+    }
+
+    const targetCompanyId = parseInt(String(rawCompanyId), 10)
+    if (targetCompanyId <= 0) {
+      return NextResponse.json(
+        { success: false, error: 'Parámetro companyId debe ser mayor a 0 para asignar mapeo' },
+        { status: 400 }
+      )
+    }
+
+    // Desactivación permanente de auto-vinculación masiva ciega por coincidencia de nombre (FASE 3)
+    if (body.autoMapAll) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'La auto-vinculación masiva por nombre ha sido desactivada por integridad operativa. Utilice la cola de revisión manual supervisada.'
+        },
+        { status: 400 }
+      )
+    }
+
+    // Guardado individual supervisado
     const {
       ronosEmployeeUserId,
       ronosEmployeeId,
@@ -131,12 +172,29 @@ export async function POST(req: Request) {
       notes
     } = body
 
-    if (!ronosEmployeeUserId) {
+    if (ronosEmployeeUserId === undefined || ronosEmployeeUserId === null || !/^\d+$/.test(String(ronosEmployeeUserId))) {
       return NextResponse.json(
-        { success: false, error: 'Faltan parámetros obligatorios: ronosEmployeeUserId' },
+        { success: false, error: 'Parámetro ronosEmployeeUserId inválido o no numérico' },
         { status: 400 }
       )
     }
+
+    if (ronosEmployeeId !== undefined && ronosEmployeeId !== null && !/^\d+$/.test(String(ronosEmployeeId))) {
+      return NextResponse.json(
+        { success: false, error: 'Parámetro ronosEmployeeId inválido: debe ser numérico' },
+        { status: 400 }
+      )
+    }
+
+    // Normalización: No almacenar strings 'INACTIVE' o 'UNLINK' en columna UUID toast_employee_id
+    const isInactive = toastEmployeeId === 'INACTIVE' || mappingType === 'inactive'
+    const isUnlink = toastEmployeeId === 'UNLINK' || mappingType === 'unmapped' || (!isInactive && !toastEmployeeId)
+    const cleanToastEmployeeId = (isInactive || isUnlink) ? null : (toastEmployeeId || null)
+    const finalMappingType: 'auto' | 'manual' | 'inactive' | 'unmapped' = isInactive
+      ? 'inactive'
+      : isUnlink
+      ? 'unmapped'
+      : (mappingType === 'auto' ? 'auto' : 'manual')
 
     const result = await saveEmployeeMapping({
       ronosEmployeeUserId: Number(ronosEmployeeUserId),
@@ -145,13 +203,17 @@ export async function POST(req: Request) {
       ronosFullName: String(ronosFullName || ''),
       ronosPin: String(ronosPin || ''),
       ronosJobTitle: String(ronosJobTitle || 'Colaborador'),
-      toastEmployeeId: toastEmployeeId === 'INACTIVE' || toastEmployeeId === 'UNLINK' ? toastEmployeeId : toastEmployeeId || null,
-      toastGuid: toastGuid || null,
-      toastFullName: toastFullName || null,
-      toastEmail: toastEmail || null,
-      mappingType,
-      isConfirmed,
-      notes
+      toastEmployeeId: cleanToastEmployeeId,
+      toastGuid: isInactive || isUnlink ? null : (toastGuid || null),
+      toastFullName: isInactive ? 'INACTIVO / NO LABORA' : (isUnlink ? null : (toastFullName || null)),
+      toastEmail: isInactive || isUnlink ? null : (toastEmail || null),
+      mappingType: finalMappingType,
+      isConfirmed: isInactive ? true : (isUnlink ? false : isConfirmed),
+      notes: isInactive
+        ? (notes || 'Marcado inactivo en revisión manual')
+        : isUnlink
+        ? (notes || 'Desvinculado manualmente')
+        : notes
     })
 
     if (!result.success) {
@@ -170,13 +232,35 @@ export async function POST(req: Request) {
 
 export async function DELETE(req: Request) {
   try {
+    const auth = verifyAdminAuth(req)
+    if (!auth.authorized) {
+      return NextResponse.json(
+        { success: false, error: auth.error },
+        { status: auth.status || 401 }
+      )
+    }
+
     const { searchParams } = new URL(req.url)
+    if (searchParams.get('format')?.toLowerCase() === 'csv') {
+      return NextResponse.json(
+        { success: false, error: 'El formato CSV no está permitido por razones de seguridad.' },
+        { status: 400 }
+      )
+    }
+
     const ronosUserId = searchParams.get('ronosUserId')
     const companyId = searchParams.get('companyId')
 
-    if (!ronosUserId || !companyId) {
+    if (!ronosUserId || !/^\d+$/.test(ronosUserId)) {
       return NextResponse.json(
-        { success: false, error: 'Faltan parámetros obligatorios: ronosUserId, companyId' },
+        { success: false, error: 'Parámetro ronosUserId inválido o no numérico' },
+        { status: 400 }
+      )
+    }
+
+    if (!companyId || !/^\d+$/.test(companyId)) {
+      return NextResponse.json(
+        { success: false, error: 'Parámetro companyId inválido o no numérico' },
         { status: 400 }
       )
     }

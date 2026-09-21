@@ -422,8 +422,8 @@ async function executeBatchCheckout(
 ): Promise<{ success: boolean; result?: SingleOrderResult; error?: string }> {
   const totalCases = batchItems.reduce((acc, i) => acc + i.quantity, 0);
   const subtotalAmount = parseFloat(batchItems.reduce((acc, i) => acc + (i.quantity * i.unitPrice), 0).toFixed(2));
-  const taxAmount = parseFloat((subtotalAmount * 0.095).toFixed(2));
-  const totalAmount = parseFloat((subtotalAmount + taxAmount).toFixed(2));
+  const taxAmount = 0;
+  const totalAmount = subtotalAmount;
 
   // 1. Limpieza preventiva de carrito antes de procesar el lote
   await clearVieleCart(cookies);
@@ -626,6 +626,10 @@ async function executeBatchCheckout(
     let finalSubtotal = subtotalAmount;
     let finalTax = taxAmount;
     let finalTotal = totalAmount;
+    let validationResult: { valid: boolean; sageItemCount?: number; expectedItemCount: number; discrepancies?: string[] } = {
+      valid: false,
+      expectedItemCount: batchItems.length
+    };
 
     try {
       const docRes = await fetch(`${BASE_URL}/api/salesOrder_doc?orderNo=${orderNumber}`, {
@@ -648,8 +652,56 @@ async function executeBatchCheckout(
           finalTotal = parseFloat(totMatch[1].replace(/,/g, ''));
         }
       }
+
+      // Validación cruzada: comparar items en Sage vs lo que enviamos
+      const detRes = await fetch(`${BASE_URL}/api/salesOrderDetail_dt?orderNo=${orderNumber}`, {
+        headers: {
+          'Cookie': cookies,
+          'User-Agent': BROWSER_USER_AGENT,
+          'Accept': 'application/json, text/javascript, */*; q=0.01'
+        }
+      });
+
+      if (detRes.ok) {
+        const detData = await detRes.json();
+        const sageItems = (detData?.aaData || []).filter((row: any) => {
+          const qty = parseFloat(row[2]) || 0;
+          return qty > 0;
+        });
+        validationResult.sageItemCount = sageItems.length;
+        const discrepancies: string[] = [];
+
+        // Verificar que cada item que enviamos está en Sage con la cantidad correcta
+        for (const sent of batchItems) {
+          const sageRow = sageItems.find((row: any) => {
+            const code = (row[11] || row[0]?.replace(/<[^>]+>/g, '').trim() || '').toUpperCase();
+            return code === sent.itemCode.toUpperCase();
+          });
+          if (!sageRow) {
+            discrepancies.push(`${sent.itemCode}: enviamos ${sent.quantity} pero NO aparece en Sage`);
+          } else {
+            const sageQty = parseFloat(sageRow[2]) || 0;
+            if (sageQty !== sent.quantity) {
+              discrepancies.push(`${sent.itemCode}: enviamos ${sent.quantity} pero Sage tiene ${sageQty}`);
+            }
+          }
+        }
+
+        // Verificar que Sage no tiene items extras que no enviamos
+        const sentCodes = new Set(batchItems.map(i => i.itemCode.toUpperCase()));
+        for (const sageRow of sageItems) {
+          const code = (sageRow[11] || sageRow[0]?.replace(/<[^>]+>/g, '').trim() || '').toUpperCase();
+          if (!sentCodes.has(code)) {
+            const qty = parseFloat(sageRow[2]) || 0;
+            discrepancies.push(`${code}: Sage tiene ${qty} pero nosotros NO lo enviamos (contaminación)`);
+          }
+        }
+
+        validationResult.valid = discrepancies.length === 0;
+        if (discrepancies.length > 0) validationResult.discrepancies = discrepancies;
+      }
     } catch (docErr) {
-      console.warn('No se pudo extraer el desglose fiscal exacto de Viele:', docErr);
+      console.warn('No se pudo extraer el desglose de Viele:', docErr);
     }
 
     return {
@@ -662,7 +714,10 @@ async function executeBatchCheckout(
         taxAmount: finalTax,
         totalAmount: finalTotal,
         items: batchItems,
-        vieleRawResponse: { rawExcerpt: step2Html.slice(0, 500) }
+        vieleRawResponse: {
+          rawExcerpt: step2Html.slice(0, 500),
+          validation: validationResult
+        }
       }
     };
   } catch (err: any) {

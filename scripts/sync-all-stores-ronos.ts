@@ -5,10 +5,21 @@
  *   - Extrae horas regulares, horas extras (OT/DT), penalizaciones de comida (Meal Penalties).
  *   - Extrae horas de enfermedad (Sick Pay), vacaciones (Vacation) y feriados (Holiday).
  *   - Persiste permanentemente en `ronos_work_weeks` y `ronos_employee_timecards_cache`.
+ *
+ * @businessRules
+ *   - Un `assignmentId` se toma exclusivamente de las ponchadas RONOS auditadas; nunca se infiere por nombre o PIN.
+ *   - Las filas se identifican por compañía, semana y usuario RONOS para que una resincronización sea idempotente.
+ *
+ * @dataFlow
+ *   RONOS semanas y auditoría por semana -> extracción de horas/PTO/assignmentId -> cachés Supabase de nómina.
+ *
+ * @notes
+ *   - `ManagerGetUserWeekByWeekId` no incluye ponchadas en todos los tenants; desde 2026-09-17 el assignmentId
+ *     se obtiene de `getRonosStoreAudit`, que normaliza las ponchadas del período solicitado.
  */
 
 import { supabaseAdmin } from '../lib/supabase'
-import { callRonosApi, getRonosAuthToken, getRonosWeeks, RONOS_STORES_MAP } from '../lib/ronos-api'
+import { callRonosApi, getRonosAuthToken, getRonosStoreAudit, getRonosWeeks, RONOS_STORES_MAP } from '../lib/ronos-api'
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
 
@@ -51,6 +62,20 @@ export async function syncAllStoresRonos(weeksToSync = 2) {
         .upsert(weeksRows, { onConflict: 'company_id,week_id' })
 
       for (const week of targetWeeks) {
+        const assignmentByUserId = new Map<number, string>()
+        try {
+          const audit = await getRonosStoreAudit(store.ronosCompanyId, week.weekId)
+          for (const employee of audit.employees) {
+            const assignmentId = employee.days
+              .flatMap(day => day.punches)
+              .map(punch => String(punch.assignmentId || '').trim())
+              .find(Boolean)
+            if (assignmentId) assignmentByUserId.set(employee.employeeUserId, assignmentId)
+          }
+        } catch (err: any) {
+          console.warn(`  ⚠️ No se pudieron extraer assignmentId de la auditoría RONOS: ${err?.message || 'error desconocido'}`)
+        }
+
         const weekRes = await callRonosApi<any>('WorkWeek/AdminGetWeekByWeekId', {
           searchTerm: null,
           companyId: store.ronosCompanyId,
@@ -84,6 +109,7 @@ export async function syncAllStoresRonos(weeksToSync = 2) {
               let sickHrs = 0
               let vacHrs = 0
               let holHrs = 0
+              let ronosAssignmentId: string | null = assignmentByUserId.get(uId) || null
 
               try {
                 const userWeek = await callRonosApi<any>('WorkWeek/ManagerGetUserWeekByWeekId', {
@@ -113,6 +139,7 @@ export async function syncAllStoresRonos(weeksToSync = 2) {
                 week_id: week.weekId,
                 employee_user_id: uId,
                 employee_id: emp.employeeId ? Number(emp.employeeId) : null,
+                ronos_assignment_id: ronosAssignmentId,
                 full_name: name,
                 first_name: emp.firstName || '',
                 last_name: emp.lastName || '',

@@ -29,15 +29,42 @@ import { getRonosChainWideAudit } from '@/lib/ronos-api'
 export const runtime = 'nodejs'
 export const maxDuration = 120
 
-export async function GET(request: NextRequest) {
-  const startTime = Date.now()
+/**
+ * Vercel Cron only accepts UTC schedules. We register the two possible UTC
+ * instants for 11:59 AM Los Angeles and allow exactly the one that maps to
+ * 11:59 locally. This prevents the inactive DST schedule from running the
+ * payroll synchronization an hour early or late.
+ */
+function isPayrollSyncMinuteInLosAngeles(date = new Date()): boolean {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Los_Angeles',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23'
+  }).formatToParts(date)
+  const hour = parts.find(part => part.type === 'hour')?.value
+  const minute = parts.find(part => part.type === 'minute')?.value
+  return hour === '11' && minute === '59'
+}
 
+export async function GET(request: NextRequest) {
   // 1. Verificación de autorización de Cron Job
   const authHeader = request.headers.get('authorization')
   const cronSecret = process.env.CRON_SECRET
   if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
+
+  if (!isPayrollSyncMinuteInLosAngeles()) {
+    return NextResponse.json({
+      success: true,
+      skipped: true,
+      reason: 'Outside the scheduled 11:59 AM America/Los_Angeles minute',
+      timestamp: new Date().toISOString()
+    })
+  }
+
+  const startTime = Date.now()
 
   console.log('[Cron sync-daily-payroll] ⏰ Iniciando sincronización diaria de nómina (11:59 AM PT)...')
 
@@ -53,6 +80,7 @@ export async function GET(request: NextRequest) {
   try {
     console.log('[Cron sync-daily-payroll] 📡 1/2 Sincronizando tarifas de Simplify HR OS...')
     const ratesResult = await syncAllStoresSimplifyHrRates()
+    const failedStores = ratesResult.storeResults.filter(store => !store.success)
     results.simplifyRates = {
       success: ratesResult.success,
       totalSynced: ratesResult.totalSynced,
@@ -62,6 +90,11 @@ export async function GET(request: NextRequest) {
         employees: sr.employeeCount,
         success: sr.success
       }))
+    }
+    if (!ratesResult.success || failedStores.length > 0) {
+      results.errors.push(
+        `SimplifyHR: synchronization incomplete (${failedStores.length}/${ratesResult.storeResults.length} stores failed)`
+      )
     }
   } catch (err: any) {
     console.error('[Cron sync-daily-payroll] ⚠️ Error en sincronización de Simplify HR:', err?.message)

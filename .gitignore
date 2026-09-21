@@ -43,6 +43,7 @@ yarn-error.log*
 # logs & scratch
 *.log
 scratch/
+tmp/
 ~$*
 
 # typescript

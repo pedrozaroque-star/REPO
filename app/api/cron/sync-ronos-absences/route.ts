@@ -13,27 +13,44 @@
  *
  * @notes
  *   - Admite ejecución manual vía GET o POST con parámetros opcionales (?store_id=X&force=true).
+ *   - Requiere CRON_SECRET; valida store_id, weeks y force antes de ejecutar escrituras.
  */
 
 import { NextResponse } from 'next/server'
 import { syncRonosAbsencesToSchedules } from '@/lib/sync-ronos-absences'
+import { getCronSecret } from '@/lib/auth-server'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
 
 export async function GET(request: Request) {
   try {
-    const authHeader = request.headers.get('authorization')
-    if (process.env.CRON_SECRET && authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    const cronSecret = getCronSecret()
+    const authorization = request.headers.get('authorization') || request.headers.get('Authorization')
+    if (!cronSecret) {
+      console.error('[sync-ronos-absences] CRON_SECRET no está configurado')
+      return NextResponse.json({ success: false, error: 'Servicio de cron no configurado' }, { status: 503 })
+    }
+    if (authorization !== `Bearer ${cronSecret}`) {
+      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
     }
     const { searchParams } = new URL(request.url)
     const storeIdParam = searchParams.get('store_id')
-    const forceParam = searchParams.get('force') === 'true'
+    const forceValue = searchParams.get('force')
+    if (forceValue !== null && forceValue !== 'true' && forceValue !== 'false') {
+      return NextResponse.json({ success: false, error: 'force debe ser true o false' }, { status: 400 })
+    }
+    const forceParam = forceValue === 'true'
 
-    const storeId = storeIdParam ? parseInt(storeIdParam) : undefined
+    const storeId = storeIdParam ? Number(storeIdParam) : undefined
+    if (storeId !== undefined && (!Number.isSafeInteger(storeId) || storeId <= 0)) {
+      return NextResponse.json({ success: false, error: 'store_id debe ser un entero positivo' }, { status: 400 })
+    }
     const weeksParam = searchParams.get('weeks')
-    const weeksToScan = weeksParam ? parseInt(weeksParam) : 4
+    const weeksToScan = weeksParam ? Number(weeksParam) : 4
+    if (!Number.isSafeInteger(weeksToScan) || weeksToScan < 1 || weeksToScan > 8) {
+      return NextResponse.json({ success: false, error: 'weeks debe ser un entero entre 1 y 8' }, { status: 400 })
+    }
 
     const result = await syncRonosAbsencesToSchedules({
       storeId,
@@ -49,7 +66,7 @@ export async function GET(request: Request) {
         totalScannedStores: result.totalScannedStores,
         totalAbsencesFound: result.totalAbsencesFound,
         totalAbsencesUpserted: result.totalAbsencesUpserted,
-        records: result.records
+        // Los detalles individuales se registran internamente; el cron solo expone totales.
       },
       errors: result.errors
     })

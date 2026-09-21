@@ -1,18 +1,38 @@
 /**
  * @module lib/auth-server
  * @description Helper de servidor para autenticar peticiones en rutas de API de Next.js.
- *              Valida el JWT personalizado (teg_token) almacenado en las cookies.
+ *              Valida el JWT personalizado (teg_token) almacenado en las cookies o headers.
  *
  * @businessRules
- * - **Compatibilidad**: Soporta el sistema de JWT personalizado de Tacos El Gavilan.
- * - **Seguridad**: Valida la firma del token usando la clave de firma de Supabase (SUPABASE_JWT_SECRET).
+ * - **Compatibilidad**: Soporta el sistema de JWT personalizado de Tacos Gavilan.
+ * - **Seguridad**: Valida la firma del token usando la clave de firma de Supabase (SUPABASE_JWT_SECRET) sin fallbacks inseguros.
  * - **Transición**: Diseñado para funcionar de manera transparente junto al cliente de Supabase Auth.
+ *
+ * @dataFlow
+ * - Request (Cookie 'teg_token' o Header 'Authorization') -> verifyAdminAuth() / getServerUser() -> jwt.verify() -> AuthSession / User.
+ *
+ * @notes
+ * - Fail-closed: si no hay secreto JWT configurado en el entorno, rechaza peticiones con error 500 para evitar bypasses.
  */
 
 import { cookies } from 'next/headers'
 import jwt from 'jsonwebtoken'
 
-const JWT_SECRET = process.env.SUPABASE_JWT_SECRET || process.env.JWT_SECRET || 'your-secret-key-change-this-in-production'
+export function getJwtSecret(): string | null {
+  const secret = process.env.SUPABASE_JWT_SECRET || process.env.JWT_SECRET
+  if (!secret || !secret.trim()) {
+    return null
+  }
+  return secret.trim().replace(/^"(.*)"$/, '$1')
+}
+
+export function getCronSecret(): string | null {
+  const secret = process.env.CRON_SECRET
+  if (!secret || !secret.trim()) {
+    return null
+  }
+  return secret.trim()
+}
 
 interface ServerUser {
   id: string
@@ -35,8 +55,11 @@ export async function getServerUser(): Promise<ServerUser | null> {
       return null
     }
 
-    // Use raw string (NOT base64 decoded) — must match login route signing
-    const secret = JWT_SECRET.trim().replace(/^"(.*)"$/, '$1')
+    const secret = getJwtSecret()
+    if (!secret) {
+      console.error('❌ [getServerUser] Fail-closed: JWT secret no configurado en variables de entorno')
+      return null
+    }
 
     const decoded = jwt.verify(token, secret) as any
     if (!decoded || !decoded.sub || !decoded.email) {
@@ -79,8 +102,15 @@ export interface DecodedToken {
  */
 export function verifyAuthToken(token: string): DecodedToken | null {
   try {
-    // Use raw string (NOT base64 decoded) — must match login route signing
-    const secret = JWT_SECRET.trim().replace(/^"(.*)"$/, '$1')
+    if (!token || typeof token !== 'string') {
+      return null
+    }
+
+    const secret = getJwtSecret()
+    if (!secret) {
+      console.error('❌ [verifyAuthToken] Fail-closed: JWT secret no configurado en variables de entorno')
+      return null
+    }
 
     const decoded = jwt.verify(token, secret) as any
     if (!decoded || !decoded.sub || !decoded.email) {
@@ -95,3 +125,82 @@ export function verifyAuthToken(token: string): DecodedToken | null {
   }
 }
 
+export interface AdminAuthResult {
+  authorized: boolean
+  user?: DecodedToken
+  error?: string
+  status?: number
+}
+
+/**
+ * Valida que una petición HTTP a endpoints administrativos cuente con token JWT válido con rol 'admin',
+ * o provenga de un invocador de cron autorizado con CRON_SECRET.
+ *
+ * Fail-Closed:
+ * - Si falta JWT_SECRET en el entorno, rechaza con status 401 sin fallback.
+ * - Si falta CRON_SECRET, cualquier intento de cron es rechazado de inmediato.
+ * - Si no hay token de autenticación: 401.
+ * - Si el usuario no tiene rol 'admin': 403.
+ */
+export function verifyAdminAuth(request: Request, options?: { allowCron?: boolean }): AdminAuthResult {
+  const allowCron = options?.allowCron ?? true
+  const cronSecret = getCronSecret()
+
+  const authHeader = request.headers.get('authorization') || request.headers.get('Authorization')
+  const cookieHeader = request.headers.get('cookie') || ''
+  const cronHeader = request.headers.get('x-cron-auth') || authHeader
+
+  // 1. Invocación de cron: SOLO si está permitida Y el secreto está explícitamente configurado
+  if (allowCron && cronSecret) {
+    const isCronAuthorized = cronHeader === `Bearer ${cronSecret}` || cronHeader === cronSecret
+    if (isCronAuthorized) {
+      return { authorized: true }
+    }
+  }
+
+  // 2. Extracción de token de usuario
+  const token = authHeader?.startsWith('Bearer ')
+    ? authHeader.substring(7).trim()
+    : (cookieHeader.match(/teg_token=([^;]+)/)?.[1]?.trim() || null)
+
+  if (!token) {
+    return {
+      authorized: false,
+      error: 'No autorizado: Token de autenticación no proporcionado',
+      status: 401
+    }
+  }
+
+  // 3. Fallo cerrado si falta secreto de firma JWT
+  const jwtSecret = getJwtSecret()
+  if (!jwtSecret) {
+    console.error('❌ [verifyAdminAuth] Fail-closed: JWT_SECRET / SUPABASE_JWT_SECRET no configurado')
+    return {
+      authorized: false,
+      error: 'No autorizado: Configuración de seguridad del servidor no disponible',
+      status: 401
+    }
+  }
+
+  // 4. Validación de firma y contenido de token
+  const user = verifyAuthToken(token)
+  if (!user) {
+    return {
+      authorized: false,
+      error: 'No autorizado: Token inválido o expirado',
+      status: 401
+    }
+  }
+
+  // 5. Exigir rol 'admin' obligatorio
+  const userRole = (user.user_role || (user as any).role || user.user_metadata?.role || '').toLowerCase()
+  if (userRole !== 'admin') {
+    return {
+      authorized: false,
+      error: 'Acceso denegado: Se requiere rol de administrador',
+      status: 403
+    }
+  }
+
+  return { authorized: true, user }
+}

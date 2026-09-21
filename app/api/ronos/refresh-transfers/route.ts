@@ -5,53 +5,76 @@
  *
  * @businessRules
  *   - El caché tiene un TTL de 4 horas. Este endpoint lo fuerza a refrescar inmediatamente.
- *   - Consulta semana actual + semana anterior para cubrir lunes/martes sin datos.
+ *   - Detección de traslados limitada exclusivamente a horas reales trabajadas (> 0) en la semana visible.
  *   - Solo analiza empleados con 0 horas en la tienda seleccionada.
+ *   - Prohíbe terminantemente peticiones con format=csv.
  *
  * @dataFlow
  *   RONOS API (15 tiendas × 2 semanas) → refreshTransferCache() → caché en memoria
+ *
+ * @notes
+ *   - Requiere rol 'admin' y valida formato numérico estricto para el parámetro companyId.
  */
 
 import { NextResponse } from 'next/server'
 import { refreshTransferCache } from '@/lib/ronos-mapping'
-import { callRonosApi, getRonosWeeks } from '@/lib/ronos-api'
+import { getRonosWeeks, getRonosWeekEmployees } from '@/lib/ronos-api'
+import { verifyAdminAuth } from '@/lib/auth-server'
 
 export async function POST(req: Request) {
   try {
-    const body = await req.json().catch(() => ({}))
-    const ronosCompanyId = Number(body.ronosCompanyId || body.companyId)
-
-    if (!ronosCompanyId) {
-      return NextResponse.json({ error: 'ronosCompanyId / companyId es requerido' }, { status: 400 })
+    const auth = verifyAdminAuth(req)
+    if (!auth.authorized) {
+      return NextResponse.json(
+        { success: false, error: auth.error },
+        { status: auth.status || 401 }
+      )
     }
 
-    // Obtener lista de empleados con 0 horas para esta tienda
-    const weeks = await getRonosWeeks(ronosCompanyId)
-    const currentWeekId = weeks[0]?.weekId
+    const { searchParams } = new URL(req.url)
+    if (searchParams.get('format')?.toLowerCase() === 'csv') {
+      return NextResponse.json({ error: 'El formato CSV no está permitido por razones de seguridad.' }, { status: 400 })
+    }
+
+    const body = await req.json().catch(() => ({}))
+
+    if (body.format && String(body.format).toLowerCase() === 'csv') {
+      return NextResponse.json({ error: 'El formato CSV no está permitido por razones de seguridad.' }, { status: 400 })
+    }
+
+    const rawCompanyId = body.ronosCompanyId ?? body.companyId
+    if (rawCompanyId === undefined || rawCompanyId === null || !/^\d+$/.test(String(rawCompanyId))) {
+      return NextResponse.json({ error: 'Parámetro companyId / ronosCompanyId inválido: debe ser numérico' }, { status: 400 })
+    }
+
+    const ronosCompanyId = parseInt(String(rawCompanyId), 10)
+    if (ronosCompanyId <= 0) {
+      return NextResponse.json({ error: 'Parámetro companyId debe ser un ID mayor a 0' }, { status: 400 })
+    }
+
+    const targetWeekId = body.weekId && /^\d+$/.test(String(body.weekId)) ? parseInt(String(body.weekId), 10) : undefined
+
+    // Obtener lista de empleados con 0 horas para esta tienda en la semana visible
+    let currentWeekId = targetWeekId
+    if (!currentWeekId) {
+      const weeks = await getRonosWeeks(ronosCompanyId)
+      currentWeekId = weeks[0]?.weekId
+    }
+
     if (!currentWeekId) {
       return NextResponse.json({ error: 'No se encontraron semanas para esta tienda' }, { status: 404 })
     }
 
-    const weekData = await callRonosApi<any>('WorkWeek/AdminGetWeekByWeekId', {
-      searchTerm: null,
-      companyId: ronosCompanyId,
-      weekId: currentWeekId,
-      departmentId: 0,
-      pageNumber: 0,
-      pageSize: 100,
-      sort: 'FirstName',
-      showInactive: 0,
-      payType: 0,
-      internalSalariedRules: false
-    })
+    // Consulta paginada exhaustiva (sin límite de 100)
+    const rawEmployees = await getRonosWeekEmployees(ronosCompanyId, currentWeekId)
 
-    const ronosList = ((weekData.results || []) as any[]).filter((e: any) => e.active !== false)
+    const ronosList = (rawEmployees || []).filter((e: any) => e.active !== false)
     const zeroHoursUserIds = ronosList
       .filter((e: any) => (e.totalWeeklyHour || 0) === 0)
       .map((e: any) => Number(e.employeeUserId || e.userId))
 
-    // Forzar refresco del caché
-    const transfers = await refreshTransferCache(ronosCompanyId, zeroHoursUserIds)
+    // Forzar refresco del caché limitado a horas reales en la semana visible
+    const transfers = await refreshTransferCache(ronosCompanyId, zeroHoursUserIds, currentWeekId)
 
     const transfersList = Array.from(transfers.entries()).map(([userId, data]) => ({
       userId,

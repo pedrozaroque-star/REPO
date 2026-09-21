@@ -7,6 +7,8 @@
  * - Integrates with sales_projections_cache and generateSmartForecast for intraday and multi-day pacing targets.
  * @dataFlow
  * - Client -> GET /api/ventas -> Toast API / sales_daily_cache -> Smart Forecast Engine -> JSON Response.
+ * @notes
+ * - Soporta hourly_data desagregado por tienda para alimentar el mapa de demanda y proyecciones de labor.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -125,6 +127,7 @@ export async function GET(request: NextRequest) {
                                 store_id: storeId,
                                 business_date: startDate,
                                 total_sales: totalSales,
+                                hourly_data: hourlyMap,
                                 meta: {
                                     model: 'Intelligence v3.1',
                                     growth_factor: forecast.growth_factor_applied,

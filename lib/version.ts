@@ -20,20 +20,60 @@ export interface VersionMilestone {
 }
 
 export const SYSTEM_VERSION = {
-    version: 'v2.10.3',
-    versionNumber: '2.10.3',
+    version: 'v2.10.5',
+    versionNumber: '2.10.5',
     releaseMonthEs: 'Septiembre 2026',
     releaseMonthEn: 'September 2026',
     stage: 'Producción',
     stageEn: 'Production',
     year: '2026',
-    labelEs: 'Septiembre 2026 • SM TEG v2.10.3',
-    labelEn: 'September 2026 • SM TEG v2.10.3',
+    labelEs: 'Septiembre 2026 • SM TEG v2.10.5',
+    labelEn: 'September 2026 • SM TEG v2.10.5',
     brand: 'SM TEG',
-    lastUpdated: '2026-09-17'
+    lastUpdated: '2026-09-21'
 } as const;
 
 export const VERSION_HISTORY: readonly VersionMilestone[] = [
+    {
+        version: 'v2.10.5',
+        date: '21-Sep-2026',
+        titleEs: 'Viele & Sons Paridad de Precios (0% Tax), Validación Cruzada Sage 100 y Auditoría RONOS Final',
+        titleEn: 'Viele & Sons Price Parity (0% Tax), Sage 100 Cross-Validation & Final RONOS Audit',
+        highlightsEs: [
+            'Corrección de cálculo fiscal en Viele & Sons (taxAmount = 0, totalAmount = subtotalAmount) eliminando recargo erróneo del 9.5% sobre insumos alimenticios al mayoreo',
+            'Validación cruzada automatizada post-checkout con Sage 100 (salesOrderDetail_dt) comparando códigos de ítems y cantidades para certificar paridad y evitar contaminación de carritos',
+            'Corrección del error de build generateCingularSummaryCSV y auditoría profunda de prompts/respuestas en el cierre técnico de RONOS',
+            'Reconciliación acumulada de 146.80 horas de ingeniería en el Reporte de Actividades TSX nativo y soporte de turnos gerenciales Lynwood #14'
+        ],
+        highlightsEn: [
+            'Wholesale tax calculation fix in Viele & Sons (taxAmount = 0, totalAmount = subtotalAmount) eradicating erroneous 9.5% sales tax on tax-exempt food supplies',
+            'Automated post-checkout cross-validation against Sage 100 (salesOrderDetail_dt) comparing item codes and quantities to certify parity and prevent cart contamination',
+            'Resolved generateCingularSummaryCSV build error and conducted deep prompt/response audits for RONOS technical closure',
+            'Cumulative engineering reconciliation reaching 146.80 hours in native TSX Activity Reports and Lynwood #14 managerial shift tracking'
+        ]
+    },
+    {
+        version: 'v2.10.4',
+        date: '19-Sep-2026',
+        titleEs: 'Reingeniería Modular de RONOS, Asignación Dinámica de Supervisores y Reconexión Descansos V3.1',
+        titleEn: 'RONOS Modular Re-engineering, Dynamic Supervisor Allocation & Breaks V3.1 Reconnection',
+        highlightsEs: [
+            'Rediseño modular de RONOS dividiendo la página monolítica en componentes independientes (RonosHomeTab, StoreAttendanceTab, PayrollReconciliationTab, helpers.ts)',
+            'Desvinculación de referencias fijas en lib/payroll-calculator.ts y migración al esquema relacional supervisor_payroll_assignments en Supabase',
+            'Separación formal entre tienda operativa (operational_store_id) y tienda pagadora (payroll_store_id) en lib/supervisor-assignments.ts',
+            'Localización i18n 100% bilingüe en lib/i18n.tsx para todas las métricas, tarjetas, modales y tablas de RONOS',
+            'Corrección del bug de doble turno en helpers.ts (detectTodayAttendance) y eliminación de matching por nombre en asignaciones',
+            'Reconexión y blindaje de Descansos Laborales (/descansos) con la curva horaria normalizada V3.1 y autenticación JWT'
+        ],
+        highlightsEn: [
+            'Full modular redesign of RONOS breaking monolithic page into independent sub-components (RonosHomeTab, StoreAttendanceTab, PayrollReconciliationTab, helpers.ts)',
+            'De-coupled hardcoded invoice references in lib/payroll-calculator.ts and migrated to dynamic supervisor_payroll_assignments relational schema in Supabase',
+            'Formal separation between operational supervisory territory (operational_store_id) and paying entity (payroll_store_id) in lib/supervisor-assignments.ts',
+            '100% bilingual i18n localization in lib/i18n.tsx across all RONOS metrics, cards, modals, and tables',
+            'Resolved double shift attendance consolidation bug in helpers.ts and eliminated name-based matching in supervisor assignments',
+            'Reconnected and hardened Labor Breaks (/descansos) with Forecast V3.1 normalized hourly curve and JWT authentication'
+        ]
+    },
     {
         version: 'v2.10.3',
         date: '17-Sep-2026',

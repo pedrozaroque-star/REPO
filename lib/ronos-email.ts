@@ -13,6 +13,9 @@
  *
  * @dataFlow
  *   UI / Endpoint -> getEscaleraDeMando() -> generateViolationWarningEmailHtml() -> Nodemailer -> Supabase Log.
+ *
+ * @notes
+ *   - Utiliza transporte SMTP seguro configurado en variables de entorno; si las credenciales fallan, registra el error sin colapsar el flujo.
  */
 
 import nodemailer from 'nodemailer'
@@ -36,6 +39,7 @@ export interface RonosViolationEmailPayload {
   lunchEndTime?: string
   clockOutTime?: string
   totalHoursWorked?: number
+  warningStage?: 'first' | 'second' | 'suspension'
   additionalNotes?: string
   senderEmail?: string
 }
@@ -212,8 +216,8 @@ export function generateViolationWarningEmailHtml(payload: RonosViolationEmailPa
                     </span>
                   </td>
                   <td align="right">
-                    <span style="background-color: rgba(0,0,0,0.25); color: #ffffff; font-size: 11px; font-weight: 700; padding: 6px 12px; border-radius: 20px; text-transform: uppercase; border: 1px solid rgba(255,255,255,0.3);">
-                      Aviso Oficial
+                    <span style="background-color: ${payload.warningStage === 'suspension' ? '#991b1b' : payload.warningStage === 'second' ? '#b45309' : 'rgba(0,0,0,0.25)'}; color: #ffffff; font-size: 11px; font-weight: 700; padding: 6px 12px; border-radius: 20px; text-transform: uppercase; border: 1px solid rgba(255,255,255,0.3);">
+                      ${payload.warningStage === 'suspension' ? '🚨 3er Aviso • Suspensión' : payload.warningStage === 'second' ? '⚠️ 2do Aviso Formal' : '📌 1er Aviso Oficial'}
                     </span>
                   </td>
                 </tr>
@@ -432,6 +436,7 @@ export async function sendRonosViolationWarningEmail(payload: RonosViolationEmai
           violation_title: violationTitle,
           violation_date: violationDate,
           violation_details: {
+            stage: payload.warningStage || 'first',
             description: payload.violationDescription,
             clockInTime: payload.clockInTime,
             lunchStartTime: payload.lunchStartTime,
