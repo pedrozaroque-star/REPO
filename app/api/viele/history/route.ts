@@ -26,6 +26,7 @@
 
 import { NextResponse } from 'next/server';
 import { loginViele, VIELE_STORE_ACCOUNTS } from '@/lib/viele-api';
+import { verifyVieleAuth } from '@/lib/viele-auth';
 
 const BASE_URL = 'https://shop.vieleandsons.com';
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36';
@@ -38,6 +39,25 @@ function clean(val: any): string {
 /** Parsea un string tipo "$2,689.26" a número */
 function parseDollar(s: string): number {
   return parseFloat(s.replace(/[$,]/g, '')) || 0;
+}
+
+/**
+ * Normaliza cualquier formato de fecha a formato ISO YYYY-MM-DD para ordenación segura multi-año.
+ */
+function normalizeDateToIso(rawDate: string): string {
+  if (!rawDate) return '';
+  const trimmed = rawDate.trim();
+  if (/^\d{8}$/.test(trimmed)) {
+    return `${trimmed.slice(0, 4)}-${trimmed.slice(4, 6)}-${trimmed.slice(6, 8)}`;
+  }
+  if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(trimmed)) {
+    const [m, d, y] = trimmed.split('/');
+    return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+  }
+  if (/^\d{4}-\d{2}-\d{2}/.test(trimmed)) {
+    return trimmed.slice(0, 10);
+  }
+  return trimmed;
 }
 
 /**
@@ -132,12 +152,21 @@ export async function GET(request: Request) {
     const limitParam = searchParams.get('limit') || '500';
     const limit = parseInt(limitParam, 10);
 
-    // Parse years (soporta "2026" o "2025,2026")
-    const years = yearParam.split(',').map(y => y.trim()).filter(y => /^\d{4}$/.test(y));
-
     if (!storeIdParam) {
       return NextResponse.json({ success: false, error: 'storeId is required' }, { status: 400 });
     }
+
+    // 1. Verificación de autenticación y alcance de tiendas (RBAC)
+    const targetStoreId = storeIdParam !== 'all' ? parseInt(storeIdParam, 10) : undefined;
+    const auth = verifyVieleAuth(request, {
+      requiredStoreId: targetStoreId
+    });
+    if (!auth.authorized) {
+      return NextResponse.json({ success: false, error: auth.error }, { status: auth.status || 401 });
+    }
+
+    // Parse years (soporta "2026" o "2025,2026")
+    const years = yearParam.split(',').map(y => y.trim()).filter(y => /^\d{4}$/.test(y));
 
     // ═══ Mode 2: Order Detail (orderNo provided) ═══
     if (orderNo) {
@@ -183,12 +212,21 @@ export async function GET(request: Request) {
 
     // ═══ Mode 1: Order List ═══
 
-    // storeId=all → Fetch ALL 15 stores in parallel
+    // storeId=all → Solo permitido si el usuario tiene acceso amplio (admin o supervisor con múltiples sucursales)
     if (storeIdParam === 'all') {
-      const allAccounts = Object.values(VIELE_STORE_ACCOUNTS);
+      if (auth.role === 'manager' || auth.role === 'asistente') {
+        return NextResponse.json({
+          success: false,
+          error: 'Acceso denegado: Los gerentes solo pueden consultar el historial de su propia sucursal'
+        }, { status: 403 });
+      }
+
+      const targetAccounts = Object.values(VIELE_STORE_ACCOUNTS).filter(acc =>
+        !auth.allowedStoreIds || auth.allowedStoreIds.includes(acc.storeId)
+      );
 
       const results = await Promise.allSettled(
-        allAccounts.map(acc =>
+        targetAccounts.map(acc =>
           fetchStoreOrders(acc.storeId, acc.storeName, acc.email, acc.password, years, limit)
         )
       );
@@ -207,14 +245,17 @@ export async function GET(request: Request) {
         }
       }
 
-      // Sort by rawDate descending (newest first) with orderNo fallback
-      allOrders.sort((a, b) => (b.rawDate || '').localeCompare(a.rawDate || '') || b.orderNo.localeCompare(a.orderNo));
+      // Ordenar por fecha normalizada descendente (más reciente primero) con fallback a orderNo
+      allOrders.sort((a, b) =>
+        normalizeDateToIso(b.rawDate).localeCompare(normalizeDateToIso(a.rawDate)) ||
+        b.orderNo.localeCompare(a.orderNo)
+      );
 
       return NextResponse.json({
         success: true,
         source: 'viele_sage100',
         mode: 'all_stores',
-        storesQueried: allAccounts.length,
+        storesQueried: targetAccounts.length,
         totalAllTime,
         totalFiltered: allOrders.length,
         years,
@@ -231,6 +272,18 @@ export async function GET(request: Request) {
     }
 
     const result = await fetchStoreOrders(account.storeId, account.storeName, account.email, account.password, years, limit);
+
+    if (result.error) {
+      return NextResponse.json({
+        success: false,
+        source: 'viele_sage100',
+        error: `Error al consultar historial de Viele & Sons para ${account.storeName}: ${result.error}`,
+        totalAllTime: 0,
+        totalFiltered: 0,
+        years,
+        orders: []
+      }, { status: 502 });
+    }
 
     return NextResponse.json({
       success: true,

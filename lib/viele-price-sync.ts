@@ -25,11 +25,16 @@
  * - Destinos: Supabase viele_items, supplier_price_history, supplier_item_mappings, viele_store_pars, viele_store_sort_orders.
  *
  * @notes
+ * - [2026-09-21] AUDITORÍA & ESTABILIDAD: syncVieleOrderGuides preserva estrictamente el orden personalizado (Drag & Drop)
+ *   de cada sucursal al sincronizar, anexando productos nuevos al final con incremento determinista de posición.
+ *   Los errores en inserción de PARs o de orden ahora marcan la sucursal con estatus 'error' en vez de reportar éxito falso.
  * - Respeta las reglas de no mutar columnas generadas en PostgreSQL.
  * - Las variaciones detectadas alimentan los semáforos de compras e informes ejecutivos.
  * - 2026-09-07 Fix: EL4LID migrado automáticamente a KDL76PP preservando PAR y orden.
  */
 
+import fs from 'fs';
+import path from 'path';
 import { getSupabaseAdminClient } from '@/lib/supabase';
 import { ParsedSupplierItem } from './supplier-price-parser';
 import { isVieleSoda, isVieleChemical } from './viele-catalog-data';
@@ -444,20 +449,68 @@ export async function syncVieleOrderGuides(): Promise<OrderGuideSyncResult> {
 
       const guideItems = guideRes.items;
 
+      // Obtener PARs existentes de esta tienda para sincronizar productos nuevos en viele_store_pars
+      const { data: existingStorePars } = await supabase
+        .from('viele_store_pars')
+        .select('item_code')
+        .eq('store_id', storeId);
+      const existingParCodes = new Set((existingStorePars || []).map(p => p.item_code.trim().toUpperCase()));
+      const missingParInserts: Array<{ store_id: number; item_code: string; par_quantity: number; updated_at: string }> = [];
+
+      // Obtener ordenamiento previo existente en la tienda para preservar Drag & Drop personalizado
+      const { data: existingStoreSort } = await supabase
+        .from('viele_store_sort_orders')
+        .select('item_code, sort_order')
+        .eq('store_id', storeId)
+        .order('sort_order', { ascending: true });
+
+      const hasPreviousSort = Boolean(existingStoreSort && existingStoreSort.length > 0);
+      const existingSortMap = new Map<string, number>(
+        (existingStoreSort || []).map(s => [s.item_code.trim().toUpperCase(), s.sort_order])
+      );
+      let nextCustomSortOrder = (existingStoreSort || []).reduce((max, s) => Math.max(max, s.sort_order), 0);
+
       // 3. Preparar upserts para viele_store_sort_orders
-      const sortUpserts: Array<{ store_id: number; item_code: string; sort_order: number }> = [];
+      const sortUpserts: Array<{ store_id: number; item_code: string; sort_order: number; updated_at: string }> = [];
+      const nowIso = new Date().toISOString();
 
       for (let i = 0; i < guideItems.length; i++) {
         const item = guideItems[i];
         const itemCode = (item.ItemID || '').trim().toUpperCase();
         if (!itemCode) continue;
 
-        const position = parseInt(item.DisplayOrder) || (i + 1);
+        let position: number;
+        if (hasPreviousSort) {
+          // Si el producto ya tenía una posición asignada por la tienda, se respeta estrictamente
+          if (existingSortMap.has(itemCode)) {
+            position = existingSortMap.get(itemCode)!;
+          } else {
+            // Si es un producto nuevo que la tienda no tenía, se anexa al final
+            nextCustomSortOrder++;
+            position = nextCustomSortOrder;
+          }
+        } else {
+          // Si la tienda nunca ha personalizado su orden, se usa la posición oficial de V&S Order Guide
+          position = parseInt(item.DisplayOrder) || (i + 1);
+        }
+
         sortUpserts.push({
           store_id: storeId,
           item_code: itemCode,
-          sort_order: position
+          sort_order: position,
+          updated_at: nowIso
         });
+
+        // Asegurar que el item exista en viele_store_pars para esta tienda
+        if (!existingParCodes.has(itemCode)) {
+          missingParInserts.push({
+            store_id: storeId,
+            item_code: itemCode,
+            par_quantity: parseInt(item.Par) || 0,
+            updated_at: nowIso
+          });
+          existingParCodes.add(itemCode);
+        }
 
         // 4. Detectar items nuevos que no existen en viele_items
         if (!existingCodes.has(itemCode)) {
@@ -482,31 +535,82 @@ export async function syncVieleOrderGuides(): Promise<OrderGuideSyncResult> {
               is_chemical: isChemical,
               is_taxable: false,
               price_status: 'new',
-              last_scanned_at: new Date().toISOString()
+              last_scanned_at: nowIso
             }]);
 
           if (!insertErr) {
             existingCodes.add(itemCode);
             allNewItems.push(itemCode);
             console.log(`[OrderGuideSync] ✨ Nuevo item detectado en ${account.storeName}: ${itemCode} - ${item.Description}`);
+
+            // Descargar imagen oficial desde CDN de Viele & Sons si está disponible
+            if (item.ImageFile) {
+              try {
+                const imgUrl = `https://shop.vieleandsons.com/catalog/items/${item.ImageFile}`;
+                const imgRes = await fetch(imgUrl, { headers: { Cookie: loginRes.cookieHeader } });
+                if (imgRes.ok) {
+                  const imgBuf = Buffer.from(await imgRes.arrayBuffer());
+                  const imgDir = path.join(process.cwd(), 'public', 'images', 'viele');
+                  if (!fs.existsSync(imgDir)) fs.mkdirSync(imgDir, { recursive: true });
+                  fs.writeFileSync(path.join(imgDir, `${itemCode}.jpg`), imgBuf);
+                  console.log(`[OrderGuideSync] 🖼️ Imagen oficial descargada para ${itemCode} desde Viele CDN`);
+                }
+              } catch (imgErr: any) {
+                console.warn(`[OrderGuideSync] ⚠️ No se pudo descargar imagen para ${itemCode}:`, imgErr.message);
+              }
+            }
           }
         }
       }
 
-      // 5. Borrar sort orders viejos de esta tienda y reinsertar
+      // 5. Sincronizar sort orders de esta tienda preservando membresía y orden personalizado
+      let sortSyncFailed = false;
       if (sortUpserts.length > 0) {
-        await supabase
-          .from('viele_store_sort_orders')
-          .delete()
-          .eq('store_id', storeId);
-
+        // Upsert atómico por (store_id, item_code) sin borrar todo indiscriminadamente
         const { error: upsertErr } = await supabase
           .from('viele_store_sort_orders')
-          .insert(sortUpserts);
+          .upsert(sortUpserts, { onConflict: 'store_id,item_code' });
 
         if (upsertErr) {
-          console.warn(`[OrderGuideSync] ⚠️ Error insertando sort orders para ${account.storeName}:`, upsertErr.message);
-          details.push({ storeId, storeName: account.storeName, items: sortUpserts.length, status: 'error', error: upsertErr.message });
+          console.warn(`[OrderGuideSync] ⚠️ Error en upsert de sort orders para ${account.storeName}:`, upsertErr.message);
+          sortSyncFailed = true;
+          details.push({ storeId, storeName: account.storeName, items: sortUpserts.length, status: 'error', error: `Sort error: ${upsertErr.message}` });
+        } else {
+          // Limpiar productos que hayan sido retirados permanentemente del Order Guide de Viele & Sons
+          const activeCodes = new Set(guideItems.map(g => (g.ItemID || '').trim().toUpperCase()));
+          const obsoleteCodes = (existingStoreSort || [])
+            .filter(s => !activeCodes.has(s.item_code.trim().toUpperCase()))
+            .map(s => s.item_code);
+
+          if (obsoleteCodes.length > 0) {
+            await supabase
+              .from('viele_store_sort_orders')
+              .delete()
+              .eq('store_id', storeId)
+              .in('item_code', obsoleteCodes);
+            console.log(`[OrderGuideSync] 🧹 Removidos ${obsoleteCodes.length} items obsoletos de viele_store_sort_orders para ${account.storeName}`);
+          }
+        }
+      }
+
+      // 6. Si hay items nuevos en el Order Guide sin registro en viele_store_pars, insertarlos
+      let parSyncFailed = false;
+      if (missingParInserts.length > 0) {
+        const { error: parErr } = await supabase
+          .from('viele_store_pars')
+          .insert(missingParInserts);
+
+        if (parErr) {
+          console.warn(`[OrderGuideSync] ⚠️ Error insertando PARs para ${account.storeName}:`, parErr.message);
+          parSyncFailed = true;
+        } else {
+          console.log(`[OrderGuideSync] 📌 ${missingParInserts.length} nuevos productos vinculados en viele_store_pars para ${account.storeName}`);
+        }
+      }
+
+      if (!sortSyncFailed) {
+        if (parSyncFailed) {
+          details.push({ storeId, storeName: account.storeName, items: sortUpserts.length, status: 'error', error: 'Error insertando PARs faltantes' });
         } else {
           totalItemsSynced += sortUpserts.length;
           details.push({ storeId, storeName: account.storeName, items: sortUpserts.length, status: 'ok' });

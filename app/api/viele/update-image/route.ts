@@ -19,6 +19,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { writeFile, mkdir } from 'fs/promises';
 import path from 'path';
+import { verifyVieleAuth } from '@/lib/viele-auth';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -29,6 +30,12 @@ const MAX_SIZE = 5 * 1024 * 1024; // 5 MB
 
 export async function POST(req: Request) {
   try {
+    // 1. Verificación de autenticación y autorización
+    const auth = verifyVieleAuth(req);
+    if (!auth.authorized) {
+      return NextResponse.json({ success: false, error: auth.error }, { status: auth.status || 401 });
+    }
+
     const formData = await req.formData();
     const itemCode = formData.get('itemCode') as string;
     const file = formData.get('file') as File;

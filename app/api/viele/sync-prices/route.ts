@@ -18,15 +18,22 @@
 import { NextResponse } from 'next/server';
 import { syncVielePortalDirect } from '@/lib/vendor-scraper';
 import { syncVielePurchasesCatalog } from '@/lib/viele-price-sync';
+import { verifyVieleAuth } from '@/lib/viele-auth';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
-export async function POST() {
+export async function POST(req: Request) {
   const startTime = Date.now();
 
   try {
-    // 1. Scraping en vivo desde Viele & Sons
+    // 1. Verificación de autenticación y autorización (Admin o Cron)
+    const auth = verifyVieleAuth(req, { allowCron: true });
+    if (!auth.authorized) {
+      return NextResponse.json({ success: false, error: auth.error }, { status: auth.status || 401 });
+    }
+
+    // 2. Scraping en vivo desde Viele & Sons
     const scrapeResult = await syncVielePortalDirect();
 
     if (!scrapeResult.success || scrapeResult.items.length === 0) {

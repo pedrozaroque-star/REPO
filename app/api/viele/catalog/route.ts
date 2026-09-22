@@ -12,10 +12,14 @@
  *
  * @dataFlow
  * - Supabase: viele_items cruzado con viele_store_sort_orders por store_id.
+ *
+ * @notes
+ * - [2026-09-21] Si se especifica `storeId`, se filtra exclusivamente a los productos que pertenecen al Order Guide de esa sucursal en `viele_store_sort_orders`, garantizando que tiendas con catálogos extendidos (ej. Bell con 88 items) o estándar (87 items) vean exactamente sus productos.
  */
 
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { verifyVieleAuth } from '@/lib/viele-auth';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -27,6 +31,14 @@ export async function GET(req: Request) {
     const category = searchParams.get('category');
     const query = searchParams.get('query');
     const storeId = searchParams.get('storeId');
+
+    // 1. Verificación de autenticación y autorización por sucursal
+    const auth = verifyVieleAuth(req, {
+      requiredStoreId: storeId ? parseInt(storeId) : undefined
+    });
+    if (!auth.authorized) {
+      return NextResponse.json({ success: false, error: auth.error }, { status: auth.status || 401 });
+    }
 
     let dbQuery = supabase
       .from('viele_items')
@@ -50,7 +62,7 @@ export async function GET(req: Request) {
 
     let items = rawItems || [];
 
-    // Si se pasa storeId, verificar si la tienda tiene un orden personalizado
+    // Si se pasa storeId, verificar si la tienda tiene un orden personalizado y membresía estricta
     if (storeId && items.length > 0) {
       const numericStoreId = parseInt(storeId);
       const { data: storeOrders, error: sortError } = await supabase
@@ -58,18 +70,30 @@ export async function GET(req: Request) {
         .select('item_code, sort_order')
         .eq('store_id', numericStoreId);
 
-      if (!sortError && storeOrders && storeOrders.length > 0) {
+      if (sortError) {
+        return NextResponse.json({
+          success: false,
+          error: `Error al consultar membresía de la sucursal #${numericStoreId}: ${sortError.message}`
+        }, { status: 500 });
+      }
+
+      if (storeOrders && storeOrders.length > 0) {
         const orderMap = new Map<string, number>();
         storeOrders.forEach(so => {
-          orderMap.set(so.item_code.trim(), so.sort_order);
+          orderMap.set(so.item_code.trim().toUpperCase(), so.sort_order);
         });
 
-        // Ordenar según el orden de la tienda
-        items = [...items].sort((a, b) => {
-          const orderA = orderMap.has(a.item_code) ? orderMap.get(a.item_code)! : a.sort_order + 1000;
-          const orderB = orderMap.has(b.item_code) ? orderMap.get(b.item_code)! : b.sort_order + 1000;
-          return orderA - orderB;
-        });
+        // Filtrar exclusivamente a los productos que pertenecen al Order Guide de esta tienda y ordenar
+        items = items
+          .filter(item => orderMap.has(item.item_code.trim().toUpperCase()))
+          .sort((a, b) => {
+            const orderA = orderMap.get(a.item_code.trim().toUpperCase()) ?? 999;
+            const orderB = orderMap.get(b.item_code.trim().toUpperCase()) ?? 999;
+            return orderA - orderB;
+          });
+      } else {
+        // Si no hay registros de membresía para la sucursal, no filtrar catálogo global por error
+        items = [];
       }
     }
 

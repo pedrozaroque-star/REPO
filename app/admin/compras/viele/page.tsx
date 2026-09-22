@@ -37,11 +37,12 @@
  * - [2026-09-07] Edición dinámica de niveles PAR directamente en tabla con persistencia atómica en viele_store_pars.
  * - [2026-09-07] Corrección de partición de facturas eliminando startsWith('B') para evitar que platos BG6IN se clasifiquen como sodas.
  * - [2026-09-07] Estandarización obligatoria de separadores de miles ($X,XXX.XX y X,XXX) con formatCurrency y formatNumber.
- * - [2026-09-13] FIX CRÍTICO: Eliminado fallback fantasma (líneas 950-956 originales) que creaba un espejismo visual.
- *   Items que no existían en orderRows se mostraban con PAR/pedido correcto pero se perdían silenciosamente al enviar.
- * - [2026-09-13] FIX CRÍTICO: handleResetToOfficialOrder ahora filtra catálogo por PARs y sincroniza orderRows.
- *   Antes, al restablecer orden oficial, catalog se llenaba con 87+ items pero orderRows no se actualizaba.
- * - [2026-09-13] FIX MENOR: Eliminado setCatalog duplicado en loadData que causaba flash de catálogo sin filtrar.
+ * - [2026-09-13] FIX CRÍTICO: Eliminado fallback fantasma y sincronización precisa de orderRows al restablecer orden.
+ * - [2026-09-21] AUDITORÍA & SEGURIDAD:
+ *   1. Eliminada exposición de credenciales en bundle cliente; importación exclusiva de lib/viele-stores-public.
+ *   2. Aislamiento de estado por sucursal con AbortController, limpieza de filas al conmutar y bloqueo en loading.
+ *   3. Envío con modos inequívocos ('live' | 'draft') y validación de membresía contra catálogo activo.
+ *   4. Manejo de éxito parcial (HTTP 207): descuento inmediato de sodas confirmadas para reintentos seguros.
  */
 
 'use client';
@@ -50,7 +51,7 @@ import { useState, useEffect, useMemo, useRef, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useLanguage } from '@/lib/i18n';
-import { VIELE_STORE_ACCOUNTS, formatUsDate, formatUsFullDate, formatCurrency, formatNumber } from '@/lib/viele-api';
+import { VIELE_PUBLIC_STORES, formatUsDate, formatUsFullDate, formatCurrency, formatNumber } from '@/lib/viele-stores-public';
 import { isVieleSoda } from '@/lib/viele-catalog-data';
 import { 
   Printer, 
@@ -175,56 +176,74 @@ function VieleOrderContent() {
 
   // 1. Cargar Catálogo Maestro (con orden específico de tienda), PARs y estado de orden personalizado
   useEffect(() => {
+    const controller = new AbortController();
+    const signal = controller.signal;
+
+    // Limpiar inmediatamente el estado previo para evitar contaminación entre sucursales
+    setLoading(true);
+    setErrorMessage(null);
+    setCatalog([]);
+    setOrderRows({});
+    setPars({});
+
     async function loadData() {
-      setLoading(true);
-      setErrorMessage(null);
       try {
         const [catRes, parRes, customOrderRes] = await Promise.all([
-          fetch(`/api/viele/catalog?storeId=${storeId}`),
-          fetch(`/api/viele/pars?storeId=${storeId}`),
-          fetch(`/api/viele/custom-order?storeId=${storeId}`)
+          fetch(`/api/viele/catalog?storeId=${storeId}`, { signal }),
+          fetch(`/api/viele/pars?storeId=${storeId}`, { signal }),
+          fetch(`/api/viele/custom-order?storeId=${storeId}`, { signal })
         ]);
+
+        if (signal.aborted) return;
 
         const catJson = await catRes.json();
         const parJson = await parRes.json();
         const customOrderJson = await customOrderRes.json();
 
+        if (signal.aborted) return;
+
+        if (!catRes.ok || !catJson.success) {
+          throw new Error(catJson.error || 'Error al cargar catálogo de la sucursal');
+        }
+
         if (customOrderJson.success) {
           setHasCustomOrder(Boolean(customOrderJson.hasCustomOrder));
         }
 
-        if (catJson.success && catJson.data) {
-          const storePars = parJson.success ? parJson.pars || {} : {};
-          setPars(storePars);
+        const storePars = parJson.success ? parJson.pars || {} : {};
+        setPars(storePars);
 
-          // Filtrar: Solo mostrar productos que la tienda maneja (tienen PAR configurado)
-          const storeItems = catJson.data.filter(
-            (item: CatalogItem) => item.item_code in storePars
-          );
-          setCatalog(storeItems);
+        const storeItems = (catJson.data || []) as CatalogItem[];
+        setCatalog(storeItems);
 
-          // Inicializar estado de filas
-          const rows: Record<string, OrderRow> = {};
-          storeItems.forEach((item: CatalogItem) => {
-            const par = storePars[item.item_code] ?? 0;
-            rows[item.item_code] = {
-              item,
-              par,
-              leftover: '',
-              suggested: par, // Si sobrante no se ha contado, sugerido es el PAR
-              finalOrder: par
-            };
-          });
-          setOrderRows(rows);
-        }
+        // Inicializar estado de filas exclusivamente para los artículos de esta tienda
+        const rows: Record<string, OrderRow> = {};
+        storeItems.forEach((item: CatalogItem) => {
+          const par = storePars[item.item_code] ?? 0;
+          rows[item.item_code] = {
+            item,
+            par,
+            leftover: '',
+            suggested: par, // Si sobrante no se ha contado, sugerido es el PAR
+            finalOrder: par
+          };
+        });
+        setOrderRows(rows);
       } catch (err: any) {
+        if (signal.aborted) return;
         setErrorMessage(err.message || 'Error cargando datos de Viele & Sons');
       } finally {
-        setLoading(false);
+        if (!signal.aborted) {
+          setLoading(false);
+        }
       }
     }
 
     loadData();
+
+    return () => {
+      controller.abort();
+    };
   }, [storeId]);
 
   // Drag & Drop: Inicio de arrastre con el mouse
@@ -317,10 +336,7 @@ function VieleOrderContent() {
         const catRes = await fetch(`/api/viele/catalog?storeId=${storeId}`);
         const catJson = await catRes.json();
         if (catJson.success && catJson.data) {
-          // Filtrar catálogo por PARs para mantener sincronización con orderRows
-          const filteredCatalog = (catJson.data as CatalogItem[]).filter(
-            (item: CatalogItem) => item.item_code in pars
-          );
+          const filteredCatalog = catJson.data as CatalogItem[];
           setCatalog(filteredCatalog);
 
           // Sincronizar orderRows: preservar datos existentes, agregar items faltantes
@@ -376,14 +392,14 @@ function VieleOrderContent() {
       }
 
       const numVal = Math.max(0, parseFloat(val) || 0);
-      const suggested = Math.max(0, current.par - numVal);
+      const suggested = Math.max(0, Math.ceil(current.par - numVal));
       return {
         ...prev,
         [code]: {
           ...current,
           leftover: val,
           suggested,
-          finalOrder: suggested
+          finalOrder: Math.round(suggested)
         }
       };
     });
@@ -404,7 +420,7 @@ function VieleOrderContent() {
   // Manejador de cambio en "PAR"
   const handleParChange = (code: string, val: string) => {
     const isBlank = val.trim() === '';
-    const numVal = isBlank ? 0 : Math.max(0, parseInt(val) || 0);
+    const numVal = isBlank ? 0 : Math.max(0, parseInt(val, 10) || 0);
 
     setOrderRows(prev => {
       const current = prev[code];
@@ -412,7 +428,7 @@ function VieleOrderContent() {
 
       const leftoverNum = parseFloat(current.leftover) || 0;
       const hasLeftover = current.leftover.trim() !== '';
-      const newSuggested = Math.max(0, numVal - (hasLeftover ? leftoverNum : 0));
+      const newSuggested = Math.max(0, Math.ceil(numVal - (hasLeftover ? leftoverNum : 0)));
       const wasFinalOrderSynced = current.finalOrder === current.suggested;
 
       return {
@@ -558,11 +574,13 @@ function VieleOrderContent() {
 
   // Guardar Borrador
   const handleSaveDraft = async () => {
+    if (loading || isSubmitting || catalog.length === 0) return;
     setIsSubmitting(true);
     setErrorMessage(null);
     try {
+      const activeCatalogCodes = new Set(catalog.map(c => c.item_code));
       const itemsToSubmit = Object.values(orderRows)
-        .filter(r => r.finalOrder > 0)
+        .filter(r => r.finalOrder > 0 && activeCatalogCodes.has(r.item.item_code))
         .map(r => ({
           itemCode: r.item.item_code,
           description: r.item.description,
@@ -570,22 +588,27 @@ function VieleOrderContent() {
           unitPrice: r.item.unit_price,
           parQuantity: r.par,
           leftoverQuantity: parseFloat(r.leftover) || 0,
-          orderQuantity: r.finalOrder,
+          orderQuantity: Math.round(r.finalOrder),
           isSoda: r.item.is_soda || isVieleSoda(r.item.item_code)
         }));
+
+      if (itemsToSubmit.length === 0) {
+        throw new Error('Debe ordenar al menos un producto válido de la sucursal actual.');
+      }
 
       const res = await fetch('/api/viele/orders', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           storeId: parseInt(storeId),
+          action: 'draft',
           items: itemsToSubmit,
           shipDate,
           buyerName,
           customerPo: poNumber || `BORRADOR-${Date.now()}`,
           notes,
           submitLive: false,
-          isSimulation: true
+          isSimulation: false
         })
       });
 
@@ -606,11 +629,13 @@ function VieleOrderContent() {
 
   // Enviar Pedido en Vivo a Viele & Sons
   const handleConfirmLiveSubmit = async () => {
+    if (loading || isSubmitting || catalog.length === 0) return;
     setIsSubmitting(true);
     setErrorMessage(null);
     try {
+      const activeCatalogCodes = new Set(catalog.map(c => c.item_code));
       const itemsToSubmit = Object.values(orderRows)
-        .filter(r => r.finalOrder > 0)
+        .filter(r => r.finalOrder > 0 && activeCatalogCodes.has(r.item.item_code))
         .map(r => ({
           itemCode: r.item.item_code,
           description: r.item.description,
@@ -618,15 +643,20 @@ function VieleOrderContent() {
           unitPrice: r.item.unit_price,
           parQuantity: r.par,
           leftoverQuantity: parseFloat(r.leftover) || 0,
-          orderQuantity: r.finalOrder,
+          orderQuantity: Math.round(r.finalOrder),
           isSoda: r.item.is_soda || isVieleSoda(r.item.item_code)
         }));
+
+      if (itemsToSubmit.length === 0) {
+        throw new Error('Debe ordenar al menos un producto válido de la sucursal actual.');
+      }
 
       const res = await fetch('/api/viele/orders', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           storeId: parseInt(storeId),
+          action: 'live',
           items: itemsToSubmit,
           shipDate,
           buyerName,
@@ -637,6 +667,26 @@ function VieleOrderContent() {
       });
 
       const data = await res.json();
+
+      // Manejo de éxito parcial (HTTP 207 o data.partialSuccess)
+      if (res.status === 207 || data.partialSuccess) {
+        // Descontar sodas ya confirmadas en Viele & Sons para no duplicarlas si se reintenta
+        setOrderRows(prev => {
+          const next = { ...prev };
+          for (const code in next) {
+            const itm = next[code];
+            if (itm.item.is_soda || isVieleSoda(itm.item.item_code)) {
+              next[code] = { ...itm, finalOrder: 0 };
+            }
+          }
+          return next;
+        });
+
+        setIsConfirmModalOpen(false);
+        alert(`⚠️ ÉXITO PARCIAL:\n${data.message || data.error}\n\nLa orden de Sodas (${data.orderNumberSodas}) ya quedó registrada en Viele & Sons y en el sistema. Las sodas han sido descontadas para que pueda reintentar únicamente los insumos generales.`);
+        return;
+      }
+
       if (!data.success) throw new Error(data.error);
 
       setSubmitSuccess(data);
@@ -649,7 +699,7 @@ function VieleOrderContent() {
     }
   };
 
-  const currentStoreAccount = VIELE_STORE_ACCOUNTS[parseInt(storeId)];
+  const currentStoreAccount = VIELE_PUBLIC_STORES[parseInt(storeId)];
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 p-4 md:px-8 md:pt-8 pb-8">
@@ -718,7 +768,7 @@ function VieleOrderContent() {
               }}
               className="w-full bg-white border border-slate-300 rounded-xl px-3.5 py-2.5 text-slate-900 font-semibold text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 cursor-pointer shadow-sm"
             >
-              {Object.values(VIELE_STORE_ACCOUNTS).map(acc => (
+              {Object.values(VIELE_PUBLIC_STORES).map(acc => (
                 <option key={acc.storeId} value={acc.storeId}>
                   🌮 {acc.storeName} (#{acc.storeId}) — Sage: {acc.sageCustomerCode}
                 </option>
@@ -1251,7 +1301,7 @@ function VieleOrderContent() {
               <button
                 type="button"
                 onClick={handleSavePars}
-                disabled={isSavingPars}
+                disabled={loading || isSavingPars || catalog.length === 0}
                 className="inline-flex items-center gap-2 px-4 py-2.5 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white font-bold text-sm rounded-xl shadow-md shadow-amber-600/20 transition cursor-pointer animate-pulse"
                 title={t('viele.par_input_title')}
               >
@@ -1262,7 +1312,7 @@ function VieleOrderContent() {
 
             <button
               onClick={handleSaveDraft}
-              disabled={isSubmitting || summary.totalCases === 0}
+              disabled={loading || isSubmitting || summary.totalCases === 0 || catalog.length === 0}
               className="inline-flex items-center gap-2 px-4 py-2.5 bg-white hover:bg-slate-50 disabled:opacity-50 text-slate-700 font-bold text-sm rounded-xl border border-slate-300 transition shadow-sm cursor-pointer"
             >
               <Save className="w-4 h-4 text-slate-500" />
@@ -1271,7 +1321,7 @@ function VieleOrderContent() {
 
             <button
               onClick={() => setIsConfirmModalOpen(true)}
-              disabled={isSubmitting || summary.totalCases === 0}
+              disabled={loading || isSubmitting || summary.totalCases === 0 || catalog.length === 0}
               className="inline-flex items-center gap-2 px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold text-sm rounded-xl shadow-lg shadow-emerald-600/20 transition cursor-pointer"
             >
               <Send className="w-4 h-4" />

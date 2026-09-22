@@ -22,6 +22,10 @@
  * @notes
  * - [2026-09-08] Rediseño completo: historial unificado con tabs Web/App, filtro por año, impresión.
  * - [2026-09-07] Formato estándar con separadores de miles ($X,XXX.XX y X,XXX).
+ * - [2026-09-21] AUDITORÍA & EXACTITUD:
+ *   1. Importación exclusiva de metadatos públicos (lib/viele-stores-public.ts).
+ *   2. Normalización de fechas a ISO YYYY-MM-DD para ordenamiento multi-año robusto.
+ *   3. Exclusión de órdenes canceladas y borradores del indicador de gasto total y promedio en App TEG.
  */
 
 'use client';
@@ -30,7 +34,7 @@ import { useState, useEffect, useRef, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useLanguage } from '@/lib/i18n';
-import { VIELE_STORE_ACCOUNTS, formatUsDate, formatCurrency, formatNumber } from '@/lib/viele-api';
+import { VIELE_PUBLIC_STORES, formatUsDate, formatCurrency, formatNumber } from '@/lib/viele-stores-public';
 import ProtectedRoute, { useAuth } from '@/components/ProtectedRoute';
 import {
   ArrowLeft, History, Package, DollarSign, Search, Eye, X, CheckCircle, XCircle,
@@ -207,17 +211,56 @@ function OrderHistoryContent() {
     setTimeout(() => w.print(), 300);
   };
 
+  function toIsoDate(dateStr?: string): string {
+    if (!dateStr) return '';
+    const cleanStr = dateStr.trim();
+    // YYYYMMDD (8 dígitos) -> YYYY-MM-DD
+    if (/^\d{8}$/.test(cleanStr)) {
+      return `${cleanStr.substring(0, 4)}-${cleanStr.substring(4, 6)}-${cleanStr.substring(6, 8)}`;
+    }
+    // MM/DD/YYYY -> YYYY-MM-DD
+    if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(cleanStr)) {
+      const parts = cleanStr.split('/');
+      return `${parts[2]}-${parts[0].padStart(2, '0')}-${parts[1].padStart(2, '0')}`;
+    }
+    // ISO YYYY-MM-DD
+    if (/^\d{4}-\d{2}-\d{2}/.test(cleanStr)) {
+      return cleanStr.substring(0, 10);
+    }
+    return cleanStr;
+  }
+
   const q = searchQuery.toLowerCase().trim();
   const filteredWeb = webOrders
     .filter(o => !q || o.orderNo.toLowerCase().includes(q) || o.customerPo.toLowerCase().includes(q) || o.shipToName.toLowerCase().includes(q) || (o.storeName || '').toLowerCase().includes(q))
-    .sort((a, b) => (b.rawDate || '').localeCompare(a.rawDate || '') || b.orderNo.localeCompare(a.orderNo));
+    .sort((a, b) => {
+      const dateA = toIsoDate(a.rawDate || a.orderDate);
+      const dateB = toIsoDate(b.rawDate || b.orderDate);
+      return dateB.localeCompare(dateA) || b.orderNo.localeCompare(a.orderNo);
+    });
+
   const filteredApp = appOrders
     .filter(o => !q || (o.order_number||'').toLowerCase().includes(q) || (o.buyer_name||'').toLowerCase().includes(q) || (o.customer_po_no||'').toLowerCase().includes(q) || (o.linked_order_number||'').toLowerCase().includes(q))
-    .sort((a, b) => (b.order_date || '').localeCompare(a.order_date || '') || (b.id || 0) - (a.id || 0));
+    .sort((a, b) => {
+      const dateA = toIsoDate(a.order_date || a.ship_date || a.created_at);
+      const dateB = toIsoDate(b.order_date || b.ship_date || b.created_at);
+      return dateB.localeCompare(dateA) || (b.id || 0) - (a.id || 0);
+    });
 
   /* ─── Stats ─── */
-  const webStats = { count: filteredWeb.length, total: filteredWeb.reduce((a, o) => a + o.orderTotalNumeric, 0), avg: filteredWeb.length > 0 ? filteredWeb.reduce((a, o) => a + o.orderTotalNumeric, 0) / filteredWeb.length : 0 };
-  const appStats = { count: filteredApp.length, total: filteredApp.reduce((a, o) => a + (o.total_amount || 0), 0), avg: filteredApp.length > 0 ? filteredApp.reduce((a, o) => a + (o.total_amount || 0), 0) / filteredApp.length : 0 };
+  const webStats = {
+    count: filteredWeb.length,
+    total: filteredWeb.reduce((a, o) => a + o.orderTotalNumeric, 0),
+    avg: filteredWeb.length > 0 ? filteredWeb.reduce((a, o) => a + o.orderTotalNumeric, 0) / filteredWeb.length : 0
+  };
+  // Excluir órdenes canceladas y borradores de la sumatoria de gasto en App TEG
+  const confirmedAppOrders = filteredApp.filter(o => o.status === 'confirmed');
+  const appStats = {
+    count: filteredApp.length,
+    confirmedCount: confirmedAppOrders.length,
+    total: confirmedAppOrders.reduce((a, o) => a + (o.total_amount || 0), 0),
+    avg: confirmedAppOrders.length > 0 ? confirmedAppOrders.reduce((a, o) => a + (o.total_amount || 0), 0) / confirmedAppOrders.length : 0
+  };
   const stats = activeTab === 'web' ? webStats : appStats;
   const isLoading = activeTab === 'web' ? webLoading : appLoading;
   const yearOptions: { value: string; label: string }[] = [
@@ -274,12 +317,12 @@ function OrderHistoryContent() {
             </label>
             {isManager && userStoreId ? (
               <div className="w-full bg-amber-50 border border-amber-300 rounded-xl px-3.5 py-2.5 text-amber-900 font-semibold text-sm cursor-not-allowed">
-                🌮 {VIELE_STORE_ACCOUNTS[Number(userStoreId)]?.storeName || `Tienda #${userStoreId}`}
+                🌮 {VIELE_PUBLIC_STORES[Number(userStoreId)]?.storeName || `Tienda #${userStoreId}`}
               </div>
             ) : (
               <select value={storeId} onChange={e => setStoreId(e.target.value)} className="w-full bg-white border border-slate-300 rounded-xl px-3.5 py-2.5 text-slate-900 font-semibold text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 cursor-pointer shadow-sm">
                 <option value="all">🌟 {t('viele.historial.all_stores')}</option>
-                {Object.values(VIELE_STORE_ACCOUNTS).map(a => <option key={a.storeId} value={a.storeId}>🌮 {a.storeName} (#{a.storeId}) — {a.sageCustomerCode}</option>)}
+                {Object.values(VIELE_PUBLIC_STORES).map(a => <option key={a.storeId} value={a.storeId}>🌮 {a.storeName} (#{a.storeId}) — {a.sageCustomerCode}</option>)}
               </select>
             )}
           </div>
@@ -353,11 +396,11 @@ function OrderHistoryContent() {
                             {o.status === 'Complete' && <CheckCircle className="w-3 h-3" />}{o.status === 'Complete' ? t('viele.historial.status_complete') : t('viele.historial.status_open')}
                           </span>
                         </td>
-                        <td className="py-3 px-4"><strong className="text-slate-900 text-xs">🌮 {o.storeName || VIELE_STORE_ACCOUNTS[Number(storeId)]?.storeName || o.shipToName}</strong></td>
+                        <td className="py-3 px-4"><strong className="text-slate-900 text-xs">🌮 {o.storeName || VIELE_PUBLIC_STORES[Number(storeId)]?.storeName || o.shipToName}</strong></td>
                         <td className="py-3 px-4 text-slate-700 text-xs font-bold">{o.customerPo}</td>
                         <td className="py-3 px-4 text-right tabular-nums font-bold text-slate-900">{o.orderTotal}</td>
                         <td className="py-3 px-4 text-center">
-                          <button onClick={() => handleViewDetail('web', o.orderNo, { orderDate: o.orderDate, status: o.status, customerPo: o.customerPo, orderTotal: o.orderTotal, storeName: o.storeName || VIELE_STORE_ACCOUNTS[Number(storeId)]?.storeName || o.shipToName, storeId: String(o.storeId || storeId) })} className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-slate-50 text-slate-700 rounded-lg text-xs font-bold transition border border-slate-200 shadow-sm cursor-pointer">
+                          <button onClick={() => handleViewDetail('web', o.orderNo, { orderDate: o.orderDate, status: o.status, customerPo: o.customerPo, orderTotal: o.orderTotal, storeName: o.storeName || VIELE_PUBLIC_STORES[Number(storeId)]?.storeName || o.shipToName, storeId: String(o.storeId || storeId) })} className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-slate-50 text-slate-700 rounded-lg text-xs font-bold transition border border-slate-200 shadow-sm cursor-pointer">
                             <Eye className="w-3.5 h-3.5 text-blue-600" />{t('viele.historial.btn_view')}
                           </button>
                         </td>
@@ -396,7 +439,7 @@ function OrderHistoryContent() {
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {filteredApp.map(order => {
-                      const sa = VIELE_STORE_ACCOUNTS[order.store_id];
+                      const sa = VIELE_PUBLIC_STORES[order.store_id];
                       const isConf = order.status === 'confirmed';
                       const isSoda = order.order_category === 'sodas';
                       return (

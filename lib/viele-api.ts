@@ -32,106 +32,32 @@
  *   y separador de miles obligatorio ($X,XXX.XX y X,XXX) para toda la UI de compras y auditoría Viele.
  */
 
+import 'server-only';
 import { isVieleSoda } from './viele-catalog-data';
+import {
+  VIELE_STORE_ACCOUNTS,
+  type VieleStoreAccount
+} from './viele-credentials-server';
+import {
+  formatShipDateForViele,
+  formatUsDate,
+  formatUsFullDate,
+  formatCurrency,
+  formatNumber
+} from './viele-stores-public';
 
-export interface VieleStoreAccount {
-  storeId: number;
-  storeName: string;
-  email: string;
-  password: string;
-  sageCustomerCode: string;
-  defaultShipTo?: string;
-}
-
-export const VIELE_STORE_ACCOUNTS: Record<number, VieleStoreAccount> = {
-  1: { storeId: 1, storeName: 'Rialto', email: 'rialto@tacosgavilan.com', password: 'teg562', sageCustomerCode: '00ELG1' },
-  3: { storeId: 3, storeName: 'West Covina', email: 'westcovina@tacosgavilan.com', password: 'teg562', sageCustomerCode: '00ELGA10' },
-  4: { storeId: 4, storeName: 'Azusa', email: 'azusa@tacosgavilan.com', password: 'teg562', sageCustomerCode: '00ELG8' },
-  5: { storeId: 5, storeName: 'LA Broadway', email: 'broadway@tacosgavilan.com', password: 'teg562', sageCustomerCode: '00ELG4' },
-  6: { storeId: 6, storeName: 'LA Central', email: 'central@tacosgavilan.com', password: 'teg562', sageCustomerCode: '00ELG' },
-  7: { storeId: 7, storeName: 'Slauson', email: 'slauson@tacosgavilan.com', password: 'teg562', sageCustomerCode: '00ELG306' },
-  8: { storeId: 8, storeName: 'Hollywood', email: 'hollywood@tacosgavilan.com', password: 'teg562', sageCustomerCode: '00ELGA70' },
-  9: { storeId: 9, storeName: 'Santa Ana', email: 'santaana@tacosgavilan.com', password: 'teg562', sageCustomerCode: '00ELGA1' },
-  10: { storeId: 10, storeName: 'La Puente', email: 'lapuente@tacosgavilan.com', password: 'teg562', sageCustomerCode: '00ELGA13' },
-  11: { storeId: 11, storeName: 'Huntington Park', email: 'huntingtonpark@tacosgavilan.com', password: 'teg562', sageCustomerCode: '00ELG24' },
-  12: { storeId: 12, storeName: 'Norwalk', email: 'norwalk@tacosgavilan.com', password: 'teg562', sageCustomerCode: '00ELGA109' },
-  13: { storeId: 13, storeName: 'Bell', email: 'bell@tacosgavilan.com', password: 'teg562', sageCustomerCode: '00ELGA4' },
-  14: { storeId: 14, storeName: 'Lynwood', email: 'lynwood@tacosgavilan.com', password: 'teg562', sageCustomerCode: '00ELG3' },
-  15: { storeId: 15, storeName: 'South Gate', email: 'southgate@tacosgavilan.com', password: 'teg562', sageCustomerCode: '00ELGA5' },
-  16: { storeId: 16, storeName: 'Downey', email: 'downey@tacosgavilan.com', password: 'teg562', sageCustomerCode: '00ELGA7' }
+export {
+  VIELE_STORE_ACCOUNTS,
+  type VieleStoreAccount,
+  formatShipDateForViele,
+  formatUsDate,
+  formatUsFullDate,
+  formatCurrency,
+  formatNumber
 };
 
 const BASE_URL = 'https://shop.vieleandsons.com';
 const BROWSER_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36';
-
-/**
- * Formatea fecha YYYY-MM-DD al formato MM/DD/YYYY requerido por ClearNine
- */
-export function formatShipDateForViele(dateStr: string): string {
-  if (!dateStr) return '';
-  if (/^\d{2}\/\d{2}\/\d{4}$/.test(dateStr)) return dateStr;
-  const parts = dateStr.split('-');
-  if (parts.length === 3) {
-    const [year, month, day] = parts;
-    return `${month.padStart(2, '0')}/${day.padStart(2, '0')}/${year}`;
-  }
-  return dateStr;
-}
-
-/**
- * Formatea fecha ISO o YYYY-MM-DD al estándar de EE.UU. (MM/DD/YYYY)
- */
-export function formatUsDate(dateStr: string | null | undefined): string {
-  if (!dateStr) return '';
-  const cleanDate = dateStr.includes('T') ? dateStr.split('T')[0] : dateStr;
-  if (/^\d{2}\/\d{2}\/\d{4}$/.test(cleanDate)) return cleanDate;
-  const parts = cleanDate.split('-');
-  if (parts.length === 3) {
-    const [year, month, day] = parts;
-    return `${month.padStart(2, '0')}/${day.padStart(2, '0')}/${year}`;
-  }
-  return cleanDate;
-}
-
-/**
- * Formato de fecha completa en formato estadounidense (e.g., "Tuesday, September 8, 2026")
- */
-export function formatUsFullDate(dateStr: string | null | undefined, locale = 'en-US'): string {
-  if (!dateStr) return '';
-  const cleanDate = dateStr.includes('T') ? dateStr.split('T')[0] : dateStr;
-  const parts = cleanDate.split('-').map(Number);
-  if (parts.length === 3) {
-    const [y, m, d] = parts;
-    const dt = new Date(Date.UTC(y, m - 1, d, 12, 0, 0));
-    return dt.toLocaleDateString(locale, {
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-      timeZone: 'UTC'
-    });
-  }
-  return cleanDate;
-}
-
-/**
- * Formatea un importe numérico a moneda con separador de miles en estándar estadounidense ($X,XXX.XX)
- */
-export function formatCurrency(amount: number | null | undefined): string {
-  if (amount === null || amount === undefined || isNaN(Number(amount))) return '$0.00';
-  return '$' + Number(amount).toLocaleString('en-US', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2
-  });
-}
-
-/**
- * Formatea un número o cantidad de cajas con separador de miles estándar de EE.UU. (e.g. 1,215)
- */
-export function formatNumber(val: number | null | undefined): string {
-  if (val === null || val === undefined || isNaN(Number(val))) return '0';
-  return Number(val).toLocaleString('en-US');
-}
 
 /**
  * Extrae el valor de un input del HTML del formulario de checkout
@@ -140,6 +66,18 @@ function extractInputVal(html: string, name: string): string {
   const m = html.match(new RegExp(`name=["']${name}["'][^>]*value=["']([^"']*)["']`, 'i')) ||
             html.match(new RegExp(`value=["']([^"']*)["'][^>]*name=["']${name}["']`, 'i'));
   return m ? m[1] : '';
+}
+
+function cleanHtml(val: any): string {
+  if (!val) return '';
+  return String(val).replace(/<[^>]+>/g, '').trim();
+}
+
+function parseDollar(val: any): number {
+  if (!val) return 0;
+  const cleaned = cleanHtml(val).replace(/[$,]/g, '');
+  const num = parseFloat(cleaned);
+  return isNaN(num) ? 0 : num;
 }
 
 /**
@@ -487,18 +425,30 @@ async function executeBatchCheckout(
     const comments = (req.notes || '').trim().slice(0, 256);
     const shipDateFormatted = formatShipDateForViele(req.shipDate);
 
-    // Aislamiento estricto de lote: filtrar exclusivamente los productos pertenecientes a este lote
+    // Aislamiento estricto de lote: verificar que TODOS los productos del lote estén en el carrito
     const targetCodes = new Set(batchItems.map(i => i.itemCode.trim().toUpperCase()));
     const validIndices: number[] = [];
+    const foundCodes = new Set<string>();
+
     for (let i = 0; i < itemIds.length; i++) {
-      if (targetCodes.has(itemIds[i].trim().toUpperCase())) {
+      const code = itemIds[i].trim().toUpperCase();
+      if (targetCodes.has(code)) {
         validIndices.push(i);
+        foundCodes.add(code);
       }
     }
 
-    if (validIndices.length === 0) {
+    // Comprobar si faltó algún producto solicitado
+    const missingSkus = batchItems
+      .map(i => i.itemCode.trim().toUpperCase())
+      .filter(code => !foundCodes.has(code));
+
+    if (missingSkus.length > 0) {
       await clearVieleCart(cookies);
-      return { success: false, error: `Ninguno de los productos del lote ${category} fue localizado en la pantalla de checkout de Viele.` };
+      return {
+        success: false,
+        error: `Inconsistencia en carrito de Viele para lote ${category}: faltan los siguientes productos en la pantalla de checkout: ${missingSkus.join(', ')}`
+      };
     }
 
     const step1Form = new URLSearchParams();
@@ -683,6 +633,10 @@ async function executeBatchCheckout(
             const sageQty = parseFloat(sageRow[2]) || 0;
             if (sageQty !== sent.quantity) {
               discrepancies.push(`${sent.itemCode}: enviamos ${sent.quantity} pero Sage tiene ${sageQty}`);
+            }
+            const sagePrice = parseDollar(cleanHtml(sageRow[6])) || (parseFloat(sageRow[4]) || 0);
+            if (sent.unitPrice > 0 && Math.abs(sagePrice - sent.unitPrice) > 0.05) {
+              discrepancies.push(`${sent.itemCode}: precio solicitado $${sent.unitPrice.toFixed(2)} difiere de Sage $${sagePrice.toFixed(2)}`);
             }
           }
         }

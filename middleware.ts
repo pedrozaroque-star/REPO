@@ -27,6 +27,26 @@ const PROTECTED_ROUTES = [
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
 
+  // Proteger endpoints de la API de Viele & Sons contra accesos no autenticados
+  if (pathname.startsWith('/api/viele')) {
+    const authHeader = request.headers.get('authorization') || request.headers.get('Authorization');
+    const cronHeader = request.headers.get('x-cron-auth');
+    const token = authHeader?.startsWith('Bearer ')
+      ? authHeader.substring(7).trim()
+      : request.cookies.get('teg_token')?.value;
+
+    const cronSecret = process.env.CRON_SECRET;
+    const isCron = !!(cronSecret && (cronHeader === cronSecret || cronHeader === `Bearer ${cronSecret}` || authHeader === `Bearer ${cronSecret}`));
+
+    if (!token && !isCron) {
+      return NextResponse.json(
+        { success: false, error: 'No autorizado: Token de sesión requerido' },
+        { status: 401 }
+      );
+    }
+    return NextResponse.next();
+  }
+
   // Verificar si es una ruta pública (incluyendo todas las sub-rutas de /admin)
   const isPublicRoute = PUBLIC_ROUTES.some(route => pathname.startsWith(route))
 
@@ -63,5 +83,6 @@ export const config = {
      * - public folder
      */
     '/((?!api|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    '/api/viele/:path*',
   ],
 }

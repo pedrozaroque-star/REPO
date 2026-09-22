@@ -442,6 +442,19 @@ export const TOOL_DECLARATIONS = [
         store_name: { type: 'STRING', description: 'Optional store name to calculate distance-adjusted impact for that specific location.' }
       }
     }
+  },
+  {
+    name: 'query_viele_orders',
+    description: 'Consultar órdenes de compra, números de confirmación Sage 100 (Wxxxxxx), facturas gemelas (sodas e insumos generales), cantidades de cajas y totales de compras a Viele & Sons.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        store_name: { type: 'STRING', description: 'Nombre o fragmento del nombre de la sucursal (ej: "Lynwood", "Hollywood", "Central", "Downey")' },
+        start_date: { type: 'STRING', description: 'Fecha de orden inicial YYYY-MM-DD' },
+        end_date: { type: 'STRING', description: 'Fecha de orden final YYYY-MM-DD' },
+        order_number: { type: 'STRING', description: 'Número de orden de compra oficial de Sage 100 (ej: "W149964")' }
+      }
+    }
   }
 ]
 
@@ -449,6 +462,7 @@ export const TOOL_DECLARATIONS = [
 export async function executeTool(name: string, args: any): Promise<string> {
   try {
     switch (name) {
+      case 'query_viele_orders': return await queryVieleOrders(args)
       case 'query_pnl_consolidated': return await queryPnlConsolidatedTool(args)
       case 'check_system_health': return await checkSystemHealthTool(args)
       case 'calculate_cingular_payroll': return await calculateCingularPayrollTool(args)
@@ -2498,5 +2512,83 @@ async function queryPnlConsolidatedTool(args: any): Promise<string> {
     return out
   } catch (err: any) {
     return `Error consultando P&L consolidado: ${err.message}`
+  }
+}
+
+// ── 23. Viele & Sons Procurement Orders ──
+async function queryVieleOrders(args: any): Promise<string> {
+  try {
+    let query = supabaseAdmin
+      .from('viele_orders')
+      .select(`
+        id,
+        store_id,
+        order_number,
+        order_category,
+        linked_order_number,
+        order_date,
+        ship_date,
+        status,
+        total_cases,
+        subtotal_amount,
+        tax_amount,
+        total_amount,
+        buyer_name,
+        customer_po_no,
+        stores (id, name, code),
+        viele_order_items (item_code, description, order_quantity, unit_price, extended_amount)
+      `)
+      .order('order_date', { ascending: false });
+
+    if (args.order_number) {
+      query = query.eq('order_number', args.order_number.trim().toUpperCase());
+    }
+    if (args.start_date) {
+      query = query.gte('order_date', args.start_date);
+    }
+    if (args.end_date) {
+      query = query.lte('order_date', args.end_date);
+    }
+    if (args.store_name) {
+      const storeIds = await getStoreIdsByName(args.store_name);
+      if (storeIds.length > 0) {
+        query = query.in('store_id', storeIds);
+      }
+    }
+
+    const { data: orders, error } = await query.limit(20);
+    if (error) return `Error consultando órdenes de Viele & Sons: ${error.message}`;
+    if (!orders || orders.length === 0) {
+      return `No se encontraron órdenes de compra de Viele & Sons para los criterios indicados.`;
+    }
+
+    const lines: string[] = [];
+    lines.push(`### 📦 Órdenes de Compra Viele & Sons (${orders.length} encontradas)\n`);
+    for (const o of orders) {
+      const storeName = clean((o.stores as any)?.name || `Tienda #${o.store_id}`);
+      const categoryIcon = o.order_category === 'sodas' ? '🥤 Sodas' : '📦 Insumos Generales';
+      lines.push(`• **Orden ${o.order_number}** (${categoryIcon}) — **${storeName}**`);
+      lines.push(`  * Fecha de Pedido: ${o.order_date} | Fecha de Entrega: ${o.ship_date}`);
+      lines.push(`  * Estado: ${o.status === 'confirmed' ? '✅ Confirmada' : o.status === 'cancelled' ? '❌ Cancelada' : '📝 Borrador'}`);
+      lines.push(`  * Total: ${fmt$(Number(o.total_amount) || 0)} (Subtotal: ${fmt$(Number(o.subtotal_amount) || 0)} + Tax: ${fmt$(Number(o.tax_amount) || 0)}) | Cajas: ${o.total_cases}`);
+      if (o.linked_order_number) {
+        lines.push(`  * Orden Gemela Enlazada: ${o.linked_order_number}`);
+      }
+      lines.push(`  * Comprador: ${o.buyer_name || 'AFV'} | PO: ${o.customer_po_no || 'AFV'}`);
+      const items = (o.viele_order_items as any[]) || [];
+      if (items.length > 0 && items.length <= 8) {
+        lines.push(`  * Partidas (${items.length}):`);
+        for (const it of items) {
+          lines.push(`    - ${it.item_code}: ${it.description} — ${it.order_quantity} cjs @ ${fmt$(Number(it.unit_price) || 0)} = ${fmt$(Number(it.extended_amount) || 0)}`);
+        }
+      } else if (items.length > 8) {
+        lines.push(`  * Partidas: ${items.length} productos incluidos en esta factura.`);
+      }
+      lines.push('');
+    }
+
+    return lines.join('\n');
+  } catch (err: any) {
+    return `Error consultando órdenes de Viele & Sons: ${err.message}`;
   }
 }

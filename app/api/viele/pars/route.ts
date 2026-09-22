@@ -15,6 +15,7 @@
 
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { verifyVieleAuth } from '@/lib/viele-auth';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -29,10 +30,18 @@ export async function GET(req: Request) {
       return NextResponse.json({ success: false, error: 'storeId is required' }, { status: 400 });
     }
 
+    const numericStoreId = parseInt(storeId);
+
+    // 1. Verificación de autenticación y autorización
+    const auth = verifyVieleAuth(req, { requiredStoreId: numericStoreId });
+    if (!auth.authorized) {
+      return NextResponse.json({ success: false, error: auth.error }, { status: auth.status || 401 });
+    }
+
     const { data, error } = await supabase
       .from('viele_store_pars')
       .select('item_code, par_quantity, updated_at')
-      .eq('store_id', parseInt(storeId));
+      .eq('store_id', numericStoreId);
 
     if (error) {
       return NextResponse.json({ success: false, error: error.message }, { status: 500 });
@@ -43,7 +52,7 @@ export async function GET(req: Request) {
       parsMap[row.item_code] = Number(row.par_quantity) || 0;
     });
 
-    return NextResponse.json({ success: true, storeId: parseInt(storeId), count: Object.keys(parsMap).length, pars: parsMap });
+    return NextResponse.json({ success: true, storeId: numericStoreId, count: Object.keys(parsMap).length, pars: parsMap });
   } catch (err: any) {
     return NextResponse.json({ success: false, error: err.message }, { status: 500 });
   }
@@ -58,12 +67,34 @@ export async function PUT(req: Request) {
       return NextResponse.json({ success: false, error: 'storeId and pars object are required' }, { status: 400 });
     }
 
-    const updates = Object.entries(pars).map(([item_code, par_quantity]) => ({
-      store_id: parseInt(storeId),
-      item_code,
-      par_quantity: Number(par_quantity) || 0,
-      updated_at: new Date().toISOString()
-    }));
+    const numericStoreId = parseInt(storeId);
+
+    // 1. Verificación de autenticación y autorización
+    const auth = verifyVieleAuth(req, { requiredStoreId: numericStoreId });
+    if (!auth.authorized) {
+      return NextResponse.json({ success: false, error: auth.error }, { status: auth.status || 401 });
+    }
+
+    const nowIso = new Date().toISOString();
+    const updates: { store_id: number; item_code: string; par_quantity: number; updated_at: string }[] = [];
+
+    // Validación numérica estricta: rechazar negativos, Infinity, NaN o valores no numéricos
+    for (const [item_code, par_raw] of Object.entries(pars)) {
+      const numVal = Number(par_raw);
+      if (!Number.isFinite(numVal) || numVal < 0) {
+        return NextResponse.json({
+          success: false,
+          error: `Valor de PAR inválido para ${item_code}: debe ser un número finito mayor o igual a 0.`
+        }, { status: 400 });
+      }
+
+      updates.push({
+        store_id: numericStoreId,
+        item_code: item_code.trim(),
+        par_quantity: Math.round(numVal),
+        updated_at: nowIso
+      });
+    }
 
     const { error } = await supabase
       .from('viele_store_pars')

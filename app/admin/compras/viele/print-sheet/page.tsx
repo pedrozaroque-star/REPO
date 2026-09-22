@@ -12,15 +12,21 @@
  * - FÓRMULA DE PEDIDO: PEDIDO = MAX(0, PAR - SOBRANTE).
  *
  * @dataFlow
- * - /api/viele/catalog → lista de artículos ordenados por sort_order.
- * - /api/viele/pars?storeId=X → niveles de PAR específicos de la sucursal (también filtra el catálogo).
+ * - /api/viele/catalog?storeId=X → lista de artículos específicos de la sucursal del Order Guide.
+ * - /api/viele/pars?storeId=X → niveles de PAR específicos de la sucursal.
+ *
+ * @notes
+ * - [2026-09-21] Eliminado filtro por storePars; los productos del Order Guide se toman directamente de /api/viele/catalog?storeId=X para que nuevos artículos aparezcan automáticamente.
+ * - [2026-09-21] AUDITORÍA & CALIBRACIÓN:
+ *   1. Fecha de conteo generada en zona horaria America/Los_Angeles para prevenir salto al día siguiente tras las 5:00 PM PDT.
+ *   2. Calibración de altura de fila (21px) y miniatura (18px) para garantizar que los 88 artículos se impriman exactamente en 2 páginas Letter (44 filas por página) sin desbordarse a una 3ª hoja.
  */
 
 'use client';
 
 import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { VIELE_STORE_ACCOUNTS, formatUsDate, formatUsFullDate } from '@/lib/viele-api';
+import { VIELE_PUBLIC_STORES, formatUsDate, formatUsFullDate } from '@/lib/viele-stores-public';
 
 interface CatalogItem {
   item_code: string;
@@ -57,16 +63,13 @@ function PrintSheetContent() {
         const storePars = parJson.success ? parJson.pars || {} : {};
         setPars(storePars);
 
-        // Filtrar: Solo mostrar productos que la tienda maneja (tienen PAR configurado)
+        // Catálogo oficial de la tienda
         if (catJson.success && catJson.data) {
-          const storeItems = catJson.data.filter(
-            (item: CatalogItem) => item.item_code in storePars
-          );
-          setItems(storeItems);
+          setItems(catJson.data);
         }
 
         // 3. Nombre de la tienda
-        const account = VIELE_STORE_ACCOUNTS[parseInt(storeId)];
+        const account = VIELE_PUBLIC_STORES[parseInt(storeId)];
         if (account) {
           setStoreName(`${account.storeName} #${account.storeId}`);
         } else {
@@ -87,8 +90,9 @@ function PrintSheetContent() {
   const page1Items = items.slice(0, midpoint);
   const page2Items = items.slice(midpoint);
 
-  // Fecha de conteo en formato USA estándar (MM/DD/YYYY) y nombre completo en inglés
-  const todayUsFormatted = `${formatUsDate(new Date().toISOString())} (${formatUsFullDate(new Date().toISOString(), 'en-US')})`;
+  // Fecha de conteo en formato USA estándar (MM/DD/YYYY) y nombre completo en inglés (zona horaria America/Los_Angeles)
+  const laIsoDate = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' });
+  const todayUsFormatted = `${formatUsDate(laIsoDate)} (${formatUsFullDate(laIsoDate, 'en-US')})`;
 
   return (
     <>
@@ -96,7 +100,7 @@ function PrintSheetContent() {
         @media print {
           @page {
             size: letter portrait;
-            margin: 0.2in 0.15in;
+            margin: 0.15in 0.12in;
           }
           * {
             -webkit-print-color-adjust: exact !important;
@@ -186,14 +190,14 @@ function PrintSheetContent() {
           width: 100%;
           border-collapse: collapse;
           table-layout: fixed;
-          font-size: 10px;
+          font-size: 9.5px;
         }
 
         .excel-table th, .excel-table td {
           border: 1px solid #1e293b;
-          padding: 2px 3px;
+          padding: 1px 2px;
           vertical-align: middle;
-          height: 32px;
+          height: 21px;
         }
 
         .th-main {
@@ -201,10 +205,10 @@ function PrintSheetContent() {
           color: #ffffff !important;
           font-weight: 900;
           text-align: center;
-          font-size: 10px;
+          font-size: 9px;
           text-transform: uppercase;
           letter-spacing: 0.5px;
-          height: 22px;
+          height: 18px;
         }
 
         .th-num { width: 3.5%; }
@@ -218,7 +222,7 @@ function PrintSheetContent() {
         .td-num {
           text-align: center;
           font-weight: 700;
-          font-size: 9.5px;
+          font-size: 9px;
           color: #475569;
         }
 
@@ -228,10 +232,10 @@ function PrintSheetContent() {
         }
 
         .product-thumb {
-          width: 36px;
-          height: 36px;
+          width: 18px;
+          height: 18px;
           object-fit: contain;
-          border-radius: 3px;
+          border-radius: 2px;
           display: block;
           margin: 0 auto;
           background: #fff;
@@ -239,7 +243,7 @@ function PrintSheetContent() {
 
         .td-sku {
           font-weight: 800;
-          font-size: 11px;
+          font-size: 9.5px;
           text-align: center;
           color: #0f172a;
           letter-spacing: -0.2px;
@@ -249,18 +253,20 @@ function PrintSheetContent() {
         .td-desc {
           text-align: left;
           font-weight: 700;
-          font-size: 13px;
-          padding-left: 8px !important;
-          padding-right: 4px !important;
-          white-space: normal;
-          line-height: 1.25;
+          font-size: 10px;
+          padding-left: 5px !important;
+          padding-right: 3px !important;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          line-height: 1.15;
           color: #000000;
         }
 
         .td-par {
           text-align: center;
           font-weight: 900;
-          font-size: 12px;
+          font-size: 10.5px;
           background-color: #fef9c3 !important;
           color: #000;
         }
@@ -278,15 +284,15 @@ function PrintSheetContent() {
         .sobra-box {
           display: inline-block;
           width: 100%;
-          height: 22px;
+          height: 16px;
         }
 
         .page-label {
           text-align: right;
-          font-size: 8.5px;
+          font-size: 8px;
           color: #94a3b8;
           font-weight: 700;
-          margin-top: 3px;
+          margin-top: 2px;
         }
       `}</style>
 
@@ -316,7 +322,7 @@ function PrintSheetContent() {
               background: '#ffffff', color: '#0f172a', border: '1px solid #cbd5e1',
               padding: '6px 12px', borderRadius: 8, fontSize: 13, fontWeight: 'bold', cursor: 'pointer'
             }}>
-            {Object.values(VIELE_STORE_ACCOUNTS).map(acc => (
+            {Object.values(VIELE_PUBLIC_STORES).map(acc => (
               <option key={acc.storeId} value={acc.storeId}>
                 {acc.storeName} (#{acc.storeId})
               </option>
