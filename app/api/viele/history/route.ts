@@ -25,7 +25,8 @@
  */
 
 import { NextResponse } from 'next/server';
-import { loginViele, VIELE_STORE_ACCOUNTS } from '@/lib/viele-api';
+import { loginViele } from '@/lib/viele-api';
+import { getVieleStoreAccount, getVieleStoreAccounts } from '@/lib/viele-credentials-server';
 import { verifyVieleAuth } from '@/lib/viele-auth';
 
 const BASE_URL = 'https://shop.vieleandsons.com';
@@ -171,7 +172,7 @@ export async function GET(request: Request) {
     // ═══ Mode 2: Order Detail (orderNo provided) ═══
     if (orderNo) {
       const sid = parseInt(storeIdParam, 10);
-      const account = VIELE_STORE_ACCOUNTS[sid];
+      const account = getVieleStoreAccount(sid);
       if (!account) {
         return NextResponse.json({ success: false, error: 'Invalid storeId for detail' }, { status: 400 });
       }
@@ -221,7 +222,7 @@ export async function GET(request: Request) {
         }, { status: 403 });
       }
 
-      const targetAccounts = Object.values(VIELE_STORE_ACCOUNTS).filter(acc =>
+      const targetAccounts = getVieleStoreAccounts().filter(acc =>
         !auth.allowedStoreIds || auth.allowedStoreIds.includes(acc.storeId)
       );
 
@@ -266,7 +267,7 @@ export async function GET(request: Request) {
 
     // storeId=N → Fetch single store
     const sid = parseInt(storeIdParam, 10);
-    const account = VIELE_STORE_ACCOUNTS[sid];
+    const account = getVieleStoreAccount(sid);
     if (!account) {
       return NextResponse.json({ success: false, error: 'Invalid storeId' }, { status: 400 });
     }

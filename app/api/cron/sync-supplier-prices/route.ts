@@ -20,6 +20,7 @@
  *   -> Auto-aprueba inventory_items -> Invalida food_cost_daily_cache -> Email informativo.
  *
  * @notes
+ *   - Fallos de catálogo o de Order Guides generan respuesta de error y auditoría failed, no éxito parcial.
  *   - Seguro para ejecución desatendida en Vercel Serverless con Vercel Cron.
  *   - QuickBooks sync tiene blindaje is_bodega para NO pisar estos precios externos.
  */
@@ -299,6 +300,7 @@ async function handleSync(request: NextRequest) {
     // Conecta el catálogo de compras de sucursales con el Radar de Precios de Viele.
     console.log('[Cron:SyncSupplierPrices] 🛒 Sincronizando catálogo de compras de Viele (viele_items)...')
     const vielePurchasesSync = await syncVielePurchasesCatalog(scrapeResult.items)
+    if (!vielePurchasesSync.success) throw new Error(vielePurchasesSync.errorMessage || 'Falló sincronización del catálogo Viele')
     console.log(`[Cron:SyncSupplierPrices] 🛒 viele_items sincronizado: ${vielePurchasesSync.totalUpdated} precios actualizados, ${vielePurchasesSync.totalNew} productos nuevos.`)
 
     // 6.7. SINCRONIZACIÓN DE ORDER GUIDES POR TIENDA
@@ -306,6 +308,7 @@ async function handleSync(request: NextRequest) {
     // Detecta items nuevos y los inserta en viele_items automáticamente
     console.log('[Cron:SyncSupplierPrices] 📋 Sincronizando Order Guides de todas las tiendas...')
     const orderGuideSync = await syncVieleOrderGuides()
+    if (!orderGuideSync.success) throw new Error(`Falló sincronización de ${orderGuideSync.storesFailed} sucursales: ${orderGuideSync.details.filter(d => d.status === 'error').map(d => `${d.storeId}: ${d.error}`).join('; ')}`)
     console.log(`[Cron:SyncSupplierPrices] 📋 Order Guides sincronizados: ${orderGuideSync.storesSynced}/${orderGuideSync.storesSynced + orderGuideSync.storesFailed} tiendas, ${orderGuideSync.totalItemsSynced} items, ${orderGuideSync.newItemsDetected.length} nuevos.`)
 
     // 7. Enviar Alerta por Correo a Directivos si se detectaron variaciones (Aumentos o Rebajas de Precio)

@@ -50,8 +50,9 @@
 import { useState, useEffect, useMemo, useRef, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
+import ProtectedRoute, { useAuth } from '@/components/ProtectedRoute';
 import { useLanguage } from '@/lib/i18n';
-import { VIELE_PUBLIC_STORES, formatUsDate, formatUsFullDate, formatCurrency, formatNumber } from '@/lib/viele-stores-public';
+import { VIELE_PUBLIC_STORES, matchStoreIdWithScope, formatUsDate, formatUsFullDate, formatCurrency, formatNumber } from '@/lib/viele-stores-public';
 import { isVieleSoda } from '@/lib/viele-catalog-data';
 import { 
   Printer, 
@@ -70,7 +71,8 @@ import {
   RotateCcw,
   Check,
   Upload,
-  Camera
+  Camera,
+  Lock
 } from 'lucide-react';
 
 interface CatalogItem {
@@ -132,13 +134,60 @@ function isTuesday(dateStr: string): boolean {
   return dt.getUTCDay() === 2;
 }
 
+function getAuthHeaders(extraHeaders: Record<string, string> = {}): Record<string, string> {
+  const token = typeof window !== 'undefined' ? localStorage.getItem('teg_token') : null;
+  return {
+    ...extraHeaders,
+    ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+  };
+}
+
 function VieleOrderContent() {
   const { t } = useLanguage();
+  const { user } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const initialStoreId = searchParams.get('storeId') || '14'; // Default Lynwood #14
+
+  // Control de acceso y tiendas autorizadas por rol (RBAC)
+  const userRole = (user?.role || '').toLowerCase();
+  const isManager = userRole === 'manager' || userRole === 'gerente' || userRole === 'asistente';
+  const isSupervisor = userRole === 'supervisor';
+  const isAdmin = userRole === 'admin';
+  const userStoreId = user?.store_id ? String(user.store_id) : null;
+  const supervisorScope = user?.store_scope || [];
+
+  const allowedStores = useMemo(() => {
+    const all = Object.values(VIELE_PUBLIC_STORES);
+    if (isAdmin) return all;
+    if (isSupervisor) {
+      return all.filter(s => matchStoreIdWithScope(s.storeId, supervisorScope));
+    }
+    if (isManager && userStoreId) {
+      return all.filter(s => s.storeId === Number(userStoreId));
+    }
+    return all;
+  }, [isAdmin, isSupervisor, isManager, userStoreId, supervisorScope]);
+
+  const initialStoreId = useMemo(() => {
+    const urlSid = searchParams.get('storeId');
+    if (isManager && userStoreId) return userStoreId;
+    if (urlSid && (isAdmin || allowedStores.some(s => String(s.storeId) === urlSid))) return urlSid;
+    if (allowedStores.length > 0 && !allowedStores.some(s => String(s.storeId) === '14')) {
+      return String(allowedStores[0].storeId);
+    }
+    return '14';
+  }, [searchParams, isManager, userStoreId, isAdmin, allowedStores]);
 
   const [storeId, setStoreId] = useState<string>(initialStoreId);
+
+  // Auto-sincronizar storeId cuando los datos de usuario cargan asíncronamente
+  useEffect(() => {
+    if (isManager && userStoreId && storeId !== userStoreId) {
+      setStoreId(userStoreId);
+    } else if (isSupervisor && allowedStores.length > 0 && !allowedStores.some(s => String(s.storeId) === storeId)) {
+      setStoreId(String(allowedStores[0].storeId));
+    }
+  }, [isManager, userStoreId, isSupervisor, allowedStores, storeId]);
   const [catalog, setCatalog] = useState<CatalogItem[]>([]);
   const [pars, setPars] = useState<Record<string, number>>({});
   const [orderRows, setOrderRows] = useState<Record<string, OrderRow>>({});
@@ -189,9 +238,9 @@ function VieleOrderContent() {
     async function loadData() {
       try {
         const [catRes, parRes, customOrderRes] = await Promise.all([
-          fetch(`/api/viele/catalog?storeId=${storeId}`, { signal }),
-          fetch(`/api/viele/pars?storeId=${storeId}`, { signal }),
-          fetch(`/api/viele/custom-order?storeId=${storeId}`, { signal })
+          fetch(`/api/viele/catalog?storeId=${storeId}`, { signal, headers: getAuthHeaders() }),
+          fetch(`/api/viele/pars?storeId=${storeId}`, { signal, headers: getAuthHeaders() }),
+          fetch(`/api/viele/custom-order?storeId=${storeId}`, { signal, headers: getAuthHeaders() })
         ]);
 
         if (signal.aborted) return;
@@ -301,7 +350,7 @@ function VieleOrderContent() {
 
       const saveRes = await fetch('/api/viele/custom-order', {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({
           storeId: parseInt(storeId),
           itemCodes: updatedCatalog.map(item => item.item_code),
@@ -328,12 +377,15 @@ function VieleOrderContent() {
     setIsSavingCustomOrder(true);
     try {
       const res = await fetch(`/api/viele/custom-order?storeId=${storeId}`, {
-        method: 'DELETE'
+        method: 'DELETE',
+        headers: getAuthHeaders()
       });
       const data = await res.json();
       if (data.success) {
         setHasCustomOrder(false);
-        const catRes = await fetch(`/api/viele/catalog?storeId=${storeId}`);
+        const catRes = await fetch(`/api/viele/catalog?storeId=${storeId}`, {
+          headers: getAuthHeaders()
+        });
         const catJson = await catRes.json();
         if (catJson.success && catJson.data) {
           const filteredCatalog = catJson.data as CatalogItem[];
@@ -456,7 +508,7 @@ function VieleOrderContent() {
 
       const res = await fetch('/api/viele/pars', {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({
           storeId: parseInt(storeId),
           pars: parsPayload
@@ -598,7 +650,7 @@ function VieleOrderContent() {
 
       const res = await fetch('/api/viele/orders', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({
           storeId: parseInt(storeId),
           action: 'draft',
@@ -653,7 +705,7 @@ function VieleOrderContent() {
 
       const res = await fetch('/api/viele/orders', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({
           storeId: parseInt(storeId),
           action: 'live',
@@ -757,23 +809,31 @@ function VieleOrderContent() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-5 bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
           {/* Selector de Tienda */}
           <div>
-            <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1.5">
-              {t('viele.store')}
+            <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1.5 flex items-center justify-between">
+              <span>{t('viele.store')}</span>
+              {isManager && <Lock className="w-3.5 h-3.5 text-amber-500 inline" />}
             </label>
-            <select
-              value={storeId}
-              onChange={(e) => {
-                setStoreId(e.target.value);
-                router.push(`/admin/compras/viele?storeId=${e.target.value}`);
-              }}
-              className="w-full bg-white border border-slate-300 rounded-xl px-3.5 py-2.5 text-slate-900 font-semibold text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 cursor-pointer shadow-sm"
-            >
-              {Object.values(VIELE_PUBLIC_STORES).map(acc => (
-                <option key={acc.storeId} value={acc.storeId}>
-                  🌮 {acc.storeName} (#{acc.storeId}) — Sage: {acc.sageCustomerCode}
-                </option>
-              ))}
-            </select>
+            {isManager && userStoreId ? (
+              <div className="w-full bg-amber-50 border border-amber-300 rounded-xl px-3.5 py-2.5 text-amber-900 font-semibold text-sm cursor-not-allowed flex items-center justify-between shadow-xs">
+                <span>🌮 {currentStoreAccount?.storeName || `Tienda #${storeId}`} (#{storeId}) — Sage: {currentStoreAccount?.sageCustomerCode}</span>
+                <Lock className="w-4 h-4 text-amber-600" />
+              </div>
+            ) : (
+              <select
+                value={storeId}
+                onChange={(e) => {
+                  setStoreId(e.target.value);
+                  router.push(`/admin/compras/viele?storeId=${e.target.value}`);
+                }}
+                className="w-full bg-white border border-slate-300 rounded-xl px-3.5 py-2.5 text-slate-900 font-semibold text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 cursor-pointer shadow-sm"
+              >
+                {allowedStores.map(acc => (
+                  <option key={acc.storeId} value={acc.storeId}>
+                    🌮 {acc.storeName} (#{acc.storeId}) — Sage: {acc.sageCustomerCode}
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
 
           {/* Selector de Fecha de Entrega */}
@@ -1691,6 +1751,7 @@ function VieleOrderContent() {
 
                     const res = await fetch('/api/viele/update-image', {
                       method: 'POST',
+                      headers: getAuthHeaders(),
                       body: formData
                     });
                     const data = await res.json();
@@ -1750,8 +1811,10 @@ function VieleOrderContent() {
 
 export default function VieleOrderPage() {
   return (
-    <Suspense fallback={<div className="p-8 text-center text-slate-500">Cargando pedido...</div>}>
-      <VieleOrderContent />
-    </Suspense>
+    <ProtectedRoute allowedRoles={['admin', 'supervisor', 'manager', 'asistente']}>
+      <Suspense fallback={<div className="p-8 text-center text-slate-500">Cargando pedido...</div>}>
+        <VieleOrderContent />
+      </Suspense>
+    </ProtectedRoute>
   );
 }

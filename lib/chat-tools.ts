@@ -445,7 +445,7 @@ export const TOOL_DECLARATIONS = [
   },
   {
     name: 'query_viele_orders',
-    description: 'Consultar órdenes de compra, números de confirmación Sage 100 (Wxxxxxx), facturas gemelas (sodas e insumos generales), cantidades de cajas y totales de compras a Viele & Sons.',
+    description: 'Consultar órdenes de compra, números de confirmación Sage 100 (Wxxxxxx), facturas gemelas (sodas e insumos generales), cantidades, totales y estado de conciliación. No afirmar que una orden está confirmada si su status es reconciliation_required.',
     parameters: {
       type: 'OBJECT',
       properties: {

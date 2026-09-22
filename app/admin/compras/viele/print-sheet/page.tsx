@@ -26,6 +26,7 @@
 
 import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
+import ProtectedRoute, { useAuth } from '@/components/ProtectedRoute';
 import { VIELE_PUBLIC_STORES, formatUsDate, formatUsFullDate } from '@/lib/viele-stores-public';
 
 interface CatalogItem {
@@ -38,27 +39,51 @@ interface CatalogItem {
   sort_order: number;
 }
 
+function getAuthHeaders(extraHeaders: Record<string, string> = {}): Record<string, string> {
+  const token = typeof window !== 'undefined' ? localStorage.getItem('teg_token') : null;
+  return {
+    ...extraHeaders,
+    ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+  };
+}
+
 function PrintSheetContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const initialStoreId = searchParams.get('storeId') || '14'; // Default Lynwood #14
+  const { user } = useAuth();
 
-  const [storeId, setStoreId] = useState<string>(initialStoreId);
+  const userRole = (user?.role || '').toLowerCase();
+  const isManager = userRole === 'manager' || userRole === 'gerente' || userRole === 'asistente';
+  const userStoreId = user?.store_id ? String(user.store_id) : null;
+
+  const targetStoreId = isManager && userStoreId ? userStoreId : (searchParams.get('storeId') || '14');
+  const [storeId, setStoreId] = useState<string>(targetStoreId);
   const [items, setItems] = useState<CatalogItem[]>([]);
   const [pars, setPars] = useState<Record<string, number>>({});
   const [storeName, setStoreName] = useState<string>('Lynwood #14');
   const [loading, setLoading] = useState<boolean>(true);
+
+  // Auto-sincronizar storeId cuando el usuario carga asíncronamente
+  useEffect(() => {
+    if (isManager && userStoreId && storeId !== userStoreId) {
+      setStoreId(userStoreId);
+    }
+  }, [isManager, userStoreId, storeId]);
 
   // Cargar catálogo e información de la tienda (con orden personalizado si existe)
   useEffect(() => {
     async function loadData() {
       setLoading(true);
       try {
-        const catRes = await fetch(`/api/viele/catalog?storeId=${storeId}`);
+        const catRes = await fetch(`/api/viele/catalog?storeId=${storeId}`, {
+          headers: getAuthHeaders()
+        });
         const catJson = await catRes.json();
 
         // 2. Cargar PARs de la tienda
-        const parRes = await fetch(`/api/viele/pars?storeId=${storeId}`);
+        const parRes = await fetch(`/api/viele/pars?storeId=${storeId}`, {
+          headers: getAuthHeaders()
+        });
         const parJson = await parRes.json();
         const storePars = parJson.success ? parJson.pars || {} : {};
         setPars(storePars);
@@ -481,12 +506,14 @@ function PrintSheetContent() {
 
 export default function VielePrintSheetPage() {
   return (
-    <Suspense fallback={
-      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', color: '#fff', fontFamily: 'sans-serif' }}>
-        Generando formato de impresión...
-      </div>
-    }>
-      <PrintSheetContent />
-    </Suspense>
+    <ProtectedRoute allowedRoles={['admin', 'supervisor', 'manager', 'asistente']}>
+      <Suspense fallback={
+        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', color: '#fff', fontFamily: 'sans-serif' }}>
+          Generando formato de impresión...
+        </div>
+      }>
+        <PrintSheetContent />
+      </Suspense>
+    </ProtectedRoute>
   );
 }

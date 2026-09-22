@@ -6,7 +6,7 @@
  *
  * @businessRules
  * - Marca oficial: Tacos Gavilan
- * - Solo accesible para usuarios autenticados / administradores.
+ * - Solo accesible para administradores o invocaciones cron autorizadas.
  * - Detecta variaciones de precio (aumentos/rebajas) y nuevos SKUs.
  * - Actualiza timestamp last_scanned_at en todos los productos escaneados.
  *
@@ -31,6 +31,9 @@ export async function POST(req: Request) {
     const auth = verifyVieleAuth(req, { allowCron: true });
     if (!auth.authorized) {
       return NextResponse.json({ success: false, error: auth.error }, { status: auth.status || 401 });
+    }
+    if (!auth.isCron && auth.role !== 'admin') {
+      return NextResponse.json({ success: false, error: 'Acceso denegado: solo administradores pueden sincronizar precios.' }, { status: 403 });
     }
 
     // 2. Scraping en vivo desde Viele & Sons

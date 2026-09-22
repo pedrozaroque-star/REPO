@@ -13,6 +13,9 @@
  * @dataFlow
  * - POST: FormData con { itemCode, file } → guarda en /public/images/viele/{itemCode}.{ext}
  *         → actualiza viele_items.image_file en Supabase.
+ *
+ * @notes
+ * - [2026-09-21] La modificación global de imágenes se restringe a administradores y gerentes.
  */
 
 import { NextResponse } from 'next/server';
@@ -34,6 +37,9 @@ export async function POST(req: Request) {
     const auth = verifyVieleAuth(req);
     if (!auth.authorized) {
       return NextResponse.json({ success: false, error: auth.error }, { status: auth.status || 401 });
+    }
+    if (auth.role !== 'admin' && auth.role !== 'manager') {
+      return NextResponse.json({ success: false, error: 'Acceso denegado: solo administradores y gerentes pueden actualizar imágenes.' }, { status: 403 });
     }
 
     const formData = await req.formData();

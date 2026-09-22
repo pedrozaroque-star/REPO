@@ -25,6 +25,7 @@
  * - Destinos: Supabase viele_items, supplier_price_history, supplier_item_mappings, viele_store_pars, viele_store_sort_orders.
  *
  * @notes
+ * - Errores de lectura/escritura se propagan; no reemplazar posiciones a partir de una lectura fallida.
  * - [2026-09-21] AUDITORÍA & ESTABILIDAD: syncVieleOrderGuides preserva estrictamente el orden personalizado (Drag & Drop)
  *   de cada sucursal al sincronizar, anexando productos nuevos al final con incremento determinista de posición.
  *   Los errores en inserción de PARs o de orden ahora marcan la sucursal con estatus 'error' en vez de reportar éxito falso.
@@ -38,7 +39,9 @@ import path from 'path';
 import { getSupabaseAdminClient } from '@/lib/supabase';
 import { ParsedSupplierItem } from './supplier-price-parser';
 import { isVieleSoda, isVieleChemical } from './viele-catalog-data';
-import { loginViele, fetchVieleOrderGuide, VIELE_STORE_ACCOUNTS } from './viele-api';
+import { parseVieleNonnegativeInteger } from './viele-catalog-validation';
+import { loginViele, fetchVieleOrderGuide } from './viele-api';
+import { getVieleStoreAccount, getVieleStoreAccounts, getMissingVieleStoreCredentialStoreIds } from './viele-credentials-server';
 
 /**
  * Diccionario oficial de reemplazos de SKUs de Viele & Sons.
@@ -123,7 +126,7 @@ export async function syncVielePurchasesCatalog(
       .from('suppliers')
       .select('id')
       .eq('supplier_code', 'VIELE')
-      .single();
+      .single().throwOnError();
 
     const supplierId = supplier?.id;
 
@@ -167,6 +170,7 @@ export async function syncVielePurchasesCatalog(
       if (!code) continue;
 
       const newPrice = scraped.casePrice;
+      if (!Number.isFinite(newPrice) || newPrice < 0) throw new Error(`Precio inválido para ${code}`);
       const existing = itemsMap.get(code);
 
       if (!existing) {
@@ -203,7 +207,7 @@ export async function syncVielePurchasesCatalog(
           .insert([newItemPayload]);
 
         if (insertErr) {
-          console.warn(`[VielePriceSync] ⚠️ Error al insertar nuevo producto ${code}:`, insertErr.message);
+          throw new Error(`Error al insertar ${code}: ${insertErr.message}`);
         } else {
           console.log(`[VielePriceSync] ✨ Nuevo producto registrado en viele_items: ${code} - ${scraped.description} ($${newPrice})`);
         }
@@ -218,7 +222,7 @@ export async function syncVielePurchasesCatalog(
             pack_unit: scraped.packUnit || 'CS',
             base_unit: 'pza',
             is_primary: true
-          }, { onConflict: 'supplier_id,supplier_sku' });
+          }, { onConflict: 'supplier_id,supplier_sku' }).throwOnError();
         }
       } else {
         // PRODUCTO EXISTENTE: VERIFICAR VARIACIÓN DE PRECIO
@@ -259,7 +263,7 @@ export async function syncVielePurchasesCatalog(
             .eq('item_code', code);
 
           if (updateErr) {
-            console.warn(`[VielePriceSync] ⚠️ Error al actualizar precio de ${code}:`, updateErr.message);
+            throw new Error(`Error al actualizar ${code}: ${updateErr.message}`);
           }
         } else {
           // PRECIO SIN CAMBIO
@@ -270,7 +274,7 @@ export async function syncVielePurchasesCatalog(
             .update({
               last_scanned_at: nowIso
             })
-            .eq('item_code', code);
+            .eq('item_code', code).throwOnError();
         }
       }
     }
@@ -283,24 +287,24 @@ export async function syncVielePurchasesCatalog(
       const { data: oldPars } = await supabase
         .from('viele_store_pars')
         .select('id, store_id, par_quantity')
-        .eq('item_code', oldCode);
+        .eq('item_code', oldCode).throwOnError();
 
       if (oldPars && oldPars.length > 0) {
         const { data: newPars } = await supabase
           .from('viele_store_pars')
           .select('id, store_id')
-          .eq('item_code', newCode);
+          .eq('item_code', newCode).throwOnError();
 
         const newParsStoreIds = new Set((newPars || []).map(p => p.store_id));
 
         for (const oldPar of oldPars) {
           if (newParsStoreIds.has(oldPar.store_id)) {
-            await supabase.from('viele_store_pars').delete().eq('id', oldPar.id);
+            await supabase.from('viele_store_pars').delete().eq('id', oldPar.id).throwOnError();
           } else {
             await supabase
               .from('viele_store_pars')
               .update({ item_code: newCode })
-              .eq('id', oldPar.id);
+              .eq('id', oldPar.id).throwOnError();
           }
         }
         console.log(`[VielePriceSync] 🔄 Migrados ${oldPars.length} registros de PAR: ${oldCode} -> ${newCode}`);
@@ -310,7 +314,7 @@ export async function syncVielePurchasesCatalog(
       const { data: oldSorts } = await supabase
         .from('viele_store_sort_orders')
         .select('store_id, sort_order')
-        .eq('item_code', oldCode);
+        .eq('item_code', oldCode).throwOnError();
 
       if (oldSorts && oldSorts.length > 0) {
         for (const s of oldSorts) {
@@ -319,20 +323,20 @@ export async function syncVielePurchasesCatalog(
             .select('store_id')
             .eq('store_id', s.store_id)
             .eq('item_code', newCode)
-            .maybeSingle();
+            .maybeSingle().throwOnError();
 
           if (existingNewSort) {
             await supabase
               .from('viele_store_sort_orders')
               .delete()
               .eq('store_id', s.store_id)
-              .eq('item_code', oldCode);
+              .eq('item_code', oldCode).throwOnError();
           } else {
             await supabase
               .from('viele_store_sort_orders')
               .update({ item_code: newCode })
               .eq('store_id', s.store_id)
-              .eq('item_code', oldCode);
+              .eq('item_code', oldCode).throwOnError();
           }
         }
       }
@@ -341,7 +345,7 @@ export async function syncVielePurchasesCatalog(
       await supabase
         .from('viele_items')
         .update({ is_active: false })
-        .eq('item_code', oldCode);
+        .eq('item_code', oldCode).throwOnError();
     }
 
     // 5. Desactivar artículos descontinuados confirmados
@@ -349,7 +353,7 @@ export async function syncVielePurchasesCatalog(
       await supabase
         .from('viele_items')
         .update({ is_active: false })
-        .eq('item_code', discCode);
+        .eq('item_code', discCode).throwOnError();
     }
 
     const durationMs = Date.now() - startTime;
@@ -402,7 +406,7 @@ export interface OrderGuideSyncResult {
  * Sincroniza el Order Guide de Viele & Sons para TODAS las tiendas.
  * - Login real a cada cuenta de tienda en V&S
  * - Extrae la lista completa del Order Guide con su posición (DisplayOrder)
- * - Upserta en viele_store_sort_orders para que la app muestre el mismo orden que V&S
+ * - Conserva posiciones locales, anexa SKU nuevos y retira únicamente SKU ausentes del guide completo.
  * - Si detecta un item nuevo que no existe en viele_items, lo inserta automáticamente
  */
 export async function syncVieleOrderGuides(): Promise<OrderGuideSyncResult> {
@@ -411,11 +415,32 @@ export async function syncVieleOrderGuides(): Promise<OrderGuideSyncResult> {
   const details: OrderGuideSyncResult['details'] = [];
   const allNewItems: string[] = [];
   let totalItemsSynced = 0;
+  const missingCredentialStoreIds = getMissingVieleStoreCredentialStoreIds();
+
+  // Una sincronización de las 15 tiendas nunca debe reportar éxito parcial por una
+  // configuración incompleta: evita que un secreto omitido parezca un catálogo actualizado.
+  if (missingCredentialStoreIds.length > 0) {
+    return {
+      success: false,
+      storesSynced: 0,
+      storesFailed: missingCredentialStoreIds.length,
+      totalItemsSynced: 0,
+      newItemsDetected: [],
+      durationMs: Date.now() - startTime,
+      details: missingCredentialStoreIds.map(storeId => ({
+        storeId,
+        storeName: `Tienda #${storeId}`,
+        items: 0,
+        status: 'error' as const,
+        error: 'Credencial de Viele no configurada en el entorno del servidor'
+      }))
+    };
+  }
 
   // Obtener catálogo existente para detectar items nuevos
   const { data: existingItems } = await supabase
     .from('viele_items')
-    .select('item_code');
+    .select('item_code').throwOnError();
   const existingCodes = new Set((existingItems || []).map(i => i.item_code.trim().toUpperCase()));
 
   // Obtener max sort_order actual para asignar a items nuevos
@@ -423,13 +448,13 @@ export async function syncVieleOrderGuides(): Promise<OrderGuideSyncResult> {
     .from('viele_items')
     .select('sort_order')
     .order('sort_order', { ascending: false })
-    .limit(1);
+    .limit(1).throwOnError();
   let maxSortOrder = maxSortData?.[0]?.sort_order || 0;
 
-  const storeIds = Object.keys(VIELE_STORE_ACCOUNTS).map(Number);
+  const storeIds = getVieleStoreAccounts().map(account => account.storeId);
 
   for (const storeId of storeIds) {
-    const account = VIELE_STORE_ACCOUNTS[storeId];
+    const account = getVieleStoreAccount(storeId);
     if (!account) continue;
 
     try {
@@ -448,12 +473,16 @@ export async function syncVieleOrderGuides(): Promise<OrderGuideSyncResult> {
       }
 
       const guideItems = guideRes.items;
+      const guideCodes = guideItems.map(item => (item.ItemID || '').trim().toUpperCase());
+      if (guideCodes.some(code => !code) || new Set(guideCodes).size !== guideCodes.length) {
+        throw new Error('Order Guide contiene SKU vacíos o duplicados; membresía preservada.');
+      }
 
       // Obtener PARs existentes de esta tienda para sincronizar productos nuevos en viele_store_pars
       const { data: existingStorePars } = await supabase
         .from('viele_store_pars')
         .select('item_code')
-        .eq('store_id', storeId);
+        .eq('store_id', storeId).throwOnError();
       const existingParCodes = new Set((existingStorePars || []).map(p => p.item_code.trim().toUpperCase()));
       const missingParInserts: Array<{ store_id: number; item_code: string; par_quantity: number; updated_at: string }> = [];
 
@@ -462,7 +491,7 @@ export async function syncVieleOrderGuides(): Promise<OrderGuideSyncResult> {
         .from('viele_store_sort_orders')
         .select('item_code, sort_order')
         .eq('store_id', storeId)
-        .order('sort_order', { ascending: true });
+        .order('sort_order', { ascending: true }).throwOnError();
 
       const hasPreviousSort = Boolean(existingStoreSort && existingStoreSort.length > 0);
       const existingSortMap = new Map<string, number>(
@@ -503,10 +532,12 @@ export async function syncVieleOrderGuides(): Promise<OrderGuideSyncResult> {
 
         // Asegurar que el item exista en viele_store_pars para esta tienda
         if (!existingParCodes.has(itemCode)) {
+          const remotePar = item.Par === '' || item.Par == null ? 0 : parseVieleNonnegativeInteger(item.Par);
+          if (remotePar === null) throw new Error(`PAR oficial inválido para ${itemCode}`);
           missingParInserts.push({
             store_id: storeId,
             item_code: itemCode,
-            par_quantity: parseInt(item.Par) || 0,
+            par_quantity: remotePar,
             updated_at: nowIso
           });
           existingParCodes.add(itemCode);
@@ -538,7 +569,8 @@ export async function syncVieleOrderGuides(): Promise<OrderGuideSyncResult> {
               last_scanned_at: nowIso
             }]);
 
-          if (!insertErr) {
+          if (insertErr) throw new Error(`Error al insertar ${itemCode}: ${insertErr.message}`);
+          {
             existingCodes.add(itemCode);
             allNewItems.push(itemCode);
             console.log(`[OrderGuideSync] ✨ Nuevo item detectado en ${account.storeName}: ${itemCode} - ${item.Description}`);
@@ -587,7 +619,7 @@ export async function syncVieleOrderGuides(): Promise<OrderGuideSyncResult> {
               .from('viele_store_sort_orders')
               .delete()
               .eq('store_id', storeId)
-              .in('item_code', obsoleteCodes);
+              .in('item_code', obsoleteCodes).throwOnError();
             console.log(`[OrderGuideSync] 🧹 Removidos ${obsoleteCodes.length} items obsoletos de viele_store_sort_orders para ${account.storeName}`);
           }
         }

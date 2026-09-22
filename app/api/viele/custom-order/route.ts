@@ -14,9 +14,10 @@
  * @dataFlow
  * - GET: SELECT item_code, sort_order FROM viele_store_sort_orders WHERE store_id = X ORDER BY sort_order ASC
  * - PUT: UPSERT a viele_store_sort_orders con el nuevo arreglo secuencial de item_code
- * - DELETE: UPSERT atómico con posiciones oficiales de V&S Order Guide / viele_items
+ * - DELETE: UPSERT atómico con posiciones oficiales de V&S sobre la membresía vigente.
  *
  * @notes
+ * - Fallos remotos no modifican posiciones. Si cambió la membresía, sincronizar antes de restablecer.
  * - [2026-09-21] Corrección de auditoría: DELETE ahora es atómico vía UPSERT y nunca ejecuta DELETE sin reemplazo,
  *   evitando que fallos de red dejen a la tienda con membresía vacía o desprotegida.
  * - [2026-09-21] Control RBAC estricto vía verifyVieleAuth para GET, PUT y DELETE.
@@ -24,8 +25,10 @@
 
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { loginViele, fetchVieleOrderGuide, VIELE_STORE_ACCOUNTS } from '@/lib/viele-api';
+import { loginViele, fetchVieleOrderGuide } from '@/lib/viele-api';
+import { getVieleStoreAccount } from '@/lib/viele-credentials-server';
 import { verifyVieleAuth } from '@/lib/viele-auth';
+import { parseVieleStoreId } from '@/lib/viele-catalog-validation';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -40,7 +43,8 @@ export async function GET(req: Request) {
       return NextResponse.json({ success: false, error: 'storeId is required' }, { status: 400 });
     }
 
-    const numericStoreId = parseInt(storeId);
+    const numericStoreId = parseVieleStoreId(storeId);
+    if (numericStoreId === null) return NextResponse.json({ success: false, error: 'storeId inválido' }, { status: 400 });
 
     // 1. Verificación de autenticación y autorización
     const auth = verifyVieleAuth(req, { requiredStoreId: numericStoreId });
@@ -86,7 +90,8 @@ export async function PUT(req: Request) {
       }, { status: 400 });
     }
 
-    const numericStoreId = parseInt(storeId);
+    const numericStoreId = parseVieleStoreId(storeId);
+    if (numericStoreId === null) return NextResponse.json({ success: false, error: 'storeId inválido' }, { status: 400 });
 
     // 1. Verificación de autenticación y autorización
     const auth = verifyVieleAuth(req, { requiredStoreId: numericStoreId });
@@ -95,8 +100,11 @@ export async function PUT(req: Request) {
     }
 
     const itemCodes: string[] = rawItems.map((it: any) => {
-      if (typeof it === 'string') return it.trim();
-      if (it && typeof it === 'object') return (it.itemCode || it.item_code || '').trim();
+      if (typeof it === 'string') return it.trim().toUpperCase();
+      if (it && typeof it === 'object') {
+        const code = it.itemCode ?? it.item_code;
+        return typeof code === 'string' ? code.trim().toUpperCase() : '';
+      }
       return '';
     }).filter(Boolean);
 
@@ -108,6 +116,13 @@ export async function PUT(req: Request) {
     }
 
     const nowIso = new Date().toISOString();
+    const { data: membership, error: membershipError } = await supabase
+      .from('viele_store_sort_orders').select('item_code').eq('store_id', numericStoreId);
+    if (membershipError) return NextResponse.json({ success: false, error: membershipError.message }, { status: 500 });
+    const allowedCodes = new Set((membership || []).map(row => row.item_code.trim().toUpperCase()));
+    if (itemCodes.length !== rawItems.length || itemCodes.length !== allowedCodes.size || new Set(itemCodes).size !== itemCodes.length || itemCodes.some(code => !allowedCodes.has(code))) {
+      return NextResponse.json({ success: false, error: 'El orden debe contener exactamente los SKU de la sucursal, sin duplicados.' }, { status: 400 });
+    }
 
     const updates = itemCodes.map((item_code: string, index: number) => ({
       store_id: numericStoreId,
@@ -144,7 +159,8 @@ export async function DELETE(req: Request) {
       return NextResponse.json({ success: false, error: 'storeId is required' }, { status: 400 });
     }
 
-    const numericStoreId = parseInt(storeId);
+    const numericStoreId = parseVieleStoreId(storeId);
+    if (numericStoreId === null) return NextResponse.json({ success: false, error: 'storeId inválido' }, { status: 400 });
 
     // 1. Verificación de autenticación y autorización
     const auth = verifyVieleAuth(req, { requiredStoreId: numericStoreId });
@@ -152,7 +168,7 @@ export async function DELETE(req: Request) {
       return NextResponse.json({ success: false, error: auth.error }, { status: auth.status || 401 });
     }
 
-    const account = VIELE_STORE_ACCOUNTS[numericStoreId];
+    const account = getVieleStoreAccount(numericStoreId);
     if (account) {
       const login = await loginViele(account.email, account.password);
       if (login.success) {
@@ -164,6 +180,14 @@ export async function DELETE(req: Request) {
             sort_order: parseInt(item.DisplayOrder) || (idx + 1),
             updated_at: new Date().toISOString()
           })).filter((x: any) => Boolean(x.item_code));
+          const { data: membership, error: membershipError } = await supabase
+            .from('viele_store_sort_orders').select('item_code').eq('store_id', numericStoreId);
+          if (membershipError) return NextResponse.json({ success: false, error: membershipError.message }, { status: 500 });
+          const currentCodes = new Set((membership || []).map(row => row.item_code.trim().toUpperCase()));
+          const officialCodes = new Set(sortUpserts.map(row => row.item_code));
+          if (sortUpserts.length !== og.items.length || officialCodes.size !== sortUpserts.length || currentCodes.size !== officialCodes.size || [...currentCodes].some(code => !officialCodes.has(code))) {
+            return NextResponse.json({ success: false, error: 'El Order Guide cambió. Sincroniza el catálogo antes de restablecer su orden.' }, { status: 409 });
+          }
 
           // Actualización atómica vía UPSERT: nunca deja la membresía en blanco
           const { error: upsertErr } = await supabase
@@ -187,50 +211,10 @@ export async function DELETE(req: Request) {
       }
     }
 
-    // Fallback seguro: si no hay sesión remota, restablecer usando el orden maestro de viele_items
-    // NUNCA borrar la membresía completa con un DELETE no condicionado
-    const { data: storeExisting, error: fetchExistingErr } = await supabase
-      .from('viele_store_sort_orders')
-      .select('item_code')
-      .eq('store_id', numericStoreId);
-
-    if (fetchExistingErr) {
-      return NextResponse.json({ success: false, error: fetchExistingErr.message }, { status: 500 });
-    }
-
-    if (storeExisting && storeExisting.length > 0) {
-      const { data: masterItems } = await supabase
-        .from('viele_items')
-        .select('item_code, sort_order');
-
-      const masterOrderMap = new Map((masterItems || []).map(i => [i.item_code.trim().toUpperCase(), i.sort_order]));
-      const fallbackUpserts = storeExisting.map(r => ({
-        store_id: numericStoreId,
-        item_code: r.item_code,
-        sort_order: masterOrderMap.get(r.item_code.trim().toUpperCase()) ?? 999,
-        updated_at: new Date().toISOString()
-      }));
-
-      const { error: fallbackErr } = await supabase
-        .from('viele_store_sort_orders')
-        .upsert(fallbackUpserts, { onConflict: 'store_id,item_code' });
-
-      if (fallbackErr) {
-        return NextResponse.json({ success: false, error: fallbackErr.message }, { status: 500 });
-      }
-
-      return NextResponse.json({
-        success: true,
-        storeId: numericStoreId,
-        message: `Orden de la sucursal #${numericStoreId} restablecido al orden maestro predeterminado (${fallbackUpserts.length} items)`
-      });
-    }
-
     return NextResponse.json({
-      success: true,
-      storeId: numericStoreId,
-      message: `La sucursal #${numericStoreId} no requería restablecimiento`
-    });
+      success: false,
+      error: 'No se pudo consultar el Order Guide oficial. El orden de la sucursal permanece intacto.'
+    }, { status: 502 });
   } catch (err: any) {
     return NextResponse.json({ success: false, error: err.message }, { status: 500 });
   }

@@ -14,12 +14,14 @@
  * - Supabase: viele_items cruzado con viele_store_sort_orders por store_id.
  *
  * @notes
+ * - StoreId inválido se rechaza; una membresía vacía o fallida nunca expone el catálogo global.
  * - [2026-09-21] Si se especifica `storeId`, se filtra exclusivamente a los productos que pertenecen al Order Guide de esa sucursal en `viele_store_sort_orders`, garantizando que tiendas con catálogos extendidos (ej. Bell con 88 items) o estándar (87 items) vean exactamente sus productos.
  */
 
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { verifyVieleAuth } from '@/lib/viele-auth';
+import { parseVieleStoreId } from '@/lib/viele-catalog-validation';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -31,10 +33,12 @@ export async function GET(req: Request) {
     const category = searchParams.get('category');
     const query = searchParams.get('query');
     const storeId = searchParams.get('storeId');
+    const numericStoreId = storeId === null ? undefined : parseVieleStoreId(storeId);
+    if (numericStoreId === null) return NextResponse.json({ success: false, error: 'storeId inválido' }, { status: 400 });
 
     // 1. Verificación de autenticación y autorización por sucursal
     const auth = verifyVieleAuth(req, {
-      requiredStoreId: storeId ? parseInt(storeId) : undefined
+      requiredStoreId: numericStoreId
     });
     if (!auth.authorized) {
       return NextResponse.json({ success: false, error: auth.error }, { status: auth.status || 401 });
@@ -63,8 +67,7 @@ export async function GET(req: Request) {
     let items = rawItems || [];
 
     // Si se pasa storeId, verificar si la tienda tiene un orden personalizado y membresía estricta
-    if (storeId && items.length > 0) {
-      const numericStoreId = parseInt(storeId);
+    if (numericStoreId !== undefined) {
       const { data: storeOrders, error: sortError } = await supabase
         .from('viele_store_sort_orders')
         .select('item_code, sort_order')

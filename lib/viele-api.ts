@@ -13,13 +13,15 @@
  * - En modo simulación (isSimulation = true), no se ejecuta el POST final de checkout en Viele.
  *
  * @dataFlow
- * - store_id → credenciales de sucursal (tienda@tacosgavilan.com / teg562).
+ * - store_id → credenciales de sucursal recuperadas exclusivamente desde el entorno del servidor.
  * - POST /login/ → sesión ClearNine (cookies PHPSESSID, c9session).
  * - POST /api/v3/shopping_cart → inyección de líneas con ItemID, Quantity, UOM y Price.
  * - POST /checkout/ → generación del pedido oficial en Sage 100 (número Wxxxxxx).
  * - viele_orders + viele_order_items → persistencia local en Supabase.
  *
  * @notes
+ * - [2026-09-22] financialsVerified exige documento oficial completo y conciliación a un centavo;
+ *   la persistencia solo confirma cuando también pasa la validación de partidas.
  * - [2026-09-06] Ingeniería inversa y emulación 100% fiel del flujo de navegador ClearNine:
  *   1) Reset previo de carrito (DELETE /api/v3/shopping_cart) para evitar ítems huérfanos.
  *   2) Inyección de líneas de producto (POST /api/v3/shopping_cart).
@@ -35,7 +37,7 @@
 import 'server-only';
 import { isVieleSoda } from './viele-catalog-data';
 import {
-  VIELE_STORE_ACCOUNTS,
+  getVieleStoreAccount,
   type VieleStoreAccount
 } from './viele-credentials-server';
 import {
@@ -47,7 +49,6 @@ import {
 } from './viele-stores-public';
 
 export {
-  VIELE_STORE_ACCOUNTS,
   type VieleStoreAccount,
   formatShipDateForViele,
   formatUsDate,
@@ -573,6 +574,8 @@ async function executeBatchCheckout(
     }
 
     // Extraer desglose financiero oficial exacto calculado por Sage 100 de Viele (Subtotal, Tax real, Total real)
+    let financialsVerified = false;
+    let officialFinancialHtml = '';
     let finalSubtotal = subtotalAmount;
     let finalTax = taxAmount;
     let finalTotal = totalAmount;
@@ -592,6 +595,7 @@ async function executeBatchCheckout(
       if (docRes.ok) {
         const docData = await docRes.json();
         const html = docData?.HTMLDoc || '';
+        officialFinancialHtml = html;
         const netMatch = html.match(/Net Order:\s*<\/strong><\/td><td[^>]*><strong>\$?([\d,]+\.\d{2})/i);
         const taxMatch = html.match(/Sales Tax:\s*<\/strong><\/td><td[^>]*><strong>\$?([\d,]+\.\d{2})/i);
         const totMatch = html.match(/Order Total:\s*<\/strong><\/td><td[^>]*><strong>\$?([\d,]+\.\d{2})/i);
@@ -600,6 +604,10 @@ async function executeBatchCheckout(
           if (netMatch) finalSubtotal = parseFloat(netMatch[1].replace(/,/g, ''));
           if (taxMatch) finalTax = parseFloat(taxMatch[1].replace(/,/g, ''));
           finalTotal = parseFloat(totMatch[1].replace(/,/g, ''));
+          financialsVerified = !!netMatch && !!taxMatch &&
+            [finalSubtotal, finalTax, finalTotal].every(value => Number.isFinite(value) && value >= 0) &&
+            Math.abs(finalSubtotal - subtotalAmount) <= 0.010001 &&
+            Math.abs(finalSubtotal + finalTax - finalTotal) <= 0.010001;
         }
       }
 
@@ -670,6 +678,8 @@ async function executeBatchCheckout(
         items: batchItems,
         vieleRawResponse: {
           rawExcerpt: step2Html.slice(0, 500),
+          financialsVerified,
+          officialFinancialHtml,
           validation: validationResult
         }
       }
@@ -685,7 +695,7 @@ async function executeBatchCheckout(
  * Implementa la separación obligatoria de DOS órdenes gemelas (Sodas vs. Insumos Generales).
  */
 export async function placeVieleOrder(req: PlaceOrderRequest): Promise<PlaceOrderResponse> {
-  const storeAccount = VIELE_STORE_ACCOUNTS[req.storeId];
+  const storeAccount = getVieleStoreAccount(req.storeId);
   if (!storeAccount) {
     return {
       success: false,
