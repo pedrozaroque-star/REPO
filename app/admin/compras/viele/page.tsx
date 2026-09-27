@@ -44,6 +44,7 @@
  *   3. Envío con modos inequívocos ('live' | 'draft') y validación de membresía contra catálogo activo.
  *   4. Manejo de éxito parcial (HTTP 207): descuento inmediato de sodas confirmadas para reintentos seguros.
  * - [2026-09-27] ADAPTACIÓN RESPONSIVA: Refactorización de modales de confirmación y éxito con max-h-[92vh], flex flex-col, sticky footer y scroll interno para pantallas de computadoras compactas (1366x768).
+ * - [2026-09-27] CAPTURA LIMPIA DE SOBRANTES: En nueva captura, sobrante inicia en blanco (sin placeholder '0'), sugerido en 0 y pedido final en 0. Evita resta automática contra PAR y mantiene totales en 0 hasta que el usuario capture sobrantes, eliminando ruido visual.
  */
 
 'use client';
@@ -267,6 +268,7 @@ function VieleOrderContent() {
         setCatalog(storeItems);
 
         // Inicializar estado de filas exclusivamente para los artículos de esta tienda
+        // En nueva captura, sobrante inicia en blanco, sugerido en 0 y pedido final en 0
         const rows: Record<string, OrderRow> = {};
         storeItems.forEach((item: CatalogItem) => {
           const par = storePars[item.item_code] ?? 0;
@@ -274,8 +276,8 @@ function VieleOrderContent() {
             item,
             par,
             leftover: '',
-            suggested: par, // Si sobrante no se ha contado, sugerido es el PAR
-            finalOrder: par
+            suggested: 0,
+            finalOrder: 0
           };
         });
         setOrderRows(rows);
@@ -402,8 +404,8 @@ function VieleOrderContent() {
                   item,
                   par,
                   leftover: '',
-                  suggested: par,
-                  finalOrder: par
+                  suggested: 0,
+                  finalOrder: 0
                 };
               } else {
                 // Actualizar referencia al item (puede cambiar sort_order)
@@ -432,14 +434,15 @@ function VieleOrderContent() {
       const current = prev[code];
       if (!current) return prev;
 
-      if (val === '') {
+      // Si el input se deja en blanco (o se borra todo), dejar en blanco y no hacer resta en sugerido
+      if (val.trim() === '') {
         return {
           ...prev,
           [code]: {
             ...current,
             leftover: '',
-            suggested: current.par,
-            finalOrder: current.par
+            suggested: 0,
+            finalOrder: 0
           }
         };
       }
@@ -479,9 +482,10 @@ function VieleOrderContent() {
       const current = prev[code];
       if (!current) return prev;
 
-      const leftoverNum = parseFloat(current.leftover) || 0;
       const hasLeftover = current.leftover.trim() !== '';
-      const newSuggested = Math.max(0, Math.ceil(numVal - (hasLeftover ? leftoverNum : 0)));
+      const leftoverNum = hasLeftover ? (parseFloat(current.leftover) || 0) : 0;
+      // Solo calcular sugerido si hay sobrante capturado; si está en blanco, sugerido es 0
+      const newSuggested = hasLeftover ? Math.max(0, Math.ceil(numVal - leftoverNum)) : 0;
       const wasFinalOrderSynced = current.finalOrder === current.suggested;
 
       return {
@@ -966,7 +970,8 @@ function VieleOrderContent() {
           }`}>
             <div className="flex items-center justify-between mb-2">
               <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-100 text-indigo-800">
-                <span>🥤</span> Factura 1: Sodas (BIB)
+                <span className="px-1.5 py-0.5 bg-indigo-200/60 rounded text-[10px] font-black uppercase tracking-wider">BIB</span>
+                Factura 1: Sodas (BIB)
               </span>
               <span className="text-xs text-indigo-700 font-semibold">
                 {formatNumber(summary.sodas.itemsCount)} SKUs pedidos
@@ -998,7 +1003,8 @@ function VieleOrderContent() {
           }`}>
             <div className="flex items-center justify-between mb-2">
               <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-800">
-                <span>📦</span> Factura 2: Insumos Generales
+                <span className="px-1.5 py-0.5 bg-amber-200/60 rounded text-[10px] font-black uppercase tracking-wider">GEN</span>
+                Factura 2: Insumos Generales
               </span>
               <span className="text-xs text-amber-700 font-semibold">
                 {formatNumber(summary.general.itemsCount)} SKUs pedidos
@@ -1023,10 +1029,15 @@ function VieleOrderContent() {
           </div>
 
           {/* Factura 3: Total Combinado */}
-          <div className="p-4 rounded-2xl border bg-gradient-to-br from-emerald-50 to-teal-50/40 border-emerald-200 shadow-sm">
+          <div className={`p-4 rounded-2xl border transition-all ${
+            summary.totalCases > 0
+              ? 'bg-gradient-to-br from-emerald-50 to-teal-50/40 border-emerald-200 shadow-sm'
+              : 'bg-white border-slate-200 opacity-85'
+          }`}>
             <div className="flex items-center justify-between mb-2">
               <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800">
-                <span>💰</span> Total Combinado
+                <span className="px-1.5 py-0.5 bg-emerald-200/60 rounded text-[10px] font-black uppercase tracking-wider">TOTAL</span>
+                Total Combinado
               </span>
               <span className="text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-md bg-emerald-600 text-white shadow-xs">
                 {summary.isSplit ? '2 Facturas Viele & Sons' : '1 Factura Viele & Sons'}
@@ -1243,18 +1254,26 @@ function VieleOrderContent() {
                             }
                           }}
                           onFocus={(e) => e.target.select()}
-                          placeholder="0"
-                          className="w-16 text-center font-bold tabular-nums py-1.5 bg-white border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-500 text-sm shadow-sm"
+                          placeholder=""
+                          className={`w-16 text-center font-bold tabular-nums py-1.5 rounded-lg text-sm shadow-sm transition-all focus:outline-none focus:ring-2 focus:ring-amber-500 ${
+                            row.leftover.trim() !== ''
+                              ? 'bg-amber-50/60 border-2 border-amber-400 text-slate-900 font-extrabold'
+                              : 'bg-white border border-slate-300 text-slate-900'
+                          }`}
                         />
                       </td>
 
                       {/* Sugerido (PAR - Sobrante) */}
-                      <td className="py-2.5 px-4 text-center bg-blue-50/30 text-blue-800 font-bold tabular-nums text-sm">
+                      <td className={`py-2.5 px-4 text-center tabular-nums text-sm ${
+                        row.suggested > 0
+                          ? 'bg-blue-50/40 text-blue-800 font-bold'
+                          : 'bg-slate-50/20 text-slate-400 font-medium'
+                      }`}>
                         {row.suggested}
                       </td>
 
                       {/* Pedido Final (Controles + Input) */}
-                      <td className="py-2.5 px-4 text-center bg-emerald-50/30">
+                      <td className={`py-2.5 px-4 text-center ${isOrdered ? 'bg-emerald-50/30' : 'bg-slate-50/20'}`}>
                         <div className="flex items-center justify-center gap-1">
                           <button
                             type="button"
@@ -1285,7 +1304,9 @@ function VieleOrderContent() {
                       </td>
 
                       {/* Importe Extendido */}
-                      <td className="py-2.5 px-4 text-right tabular-nums font-semibold text-xs text-slate-900">
+                      <td className={`py-2.5 px-4 text-right tabular-nums text-xs ${
+                        isOrdered ? 'font-bold text-slate-900' : 'font-medium text-slate-400'
+                      }`}>
                         {formatCurrency(extendedAmount)}
                       </td>
                     </tr>
@@ -1322,8 +1343,9 @@ function VieleOrderContent() {
 
             {/* Factura 1: Sodas */}
             <div className="border-l border-slate-200 pl-5 hidden sm:block">
-              <span className="text-[11px] text-indigo-700 uppercase font-bold flex items-center gap-1">
-                <span>🥤</span> Sodas ({formatNumber(summary.sodas.totalCases)} cjs)
+              <span className="text-[11px] text-indigo-700 uppercase font-bold flex items-center gap-1.5">
+                <span className="px-1.5 py-0.2 bg-indigo-100 rounded text-[9px] font-black uppercase">BIB</span>
+                Sodas ({formatNumber(summary.sodas.totalCases)} cjs)
               </span>
               <span className="text-base font-bold text-indigo-950 tabular-nums">
                 {formatCurrency(summary.sodas.grandTotal)}
@@ -1332,8 +1354,9 @@ function VieleOrderContent() {
 
             {/* Factura 2: Insumos */}
             <div className="border-l border-slate-200 pl-5 hidden sm:block">
-              <span className="text-[11px] text-amber-700 uppercase font-bold flex items-center gap-1">
-                <span>📦</span> Insumos ({formatNumber(summary.general.totalCases)} cjs)
+              <span className="text-[11px] text-amber-700 uppercase font-bold flex items-center gap-1.5">
+                <span className="px-1.5 py-0.2 bg-amber-100 rounded text-[9px] font-black uppercase">GEN</span>
+                Insumos ({formatNumber(summary.general.totalCases)} cjs)
               </span>
               <span className="text-base font-bold text-amber-950 tabular-nums">
                 {formatCurrency(summary.general.grandTotal)}
