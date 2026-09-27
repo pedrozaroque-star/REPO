@@ -789,8 +789,6 @@ function VieleOrderContent() {
           <div className="flex items-center gap-3 flex-wrap">
             <Link
               href={`/admin/compras/viele/print-sheet?storeId=${storeId}`}
-              target="_blank"
-              rel="noopener noreferrer"
               className="inline-flex items-center gap-2 px-4 py-2 bg-white hover:bg-slate-50 text-slate-700 rounded-xl font-semibold text-sm border border-slate-200 transition shadow-sm cursor-pointer"
             >
               <Printer className="w-4 h-4 text-amber-600" />

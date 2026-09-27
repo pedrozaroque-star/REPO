@@ -1,26 +1,28 @@
 /**
  * @module admin/compras/viele/print-sheet
  * @description Hoja imprimible de conteo fisico y pedido semanal para insumos de Viele & Sons.
- *              Formato calibrado estrictamente para 2 paginas tamano Carta (Letter Portrait: 8.5 x 11 in).
- *              Incluye vista previa realista en pantalla con margenes de papel y salto de pagina exacto.
+ *              Formato calibrado estrictamente para 4 paginas tamano Carta (Letter Portrait: 8.5 x 11 in).
+ *              Distribuye ~22 articulos por pagina con renglones amplios (35px), fotos ampliadas y legibles (31px)
+ *              y casillas comodas de escritura manual (26px) para facilitar el recorrido en bodega.
  *
  * @businessRules
  * - Marca oficial: Tacos Gavilan (estrictamente, nunca Tacos El Gavilan).
  * - Cero emojis en encabezados, botones, tablas y textos.
  * - Papel: Carta (Letter 8.5 x 11 pulgadas / 215.9 x 279.4 mm).
- * - Exactamente 2 paginas sin desbordes ni renglones huerfanos.
+ * - Exactamente 4 paginas sin desbordes ni renglones huerfanos.
+ * - Orden de impresion: Respeta estrictamente la secuencia personalizada que el gerente establezca
+ *   mediante Drag & Drop en su sucursal (almacenada en viele_store_sort_orders).
  * - Formula oficial: PEDIDO = MAX(0, PAR - SOBRANTE).
- * - Distribucion balanceada: Pagina 1 (articulos 1 a 44), Pagina 2 (articulos 45 a 87/88).
+ * - Distribucion balanceada: 22 articulos por pagina (Pagina 1: 1-22, Pagina 2: 23-44, Pagina 3: 45-66, Pagina 4: 67-87/88).
  *
  * @dataFlow
- * - /api/viele/catalog?storeId=X -> catalogo activo de la sucursal (87 u 88 SKUs).
+ * - /api/viele/catalog?storeId=X -> catalogo activo de la sucursal ordenado por viele_store_sort_orders (87 u 88 SKUs).
  * - /api/viele/pars?storeId=X -> niveles de PAR vigentes de la sucursal.
  *
  * @notes
- * - [2026-09-27] Rediseno integral de impresion: estructura en contenedores independientes .sheet-page
- *   con altura acotada a 950px para garantizar que NUNCA desborde los 1010px imprimibles de Letter.
- * - Eliminados todos los emojis del encabezado y la barra de herramientas.
- * - Vista previa en pantalla renderiza hojas Carta con sombras de papel reales y divisor visual.
+ * - [2026-09-27] Formato de 4 paginas Carta: renglones amplios de 35px de altura, fotos ampliadas de 31x31px con borde
+ *   definido y casillas de escritura manual de 26px para maxima ergonomia en bodega.
+ * - Estructura modular en contenedores independientes .sheet-page con page-break-after para impresion exacta.
  */
 
 'use client';
@@ -108,10 +110,15 @@ function PrintSheetContent() {
     loadData();
   }, [storeId]);
 
-  // Dividir los articulos exactamente en 2 paginas
-  const midpoint = Math.ceil(items.length / 2);
-  const page1Items = items.slice(0, midpoint);
-  const page2Items = items.slice(midpoint);
+  // Dividir los articulos en 4 paginas equilibradas (maximo 22 por pagina)
+  const totalItems = items.length;
+  const itemsPerPage = Math.ceil(totalItems / 4); // 22 para 87 u 88 SKUs
+  const pages = [
+    { pageNum: 1, pageItems: items.slice(0, itemsPerPage), startIdx: 0 },
+    { pageNum: 2, pageItems: items.slice(itemsPerPage, itemsPerPage * 2), startIdx: itemsPerPage },
+    { pageNum: 3, pageItems: items.slice(itemsPerPage * 2, itemsPerPage * 3), startIdx: itemsPerPage * 2 },
+    { pageNum: 4, pageItems: items.slice(itemsPerPage * 3), startIdx: itemsPerPage * 3 }
+  ];
 
   // Fecha de conteo en formato USA estandar (MM/DD/YYYY) en zona horaria America/Los_Angeles
   const laIsoDate = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' });
@@ -125,7 +132,7 @@ function PrintSheetContent() {
            ========================================================= */
         @page {
           size: letter portrait;
-          margin: 6mm 7mm;
+          margin: 8mm 8mm;
         }
 
         @media print {
@@ -198,7 +205,7 @@ function PrintSheetContent() {
             max-height: 11in;
             background: #ffffff;
             margin: 0 auto;
-            padding: 6mm 7mm;
+            padding: 8mm 8mm;
             box-shadow: 0 10px 30px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.1);
             border-radius: 4px;
             box-sizing: border-box;
@@ -211,7 +218,7 @@ function PrintSheetContent() {
 
           .screen-page-divider {
             width: 8.5in;
-            margin: 20px auto;
+            margin: 24px auto;
             display: flex;
             align-items: center;
             justify-content: center;
@@ -233,7 +240,7 @@ function PrintSheetContent() {
         }
 
         /* =========================================================
-           ESTILOS COMUNES DE MAQUETACION
+           ESTILOS COMUNES DE MAQUETACION (4 PAGINAS CARTA)
            ========================================================= */
         .sheet-content-top {
           flex: 1;
@@ -246,21 +253,21 @@ function PrintSheetContent() {
           justify-content: space-between;
           align-items: flex-end;
           border-bottom: 2px solid #0f172a;
-          padding-bottom: 3px;
-          margin-bottom: 4px;
+          padding-bottom: 4px;
+          margin-bottom: 6px;
         }
 
         .header-title-main {
-          font-size: 13.5px;
+          font-size: 14px;
           font-weight: 900;
           letter-spacing: -0.2px;
           text-transform: uppercase;
           color: #0f172a;
-          line-height: 1.15;
+          line-height: 1.2;
         }
 
         .header-subtitle {
-          font-size: 8.5px;
+          font-size: 9px;
           font-weight: 700;
           color: #475569;
           margin-top: 1px;
@@ -270,9 +277,9 @@ function PrintSheetContent() {
 
         .header-meta {
           text-align: right;
-          font-size: 8px;
+          font-size: 8.5px;
           color: #334155;
-          line-height: 1.25;
+          line-height: 1.3;
         }
 
         .header-meta strong {
@@ -283,14 +290,14 @@ function PrintSheetContent() {
           width: 100%;
           border-collapse: collapse;
           table-layout: fixed;
-          font-size: 8.5px;
+          font-size: 9.5px;
         }
 
         .excel-table th, .excel-table td {
           border: 1px solid #334155;
-          padding: 0 2px;
+          padding: 0 4px;
           vertical-align: middle;
-          height: 19.5px;
+          height: 38px;
           box-sizing: border-box;
         }
 
@@ -299,16 +306,16 @@ function PrintSheetContent() {
           color: #ffffff !important;
           font-weight: 800;
           text-align: center;
-          font-size: 8px;
+          font-size: 8.5px;
           text-transform: uppercase;
           letter-spacing: 0.4px;
-          height: 18px;
+          height: 22px;
         }
 
-        .th-num { width: 3.2%; }
-        .th-img { width: 3.2%; }
-        .th-sku { width: 10.5%; }
-        .th-desc { width: 51.1%; }
+        .th-num { width: 3.5%; }
+        .th-img { width: 7.5%; }
+        .th-sku { width: 11%; }
+        .th-desc { width: 46%; }
         .th-par { width: 8%; background-color: #fef08a !important; color: #000000 !important; }
         .th-sobra { width: 12%; background-color: #e2e8f0 !important; color: #000000 !important; }
         .th-order { width: 12%; background-color: #bbf7d0 !important; color: #000000 !important; }
@@ -316,28 +323,31 @@ function PrintSheetContent() {
         .td-num {
           text-align: center;
           font-weight: 700;
-          font-size: 8px;
+          font-size: 9px;
           color: #475569;
         }
 
         .td-img {
           text-align: center;
-          padding: 0 !important;
+          padding: 1px !important;
         }
 
         .product-thumb {
-          width: 15px;
-          height: 15px;
+          width: 35px;
+          height: 35px;
           object-fit: contain;
-          border-radius: 2px;
+          border-radius: 4px;
           display: block;
           margin: 0 auto;
           background: #ffffff;
+          border: 1px solid #e2e8f0;
+          padding: 1px;
+          box-sizing: border-box;
         }
 
         .td-sku {
           font-weight: 800;
-          font-size: 8.5px;
+          font-size: 9.5px;
           text-align: center;
           color: #0f172a;
           letter-spacing: -0.2px;
@@ -347,20 +357,17 @@ function PrintSheetContent() {
         .td-desc {
           text-align: left;
           font-weight: 700;
-          font-size: 8.8px;
-          padding-left: 4px !important;
-          padding-right: 2px !important;
-          white-space: nowrap;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          line-height: 1.1;
+          font-size: 10px;
+          padding-left: 6px !important;
+          padding-right: 4px !important;
+          line-height: 1.2;
           color: #000000;
         }
 
         .desc-uom {
           display: inline-block;
-          margin-left: 4px;
-          font-size: 7.5px;
+          margin-left: 6px;
+          font-size: 8.5px;
           font-weight: 800;
           color: #475569;
           text-transform: uppercase;
@@ -369,7 +376,7 @@ function PrintSheetContent() {
         .td-par {
           text-align: center;
           font-weight: 900;
-          font-size: 9.5px;
+          font-size: 11.5px;
           background-color: #fef9c3 !important;
           color: #000000;
         }
@@ -387,17 +394,17 @@ function PrintSheetContent() {
         .sobra-box {
           display: inline-block;
           width: 100%;
-          height: 15px;
+          height: 28px;
         }
 
         .sheet-footer {
-          margin-top: 3px;
+          margin-top: 4px;
           border-top: 1px solid #cbd5e1;
-          padding-top: 2px;
+          padding-top: 3px;
           display: flex;
           justify-content: space-between;
           align-items: center;
-          font-size: 7.5px;
+          font-size: 8px;
           color: #64748b;
           font-weight: 600;
         }
@@ -442,7 +449,7 @@ function PrintSheetContent() {
         </div>
 
         <span style={{ fontSize: 13, fontWeight: '800', color: '#f8fafc', letterSpacing: '0.3px' }}>
-          Hoja de Conteo Fisico — Viele & Sons (Formato Carta Oficial)
+          Orden de Compra y Pedido Semanal — Proveedor Viele & Sons (Formato 4 Paginas Carta)
         </span>
 
         <span style={{ flex: 1 }} />
@@ -455,7 +462,7 @@ function PrintSheetContent() {
             fontWeight: '900', fontSize: 14, display: 'flex', alignItems: 'center', gap: 8,
             boxShadow: '0 2px 10px rgba(5,150,105,0.4)'
           }}>
-          Imprimir Hoja (2 Paginas Carta)
+          Imprimir Hoja (4 Paginas Carta)
         </button>
       </div>
 
@@ -466,154 +473,84 @@ function PrintSheetContent() {
             <p style={{ fontSize: 15, fontWeight: '700' }}>Cargando catalogo e inventario de Viele & Sons...</p>
           </div>
         ) : (
-          <>
-            {/* =========================================================
-                HOJA 1 DE 2 (PAGINA 1)
-                ========================================================= */}
-            <div className="sheet-page">
-              <div className="sheet-content-top">
-                <div className="header-box">
-                  <div>
-                    <div className="header-title-main">
-                      TACOS GAVILAN — {storeName}
+          pages.map((p, pageIdx) => (
+            <div key={p.pageNum} style={{ width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+              <div className="sheet-page">
+                <div className="sheet-content-top">
+                  <div className="header-box">
+                    <div>
+                      <div className="header-title-main">
+                        TACOS GAVILAN — {storeName}
+                      </div>
+                      <div className="header-subtitle">
+                        ORDEN DE COMPRA Y PEDIDO SEMANAL — PROVEEDOR: VIELE & SONS (PAGINA {p.pageNum} DE 4)
+                      </div>
                     </div>
-                    <div className="header-subtitle">
-                      HOJA DE CONTEO FISICO Y PEDIDO SEMANAL — PROVEEDOR: VIELE & SONS
+                    <div className="header-meta">
+                      <div>Proveedor Oficial: <strong>Viele & Sons</strong></div>
+                      <div>Date (Fecha): <strong>{todayUsFormatted}</strong></div>
+                      <div>Delivery (Entrega): <strong>Tuesday (Martes)</strong></div>
                     </div>
                   </div>
-                  <div className="header-meta">
-                    <div>Date (Fecha): <strong>{todayUsFormatted}</strong></div>
-                    <div>Delivery (Entrega): <strong>Tuesday (Martes)</strong></div>
-                    <div>Formula: <strong>ORDER = MAX(0, PAR − LEFTOVER)</strong></div>
-                  </div>
+
+                  <table className="excel-table">
+                    <thead>
+                      <tr>
+                        <th className="th-main th-num">#</th>
+                        <th className="th-main th-img">IMG</th>
+                        <th className="th-main th-sku">SKU</th>
+                        <th className="th-main th-desc">DESCRIPCION DEL PRODUCTO</th>
+                        <th className="th-main th-par">PAR</th>
+                        <th className="th-main th-sobra">SOBRANTE</th>
+                        <th className="th-main th-order">PEDIDO</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {p.pageItems.map((item, idx) => {
+                        const parVal = pars[item.item_code] ?? 0;
+                        return (
+                          <tr key={item.item_code}>
+                            <td className="td-num">{p.startIdx + idx + 1}</td>
+                            <td className="td-img">
+                              <img
+                                src={item.image_file}
+                                alt={item.item_code}
+                                className="product-thumb"
+                                onError={(e) => {
+                                  (e.target as HTMLImageElement).src = '/images/viele/placeholder.png';
+                                }}
+                              />
+                            </td>
+                            <td className="td-sku">{item.item_code}</td>
+                            <td className="td-desc">
+                              {item.description}
+                              <span className="desc-uom">({item.uom})</span>
+                            </td>
+                            <td className="td-par">{parVal > 0 ? parVal : '-'}</td>
+                            <td className="td-sobra"><div className="sobra-box"></div></td>
+                            <td className="td-order"><div className="sobra-box"></div></td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
                 </div>
 
-                <table className="excel-table">
-                  <thead>
-                    <tr>
-                      <th className="th-main th-num">#</th>
-                      <th className="th-main th-img">IMG</th>
-                      <th className="th-main th-sku">SKU</th>
-                      <th className="th-main th-desc">DESCRIPCION DEL PRODUCTO</th>
-                      <th className="th-main th-par">PAR</th>
-                      <th className="th-main th-sobra">SOBRANTE</th>
-                      <th className="th-main th-order">PEDIDO</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {page1Items.map((item, idx) => {
-                      const parVal = pars[item.item_code] ?? 0;
-                      return (
-                        <tr key={item.item_code}>
-                          <td className="td-num">{idx + 1}</td>
-                          <td className="td-img">
-                            <img
-                              src={item.image_file}
-                              alt={item.item_code}
-                              className="product-thumb"
-                              onError={(e) => {
-                                (e.target as HTMLImageElement).src = '/images/viele/placeholder.png';
-                              }}
-                            />
-                          </td>
-                          <td className="td-sku">{item.item_code}</td>
-                          <td className="td-desc">
-                            {item.description}
-                            <span className="desc-uom">({item.uom})</span>
-                          </td>
-                          <td className="td-par">{parVal > 0 ? parVal : '-'}</td>
-                          <td className="td-sobra"><div className="sobra-box"></div></td>
-                          <td className="td-order"><div className="sobra-box"></div></td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-
-              <div className="sheet-footer">
-                <div>Tacos Gavilan — Documento Operativo de Almacen</div>
-                <div><strong>Pagina 1 de 2</strong> ({page1Items.length} articulos)</div>
-                <div>Soporte: Carlos Velazquez (424-319-5019)</div>
-              </div>
-            </div>
-
-            {/* Separador visual para modo pantalla */}
-            <div className="screen-page-divider">
-              Salto de Pagina — Hoja 2 de 2 Tamano Carta
-            </div>
-
-            {/* =========================================================
-                HOJA 2 DE 2 (PAGINA 2)
-                ========================================================= */}
-            <div className="sheet-page">
-              <div className="sheet-content-top">
-                <div className="header-box">
-                  <div>
-                    <div className="header-title-main">
-                      TACOS GAVILAN — {storeName}
-                    </div>
-                    <div className="header-subtitle">
-                      HOJA DE CONTEO FISICO — PROVEEDOR: VIELE & SONS (PAGINA 2)
-                    </div>
-                  </div>
-                  <div className="header-meta">
-                    <div>Date (Fecha): <strong>{todayUsFormatted}</strong></div>
-                    <div>Delivery (Entrega): <strong>Tuesday (Martes)</strong></div>
-                    <div>Formula: <strong>ORDER = MAX(0, PAR − LEFTOVER)</strong></div>
-                  </div>
+                <div className="sheet-footer">
+                  <div>Tacos Gavilan — Control Oficial de Compras e Inventario</div>
+                  <div><strong>Pagina {p.pageNum} de 4</strong> ({p.pageItems.length} articulos)</div>
+                  <div>Proveedor Oficial: <strong>Viele & Sons</strong></div>
                 </div>
-
-                <table className="excel-table">
-                  <thead>
-                    <tr>
-                      <th className="th-main th-num">#</th>
-                      <th className="th-main th-img">IMG</th>
-                      <th className="th-main th-sku">SKU</th>
-                      <th className="th-main th-desc">DESCRIPCION DEL PRODUCTO</th>
-                      <th className="th-main th-par">PAR</th>
-                      <th className="th-main th-sobra">SOBRANTE</th>
-                      <th className="th-main th-order">PEDIDO</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {page2Items.map((item, idx) => {
-                      const parVal = pars[item.item_code] ?? 0;
-                      return (
-                        <tr key={item.item_code}>
-                          <td className="td-num">{midpoint + idx + 1}</td>
-                          <td className="td-img">
-                            <img
-                              src={item.image_file}
-                              alt={item.item_code}
-                              className="product-thumb"
-                              onError={(e) => {
-                                (e.target as HTMLImageElement).src = '/images/viele/placeholder.png';
-                              }}
-                            />
-                          </td>
-                          <td className="td-sku">{item.item_code}</td>
-                          <td className="td-desc">
-                            {item.description}
-                            <span className="desc-uom">({item.uom})</span>
-                          </td>
-                          <td className="td-par">{parVal > 0 ? parVal : '-'}</td>
-                          <td className="td-sobra"><div className="sobra-box"></div></td>
-                          <td className="td-order"><div className="sobra-box"></div></td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
               </div>
 
-              <div className="sheet-footer">
-                <div>Tacos Gavilan — Documento Operativo de Almacen</div>
-                <div><strong>Pagina 2 de 2</strong> ({page2Items.length} articulos)</div>
-                <div>Soporte: Carlos Velazquez (424-319-5019)</div>
-              </div>
+              {/* Separador visual para modo pantalla */}
+              {pageIdx < pages.length - 1 && (
+                <div className="screen-page-divider">
+                  Salto de Pagina — Hoja {p.pageNum + 1} de 4 Tamano Carta
+                </div>
+              )}
             </div>
-          </>
+          ))
         )}
       </div>
     </>
