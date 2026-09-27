@@ -13,7 +13,7 @@
  *   Este archivo es importado por:
  *   - app/api/inventory/supplier-prices/route.ts (POST — análisis de clipboard/CSV)
  *   - app/api/inventory/supplier-prices/sync/route.ts (POST — sincronización en vivo)
- *   - app/api/cron/sync-supplier-prices/route.ts (Cron semanal)
+ *   - app/api/cron/sync-supplier-prices/route.ts (Cron diario)
  *
  * @notes
  *   - Centralizado para evitar duplicación. Antes estaba copiado en 3 archivos.

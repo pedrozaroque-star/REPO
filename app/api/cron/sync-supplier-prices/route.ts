@@ -1,7 +1,7 @@
 /**
  * @module app/api/cron/sync-supplier-prices/route
  * @description Cron job automatizado para sincronización periódica de precios de distribuidores (Viele & Sons).
- *   - Se ejecuta de lunes a viernes a las 6:00 AM PST (inicio de cada día laboral, 5 veces por semana).
+ *   - Se ejecuta diariamente a las 6:00 AM PDT / PST (inicio de cada día laboral, los 7 días de la semana).
  *   - Conecta a la API del portal de Viele & Sons y extrae el catálogo de precios vigentes.
  *   - Compara los costos contra los insumos maestros en Supabase.
  *   - AUTO-APRUEBA los precios detectados en inventory_items.purchase_unit_cost porque el proveedor
@@ -49,11 +49,9 @@ async function handleSync(request: NextRequest) {
     const scrapeResult = await syncVielePortalDirect()
 
     if (!scrapeResult.success || scrapeResult.items.length === 0) {
-      console.error('[Cron:SyncSupplierPrices] ❌ Error en el scraper:', scrapeResult.errorMessage)
-      return NextResponse.json({
-        success: false,
-        error: scrapeResult.errorMessage || 'Error en sincronización con Viele & Sons'
-      }, { status: 500 })
+      const errorMsg = scrapeResult.errorMessage || 'Error en sincronización con Viele & Sons: catálogo vacío o conexión fallida'
+      console.error('[Cron:SyncSupplierPrices] ❌ Error en el scraper:', errorMsg)
+      throw new Error(errorMsg)
     }
 
     const supabase = await getSupabaseAdminClient()
@@ -67,7 +65,7 @@ async function handleSync(request: NextRequest) {
 
     const supplierId = supplier?.id
     if (!supplierId) {
-      return NextResponse.json({ success: false, error: 'Proveedor VIELE no encontrado en base de datos' }, { status: 404 })
+      throw new Error('Proveedor VIELE no encontrado en base de datos')
     }
 
     // 3. Cargar mapeos existentes con inventory_items
@@ -181,7 +179,7 @@ async function handleSync(request: NextRequest) {
             change_percent: changePercent,
             effective_date: todayStr,
             source_type: 'cron_sync',
-            notes: `Detectado aumento de $${diffAmount.toFixed(2)} (+${changePercent}%) en cron semanal.`,
+            notes: `Detectado aumento de $${diffAmount.toFixed(2)} (+${changePercent}%) en cron diario.`,
             created_by: 'Cron System'
           })
         }
@@ -219,7 +217,7 @@ async function handleSync(request: NextRequest) {
             change_percent: changePercent,
             effective_date: todayStr,
             source_type: 'cron_sync',
-            notes: `Detectada reducción de $${Math.abs(diffAmount).toFixed(2)} (${changePercent}%) en cron semanal.`,
+            notes: `Detectada reducción de $${Math.abs(diffAmount).toFixed(2)} (${changePercent}%) en cron diario.`,
             created_by: 'Cron System'
           })
         }
