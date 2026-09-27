@@ -1,0 +1,686 @@
+[
+  {
+    "id": "01d41d5e-fa5d-4431-9db0-8b5b8a95d4b7",
+    "guid": "747ba1e0-2247-4a09-9ec7-1c1a0688563b",
+    "title": "Taquero",
+    "deleted": false
+  },
+  {
+    "id": "0262ed8b-2914-4bda-8759-4dc5e30a1714",
+    "guid": "6cd614a9-aebe-48a8-9be1-ba581096fbf4",
+    "title": "Asst Manager",
+    "deleted": false
+  },
+  {
+    "id": "05b8ae07-12e7-4da9-ba9b-717f0dcfe47b",
+    "guid": "85ad7379-b5be-4d5c-a57f-de58510e1892",
+    "title": "Cashier",
+    "deleted": false
+  },
+  {
+    "id": "0a548876-861f-4097-8901-84b023c3ead9",
+    "guid": "efb6c71a-a1e5-4942-96ce-93cc0fad0951",
+    "title": "Willian Supervisor",
+    "deleted": false
+  },
+  {
+    "id": "0b419911-d814-48a5-94a8-a51242d45bb6",
+    "guid": "350dfecd-3be0-4c75-b867-a17e5f11428c",
+    "title": "Delivery Service Driver",
+    "deleted": false
+  },
+  {
+    "id": "0c447e21-9c88-471a-addd-fb769a59b342",
+    "guid": "d2f2f52e-f6f5-47e7-8110-3d8fe351b4fc",
+    "title": "Delivery Service Driver",
+    "deleted": false
+  },
+  {
+    "id": "0cc61fcb-d8bb-4dcf-9741-76e1e88d090a",
+    "guid": "ee80f8bf-3542-40cb-8cc6-1f09bd087f13",
+    "title": "JOEL",
+    "deleted": false
+  },
+  {
+    "id": "0e7c5c13-31a5-4b59-8fff-dfa7e4eaddd9",
+    "guid": "bcf57089-4465-4be6-9acf-4b8336aca57e",
+    "title": "Cook",
+    "deleted": false
+  },
+  {
+    "id": "0f8d9ae4-03ac-4f51-80fa-0ea1319cff97",
+    "guid": "d3b478ac-225e-454f-9d60-03f4cfe442f9",
+    "title": "Prep",
+    "deleted": false
+  },
+  {
+    "id": "0fdda7c8-de8b-412e-a4af-1d87ba503b54",
+    "guid": "4896ccad-344c-4fdb-ba34-8f4b15d2e4ab",
+    "title": "Cashier",
+    "deleted": false
+  },
+  {
+    "id": "15474ce1-ea59-4633-9cee-a288c48aa5e4",
+    "guid": "b05345dd-bbc3-49ff-bcb2-e2cc38d7ed9b",
+    "title": "Cashier",
+    "deleted": false
+  },
+  {
+    "id": "160ee25e-a6d2-4e6c-a840-250ce21b15c7",
+    "guid": "e1a3f6e1-0858-42f5-87a9-3b59aa3d8624",
+    "title": "Delivery Service Driver",
+    "deleted": false
+  },
+  {
+    "id": "1816db00-203f-4666-be1e-593e222af5db",
+    "guid": "eb769c3d-0542-49ac-ade0-a1d35dce162d",
+    "title": "Cashier",
+    "deleted": false
+  },
+  {
+    "id": "1bc0fe50-1f1f-460f-86d1-e9e5b8501770",
+    "guid": "0b7b82c1-1cd8-4e17-bda5-abe5aeeca8ff",
+    "title": "Cashier",
+    "deleted": false
+  },
+  {
+    "id": "1d046c8b-c1c8-4ff5-973e-4de4390a0c2b",
+    "guid": "84fe157c-412b-4e75-8ded-fa35c522b13d",
+    "title": "Willian Supervisor",
+    "deleted": false
+  },
+  {
+    "id": "1f49bbd1-3aed-40f6-bff7-2ccb2c9dd228",
+    "guid": "b2ae7340-f9d2-49aa-b1b7-5104923c8323",
+    "title": "cashier",
+    "deleted": false
+  },
+  {
+    "id": "2004c97d-e398-4a20-8f5f-fad5a926841f",
+    "guid": "74839d4f-9b56-4a56-b0e7-6b257832f6b9",
+    "title": "COOK",
+    "deleted": false
+  },
+  {
+    "id": "20246d3d-b6ba-4841-87f7-d1825bac1b42",
+    "guid": "352c0422-ee6d-471f-96c3-624ee11b1a07",
+    "title": "Shift Leader",
+    "deleted": false
+  },
+  {
+    "id": "2097d1a1-6546-4118-abf6-602828463221",
+    "guid": "fba83ef4-e838-4884-ad3b-791e6ccf10b4",
+    "title": "Cashier",
+    "deleted": false
+  },
+  {
+    "id": "232067de-fc85-4e9d-b1a6-3694551e05b0",
+    "guid": "3e3ad3a8-6cab-4a6f-9b76-f154a6897a5a",
+    "title": "Cook",
+    "deleted": false
+  },
+  {
+    "id": "274bb6f2-486b-43b0-9dc7-4e8f024f4519",
+    "guid": "4c0bb99c-7040-4c3a-b5db-901d88491462",
+    "title": "Asst Manager",
+    "deleted": false
+  },
+  {
+    "id": "28766998-ee73-488d-99d4-4542a568b8a3",
+    "guid": "b3f1b740-346b-4687-af99-61005d4fecf2",
+    "title": "Shift Leader",
+    "deleted": false
+  },
+  {
+    "id": "2ad7afa9-ec9c-4b23-9a6d-826c42118c85",
+    "guid": "dcacd0eb-197a-40f3-affc-66e87d262dab",
+    "title": "Asst Manager",
+    "deleted": false
+  },
+  {
+    "id": "2e055455-f828-4d03-b3e9-afd24b8ca5ec",
+    "guid": "68de0159-50b6-4da8-9fe1-b5f922f11109",
+    "title": "Super User",
+    "deleted": false
+  },
+  {
+    "id": "2e7cc94c-a19f-4f7b-b342-d994f46738c9",
+    "guid": "2759391c-47a6-4d83-87ac-e1b75d69dff6",
+    "title": "Delivery Service Driver",
+    "deleted": false
+  },
+  {
+    "id": "31a40b1f-0a35-4838-ac52-acb6f6a0ed7f",
+    "guid": "71cbe4ff-0c9b-4a4d-bcb8-7897e0184022",
+    "title": "Delivery Service Driver",
+    "deleted": false
+  },
+  {
+    "id": "321fadaa-6551-46c2-bb3f-f4453cce3641",
+    "guid": "3dab8fdd-5cb2-4b99-ade4-96b07c98c39f",
+    "title": "Cook",
+    "deleted": false
+  },
+  {
+    "id": "3789d9bf-2b7b-4902-a4ea-1cfc74133d0d",
+    "guid": "90bdf5aa-9c50-440d-a8cb-3c77f4816a0f",
+    "title": "Cashier",
+    "deleted": false
+  },
+  {
+    "id": "3b289f86-0cfd-4da3-b98c-2e98f7e3339c",
+    "guid": "4d595f4f-40aa-43b0-9136-dcc46510fbb9",
+    "title": "Asst Manager",
+    "deleted": false
+  },
+  {
+    "id": "41889fca-87b7-4527-9d73-9171840aa5af",
+    "guid": "7f626a4b-8c83-490f-b687-9795bc8e7f09",
+    "title": "Delivery Service Driver",
+    "deleted": false
+  },
+  {
+    "id": "468d25a1-12b3-42e6-ba84-9bfba8bef153",
+    "guid": "bfe29aee-9683-4101-987b-836566f4351b",
+    "title": "Cook",
+    "deleted": false
+  },
+  {
+    "id": "47967514-f385-4211-8259-e078f7785875",
+    "guid": "5997ed83-a864-4f93-8e9d-be1dbb5a3062",
+    "title": "Manager",
+    "deleted": false
+  },
+  {
+    "id": "4c599bc7-d832-4f1e-8512-92b7db8cdfb6",
+    "guid": "73d06b87-af05-4447-b575-fcf31adf7976",
+    "title": "Prep",
+    "deleted": false
+  },
+  {
+    "id": "4d0aa2f7-0c37-4dfe-94f8-27edabcaa3a2",
+    "guid": "5eca1a58-c220-487c-9b13-ad3453121df9",
+    "title": "Manager",
+    "deleted": false
+  },
+  {
+    "id": "4f6a5729-5dfd-48c7-96ec-1a371f0d2ab1",
+    "guid": "fdbdbc38-187a-4333-911f-9b56cf21489f",
+    "title": "Delivery Service Driver",
+    "deleted": false
+  },
+  {
+    "id": "5048425d-1f52-451f-a88f-6d8d3253370e",
+    "guid": "0a6f005a-1d45-4282-9c8a-6a56a84a46ca",
+    "title": "Shift Leader",
+    "deleted": false
+  },
+  {
+    "id": "51958a24-d416-4d32-9190-a76b25d67da5",
+    "guid": "e0155856-bf39-413c-84ad-57ce98cb2354",
+    "title": "KDS (internal)",
+    "deleted": false
+  },
+  {
+    "id": "59840f68-e9ae-4d93-a8d0-8053f0c65f4f",
+    "guid": "eccecf61-02c5-4176-a57d-b8e18a42f84d",
+    "title": "Delivery Service Driver",
+    "deleted": false
+  },
+  {
+    "id": "5b714b98-9913-4ec8-940d-4804780476bd",
+    "guid": "84748b5c-a9c5-4371-81c4-83b4199875ea",
+    "title": "Manager",
+    "deleted": false
+  },
+  {
+    "id": "5b99e399-c297-4dff-81ad-18442fa8e3c6",
+    "guid": "121e5e78-7bd4-485a-8810-7bd82c2a2977",
+    "title": "Delivery Service Driver",
+    "deleted": false
+  },
+  {
+    "id": "5d77d79a-b7f4-47a8-8012-472dbf74c581",
+    "guid": "212e38a9-46b2-4dc4-9582-95e76656873b",
+    "title": "Cashier",
+    "deleted": false
+  },
+  {
+    "id": "5f938357-cee8-4088-b68f-27ae646d2b21",
+    "guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32",
+    "title": "Cashier",
+    "deleted": false
+  },
+  {
+    "id": "6020532c-14c8-43f2-926e-fa8b04bf91c1",
+    "guid": "d4eef6b2-8b83-4552-9f04-c5b091cced7d",
+    "title": "Preparador",
+    "deleted": false
+  },
+  {
+    "id": "6155fa4e-fb96-4d79-bc8f-2e7ad85c2be9",
+    "guid": "be350aff-8336-4331-bac1-a7e8cb35701a",
+    "title": "Shift Leader",
+    "deleted": false
+  },
+  {
+    "id": "67ffdf03-e3cf-4895-aa6f-10708ec323bf",
+    "guid": "c81b7c91-46a4-4b5b-9225-1a8ca7cf5888",
+    "title": "Cook",
+    "deleted": false
+  },
+  {
+    "id": "6d0573e7-6787-475e-9a31-fdb179e0c926",
+    "guid": "cd5a5633-3ef4-4ea3-bf44-8832b842b015",
+    "title": "Shift Leader",
+    "deleted": false
+  },
+  {
+    "id": "6dcdee4d-2260-4a16-b636-e355b3471744",
+    "guid": "8b0c92f6-de2a-479e-8185-27089d66b496",
+    "title": "Asst Manager",
+    "deleted": false
+  },
+  {
+    "id": "6eee3fce-8cb1-45d8-af71-c99c94b18878",
+    "guid": "e002a07f-9fe4-429d-b60d-3d2dee905841",
+    "title": "Prep",
+    "deleted": false
+  },
+  {
+    "id": "6f0aa249-f3a3-4d37-b2c7-832757cf8a0b",
+    "guid": "3f528ffa-b3e8-4cf0-a152-912686b0cb6e",
+    "title": "Manager",
+    "deleted": false
+  },
+  {
+    "id": "71904fb7-b74c-4607-87ee-efd9ac026252",
+    "guid": "df8b2d78-2dcf-465f-a54f-69c3e65dae76",
+    "title": "Cashier",
+    "deleted": false
+  },
+  {
+    "id": "728f2ac8-e096-4cae-ab3e-a1630e5c73e0",
+    "guid": "4707d852-c723-49f6-9b0b-186fd67c128e",
+    "title": "Asst Manager",
+    "deleted": false
+  },
+  {
+    "id": "74e548ea-fdb9-4f0e-9469-54f89cdaebb0",
+    "guid": "dedb79c8-cc77-480b-8ecd-588dfd52e274",
+    "title": "Willian Supervisor",
+    "deleted": false
+  },
+  {
+    "id": "765809a9-d804-4778-b4ba-2e8cb4ee040a",
+    "guid": "fcc3b920-32e6-45fc-bfc3-74b4eeea2d20",
+    "title": "Cashier",
+    "deleted": false
+  },
+  {
+    "id": "774e7220-788d-4a3e-9c39-83c03bc2240f",
+    "guid": "62e39c2e-2f07-46e3-af2b-d8a37e33131d",
+    "title": "Cook",
+    "deleted": false
+  },
+  {
+    "id": "79e8d6f8-1d58-4e5f-8050-129c02c44b19",
+    "guid": "dd36477f-be4b-409b-b472-a4baf811bc12",
+    "title": "Manager",
+    "deleted": false
+  },
+  {
+    "id": "800248f8-d2db-4b44-bd71-599b06ebf5ba",
+    "guid": "151743f3-9541-4c63-a314-7d0057c0a29a",
+    "title": "Shift Leader",
+    "deleted": false
+  },
+  {
+    "id": "810cdbfa-439e-4ee4-92ff-68e63f8e8817",
+    "guid": "74bc9846-80d2-47bc-a9ec-2a9288763515",
+    "title": "Cook",
+    "deleted": false
+  },
+  {
+    "id": "81dbf3c7-6f1f-463d-ac72-f97fe2720320",
+    "guid": "1f951cda-3a40-4b0f-bbe1-cbd9ac119df9",
+    "title": "Cashier",
+    "deleted": false
+  },
+  {
+    "id": "83fde0d8-4599-402f-9c45-c97294a6e7a0",
+    "guid": "73e3d1c2-e30e-43c6-aabe-b9092c4077e4",
+    "title": "Asst Manager",
+    "deleted": false
+  },
+  {
+    "id": "847399ad-434d-4a49-99e8-2164773e52f6",
+    "guid": "a05a8f18-32d9-47dd-91e8-8cada79737fa",
+    "title": "Manager",
+    "deleted": false
+  },
+  {
+    "id": "84c314c0-ff51-4e3c-8ddd-d0dc54e10ccc",
+    "guid": "bd9a57dd-c9f5-43b7-b3d1-19ff0791501d",
+    "title": "Prep",
+    "deleted": false
+  },
+  {
+    "id": "8ab5c649-68a1-43dd-b0c6-7274294e4e6a",
+    "guid": "64909813-93cf-4e2e-b3a1-bbd44c23f800",
+    "title": "Cashier",
+    "deleted": false
+  },
+  {
+    "id": "8c22a09b-dfdd-45fa-b023-1496db09f75a",
+    "guid": "5e2a5e91-a5e0-4997-ab6f-e01b5c66879e",
+    "title": "Shift Leader",
+    "deleted": false
+  },
+  {
+    "id": "916e563b-b2f8-41bb-a640-bd16a3ff373b",
+    "guid": "d0dbc504-bf58-444b-a2db-0208a9362c3a",
+    "title": "Delivery Service Driver",
+    "deleted": false
+  },
+  {
+    "id": "92002d42-7c7e-4182-9723-b34026d9d41d",
+    "guid": "0a66ca9a-89d9-48ed-ad9d-4ddc0aca7229",
+    "title": "Manager",
+    "deleted": false
+  },
+  {
+    "id": "92b6280c-42d2-48e9-a6f7-b5ca509a8475",
+    "guid": "57e7838f-49f0-4cbd-9210-9baaf2cb5e33",
+    "title": "Cashier",
+    "deleted": false
+  },
+  {
+    "id": "94b7c688-58fc-4893-a5cd-fe829b436f4e",
+    "guid": "d2bbcf77-961a-4ce8-919e-e2e8790a5073",
+    "title": "Willian Supervisor",
+    "deleted": false
+  },
+  {
+    "id": "94ca1fcd-564f-4579-900e-77f8e5b5ae6f",
+    "guid": "773659a0-db81-48f7-8cfa-a2ded37a39d1",
+    "title": "Prep",
+    "deleted": false
+  },
+  {
+    "id": "9503379a-b067-467e-8edb-202e98348c57",
+    "guid": "161e96b1-bfc4-49da-a3f9-56c8c788c110",
+    "title": "Asst Manager",
+    "deleted": false
+  },
+  {
+    "id": "9a0cdb8a-5640-4795-9484-ac72e109c5f3",
+    "guid": "de7b535b-21a0-4064-85bc-a91116f6f182",
+    "title": "Asst Manager",
+    "deleted": false
+  },
+  {
+    "id": "a01b9edf-8fee-48fe-a8e7-d895050f4081",
+    "guid": "8e8f29d6-af79-4cbe-97f3-e6c4c9b496ec",
+    "title": "Prep",
+    "deleted": false
+  },
+  {
+    "id": "a02d2877-e998-41ac-a477-f14d4355cdb9",
+    "guid": "7a5959dd-ecfc-4888-91f5-a3722a11bb88",
+    "title": "Cashier",
+    "deleted": false
+  },
+  {
+    "id": "a16c4f11-5ef0-4ad7-a346-d8ee653f91ef",
+    "guid": "f7f454f7-6e19-4881-af03-65ddb706855b",
+    "title": "Cook",
+    "deleted": false
+  },
+  {
+    "id": "a2ed35da-e3ce-4b99-a025-439a018b363b",
+    "guid": "5481c61b-c88f-43db-ae87-103b2a850362",
+    "title": "Prep",
+    "deleted": false
+  },
+  {
+    "id": "a41c55ff-7ec7-4a98-b238-2db8e8fde55b",
+    "guid": "cfa94edc-f1d0-4ba8-b702-c19b64137ffd",
+    "title": "Cook",
+    "deleted": false
+  },
+  {
+    "id": "a471895d-3202-4579-ac2b-4d70f8ac7877",
+    "guid": "6c156475-03b3-44fa-b9be-d7225fa3508c",
+    "title": "Asst Manager",
+    "deleted": false
+  },
+  {
+    "id": "a4b9e573-46da-415c-8867-2cc269cb03a9",
+    "guid": "f1c25097-781e-4553-9a76-0732d1fbaadc",
+    "title": "Cashier",
+    "deleted": false
+  },
+  {
+    "id": "a8c6776a-2a89-4ec7-966a-9788a31e4e26",
+    "guid": "fa8f2c10-c8cb-4bb0-8b60-75ad258f3b80",
+    "title": "Manager",
+    "deleted": false
+  },
+  {
+    "id": "a9d3efff-6dbd-4c54-ae90-0d9538ac2ecb",
+    "guid": "aa576c80-c4e7-4693-a183-8d836d220f71",
+    "title": "KDS (internal)",
+    "deleted": false
+  },
+  {
+    "id": "aa7b8a00-a83d-4d9d-9673-241c7b1815a6",
+    "guid": "25adc643-5be9-4ec2-9a41-f6ad9ab5214a",
+    "title": "Manager",
+    "deleted": false
+  },
+  {
+    "id": "acf76cbc-2a62-4fa6-ae2a-675b55742a85",
+    "guid": "3d746220-f0af-433e-8c50-4329145b586b",
+    "title": "Manager",
+    "deleted": false
+  },
+  {
+    "id": "ade8d508-5e9a-421c-a416-e688fffd97a0",
+    "guid": "b128f5d2-8e92-4779-b22d-5870b5241cb5",
+    "title": "Manager",
+    "deleted": false
+  },
+  {
+    "id": "ae0b6a33-9aa3-480a-ba1a-e7f5814b1e03",
+    "guid": "5c1d4355-80ee-418a-a826-d90e2d8e49cf",
+    "title": "Shift Leader",
+    "deleted": false
+  },
+  {
+    "id": "ae68a5dd-6eb1-4d62-a161-ceb5a0f6e547",
+    "guid": "539b4613-dfb9-44a3-a2b2-f8e759185df5",
+    "title": "Delivery Service Driver",
+    "deleted": false
+  },
+  {
+    "id": "af724b42-7933-4801-9584-72cdc82932e9",
+    "guid": "37ca625b-18c5-48a0-a7ac-c0f593578c9f",
+    "title": "Shift Leader",
+    "deleted": false
+  },
+  {
+    "id": "afa2878f-1ace-43ef-bcad-35b1a53e9443",
+    "guid": "1cc07f10-cdd2-499f-a997-806650863b86",
+    "title": "Shift Leader",
+    "deleted": false
+  },
+  {
+    "id": "b2e529f1-4a91-4176-97eb-b8c0e9f40f83",
+    "guid": "40f18bb1-92c8-4c46-b738-f059fd404f9f",
+    "title": "Prep",
+    "deleted": false
+  },
+  {
+    "id": "b3809e1b-8210-49c0-a4db-30e7d5a1cc59",
+    "guid": "f910de96-7c58-4186-a6b7-43fd30d9d845",
+    "title": "Manager",
+    "deleted": false
+  },
+  {
+    "id": "bed19881-1be0-4780-a08a-a4d5f0d8b9e1",
+    "guid": "02e40baf-975a-4809-80ff-f94a6471c602",
+    "title": "Prep",
+    "deleted": false
+  },
+  {
+    "id": "c1fbd152-1552-476d-bcef-a92af0de0b02",
+    "guid": "3287dad4-7fb2-4484-9652-0862d89a7ee5",
+    "title": "Asst Manager",
+    "deleted": false
+  },
+  {
+    "id": "c342de1b-93ae-4866-b688-13b2a3e8263f",
+    "guid": "924471c2-5e77-4b8d-b982-de991c551999",
+    "title": "Shift Leader",
+    "deleted": false
+  },
+  {
+    "id": "c7d59316-c31a-4a3f-9929-7b9ff4e8d46c",
+    "guid": "554d8aa7-c027-4c65-9b77-0148e99d98f2",
+    "title": "Cook",
+    "deleted": false
+  },
+  {
+    "id": "c96dfd43-058e-4c83-b87c-d91a91f88deb",
+    "guid": "0caa3674-669c-4a20-894b-4b6bae5d929d",
+    "title": "Asst Manager",
+    "deleted": false
+  },
+  {
+    "id": "ca84775f-060c-45d5-ac98-78b06b01cd52",
+    "guid": "1326d90d-5f0a-4ed6-b756-e97292203539",
+    "title": "Cashier",
+    "deleted": false
+  },
+  {
+    "id": "cba436cd-d4b0-4bc6-9d0f-b1f2de3e6516",
+    "guid": "060a13c6-fd61-4fa5-8bdd-f0f49f7b6cc6",
+    "title": "Shift Leader",
+    "deleted": false
+  },
+  {
+    "id": "cc610fb9-5413-4627-b98d-c82457020b46",
+    "guid": "7c3c2052-f8ea-4aab-b227-e7f6eee9a1d8",
+    "title": "Cook",
+    "deleted": false
+  },
+  {
+    "id": "cf315bf0-3221-41ff-ba03-d6f51360ca87",
+    "guid": "7a8fd787-602b-42fb-b1a7-d57c12a7ddcc",
+    "title": "Manager",
+    "deleted": false
+  },
+  {
+    "id": "d4fefc37-bb14-4848-982d-791791cebbb4",
+    "guid": "3ef17c0f-7dfc-454b-8728-74f7bef5c2f2",
+    "title": "Shift Leader",
+    "deleted": false
+  },
+  {
+    "id": "d67d619e-dc54-411d-8f2a-fe27b72f1cd1",
+    "guid": "a003ce5b-d08f-4f66-ac30-f968f0826466",
+    "title": "Cook",
+    "deleted": false
+  },
+  {
+    "id": "d6aaecfa-fddf-47fc-9850-e6a5d71556bb",
+    "guid": "f069bfbf-da5a-4da0-bb24-31b4e0340a88",
+    "title": "Shift Leader",
+    "deleted": false
+  },
+  {
+    "id": "d7788f9e-f689-4a19-b4c8-79568e8c042c",
+    "guid": "d250d116-0614-43c0-827d-de452c45bb23",
+    "title": "Delivery Service Driver",
+    "deleted": false
+  },
+  {
+    "id": "e1612f97-4b02-4c3a-8674-77f631a24346",
+    "guid": "806cf4a2-b245-4195-9210-98abd526ecf2",
+    "title": "Shift Leader",
+    "deleted": false
+  },
+  {
+    "id": "e29f5757-6b4d-4a8b-a45d-c76f23dd136e",
+    "guid": "daf8f79b-e597-472c-ae29-d84b61ba058e",
+    "title": "Prep",
+    "deleted": false
+  },
+  {
+    "id": "e2d0e08d-285e-4661-b7ee-79bb9af789b4",
+    "guid": "4cb36ff4-64a0-4515-a099-bdb13fd7b070",
+    "title": "Delivery Service Driver",
+    "deleted": false
+  },
+  {
+    "id": "e593ed98-9317-4b06-9215-8e0ec8507d78",
+    "guid": "0c02665b-f409-4c5e-919f-2602ccb6febd",
+    "title": "Asst Manager",
+    "deleted": false
+  },
+  {
+    "id": "e68d3b86-cd05-448a-b63d-8ace53ea1bc7",
+    "guid": "8715c95b-2774-4b60-9ec9-f27c1722c04f",
+    "title": "Accounting",
+    "deleted": false
+  },
+  {
+    "id": "e9f18b17-b150-46b5-a5aa-71cf2e6712a5",
+    "guid": "cce16e16-3ee7-42f5-b0f0-78c46696eda7",
+    "title": "Delivery Service Driver",
+    "deleted": false
+  },
+  {
+    "id": "e9fdc8fa-d617-4a18-b6c3-5a0c998b632d",
+    "guid": "6f26fa34-cfd4-4d72-882b-647a04a79c4b",
+    "title": "Manager",
+    "deleted": false
+  },
+  {
+    "id": "ec058b15-5595-403d-bd8c-c6fdfde1d7ce",
+    "guid": "ee19bfcc-21ff-4f1a-b83c-66b1d29e0743",
+    "title": "Asst Manager",
+    "deleted": false
+  },
+  {
+    "id": "ed14d0b8-e4b6-40b7-a8d0-0797e09d951b",
+    "guid": "638ab43c-b083-43f7-8705-d48197dc19b3",
+    "title": "Cook",
+    "deleted": false
+  },
+  {
+    "id": "ef7f9d65-aeb2-4efc-90a9-3f569ab798f5",
+    "guid": "0284a5b6-752f-4ed1-8b9d-2e59b5dca045",
+    "title": "Super User",
+    "deleted": false
+  },
+  {
+    "id": "f6388552-891c-4b7f-a3b6-d4bcc2ae23c2",
+    "guid": "023727a8-c5c9-4ecf-9c6d-a99e983ea148",
+    "title": "Asst. Manager",
+    "deleted": false
+  },
+  {
+    "id": "f7d05569-4686-4078-8a51-b260a9b268a7",
+    "guid": "55fcbb86-c76d-4db9-b987-6d8002aabd62",
+    "title": "Manager",
+    "deleted": false
+  },
+  {
+    "id": "fdcd71c5-c8e6-402b-a66d-f03c5f3c6ffe",
+    "guid": "e73f855f-b380-4aeb-8d33-86fcd3bd282d",
+    "title": "Delivery Service Driver",
+    "deleted": false
+  }
+]

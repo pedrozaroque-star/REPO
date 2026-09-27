@@ -33,6 +33,9 @@
  *   Sobrante inline editable en la tabla del pedido diario.
  * - [2026-07-02] Añadida edición de estimados anteriores en modal responsivo e independiente.
  *   Añadido selector inline de copia de PAR de un día a otro en la configuración semanal.
+ * - [2026-09-25] Requiere captura completa de sobrantes antes de generar o enviar Orden Diaria.
+ * - [2026-09-25] Piloto Lynwood: oculta la estimación automática hasta cerrar el conteo físico completo.
+ * - [2026-09-26] Slauson participa con el mismo conteo ciego y validación shadow.
  */
 'use client'
 
@@ -48,6 +51,8 @@ import {
     clonePreviousWeekBases, copyFromParIdeal, linkExcelItem,
     saveOrderDraft, executeWeekRollover, fetchAnalysisData,
     saveWeeklyBases, saveSingleItemWeeklyBase, fetchMappedItems, fetchHistoryData,
+    fetchInventoryPilotSession, finalizeInventoryPilotCount,
+    type InventoryPilotSession,
     type OrderType
 } from './actions'
 import {
@@ -142,6 +147,10 @@ export default function InventoryOrdersPage() {
     const [adjustments, setAdjustments] = useState<Record<string, number | string>>({})
     const [orders, setOrders] = useState<any[]>([])
     const [analysisData, setAnalysisData] = useState<any>(null)
+    const [pilotSession, setPilotSession] = useState<InventoryPilotSession>({
+        enabled: false, schemaReady: true, status: 'counting', lines: []
+    })
+    const [closingPilotCount, setClosingPilotCount] = useState(false)
 
     // Emergency / extraordinary items states
     const [mappedItems, setMappedItems] = useState<any[]>([])
@@ -307,11 +316,12 @@ export default function InventoryOrdersPage() {
         setLoading(true)
         try {
             // 1. Cargar inmediatamente los datos locales desde la base de datos (Supabase)
-            const [orderableItems, allInvItems, mappedInvItems, weekData] = await Promise.all([
+            const [orderableItems, allInvItems, mappedInvItems, weekData, currentPilotSession] = await Promise.all([
                 fetchOrderableItems(storeId, orderType),
                 fetchAllInventoryItems(),
                 fetchMappedItems(),
                 fetchWeeklyData(storeId, activeMonday, orderType),
+                fetchInventoryPilotSession(storeId, selectedOrderDate, orderType),
             ])
             setItems(orderableItems)
             setAllItems(allInvItems)
@@ -322,6 +332,7 @@ export default function InventoryOrdersPage() {
             setParIdeal(weekData.parIdeal)
             setCounts(weekData.counts)
             setOrders(weekData.orders)
+            setPilotSession(currentPilotSession)
             setHasBaseChanges(false)
 
             // Pre-cargar notas y ajustes de la orden de hoy
@@ -972,32 +983,13 @@ export default function InventoryOrdersPage() {
         setLoading(false)
     }
 
-    function validateFlanAndCheesecake(lines: any[]): boolean {
+    function validateCompleteCounts(lines: CalculatedOrderLine[]): boolean {
         if (orderType !== 'daily') return true
-
-        const flanLine = lines.find(l => 
-            l.inventory_item_id === 'f8f776c5-3b8c-453e-8161-b49840823933' || 
-            (l.item_name || l.name || '').toLowerCase() === 'flan' ||
-            (l.item_name || l.name || '').toLowerCase() === 'whole flan'
-        )
-        const cheesecakeLine = lines.find(l => 
-            l.inventory_item_id === '8ba55664-5ca9-4886-8ac8-acf1fd070713' || 
-            (l.item_name || l.name || '').toLowerCase() === 'cheesecake' ||
-            (l.item_name || l.name || '').toLowerCase() === 'cheese cake' ||
-            (l.item_name || l.name || '').toLowerCase() === 'whole cheese cake'
-        )
-
-        const missing: string[] = []
-        
-        if (flanLine && flanLine.leftover_value === null) {
-            missing.push('Flan')
-        }
-        if (cheesecakeLine && cheesecakeLine.leftover_value === null) {
-            missing.push('Cheesecake')
-        }
+        const missing = lines.filter(l => !l.is_extraordinary && (l.leftover_value === null || l.leftover_value === undefined))
+            .map(l => l.item_name)
 
         if (missing.length > 0) {
-            alert(`⚠️ VALIDACIÓN REQUERIDA:\nDebes capturar el sobrante de: ${missing.join(' y ')} antes de generar la orden o enviar a QuickBooks.`)
+            alert(`⚠️ FALTAN ${missing.length} SOBRANTES:\nCaptura el conteo físico de: ${missing.join(', ')}. No se puede generar ni enviar la orden incompleta.`)
             return false
         }
 
@@ -1006,7 +998,7 @@ export default function InventoryOrdersPage() {
 
     async function handleGenerateOrder() {
         if (!storeId) return
-        if (!validateFlanAndCheesecake(orderLines)) return
+        if (!validateCompleteCounts(orderLines)) return
         setSaving(true)
         const lines = orderLines.filter(l => {
             if (!l.is_extraordinary && (l.leftover_value === null || l.leftover_value === undefined)) return false
@@ -1032,8 +1024,44 @@ export default function InventoryOrdersPage() {
         setSaving(false)
     }
 
+    async function handleClosePilotCount() {
+        if (!storeId || !pilotSession.enabled) return
+        if (!pilotSession.schemaReady) {
+            alert('Primero aplica la migración 202609250001_inventory_automation_pilot.sql en Supabase.')
+            return
+        }
+        if (!validateCompleteCounts(orderLines)) return
+        if (!confirm('Cerrar el conteo físico y revelar la comparación automática? Después podrás revisar cada diferencia antes de generar el pedido oficial.')) return
+
+        setClosingPilotCount(true)
+        try {
+            const comparisonLines = orderLines
+                .filter(line => !line.is_extraordinary)
+                .map(line => ({
+                    inventory_item_id: line.inventory_item_id,
+                    item_name: line.item_name,
+                    physical_leftover: Number(line.leftover_value),
+                    automatic_leftover: line.suggested_leftover ?? null,
+                    par_value: Number(line.par_value) || 0,
+                    rounding_rule: line.rounding_rule,
+                }))
+
+            const result = await finalizeInventoryPilotCount(storeId, selectedOrderDate, comparisonLines)
+            if (result.error) {
+                alert(result.error)
+                return
+            }
+            const refreshed = await fetchInventoryPilotSession(storeId, selectedOrderDate, orderType)
+            setPilotSession(refreshed)
+        } catch (error: any) {
+            alert(`No se pudo cerrar el conteo: ${error.message}`)
+        } finally {
+            setClosingPilotCount(false)
+        }
+    }
+
     async function handleSendToQb() {
-        if (!validateFlanAndCheesecake(orderLines)) return
+        if (!validateCompleteCounts(orderLines)) return
         if (!confirm(t('bodegaOrders.confirmSend'))) return
 
         // SIEMPRE re-guardar las líneas antes de enviar a QB,
@@ -1280,6 +1308,9 @@ export default function InventoryOrdersPage() {
     const orderableLines = orderLines.filter(l => l.qb_item_id && l.qb_item_id !== 'TRACK_ONLY' && !l.is_extraordinary)
     const trackingLines = orderLines.filter(l => (!l.qb_item_id || l.qb_item_id === 'TRACK_ONLY') && !l.is_extraordinary)
     const extraordinaryLines = orderLines.filter(l => l.is_extraordinary)
+    const isPilotBlind = pilotSession.enabled && pilotSession.schemaReady && pilotSession.status !== 'revealed'
+    const pilotCanClose = pilotSession.enabled && pilotSession.schemaReady
+        && capturedToday === items.length && items.length > 0
 
     // ============================================================================
     // RENDER
@@ -2017,6 +2048,42 @@ export default function InventoryOrdersPage() {
                                         </div>
                                     )}
 
+                                    {pilotSession.enabled && (
+                                        <div className={`mx-5 mb-4 p-4 rounded-xl border flex flex-wrap items-center justify-between gap-3 shadow-sm ${
+                                            isPilotBlind
+                                                ? 'bg-violet-50 border-violet-200 text-violet-900'
+                                                : 'bg-emerald-50 border-emerald-200 text-emerald-900'
+                                        }`}>
+                                            <div>
+                                                <div className="font-black text-sm">
+                                                    {isPilotBlind
+                                                        ? `🔒 Piloto ${pilotSession.storeName || 'de inventario'} · Conteo ciego`
+                                                        : `✅ Piloto ${pilotSession.storeName || 'de inventario'} · Comparación revelada`}
+                                                </div>
+                                                <p className="text-xs mt-1 max-w-3xl">
+                                                    {isPilotBlind
+                                                        ? 'Captura primero todos los sobrantes físicos. El cálculo automático y el pedido permanecen ocultos para no influir en el conteo.'
+                                                        : `El conteo físico sigue siendo el oficial. La estimación automática se muestra solo para validar su precisión${pilotSession.completedBy ? ` · Cerrado por ${pilotSession.completedBy}` : ''}.`}
+                                                </p>
+                                                {!pilotSession.schemaReady && (
+                                                    <p className="text-xs font-bold text-red-700 mt-2">
+                                                        Falta aplicar en Supabase la migración 202609250001_inventory_automation_pilot.sql.
+                                                    </p>
+                                                )}
+                                            </div>
+                                            {isPilotBlind && (
+                                                <button
+                                                    type="button"
+                                                    onClick={handleClosePilotCount}
+                                                    disabled={!pilotCanClose || closingPilotCount}
+                                                    className="px-4 py-2.5 rounded-xl bg-violet-700 hover:bg-violet-800 text-white text-xs font-black disabled:opacity-40 disabled:cursor-not-allowed"
+                                                >
+                                                    {closingPilotCount ? 'Cerrando...' : `Cerrar conteo y comparar (${capturedToday}/${items.length})`}
+                                                </button>
+                                            )}
+                                        </div>
+                                    )}
+
                                     {/* ---- Success banner if already sent to QB ---- */}
                                     {existingOrder?.qb_estimate_number && (
                                         <div className="mx-5 mb-4 bg-emerald-50 border border-emerald-200 p-4 rounded-xl flex flex-wrap gap-4 items-center justify-between shadow-sm">
@@ -2048,11 +2115,11 @@ export default function InventoryOrdersPage() {
                                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4 px-5 pb-4">
                                         <div className="bg-blue-50 rounded-xl p-4 border border-blue-100">
                                             <div className="text-xs text-blue-500 font-bold uppercase tracking-wider">{t('bodegaOrders.totalItemsToOrder')}</div>
-                                            <div className="text-3xl font-black text-blue-700 mt-1">{itemsToOrder}</div>
+                                            <div className="text-3xl font-black text-blue-700 mt-1">{isPilotBlind ? '🔒' : itemsToOrder}</div>
                                         </div>
                                         <div className="bg-amber-50 rounded-xl p-4 border border-amber-100">
                                             <div className="text-xs text-amber-500 font-bold uppercase tracking-wider">{t('bodegaOrders.excessItems')}</div>
-                                            <div className="text-3xl font-black text-amber-600 mt-1">{excessItems}</div>
+                                            <div className="text-3xl font-black text-amber-600 mt-1">{isPilotBlind ? '🔒' : excessItems}</div>
                                         </div>
                                         <div className="bg-emerald-50 rounded-xl p-4 border border-emerald-100">
                                             <div className="text-xs text-emerald-500 font-bold uppercase tracking-wider">{t('bodegaOrders.qbEstimate')}</div>
@@ -2127,11 +2194,17 @@ export default function InventoryOrdersPage() {
                                         >
                                             <Printer size={14} /> {t('bodegaOrders.printSheet')}
                                         </button>
-                                        <button onClick={handleGenerateOrder} disabled={saving}
+                                        {isPilotBlind && (
+                                            <button onClick={handleClosePilotCount} disabled={!pilotCanClose || closingPilotCount}
+                                                className="flex items-center gap-2 bg-violet-700 hover:bg-violet-800 text-white px-5 py-2.5 rounded-xl font-bold text-xs shadow-sm disabled:opacity-40">
+                                                <Check size={14} /> {closingPilotCount ? 'Cerrando...' : 'Cerrar conteo y comparar'}
+                                            </button>
+                                        )}
+                                        <button onClick={handleGenerateOrder} disabled={saving || isPilotBlind}
                                             className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl font-bold text-xs shadow-sm transition-colors disabled:opacity-50">
                                             <Save size={14} /> {saving ? t('bodegaOrders.saving') : t('bodegaOrders.generateOrder')}
                                         </button>
-                                        <button onClick={handleSendToQb} disabled={sendingToQb || !isCurrentWeek}
+                                        <button onClick={handleSendToQb} disabled={sendingToQb || !isCurrentWeek || isPilotBlind}
                                             className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2.5 rounded-xl font-bold text-xs shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed">
                                             <Send size={14} /> {sendingToQb ? t('bodegaOrders.sendingToQb') : t('bodegaOrders.sendToQb')}
                                         </button>
@@ -2237,7 +2310,9 @@ export default function InventoryOrdersPage() {
                                                             {/* Sugerido (theoretical leftover) */}
                                                             {showSuggestedCol && (
                                                                 <td className="p-2 text-center border-b border-slate-100 font-medium text-xs bg-amber-50/20 text-amber-800">
-                                                                    {line.suggested_leftover !== null && line.suggested_leftover !== undefined ? (
+                                                                    {isPilotBlind ? (
+                                                                        <span className="text-violet-500" title="Se revela al cerrar el conteo">🔒</span>
+                                                                    ) : line.suggested_leftover !== null && line.suggested_leftover !== undefined ? (
                                                                         <span title={`Consumo proyectado: ${line.theoretical_consumption ?? '-'} | Órdenes: ${line.yesterday_order_qty ?? '-'}`}>
                                                                             {line.suggested_leftover}
                                                                         </span>
@@ -2264,7 +2339,7 @@ export default function InventoryOrdersPage() {
                                                                             onKeyDown={e => handleGridKeyDown(e, rowIndex, 0)}
                                                                             onFocus={e => e.target.select()}
                                                                         />
-                                                                        {line.variance !== null && line.variance !== undefined && currentLeftover !== undefined && (
+                                                                        {!isPilotBlind && line.variance !== null && line.variance !== undefined && currentLeftover !== undefined && (
                                                                             <span className={`absolute right-1 text-[9px] px-1 py-0.5 rounded font-black ${
                                                                                 line.variance === 0
                                                                                     ? 'bg-emerald-100 text-emerald-800'
@@ -2284,7 +2359,7 @@ export default function InventoryOrdersPage() {
                                                                 : isZeroLeftover ? 'text-slate-300 bg-slate-50 border-slate-100'
                                                                 : 'text-blue-700 bg-blue-50/30 border-blue-100'
                                                             }`}>
-                                                                {isZeroLeftover ? '-' : line.calculated_qty}
+                                                                {isPilotBlind ? '🔒' : isZeroLeftover ? '-' : line.calculated_qty}
                                                             </td>
                                                             {/* Ajuste (optional override) */}
                                                             <td className="p-0 border-b border-indigo-100 bg-indigo-50/20">
@@ -2293,6 +2368,7 @@ export default function InventoryOrdersPage() {
                                                                     type="text"
                                                                     inputMode="decimal"
                                                                     placeholder="-"
+                                                                    disabled={isPilotBlind}
                                                                     className="w-full p-2.5 text-center outline-none bg-transparent focus:bg-white focus:ring-2 focus:ring-indigo-400 font-bold text-indigo-700 text-sm placeholder:text-indigo-200"
                                                                     value={rawAdj !== undefined ? rawAdj : ''}
                                                                     onChange={e => {
@@ -2313,7 +2389,7 @@ export default function InventoryOrdersPage() {
                                                             </td>
                                                             {/* Final */}
                                                             <td className={`p-2 text-center font-black text-base border-b border-indigo-100 bg-indigo-50/20 ${isZeroLeftover ? 'text-slate-300' : 'text-indigo-800'}`}>
-                                                                {isZeroLeftover ? '-' : finalQty}
+                                                                {isPilotBlind ? '🔒' : isZeroLeftover ? '-' : finalQty}
                                                             </td>
                                                         </tr>
                                                     )
@@ -2591,11 +2667,17 @@ export default function InventoryOrdersPage() {
                                         >
                                             <Printer size={16} /> {t('bodegaOrders.printSheet')}
                                         </button>
-                                        <button onClick={handleGenerateOrder} disabled={saving}
+                                        {isPilotBlind && (
+                                            <button onClick={handleClosePilotCount} disabled={!pilotCanClose || closingPilotCount}
+                                                className="flex items-center gap-2 bg-violet-700 hover:bg-violet-800 text-white px-6 py-3 rounded-xl font-bold shadow-sm disabled:opacity-40">
+                                                <Check size={16} /> {closingPilotCount ? 'Cerrando...' : 'Cerrar conteo y comparar'}
+                                            </button>
+                                        )}
+                                        <button onClick={handleGenerateOrder} disabled={saving || isPilotBlind}
                                             className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-xl font-bold shadow-sm transition-colors disabled:opacity-50">
                                             <Save size={16} /> {saving ? t('bodegaOrders.saving') : t('bodegaOrders.generateOrder')}
                                         </button>
-                                        <button onClick={handleSendToQb} disabled={sendingToQb || !isCurrentWeek}
+                                        <button onClick={handleSendToQb} disabled={sendingToQb || !isCurrentWeek || isPilotBlind}
                                             className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-3 rounded-xl font-bold shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed">
                                             <Send size={16} /> {sendingToQb ? t('bodegaOrders.sendingToQb') : t('bodegaOrders.sendToQb')}
                                         </button>

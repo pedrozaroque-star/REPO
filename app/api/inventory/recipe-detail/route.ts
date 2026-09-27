@@ -1,6 +1,19 @@
+/**
+ * @module app/api/inventory/recipe-detail
+ * @description Devuelve el desglose y costo de recetas Toast, incluidas recetas virtuales de Party Trays.
+ * @businessRules
+ *   - Party Trays usan la guía central: mitad de maíz/harina cuando ambos se seleccionan y un RC478+709DO por cada 60 tortillas.
+ *   - Jalapeños de Party Tray son a granel; las bolsas de 2 oz pertenecen a productos individuales.
+ * @dataFlow
+ *   Toast item + modifiers → recipes/party-tray-guidelines → calculateRecipeCost → respuesta del modal.
+ * @notes
+ *   - Mantiene la vista de detalle consistente con Food Cost y consumo teórico.
+ */
+
 import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseClient } from '@/lib/supabase'
 import { calculateRecipeCost } from '@/lib/inventory/costs'
+import { getPartyTrayTortillaAllocation, PARTY_TRAY_FOOD_TRAY_ITEMS, PARTY_TRAY_GUIDELINES, PARTY_TRAY_NAPKINS_PER_PACK, resolvePartyTraySize } from '@/lib/inventory/party-tray-guidelines'
 import { Recipe, InventoryItem } from '@/types/inventory'
 
 /**
@@ -68,7 +81,11 @@ export async function GET(request: NextRequest) {
         let matchMethod = 'guid'
 
         // 4. Fallback: name-based match
-        if (!recipe) {
+        const requestedNameLower = itemName.toLowerCase()
+        const isPotentialPartyTray = requestedNameLower.includes('party tray') ||
+            requestedNameLower.includes('fiesta platter') || requestedNameLower.includes('people')
+
+        if (!recipe && !isPotentialPartyTray) {
             // Get the name of this GUID from toast_menu_items
             // First check if the requested GUID exists in toast_menu_items
             const { data: requestedItem } = await supabase
@@ -117,33 +134,20 @@ export async function GET(request: NextRequest) {
             return 0 // Doesn't apply or unknown
         }
 
-        const parentNameLower = itemName.toLowerCase()
+        const parentNameLower = requestedNameLower
         const isPartyTray15 = parentNameLower.includes('15') && parentNameLower.includes('20') && parentNameLower.includes('people')
         const isPartyTray20 = parentNameLower.includes('20') && parentNameLower.includes('25') && parentNameLower.includes('people')
         const isPartyTray25 = parentNameLower.includes('25') && parentNameLower.includes('30') && parentNameLower.includes('people')
         const isPartyTray30 = parentNameLower.includes('30') && parentNameLower.includes('40') && parentNameLower.includes('people')
-        const isPartyTray = isPartyTray15 || isPartyTray20 || isPartyTray25 || isPartyTray30
+        const isPartyTray = isPotentialPartyTray || isPartyTray15 || isPartyTray20 || isPartyTray25 || isPartyTray30
 
         let skipModCostCalculation = false
 
         if (isPartyTray) {
-            let meatLbs = 6; let riceLbs = 3; let beanLbs = 3; let salsaR = 12; let salsaV = 12;
-            let onionLimonPts = 16; let jalapenoOz = 8; let plates = 30; let forks = 15; let spoons = 15;
-            let cups = 20; let napkins = 1; let cornPk = 2; let flourPk = 5; let aguaGals = 3;
-
-            if (isPartyTray20) {
-                meatLbs = 7.5; riceLbs = 4; beanLbs = 4; salsaR = 16; salsaV = 16;
-                onionLimonPts = 20; jalapenoOz = 12; plates = 35; forks = 15; spoons = 15;
-                cups = 25; napkins = 1; cornPk = 3; flourPk = 7; aguaGals = 4;
-            } else if (isPartyTray25) {
-                meatLbs = 10; riceLbs = 6; beanLbs = 6; salsaR = 20; salsaV = 20;
-                onionLimonPts = 20; jalapenoOz = 16; plates = 40; forks = 20; spoons = 20;
-                cups = 30; napkins = 2; cornPk = 4; flourPk = 9; aguaGals = 5;
-            } else if (isPartyTray30) {
-                meatLbs = 12; riceLbs = 10; beanLbs = 10; salsaR = 24; salsaV = 24;
-                onionLimonPts = 30; jalapenoOz = 20; plates = 50; forks = 25; spoons = 25;
-                cups = 40; napkins = 3; cornPk = 5; flourPk = 12; aguaGals = 6;
-            }
+            const guideline = PARTY_TRAY_GUIDELINES[resolvePartyTraySize(itemName)]
+            const { meatLbs, riceLbs, beansLbs: beanLbs, salsaRojaPacks: salsaR, salsaVerdePacks: salsaV,
+                mixtaBags: onionLimonPts, jalapenoOz, plates, forks, spoons, cups,
+                napkinPacks: napkins, aguaGallons: aguaGals } = guideline
 
             const virtualIngredients: any[] = [];
             const modsArr = parentNameLower.match(/\(([^)]+)\)/) ? parentNameLower.match(/\(([^)]+)\)/)![1].split(',').map((s: string) => s.trim()) : [];
@@ -205,6 +209,12 @@ export async function GET(request: NextRequest) {
 
             meatsFound.forEach(mId => { virtualIngredients.push({ inventory_item_id: mId, quantity: meatLbs / meatsFound.length, unit: 'lb', type: 'cooked' }); });
             aguasFound.forEach(aId => { virtualIngredients.push({ inventory_item_id: aId, quantity: aguaGals / aguasFound.length, unit: 'gal', type: 'raw' }); });
+            const gallonEmptyItem = (inventoryData as InventoryItem[]).find(inventoryItem =>
+                inventoryItem.name.toLowerCase().includes('galones vacios')
+            )
+            if (gallonEmptyItem) {
+                virtualIngredients.push({ inventory_item_id: gallonEmptyItem.id, quantity: aguaGals, unit: 'pza', type: 'raw' })
+            }
 
             virtualIngredients.push({ inventory_item_id: 'a1bbc13a-a481-4b7f-a5c6-8a44a96ad562', quantity: riceLbs, unit: 'lb', type: 'raw' });
             virtualIngredients.push({ inventory_item_id: '557d9414-c769-4399-a6cc-15bb81cba85f', quantity: beanLbs, unit: 'lb', type: 'raw' });
@@ -213,22 +223,20 @@ export async function GET(request: NextRequest) {
             virtualIngredients.push({ inventory_item_id: '90fb17e3-6ba7-4545-b5a1-94df4f6a9fcb', quantity: onionLimonPts, unit: 'pza', type: 'raw' });
             virtualIngredients.push({ inventory_item_id: 'f73fe7a6-105c-4624-a87b-07d5f78c09ea', quantity: onionLimonPts, unit: 'pza', type: 'raw' });
             virtualIngredients.push({ inventory_item_id: 'd56d8df8-d30c-4964-a425-9aa25d962364', quantity: jalapenoOz / 16.0, unit: 'lb', type: 'raw' });
-            const hasMaiz = parentNameLower.includes('maiz');
-            const hasHarina = parentNameLower.includes('harina');
-
-            if (hasMaiz && hasHarina) {
-                virtualIngredients.push({ inventory_item_id: 'dcd79433-e97c-46dc-80c0-8429401e0fa0', quantity: (cornPk * 60) / 2, unit: 'pza', type: 'raw' });
-                virtualIngredients.push({ inventory_item_id: '55798c3c-a86e-469d-ab70-24e0f1af0c2b', quantity: (flourPk * 12) / 2, unit: 'pza', type: 'raw' });
-            } else if (hasHarina) {
-                virtualIngredients.push({ inventory_item_id: '55798c3c-a86e-469d-ab70-24e0f1af0c2b', quantity: flourPk * 12, unit: 'pza', type: 'raw' });
-            } else {
-                virtualIngredients.push({ inventory_item_id: 'dcd79433-e97c-46dc-80c0-8429401e0fa0', quantity: cornPk * 60, unit: 'pza', type: 'raw' });
-            }
+            const tortillas = getPartyTrayTortillaAllocation(itemName, guideline)
+            const foodTrays = PARTY_TRAY_FOOD_TRAY_ITEMS[guideline.foodTraySize]
+            if (tortillas.cornTortillas > 0) virtualIngredients.push({ inventory_item_id: 'dcd79433-e97c-46dc-80c0-8429401e0fa0', quantity: tortillas.cornTortillas, unit: 'pza', type: 'raw' })
+            if (tortillas.flourTortillas > 0) virtualIngredients.push({ inventory_item_id: '55798c3c-a86e-469d-ab70-24e0f1af0c2b', quantity: tortillas.flourTortillas, unit: 'pza', type: 'raw' })
+            virtualIngredients.push({ inventory_item_id: '85533c59-b2df-4af3-bf2b-e684d3d6c125', quantity: tortillas.containerPairs, unit: 'pza', type: 'cogs_takeout' })
+            virtualIngredients.push({ inventory_item_id: 'eba87715-ea18-4f9c-8f22-44c745e86572', quantity: tortillas.containerPairs, unit: 'pza', type: 'cogs_takeout' })
+            virtualIngredients.push({ inventory_item_id: foodTrays.containerId, quantity: 3, unit: 'pza', type: 'raw' })
+            virtualIngredients.push({ inventory_item_id: foodTrays.lidId, quantity: 3, unit: 'pza', type: 'raw' })
             virtualIngredients.push({ inventory_item_id: 'ca959b14-fcef-4900-ae71-2388e4ac023c', quantity: plates, unit: 'pza', type: 'raw' });
             virtualIngredients.push({ inventory_item_id: 'd920800f-e0ca-4799-8434-fea7712f7e98', quantity: forks, unit: 'pza', type: 'raw' });
             virtualIngredients.push({ inventory_item_id: 'd11c55da-7bd1-4133-883c-f28eb9a31936', quantity: spoons, unit: 'pza', type: 'raw' });
-            virtualIngredients.push({ inventory_item_id: 'e26ad6ed-e91d-4dc5-8c1f-a8a89e977af5', quantity: cups, unit: 'pza', type: 'raw' });
-            virtualIngredients.push({ inventory_item_id: '5ea5a92a-fb41-4237-aa91-f006b13c8cc4', quantity: napkins, unit: 'pza', type: 'raw' });
+            virtualIngredients.push({ inventory_item_id: 'e48fbf27-ba61-414b-8bab-2a299e02f61a', quantity: cups, unit: 'pza', type: 'raw' });
+            virtualIngredients.push({ inventory_item_id: '44272ca2-4891-43ec-abd8-2bf917363edb', quantity: 1, unit: 'pza', type: 'raw' });
+            virtualIngredients.push({ inventory_item_id: '328d996f-fed0-4731-b7eb-0b930e126dc4', quantity: napkins * PARTY_TRAY_NAPKINS_PER_PACK, unit: 'pza', type: 'raw' });
 
             recipe = { id: 'virtual-party-tray', toast_menu_item_guid: guid, ingredients: virtualIngredients };
             matchMethod = 'party_tray_heuristic';

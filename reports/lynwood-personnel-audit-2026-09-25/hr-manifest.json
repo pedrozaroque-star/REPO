@@ -1,0 +1,26 @@
+{
+  "status": "COMPLETED",
+  "queriedAt": "2026-09-25T16:17:16.753Z",
+  "profiles": 6,
+  "stubs": 5,
+  "counts": [
+    {
+      "active": true,
+      "expected": 33,
+      "retrieved": 33
+    },
+    {
+      "active": false,
+      "expected": 33,
+      "retrieved": 33
+    }
+  ],
+  "pages": [
+    {
+      "page": 1,
+      "count": 5,
+      "total": 5,
+      "totalPages": 1
+    }
+  ]
+}

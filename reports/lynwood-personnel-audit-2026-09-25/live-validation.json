@@ -1,0 +1,12 @@
+{
+  "status": "PASS",
+  "weeks": 9,
+  "punches": 240,
+  "checks": [
+    "Company 34",
+    "Employee 36848",
+    "IDs de ponchadas sin duplicados",
+    "Suma diaria-semanal",
+    "Reg+OT+DT conciliados"
+  ]
+}

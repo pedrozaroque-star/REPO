@@ -5,9 +5,13 @@
  * - Incorporates rules from the 6 AM PST business day boundary.
  * - Adheres to California compliance guidelines by wrapping the AI breaks scheduler.
  * - Performs theoretical cost analysis matching QuickBooks purchase prices.
+ * - Para Orden Diaria, el PAR menos sobrante sólo es accionable con captura física completa; cero explícito es válido y faltantes bloquean guardado/envío.
+ * - El piloto de Lynwood y Slauson usa conteo ciego: la comparación automática se revela solo después de cerrar el conteo completo; el físico sigue oficial.
+ * - Las cantidades extremas de pedidos históricos no alimentan el sobrante automático ni sus métricas de precisión.
  * @dataFlow
  * - Gemini Tool Calls -> executeTool() -> Database Select/Upsert / Local Forecasting Engine / AI Breaks Engine -> Formatted Markdown String Response.
- * @notes Combines multi-year lookups and weather APIs dynamically to generate instant predictive insights inside the support chat.
+ * @notes Combines multi-year lookups and weather APIs dynamically to generate instant predictive insights inside the support chat. La recuperación histórica de tickets Toast 2026 se archiva localmente y comprimida por defecto, sin PII; los snapshots no representan por sí solos consumo real ni autorizan pedidos automáticos.
+ *   Party Tray guidance: selected water flavor consumes the listed gallons plus one Galón Vacío each; absent water/salsa flavor in Party Trays, Gallon Agua/Agua Fresca, and 20 oz salsa uses same-store history (eight matching weekdays, then 28 recent days, then equal split); 20 oz salsa also consumes RC478, 709DO, and ELTSBALA; corn/flour split 50/50 when both are selected; 60 tortillas consume one RC478 + 709DO pair; Party Tray jalapeños are bulk; every tray uses three food-pan/lid pairs sized 1/3 (15-20), 1/2 (20-30), or full (30-40), 12PR cups, one EL1CS2G to group white cutlery, and DX900GE napkin packs of 250 each. Ticket packaging reads preserved Toast channel metadata (dining option, source and delivery service) rather than guessing from API labels.
  */
 
 import { supabaseAdmin } from '@/lib/supabase'
@@ -16,6 +20,7 @@ import { generateSmartForecast } from '@/lib/intelligence'
 import { scheduleBreaksWithDemand } from '@/lib/breaks-engine'
 import { getRonosStoreAudit, getRonosChainWideAudit, RONOS_STORES_MAP } from '@/lib/ronos-api'
 import { calculateCingularPayrollReport } from '@/lib/payroll-calculator'
+import { calculateTicketPackaging, type ToastTicketSelection } from '@/lib/inventory/ticket-packaging'
 
 const clean = (name: string) => (name || '').replace(/^Tacos Gavilan\s+/i, '').trim()
 const fmt$ = (n: number) => '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -139,6 +144,18 @@ export const TOOL_DECLARATIONS = [
         category: { type: 'STRING', description: 'Optional category filter (meat, produce, dairy, etc.)' },
         item_name: { type: 'STRING', description: 'Optional item name search' }
       }
+    }
+  },
+  {
+    name: 'query_ticket_packaging',
+    description: 'Audit raw Toast tickets for all currently configured packaging rules by store and business date: tacos, Taco Plates, sopes, mulitas, quesadillas, tortas, burritos, nachos, platos, desayunos and desserts. Outer bags remain intentionally excluded until capacity rules exist.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        store_name: { type: 'STRING', description: 'Store name (partial match)' },
+        business_date: { type: 'STRING', description: 'Business date YYYY-MM-DD' }
+      },
+      required: ['store_name', 'business_date']
     }
   },
   {
@@ -286,6 +303,17 @@ export const TOOL_DECLARATIONS = [
         end_date: { type: 'STRING', description: 'End date YYYY-MM-DD' }
       },
       required: ['start_date', 'end_date']
+    }
+  },
+  {
+    name: 'query_inventory_pilot_status',
+    description: 'Query the Lynwood and Slauson blind-count automation pilot status and accuracy comparison by business date. Physical count remains official; anomalous historical quantities are excluded from automatic estimates.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        business_date: { type: 'STRING', description: 'Optional business date YYYY-MM-DD' },
+        days_back: { type: 'NUMBER', description: 'Days to review when no exact date is supplied (default 7)' }
+      }
     }
   },
   {
@@ -478,6 +506,7 @@ export async function executeTool(name: string, args: any): Promise<string> {
       case 'query_schedules': return await querySchedules(args)
       case 'query_employees': return await queryEmployees(args)
       case 'query_inventory': return await queryInventory(args)
+      case 'query_ticket_packaging': return await queryTicketPackaging(args)
       case 'query_feedback': return await queryFeedback(args)
       case 'query_stores': return await queryStores()
       case 'query_menu_recipes': return await queryMenuRecipes(args)
@@ -491,6 +520,7 @@ export async function executeTool(name: string, args: any): Promise<string> {
       case 'query_safe_counts': return await querySafeCounts(args)
       case 'query_prep_pace': return await queryPrepPace(args)
       case 'query_inventory_orders': return await queryInventoryOrders(args)
+      case 'query_inventory_pilot_status': return await queryInventoryPilotStatus(args)
       case 'execute_custom_sql': return await executeCustomSql(args)
       case 'query_uniforms_stock': return await queryUniformsStock(args)
       case 'query_executive_uniforms_dashboard': return await queryExecutiveUniformsDashboard(args)
@@ -674,6 +704,14 @@ async function compareSalesPeriods(args: any): Promise<string> {
 }
 
 // ── 2. Food Cost ──
+// Toast recipes can include both restaurant and Bodega-origin inventory items. The
+// is_bodega flag identifies procurement origin; it does not exclude direct sale consumption.
+// Variable flavor, protein allocation, and channel-specific packaging rules are stored
+// separately in recipe_automation_rules so a tool distinguishes fixed recipes from calculated consumption.
+// Canonical recipe channels: for_here, to_go, drive_thru, delivery.
+// Chorizo is restaurant-cooked: 2 oz raw → 1.5 oz cooked (75% official yield).
+// Toast protein rules: parse active protein names, split multi-protein portions evenly, add a full portion for Extra/Doble Carne, and use 1.9 oz for Taco Carne Dorada; never infer discontinued Tripa.
+// Sope Queso includes one sope base, frijol, crema, queso fresco, and cotija.
 async function queryFoodCost(args: any): Promise<string> {
   let query = supabaseAdmin
     .from('food_cost_daily_cache')
@@ -918,6 +956,80 @@ async function queryInventory(args: any): Promise<string> {
   const lines = data.map(i => `${i.name} | ${i.unit_type || '?'} | ${fmt$(Number(i.purchase_unit_cost) || 0)}/${i.unit_measure || 'u'} | yield: ${i.yield_percent || 100}%`)
 
   return `Inventory (${data.length} items):\nBy Category: ${Object.entries(byCat).map(([c, n]) => `${c}: ${n}`).join(', ')}\n\n${lines.join('\n')}`
+}
+
+// ── Ticket-aware packaging audit (all approved menu rules) ──
+// Platform TakeOut and Toast Online retain their sales channel but use Delivery packaging.
+async function queryTicketPackaging(args: { store_name: string; business_date: string }): Promise<string> {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(args.business_date || '')) return 'business_date must use YYYY-MM-DD.'
+  const { data: stores, error: storeError } = await supabaseAdmin
+    .from('stores').select('id, name').ilike('name', `%${args.store_name}%`).limit(2)
+  if (storeError) return `Error: ${storeError.message}`
+  if (!stores?.length) return `No store matches "${args.store_name}".`
+  if (stores.length > 1) return `More than one store matches "${args.store_name}": ${stores.map(store => store.name).join(', ')}.`
+  const store = stores[0]
+  const { data: snapshots, error } = await supabaseAdmin
+    .from('toast_ticket_consumption_snapshots')
+    .select('toast_order_guid, dining_option_name, channel_metadata, selections')
+    .eq('store_id', store.id).eq('business_date', args.business_date)
+  if (error) return `Error: ${error.message}`
+  if (!snapshots?.length) return `No Toast ticket snapshots for ${clean(store.name)} on ${args.business_date}. Sync /api/inventory/sync-ticket-consumption first.`
+
+  const totals = new Map<string, number>()
+  let tacoTickets = 0
+  let tacos = 0
+  let unresolved = 0
+  for (const snapshot of snapshots) {
+    const result = calculateTicketPackaging({
+      diningOptionName: snapshot.dining_option_name,
+      diningOptionBehavior: snapshot.channel_metadata?.diningOption?.behavior,
+      source: typeof snapshot.channel_metadata?.source === 'string' ? snapshot.channel_metadata.source : null,
+      deliveryService: typeof snapshot.channel_metadata?.deliveryService === 'string' ? snapshot.channel_metadata.deliveryService : null,
+      selections: Array.isArray(snapshot.selections) ? snapshot.selections as ToastTicketSelection[] : [],
+    })
+    if (result.recognizedSelections === 0) continue
+    tacoTickets++
+    tacos += result.tacoCount
+    unresolved += result.unclassifiedTacoCount
+    for (const line of result.lines) totals.set(line.key, (totals.get(line.key) || 0) + line.quantity)
+  }
+  const label: Record<string, string> = {
+    plate_9in: 'Plato de 9 pulgadas',
+    taco_cover: 'Cover Para Taco',
+    salsa_roja_pack: 'Salsa Roja 1.5 oz',
+    salsa_verde_pack: 'Salsa Verde 1.5 oz',
+    mixta_bag: 'Bolsa de Mixta 1 oz',
+    lime_bag: 'Bolsa de Limones',
+    jalapeno_2oz_bag: 'Bolsa de Jalapeño 2 oz',
+    '983BLKB': 'Plato Taco Plate (983BLKB)',
+    '983LID': 'Tapa Taco Plate (983LID)',
+    UP918PR: 'Contenedor 1 Sope (UP918PR)',
+    '981BLKB': 'Contenedor Nachos/2 Sopes (981BLKB)',
+    '981LID': 'Tapa Nachos/2 Sopes (981LID)',
+    EL1254: 'Papel Wax Torta (EL1254)',
+    WRHEFOBL: 'Tenedor Negro Envuelto (Delivery)',
+    WRHESPBL: 'Cuchara Negra Envuelta (Delivery)',
+    HEFO: 'Tenedor Blanco (Comedor/ToGo)',
+    HESP: 'Cuchara Blanca (Comedor/ToGo)',
+    EL1CS2G: 'Bolsa Cubiertos Delivery (EL1CS2G)',
+    RC478: 'Contenedor Redondo Aluminio (RC478)',
+    '709DO': 'Tapa Cartón/Aluminio (709DO)',
+    cup_8oz_paper: 'Vaso Papel 8 oz (Arroz/Frijol/Side Carne)',
+    lid_8oz_flat: 'Tapa Plana 8 oz',
+    cup_4oz: 'Vasito 4 oz (Frijol D/L/O, Guacamole)',
+    lid_4oz: 'Tapa Vasito 4 oz',
+    half_pan: 'Half Pan Aluminio (6 lb Carne)',
+    half_pan_lid: 'Tapa Half Pan',
+    full_pan: 'Full Pan Aluminio (12 lb Carne)',
+    full_pan_lid: 'Tapa Full Pan',
+    ELTSBALA: 'Bolsa Camiseta Chica (ToGo/DriveThru)',
+    ELMES2G: 'Bolsa Exterior Mediana Delivery',
+    ELLAS2G: 'Bolsa Exterior Grande Delivery',
+    bolsa_agua_uber: 'Bolsa Agua Uber'
+  }
+  const lines = Array.from(totals.entries()).map(([key, quantity]) => `- ${label[key] || key}: ${quantity}`)
+  lines.push('Regla de canal: TakeOut de plataformas y Toast Online usan perfil Delivery; To Go de caja y Drive Thru usan perfil To Go.')
+  return `Empaque por ticket — ${clean(store.name)}, ${args.business_date}\nTickets con productos configurados: ${tacoTickets}; tacos equivalentes: ${tacos}\n${lines.join('\n') || '- Sin consumo'}\n${unresolved ? `Aviso: ${unresolved} taco(s) no tenían carne identificable, por lo que no se asignó color de salsa.\n` : ''}`
 }
 
 // ── 9. Feedback ──
@@ -1935,6 +2047,40 @@ async function queryInventoryOrders(args: any): Promise<string> {
   }).join('\n')
 
   return `Inventory Orders:\n${summary}${lineDetails}`
+}
+
+async function queryInventoryPilotStatus(args: { business_date?: string; days_back?: number }): Promise<string> {
+  const daysBack = Math.max(1, Math.min(60, Number(args.days_back) || 7))
+  const endDate = args.business_date || new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
+  const start = new Date(`${endDate}T12:00:00Z`)
+  start.setUTCDate(start.getUTCDate() - (daysBack - 1))
+  const startDate = args.business_date ? endDate : start.toISOString().slice(0, 10)
+
+  const { data, error } = await supabaseAdmin
+    .from('inventory_automation_pilot_sessions')
+    .select('business_date, status, completed_by_name, completed_at, stores(name), inventory_automation_pilot_lines(within_tolerance, variance, physical_leftover, automatic_leftover)')
+    .gte('business_date', startDate)
+    .lte('business_date', endDate)
+    .order('business_date', { ascending: false })
+
+  if (error) {
+    if (error.code === '42P01' || /does not exist|schema cache/i.test(error.message)) {
+      return 'El piloto de conteo ciego todavía no está habilitado porque falta aplicar su configuración en el sistema.'
+    }
+    return `No se pudo consultar el piloto: ${error.message}`
+  }
+  if (!data?.length) return `No hay sesiones cerradas del piloto Lynwood/Slauson entre ${startDate} y ${endDate}.`
+
+  const rows = data.map((session: any) => {
+    const lines = session.inventory_automation_pilot_lines || []
+    const comparable = lines.filter((line: any) => line.within_tolerance !== null)
+    const accurate = comparable.filter((line: any) => line.within_tolerance === true).length
+    const accuracy = comparable.length ? ((accurate / comparable.length) * 100).toFixed(1) : 'N/A'
+    const storeName = Array.isArray(session.stores) ? session.stores[0]?.name : session.stores?.name
+    return `${storeName || 'Sucursal'} · ${session.business_date}: ${session.status === 'revealed' ? 'Conteo cerrado' : 'En captura'} | ${lines.length} artículos | Precisión dentro de tolerancia: ${accuracy}% | Cerró: ${session.completed_by_name || '—'}`
+  })
+
+  return `Piloto de automatización de inventario — Lynwood y Slauson\n${rows.join('\n')}\n\nDurante el piloto, el conteo físico es el oficial para el pedido a QuickBooks.`
 }
 
 async function querySupervisorMileage(args: { start_date: string; end_date: string; supervisor_name?: string }): Promise<string> {

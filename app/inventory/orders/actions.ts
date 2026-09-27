@@ -21,6 +21,10 @@
  * - [2026-06-24] Reescritura total. Eliminados datos hardcodeados (EXCEL_PARS, EXCEL_SOBRANTES).
  * - Toda la data viene de la BD, no hay constantes de Lynwood.
  * - [2026-07-04] Added fetchMappedItems for emergency/extraordinary order items.
+ * - [2026-09-25] Orden Diaria requiere conteo completo antes de guardar; cero explícito sí es válido.
+ * - [2026-09-25] Piloto Lynwood: conteo ciego y snapshot shadow antes de revelar la comparación automática.
+ * - [2026-09-26] El piloto se amplió a Slauson; cada manager cierra únicamente su sucursal y Roque conserva acceso global.
+ * - [2026-09-26] Capturas históricas extremas no entran como entregas estimadas al sobrante automático.
  */
 
 'use server'
@@ -30,6 +34,16 @@ import { revalidatePath } from 'next/cache'
 import { addDays, getMonday } from './utils'
 import type { OrderableItem, WeeklyBaseRecord, ParIdealRecord, CalculatedOrderLine } from './utils'
 import { parseUniformCategoryAndSize, getDefaultMinStock } from '../uniforms/utils'
+import { getMissingDailyCounts } from '@/lib/inventory/order-count-validation'
+import { getServerUser } from '@/lib/auth-server'
+import {
+    buildPilotComparisonLine,
+    canCloseInventoryAutomationPilot,
+    getInventoryAutomationPilotStoreName,
+    isInventoryAutomationPilotStore,
+    isImplausibleArrivalQuantity,
+    type PilotComparisonInput,
+} from '@/lib/inventory/automation-pilot'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -37,6 +51,17 @@ const supabase = createClient(supabaseUrl, supabaseKey)
 
 /** Tipos de orden soportados: diaria, líquidos, uniformes */
 export type OrderType = 'daily' | 'liquids' | 'uniforms'
+
+export type InventoryPilotSession = {
+    enabled: boolean
+    schemaReady: boolean
+    status: 'counting' | 'revealed'
+    storeName?: string | null
+    sessionId?: string
+    completedAt?: string | null
+    completedBy?: string | null
+    lines: any[]
+}
 
 // ============================================================================
 // HELPERS (private, not exported — no issue with 'use server')
@@ -656,13 +681,20 @@ export async function calculateDailyOrder(
     // Leer orden entregada ayer/hoy para saber lo que llegó de Bodega
     const { data: recentOrderLines } = await supabase
         .from('inventory_order_lines')
-        .select('inventory_item_id, final_qty, adjusted_qty, calculated_qty, order_id, inventory_orders!inner(order_date, store_id)')
+        .select('inventory_item_id, final_qty, adjusted_qty, calculated_qty, par_value, order_id, inventory_orders!inner(order_date, store_id, order_type, status)')
         .eq('inventory_orders.store_id', storeId)
         .eq('inventory_orders.order_date', yesterdayStr)
+        .eq('inventory_orders.order_type', 'daily')
+        .in('inventory_orders.status', ['sent', 'received'])
 
     const arrivedMap = new Map<string, number>()
+    const unreliableArrivalItems = new Set<string>()
     recentOrderLines?.forEach((l: any) => {
-        const qty = l.final_qty ?? (l.adjusted_qty ?? (l.calculated_qty ?? 0))
+        const qty = Number(l.final_qty ?? l.adjusted_qty ?? l.calculated_qty ?? 0)
+        if (isImplausibleArrivalQuantity(qty, Number(l.par_value), Number(l.calculated_qty))) {
+            unreliableArrivalItems.add(l.inventory_item_id)
+            return
+        }
         arrivedMap.set(l.inventory_item_id, qty)
     })
 
@@ -705,7 +737,10 @@ export async function calculateDailyOrder(
         let suggestedLeftover: number | null = null
         let isBurnRate = false
 
-        if (theoreticalUsage !== null && yesterdayLeftover !== null) {
+        if (unreliableArrivalItems.has(item.id)) {
+            // No tratar una captura anómala como inventario recibido ni producir estimación comparable.
+            suggestedLeftover = null
+        } else if (theoreticalUsage !== null && yesterdayLeftover !== null) {
             // Ecuación Fundamental: Sobrante Teórico = Sobrante Ayer + Llegó Hoy - Consumo Teórico
             const calc = yesterdayLeftover + arrivedToday - theoreticalUsage
             suggestedLeftover = Math.max(0, applyRounding(calc, item.order_rounding_rule))
@@ -724,9 +759,8 @@ export async function calculateDailyOrder(
             variance = Number((leftoverValue - suggestedLeftover).toFixed(2))
         }
 
-        // Calcular orden: si no hay sobrante capturado, asumir 0 (pedir PAR completo)
-        const effectiveLeftover = leftoverValue ?? 0
-        let calculatedQty = parValue - effectiveLeftover
+        // Sin conteo no existe un pedido calculable; el servidor bloqueará guardar/enviar.
+        let calculatedQty = leftoverValue === null ? 0 : parValue - leftoverValue
         // Clamp a 0: si sobrante > PAR, no pedir cantidades negativas
         calculatedQty = Math.max(0, calculatedQty)
         // Aplicar regla de redondeo
@@ -753,6 +787,167 @@ export async function calculateDailyOrder(
     }
 
     return lines
+}
+
+/**
+ * Lee el estado del piloto shadow. Solo Lynwood/Slauson + Orden Diaria participan.
+ * Si la migración aún no fue aplicada, informa schemaReady=false sin romper el módulo existente.
+ */
+export async function fetchInventoryPilotSession(
+    storeId: string | number,
+    businessDate: string,
+    orderType: OrderType = 'daily'
+): Promise<InventoryPilotSession> {
+    if (orderType !== 'daily') {
+        return { enabled: false, schemaReady: true, status: 'counting', lines: [] }
+    }
+
+    const { data: store, error: storeError } = await supabase
+        .from('stores')
+        .select('id, name')
+        .eq('id', storeId)
+        .maybeSingle()
+    if (storeError) throw new Error(storeError.message)
+
+    const enabled = isInventoryAutomationPilotStore(store?.name)
+    if (!enabled) return { enabled: false, schemaReady: true, status: 'counting', lines: [] }
+    const pilotStoreName = getInventoryAutomationPilotStoreName(store?.name)
+
+    const { data: session, error } = await supabase
+        .from('inventory_automation_pilot_sessions')
+        .select('id, status, completed_at, completed_by_name, inventory_automation_pilot_lines(*)')
+        .eq('store_id', storeId)
+        .eq('business_date', businessDate)
+        .eq('order_type', 'daily')
+        .maybeSingle()
+
+    if (error) {
+        const missingSchema = error.code === '42P01' || /does not exist|schema cache/i.test(error.message)
+        if (missingSchema) {
+            return { enabled: true, schemaReady: false, status: 'counting', storeName: pilotStoreName, lines: [] }
+        }
+        throw new Error(error.message)
+    }
+
+    return {
+        enabled: true,
+        schemaReady: true,
+        status: session?.status === 'revealed' ? 'revealed' : 'counting',
+        storeName: pilotStoreName,
+        sessionId: session?.id,
+        completedAt: session?.completed_at,
+        completedBy: session?.completed_by_name,
+        lines: (session?.inventory_automation_pilot_lines as any[]) || [],
+    }
+}
+
+/** Cierra el conteo ciego y persiste la comparación shadow del piloto Lynwood/Slauson. */
+export async function finalizeInventoryPilotCount(
+    storeId: string | number,
+    businessDate: string,
+    rawLines: PilotComparisonInput[]
+) {
+    const user = await getServerUser()
+    if (!user) return { error: 'Sesión no válida. Vuelve a iniciar sesión.' }
+
+    const { data: userProfile } = await supabase
+        .from('users')
+        .select('full_name, email, role, store_id, store_scope')
+        .ilike('email', user.email)
+        .maybeSingle()
+    const authenticatedName = userProfile?.full_name || user.name
+    const { data: store, error: storeError } = await supabase
+        .from('stores').select('id, name').eq('id', storeId).single()
+    if (storeError || !store || !isInventoryAutomationPilotStore(store.name)) {
+        return { error: 'El piloto automático está habilitado únicamente para Lynwood y Slauson.' }
+    }
+
+    const profileRole = String(userProfile?.role || user.role || '').trim().toLowerCase()
+    const profileScope = Array.isArray(userProfile?.store_scope) ? userProfile.store_scope : []
+    const assignedStoreIds = [
+        userProfile?.store_id,
+        ...profileScope,
+    ].filter(value => value !== null && value !== undefined)
+
+    const canClosePilot = canCloseInventoryAutomationPilot({
+        storeName: store.name,
+        targetStoreId: store.id,
+        userName: authenticatedName,
+        userEmail: user.email,
+        userRole: profileRole,
+        assignedStoreIds,
+    })
+    if (!canClosePilot) {
+        return { error: `Solo el manager asignado a ${getInventoryAutomationPilotStoreName(store.name)} o Roque puede cerrar este piloto.` }
+    }
+
+    const missing = await getMissingDailyCounts(supabase, storeId, businessDate)
+    if (missing.length) {
+        return { error: `Faltan ${missing.length} conteos físicos antes de comparar: ${missing.map(i => i.name).join(', ')}` }
+    }
+
+    const { data: storedCounts, error: countError } = await supabase
+        .from('inventory_counts')
+        .select('inventory_item_id, quantity_on_hand')
+        .eq('store_id', String(storeId))
+        .eq('count_date', businessDate)
+    if (countError) return { error: countError.message }
+
+    const countMap = new Map((storedCounts || []).map(row => [row.inventory_item_id, Number(row.quantity_on_hand)]))
+    const uniqueLines = new Map<string, PilotComparisonInput>()
+    for (const line of rawLines) uniqueLines.set(line.inventory_item_id, line)
+
+    for (const line of uniqueLines.values()) {
+        const stored = countMap.get(line.inventory_item_id)
+        if (stored === undefined || stored !== Number(line.physical_leftover)) {
+            return { error: `El conteo de ${line.item_name} cambió mientras se cerraba. Recarga y vuelve a intentar.` }
+        }
+    }
+
+    const now = new Date().toISOString()
+    const { data: session, error: sessionError } = await supabase
+        .from('inventory_automation_pilot_sessions')
+        .upsert({
+            store_id: storeId,
+            business_date: businessDate,
+            order_type: 'daily',
+            status: 'revealed',
+            model_version: 'shadow-v1',
+            completed_by_user_id: String(user.id),
+            completed_by_name: authenticatedName,
+            completed_at: now,
+            updated_at: now,
+        }, { onConflict: 'store_id,business_date,order_type' })
+        .select('id')
+        .single()
+
+    if (sessionError || !session) {
+        return { error: sessionError?.message || 'No se pudo guardar la sesión del piloto.' }
+    }
+
+    const comparisons = [...uniqueLines.values()].map(buildPilotComparisonLine)
+    const payload = comparisons.map(line => ({
+        session_id: session.id,
+        inventory_item_id: line.inventory_item_id,
+        item_name: line.item_name,
+        physical_leftover: line.physical_leftover,
+        automatic_leftover: line.automatic_leftover,
+        variance: line.variance,
+        tolerance_value: line.tolerance_value,
+        within_tolerance: line.within_tolerance,
+        par_value: line.par_value,
+        automatic_order_qty: line.automatic_order_qty,
+        official_order_qty: line.official_order_qty,
+        updated_at: now,
+    }))
+
+    const { error: linesError } = await supabase
+        .from('inventory_automation_pilot_lines')
+        .upsert(payload, { onConflict: 'session_id,inventory_item_id' })
+    if (linesError) return { error: linesError.message }
+
+    revalidatePath('/inventory/orders')
+    return { success: true, sessionId: session.id, comparisons }
 }
 
 // ============================================================================
@@ -936,6 +1131,16 @@ export async function saveOrderDraft(
     notes?: string,
     orderType: OrderType = 'daily'
 ) {
+    if (orderType === 'daily') {
+        try {
+            const missing = await getMissingDailyCounts(supabase, storeId, orderDate)
+            if (missing.length) {
+                return { error: `Captura todos los sobrantes antes de generar la orden. Faltan ${missing.length}: ${missing.map(i => i.name).join(', ')}` }
+            }
+        } catch (error) {
+            return { error: `No se pudo verificar la captura completa: ${error instanceof Error ? error.message : 'error desconocido'}` }
+        }
+    }
     // Si la orden ya existe y fue enviada a QB, preservar su status actual
     // (no resetear a 'draft' un pedido que ya tiene Estimate en QB)
     let preservedStatus: string | null = null

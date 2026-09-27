@@ -1,0 +1,937 @@
+[
+  {
+    "id": "005fafe7-126f-4db8-bd6a-69ef2f0fbb56",
+    "toast_guid": "64439c9a-9f18-4d8a-a60f-828c64a6640b",
+    "v2_toast_guid": "4e1199f8-01a2-4b0f-a1a4-cb7a14dbb789",
+    "first_name": "Alexander",
+    "last_name": "Suarez",
+    "deleted": true,
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "045d6eaf-23bf-47f8-99d3-d5d0a43c29b0",
+    "toast_guid": "37ed642c-3918-42c6-a31c-240416da00b0",
+    "v2_toast_guid": "b6f826c4-2b45-4a65-892d-e1189a56748e",
+    "first_name": "Alexander",
+    "last_name": "Garcia",
+    "deleted": true,
+    "store_ids": [
+      "47256ade-2cd4-4073-9632-84567ad9e2c8"
+    ]
+  },
+  {
+    "id": "05759732-75ef-47dd-ba49-1ce2006ba660",
+    "toast_guid": "81fd5f8d-0e48-475c-ac3a-28fa7cdb10f7",
+    "v2_toast_guid": "c592806b-7a44-45f6-96e2-6bd345dc5ac7",
+    "first_name": "Alexander",
+    "last_name": "Caniz",
+    "deleted": true,
+    "store_ids": [
+      "8685e942-3f07-403a-afb6-faec697cd2cb"
+    ]
+  },
+  {
+    "id": "0a2b5f81-5f94-47eb-979e-904d0d238cbd",
+    "toast_guid": "9cd7eb0d-2c41-4337-8994-7c21cc1f2390",
+    "v2_toast_guid": "0b197824-ade1-43c5-a9b0-acb3e667835f",
+    "first_name": "Carlos",
+    "last_name": "Diaz",
+    "deleted": true,
+    "store_ids": [
+      "3a803939-eb13-4def-a1a4-462df8e90623"
+    ]
+  },
+  {
+    "id": "0c263406-2cb8-49dd-90e1-f899280720de",
+    "toast_guid": "f32f77b2-b97c-45da-8547-b3e2050b6074",
+    "v2_toast_guid": "b4625128-d443-4d28-889b-22dbb4fabd96",
+    "first_name": "Carlos",
+    "last_name": "Velazquez",
+    "deleted": false,
+    "store_ids": [
+      "95866cfc-eeb8-4af9-9586-f78931e1ea04"
+    ]
+  },
+  {
+    "id": "14091e5f-2d1f-4454-9eea-6305e0a48438",
+    "toast_guid": "0e6250f8-14c3-4347-a426-7e1bf55c360b",
+    "v2_toast_guid": "7bad0016-5bfe-432d-ad12-c9859fced7d8",
+    "first_name": "Carlos",
+    "last_name": "Rivera",
+    "deleted": true,
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "157c5c6b-cd9b-4eff-b5ef-66b6864a7e36",
+    "toast_guid": "e1236bf0-25f1-4ece-8138-3615300adfef",
+    "v2_toast_guid": "c72fc82c-f177-4e0d-b769-4ad8b4b2d726",
+    "first_name": "Enrique",
+    "last_name": "Esquivel",
+    "deleted": true,
+    "store_ids": [
+      "acf15327-54c8-4da4-8d0d-3ac0544dc422"
+    ]
+  },
+  {
+    "id": "16513119-572e-4556-b377-79509d551e76",
+    "toast_guid": "484f3456-5c67-409e-9801-69cb499c4c4b",
+    "v2_toast_guid": "5cb59854-d69a-4b4b-8440-2c24f388d7b0",
+    "first_name": "Enrique",
+    "last_name": "Dublan",
+    "deleted": true,
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "1693b590-83a1-4d55-86f5-4052433fa825",
+    "toast_guid": "ef4c3cf7-4174-476c-bd11-72adaad48b84",
+    "v2_toast_guid": "f0f24085-e987-420a-bcef-cc3e13cc6138",
+    "first_name": "Enrique ",
+    "last_name": "pacheco",
+    "deleted": true,
+    "store_ids": [
+      "acf15327-54c8-4da4-8d0d-3ac0544dc422"
+    ]
+  },
+  {
+    "id": "17ffadff-5cd2-4c84-9854-cd459287162a",
+    "toast_guid": "2fb3cc68-1886-4ab5-b15b-81c1a49aff11",
+    "v2_toast_guid": "bd09e402-1e88-4352-a273-0cd65106308a",
+    "first_name": "Carlos",
+    "last_name": "Garcia",
+    "deleted": false,
+    "store_ids": [
+      "8685e942-3f07-403a-afb6-faec697cd2cb"
+    ]
+  },
+  {
+    "id": "1aae2e36-92ae-4331-91b5-b3a7afe4a385",
+    "toast_guid": "fd4ddde8-35d1-4222-abab-cdd3420f8dcb",
+    "v2_toast_guid": "b4625128-d443-4d28-889b-22dbb4fabd96",
+    "first_name": "Carlos",
+    "last_name": "Velazquez",
+    "deleted": false,
+    "store_ids": [
+      "9625621e-1b5e-48d7-87ae-7094fab5a4fd"
+    ]
+  },
+  {
+    "id": "1b5070f2-7ad8-4350-ab14-def2460d7639",
+    "toast_guid": "d58e07aa-b7ea-4081-a087-6a80f2609d8d",
+    "v2_toast_guid": "945a57f3-92b8-44c1-89d0-9cff2b0f201c",
+    "first_name": "Carlos",
+    "last_name": "Pizon",
+    "deleted": true,
+    "store_ids": [
+      "8685e942-3f07-403a-afb6-faec697cd2cb"
+    ]
+  },
+  {
+    "id": "1b57f92f-96c8-439e-b33b-4a2cf5e156a7",
+    "toast_guid": "608bddcb-0b62-4050-82d8-f694eb55eeb1",
+    "v2_toast_guid": "bd7b2a93-cda0-4da4-9a28-caf87d31b5bc",
+    "first_name": "Carlos",
+    "last_name": "Casillas",
+    "deleted": true,
+    "store_ids": [
+      "b7f63b01-f089-4ad7-a346-afdb1803dc1a"
+    ]
+  },
+  {
+    "id": "2667f626-269a-4ed4-bb84-946637061e84",
+    "toast_guid": "ffe93f69-30c4-4d21-8405-127ed02ef020",
+    "v2_toast_guid": "ae5a25cb-fa39-42ee-b622-54c4f9da21eb",
+    "first_name": "Alexander",
+    "last_name": "Lopez",
+    "deleted": true,
+    "store_ids": [
+      "5f4a006e-9a6e-4bcf-b5bd-7f5e9d801a02"
+    ]
+  },
+  {
+    "id": "2886533f-eead-4ae3-b1be-16eb0aa3f526",
+    "toast_guid": "4147a2ea-c7e3-4139-b929-4bb3a2c85f26",
+    "v2_toast_guid": "84e873b6-3df4-46f8-bb05-5a3ce8798f56",
+    "first_name": "Carlos",
+    "last_name": "Velazquez",
+    "deleted": true,
+    "store_ids": [
+      "b7f63b01-f089-4ad7-a346-afdb1803dc1a"
+    ]
+  },
+  {
+    "id": "2b665083-2936-4ab0-9616-93e5051a3ebd",
+    "toast_guid": "32338626-96e6-46c6-834b-d799c24c379c",
+    "v2_toast_guid": "1f15aeb6-9d31-46ab-851d-8a12d82740c8",
+    "first_name": "Carlos ",
+    "last_name": "Martinez",
+    "deleted": true,
+    "store_ids": [
+      "b7f63b01-f089-4ad7-a346-afdb1803dc1a"
+    ]
+  },
+  {
+    "id": "2bd9bb58-517f-46f7-943a-ace8c54ce556",
+    "toast_guid": "90fcf6bd-4c23-41b8-af3a-6d55728e687b",
+    "v2_toast_guid": "c592806b-7a44-45f6-96e2-6bd345dc5ac7",
+    "first_name": "Alexander",
+    "last_name": "Caniz",
+    "deleted": true,
+    "store_ids": [
+      "475bc112-187d-4b9c-884d-1f6a041698ce"
+    ]
+  },
+  {
+    "id": "2d3fe620-81fd-4338-a6fc-79981e498b99",
+    "toast_guid": "c68fd952-282f-44bc-92ae-2fe4b0300b11",
+    "v2_toast_guid": "b4625128-d443-4d28-889b-22dbb4fabd96",
+    "first_name": "Carlos",
+    "last_name": "Velazquez",
+    "deleted": false,
+    "store_ids": [
+      "3a803939-eb13-4def-a1a4-462df8e90623"
+    ]
+  },
+  {
+    "id": "32919ffd-92a0-447f-9d21-d3d307c20212",
+    "toast_guid": "a50fcd9f-8cb0-4325-af9a-566ef0650dc2",
+    "v2_toast_guid": "cb813d97-4356-4815-8542-1356ac7c01fc",
+    "first_name": "Carlos",
+    "last_name": "Diaz",
+    "deleted": true,
+    "store_ids": [
+      "5f4a006e-9a6e-4bcf-b5bd-7f5e9d801a02"
+    ]
+  },
+  {
+    "id": "35abaa7d-b80d-4591-8430-3de1f8d2e537",
+    "toast_guid": "6e6866b5-ca41-4759-b755-3d260c42ef28",
+    "v2_toast_guid": "b4625128-d443-4d28-889b-22dbb4fabd96",
+    "first_name": "Carlos",
+    "last_name": "Velazquez",
+    "deleted": false,
+    "store_ids": [
+      "e0345b1f-d6d6-40b2-bd06-5f9f4fd944e8"
+    ]
+  },
+  {
+    "id": "393bc042-579e-40f0-9798-37b1b3d4e8af",
+    "toast_guid": "d85c8f72-ad47-479a-a0b8-4306a46304fb",
+    "v2_toast_guid": "e61a5b48-a700-4520-9502-91776ef7fb6c",
+    "first_name": "Carlos ",
+    "last_name": "Perez",
+    "deleted": true,
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "3fd00ca0-5cfc-4d9e-a2cb-a95e1af5d392",
+    "toast_guid": "35ecdd07-8bfd-466b-aa9b-96a76798fd7f",
+    "v2_toast_guid": "b4625128-d443-4d28-889b-22dbb4fabd96",
+    "first_name": "Carlos",
+    "last_name": "Velazquez",
+    "deleted": false,
+    "store_ids": [
+      "47256ade-2cd4-4073-9632-84567ad9e2c8"
+    ]
+  },
+  {
+    "id": "42deef34-31ed-441e-ba89-3531b78fd1d9",
+    "toast_guid": "828e0a7a-4e14-400b-939e-00cd8219a59f",
+    "v2_toast_guid": "b4625128-d443-4d28-889b-22dbb4fabd96",
+    "first_name": "Carlos",
+    "last_name": "Velazquez",
+    "deleted": false,
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "4b3a5400-d4ac-42dd-997f-d5aed8a1c2ae",
+    "toast_guid": "e0108de3-b087-451f-ad03-a7f823164898",
+    "v2_toast_guid": "82d1638a-5140-4caf-9f0e-279f81903aa2",
+    "first_name": "CARLOS",
+    "last_name": "MORALES",
+    "deleted": true,
+    "store_ids": [
+      "3a803939-eb13-4def-a1a4-462df8e90623"
+    ]
+  },
+  {
+    "id": "4c253a83-181c-4b71-b0cc-372ef801668d",
+    "toast_guid": "7c8c033d-4de2-4207-aac1-64b078ee6518",
+    "v2_toast_guid": "b4625128-d443-4d28-889b-22dbb4fabd96",
+    "first_name": "Carlos",
+    "last_name": "Velazquez",
+    "deleted": false,
+    "store_ids": [
+      "8685e942-3f07-403a-afb6-faec697cd2cb"
+    ]
+  },
+  {
+    "id": "4d28afa2-2cde-49df-a82f-3fe4e4870dc0",
+    "toast_guid": "7f0b867e-d0a7-4d5d-9289-0c6a03e87578",
+    "v2_toast_guid": "6b0ad49f-40a1-498d-956d-0bc7e5ea370d",
+    "first_name": "Carlos ",
+    "last_name": "Armando",
+    "deleted": true,
+    "store_ids": [
+      "42ed15a6-106b-466a-9076-1e8f72451f6b"
+    ]
+  },
+  {
+    "id": "4e3a8b35-8ee8-4ef2-9257-0155671c82db",
+    "toast_guid": "2ec739c6-48bf-4dd1-8a21-54526f30d427",
+    "v2_toast_guid": "a8a1c1cf-0459-46e2-bcb2-872f3597af64",
+    "first_name": "Juan Carlos ",
+    "last_name": "Dominguez",
+    "deleted": true,
+    "store_ids": [
+      "42ed15a6-106b-466a-9076-1e8f72451f6b"
+    ]
+  },
+  {
+    "id": "5354289b-024e-484f-9e77-ecbc72bab5ea",
+    "toast_guid": "b0cd1d56-83ee-4744-98ca-f12000d5e9f8",
+    "v2_toast_guid": "49e8c897-4343-4ba9-9922-63dcec3067d5",
+    "first_name": "Carlos ",
+    "last_name": "Hernandez",
+    "deleted": false,
+    "store_ids": [
+      "5fbb58f5-283c-4ea4-9415-04100ee6978b"
+    ]
+  },
+  {
+    "id": "55031397-179c-44b6-a03c-63f3f7eec0e6",
+    "toast_guid": "c32c3e62-f563-4075-9aab-26319c965fbf",
+    "v2_toast_guid": "ec6c9d2a-5cd3-4a02-b721-21931d42deb5",
+    "first_name": "Carlos",
+    "last_name": "Ruiz",
+    "deleted": true,
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "56e31c96-f6d1-44c5-97bc-b3f07140c7ac",
+    "toast_guid": "1d7b944b-dda9-4f7b-b149-afd531fb81d3",
+    "v2_toast_guid": "b4625128-d443-4d28-889b-22dbb4fabd96",
+    "first_name": "Carlos",
+    "last_name": "Velazquez",
+    "deleted": false,
+    "store_ids": [
+      "5f4a006e-9a6e-4bcf-b5bd-7f5e9d801a02"
+    ]
+  },
+  {
+    "id": "59aded50-f372-461b-889a-4eb1b63efb10",
+    "toast_guid": "20acc94b-095e-49ca-b1c6-00b7463db098",
+    "v2_toast_guid": "7e2fe7fb-d743-4a33-8af6-64d6c46c164f",
+    "first_name": "Carlos",
+    "last_name": "Quintero Rojas",
+    "deleted": true,
+    "store_ids": [
+      "b7f63b01-f089-4ad7-a346-afdb1803dc1a"
+    ]
+  },
+  {
+    "id": "5b060880-b50a-4e46-85a9-9326ced8f132",
+    "toast_guid": "a49a88b9-09d7-44ed-a359-7fa96e6422e5",
+    "v2_toast_guid": "c592806b-7a44-45f6-96e2-6bd345dc5ac7",
+    "first_name": "Alexander",
+    "last_name": "Caniz",
+    "deleted": true,
+    "store_ids": [
+      "9625621e-1b5e-48d7-87ae-7094fab5a4fd"
+    ]
+  },
+  {
+    "id": "61460966-7856-44e6-85ee-42d2387944db",
+    "toast_guid": "d9e38819-e349-412f-9096-b063697a831a",
+    "v2_toast_guid": "7d846cc9-0e85-4ce0-b096-44ace9844659",
+    "first_name": "Carlos Alberto",
+    "last_name": "Alvarez",
+    "deleted": true,
+    "store_ids": [
+      "9625621e-1b5e-48d7-87ae-7094fab5a4fd"
+    ]
+  },
+  {
+    "id": "620e3a58-a717-4dba-965b-a754da5248ce",
+    "toast_guid": "0265cb21-7fcd-4e40-bdd9-a1876f0455b1",
+    "v2_toast_guid": "6d991e8d-377a-4074-b441-f94f97b3fb98",
+    "first_name": "Carlos",
+    "last_name": "Quintero",
+    "deleted": true,
+    "store_ids": [
+      "b7f63b01-f089-4ad7-a346-afdb1803dc1a"
+    ]
+  },
+  {
+    "id": "6413d0d3-0518-44c1-a66a-79051d6d5ed4",
+    "toast_guid": "f8b7de2c-c6a9-4852-b33b-02ce0e094ca3",
+    "v2_toast_guid": "8fc20c33-3689-4d06-9f8c-b37324acf949",
+    "first_name": "Carlos",
+    "last_name": "Flores",
+    "deleted": true,
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "68b200a3-f819-4669-b746-52a273ff8375",
+    "toast_guid": "58654b85-7b25-4ab2-8d56-6ab219c2d0f2",
+    "v2_toast_guid": "c36972f1-40a0-40e0-a395-6798c8863851",
+    "first_name": "Carlos",
+    "last_name": "Velazquez",
+    "deleted": true,
+    "store_ids": [
+      "8685e942-3f07-403a-afb6-faec697cd2cb"
+    ]
+  },
+  {
+    "id": "6afad878-af8f-48b2-94ba-c6dea2c1de5b",
+    "toast_guid": "5075d8b6-7408-4c14-805d-8a41955e6dd0",
+    "v2_toast_guid": "1723b2cd-22dc-4273-9cb0-ebdbee4a8fc0",
+    "first_name": "Juan Carlos",
+    "last_name": "Hernandez",
+    "deleted": true,
+    "store_ids": [
+      "475bc112-187d-4b9c-884d-1f6a041698ce"
+    ]
+  },
+  {
+    "id": "6d194002-3cdd-48f5-927f-7607d7dbf403",
+    "toast_guid": "e58bab78-303a-4a9a-961c-e70fece84eb3",
+    "v2_toast_guid": "b4625128-d443-4d28-889b-22dbb4fabd96",
+    "first_name": "Carlos",
+    "last_name": "Velazquez",
+    "deleted": false,
+    "store_ids": [
+      "b7f63b01-f089-4ad7-a346-afdb1803dc1a"
+    ]
+  },
+  {
+    "id": "6d9bd908-36c2-4eaf-9691-2e7ab7cdd3e5",
+    "toast_guid": "9606a2ce-735e-4547-875f-64a48059be0e",
+    "v2_toast_guid": "136223bb-f8bb-4102-ac42-d45a15d77ea1",
+    "first_name": "Carlos",
+    "last_name": "Roca",
+    "deleted": false,
+    "store_ids": [
+      "9625621e-1b5e-48d7-87ae-7094fab5a4fd"
+    ]
+  },
+  {
+    "id": "72098c81-0c6f-45ff-ace8-5e058f8befef",
+    "toast_guid": "9075168d-3582-4ad4-be99-dad4d4bda06f",
+    "v2_toast_guid": "bc4f3101-88d4-4e5c-a333-28f620ab9de6",
+    "first_name": "Enrique",
+    "last_name": "Navarrete",
+    "deleted": true,
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "78d14745-75a0-49c4-be14-3f310a6fa725",
+    "toast_guid": "6fca7147-dd6e-4d63-acac-6a180251cf3f",
+    "v2_toast_guid": "c703b9ac-67eb-4ae5-a0a8-58793423f76a",
+    "first_name": "CARLOS ",
+    "last_name": "REYES",
+    "deleted": true,
+    "store_ids": [
+      "acf15327-54c8-4da4-8d0d-3ac0544dc422"
+    ]
+  },
+  {
+    "id": "7f3896b9-741f-4bbf-9f28-18182e050e19",
+    "toast_guid": "e45b8b86-9460-4de5-88d1-3fbe9347c133",
+    "v2_toast_guid": "8437a1c8-0748-4927-acc1-122b2ee7cfee",
+    "first_name": "Alexander",
+    "last_name": "Villarreal",
+    "deleted": true,
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "7fd8f753-41fa-46c0-8fe7-ef85f057b7cf",
+    "toast_guid": "f2b87bf2-4d62-44d6-ac5e-134c5939e6a9",
+    "v2_toast_guid": "59748d0a-4fc4-42b4-ac24-3307a29d51d2",
+    "first_name": "Carlos",
+    "last_name": "Flores",
+    "deleted": true,
+    "store_ids": [
+      "8685e942-3f07-403a-afb6-faec697cd2cb"
+    ]
+  },
+  {
+    "id": "85d096ad-f973-4f72-bc00-754977409d44",
+    "toast_guid": "e34a0ab2-9fd5-4a96-aed5-f9cfc0ca2a06",
+    "v2_toast_guid": "844e66f5-6ca5-4cd7-8dc5-cd1c035b1e88",
+    "first_name": "Juan Carlos",
+    "last_name": "Dominguez",
+    "deleted": true,
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "8f880080-1012-41af-9583-4017c64176f7",
+    "toast_guid": "9b2c82c1-1625-4d5a-aa59-a61eb8d6bd88",
+    "v2_toast_guid": "c5cd9670-3a98-4a6d-b3c8-cc7ce680d708",
+    "first_name": "ALEXANDER",
+    "last_name": "CHAY ",
+    "deleted": false,
+    "store_ids": [
+      "9625621e-1b5e-48d7-87ae-7094fab5a4fd"
+    ]
+  },
+  {
+    "id": "8fab81bd-d9ed-49ca-b9b4-cc33058a4f89",
+    "toast_guid": "8530d58f-03e1-437a-982a-1c8915fc08aa",
+    "v2_toast_guid": "dd86f49f-23fb-44f1-bc6e-713991155022",
+    "first_name": "Juan Carlos ",
+    "last_name": "Ruiz",
+    "deleted": false,
+    "store_ids": [
+      "b7f63b01-f089-4ad7-a346-afdb1803dc1a"
+    ]
+  },
+  {
+    "id": "9001227c-84be-4d8d-8d32-45a2722ff015",
+    "toast_guid": "b33fa1c1-2ce2-485e-98f5-205541631192",
+    "v2_toast_guid": "60c56a56-062a-48eb-827c-2d74a61ffc79",
+    "first_name": "Carlos",
+    "last_name": "Martinez",
+    "deleted": true,
+    "store_ids": [
+      "5fbb58f5-283c-4ea4-9415-04100ee6978b"
+    ]
+  },
+  {
+    "id": "90bbab47-0463-44ef-9b3e-5152ba4d2ebc",
+    "toast_guid": "e4cf8f47-61e0-44d5-9090-516b0b6d17f0",
+    "v2_toast_guid": "ce39b760-b146-40e7-a69e-05f071efad19",
+    "first_name": "Alexander",
+    "last_name": "Mendez",
+    "deleted": true,
+    "store_ids": [
+      "475bc112-187d-4b9c-884d-1f6a041698ce"
+    ]
+  },
+  {
+    "id": "9ddc4735-6957-473d-8480-81ac995f5e4d",
+    "toast_guid": "69cedca0-ae90-4b8d-a27f-29b36bd38bcb",
+    "v2_toast_guid": "3afed8dd-28eb-4e2f-a1ca-416ffc7b293d",
+    "first_name": "carlos",
+    "last_name": "reyes",
+    "deleted": true,
+    "store_ids": [
+      "acf15327-54c8-4da4-8d0d-3ac0544dc422"
+    ]
+  },
+  {
+    "id": "9ee3f3f1-2403-4ca6-9551-e180f256c19e",
+    "toast_guid": "3a6f1fc2-ab51-4032-b088-bde204fa32e8",
+    "v2_toast_guid": "b065d916-757b-4dff-a395-ddc226d4a36a",
+    "first_name": "Carlos",
+    "last_name": "Mayen",
+    "deleted": false,
+    "store_ids": [
+      "95866cfc-eeb8-4af9-9586-f78931e1ea04"
+    ]
+  },
+  {
+    "id": "a0f343c9-f2b5-4f3f-8cec-21717fbcb746",
+    "toast_guid": "fbf10b5e-ab15-4fe2-aa80-c6159102db55",
+    "v2_toast_guid": "b4625128-d443-4d28-889b-22dbb4fabd96",
+    "first_name": "Carlos",
+    "last_name": "Velazquez",
+    "deleted": false,
+    "store_ids": [
+      "475bc112-187d-4b9c-884d-1f6a041698ce"
+    ]
+  },
+  {
+    "id": "a83e9258-aef3-4927-a6b4-3bc41ad3178b",
+    "toast_guid": "49ec8a06-f964-4903-a1ab-458919826c89",
+    "v2_toast_guid": "2cabec41-f098-4cd8-a290-266c3d7f146c",
+    "first_name": "Carlos ",
+    "last_name": "Rivera",
+    "deleted": true,
+    "store_ids": [
+      "a83901db-2431-4283-834e-9502a2ba4b3b"
+    ]
+  },
+  {
+    "id": "abdadcd4-c06d-44c1-8166-58da7d47ce3e",
+    "toast_guid": "ea43ce2b-8169-4923-9961-31ba1ba7e760",
+    "v2_toast_guid": "b46735dd-1470-41e1-89e7-03b3627a96b3",
+    "first_name": "Carlos ",
+    "last_name": "Duarte",
+    "deleted": true,
+    "store_ids": [
+      "9625621e-1b5e-48d7-87ae-7094fab5a4fd"
+    ]
+  },
+  {
+    "id": "afc72af5-3a61-4eeb-8069-e56b990b8cca",
+    "toast_guid": "4e13aafa-2539-498e-bec8-1146efbd5b8e",
+    "v2_toast_guid": "fc12fc46-d61a-45c2-9e3f-03c8dafcc2b9",
+    "first_name": "carlos",
+    "last_name": "jaimes",
+    "deleted": true,
+    "store_ids": [
+      "e0345b1f-d6d6-40b2-bd06-5f9f4fd944e8"
+    ]
+  },
+  {
+    "id": "b4c767f7-cf5c-4e40-aa17-37946fdba6e9",
+    "toast_guid": "0e1787d1-d4d0-43f9-8820-93e522143f40",
+    "v2_toast_guid": "b4625128-d443-4d28-889b-22dbb4fabd96",
+    "first_name": "Carlos",
+    "last_name": "Velazquez",
+    "deleted": false,
+    "store_ids": [
+      "5fbb58f5-283c-4ea4-9415-04100ee6978b"
+    ]
+  },
+  {
+    "id": "b63c7c20-824e-444b-b294-15d497acd252",
+    "toast_guid": "145461d9-3175-45ea-841a-59d25638cc25",
+    "v2_toast_guid": "5681861b-57fd-4f5a-bcf4-1160beb8d05f",
+    "first_name": "Alexander",
+    "last_name": "Paxtor",
+    "deleted": true,
+    "store_ids": [
+      "95866cfc-eeb8-4af9-9586-f78931e1ea04"
+    ]
+  },
+  {
+    "id": "b6d91618-ba30-448b-966e-f822f806d84f",
+    "toast_guid": "61f727e8-fa44-4fbc-89a5-8279a20cd780",
+    "v2_toast_guid": "07cca7a2-57e9-4bbb-aa43-dd3530ed6103",
+    "first_name": "Carlos",
+    "last_name": "Navarrete",
+    "deleted": true,
+    "store_ids": [
+      "475bc112-187d-4b9c-884d-1f6a041698ce"
+    ]
+  },
+  {
+    "id": "b73fbca1-843a-4e73-ad2c-0e09aab644a2",
+    "toast_guid": "20e390e5-41df-4858-9786-cbeb7ab6141b",
+    "v2_toast_guid": "e92bc8cb-7d6c-46e4-a900-42f942e257ac",
+    "first_name": "Enrique",
+    "last_name": "Ortiz",
+    "deleted": true,
+    "store_ids": [
+      "42ed15a6-106b-466a-9076-1e8f72451f6b"
+    ]
+  },
+  {
+    "id": "b9bdb068-37c6-45de-a06b-38b709dd1400",
+    "toast_guid": "1e74182c-9f41-48ed-a7b8-122cc9333c24",
+    "v2_toast_guid": "c918dad4-d16c-473c-8dd6-2883486e34ce",
+    "first_name": "Juan carlos",
+    "last_name": "Viera",
+    "deleted": false,
+    "store_ids": [
+      "e0345b1f-d6d6-40b2-bd06-5f9f4fd944e8"
+    ]
+  },
+  {
+    "id": "bd363728-6edd-4857-b4a0-991b56a839b9",
+    "toast_guid": "4700b7fa-4fcc-445d-96ce-dc73147fa9a8",
+    "v2_toast_guid": "1488e85f-c048-4bcd-897a-4c5fcbe2481e",
+    "first_name": "Carlos Omar",
+    "last_name": "Conde",
+    "deleted": true,
+    "store_ids": [
+      "42ed15a6-106b-466a-9076-1e8f72451f6b"
+    ]
+  },
+  {
+    "id": "bdb7e8ea-e372-4c55-b510-b6cf3ef0599b",
+    "toast_guid": "7ef92bca-0ccb-462a-90f8-b53ad17e48a3",
+    "v2_toast_guid": "b4625128-d443-4d28-889b-22dbb4fabd96",
+    "first_name": "Carlos",
+    "last_name": "Velazquez",
+    "deleted": false,
+    "store_ids": [
+      "42ed15a6-106b-466a-9076-1e8f72451f6b"
+    ]
+  },
+  {
+    "id": "c68d7e6b-dd61-43a5-934b-3fb01a1a0fcd",
+    "toast_guid": "206e5123-c20d-4a11-b7fb-7156c59bdbeb",
+    "v2_toast_guid": "f364c47e-0b11-4bfd-bdfc-ceac67b77bd8",
+    "first_name": "Carlos",
+    "last_name": "Veliz",
+    "deleted": true,
+    "store_ids": [
+      "e0345b1f-d6d6-40b2-bd06-5f9f4fd944e8"
+    ]
+  },
+  {
+    "id": "ca9cf7b9-f644-4584-9ad6-d3fefb837c4f",
+    "toast_guid": "cfae100d-1532-4f98-b925-6d2e179e1939",
+    "v2_toast_guid": "57b322ba-f030-49a3-b20d-d30415ec0068",
+    "first_name": "Alexander",
+    "last_name": "rojas",
+    "deleted": true,
+    "store_ids": [
+      "95866cfc-eeb8-4af9-9586-f78931e1ea04"
+    ]
+  },
+  {
+    "id": "ce86f4c5-53ed-42f5-bb24-2018963704d2",
+    "toast_guid": "99f700a7-4154-471d-b415-be71ab9892ee",
+    "v2_toast_guid": "4fd8749c-f7ea-468a-b9ce-654782d53146",
+    "first_name": "Juan Carlos",
+    "last_name": "Dominguez",
+    "deleted": true,
+    "store_ids": [
+      "47256ade-2cd4-4073-9632-84567ad9e2c8"
+    ]
+  },
+  {
+    "id": "ce98f5a4-124b-4829-b818-5a8e38577be8",
+    "toast_guid": "8cb5c341-5497-48c4-990e-ac53d9d91b98",
+    "v2_toast_guid": "07f5e9a4-8cec-409b-9b4d-d2b3052da662",
+    "first_name": "Carlos",
+    "last_name": "Zacapala",
+    "deleted": true,
+    "store_ids": [
+      "a83901db-2431-4283-834e-9502a2ba4b3b"
+    ]
+  },
+  {
+    "id": "cf8bfb76-cb5e-413c-aa3d-0b2d2b5aa45c",
+    "toast_guid": "9506b9cc-d46f-4bec-8f86-03266ba37b4d",
+    "v2_toast_guid": "b4625128-d443-4d28-889b-22dbb4fabd96",
+    "first_name": "Carlos",
+    "last_name": "Velazquez",
+    "deleted": false,
+    "store_ids": [
+      "3c2d8251-c43c-43b8-8306-387e0a4ed7c2"
+    ]
+  },
+  {
+    "id": "d296557c-5f03-43b7-9e05-dc8c5789576a",
+    "toast_guid": "0d077fa0-be54-4359-8b1d-95f6385c0d7f",
+    "v2_toast_guid": "703dbd7b-08f1-46ba-b9ea-84a3f013a25c",
+    "first_name": "Carlos",
+    "last_name": "Flores",
+    "deleted": true,
+    "store_ids": [
+      "95866cfc-eeb8-4af9-9586-f78931e1ea04"
+    ]
+  },
+  {
+    "id": "d6b564e6-92e7-432a-a284-054bc7bc9cd0",
+    "toast_guid": "fc15034f-34f3-417d-af6c-54fe807e2551",
+    "v2_toast_guid": "59748d0a-4fc4-42b4-ac24-3307a29d51d2",
+    "first_name": "Carlos",
+    "last_name": "Flores",
+    "deleted": true,
+    "store_ids": [
+      "a83901db-2431-4283-834e-9502a2ba4b3b"
+    ]
+  },
+  {
+    "id": "da29941f-4e4b-44b5-80a4-657c716b184c",
+    "toast_guid": "3cb791d1-e1a2-4741-b37c-9c4aba8050d5",
+    "v2_toast_guid": "664764a5-d0f8-49dd-947b-5f34f1eb0522",
+    "first_name": "Carlos Alverto",
+    "last_name": "Alvarez",
+    "deleted": true,
+    "store_ids": [
+      "475bc112-187d-4b9c-884d-1f6a041698ce"
+    ]
+  },
+  {
+    "id": "da8477d1-dd4c-404a-a4c0-2f2200c5f4ec",
+    "toast_guid": "41ad4d2c-fa61-4a04-a660-0e8f6b63f3a1",
+    "v2_toast_guid": "abed7537-1c08-4d54-beac-7d0ffe664b17",
+    "first_name": "Carlos",
+    "last_name": "Morales",
+    "deleted": true,
+    "store_ids": [
+      "b7f63b01-f089-4ad7-a346-afdb1803dc1a"
+    ]
+  },
+  {
+    "id": "dad86360-13dd-4f0e-9ec3-3d3dd4d51826",
+    "toast_guid": "598b1c53-5de9-42f6-b7c7-3921e579e878",
+    "v2_toast_guid": "a2647bad-abbc-4009-8be2-11e05a4630d1",
+    "first_name": "Carlos",
+    "last_name": "Veliz",
+    "deleted": true,
+    "store_ids": [
+      "475bc112-187d-4b9c-884d-1f6a041698ce"
+    ]
+  },
+  {
+    "id": "dc575223-7b8c-46b0-8c22-49b756630ed3",
+    "toast_guid": "83b6093b-8aeb-4ca8-a91d-d1697dcd61e2",
+    "v2_toast_guid": "1cc2f8de-5053-4f3a-934a-7ebb5789e6ed",
+    "first_name": "Carlos ",
+    "last_name": "Rico",
+    "deleted": true,
+    "store_ids": [
+      "42ed15a6-106b-466a-9076-1e8f72451f6b"
+    ]
+  },
+  {
+    "id": "dd2a7df2-a301-4f2b-9d37-5e246b873adb",
+    "toast_guid": "847e0b09-099e-4e9a-aaf5-20f51944b759",
+    "v2_toast_guid": "0556d8a2-b8b3-4c7f-ba90-c929c1976266",
+    "first_name": "Joseph",
+    "last_name": "Castellanos",
+    "deleted": false,
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "dd38bbf0-d00f-45cb-b338-767d6fb0f5f1",
+    "toast_guid": "b095a9aa-9a18-4721-9145-ed2fb2bc1f09",
+    "v2_toast_guid": "b4625128-d443-4d28-889b-22dbb4fabd96",
+    "first_name": "Carlos",
+    "last_name": "Velazquez",
+    "deleted": false,
+    "store_ids": [
+      "acf15327-54c8-4da4-8d0d-3ac0544dc422"
+    ]
+  },
+  {
+    "id": "de41fec2-dbcf-4bcf-93ad-ebc66e5200b5",
+    "toast_guid": "bb07e1dd-8fe1-4ff2-ba48-72877311cfe3",
+    "v2_toast_guid": "83d296a5-dee2-4db6-af85-93d3808f3dd0",
+    "first_name": "Carlos",
+    "last_name": "Aguilar",
+    "deleted": true,
+    "store_ids": [
+      "95866cfc-eeb8-4af9-9586-f78931e1ea04"
+    ]
+  },
+  {
+    "id": "e1cf7060-827f-46e7-b33c-c4095ce49e35",
+    "toast_guid": "d5d2b2e2-1f60-4d7a-993b-3f3621dd2fb3",
+    "v2_toast_guid": "d3e6aff1-2bad-48a2-9406-a2865fe41afd",
+    "first_name": "Carlos Alberto",
+    "last_name": "Alvarez Lopez",
+    "deleted": false,
+    "store_ids": [
+      "8685e942-3f07-403a-afb6-faec697cd2cb"
+    ]
+  },
+  {
+    "id": "e8a561d3-618a-4dff-8288-68a415edc04f",
+    "toast_guid": "f5a58323-d9e8-4167-8f41-81dd74b09996",
+    "v2_toast_guid": "695f645b-6a97-4005-8ba0-541c0f1e2162",
+    "first_name": "Alexander",
+    "last_name": "Caniz Gonzalez",
+    "deleted": false,
+    "store_ids": [
+      "47256ade-2cd4-4073-9632-84567ad9e2c8"
+    ]
+  },
+  {
+    "id": "ea201d0c-473f-4074-b3bf-68abec80c813",
+    "toast_guid": "3b447791-7e40-4ac6-9438-aac0d3afd97e",
+    "v2_toast_guid": "27875ca9-8f7c-49cc-b8ff-59abb094add1",
+    "first_name": "Alexander",
+    "last_name": "Mendez",
+    "deleted": false,
+    "store_ids": [
+      "475bc112-187d-4b9c-884d-1f6a041698ce"
+    ]
+  },
+  {
+    "id": "ebb9e98b-f5ef-4aa0-9edb-124b885aba39",
+    "toast_guid": "9fd62673-5054-4796-9cfe-8eb55d91ab5f",
+    "v2_toast_guid": "ddc7a8e5-a7db-448e-92d2-7763fe6046ae",
+    "first_name": "Carlos",
+    "last_name": "Morales",
+    "deleted": false,
+    "store_ids": [
+      "b7f63b01-f089-4ad7-a346-afdb1803dc1a"
+    ]
+  },
+  {
+    "id": "ee81a09d-099f-4902-8fa1-bcfbef4dee27",
+    "toast_guid": "5ae2eebe-d217-4aca-8d99-acdb6a46c6f0",
+    "v2_toast_guid": "4793b25e-1138-406e-9c49-5a9b8a040163",
+    "first_name": "Carlos",
+    "last_name": "Morales",
+    "deleted": true,
+    "store_ids": [
+      "3a803939-eb13-4def-a1a4-462df8e90623"
+    ]
+  },
+  {
+    "id": "f6630e3b-9831-4fd4-8749-b0d42a8875da",
+    "toast_guid": "d34880d0-ae16-448e-b181-ca0100d87e47",
+    "v2_toast_guid": "b4625128-d443-4d28-889b-22dbb4fabd96",
+    "first_name": "Carlos",
+    "last_name": "Velazquez",
+    "deleted": false,
+    "store_ids": [
+      "a83901db-2431-4283-834e-9502a2ba4b3b"
+    ]
+  },
+  {
+    "id": "f8745ad7-d905-4041-a8d8-8a6e99e6ff05",
+    "toast_guid": "32750272-7138-4ebb-a8ca-7f5feab4a94a",
+    "v2_toast_guid": "b4224c06-56a2-4d91-bf63-d5244124f64c",
+    "first_name": "Juan Carlos",
+    "last_name": "Dominguez",
+    "deleted": true,
+    "store_ids": [
+      "8685e942-3f07-403a-afb6-faec697cd2cb"
+    ]
+  },
+  {
+    "id": "f8f9b118-79f0-489f-a96d-c8bd87276148",
+    "toast_guid": "4eed8f05-aac3-41fd-a027-eb739fa9c1c2",
+    "v2_toast_guid": "97b2844e-4b17-4f54-9050-ffb0532ec3cc",
+    "first_name": "Carlos ",
+    "last_name": "Ibarra",
+    "deleted": true,
+    "store_ids": [
+      "b7f63b01-f089-4ad7-a346-afdb1803dc1a"
+    ]
+  },
+  {
+    "id": "fb419508-9a58-49fa-8b53-d1e6f6a74e3f",
+    "toast_guid": "43b32730-804a-41ad-9a9c-7e901011e6f2",
+    "v2_toast_guid": "b2559592-ee53-4e98-ab30-8f7f7cf77960",
+    "first_name": "Carlos",
+    "last_name": "Arteaga",
+    "deleted": false,
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "fd1e15ce-f1b5-4158-964a-14ad309b2b22",
+    "toast_guid": "55c934b7-b3c6-4cf6-bf5e-1bbc6f63a77d",
+    "v2_toast_guid": "8b164df0-5a0d-4c9a-b5bc-d5d2c1aa62e9",
+    "first_name": "Enrique ",
+    "last_name": "España ",
+    "deleted": true,
+    "store_ids": [
+      "8685e942-3f07-403a-afb6-faec697cd2cb"
+    ]
+  }
+]

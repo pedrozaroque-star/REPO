@@ -20,20 +20,40 @@ export interface VersionMilestone {
 }
 
 export const SYSTEM_VERSION = {
-    version: 'v2.10.5',
-    versionNumber: '2.10.5',
+    version: 'v2.11.0',
+    versionNumber: '2.11.0',
     releaseMonthEs: 'Septiembre 2026',
     releaseMonthEn: 'September 2026',
     stage: 'Producción',
     stageEn: 'Production',
     year: '2026',
-    labelEs: 'Septiembre 2026 • SM TEG v2.10.5',
-    labelEn: 'September 2026 • SM TEG v2.10.5',
+    labelEs: 'Septiembre 2026 • SM TEG v2.11.0',
+    labelEn: 'September 2026 • SM TEG v2.11.0',
     brand: 'SM TEG',
-    lastUpdated: '2026-09-21'
+    lastUpdated: '2026-09-26'
 } as const;
 
 export const VERSION_HISTORY: readonly VersionMilestone[] = [
+    {
+        version: 'v2.11.0',
+        date: '26-Sep-2026',
+        titleEs: 'Piloto de Automatización de Inventarios y Pedidos IA, Manual Viele & Sons PDF, Resiliencia TV KDS y Respaldo Lynwood #14',
+        titleEn: 'AI Inventory & Automated Ordering Pilot, Viele & Sons PDF Manual, TV KDS Resilience & Lynwood #14 Defense',
+        highlightsEs: [
+            'Arquitectura del motor de pedidos inteligentes por IA (Codex ID 01a0cf29-cef7-7163-8b3c-df9f0685491c, 14h 10m): deducción de empaques por canal (Dine-In, Takeout, Delivery), 5 migraciones en Supabase y snapshots de consumo real de tickets Toast',
+            'Publicación del Manual Operativo formal de Viele & Sons en PDF (public/docs/Manual_Operativo_Viele_and_Sons_Tacos_Gavilan.pdf) con flujo de 3 pasos, énfasis crítico en revisión de PAR y soporte corporativo',
+            'Resiliencia del reproductor Windows (.exe) de GAVILAN MIX con búfer local de 10+ videos, soporte de discos secundarios (E:) y auto-recuperación ante cortes de energía en tienda',
+            'Informe ejecutivo de cobertura laboral y análisis forense de ponchadas/nómina para Lynwood #14 justificando horas de cobertura ante ausencias imprevistas',
+            'Sincronización integral de los 245 turnos de Supabase en el Planificador (corrigiendo turno del 21 de septiembre a 12PM-8PM en Gantt 24h) y conciliación mensual acumulando 176.90 horas'
+        ],
+        highlightsEn: [
+            'AI automated ordering engine architecture (Codex ID 01a0cf29-cef7-7163-8b3c-df9f0685491c, 14h 10m): channel packaging deduction rules (Dine-In, Takeout, Delivery), 5 Supabase migrations, and Toast ticket consumption snapshots',
+            'Published official Viele & Sons Operational Manual in PDF (public/docs/Manual_Operativo_Viele_and_Sons_Tacos_Gavilan.pdf) featuring 3-step store workflow, mandatory PAR audit, and executive support',
+            'Hardened GAVILAN MIX standalone Windows (.exe) player with 10+ video offline buffer pool, secondary drive support (E: drive), and zero-friction recovery after store power outages',
+            'Executive labor coverage report and forensic punch/payroll analysis for Lynwood #14 supporting Carlos Velázquez against employee absence friction',
+            'Full synchronization of 245 Supabase shifts (fixing September 21 to 12PM-8PM on 24h Gantt bar) and cumulative monthly reconciliation reaching 176.90 engineering hours'
+        ]
+    },
     {
         version: 'v2.10.5',
         date: '21-Sep-2026',

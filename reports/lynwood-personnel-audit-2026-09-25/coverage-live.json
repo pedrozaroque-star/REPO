@@ -1,0 +1,43 @@
+[
+  {
+    "name": "Irving Saca",
+    "date": "2026-08-19",
+    "userId": 27019,
+    "weekId": 154243,
+    "totalHours": 0,
+    "punches": 0,
+    "status": "Consultado"
+  },
+  {
+    "name": "Cruz Victorino Castillo",
+    "date": "2026-08-19",
+    "userId": 28129,
+    "weekId": 154243,
+    "totalHours": 0,
+    "punches": 0,
+    "status": "Consultado"
+  },
+  {
+    "name": "Jose Andres Morales",
+    "date": "2026-09-08",
+    "status": "Sin coincidencia exacta en cache"
+  },
+  {
+    "name": "Fernando Lacayo Cisne",
+    "date": "2026-09-13",
+    "userId": 37875,
+    "weekId": 157766,
+    "totalHours": 0,
+    "punches": 0,
+    "status": "Consultado"
+  },
+  {
+    "name": "Eliuth Alvarez",
+    "date": "2026-09-13",
+    "userId": 1327,
+    "weekId": 157766,
+    "totalHours": 0,
+    "punches": 0,
+    "status": "Consultado"
+  }
+]

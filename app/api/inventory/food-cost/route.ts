@@ -34,6 +34,8 @@ import { getProductMix } from '@/lib/toast-pmix'
 import { getSupabaseClient, getSupabaseAdminClient } from '@/lib/supabase'
 import { calculateRecipeCost } from '@/lib/inventory/costs'
 import { normalizeToLbs } from '@/lib/inventory/conversions'
+import { getPartyTrayTortillaAllocation, PARTY_TRAY_FOOD_TRAY_ITEMS, PARTY_TRAY_GUIDELINES, PARTY_TRAY_NAPKINS_PER_PACK, resolvePartyTraySize } from '@/lib/inventory/party-tray-guidelines'
+import { ACTIVE_PROTEIN_IDS, parseProteinAllocation } from '@/lib/inventory/meat-allocation'
 import { Recipe, InventoryItem } from '@/types/inventory'
 
 export const dynamic = 'force-dynamic'
@@ -270,30 +272,12 @@ export async function GET(request: NextRequest) {
             const isPartyTray = hasPartyTrayKeywords || isPartyTray15Name || isPartyTray20Name || isPartyTray25Name || isPartyTray30Name;
 
             if (isPartyTray) {
-                    let meatLbs = 6; let riceLbs = 3; let beanLbs = 3; let salsaR = 12; let salsaV = 12;
-                    let onionLimonPts = 16; let jalapenoOz = 8; let plates = 30; let forks = 15; let spoons = 15;
-                    let cups = 20; let napkins = 1; let cornPk = 2; let flourPk = 5; let aguaGals = 3;
-
                     // Calculate unit price to handle Grubhub/Delivery items like "Fiesta Platters ($240.99)" missing "20-25 People" in name
                     const unitPrice = (item.price && item.price > 0) ? item.price : ((item.quantity && item.quantity > 0) ? (item.net_sales / item.quantity) : 0);
-
-                    const isPartyTray30 = isPartyTray30Name || unitPrice >= 310;
-                    const isPartyTray25 = !isPartyTray30 && (isPartyTray25Name || unitPrice >= 265);
-                    const isPartyTray20 = !isPartyTray30 && !isPartyTray25 && (isPartyTray20Name || unitPrice >= 220);
-
-                    if (isPartyTray30) {
-                        meatLbs = 12; riceLbs = 10; beanLbs = 10; salsaR = 24; salsaV = 24;
-                        onionLimonPts = 30; jalapenoOz = 20; plates = 50; forks = 25; spoons = 25;
-                        cups = 40; napkins = 3; cornPk = 5; flourPk = 12; aguaGals = 6;
-                    } else if (isPartyTray25) {
-                        meatLbs = 10; riceLbs = 6; beanLbs = 6; salsaR = 20; salsaV = 20;
-                        onionLimonPts = 20; jalapenoOz = 16; plates = 40; forks = 20; spoons = 20;
-                        cups = 30; napkins = 2; cornPk = 4; flourPk = 9; aguaGals = 5;
-                    } else if (isPartyTray20) {
-                        meatLbs = 7.5; riceLbs = 4; beanLbs = 4; salsaR = 16; salsaV = 16;
-                        onionLimonPts = 20; jalapenoOz = 12; plates = 35; forks = 15; spoons = 15;
-                        cups = 25; napkins = 1; cornPk = 3; flourPk = 7; aguaGals = 4;
-                    }
+                    const guideline = PARTY_TRAY_GUIDELINES[resolvePartyTraySize(item.name, unitPrice)]
+                    const { meatLbs, riceLbs, beansLbs: beanLbs, salsaRojaPacks: salsaR, salsaVerdePacks: salsaV,
+                        mixtaBags: onionLimonPts, jalapenoOz, plates, forks, spoons, cups,
+                        napkinPacks: napkins, aguaGallons: aguaGals } = guideline
 
                     const virtualIngredients: any[] = [];
                     
@@ -366,6 +350,12 @@ export async function GET(request: NextRequest) {
                     aguasFound.forEach(aId => {
                         virtualIngredients.push({ inventory_item_id: aId, quantity: aguaGals / aguasFound.length, unit: 'gal', type: 'raw' });
                     });
+                    const gallonEmptyItem = (inventoryData as InventoryItem[]).find(inventoryItem =>
+                        inventoryItem.name.toLowerCase().includes('galones vacios')
+                    )
+                    if (gallonEmptyItem) {
+                        virtualIngredients.push({ inventory_item_id: gallonEmptyItem.id, quantity: aguaGals, unit: 'pza', type: 'raw' })
+                    }
 
                     // Core Ingredients
                     virtualIngredients.push({ inventory_item_id: 'a1bbc13a-a481-4b7f-a5c6-8a44a96ad562', quantity: riceLbs, unit: 'lb', type: 'raw' }); // Arroz
@@ -374,26 +364,24 @@ export async function GET(request: NextRequest) {
                     virtualIngredients.push({ inventory_item_id: '6c0a3378-8309-48c9-a438-15313cabd9d8', quantity: salsaV, unit: 'pza', type: 'raw' }); // Salsa Verde Pack
                     virtualIngredients.push({ inventory_item_id: '90fb17e3-6ba7-4545-b5a1-94df4f6a9fcb', quantity: onionLimonPts, unit: 'pza', type: 'raw' }); // 1 oz Bolsa de Mixta
                     virtualIngredients.push({ inventory_item_id: 'f73fe7a6-105c-4624-a87b-07d5f78c09ea', quantity: onionLimonPts, unit: 'pza', type: 'raw' }); // Lima Bolsita
-                    virtualIngredients.push({ inventory_item_id: 'd56d8df8-d30c-4964-a425-9aa25d962364', quantity: jalapenoOz / 16.0, unit: 'lb', type: 'raw' }); // Rajas y Zanahorias
-                    
-                    const hasMaiz = parentNameLower.includes('maiz');
-                    const hasHarina = parentNameLower.includes('harina');
-                    
-                    if (hasMaiz && hasHarina) {
-                        virtualIngredients.push({ inventory_item_id: 'dcd79433-e97c-46dc-80c0-8429401e0fa0', quantity: (cornPk * 60) / 2, unit: 'pza', type: 'raw' }); // Corn Tortilla 60CT
-                        virtualIngredients.push({ inventory_item_id: '55798c3c-a86e-469d-ab70-24e0f1af0c2b', quantity: (flourPk * 12) / 2, unit: 'pza', type: 'raw' }); // Flour Tortilla
-                    } else if (hasHarina) {
-                        virtualIngredients.push({ inventory_item_id: '55798c3c-a86e-469d-ab70-24e0f1af0c2b', quantity: flourPk * 12, unit: 'pza', type: 'raw' }); // Flour Tortilla
-                    } else {
-                        virtualIngredients.push({ inventory_item_id: 'dcd79433-e97c-46dc-80c0-8429401e0fa0', quantity: cornPk * 60, unit: 'pza', type: 'raw' }); // Corn Tortilla 60CT (Default)
-                    }
+                    virtualIngredients.push({ inventory_item_id: 'd56d8df8-d30c-4964-a425-9aa25d962364', quantity: jalapenoOz / 16, unit: 'lb', type: 'raw' }); // Rajas y zanahorias a granel
+
+                    const tortillas = getPartyTrayTortillaAllocation(item.name, guideline)
+                    const foodTrays = PARTY_TRAY_FOOD_TRAY_ITEMS[guideline.foodTraySize]
+                    if (tortillas.cornTortillas > 0) virtualIngredients.push({ inventory_item_id: 'dcd79433-e97c-46dc-80c0-8429401e0fa0', quantity: tortillas.cornTortillas, unit: 'pza', type: 'raw' })
+                    if (tortillas.flourTortillas > 0) virtualIngredients.push({ inventory_item_id: '55798c3c-a86e-469d-ab70-24e0f1af0c2b', quantity: tortillas.flourTortillas, unit: 'pza', type: 'raw' })
+                    virtualIngredients.push({ inventory_item_id: '85533c59-b2df-4af3-bf2b-e684d3d6c125', quantity: tortillas.containerPairs, unit: 'pza', type: 'cogs_takeout' }) // RC478
+                    virtualIngredients.push({ inventory_item_id: 'eba87715-ea18-4f9c-8f22-44c745e86572', quantity: tortillas.containerPairs, unit: 'pza', type: 'cogs_takeout' }) // 709DO
+                    virtualIngredients.push({ inventory_item_id: foodTrays.containerId, quantity: 3, unit: 'pza', type: 'raw' }) // Arroz, frijol y carne
+                    virtualIngredients.push({ inventory_item_id: foodTrays.lidId, quantity: 3, unit: 'pza', type: 'raw' })
                     
                     // Paperworks
                     virtualIngredients.push({ inventory_item_id: 'ca959b14-fcef-4900-ae71-2388e4ac023c', quantity: plates, unit: 'pza', type: 'raw' }); // 9" Plate
                     virtualIngredients.push({ inventory_item_id: 'd920800f-e0ca-4799-8434-fea7712f7e98', quantity: forks, unit: 'pza', type: 'raw' }); // Fork
                     virtualIngredients.push({ inventory_item_id: 'd11c55da-7bd1-4133-883c-f28eb9a31936', quantity: spoons, unit: 'pza', type: 'raw' }); // Spoon
-                    virtualIngredients.push({ inventory_item_id: 'e26ad6ed-e91d-4dc5-8c1f-a8a89e977af5', quantity: cups, unit: 'pza', type: 'raw' }); // Cup 22oz
-                    virtualIngredients.push({ inventory_item_id: '5ea5a92a-fb41-4237-aa91-f006b13c8cc4', quantity: napkins, unit: 'pza', type: 'raw' }); // Napkins Dispenser
+                    virtualIngredients.push({ inventory_item_id: 'e48fbf27-ba61-414b-8bab-2a299e02f61a', quantity: cups, unit: 'pza', type: 'raw' }); // 12PR cup
+                    virtualIngredients.push({ inventory_item_id: '44272ca2-4891-43ec-abd8-2bf917363edb', quantity: 1, unit: 'pza', type: 'raw' }); // EL1CS2G for white cutlery
+                    virtualIngredients.push({ inventory_item_id: '328d996f-fed0-4731-b7eb-0b930e126dc4', quantity: napkins * PARTY_TRAY_NAPKINS_PER_PACK, unit: 'pza', type: 'raw' }); // DX900GE: 250 servilletas por paquete
 
                     recipe = {
                         id: 'virtual-party-tray',
@@ -455,9 +443,24 @@ export async function GET(request: NextRequest) {
                 parentNameLower.includes('half buche') || parentNameLower.includes('half cabeza') ||
                 parentNameLower.includes('half lengua') || parentNameLower.includes('half chorizo')
 
+            const proteinAllocation = recipe ? parseProteinAllocation(item.name, recipe.ingredients) : null
+            const activeProteinIds = new Set<string>(Object.values(ACTIVE_PROTEIN_IDS))
+            const primaryProteinIngredient = recipe?.ingredients.find(ingredient => activeProteinIds.has(ingredient.inventory_item_id))
+            const recipeForCost = proteinAllocation && recipe
+                ? {
+                    ...recipe,
+                    ingredients: [
+                        ...recipe.ingredients.filter(ingredient => !activeProteinIds.has(ingredient.inventory_item_id)),
+                        ...Array.from(proteinAllocation.portionsOz.entries()).map(([inventory_item_id, quantity]) => ({
+                            inventory_item_id, quantity, unit: 'oz', type: primaryProteinIngredient?.type || 'cooked'
+                        }))
+                    ]
+                }
+                : recipe as Recipe | undefined
+
             // 1. Calculate unadulterated base recipe unit cost
-            if (recipe) {
-                const costResult = calculateRecipeCost(recipe, inventoryData as InventoryItem[], item.group_name)
+            if (recipeForCost) {
+                const costResult = calculateRecipeCost(recipeForCost as Recipe, inventoryData as InventoryItem[], item.group_name)
                 baseUnitCost = costResult.foodCost // STRICTLY FOOD COST, matches Menu Catalog "Costo"
                 missingPrices += costResult.missingPrices
 
@@ -477,7 +480,7 @@ export async function GET(request: NextRequest) {
 
             // 2. Apply "Half Meat" substitutions directly to the BATCH TOTALS
             // This prevents the substitution from being amplified by item.quantity
-            if (recipe && item.modifier_guids && item.modifier_guids.length > 0) {
+            if (!proteinAllocation && recipe && item.modifier_guids && item.modifier_guids.length > 0) {
                 const halfModsFound = item.modifier_guids.filter((g: string) => [
                     'ed889228-98e7-4c49-bc46-8e0718ec1fcf', // Half Asada
                     'b52ffce5-cc66-4930-bb96-70891c41643e', // Half Pastor
@@ -569,7 +572,8 @@ export async function GET(request: NextRequest) {
                 normalizedModGuids.forEach((modGuid: string) => {
                     const modRecipe = recipeMap.get(modGuid)
                     if (modRecipe) {
-                        if (!halfGuids.includes(modGuid)) {
+                        const isProteinModifier = !!proteinAllocation && modRecipe.ingredients.some(ingredient => activeProteinIds.has(ingredient.inventory_item_id))
+                        if (!halfGuids.includes(modGuid) && !isProteinModifier) {
                             const modRes = calculateRecipeCost(modRecipe, inventoryData as InventoryItem[], item.group_name)
                             totalModCost += modRes.foodCost
                             missingPrices += modRes.missingPrices

@@ -1,0 +1,1221 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Informe Operativo - Tacos Gavilan Sucursal Lynwood</title>
+    <style>
+        @page {
+            size: letter;
+            margin: 20mm 14mm 20mm 14mm;
+        }
+
+        * {
+            box-sizing: border-box;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            font-size: 9.5pt;
+            line-height: 1.5;
+            color: #1e293b;
+            background-color: #ffffff;
+            margin: 0;
+            padding: 0;
+        }
+
+        /* ═══ CORPORATE BRAND HEADER ═══ */
+        .brand-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 3.5px solid #8b0000;
+            padding-bottom: 12px;
+            margin-bottom: 16px;
+        }
+
+        .brand-title-wrap {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .brand-logo-text {
+            font-size: 26pt;
+            font-weight: 900;
+            letter-spacing: -0.5px;
+            color: #8b0000;
+            text-transform: uppercase;
+            line-height: 1;
+        }
+
+        .brand-sublogo {
+            font-size: 8.5pt;
+            font-weight: 700;
+            letter-spacing: 2px;
+            color: #475569;
+            text-transform: uppercase;
+            margin-top: 4px;
+        }
+
+        .document-tag {
+            background-color: #f8fafc;
+            border: 1px solid #cbd5e1;
+            border-left: 4px solid #8b0000;
+            padding: 8px 14px;
+            border-radius: 4px;
+            text-align: right;
+        }
+
+        .document-tag-title {
+            font-size: 8.5pt;
+            font-weight: 800;
+            color: #0f172a;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .document-tag-sub {
+            font-size: 7.5pt;
+            color: #64748b;
+        }
+
+        /* ═══ DOCUMENT TITLE & METADATA GRID ═══ */
+        .main-report-title {
+            font-size: 15pt;
+            font-weight: 900;
+            color: #0f172a;
+            line-height: 1.3;
+            margin: 0 0 14px 0;
+            text-transform: uppercase;
+            letter-spacing: -0.3px;
+        }
+
+        .metadata-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+            background-color: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 6px;
+            padding: 12px 14px;
+            margin-bottom: 16px;
+            page-break-inside: avoid;
+        }
+
+        .metadata-item {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .metadata-lbl {
+            font-size: 7pt;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: #64748b;
+            margin-bottom: 2px;
+        }
+
+        .metadata-val {
+            font-size: 8.5pt;
+            color: #1e293b;
+            font-weight: 500;
+        }
+
+        .metadata-val strong {
+            color: #0f172a;
+        }
+
+        /* ═══ EXECUTIVE KPI SUMMARY CARDS ═══ */
+        .kpi-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 10px;
+            margin-bottom: 20px;
+            page-break-inside: avoid;
+        }
+
+        .kpi-card {
+            background-color: #ffffff;
+            border: 1.5px solid #e2e8f0;
+            border-radius: 6px;
+            padding: 10px 12px;
+            text-align: center;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+        }
+
+        .kpi-card.highlight {
+            background-color: #fef2f2;
+            border-color: #fca5a5;
+        }
+
+        .kpi-value {
+            font-size: 16pt;
+            font-weight: 900;
+            color: #8b0000;
+            line-height: 1.1;
+            margin-bottom: 4px;
+        }
+
+        .kpi-label {
+            font-size: 7.5pt;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: #334155;
+        }
+
+        .kpi-note {
+            font-size: 7pt;
+            color: #64748b;
+            margin-top: 2px;
+        }
+
+        /* ═══ TYPOGRAPHY ═══ */
+        h2 {
+            font-size: 12pt;
+            font-weight: 800;
+            color: #8b0000;
+            margin: 20px 0 10px 0;
+            padding-bottom: 4px;
+            border-bottom: 1.5px solid #fecaca;
+            page-break-after: avoid;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        h3 {
+            font-size: 10pt;
+            font-weight: 700;
+            color: #0f172a;
+            margin: 14px 0 6px 0;
+            page-break-after: avoid;
+        }
+
+        p {
+            margin: 0 0 10px 0;
+            color: #334155;
+            text-align: justify;
+        }
+
+        ul, ol {
+            margin: 0 0 12px 0;
+            padding-left: 20px;
+            color: #334155;
+        }
+
+        li {
+            margin-bottom: 4px;
+        }
+
+        strong {
+            color: #0f172a;
+            font-weight: 700;
+        }
+
+        em {
+            color: #475569;
+            font-style: italic;
+        }
+
+        hr {
+            border: none;
+            border-top: 1px solid #e2e8f0;
+            margin: 18px 0;
+        }
+
+        /* ═══ TABLES ═══ */
+        .table-wrapper {
+            margin: 12px 0 16px 0;
+            width: 100%;
+            page-break-inside: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 8pt;
+            page-break-inside: auto;
+        }
+
+        thead {
+            display: table-header-group;
+        }
+
+        tr {
+            page-break-inside: avoid;
+            page-break-after: auto;
+        }
+
+        th {
+            background-color: #1e293b;
+            color: #ffffff;
+            font-weight: 700;
+            text-transform: uppercase;
+            font-size: 7.5pt;
+            letter-spacing: 0.5px;
+            padding: 6px 5px;
+            border: 1px solid #0f172a;
+            text-align: center;
+        }
+
+        th[align="left"], td[align="left"] {
+            text-align: left;
+        }
+
+        th[align="right"], td[align="right"] {
+            text-align: right;
+            white-space: nowrap;
+        }
+
+        td {
+            padding: 5.5px 5px;
+            border: 1px solid #cbd5e1;
+            color: #334155;
+            line-height: 1.35;
+        }
+
+        tbody tr:nth-child(even) {
+            background-color: #f8fafc;
+        }
+
+        /* Highlight Lynwood Row */
+        tr.row-highlight-lynwood {
+            background-color: #fef2f2 !important;
+            border: 2px solid #8b0000;
+            font-weight: 700;
+        }
+
+        tr.row-highlight-lynwood td {
+            color: #8b0000;
+            font-weight: 700;
+            background-color: #fef2f2;
+        }
+
+        /* ═══ EXECUTIVE CALLOUT ═══ */
+        .executive-callout {
+            background-color: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-left: 4px solid #8b0000;
+            border-radius: 4px;
+            padding: 10px 14px;
+            margin: 14px 0;
+            font-size: 8.5pt;
+            color: #334155;
+            page-break-inside: avoid;
+        }
+
+        .executive-callout p {
+            margin: 0;
+            line-height: 1.45;
+        }
+
+        /* ═══ SIGNATURE BLOCK ═══ */
+        .signature-section {
+            margin-top: 30px;
+            padding-top: 15px;
+            border-top: 1.5px solid #cbd5e1;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            page-break-inside: avoid;
+        }
+
+        .signature-box {
+            width: 320px;
+        }
+
+        .signature-line {
+            border-bottom: 1.5px solid #0f172a;
+            height: 40px;
+            margin-bottom: 6px;
+        }
+
+        .signee-name {
+            font-size: 11pt;
+            font-weight: 800;
+            color: #0f172a;
+        }
+
+        .signee-title {
+            font-size: 9pt;
+            color: #475569;
+            font-weight: 600;
+        }
+
+        .signee-dept {
+            font-size: 8pt;
+            color: #64748b;
+        }
+
+        .seal-box {
+            border: 1.5px dashed #94a3b8;
+            border-radius: 6px;
+            padding: 10px 16px;
+            text-align: center;
+            width: 220px;
+            background-color: #f8fafc;
+        }
+
+        .seal-title {
+            font-size: 8pt;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: #64748b;
+        }
+
+        .seal-badge {
+            font-size: 9.5pt;
+            font-weight: 800;
+            color: #8b0000;
+            margin-top: 4px;
+        }
+
+        .seal-date {
+            font-size: 7.5pt;
+            color: #94a3b8;
+            margin-top: 2px;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- BRAND HEADER -->
+    <div class="brand-header">
+        <div>
+            <div class="brand-logo-text">Tacos Gavilan</div>
+            <div class="brand-sublogo">Sucursal Lynwood &bull; Operaciones Corporativas</div>
+        </div>
+        <div class="document-tag">
+            <div class="document-tag-title">Informe Ejecutivo Operativo</div>
+            <div class="document-tag-sub">Período Enero – Septiembre 2026</div>
+        </div>
+    </div>
+
+    <!-- DOCUMENT TITLE -->
+    <div class="main-report-title">
+        Informe Operativo: Gestión de Personal, Coberturas Mutuas y Productividad en Ventas Pico (<em>Peak Sales</em>)
+    </div>
+
+    <!-- EXECUTIVE METADATA GRID -->
+    <div class="metadata-grid">
+        <div class="metadata-item">
+            <div class="metadata-lbl">Período de Análisis</div>
+            <div class="metadata-val">01 Ene – 24 Sep 2026 <em>(Comp. 2023–2025)</em></div>
+        </div>
+        <div class="metadata-item">
+            <div class="metadata-lbl">Titular Responsable</div>
+            <div class="metadata-val"><strong>Carlos Velázquez</strong>, Gerente General (<em>GM</em>)</div>
+        </div>
+        <div class="metadata-item">
+            <div class="metadata-lbl">Destinatarios</div>
+            <div class="metadata-val">Dirección Ejecutiva, Operaciones y RRHH</div>
+        </div>
+        <div class="metadata-item">
+            <div class="metadata-lbl">Fecha de Emisión</div>
+            <div class="metadata-val"><strong>25 de Septiembre de 2026</strong></div>
+        </div>
+        <div class="metadata-item">
+            <div class="metadata-lbl">Fuentes de Datos</div>
+            <div class="metadata-val">Toast POS, Supabase DB, RONOS & Simplify HR</div>
+        </div>
+        <div class="metadata-item">
+            <div class="metadata-lbl">Sede Operativa</div>
+            <div class="metadata-val"><strong>Tacos Gavilan — Sucursal Lynwood</strong></div>
+        </div>
+    </div>
+
+    <!-- KPI HIGHLIGHTS BAR -->
+    <div class="kpi-grid">
+        <div class="kpi-card highlight">
+            <div class="kpi-value">$4,102,321</div>
+            <div class="kpi-label">Ventas Ene–Ago</div>
+            <div class="kpi-note">🥈 2° Lugar en Toda la Cadena</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-value">19.5%</div>
+            <div class="kpi-label">Costo Laboral (Labor %)</div>
+            <div class="kpi-note">Supera Promedio Cadena (20.1%)</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-value">$100.1 / hr</div>
+            <div class="kpi-label">Productividad (SPLH)</div>
+            <div class="kpi-note">Venta Neta por Hora Labor</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-value">100%</div>
+            <div class="kpi-label">Continuidad Operativa</div>
+            <div class="kpi-note">Cero Interrupciones de Servicio</div>
+        </div>
+    </div>
+
+    <!-- MAIN REPORT CONTENT -->
+    <div class="report-content">
+        <h2>1. 🎯 RESUMEN EJECUTIVO Y BALANCE DE GESTIÓN OPERATIVA</h2>
+<p>El presente informe tiene como propósito documentar de manera técnica, estructurada y respaldada en datos de sistemas (<em>system timestamps</em>, registros de asistencia y transacciones de venta) la estrategia de administración de personal, cobertura de turnos y control de productividad en la sucursal <strong>Lynwood</strong> durante el año en curso.</p>
+<p>A lo largo de 2026, la sucursal ha enfrentado una demanda comercial en constante expansión, consolidándose como uno de los motores económicos principales de Tacos Gavilan. Para responder a este volumen sin descuidar el servicio ni comprometer la rentabilidad, la gerencia implementó un esquema de <strong>coberturas mutuas (<em>cross-shift coverage</em>)</strong> sustentado en cuatro pilares:</p>
+<ol>
+<li><strong>Gestión Equilibrada de la Cuadrilla</strong>:
+<ul>
+<li>La asignación de jornadas ordinarias y tiempo extra (<em>overtime - OT</em>) ha sido distribuida entre toda la plantilla de cocina y cajas para compensar vacantes imprevistas, permisos médicos y la rotación natural del periodo de prueba.</li>
+<li><strong>Jonathan Velasco</strong> (Turno PM) asumió <strong>526.8 horas</strong> y <strong>166.8 horas de overtime</strong> en 35 dobles turnos de apoyo hasta la madrugada.</li>
+<li><strong>Kevin García</strong> cumplió 11 jornadas de 10 a 14.1 horas para sostener el servicio en fines de semana, mientras sus compañeros absorbieron sus turnos durante 5 permisos médicos justificados.</li>
+<li><strong>José Martínez</strong> (485.3 hrs) y <strong>Elías Morales</strong> (481.4 hrs) garantizaron la operación continua de la parrilla con jornadas equivalentes.</li>
+<li><strong>Joseph Castellanos</strong> (484.2 hrs y 124.2 hrs OT) aportó disponibilidad inmediata y puntualidad en el turno matutino y refuerzos de tarde.</li>
+</ul>
+</li>
+<li><strong>Posicionamiento Operativo Real de Lynwood</strong>:
+<ul>
+<li>Lynwood ocupa de forma verificada el <strong>segundo puesto de volumen en toda la cadena de 15 sucursales</strong>, con <strong>$4,102,321</strong> facturados de enero a agosto de 2026 (promedio diario de <strong>$16,882</strong> y récord mensual de <strong>$570,772</strong> en agosto), únicamente detrás de <strong>LA Central</strong> ($5,444,267 acumulados y $22,404/día).</li>
+<li>Cuenta con una de las 6 únicas <strong>ventanillas de auto-servicio (<em>Drive-Thru - DT</em>)</strong> de la corporación, operando con doble línea continua (comedor y ventanilla) durante 16 horas diarias al público (9:00 AM a 1:00 AM) y jornadas de preparación/cierre de 6:00 AM a 4:00 AM.</li>
+</ul>
+</li>
+<li><strong>Control y Disciplina Financiera de Nómina</strong>:
+<ul>
+<li>Gracias a la flexibilidad de coberturas, el costo laboral (<em>labor cost percentage</em>) se redujo a un <strong>19.5% en 2026</strong> (18.7% en marzo, 19.49% en agosto), mejorando sustancialmente frente a los ejercicios 2023–2024 (donde promediaba entre 21.5% y 22.8%).</li>
+<li>Lynwood opera con mayor eficiencia laboral que la sucursal líder (<strong>LA Central: 20.3%</strong>) y que el promedio de la cadena (<strong>20.1%</strong>), generando una productividad de <strong>$100.1 dólares de venta por cada hora de labor (<em>Sales Per Labor Hour - SPLH</em>)</strong>.</li>
+</ul>
+</li>
+<li><strong>Desarrollo y Promoción Interna de Liderazgo</strong>:
+<ul>
+<li>Tras la salida de Enrique Navarrete en julio de 2026, se promovió formalmente a <strong>Víctor Muñoz</strong> de <em>Shift Leader</em> ($18.00–$19.40/h) a <strong>Asistente de Gerente (<em>Assistant Manager</em>) a $21.00–$21.90/h</strong>, garantizando la supervisión de piso y descansos con 220.5 horas de liderazgo en agosto.</li>
+<li>Las incorporaciones operativas (como María González en cajas) permitieron estabilizar las áreas más sensibles ante el ausentismo imprevisto.</li>
+</ul>
+</li>
+</ol>
+<hr />
+<h2>2. 🏪 BENCHMARK COMPARATIVO DE LAS 15 SUCURSALES (ENERO – AGOSTO 2026)</h2>
+<p>Para contextualizar el nivel de demanda que absorbe el equipo de Lynwood, a continuación se presenta el balance comparativo de las 15 sucursales de la cadena en los primeros ocho meses de 2026 (3,645 registros diarios consolidados):</p>
+<div class="table-wrapper"><table>
+<thead>
+<tr>
+<th align="center">Rango</th>
+<th align="left">Sucursal (<em>Store</em>)</th>
+<th align="center">Código</th>
+<th align="center">Ventanilla (<em>Drive-Thru</em>)</th>
+<th align="center">Horario de Servicio</th>
+<th align="center">Venta Ene–Ago 2026 (<em>Total Net Sales</em>)</th>
+<th align="center">Promedio Diario (<em>Daily Sales</em>)</th>
+<th align="center">Órdenes/Día (<em>Daily Orders</em>)</th>
+<th align="center">Costo Labor (<em>Labor %</em>)</th>
+<th align="center">Eficiencia (<em>SPLH - Sales Per Labor Hour</em>)</th>
+<th align="center">Venta Récord Agosto 2026</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td align="center"><strong>🥇 1</strong></td>
+<td align="left"><strong>LA Central</strong></td>
+<td align="center">LACENTRAL</td>
+<td align="center"><strong>SÍ</strong></td>
+<td align="center">08:00 AM – 02:00 AM</td>
+<td align="center"><strong>$5,444,267</strong></td>
+<td align="center">$22,404</td>
+<td align="center">1,193</td>
+<td align="center">20.3%</td>
+<td align="center">$100.8 / hr</td>
+<td align="center">$726,822</td>
+</tr>
+<tr class="row-highlight-lynwood"><td align="center"><strong>🥈 2</strong></td><td align="left"><strong>Lynwood (Sucursal)</strong></td>
+<td align="center"><strong>LYNWOOD</strong></td>
+<td align="center"><strong>SÍ</strong></td>
+<td align="center"><strong>09:00 AM – 01:00 AM</strong></td>
+<td align="center"><strong>$4,102,321</strong></td>
+<td align="center"><strong>$16,882</strong></td>
+<td align="center"><strong>859</strong></td>
+<td align="center"><strong>19.5%</strong></td>
+<td align="center"><strong>$100.1 / hr</strong></td>
+<td align="center"><strong>$570,772</strong></td>
+</tr>
+<tr>
+<td align="center"><strong>🥉 3</strong></td>
+<td align="left"><strong>LA Broadway</strong></td>
+<td align="center">LABROADWY</td>
+<td align="center">NO</td>
+<td align="center">08:00 AM – 01:00 AM</td>
+<td align="center"><strong>$3,925,033</strong></td>
+<td align="center">$16,152</td>
+<td align="center">877</td>
+<td align="center">19.7%</td>
+<td align="center">$103.9 / hr</td>
+<td align="center">$524,191</td>
+</tr>
+<tr>
+<td align="center"><strong>4</strong></td>
+<td align="left"><strong>Norwalk</strong></td>
+<td align="center">NORWALK</td>
+<td align="center"><strong>SÍ</strong></td>
+<td align="center">09:00 AM – 01:00 AM</td>
+<td align="center"><strong>$3,715,889</strong></td>
+<td align="center">$15,292</td>
+<td align="center">783</td>
+<td align="center">20.0%</td>
+<td align="center">$96.9 / hr</td>
+<td align="center">$510,263</td>
+</tr>
+<tr>
+<td align="center"><strong>5</strong></td>
+<td align="left"><strong>Slauson</strong></td>
+<td align="center">SLAUSON</td>
+<td align="center">NO</td>
+<td align="center">10:00 AM – 01:00 AM</td>
+<td align="center"><strong>$3,542,372</strong></td>
+<td align="center">$14,578</td>
+<td align="center">733</td>
+<td align="center">18.8%</td>
+<td align="center">$108.1 / hr</td>
+<td align="center">$475,605</td>
+</tr>
+<tr>
+<td align="center"><strong>6</strong></td>
+<td align="left"><strong>Rialto</strong></td>
+<td align="center">RIALTO</td>
+<td align="center">NO</td>
+<td align="center">10:00 AM – 00:00 AM</td>
+<td align="center"><strong>$3,439,684</strong></td>
+<td align="center">$14,155</td>
+<td align="center">617</td>
+<td align="center">18.2%</td>
+<td align="center">$105.4 / hr</td>
+<td align="center">$452,236</td>
+</tr>
+<tr>
+<td align="center"><strong>7</strong></td>
+<td align="left"><strong>West Covina</strong></td>
+<td align="center">WCOVINA</td>
+<td align="center"><strong>SÍ</strong></td>
+<td align="center">10:00 AM – 01:00 AM</td>
+<td align="center"><strong>$3,406,251</strong></td>
+<td align="center">$14,017</td>
+<td align="center">712</td>
+<td align="center">17.7%</td>
+<td align="center">$110.1 / hr</td>
+<td align="center">$454,846</td>
+</tr>
+<tr>
+<td align="center"><strong>8</strong></td>
+<td align="left"><strong>South Gate</strong></td>
+<td align="center">SOUTHGATE</td>
+<td align="center"><strong>SÍ</strong></td>
+<td align="center">10:00 AM – 00:00 AM</td>
+<td align="center"><strong>$3,116,921</strong></td>
+<td align="center">$12,827</td>
+<td align="center">687</td>
+<td align="center">20.0%</td>
+<td align="center">$104.7 / hr</td>
+<td align="center">$424,861</td>
+</tr>
+<tr>
+<td align="center"><strong>9</strong></td>
+<td align="left"><strong>Downey</strong></td>
+<td align="center">DOWNEY</td>
+<td align="center">NO</td>
+<td align="center">09:00 AM – 00:00 AM</td>
+<td align="center"><strong>$2,935,784</strong></td>
+<td align="center">$12,081</td>
+<td align="center">623</td>
+<td align="center">21.9%</td>
+<td align="center">$87.9 / hr</td>
+<td align="center">$391,441</td>
+</tr>
+<tr>
+<td align="center"><strong>10</strong></td>
+<td align="left"><strong>Hollywood</strong></td>
+<td align="center">HOLLYWOOD</td>
+<td align="center">NO</td>
+<td align="center">09:00 AM – 00:00 AM</td>
+<td align="center"><strong>$2,844,891</strong></td>
+<td align="center">$11,707</td>
+<td align="center">651</td>
+<td align="center">19.0%</td>
+<td align="center">$107.7 / hr</td>
+<td align="center">$385,844</td>
+</tr>
+<tr>
+<td align="center"><strong>11</strong></td>
+<td align="left"><strong>Santa Ana</strong></td>
+<td align="center">SANTAANA</td>
+<td align="center">NO</td>
+<td align="center">10:00 AM – 00:00 AM</td>
+<td align="center"><strong>$2,770,984</strong></td>
+<td align="center">$11,403</td>
+<td align="center">549</td>
+<td align="center">19.5%</td>
+<td align="center">$102.9 / hr</td>
+<td align="center">$373,472</td>
+</tr>
+<tr>
+<td align="center"><strong>12</strong></td>
+<td align="left"><strong>Huntington Park</strong></td>
+<td align="center">HPARK</td>
+<td align="center">NO</td>
+<td align="center">10:00 AM – 00:00 AM</td>
+<td align="center"><strong>$2,553,194</strong></td>
+<td align="center">$10,507</td>
+<td align="center">570</td>
+<td align="center">18.7%</td>
+<td align="center">$108.0 / hr</td>
+<td align="center">$350,882</td>
+</tr>
+<tr>
+<td align="center"><strong>13</strong></td>
+<td align="left"><strong>La Puente</strong></td>
+<td align="center">LAPUENTE</td>
+<td align="center"><strong>SÍ</strong></td>
+<td align="center">10:00 AM – 00:00 AM</td>
+<td align="center"><strong>$2,100,365</strong></td>
+<td align="center">$8,643</td>
+<td align="center">444</td>
+<td align="center">20.5%</td>
+<td align="center">$101.2 / hr</td>
+<td align="center">$287,010</td>
+</tr>
+<tr>
+<td align="center"><strong>14</strong></td>
+<td align="left"><strong>Azusa</strong></td>
+<td align="center">AZUSA</td>
+<td align="center">NO</td>
+<td align="center">10:00 AM – 23:00 PM</td>
+<td align="center"><strong>$1,722,058</strong></td>
+<td align="center">$7,087</td>
+<td align="center">363</td>
+<td align="center">20.8%</td>
+<td align="center">$88.1 / hr</td>
+<td align="center">$224,845</td>
+</tr>
+<tr>
+<td align="center"><strong>15</strong></td>
+<td align="left"><strong>Bell</strong></td>
+<td align="center">BELL</td>
+<td align="center">NO</td>
+<td align="center">10:00 AM – 00:00 AM</td>
+<td align="center"><strong>$1,586,741</strong></td>
+<td align="center">$6,530</td>
+<td align="center">349</td>
+<td align="center">21.6%</td>
+<td align="center">$91.7 / hr</td>
+<td align="center">$216,070</td>
+</tr>
+</tbody>
+</table></div>
+<h3>Análisis Operativo del Benchmark:</h3>
+<ul>
+<li><strong>Segunda Sucursal en Volumen de la Cadena</strong>: Lynwood aporta más de $500,000 mensuales de venta neta recurrente, superando a sucursales de alta tradición como Broadway ($3.92M) y Norwalk ($3.71M).</li>
+<li><strong>Complejidad de Servicio Dual (Ventanilla + Comedor)</strong>: Solo 6 tiendas disponen de Drive-Thru. El estándar de velocidad de servicio (<em>Speed of Service - SOS</em>) evaluado mediante sensores de HME Zoom Nitro exige tiempos inferiores a 210 segundos por automóvil. Mantener esta agilidad en fines de semana ($22k a $24.6k por día) requiere personal dedicado en la línea de empaque y taquería.</li>
+<li><strong>Rendimiento de Mano de Obra</strong>: El 19.5% de labor obtenido en Lynwood refleja un control de costos superior al promedio general (20.1%) y al de sucursales comparables como Norwalk (20.0%) y Downey (21.9%).</li>
+</ul>
+<hr />
+<h2>3. 🚪 GESTIÓN DE RECLUTAMIENTO Y ROTACIÓN EN PERIODO DE PRUEBA (90 DÍAS)</h2>
+<p>Durante la primera mitad de 2026, la gerencia llevó a cabo un proceso constante de reclutamiento para ampliar la base de colaboradores. Sin embargo, las altas exigencias de velocidad y volumen provocaron que <strong>7 contrataciones causaran baja antes de concluir sus 90 días de prueba (<em>probationary period</em>)</strong>:</p>
+<div class="table-wrapper"><table>
+<thead>
+<tr>
+<th align="left">Colaborador (<em>Hire</em>)</th>
+<th align="center">Puesto (<em>Job</em>)</th>
+<th align="center">Fecha Ingreso (<em>Hire Date</em>)</th>
+<th align="center">Último Día Trabajado</th>
+<th align="center">Días en Tienda</th>
+<th align="center">Horas Totales</th>
+<th align="left">Causa de Salida / Conducta Observada</th>
+<th align="left">Solución Operativa Implementada</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td align="left"><strong>María Lúa Sánchez</strong></td>
+<td align="center">Cocina</td>
+<td align="center">2026-05-08</td>
+<td align="center">2026-05-08</td>
+<td align="center"><strong>1 día</strong></td>
+<td align="center">6.48 hrs</td>
+<td align="left">Renuncia tras su primera jornada.</td>
+<td align="left">Apoyo inmediato del personal de planta en preparación de carnes.</td>
+</tr>
+<tr>
+<td align="left"><strong>Melody Reyes</strong></td>
+<td align="center">Cajas</td>
+<td align="center">2026-05-11</td>
+<td align="center">2026-05-11</td>
+<td align="center"><strong>1 día</strong></td>
+<td align="center">7.49 hrs</td>
+<td align="left">Abandono el mismo día de inicio.</td>
+<td align="left">Cobertura en barra por María T. Alejandre.</td>
+</tr>
+<tr>
+<td align="left"><strong>Jazmín Balcázar</strong></td>
+<td align="center">Cajas</td>
+<td align="center">2026-05-25</td>
+<td align="center">2026-05-28</td>
+<td align="center"><strong>4 días</strong></td>
+<td align="center">28.11 hrs</td>
+<td align="left">Renuncia voluntaria al cuarto día.</td>
+<td align="left">Gestiones para la incorporación de María González en junio.</td>
+</tr>
+<tr>
+<td align="left"><strong>Luis Martínez</strong></td>
+<td align="center">Cocina</td>
+<td align="center">2026-05-28</td>
+<td align="center">2026-06-25</td>
+<td align="center"><strong>25 días</strong></td>
+<td align="center">182.00 hrs</td>
+<td align="left">Baja por rendimiento en velocidad de plancha.</td>
+<td align="left">Kevin García cubrió el turno vespertino el 27 de junio (11.5 hrs).</td>
+</tr>
+<tr>
+<td align="left"><strong>Denis Sánchez</strong></td>
+<td align="center">Cocina</td>
+<td align="center">2026-07-29</td>
+<td align="center">2026-08-06</td>
+<td align="center"><strong>18 días</strong></td>
+<td align="center">67.86 hrs</td>
+<td align="left"><strong>8 faltas injustificadas (<em>no-shows</em>)</strong> en 18 días.</td>
+<td align="left">Abandono en sábado pico (08-Ago, $23.4k); Kevin y Joseph extendieron turno.</td>
+</tr>
+<tr>
+<td align="left"><strong>Denis Xicay</strong></td>
+<td align="center">Cocina</td>
+<td align="center">2026-07-15</td>
+<td align="center">2026-07-31</td>
+<td align="center"><strong>16 días</strong></td>
+<td align="center">84.50 hrs</td>
+<td align="left">Renuncia por incompatibilidad de horario.</td>
+<td align="left">Jonathan Velasco mantuvo turnos continuos de 12 horas.</td>
+</tr>
+<tr>
+<td align="left"><strong>Fernando Lacayo</strong></td>
+<td align="center">Cocina</td>
+<td align="center">2026-08-12</td>
+<td align="center">2026-09-08</td>
+<td align="center"><strong>24 días</strong></td>
+<td align="center">182.38 hrs</td>
+<td align="left">Faltas reiteradas hasta su baja el 08-Sep.</td>
+<td align="left">Extensiones operativas de Joseph y Benjamín el 13 de septiembre.</td>
+</tr>
+</tbody>
+</table></div>
+<hr />
+<h2>4. 📈 VENTAS PICO (<em>PEAK SALES</em>) Y DEMANDA OPERATIVA EN LYNWOOD</h2>
+<p>En los fines de semana de 2026, la tienda registró flujos continuos de clientes que superaron los <strong>1,100 tickets por jornada</strong> y el consumo de más de <strong>1,500 libras de carne fresca</strong> en plancha:</p>
+<h3>Los 15 Días de Mayor Demanda en 2026:</h3>
+<div class="table-wrapper"><table>
+<thead>
+<tr>
+<th align="center">Fecha (<em>Date</em>)</th>
+<th align="center">Día Semana</th>
+<th align="center">Venta Neta (<em>Sales</em>)</th>
+<th align="center">Tickets</th>
+<th align="center">Horas Labor</th>
+<th align="center">Costo Labor</th>
+<th align="center">% Labor</th>
+<th align="center">SPLH</th>
+<th align="left">Dinámica del Servicio</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td align="center"><strong>2026-04-04</strong></td>
+<td align="center">Sábado</td>
+<td align="center"><strong>$24,791</strong></td>
+<td align="center">1,135</td>
+<td align="center">189.1</td>
+<td align="center">$3,644</td>
+<td align="center"><strong>14.7%</strong></td>
+<td align="center"><strong>$131.1</strong></td>
+<td align="left">Sábado de Gloria (Récord anual de venta)</td>
+</tr>
+<tr>
+<td align="center"><strong>2026-08-01</strong></td>
+<td align="center">Sábado</td>
+<td align="center"><strong>$24,603</strong></td>
+<td align="center">1,155</td>
+<td align="center">219.7</td>
+<td align="center">$4,333</td>
+<td align="center"><strong>17.6%</strong></td>
+<td align="center"><strong>$112.0</strong></td>
+<td align="left">Quincena y periodo vacacional (Capacidad máxima)</td>
+</tr>
+<tr>
+<td align="center"><strong>2026-06-06</strong></td>
+<td align="center">Sábado</td>
+<td align="center"><strong>$24,290</strong></td>
+<td align="center">1,089</td>
+<td align="center">198.3</td>
+<td align="center">$4,014</td>
+<td align="center"><strong>16.5%</strong></td>
+<td align="center"><strong>$122.5</strong></td>
+<td align="left">Fin de semana de alta rotación</td>
+</tr>
+<tr>
+<td align="center"><strong>2026-08-29</strong></td>
+<td align="center">Sábado</td>
+<td align="center"><strong>$24,232</strong></td>
+<td align="center">1,120</td>
+<td align="center">231.5</td>
+<td align="center">$4,427</td>
+<td align="center"><strong>18.3%</strong></td>
+<td align="center"><strong>$104.7</strong></td>
+<td align="left">Fin de semana previo a Labor Day</td>
+</tr>
+<tr>
+<td align="center"><strong>2026-08-02</strong></td>
+<td align="center">Domingo</td>
+<td align="center"><strong>$24,197</strong></td>
+<td align="center">1,071</td>
+<td align="center">186.2</td>
+<td align="center">$4,284</td>
+<td align="center"><strong>17.7%</strong></td>
+<td align="center"><strong>$129.9</strong></td>
+<td align="left">Domingo familiar de alto consumo</td>
+</tr>
+<tr>
+<td align="center"><strong>2026-07-25</strong></td>
+<td align="center">Sábado</td>
+<td align="center"><strong>$24,026</strong></td>
+<td align="center">1,127</td>
+<td align="center">207.3</td>
+<td align="center">$4,371</td>
+<td align="center"><strong>18.2%</strong></td>
+<td align="center"><strong>$115.9</strong></td>
+<td align="left">Fin de semana pico de verano</td>
+</tr>
+<tr>
+<td align="center"><strong>2026-08-15</strong></td>
+<td align="center">Sábado</td>
+<td align="center"><strong>$23,760</strong></td>
+<td align="center">1,109</td>
+<td align="center">223.9</td>
+<td align="center">$4,387</td>
+<td align="center"><strong>18.5%</strong></td>
+<td align="center"><strong>$106.1</strong></td>
+<td align="left">Quincena de agosto con servicio continuo</td>
+</tr>
+<tr>
+<td align="center"><strong>2026-08-08</strong></td>
+<td align="center">Sábado</td>
+<td align="center"><strong>$23,498</strong></td>
+<td align="center">1,107</td>
+<td align="center">208.6</td>
+<td align="center">$4,153</td>
+<td align="center"><strong>17.7%</strong></td>
+<td align="center"><strong>$112.7</strong></td>
+<td align="left">Apoyo de Kevin y Joseph tras falta de Denis Sánchez</td>
+</tr>
+<tr>
+<td align="center"><strong>2026-07-03</strong></td>
+<td align="center">Viernes</td>
+<td align="center"><strong>$23,319</strong></td>
+<td align="center">1,071</td>
+<td align="center">218.4</td>
+<td align="center">$4,259</td>
+<td align="center"><strong>18.3%</strong></td>
+<td align="center"><strong>$106.8</strong></td>
+<td align="left">Víspera de 4 de Julio</td>
+</tr>
+<tr>
+<td align="center"><strong>2026-09-05</strong></td>
+<td align="center">Sábado</td>
+<td align="center"><strong>$23,184</strong></td>
+<td align="center">1,064</td>
+<td align="center">208.6</td>
+<td align="center">$3,972</td>
+<td align="center"><strong>17.1%</strong></td>
+<td align="center"><strong>$111.1</strong></td>
+<td align="left">Sábado de fin de semana largo de Labor Day</td>
+</tr>
+<tr>
+<td align="center"><strong>2026-09-12</strong></td>
+<td align="center">Sábado</td>
+<td align="center"><strong>$23,069</strong></td>
+<td align="center">1,064</td>
+<td align="center">201.8</td>
+<td align="center">$4,291</td>
+<td align="center"><strong>18.6%</strong></td>
+<td align="center"><strong>$114.3</strong></td>
+<td align="left">Cierre extendido de Jonathan por salud de Kevin</td>
+</tr>
+<tr>
+<td align="center"><strong>2026-08-07</strong></td>
+<td align="center">Viernes</td>
+<td align="center"><strong>$23,065</strong></td>
+<td align="center">1,115</td>
+<td align="center">214.1</td>
+<td align="center">$4,108</td>
+<td align="center"><strong>17.8%</strong></td>
+<td align="center"><strong>$107.8</strong></td>
+<td align="left">Viernes pico de verano</td>
+</tr>
+<tr>
+<td align="center"><strong>2026-02-21</strong></td>
+<td align="center">Sábado</td>
+<td align="center"><strong>$23,056</strong></td>
+<td align="center">1,100</td>
+<td align="center">212.8</td>
+<td align="center">$4,150</td>
+<td align="center"><strong>18.0%</strong></td>
+<td align="center"><strong>$108.3</strong></td>
+<td align="left">Sábado de alta afluencia invernal</td>
+</tr>
+<tr>
+<td align="center"><strong>2026-02-14</strong></td>
+<td align="center">Sábado</td>
+<td align="center"><strong>$23,048</strong></td>
+<td align="center">1,099</td>
+<td align="center">219.4</td>
+<td align="center">$4,240</td>
+<td align="center"><strong>18.4%</strong></td>
+<td align="center"><strong>$105.1</strong></td>
+<td align="left">Celebración del Día del Amor y la Amistad</td>
+</tr>
+<tr>
+<td align="center"><strong>2026-08-28</strong></td>
+<td align="center">Viernes</td>
+<td align="center"><strong>$22,985</strong></td>
+<td align="center">1,145</td>
+<td align="center">232.5</td>
+<td align="center">$4,439</td>
+<td align="center"><strong>19.3%</strong></td>
+<td align="center"><strong>$98.9</strong></td>
+<td align="left">Cierre de quincena en Lynwood</td>
+</tr>
+</tbody>
+</table></div>
+<hr />
+<h2>5. 👥 DINÁMICA DE COBERTURA INTEGRAL ENTRE TODA LA PLANTILLA</h2>
+<h3>A. Promoción de Liderazgo: Víctor Muñoz (Assistant Manager)</h3>
+<ul>
+<li><strong>Enero – Marzo 2025</strong>: Desempeño en barra como Cajero (<em>Cashier</em>) a <strong>$16.50/hr</strong>.</li>
+<li><strong>Abril 2025</strong>: Ascenso a Jefe de Turno (<em>Shift Leader</em>) a <strong>$18.00/hr</strong>.</li>
+<li><strong>Enero – Junio 2026</strong>: Ajustes por mérito a <strong>$18.90/hr</strong> y <strong>$19.40/hr</strong>.</li>
+<li><strong>Julio 2026</strong>: Tras el término de funciones de Enrique Navarrete el 14 de julio, <strong>Víctor Muñoz asume la posición de Asistente de Gerente (<em>Asst Manager</em>) a $21.00/hr</strong>, cubriendo de inmediato la supervisión de piso y cierres.</li>
+<li><strong>Agosto – Septiembre 2026</strong>: Registró <strong>220.5 horas en agosto</strong> (a $21.00/h y $21.90/h) y <strong>131.2 horas en septiembre</strong>, asegurando la supervisión operativa y el cumplimiento de descansos.</li>
+</ul>
+<h3>B. Cobertura de Cajas: María González</h3>
+<ul>
+<li><strong>02 de Junio</strong>: Blanca Zarat fuera por periodo vacacional; solo 3 cajeras en turno.</li>
+<li><strong>04 de Junio</strong>: Ingreso de <strong>María González (5.9 hrs)</strong> para evitar el cierre de ventanilla; María Tapia cubrió jornada extendida de <strong>11.5 horas</strong>.</li>
+<li><strong>08 de Junio</strong>: Cuadrilla en situación crítica con <strong>solo 2 cajeras activas</strong> (Martha Lemus 6.5h y María T. Alejandre 6.5h).</li>
+<li><strong>09 de Junio</strong>: Solo 3 cajeras activas; María Tapia apoya con <strong>10.0 horas</strong>.</li>
+<li><strong>14 de Junio</strong>: María González cubre un turno de <strong>11.4 horas</strong> para dar rotación a sus compañeras.</li>
+<li><strong>Totales de María González</strong>: Cumplió <strong>127.3 hrs en junio</strong>, <strong>180.6 hrs en julio</strong> (23.4 hrs OT), <strong>183.6 hrs en agosto</strong> y <strong>164.5 hrs en septiembre</strong> (27.8 hrs OT).</li>
+</ul>
+<h3>C. Turno Vespertino y Cierre: Jonathan Velasco (35 Dobletes)</h3>
+<ul>
+<li>Acumuló <strong>526.8 horas Toast en las 9 semanas analizadas</strong> (la mayor cantidad en el equipo de cocina).</li>
+<li>Registró <strong>166.8 horas de Overtime (OT)</strong>.</li>
+<li><strong>35 Dobles Turnos Realizados</strong>:
+<ul>
+<li>Del 1 al 14 de julio, tras la reestructuración de horarios matutinos, Jonathan apoyó con turnos de <strong>10:00 AM a 10:00 PM durante 14 días seguidos</strong>.</li>
+<li>En agosto y septiembre cubrió los cierres nocturnos hasta las <strong>03:30 AM – 04:22 AM</strong> (ej. 12 de septiembre hasta las 04:22 AM).</li>
+</ul>
+</li>
+</ul>
+<h3>D. Compromiso y Salud: Kevin García</h3>
+<ul>
+<li><strong>11 Jornadas de 10 a 14.1 Horas</strong>:
+<ul>
+<li><em>27-Jun</em>: 09:00 AM a 09:02 PM (<strong>11.5 hrs</strong>) tras la baja de Luis Martínez.</li>
+<li><em>05-Jul</em>: 09:00 AM a 10:33 PM (<strong>12.6 hrs</strong>) en el puente del 4 de Julio.</li>
+<li><em>08 y 09-Ago</em>: 08:58 AM a 10:00 PM (<strong>12.0 hrs diarias</strong>) tras el abandono de Denis Sánchez.</li>
+<li><em>14-Sep</em>: 08:58 AM a 10:07 PM (<strong>12.2 hrs</strong>).</li>
+<li><em>24-Sep</em>: 08:58 AM a 12:02 AM (<strong>14.1 hrs continuas</strong>) para cerrar la cocina por falta de José Martínez.</li>
+</ul>
+</li>
+<li><strong>5 Ausencias Médicas Cubiertas por Compañeros</strong>: Faltó por prescripción médica el 6-Sep, 12-Sep, 23-Ago, 13-Jul y 20-Sep. Sus turnos fueron cubiertos solidariamente por Jonathan Velasco, Joseph Castellanos y José Martínez.</li>
+</ul>
+<h3>E. Soporte Matutino y Refuerzos: Joseph Castellanos</h3>
+<ul>
+<li>Salario base de <strong>$16.90/hr</strong> (tarifa ordinaria de ingreso).</li>
+<li>Acumuló 484.2 horas (tercer lugar en horas de cocina, detrás de Jonathan y José Martínez).</li>
+<li><strong>Coberturas Relevantes</strong>:
+<ul>
+<li><em>19-Ago (12.0 hrs)</em>: Irving Saca y Cruz Victorino ausentes en la tarde; Joseph cubrió de 08:57 AM a 10:00 PM.</li>
+<li><em>07-Sep (Labor Day, 14.0 hrs)</em>: Con José Martínez y Elías Morales en descanso y Kevin convaleciente, Joseph laboró de <strong>07:58 AM a 11:00 PM</strong> ($21.8k en ventas con 18.3% de labor).</li>
+<li><em>13-Sep (11.5 hrs)</em>: Salida de Fernando Lacayo; Joseph y Benjamín Chay (11.5 hrs) reforzaron la preparación.</li>
+</ul>
+</li>
+</ul>
+<h3>F. Caso Operativo en Tiempo Real: El Efecto Dominó del 24 de Septiembre de 2026</h3>
+<p>Para dimensionar de forma viva y comprobable cómo opera esta dinámica de apoyo mutuo en el día a día, basta examinar la jornada del <strong>jueves 24 de septiembre de 2026</strong>, donde la sucursal enfrentó la ausencia imprevista de <strong>4 colaboradores programados en el sistema</strong>:</p>
+<ol>
+<li><strong>Cuatro Bajas Críticas en la Operación</strong>:
+<ul>
+<li><strong>Heidy Rodarte</strong> (<em>Shift Leader</em> programada en cajas en el turno matutino de <strong>09:00 AM a 05:00 PM</strong>) no se presentó a su turno.</li>
+<li><strong>José Andrés Morales</strong> (<em>Prep</em> programado en cocina vespertina de <strong>04:00 PM a 01:00 AM</strong>) no asistió.</li>
+<li><strong>José Martínez</strong> (<em>Prep</em> programado en cocina nocturna y cierre de <strong>05:00 PM a 03:00 AM</strong>) no asistió.</li>
+<li><strong>Carlos Arteaga</strong> (<em>Shift Leader</em> programado en el cierre nocturno de <strong>05:00 PM a 03:00 AM</strong>) no asistió.</li>
+</ul>
+</li>
+<li><strong>Reacción y Movilización Inmediata de la Cuadrilla</strong>:
+<ul>
+<li><strong>Víctor Muñoz</strong> (<em>Asst Manager</em>, en turno de <strong>09:00 AM a 05:12 PM</strong>): Al no presentarse Heidy a las 9:00 AM en el área de cajas, Víctor tuvo que dejar sus funciones habituales de cocina y supervisión para asumir de inmediato la operación y cobro directo en mostrador para evitar que se detuviera la venta.</li>
+<li><strong>Joseph Castellanos</strong> (<em>Prep</em>): <strong>Tenía su día de descanso programado (OFF)</strong>. Al presentarse la contingencia por la mañana, fue contactado y acudió voluntariamente a las <strong>10:00 AM (ponchó exactamente a las 09:57 AM hasta las 05:00 PM)</strong> para cubrir la estación de preparación en cocina que Víctor liberó para atender cajas.</li>
+<li><strong>Kevin García</strong> (<em>Prep</em>): Entró a su turno ordinario a las <strong>08:58 AM</strong> y, ante el triple vacío nocturno dejado por José Martínez, José Andrés Morales y Carlos Arteaga, dobló su turno quedándose hasta las <strong>12:02 AM</strong> (<strong>14.1 horas continuas: 8.0 regulares + 6.0 overtime</strong>).</li>
+<li><strong>Luis Heredia</strong> (<em>Prep</em>): Entró a las <strong>08:59 AM</strong> y dobló turno hasta las <strong>11:10 PM</strong> (<strong>13.2 horas continuas: 8.0 regulares + 5.2 overtime</strong>) para sostener la cocina del turno PM y evitar el colapso del servicio nocturno.</li>
+</ul>
+</li>
+</ol>
+<div class="executive-callout">
+<p><strong>Demostración Práctica</strong>: Este suceso demuestra que las horas extra y las asistencias en días de descanso no obedecen a concesiones arbitrarias, sino a una respuesta de emergencia coordinada en la que cocineros doblan turno (13 a 14 hrs), personal en descanso entra a las 10 AM para relevar estaciones y gerentes operativos cubren cajas para no cerrar la tienda.</p>
+</div>
+<hr />
+<h2>6. 📅 MATRIZ DE COBERTURAS CRONOLÓGICAS: CASO POR CASO</h2>
+<div class="table-wrapper"><table>
+<thead>
+<tr>
+<th align="center">Fecha (<em>Date</em>)</th>
+<th align="center">Venta Neta</th>
+<th align="left">Situación de Personal / Ausente</th>
+<th align="left">Colaboradores que Cubrieron la Posición</th>
+<th align="center">Horas Cumplidas</th>
+<th align="left">Justificación Operativa</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td align="center"><strong>02-Jun</strong></td>
+<td align="center">$16,420</td>
+<td align="left"><strong>Blanca Zarat</strong> (Vacaciones)</td>
+<td align="left">• <strong>María T. Alejandre</strong> (Cajas)</td>
+<td align="center">7.5 hrs</td>
+<td align="left">Cuadrilla de cajas en mínimo (3 cajeras). Se gestiona ingreso de María González.</td>
+</tr>
+<tr>
+<td align="center"><strong>04-Jun</strong></td>
+<td align="center">$18,350</td>
+<td align="left"><strong>Blanca Zarat</strong> (Vacaciones)</td>
+<td align="left">• <strong>María González</strong> (Cajas AM)<br>• <strong>María Tapia</strong> (Cajas PM)</td>
+<td align="center">5.9 hrs<br><strong>11.5 hrs</strong></td>
+<td align="left">Ingreso de María González para asegurar ventanilla; María Tapia dobla turno.</td>
+</tr>
+<tr>
+<td align="center"><strong>08-Jun</strong></td>
+<td align="center">$17,890</td>
+<td align="left"><strong>Blanca, Tapia y Sugey</strong> fuera</td>
+<td align="left">• <strong>Martha Lemus</strong><br>• <strong>María T. Alejandre</strong></td>
+<td align="center">6.5 hrs<br>6.5 hrs</td>
+<td align="left"><strong>Mínimo Histórico en Cajas</strong>: Solo 2 cajeras en toda la tienda para comedor y DT.</td>
+</tr>
+<tr>
+<td align="center"><strong>14-Jun</strong></td>
+<td align="center">$21,430</td>
+<td align="left"><strong>Martha Lemus</strong> (Descanso)</td>
+<td align="left">• <strong>María González</strong> (Cajas)</td>
+<td align="center"><strong>11.4 hrs</strong></td>
+<td align="left">Domingo de alta afluencia: María González cubre jornada completa de 11.4 horas.</td>
+</tr>
+<tr>
+<td align="center"><strong>27-Jun</strong></td>
+<td align="center"><strong>$22,493</strong></td>
+<td align="left"><strong>Luis Martínez</strong> (Baja)</td>
+<td align="left">• <strong>Kevin García</strong> (Cocina)</td>
+<td align="center"><strong>11.5 hrs</strong></td>
+<td align="left">Baja imprevista; Kevin entra a las 9am y cierra la cocina a las 9:02 PM.</td>
+</tr>
+<tr>
+<td align="center"><strong>01–14 Jul</strong></td>
+<td align="center">$20k–$23k</td>
+<td align="left">Salida de <strong>Enrique Navarrete</strong></td>
+<td align="left">• <strong>Jonathan Velasco</strong> (Cocina)</td>
+<td align="center"><strong>11.5–12.2 hrs</strong><br>(Diarias)</td>
+<td align="left">Jonathan cubre de 10:00 AM a 10:00 PM durante dos semanas continuas.</td>
+</tr>
+<tr>
+<td align="center"><strong>05-Jul</strong></td>
+<td align="center">$21,950</td>
+<td align="left"><strong>Blanca Zarat</strong> (Ausente)</td>
+<td align="left">• <strong>Kevin García</strong> (Cocina)<br>• <strong>Benjamín Chay</strong> (Cocina)</td>
+<td align="center"><strong>12.6 hrs</strong><br><strong>9.5 hrs</strong></td>
+<td align="left">Fin de semana de 4 de Julio; Kevin labora de 9:00 AM a 10:33 PM continuo.</td>
+</tr>
+<tr>
+<td align="center"><strong>08-Ago</strong></td>
+<td align="center"><strong>$23,498</strong></td>
+<td align="left"><strong>Denis Sánchez</strong> (Falta Injustificada)</td>
+<td align="left">• <strong>Kevin García</strong> (Cocina)<br>• <strong>Joseph Castellanos</strong> (Cocina)</td>
+<td align="center"><strong>12.0 hrs</strong><br><strong>9.6 hrs</strong></td>
+<td align="left">Denis no asiste a su turno de 4pm a 12am. Kevin dobla a 10pm y Joseph a 7:03pm.</td>
+</tr>
+<tr>
+<td align="center"><strong>19-Ago</strong></td>
+<td align="center">$19,820</td>
+<td align="left"><strong>Irving Saca y Cruz Victorino</strong> fuera</td>
+<td align="left">• <strong>Joseph Castellanos</strong> (Cocina)</td>
+<td align="center"><strong>12.0 hrs</strong></td>
+<td align="left">Dos vacantes en la tarde; Joseph cubre de 08:57 AM a 10:00 PM.</td>
+</tr>
+<tr>
+<td align="center"><strong>06-Sep</strong></td>
+<td align="center">$20,950</td>
+<td align="left"><strong>Kevin García</strong> (Incapacidad Médica)</td>
+<td align="left">• <strong>Jonathan Velasco</strong> (Cierre)<br>• <strong>José Martínez</strong> (Parrilla)</td>
+<td align="center"><strong>10.5 hrs</strong><br>8.5 hrs</td>
+<td align="left">Víspera de Labor Day sin Kevin; Jonathan y José extienden su jornada.</td>
+</tr>
+<tr>
+<td align="center"><strong>07-Sep</strong></td>
+<td align="center">$21,800</td>
+<td align="left"><strong>Labor Day</strong>: Feriado nacional</td>
+<td align="left">• <strong>Joseph Castellanos</strong> (Cocina AM/PM)<br>• <strong>Jonathan Velasco</strong> (Cierre Madrugada)</td>
+<td align="center"><strong>14.0 hrs</strong><br><strong>8.8 hrs</strong></td>
+<td align="left"><strong>Día Récord</strong>: Joseph cubre de 07:58 AM a 11:00 PM; Jonathan sostiene el cierre hasta las 02:13 AM.</td>
+</tr>
+<tr>
+<td align="center"><strong>12-Sep</strong></td>
+<td align="center"><strong>$23,069</strong></td>
+<td align="left"><strong>Kevin García</strong> (Incapacidad Médica)</td>
+<td align="left">• <strong>Jonathan Velasco</strong> (Cierre Madrugada)</td>
+<td align="center"><strong>10.8 hrs</strong></td>
+<td align="left">Sábado de venta pico ($23k) sin Kevin; Jonathan cierra hasta las <strong>04:22 AM</strong>.</td>
+</tr>
+<tr>
+<td align="center"><strong>13-Sep</strong></td>
+<td align="center"><strong>$22,755</strong></td>
+<td align="left">Salida de <strong>Fernando Lacayo</strong></td>
+<td align="left">• <strong>Joseph Castellanos</strong> (Cocina)<br>• <strong>Benjamín Chay</strong> (Cocina)</td>
+<td align="center"><strong>11.5 hrs</strong><br><strong>11.5 hrs</strong></td>
+<td align="left">Baja de Fernando; Joseph y Benjamín cubren hasta las 9:00 PM y 11:00 PM.</td>
+</tr>
+<tr>
+<td align="center"><strong>24-Sep</strong></td>
+<td align="center">$18,920</td>
+<td align="left"><strong>4 Bajas Simultáneas</strong>:<br>• <strong>Heidy Rodarte</strong> (Cajas AM, 9am–5pm)<br>• <strong>José Andrés Morales</strong> (Prep PM, 4pm–1am)<br>• <strong>José Martínez</strong> (Prep PM, 5pm–3am)<br>• <strong>Carlos Arteaga</strong> (Shift Leader PM, 5pm–3am)</td>
+<td align="left">• <strong>Víctor Muñoz</strong> (Asst Mgr cubre cajas de Heidy)<br>• <strong>Joseph Castellanos</strong> (Llega 10am en descanso a cubrir cocina)<br>• <strong>Kevin García</strong> (Dobla turno de 9am a 12am)<br>• <strong>Luis Heredia</strong> (Dobla turno de 9am a 11pm)</td>
+<td align="center"><strong>7.7 hrs</strong><br><strong>6.5 hrs</strong><br><strong>14.1 hrs</strong><br><strong>13.2 hrs</strong></td>
+<td align="left"><strong>Efecto Dominó por 4 Bajas</strong>: Heidy falta a su turno matutino de cajas (9am–5pm); Víctor Muñoz cubre cajas; Joseph acude en su día libre a las 10:00 AM para relevar a Víctor en cocina; ante las 3 bajas nocturnas de cocina y cierre (José Andrés, José Martínez y Carlos Arteaga), Kevin García (14.1h) y Luis Heredia (13.2h) doblan jornada completa hasta el cierre para que la tienda no colapse.</td>
+</tr>
+</tbody>
+</table></div>
+<hr />
+<h2>7. 🛡️ ESTRATEGIA DE ESTABILIZACIÓN Y MEJORA CONTINUA PARA EL CIERRE DE 2026</h2>
+<ol>
+<li><strong>Garantía del Séptimo Día de Descanso</strong>: Apego estricto a las disposiciones del Código Laboral de California (<em>California Labor Code §§ 551 y 552</em>), asegurando que todo colaborador disponga de 24 horas continuas de descanso semanal.</li>
+<li><strong>Consolidación de Nuevos Colaboradores</strong>: Con la adaptación de los ingresos de septiembre (Luis Heredia y Adrián Hernández), se normalizarán los turnos estándar de 8 horas, limitando el overtime preventivo a 4–6 horas en fines de semana pico.</li>
+<li><strong>Registro Operativo de Incidencias</strong>: Documentación inmediata de cualquier reemplazo de emergencia por causa médica o falta de personal mediante bitácora de turno firmada por la gerencia y el colaborador sustituto.</li>
+<li><strong>Optimización de Jornadas Intermedias</strong>: Calibración de horarios los miércoles y jueves para consolidar el costo laboral en la meta corporativa del 18.5%.</li>
+</ol>
+<hr />
+
+
+    </div>
+
+    <!-- FORMAL SIGNATURE SECTION -->
+    <div class="signature-section">
+        <div class="signature-box">
+            <div class="signature-line"></div>
+            <div class="signee-name">Carlos Velázquez</div>
+            <div class="signee-title">Gerente General (<em>General Manager</em>)</div>
+            <div class="signee-dept">Tacos Gavilan — Sucursal Lynwood</div>
+        </div>
+        <div class="seal-box">
+            <div class="seal-title">Dictamen Operativo</div>
+            <div class="seal-badge">OFICIAL Y CONCLUIDO</div>
+            <div class="seal-date">Emisión: 25 de Septiembre de 2026</div>
+        </div>
+    </div>
+
+</body>
+</html>

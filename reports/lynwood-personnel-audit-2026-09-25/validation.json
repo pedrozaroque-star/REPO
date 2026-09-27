@@ -1,0 +1,19 @@
+{
+  "status": "PASS",
+  "at": "2026-09-25T16:05:15.837Z",
+  "checks": [
+    "Acentos y espacios",
+    "Nulos y denominador cero",
+    "Corte 05:59/06:00 Los Ángeles",
+    "Medianoche",
+    "Turno 16:59/17:00",
+    "Cambio DST marzo y noviembre",
+    "Semana lunes-domingo",
+    "IDs de ponchadas únicos",
+    "Días ventas únicos",
+    "Cobertura 63+63 días",
+    "Integridad identidad Joseph y rol Prep",
+    "Suma semanal contra total real"
+  ],
+  "records": 50315
+}

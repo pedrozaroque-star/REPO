@@ -1,0 +1,1158 @@
+{
+  "generatedAt": "2026-09-22T20:27:03.431Z",
+  "evaluationRange": {
+    "start": "2025-09-21",
+    "end": "2026-09-20",
+    "months": 12
+  },
+  "coverage": {
+    "activeStoresFound": 15,
+    "targetStoresEvaluated": 1,
+    "potentialEvaluations": 365,
+    "actualEvaluatedDays": 363,
+    "timesfmEvaluations": 363,
+    "timesfmFailures": 0,
+    "coveragePercentage": 100,
+    "exclusionsCount": 2,
+    "exclusionsBreakdown": {
+      "closedDaysZeroSales": 2,
+      "noDataInCache": 0,
+      "insufficientHistory": 0
+    },
+    "outliersExcludedCount": 0
+  },
+  "globalSummary": {
+    "v31Recalculated": {
+      "count": 363,
+      "salesWAPE": 6.969487638765358,
+      "salesMAE": 844.6926014883004,
+      "salesRMSE": 1216.8294448469228,
+      "salesBias": -0.7829579333155048,
+      "ticketsWAPE": 6.154791700495765,
+      "ticketsMAE": 38.89319694242208,
+      "ticketsRMSE": 58.492761346340004,
+      "ticketsBias": -0.18113054463162653
+    },
+    "v31Frozen": {
+      "count": 82,
+      "salesWAPE": 6.002143767500701,
+      "salesMAE": 758.6395121951217,
+      "salesRMSE": 1065.7187361863057,
+      "salesBias": -3.221484697642315,
+      "ticketsWAPE": 5.2791781094715144,
+      "ticketsMAE": 33.66763649205034,
+      "ticketsRMSE": 46.3745350212646,
+      "ticketsBias": -3.038776199396922
+    },
+    "timesfmPure": {
+      "count": 363,
+      "salesWAPE": 8.523463349886608,
+      "salesMAE": 1033.0323839962114,
+      "salesRMSE": 1510.1706333647949,
+      "salesBias": -0.20926154314389417,
+      "ticketsWAPE": 7.335144949239152,
+      "ticketsMAE": 46.3520539759276,
+      "ticketsRMSE": 71.00508048014393,
+      "ticketsBias": 0.11364620184427121
+    },
+    "hybridCandidate": {
+      "count": 363,
+      "salesWAPE": 7.985616129420463,
+      "salesMAE": 967.8460185980109,
+      "salesRMSE": 1432.2750564291423,
+      "salesBias": -0.4018467377557747,
+      "ticketsWAPE": 7.336737007217536,
+      "ticketsMAE": 46.3621144666006,
+      "ticketsRMSE": 71.00793788279813,
+      "ticketsBias": 0.11574690928466055
+    },
+    "cleanNoOutliers": {
+      "v31": {
+        "count": 363,
+        "salesWAPE": 6.969487638765358,
+        "salesMAE": 844.6926014883004,
+        "salesRMSE": 1216.8294448469228,
+        "salesBias": -0.7829579333155048,
+        "ticketsWAPE": 6.154791700495765,
+        "ticketsMAE": 38.89319694242208,
+        "ticketsRMSE": 58.492761346340004,
+        "ticketsBias": -0.18113054463162653
+      },
+      "timesfm": {
+        "count": 363,
+        "salesWAPE": 8.523463349886608,
+        "salesMAE": 1033.0323839962114,
+        "salesRMSE": 1510.1706333647949,
+        "salesBias": -0.20926154314389417,
+        "ticketsWAPE": 7.335144949239152,
+        "ticketsMAE": 46.3520539759276,
+        "ticketsRMSE": 71.00508048014393,
+        "ticketsBias": 0.11364620184427121
+      },
+      "hybrid": {
+        "count": 363,
+        "salesWAPE": 7.985616129420463,
+        "salesMAE": 967.8460185980109,
+        "salesRMSE": 1432.2750564291423,
+        "salesBias": -0.4018467377557747,
+        "ticketsWAPE": 7.336737007217536,
+        "ticketsMAE": 46.3621144666006,
+        "ticketsRMSE": 71.00793788279813,
+        "ticketsBias": 0.11574690928466055
+      }
+    }
+  },
+  "hourlyExperiment": {
+    "evaluatedOperatingHours": 5978,
+    "evaluatedDays": 363,
+    "v31Canonical": {
+      "rmse": 201.47835286564222,
+      "mae": 145.78997903114708,
+      "wape": 19.80975575952796,
+      "correlation": 82.87038847831607
+    },
+    "independentEmpirical": {
+      "rmse": 216.5629208133102,
+      "mae": 157.732512249044,
+      "wape": 21.4324918883674,
+      "correlation": 80.49134381954961
+    },
+    "directNeuralTimesfm": {
+      "rmse": 237.153027102391,
+      "mae": 167.0148542022705,
+      "wape": 25.977363213638277,
+      "correlation": 89.14821458649969,
+      "days": 4
+    },
+    "peakHours": {
+      "lunch": {
+        "v31Wape": 0.2957474038553763,
+        "empWape": 0.05546601520511319
+      },
+      "dinner": {
+        "v31Wape": 1.1982453833957887,
+        "empWape": 0.26226557289576485
+      },
+      "night": {
+        "v31Wape": 4.4439635261795685,
+        "empWape": 3.459167542931787
+      }
+    },
+    "staffingImpact": {
+      "cooksAvgDeviation": {
+        "v31": 0.506022080963533,
+        "empirical": 0.555536968885915
+      },
+      "cashiersAvgDeviation": {
+        "v31": 0.9014720642355303,
+        "empirical": 1.0429909668785546
+      }
+    }
+  },
+  "perStore": [
+    {
+      "code": "DOWNEY",
+      "name": "Downey",
+      "days": 363,
+      "v31": {
+        "count": 363,
+        "salesWAPE": 6.969487638765358,
+        "salesMAE": 844.6926014883004,
+        "salesRMSE": 1216.8294448469228,
+        "salesBias": -0.7829579333155048,
+        "ticketsWAPE": 6.154791700495765,
+        "ticketsMAE": 38.89319694242208,
+        "ticketsRMSE": 58.492761346340004,
+        "ticketsBias": -0.18113054463162653
+      },
+      "tfm": {
+        "count": 363,
+        "salesWAPE": 8.523463349886608,
+        "salesMAE": 1033.0323839962114,
+        "salesRMSE": 1510.1706333647949,
+        "salesBias": -0.20926154314389417,
+        "ticketsWAPE": 7.335144949239152,
+        "ticketsMAE": 46.3520539759276,
+        "ticketsRMSE": 71.00508048014393,
+        "ticketsBias": 0.11364620184427121
+      },
+      "hybrid": {
+        "count": 363,
+        "salesWAPE": 7.985616129420463,
+        "salesMAE": 967.8460185980109,
+        "salesRMSE": 1432.2750564291423,
+        "salesBias": -0.4018467377557747,
+        "ticketsWAPE": 7.336737007217536,
+        "ticketsMAE": 46.3621144666006,
+        "ticketsRMSE": 71.00793788279813,
+        "ticketsBias": 0.11574690928466055
+      },
+      "delta": -1.0161284906551051,
+      "winner": "V3.1"
+    }
+  ],
+  "perMonth": {
+    "2025-09": {
+      "v31": {
+        "count": 10,
+        "salesWAPE": 2.8956010890699484,
+        "salesMAE": 314.0859659554609,
+        "salesRMSE": 440.25233990641004,
+        "salesBias": 0.5659268978591765,
+        "ticketsWAPE": 2.809983213564946,
+        "ticketsMAE": 16.5536111111111,
+        "ticketsRMSE": 22.959780101621497,
+        "ticketsBias": 0.13301835191157785
+      },
+      "tfm": {
+        "count": 10,
+        "salesWAPE": 3.7144652598311962,
+        "salesMAE": 402.90819531250025,
+        "salesRMSE": 579.0983687558905,
+        "salesBias": 0.9293438163892997,
+        "ticketsWAPE": 4.361663854621987,
+        "ticketsMAE": 25.694561767578126,
+        "ticketsRMSE": 29.94130660573002,
+        "ticketsBias": 0.30106981750498646
+      },
+      "hybrid": {
+        "count": 10,
+        "salesWAPE": 3.7789046992097264,
+        "salesMAE": 409.89794387946705,
+        "salesRMSE": 553.306788185743,
+        "salesBias": 0.7911082365087408,
+        "ticketsWAPE": 4.361663854621987,
+        "ticketsMAE": 25.694561767578126,
+        "ticketsRMSE": 29.94130660573002,
+        "ticketsBias": 0.30106981750498646
+      }
+    },
+    "2025-10": {
+      "v31": {
+        "count": 31,
+        "salesWAPE": 7.058885596777259,
+        "salesMAE": 849.8084209616321,
+        "salesRMSE": 1159.6455731419649,
+        "salesBias": -4.734572789716509,
+        "ticketsWAPE": 5.565305783752386,
+        "ticketsMAE": 36.057795698924735,
+        "ticketsRMSE": 46.71560600308386,
+        "ticketsBias": -4.131067961165049
+      },
+      "tfm": {
+        "count": 31,
+        "salesWAPE": 6.672823468985148,
+        "salesMAE": 803.3309929435485,
+        "salesRMSE": 1065.6627976228,
+        "salesBias": -2.8981831204025688,
+        "ticketsWAPE": 5.326702943155651,
+        "ticketsMAE": 34.51188019783266,
+        "ticketsRMSE": 44.39940195102839,
+        "ticketsBias": -2.2343206654919716
+      },
+      "hybrid": {
+        "count": 31,
+        "salesWAPE": 6.397613231373085,
+        "salesMAE": 770.1988541305384,
+        "salesRMSE": 1078.0705777097799,
+        "salesBias": -2.796440573965168,
+        "ticketsWAPE": 5.326702943155651,
+        "ticketsMAE": 34.51188019783266,
+        "ticketsRMSE": 44.39940195102839,
+        "ticketsBias": -2.2343206654919716
+      }
+    },
+    "2025-11": {
+      "v31": {
+        "count": 30,
+        "salesWAPE": 11.060292842588447,
+        "salesMAE": 1301.2069908317928,
+        "salesRMSE": 1981.527289326351,
+        "salesBias": 1.819718118924713,
+        "ticketsWAPE": 10.159261218372562,
+        "ticketsMAE": 64.02027777777776,
+        "ticketsRMSE": 102.13058562604506,
+        "ticketsBias": 2.192967762790557
+      },
+      "tfm": {
+        "count": 30,
+        "salesWAPE": 10.796825659564451,
+        "salesMAE": 1270.2109453125,
+        "salesRMSE": 1956.3688383587846,
+        "salesBias": 2.319863798917612,
+        "ticketsWAPE": 9.584732681189665,
+        "ticketsMAE": 60.39979044596354,
+        "ticketsRMSE": 101.07898553374744,
+        "ticketsBias": 2.826401035295722
+      },
+      "hybrid": {
+        "count": 30,
+        "salesWAPE": 10.60908982829083,
+        "salesMAE": 1248.1244436656154,
+        "salesRMSE": 1921.9919932462246,
+        "salesBias": 2.3421314776568343,
+        "ticketsWAPE": 9.584732681189665,
+        "ticketsMAE": 60.39979044596354,
+        "ticketsRMSE": 101.07898553374744,
+        "ticketsBias": 2.826401035295722
+      }
+    },
+    "2025-12": {
+      "v31": {
+        "count": 30,
+        "salesWAPE": 11.75364690899229,
+        "salesMAE": 1451.7504050630225,
+        "salesRMSE": 1946.2991631765403,
+        "salesBias": -3.434960504472959,
+        "ticketsWAPE": 11.313637959572656,
+        "ticketsMAE": 75.18666666666668,
+        "ticketsRMSE": 108.09343240985567,
+        "ticketsBias": -2.3912546744467313
+      },
+      "tfm": {
+        "count": 30,
+        "salesWAPE": 11.963766026846374,
+        "salesMAE": 1477.703244791667,
+        "salesRMSE": 2136.24600488977,
+        "salesBias": 0.2094641180508667,
+        "ticketsWAPE": 11.625136024179291,
+        "ticketsMAE": 77.25677897135417,
+        "ticketsRMSE": 124.56080981091769,
+        "ticketsBias": 0.17745106068490746
+      },
+      "hybrid": {
+        "count": 30,
+        "salesWAPE": 11.927871837537841,
+        "salesMAE": 1473.2697779475843,
+        "salesRMSE": 2162.5882603389687,
+        "salesBias": -0.7865824249069839,
+        "ticketsWAPE": 11.625136024179291,
+        "ticketsMAE": 77.25677897135417,
+        "ticketsRMSE": 124.56080981091769,
+        "ticketsBias": 0.17745106068490746
+      }
+    },
+    "2026-01": {
+      "v31": {
+        "count": 31,
+        "salesWAPE": 10.188001396394853,
+        "salesMAE": 1148.3184267077384,
+        "salesRMSE": 1372.5798451598787,
+        "salesBias": 6.583696640949675,
+        "ticketsWAPE": 9.59610779285474,
+        "ticketsMAE": 59.378238607270845,
+        "ticketsRMSE": 68.427603520337,
+        "ticketsBias": 4.607481716490165
+      },
+      "tfm": {
+        "count": 31,
+        "salesWAPE": 15.054819463167687,
+        "salesMAE": 1696.8712436995966,
+        "salesRMSE": 2181.4367550737406,
+        "salesBias": 3.264863779223713,
+        "ticketsWAPE": 13.800744709090065,
+        "ticketsMAE": 85.39544677734375,
+        "ticketsRMSE": 103.85416923933047,
+        "ticketsBias": 2.262553387147619
+      },
+      "hybrid": {
+        "count": 31,
+        "salesWAPE": 14.709339934728574,
+        "salesMAE": 1657.9312697909436,
+        "salesRMSE": 2050.07652462409,
+        "salesBias": 4.684527431729345,
+        "ticketsWAPE": 13.800744709090065,
+        "ticketsMAE": 85.39544677734375,
+        "ticketsRMSE": 103.85416923933047,
+        "ticketsBias": 2.262553387147619
+      }
+    },
+    "2026-02": {
+      "v31": {
+        "count": 28,
+        "salesWAPE": 7.996373051865889,
+        "salesMAE": 928.9033306014563,
+        "salesRMSE": 1216.0581026719717,
+        "salesBias": -2.620380059983622,
+        "ticketsWAPE": 7.790134412193152,
+        "ticketsMAE": 48.59652777777778,
+        "ticketsRMSE": 59.083820417385596,
+        "ticketsBias": -0.9176646937853765
+      },
+      "tfm": {
+        "count": 28,
+        "salesWAPE": 8.280475584912459,
+        "salesMAE": 961.9062667410716,
+        "salesRMSE": 1264.3320691471565,
+        "salesBias": -1.1082594034952504,
+        "ticketsWAPE": 6.646791937396681,
+        "ticketsMAE": 41.4641124180385,
+        "ticketsRMSE": 52.107824670686234,
+        "ticketsBias": -0.21211822120149781
+      },
+      "hybrid": {
+        "count": 28,
+        "salesWAPE": 7.410351643516806,
+        "salesMAE": 860.8278125524082,
+        "salesRMSE": 1123.2860506279785,
+        "salesBias": -1.7953614082378868,
+        "ticketsWAPE": 6.646791937396681,
+        "ticketsMAE": 41.4641124180385,
+        "ticketsRMSE": 52.107824670686234,
+        "ticketsBias": -0.21211822120149781
+      }
+    },
+    "2026-03": {
+      "v31": {
+        "count": 31,
+        "salesWAPE": 5.556432028240535,
+        "salesMAE": 669.5271704878229,
+        "salesRMSE": 832.0151900314652,
+        "salesBias": -2.83140016699303,
+        "ticketsWAPE": 4.5572832169225395,
+        "ticketsMAE": 28.694713261648726,
+        "ticketsRMSE": 35.01143490666178,
+        "ticketsBias": -0.7419124385926004
+      },
+      "tfm": {
+        "count": 31,
+        "salesWAPE": 7.697666064972964,
+        "salesMAE": 927.5370514112905,
+        "salesRMSE": 1045.3670996411704,
+        "salesBias": -1.6207924450060844,
+        "ticketsWAPE": 6.321207473827585,
+        "ticketsMAE": 39.80117699407762,
+        "ticketsRMSE": 51.097213002155776,
+        "ticketsBias": 0.6661531237392092
+      },
+      "hybrid": {
+        "count": 31,
+        "salesWAPE": 6.386132814069838,
+        "salesMAE": 769.5026973483072,
+        "salesRMSE": 924.3113339620398,
+        "salesBias": -1.231805413024795,
+        "ticketsWAPE": 6.321207473827585,
+        "ticketsMAE": 39.80117699407762,
+        "ticketsRMSE": 51.097213002155776,
+        "ticketsBias": 0.6661531237392092
+      }
+    },
+    "2026-04": {
+      "v31": {
+        "count": 29,
+        "salesWAPE": 6.629587263472512,
+        "salesMAE": 796.6459308997302,
+        "salesRMSE": 1044.8567860355088,
+        "salesBias": -0.0736941803836953,
+        "ticketsWAPE": 5.359864046550014,
+        "ticketsMAE": 33.205281882868114,
+        "ticketsRMSE": 41.66413684503393,
+        "ticketsBias": 0.8230802803885275
+      },
+      "tfm": {
+        "count": 29,
+        "salesWAPE": 14.413249445935353,
+        "salesMAE": 1731.9715490301724,
+        "salesRMSE": 2398.815799950431,
+        "salesBias": -0.5447488799474662,
+        "ticketsWAPE": 11.302981885705986,
+        "ticketsMAE": 70.02392157192888,
+        "ticketsRMSE": 95.40068831354942,
+        "ticketsBias": -0.3984991670464349
+      },
+      "hybrid": {
+        "count": 29,
+        "salesWAPE": 12.60013284895288,
+        "salesMAE": 1514.097961757066,
+        "salesRMSE": 2120.757950405837,
+        "salesBias": -1.0847466250744664,
+        "ticketsWAPE": 11.302981885705986,
+        "ticketsMAE": 70.02392157192888,
+        "ticketsRMSE": 95.40068831354942,
+        "ticketsBias": -0.3984991670464349
+      }
+    },
+    "2026-05": {
+      "v31": {
+        "count": 31,
+        "salesWAPE": 4.911855953610808,
+        "salesMAE": 625.8554552874076,
+        "salesRMSE": 877.6320738975982,
+        "salesBias": -1.541195090011903,
+        "ticketsWAPE": 3.7699465715387315,
+        "ticketsMAE": 23.830926779313863,
+        "ticketsRMSE": 31.012037390065874,
+        "ticketsBias": 0.6606587998198465
+      },
+      "tfm": {
+        "count": 31,
+        "salesWAPE": 5.836876754616817,
+        "salesMAE": 743.7191141633067,
+        "salesRMSE": 1032.9506356750035,
+        "salesBias": -1.4175936455718972,
+        "ticketsWAPE": 4.736162112863435,
+        "ticketsMAE": 29.938655730216734,
+        "ticketsRMSE": 39.2346996594185,
+        "ticketsBias": 0.030552462476398246
+      },
+      "hybrid": {
+        "count": 31,
+        "salesWAPE": 5.446780511210328,
+        "salesMAE": 694.0141015715591,
+        "salesRMSE": 988.0093291096915,
+        "salesBias": -2.046512458547351,
+        "ticketsWAPE": 4.736162112863435,
+        "ticketsMAE": 29.938655730216734,
+        "ticketsRMSE": 39.2346996594185,
+        "ticketsBias": 0.030552462476398246
+      }
+    },
+    "2026-06": {
+      "v31": {
+        "count": 30,
+        "salesWAPE": 5.274339108973416,
+        "salesMAE": 643.8772711003145,
+        "salesRMSE": 779.1106517899315,
+        "salesBias": 0.2643574062777167,
+        "ticketsWAPE": 3.730023908393104,
+        "ticketsMAE": 23.05527777777778,
+        "ticketsRMSE": 29.190552463731482,
+        "ticketsBias": -0.015534463439331231
+      },
+      "tfm": {
+        "count": 30,
+        "salesWAPE": 5.962837441233631,
+        "salesMAE": 727.9273138020833,
+        "salesRMSE": 892.1750873654803,
+        "salesBias": -0.5933773865609125,
+        "ticketsWAPE": 4.429406013482598,
+        "ticketsMAE": 27.378158569335938,
+        "ticketsRMSE": 33.117371009640564,
+        "ticketsBias": -0.7033399051044363
+      },
+      "hybrid": {
+        "count": 30,
+        "salesWAPE": 5.173742754632625,
+        "salesMAE": 631.5967360840143,
+        "salesRMSE": 804.8946114999655,
+        "salesBias": -0.4061923787360296,
+        "ticketsWAPE": 4.429406013482598,
+        "ticketsMAE": 27.378158569335938,
+        "ticketsRMSE": 33.117371009640564,
+        "ticketsBias": -0.7033399051044363
+      }
+    },
+    "2026-07": {
+      "v31": {
+        "count": 31,
+        "salesWAPE": 6.33715936763421,
+        "salesMAE": 789.9524477951206,
+        "salesRMSE": 1191.6375295950802,
+        "salesBias": -1.1632865093860356,
+        "ticketsWAPE": 5.205573856747423,
+        "ticketsMAE": 32.62383512544804,
+        "ticketsRMSE": 49.829799875128735,
+        "ticketsBias": -0.574657424564776
+      },
+      "tfm": {
+        "count": 31,
+        "salesWAPE": 8.186780033105306,
+        "salesMAE": 1020.5151159274193,
+        "salesRMSE": 1416.0860286348911,
+        "salesBias": -0.9318310475595316,
+        "ticketsWAPE": 6.581566857535677,
+        "ticketsMAE": 41.247316422001006,
+        "ticketsRMSE": 57.77442481440444,
+        "ticketsBias": -0.8717839109669356
+      },
+      "hybrid": {
+        "count": 31,
+        "salesWAPE": 7.636461724277624,
+        "salesMAE": 951.91572148183,
+        "salesRMSE": 1336.9485168531257,
+        "salesBias": -1.4752901655281898,
+        "ticketsWAPE": 6.581566857535677,
+        "ticketsMAE": 41.247316422001006,
+        "ticketsRMSE": 57.77442481440444,
+        "ticketsBias": -0.8717839109669356
+      }
+    },
+    "2026-08": {
+      "v31": {
+        "count": 31,
+        "salesWAPE": 3.886195719751225,
+        "salesMAE": 490.7145844317358,
+        "salesRMSE": 631.9674091350882,
+        "salesBias": -0.37439154817573617,
+        "ticketsWAPE": 3.6538698943375505,
+        "ticketsMAE": 23.33879928315414,
+        "ticketsRMSE": 28.85968095003881,
+        "ticketsBias": -0.708592158645184
+      },
+      "tfm": {
+        "count": 31,
+        "salesWAPE": 4.150244087252703,
+        "salesMAE": 524.0562878024194,
+        "salesRMSE": 656.0525404544574,
+        "salesBias": 1.323186139415597,
+        "ticketsWAPE": 3.7349792052011264,
+        "ticketsMAE": 23.856878465221776,
+        "ticketsRMSE": 30.235697586225687,
+        "ticketsBias": 0.7642473273130145
+      },
+      "hybrid": {
+        "count": 31,
+        "salesWAPE": 4.224237171622059,
+        "salesMAE": 533.399483118752,
+        "salesRMSE": 679.1600752404574,
+        "salesBias": 1.0968927249798976,
+        "ticketsWAPE": 3.7349792052011264,
+        "ticketsMAE": 23.856878465221776,
+        "ticketsRMSE": 30.235697586225687,
+        "ticketsBias": 0.7642473273130145
+      }
+    },
+    "2026-09": {
+      "v31": {
+        "count": 20,
+        "salesWAPE": 4.125020852126052,
+        "salesMAE": 533.3008871048139,
+        "salesRMSE": 741.767490543294,
+        "salesBias": -1.4126075657918558,
+        "ticketsWAPE": 3.3638312300007964,
+        "ticketsMAE": 21.975909425595205,
+        "ticketsRMSE": 28.453244694404933,
+        "ticketsBias": -1.0151849341011236
+      },
+      "tfm": {
+        "count": 20,
+        "salesWAPE": 4.768151838768688,
+        "salesMAE": 616.4476972656249,
+        "salesRMSE": 777.3396742768937,
+        "salesBias": -0.7807492417540928,
+        "ticketsWAPE": 4.047353976027955,
+        "ticketsMAE": 26.441363525390624,
+        "ticketsRMSE": 31.939415653625268,
+        "ticketsBias": -1.4610693426641665
+      },
+      "hybrid": {
+        "count": 20,
+        "salesWAPE": 4.61832597922855,
+        "salesMAE": 597.0775494122354,
+        "salesRMSE": 790.8172665583805,
+        "salesBias": -1.7872934693278257,
+        "ticketsWAPE": 4.07530406109071,
+        "ticketsMAE": 26.623961431105613,
+        "ticketsRMSE": 32.05450563200448,
+        "ticketsBias": -1.4241894347412254
+      }
+    }
+  },
+  "perDayOfWeek": {
+    "Domingo": {
+      "v31": {
+        "count": 53,
+        "salesWAPE": 7.055394431629332,
+        "salesMAE": 875.7835149454806,
+        "salesRMSE": 1145.6021673654802,
+        "salesBias": -0.4286733096473168,
+        "ticketsWAPE": 5.904661993811028,
+        "ticketsMAE": 35.111571206971384,
+        "ticketsRMSE": 45.54763706831082,
+        "ticketsBias": -0.12849929287226955
+      },
+      "tfm": {
+        "count": 53,
+        "salesWAPE": 10.182711371674666,
+        "salesMAE": 1263.976216096698,
+        "salesRMSE": 1893.5626401890104,
+        "salesBias": 4.286137588606585,
+        "ticketsWAPE": 9.475366481292488,
+        "ticketsMAE": 56.34446226875737,
+        "ticketsRMSE": 81.7735549350885,
+        "ticketsBias": 4.579199103326237
+      },
+      "hybrid": {
+        "count": 53,
+        "salesWAPE": 10.01091911892103,
+        "salesMAE": 1242.6517069689726,
+        "salesRMSE": 1828.9284149839095,
+        "salesBias": 4.156273903428049,
+        "ticketsWAPE": 9.478720810435377,
+        "ticketsMAE": 56.36440850220402,
+        "ticketsRMSE": 81.78604796321667,
+        "ticketsBias": 4.582553432469124
+      }
+    },
+    "Lunes": {
+      "v31": {
+        "count": 52,
+        "salesWAPE": 6.976450678441692,
+        "salesMAE": 652.8050580735945,
+        "salesRMSE": 878.5411194677147,
+        "salesBias": -0.9625753965164697,
+        "ticketsWAPE": 6.132387794248725,
+        "ticketsMAE": 31.9013888888889,
+        "ticketsRMSE": 41.48965548598444,
+        "ticketsBias": -0.3258659568962357
+      },
+      "tfm": {
+        "count": 52,
+        "salesWAPE": 10.765810390430037,
+        "salesMAE": 1007.3855318509618,
+        "salesRMSE": 1299.495045572574,
+        "salesBias": 7.4282267586415385,
+        "ticketsWAPE": 6.501026625272055,
+        "ticketsMAE": 33.819090623121994,
+        "ticketsRMSE": 43.398314093607,
+        "ticketsBias": 2.896422877302364
+      },
+      "hybrid": {
+        "count": 52,
+        "salesWAPE": 7.331411476161259,
+        "salesMAE": 686.0196846580299,
+        "salesRMSE": 892.0765997259759,
+        "salesBias": 2.186060005236684,
+        "ticketsWAPE": 6.501026625272055,
+        "ticketsMAE": 33.819090623121994,
+        "ticketsRMSE": 43.398314093607,
+        "ticketsBias": 2.896422877302364
+      }
+    },
+    "Martes": {
+      "v31": {
+        "count": 52,
+        "salesWAPE": 7.379090662360113,
+        "salesMAE": 778.7273009061581,
+        "salesRMSE": 1048.8851388093483,
+        "salesBias": -1.3986502056163257,
+        "ticketsWAPE": 5.417500661900975,
+        "ticketsMAE": 32.79150641025638,
+        "ticketsRMSE": 43.82838769350525,
+        "ticketsBias": -0.45057806018886204
+      },
+      "tfm": {
+        "count": 52,
+        "salesWAPE": 8.433944123519153,
+        "salesMAE": 890.0476825420667,
+        "salesRMSE": 1173.2327904231706,
+        "salesBias": -6.5047546161821606,
+        "ticketsWAPE": 7.496688782174593,
+        "ticketsMAE": 45.37659219595102,
+        "ticketsRMSE": 57.8760487834011,
+        "ticketsBias": -6.423527263856483
+      },
+      "hybrid": {
+        "count": 52,
+        "salesWAPE": 8.690711439938529,
+        "salesMAE": 917.144750246643,
+        "salesRMSE": 1245.4245548365202,
+        "salesBias": -7.264728212764856,
+        "ticketsWAPE": 7.496688782174593,
+        "ticketsMAE": 45.37659219595102,
+        "ticketsRMSE": 57.8760487834011,
+        "ticketsBias": -6.423527263856483
+      }
+    },
+    "Miércoles": {
+      "v31": {
+        "count": 52,
+        "salesWAPE": 8.59429980686801,
+        "salesMAE": 843.927995882663,
+        "salesRMSE": 1345.1100475809037,
+        "salesBias": -1.626770031442988,
+        "ticketsWAPE": 7.502858307579789,
+        "ticketsMAE": 39.99167763676712,
+        "ticketsRMSE": 74.26963802986062,
+        "ticketsBias": -0.5335895475328054
+      },
+      "tfm": {
+        "count": 52,
+        "salesWAPE": 9.049817033022906,
+        "salesMAE": 888.6580784254812,
+        "salesRMSE": 1486.420332294062,
+        "salesBias": 2.2909845553788872,
+        "ticketsWAPE": 8.425734090173675,
+        "ticketsMAE": 44.91078303410457,
+        "ticketsRMSE": 88.12165079489857,
+        "ticketsBias": 4.208804861129902
+      },
+      "hybrid": {
+        "count": 52,
+        "salesWAPE": 9.459150143724935,
+        "salesMAE": 928.8530541100764,
+        "salesRMSE": 1568.3044348650274,
+        "salesBias": 3.0372110575832925,
+        "ticketsWAPE": 8.423629297708922,
+        "ticketsMAE": 44.89956408549965,
+        "ticketsRMSE": 88.11935094292568,
+        "ticketsBias": 4.210909653594656
+      }
+    },
+    "Jueves": {
+      "v31": {
+        "count": 51,
+        "salesWAPE": 6.3164582102662274,
+        "salesMAE": 694.9548890145419,
+        "salesRMSE": 1121.4580855181882,
+        "salesBias": -0.18718039738383452,
+        "ticketsWAPE": 5.721973204151045,
+        "ticketsMAE": 33.608177907910694,
+        "ticketsRMSE": 63.238824012701016,
+        "ticketsBias": 0.38897900385589157
+      },
+      "tfm": {
+        "count": 51,
+        "salesWAPE": 6.8838490914817045,
+        "salesMAE": 757.3808647365194,
+        "salesRMSE": 1306.6197628167947,
+        "salesBias": -0.32738061073387154,
+        "ticketsWAPE": 5.8568205090839385,
+        "ticketsMAE": 34.40020751953125,
+        "ticketsRMSE": 68.61293326469311,
+        "ticketsBias": 0.3103599491033425
+      },
+      "hybrid": {
+        "count": 51,
+        "salesWAPE": 6.7189735058233335,
+        "salesMAE": 739.240778865898,
+        "salesRMSE": 1255.5030426709332,
+        "salesBias": -0.30643171796605595,
+        "ticketsWAPE": 5.857076009614519,
+        "ticketsMAE": 34.40170820941234,
+        "ticketsRMSE": 68.61324426327397,
+        "ticketsBias": 0.31061544963392396
+      }
+    },
+    "Viernes": {
+      "v31": {
+        "count": 51,
+        "salesWAPE": 7.304747729401844,
+        "salesMAE": 1115.910445741672,
+        "salesRMSE": 1521.986394635169,
+        "salesBias": -0.7968982201027103,
+        "ticketsWAPE": 6.743710798526744,
+        "ticketsMAE": 53.50407255701719,
+        "ticketsRMSE": 71.91794833727553,
+        "ticketsBias": -0.09005542097459512
+      },
+      "tfm": {
+        "count": 51,
+        "salesWAPE": 9.08534899210271,
+        "salesMAE": 1387.924158241421,
+        "salesRMSE": 1758.8415999768044,
+        "salesBias": -4.15134057939124,
+        "ticketsWAPE": 7.975085842312731,
+        "ticketsMAE": 63.273705575980394,
+        "ticketsRMSE": 83.29272067506317,
+        "ticketsBias": -3.661223933072344
+      },
+      "hybrid": {
+        "count": 51,
+        "salesWAPE": 8.289526133144038,
+        "salesMAE": 1266.3502074124983,
+        "salesRMSE": 1634.973848052219,
+        "salesBias": -4.217006530285814,
+        "ticketsWAPE": 7.977097314232602,
+        "ticketsMAE": 63.28966443643016,
+        "ticketsRMSE": 83.29703399475336,
+        "ticketsBias": -3.6592124611524723
+      }
+    },
+    "Sábado": {
+      "v31": {
+        "count": 52,
+        "salesWAPE": 5.789842916833039,
+        "salesMAE": 952.477260052498,
+        "salesRMSE": 1346.0707338729892,
+        "salesBias": -0.432710789122957,
+        "ticketsWAPE": 5.753584531900684,
+        "ticketsMAE": 45.596050956749096,
+        "ticketsRMSE": 60.13548122080273,
+        "ticketsBias": -0.1873507006941383
+      },
+      "tfm": {
+        "count": 52,
+        "salesWAPE": 6.278933836759999,
+        "salesMAE": 1032.9367795973562,
+        "salesRMSE": 1510.9110556574317,
+        "salesBias": -1.796826930071161,
+        "ticketsWAPE": 5.835213911478681,
+        "ticketsMAE": 46.24294809194711,
+        "ticketsRMSE": 62.925729847910404,
+        "ticketsBias": 0.6739309734372345
+      },
+      "hybrid": {
+        "count": 52,
+        "salesWAPE": 6.022318554026412,
+        "salesMAE": 990.7214337068707,
+        "salesRMSE": 1391.7462287656638,
+        "salesBias": 0.3825002339084153,
+        "ticketsWAPE": 5.840765504582639,
+        "ticketsMAE": 46.28694339968192,
+        "ticketsRMSE": 62.928978040115965,
+        "ticketsBias": 0.6794825665411922
+      }
+    }
+  },
+  "specialSegments": {
+    "Quincenas": {
+      "v31": {
+        "count": 42,
+        "salesWAPE": 7.103833632229279,
+        "salesMAE": 857.6174021706224,
+        "salesRMSE": 1302.4988006134522,
+        "salesBias": -0.7786736966136103,
+        "ticketsWAPE": 5.835997059877643,
+        "ticketsMAE": 36.30823885109591,
+        "ticketsRMSE": 60.670637375047185,
+        "ticketsBias": 1.0949829606546027
+      },
+      "tfm": {
+        "count": 42,
+        "salesWAPE": 8.02140833250567,
+        "salesMAE": 968.3925232514885,
+        "salesRMSE": 1439.5379127177637,
+        "salesBias": -0.24077567953762086,
+        "ticketsWAPE": 7.594089909526885,
+        "ticketsMAE": 47.246087937127974,
+        "ticketsRMSE": 78.5151939974019,
+        "ticketsBias": 0.9790267973533773
+      },
+      "hybrid": {
+        "count": 42,
+        "salesWAPE": 8.173514776394411,
+        "salesMAE": 986.7557254342422,
+        "salesRMSE": 1528.8569386343222,
+        "salesBias": -0.7620590758571159,
+        "ticketsWAPE": 7.594089909526885,
+        "ticketsMAE": 47.246087937127974,
+        "ticketsRMSE": 78.5151939974019,
+        "ticketsBias": 0.9790267973533773
+      }
+    },
+    "FinDeSemana": {
+      "v31": {
+        "count": 105,
+        "salesWAPE": 6.340013610039204,
+        "salesMAE": 913.7651791889554,
+        "salesRMSE": 1248.9102417017457,
+        "salesBias": -0.43095558369990783,
+        "ticketsWAPE": 5.819055240591871,
+        "ticketsMAE": 40.3038849878137,
+        "ticketsRMSE": 53.273729891591735,
+        "ticketsBias": -0.16184694037906075
+      },
+      "tfm": {
+        "count": 105,
+        "salesWAPE": 7.976015281012691,
+        "salesMAE": 1149.5566856398816,
+        "salesRMSE": 1714.7650883806239,
+        "salesBias": 0.8476081378511067,
+        "ticketsWAPE": 7.412705123445019,
+        "ticketsMAE": 51.34180762881324,
+        "ticketsRMSE": 73.04976294701977,
+        "ticketsBias": 2.366312278099755
+      },
+      "hybrid": {
+        "count": 105,
+        "salesWAPE": 7.756274945413455,
+        "salesMAE": 1117.886238305836,
+        "salesRMSE": 1627.1672381427143,
+        "salesBias": 2.0230653562985537,
+        "ticketsWAPE": 7.41730451344142,
+        "ticketsMAE": 51.373663880002596,
+        "ticketsRMSE": 73.05820780520669,
+        "ticketsBias": 2.3709116680961553
+      }
+    },
+    "EntreSemana": {
+      "v31": {
+        "count": 258,
+        "salesWAPE": 7.29954385732657,
+        "salesMAE": 816.5816687031494,
+        "salesRMSE": 1203.5285038578736,
+        "salesBias": -0.967525618616038,
+        "ticketsWAPE": 6.31064691683238,
+        "ticketsMAE": 38.31907971464641,
+        "ticketsRMSE": 60.48799788124674,
+        "ticketsBias": -0.19008235854362657
+      },
+      "tfm": {
+        "count": 258,
+        "salesWAPE": 8.810510362512103,
+        "salesMAE": 985.6097030947194,
+        "salesRMSE": 1418.481748846251,
+        "salesBias": -0.7634169085798875,
+        "ticketsWAPE": 7.2991400490462395,
+        "ticketsMAE": 44.32134027998577,
+        "ticketsRMSE": 70.15588296052081,
+        "ticketsBias": -0.9320840079442535
+      },
+      "hybrid": {
+        "count": 258,
+        "salesWAPE": 8.105868086609053,
+        "salesMAE": 906.7831384843612,
+        "salesRMSE": 1344.896769525915,
+        "salesBias": -1.6733166945490505,
+        "ticketsWAPE": 7.299336046607481,
+        "ticketsMAE": 44.322530403006766,
+        "ticketsRMSE": 70.1563731674281,
+        "ticketsBias": -0.931143236217832
+      }
+    },
+    "Festivos": {
+      "v31": {
+        "count": 5,
+        "salesWAPE": 2.912514159536711,
+        "salesMAE": 391.00636567431684,
+        "salesRMSE": 455.7105447398417,
+        "salesBias": 0.9714266053256488,
+        "ticketsWAPE": 3.8444231886937823,
+        "ticketsMAE": 25.334748813492023,
+        "ticketsRMSE": 29.615396250135937,
+        "ticketsBias": 2.5727648915633767
+      },
+      "tfm": {
+        "count": 5,
+        "salesWAPE": 2.991199655386651,
+        "salesMAE": 401.56992968749944,
+        "salesRMSE": 428.50414922927126,
+        "salesBias": 1.520210515014248,
+        "ticketsWAPE": 3.3031226289833078,
+        "ticketsMAE": 21.767578125,
+        "ticketsRMSE": 26.865425236341878,
+        "ticketsBias": 2.1889411335830804
+      },
+      "hybrid": {
+        "count": 5,
+        "salesWAPE": 2.4049809333689907,
+        "salesMAE": 322.8697965960164,
+        "salesRMSE": 470.7292438242529,
+        "salesBias": 0.7149182845275157,
+        "ticketsWAPE": 3.4139559556691887,
+        "ticketsMAE": 22.49796974785995,
+        "ticketsRMSE": 27.40823433200562,
+        "ticketsBias": 2.3351847988095287
+      }
+    },
+    "Eventos": {
+      "v31": {
+        "count": 0,
+        "salesWAPE": 0,
+        "salesMAE": 0,
+        "salesRMSE": 0,
+        "salesBias": 0,
+        "ticketsWAPE": 0,
+        "ticketsMAE": 0,
+        "ticketsRMSE": 0,
+        "ticketsBias": 0
+      },
+      "tfm": {
+        "count": 0,
+        "salesWAPE": 0,
+        "salesMAE": 0,
+        "salesRMSE": 0,
+        "salesBias": 0,
+        "ticketsWAPE": 0,
+        "ticketsMAE": 0,
+        "ticketsRMSE": 0,
+        "ticketsBias": 0
+      },
+      "hybrid": {
+        "count": 0,
+        "salesWAPE": 0,
+        "salesMAE": 0,
+        "salesRMSE": 0,
+        "salesBias": 0,
+        "ticketsWAPE": 0,
+        "ticketsMAE": 0,
+        "ticketsRMSE": 0,
+        "ticketsBias": 0
+      }
+    },
+    "ClimaSevero": {
+      "v31": {
+        "count": 0,
+        "salesWAPE": 0,
+        "salesMAE": 0,
+        "salesRMSE": 0,
+        "salesBias": 0,
+        "ticketsWAPE": 0,
+        "ticketsMAE": 0,
+        "ticketsRMSE": 0,
+        "ticketsBias": 0
+      },
+      "tfm": {
+        "count": 0,
+        "salesWAPE": 0,
+        "salesMAE": 0,
+        "salesRMSE": 0,
+        "salesBias": 0,
+        "ticketsWAPE": 0,
+        "ticketsMAE": 0,
+        "ticketsRMSE": 0,
+        "ticketsBias": 0
+      },
+      "hybrid": {
+        "count": 0,
+        "salesWAPE": 0,
+        "salesMAE": 0,
+        "salesRMSE": 0,
+        "salesBias": 0,
+        "ticketsWAPE": 0,
+        "ticketsMAE": 0,
+        "ticketsRMSE": 0,
+        "ticketsBias": 0
+      }
+    },
+    "DiasRegulares": {
+      "v31": {
+        "count": 316,
+        "salesWAPE": 7.022869927242942,
+        "salesMAE": 850.1533279136563,
+        "salesRMSE": 1213.3137138288052,
+        "salesBias": -0.8143109304566126,
+        "ticketsWAPE": 6.2345210887551685,
+        "ticketsMAE": 39.45129972875228,
+        "ticketsRMSE": 58.5420187629756,
+        "ticketsBias": -0.39326656793312864
+      },
+      "tfm": {
+        "count": 316,
+        "salesWAPE": 8.687088421326038,
+        "salesMAE": 1051.6152524228633,
+        "salesRMSE": 1530.191904054161,
+        "salesBias": -0.23543230631758133,
+        "ticketsWAPE": 7.367747715443183,
+        "ticketsMAE": 46.622221548346026,
+        "ticketsRMSE": 70.43314078799091,
+        "ticketsBias": -0.0336349767892239
+      },
+      "hybrid": {
+        "count": 316,
+        "salesWAPE": 8.058636507522568,
+        "salesMAE": 975.5380231008223,
+        "salesRMSE": 1429.1092407971978,
+        "salesBias": -0.3736969926889727,
+        "ticketsWAPE": 7.367747715443183,
+        "ticketsMAE": 46.622221548346026,
+        "ticketsRMSE": 70.43314078799091,
+        "ticketsBias": -0.0336349767892239
+      }
+    }
+  },
+  "failuresList": [],
+  "exclusionsList": [
+    {
+      "store": "DOWNEY",
+      "date": "2025-12-25",
+      "reason": "CLOSED_DAY_ZERO_SALES"
+    },
+    {
+      "store": "DOWNEY",
+      "date": "2026-04-03",
+      "reason": "CLOSED_DAY_ZERO_SALES"
+    }
+  ]
+}

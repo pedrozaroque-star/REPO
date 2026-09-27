@@ -1,0 +1,7020 @@
+{
+  "changes": {
+    "sales": 4.13,
+    "tickets": 4.33,
+    "laborHours": 7.97,
+    "laborCost": 7.01,
+    "splh": -3.57,
+    "laborPercentagePoints": 0.53
+  },
+  "priorYearChanges": {
+    "sales": 17.09,
+    "tickets": 11.49,
+    "laborHours": 4.21,
+    "laborCost": 7,
+    "splh": 12.37,
+    "laborPercentagePoints": -1.85
+  },
+  "allocation": [
+    {
+      "name": "Joseph Castellanos",
+      "preHours": 0,
+      "postHours": 484.22,
+      "difference": 484.22,
+      "preDays": 0,
+      "postDays": 59,
+      "postOt": 124.22
+    },
+    {
+      "name": "Luis Heredia",
+      "preHours": 0,
+      "postHours": 278.25,
+      "difference": 278.25,
+      "preDays": 0,
+      "postDays": 37,
+      "postOt": 40.18
+    },
+    {
+      "name": "Librado Mondragon",
+      "preHours": 0,
+      "postHours": 248.61,
+      "difference": 248.61,
+      "preDays": 0,
+      "postDays": 40,
+      "postOt": 0
+    },
+    {
+      "name": "Fernando Lacayo Cisne",
+      "preHours": 0,
+      "postHours": 182.38,
+      "difference": 182.38,
+      "preDays": 0,
+      "postDays": 24,
+      "postOt": 12.22
+    },
+    {
+      "name": "Benjamin Chay",
+      "preHours": 251.94,
+      "postHours": 420.25,
+      "difference": 168.31,
+      "preDays": 32,
+      "postDays": 54,
+      "postOt": 60.25
+    },
+    {
+      "name": "Maria Gonzalez",
+      "preHours": 245.14,
+      "postHours": 386.59,
+      "difference": 141.45,
+      "preDays": 31,
+      "postDays": 50,
+      "postOt": 37.55
+    },
+    {
+      "name": "Denis Sanchez",
+      "preHours": 0,
+      "postHours": 67.86,
+      "difference": 67.86,
+      "preDays": 0,
+      "postDays": 9,
+      "postOt": 0
+    },
+    {
+      "name": "Martha Lemus",
+      "preHours": 346.53,
+      "postHours": 377.55,
+      "difference": 31.02,
+      "preDays": 51,
+      "postDays": 55,
+      "postOt": 23.41
+    },
+    {
+      "name": "Jose Andres Morales",
+      "preHours": 412.47,
+      "postHours": 441.98,
+      "difference": 29.51,
+      "preDays": 50,
+      "postDays": 48,
+      "postOt": 96.58
+    },
+    {
+      "name": "Heidy Rodarte",
+      "preHours": 275.68,
+      "postHours": 296.35,
+      "difference": 20.67,
+      "preDays": 38,
+      "postDays": 42,
+      "postOt": 0
+    },
+    {
+      "name": "Elias Morales",
+      "preHours": 461.56,
+      "postHours": 481.43,
+      "difference": 19.87,
+      "preDays": 50,
+      "postDays": 52,
+      "postOt": 122.13
+    },
+    {
+      "name": "Miguel Perez",
+      "preHours": 351.92,
+      "postHours": 367.69,
+      "difference": 15.77,
+      "preDays": 50,
+      "postDays": 51,
+      "postOt": 25.1
+    },
+    {
+      "name": "Jennifer Ortiz",
+      "preHours": 306.37,
+      "postHours": 318.54,
+      "difference": 12.17,
+      "preDays": 48,
+      "postDays": 50,
+      "postOt": 0
+    },
+    {
+      "name": "Alberto Benitez",
+      "preHours": 396.04,
+      "postHours": 398.39,
+      "difference": 2.35,
+      "preDays": 54,
+      "postDays": 55,
+      "postOt": 38.39
+    },
+    {
+      "name": "Victor Muñoz",
+      "preHours": 402.8,
+      "postHours": 404.64,
+      "difference": 1.84,
+      "preDays": 53,
+      "postDays": 49,
+      "postOt": 84.99
+    },
+    {
+      "name": "Brenda Flores",
+      "preHours": 476.53,
+      "postHours": 477.59,
+      "difference": 1.06,
+      "preDays": 53,
+      "postDays": 52,
+      "postOt": 125.59
+    },
+    {
+      "name": "Maritza Avilez",
+      "preHours": 310.32,
+      "postHours": 310.64,
+      "difference": 0.32,
+      "preDays": 44,
+      "postDays": 44,
+      "postOt": 0
+    },
+    {
+      "name": "Blanca Zarat",
+      "preHours": 438.36,
+      "postHours": 438.47,
+      "difference": 0.11,
+      "preDays": 53,
+      "postDays": 52,
+      "postOt": 79.81
+    },
+    {
+      "name": "Sugey Reyes",
+      "preHours": 472.08,
+      "postHours": 469.4,
+      "difference": -2.68,
+      "preDays": 52,
+      "postDays": 52,
+      "postOt": 109.68
+    },
+    {
+      "name": "Jose Martinez",
+      "preHours": 490.96,
+      "postHours": 485.34,
+      "difference": -5.62,
+      "preDays": 53,
+      "postDays": 53,
+      "postOt": 125.34
+    },
+    {
+      "name": "Cruz Victorino Castillo",
+      "preHours": 488.68,
+      "postHours": 482.96,
+      "difference": -5.72,
+      "preDays": 52,
+      "postDays": 52,
+      "postOt": 130.96
+    },
+    {
+      "name": "Cristian Ajeataz",
+      "preHours": 467.69,
+      "postHours": 457.57,
+      "difference": -10.12,
+      "preDays": 53,
+      "postDays": 53,
+      "postOt": 98.03
+    },
+    {
+      "name": "Maria T Alejandre",
+      "preHours": 329.74,
+      "postHours": 319.47,
+      "difference": -10.27,
+      "preDays": 55,
+      "postDays": 52,
+      "postOt": 16.89
+    },
+    {
+      "name": "Eliuth Alvarez",
+      "preHours": 287.94,
+      "postHours": 273.65,
+      "difference": -14.29,
+      "preDays": 44,
+      "postDays": 40,
+      "postOt": 2.47
+    },
+    {
+      "name": "Maria Tapia",
+      "preHours": 379.5,
+      "postHours": 364.05,
+      "difference": -15.45,
+      "preDays": 54,
+      "postDays": 54,
+      "postOt": 15.73
+    },
+    {
+      "name": "Carlos Arteaga",
+      "preHours": 514.06,
+      "postHours": 495.08,
+      "difference": -18.98,
+      "preDays": 54,
+      "postDays": 52,
+      "postOt": 135.08
+    },
+    {
+      "name": "Irving Saca",
+      "preHours": 378.39,
+      "postHours": 354.26,
+      "difference": -24.13,
+      "preDays": 51,
+      "postDays": 47,
+      "postOt": 30.52
+    },
+    {
+      "name": "Jazmin Balcazar",
+      "preHours": 28.11,
+      "postHours": 0,
+      "difference": -28.11,
+      "preDays": 4,
+      "postDays": 0,
+      "postOt": 0
+    },
+    {
+      "name": "Valentina Valladares",
+      "preHours": 421.92,
+      "postHours": 390.15,
+      "difference": -31.77,
+      "preDays": 51,
+      "postDays": 48,
+      "postOt": 66.47
+    },
+    {
+      "name": "Jonathan Velasco",
+      "preHours": 560.25,
+      "postHours": 526.76,
+      "difference": -33.49,
+      "preDays": 58,
+      "postDays": 55,
+      "postOt": 166.76
+    },
+    {
+      "name": "Jose Morales",
+      "preHours": 66.96,
+      "postHours": 0,
+      "difference": -66.96,
+      "preDays": 7,
+      "postDays": 0,
+      "postOt": 0
+    },
+    {
+      "name": "Kevin Garcia",
+      "preHours": 484.84,
+      "postHours": 415.4,
+      "difference": -69.44,
+      "preDays": 56,
+      "postDays": 52,
+      "postOt": 62.01
+    },
+    {
+      "name": "Luis Martinez",
+      "preHours": 182,
+      "postHours": 0,
+      "difference": -182,
+      "preDays": 25,
+      "postDays": 0,
+      "postOt": 0
+    },
+    {
+      "name": "Enrique Navarrete",
+      "preHours": 378.57,
+      "postHours": 0,
+      "difference": -378.57,
+      "preDays": 48,
+      "postDays": 0,
+      "postOt": 0
+    }
+  ],
+  "continuity": [
+    {
+      "first": "2026-07-31",
+      "last": "2026-08-26",
+      "days": 27
+    },
+    {
+      "first": "2026-09-04",
+      "last": "2026-09-24",
+      "days": 21
+    },
+    {
+      "first": "2026-07-24",
+      "last": "2026-07-29",
+      "days": 6
+    },
+    {
+      "first": "2026-08-28",
+      "last": "2026-09-02",
+      "days": 6
+    },
+    {
+      "first": "2026-07-20",
+      "last": "2026-07-22",
+      "days": 3
+    }
+  ],
+  "liveSummary": [
+    {
+      "week": "2026-07-20",
+      "weekId": 150623,
+      "regular": 40,
+      "ot": 4.38,
+      "dt": 0,
+      "total": 44.38,
+      "toast": 44.41,
+      "difference": 0.03,
+      "scheduled": 45,
+      "aboveScheduled": -0.62,
+      "approval": {
+        "employeeApproval": true,
+        "managerApproval": true
+      },
+      "retro": false,
+      "days": 6
+    },
+    {
+      "week": "2026-07-27",
+      "weekId": 152372,
+      "regular": 40,
+      "ot": 5.93,
+      "dt": 0,
+      "total": 45.93,
+      "toast": 45.99,
+      "difference": 0.06,
+      "scheduled": 45,
+      "aboveScheduled": 0.93,
+      "approval": {
+        "employeeApproval": true,
+        "managerApproval": true
+      },
+      "retro": false,
+      "days": 6
+    },
+    {
+      "week": "2026-08-03",
+      "weekId": 152373,
+      "regular": 40,
+      "ot": 19.42,
+      "dt": 1.53,
+      "total": 60.95,
+      "toast": 60.93,
+      "difference": -0.02,
+      "scheduled": 52.5,
+      "aboveScheduled": 8.45,
+      "approval": {
+        "employeeApproval": true,
+        "managerApproval": true
+      },
+      "retro": false,
+      "days": 7
+    },
+    {
+      "week": "2026-08-10",
+      "weekId": 154242,
+      "regular": 40,
+      "ot": 18.2,
+      "dt": 0,
+      "total": 58.2,
+      "toast": 58.18,
+      "difference": -0.02,
+      "scheduled": 53,
+      "aboveScheduled": 5.2,
+      "approval": {
+        "employeeApproval": true,
+        "managerApproval": true
+      },
+      "retro": false,
+      "days": 7
+    },
+    {
+      "week": "2026-08-17",
+      "weekId": 154243,
+      "regular": 40,
+      "ot": 19.8,
+      "dt": 0.03,
+      "total": 59.83,
+      "toast": 60.39,
+      "difference": 0.56,
+      "scheduled": 53,
+      "aboveScheduled": 6.83,
+      "approval": {
+        "employeeApproval": true,
+        "managerApproval": true
+      },
+      "retro": false,
+      "days": 7
+    },
+    {
+      "week": "2026-08-24",
+      "weekId": 155969,
+      "regular": 40,
+      "ot": 9.81,
+      "dt": 0,
+      "total": 49.81,
+      "toast": 49.61,
+      "difference": -0.2,
+      "scheduled": 45.5,
+      "aboveScheduled": 4.31,
+      "approval": {
+        "employeeApproval": true,
+        "managerApproval": true
+      },
+      "retro": false,
+      "days": 6
+    },
+    {
+      "week": "2026-08-31",
+      "weekId": 155970,
+      "regular": 40,
+      "ot": 5.89,
+      "dt": 0,
+      "total": 45.89,
+      "toast": 45.89,
+      "difference": 0,
+      "scheduled": 45.5,
+      "aboveScheduled": 0.39,
+      "approval": {
+        "employeeApproval": true,
+        "managerApproval": true
+      },
+      "retro": false,
+      "days": 6
+    },
+    {
+      "week": "2026-09-07",
+      "weekId": 157766,
+      "regular": 40,
+      "ot": 22.13,
+      "dt": 5.43,
+      "total": 67.56,
+      "toast": 67.56,
+      "difference": 0,
+      "scheduled": 53,
+      "aboveScheduled": 14.56,
+      "approval": {
+        "employeeApproval": true,
+        "managerApproval": true
+      },
+      "retro": false,
+      "days": 7
+    },
+    {
+      "week": "2026-09-14",
+      "weekId": 157767,
+      "regular": 40,
+      "ot": 11.22,
+      "dt": 0,
+      "total": 51.22,
+      "toast": 51.26,
+      "difference": 0.04,
+      "scheduled": 53,
+      "aboveScheduled": -1.78,
+      "approval": {
+        "employeeApproval": true,
+        "managerApproval": true
+      },
+      "retro": false,
+      "days": 7
+    }
+  ],
+  "liveDays": [
+    {
+      "date": "2026-07-20",
+      "hours": 6.55,
+      "regular": 6.55,
+      "ot": 0,
+      "dt": 0,
+      "lunch": 0.53,
+      "punches": [
+        {
+          "id": 13692559,
+          "type": 1,
+          "localTime": "2026-07-20T09:00:00-07:00",
+          "added": false
+        },
+        {
+          "id": 13693516,
+          "type": 3,
+          "localTime": "2026-07-20T11:27:40.0950108-07:00",
+          "added": false
+        },
+        {
+          "id": 13693718,
+          "type": 1,
+          "localTime": "2026-07-20T11:59:22.5779489-07:00",
+          "added": false
+        },
+        {
+          "id": 13695093,
+          "type": 2,
+          "localTime": "2026-07-20T16:05:58.2683432-07:00",
+          "added": false
+        }
+      ],
+      "comments": []
+    },
+    {
+      "date": "2026-07-21",
+      "hours": 7.52,
+      "regular": 7.52,
+      "ot": 0,
+      "dt": 0,
+      "lunch": 0.53,
+      "punches": [
+        {
+          "id": 13697938,
+          "type": 1,
+          "localTime": "2026-07-21T09:00:13.7659866-07:00",
+          "added": false
+        },
+        {
+          "id": 13699071,
+          "type": 3,
+          "localTime": "2026-07-21T11:56:16.1234793-07:00",
+          "added": false
+        },
+        {
+          "id": 13699259,
+          "type": 1,
+          "localTime": "2026-07-21T12:28:24.643234-07:00",
+          "added": false
+        },
+        {
+          "id": 13729343,
+          "type": 2,
+          "localTime": "2026-07-21T17:03:00-07:00",
+          "added": true
+        }
+      ],
+      "comments": [
+        {
+          "punchId": 13729343,
+          "localTime": "2026-07-21T17:03:00-07:00",
+          "comments": null
+        }
+      ]
+    },
+    {
+      "date": "2026-07-22",
+      "hours": 7.55,
+      "regular": 7.55,
+      "ot": 0,
+      "dt": 0,
+      "lunch": 0.52,
+      "punches": [
+        {
+          "id": 13702992,
+          "type": 1,
+          "localTime": "2026-07-22T08:57:21.3117855-07:00",
+          "added": false
+        },
+        {
+          "id": 13706611,
+          "type": 3,
+          "localTime": "2026-07-22T12:01:40-07:00",
+          "added": false
+        },
+        {
+          "id": 13706614,
+          "type": 1,
+          "localTime": "2026-07-22T12:32:46-07:00",
+          "added": false
+        },
+        {
+          "id": 13706629,
+          "type": 2,
+          "localTime": "2026-07-22T17:01:16-07:00",
+          "added": false
+        }
+      ],
+      "comments": []
+    },
+    {
+      "date": "2026-07-23",
+      "hours": 0,
+      "regular": 0,
+      "ot": 0,
+      "dt": 0,
+      "lunch": null,
+      "punches": [],
+      "comments": []
+    },
+    {
+      "date": "2026-07-24",
+      "hours": 7.58,
+      "regular": 7.58,
+      "ot": 0,
+      "dt": 0,
+      "lunch": 0.5,
+      "punches": [
+        {
+          "id": 13713026,
+          "type": 1,
+          "localTime": "2026-07-24T08:57:55.5046955-07:00",
+          "added": false
+        },
+        {
+          "id": 13714287,
+          "type": 3,
+          "localTime": "2026-07-24T12:01:06.4893708-07:00",
+          "added": false
+        },
+        {
+          "id": 13714479,
+          "type": 1,
+          "localTime": "2026-07-24T12:31:29.5118858-07:00",
+          "added": false
+        },
+        {
+          "id": 13716079,
+          "type": 2,
+          "localTime": "2026-07-24T17:02:50.7364514-07:00",
+          "added": false
+        }
+      ],
+      "comments": []
+    },
+    {
+      "date": "2026-07-25",
+      "hours": 7.6,
+      "regular": 7.6,
+      "ot": 0,
+      "dt": 0,
+      "lunch": 0.5,
+      "punches": [
+        {
+          "id": 13719250,
+          "type": 1,
+          "localTime": "2026-07-25T08:58:41.039027-07:00",
+          "added": false
+        },
+        {
+          "id": 13720148,
+          "type": 3,
+          "localTime": "2026-07-25T11:31:22.6070491-07:00",
+          "added": false
+        },
+        {
+          "id": 13720285,
+          "type": 1,
+          "localTime": "2026-07-25T12:01:35.5203936-07:00",
+          "added": false
+        },
+        {
+          "id": 13721916,
+          "type": 2,
+          "localTime": "2026-07-25T17:04:11.3497123-07:00",
+          "added": false
+        }
+      ],
+      "comments": []
+    },
+    {
+      "date": "2026-07-26",
+      "hours": 7.58,
+      "regular": 3.2,
+      "ot": 4.38,
+      "dt": 0,
+      "lunch": 0.52,
+      "punches": [
+        {
+          "id": 13724603,
+          "type": 1,
+          "localTime": "2026-07-26T09:01:33.8548902-07:00",
+          "added": false
+        },
+        {
+          "id": 13725110,
+          "type": 3,
+          "localTime": "2026-07-26T10:50:41.1032768-07:00",
+          "added": false
+        },
+        {
+          "id": 13725313,
+          "type": 1,
+          "localTime": "2026-07-26T11:21:35.0523113-07:00",
+          "added": false
+        },
+        {
+          "id": 13727317,
+          "type": 2,
+          "localTime": "2026-07-26T17:07:04.4481438-07:00",
+          "added": false
+        }
+      ],
+      "comments": []
+    },
+    {
+      "date": "2026-07-27",
+      "hours": 7.52,
+      "regular": 7.52,
+      "ot": 0,
+      "dt": 0,
+      "lunch": 0.52,
+      "punches": [
+        {
+          "id": 13729821,
+          "type": 1,
+          "localTime": "2026-07-27T09:00:03.8014155-07:00",
+          "added": false
+        },
+        {
+          "id": 13730755,
+          "type": 3,
+          "localTime": "2026-07-27T11:17:21.6413931-07:00",
+          "added": false
+        },
+        {
+          "id": 13730942,
+          "type": 1,
+          "localTime": "2026-07-27T11:48:13.303443-07:00",
+          "added": false
+        },
+        {
+          "id": 13732756,
+          "type": 2,
+          "localTime": "2026-07-27T17:02:32.9168321-07:00",
+          "added": false
+        }
+      ],
+      "comments": []
+    },
+    {
+      "date": "2026-07-28",
+      "hours": 7.48,
+      "regular": 7.48,
+      "ot": 0,
+      "dt": 0,
+      "lunch": 0.52,
+      "punches": [
+        {
+          "id": 13735433,
+          "type": 1,
+          "localTime": "2026-07-28T09:02:16.1242867-07:00",
+          "added": false
+        },
+        {
+          "id": 13736707,
+          "type": 3,
+          "localTime": "2026-07-28T12:13:15.0340449-07:00",
+          "added": false
+        },
+        {
+          "id": 13736892,
+          "type": 1,
+          "localTime": "2026-07-28T12:44:04.9392448-07:00",
+          "added": false
+        },
+        {
+          "id": 13738150,
+          "type": 2,
+          "localTime": "2026-07-28T17:02:35.1490511-07:00",
+          "added": false
+        }
+      ],
+      "comments": []
+    },
+    {
+      "date": "2026-07-29",
+      "hours": 7.6,
+      "regular": 7.6,
+      "ot": 0,
+      "dt": 0,
+      "lunch": 0.52,
+      "punches": [
+        {
+          "id": 13740650,
+          "type": 1,
+          "localTime": "2026-07-29T08:57:16.0193025-07:00",
+          "added": false
+        },
+        {
+          "id": 13741188,
+          "type": 3,
+          "localTime": "2026-07-29T10:37:22.0626716-07:00",
+          "added": false
+        },
+        {
+          "id": 13741429,
+          "type": 1,
+          "localTime": "2026-07-29T11:08:14.9884624-07:00",
+          "added": false
+        },
+        {
+          "id": 13743321,
+          "type": 2,
+          "localTime": "2026-07-29T17:04:17.1629696-07:00",
+          "added": false
+        }
+      ],
+      "comments": []
+    },
+    {
+      "date": "2026-07-30",
+      "hours": 0,
+      "regular": 0,
+      "ot": 0,
+      "dt": 0,
+      "lunch": null,
+      "punches": [],
+      "comments": []
+    },
+    {
+      "date": "2026-07-31",
+      "hours": 7.55,
+      "regular": 7.55,
+      "ot": 0,
+      "dt": 0,
+      "lunch": 0.52,
+      "punches": [
+        {
+          "id": 13750638,
+          "type": 1,
+          "localTime": "2026-07-31T08:57:07.4390209-07:00",
+          "added": false
+        },
+        {
+          "id": 13751953,
+          "type": 3,
+          "localTime": "2026-07-31T12:11:56.7879738-07:00",
+          "added": false
+        },
+        {
+          "id": 13752143,
+          "type": 1,
+          "localTime": "2026-07-31T12:42:22.6376744-07:00",
+          "added": false
+        },
+        {
+          "id": 13753821,
+          "type": 2,
+          "localTime": "2026-07-31T17:01:40.4073332-07:00",
+          "added": false
+        }
+      ],
+      "comments": []
+    },
+    {
+      "date": "2026-08-01",
+      "hours": 6.55,
+      "regular": 6.55,
+      "ot": 0,
+      "dt": 0,
+      "lunch": 0.52,
+      "punches": [
+        {
+          "id": 13756846,
+          "type": 1,
+          "localTime": "2026-08-01T08:57:11.8760235-07:00",
+          "added": false
+        },
+        {
+          "id": 13757866,
+          "type": 3,
+          "localTime": "2026-08-01T12:30:20.5913113-07:00",
+          "added": false
+        },
+        {
+          "id": 13757955,
+          "type": 1,
+          "localTime": "2026-08-01T13:01:08.8573825-07:00",
+          "added": false
+        },
+        {
+          "id": 13758678,
+          "type": 2,
+          "localTime": "2026-08-01T16:01:09.6051379-07:00",
+          "added": false
+        }
+      ],
+      "comments": []
+    },
+    {
+      "date": "2026-08-02",
+      "hours": 9.23,
+      "regular": 3.3,
+      "ot": 5.93,
+      "dt": 0,
+      "lunch": 0.5,
+      "punches": [
+        {
+          "id": 13761761,
+          "type": 1,
+          "localTime": "2026-08-02T09:00:19.5203242-07:00",
+          "added": false
+        },
+        {
+          "id": 13762647,
+          "type": 3,
+          "localTime": "2026-08-02T12:01:20.9979803-07:00",
+          "added": false
+        },
+        {
+          "id": 13762758,
+          "type": 1,
+          "localTime": "2026-08-02T12:31:31.2278755-07:00",
+          "added": false
+        },
+        {
+          "id": 13764762,
+          "type": 2,
+          "localTime": "2026-08-02T18:44:21.7730627-07:00",
+          "added": false
+        }
+      ],
+      "comments": []
+    },
+    {
+      "date": "2026-08-03",
+      "hours": 9.55,
+      "regular": 8,
+      "ot": 1.55,
+      "dt": 0,
+      "lunch": 0.5,
+      "punches": [
+        {
+          "id": 13767187,
+          "type": 1,
+          "localTime": "2026-08-03T08:59:10.3876357-07:00",
+          "added": false
+        },
+        {
+          "id": 13768431,
+          "type": 3,
+          "localTime": "2026-08-03T11:38:03.1960221-07:00",
+          "added": false
+        },
+        {
+          "id": 13768686,
+          "type": 1,
+          "localTime": "2026-08-03T12:08:53.2885282-07:00",
+          "added": false
+        },
+        {
+          "id": 13770911,
+          "type": 2,
+          "localTime": "2026-08-03T19:02:24.4164145-07:00",
+          "added": false
+        }
+      ],
+      "comments": []
+    },
+    {
+      "date": "2026-08-04",
+      "hours": 9.53,
+      "regular": 8,
+      "ot": 1.53,
+      "dt": 0,
+      "lunch": 0.5,
+      "punches": [
+        {
+          "id": 13772893,
+          "type": 1,
+          "localTime": "2026-08-04T08:58:32.6013408-07:00",
+          "added": false
+        },
+        {
+          "id": 13774062,
+          "type": 3,
+          "localTime": "2026-08-04T11:42:06.0929001-07:00",
+          "added": false
+        },
+        {
+          "id": 13774224,
+          "type": 1,
+          "localTime": "2026-08-04T12:12:37.2851527-07:00",
+          "added": false
+        },
+        {
+          "id": 13776445,
+          "type": 2,
+          "localTime": "2026-08-04T19:00:27.1506277-07:00",
+          "added": false
+        }
+      ],
+      "comments": []
+    },
+    {
+      "date": "2026-08-05",
+      "hours": 7.57,
+      "regular": 7.57,
+      "ot": 0,
+      "dt": 0,
+      "lunch": 0.5,
+      "punches": [
+        {
+          "id": 13778065,
+          "type": 1,
+          "localTime": "2026-08-05T08:57:27.6374756-07:00",
+          "added": false
+        },
+        {
+          "id": 13778848,
+          "type": 3,
+          "localTime": "2026-08-05T11:15:15.9015186-07:00",
+          "added": false
+        },
+        {
+          "id": 13779051,
+          "type": 1,
+          "localTime": "2026-08-05T11:45:23.4124609-07:00",
+          "added": false
+        },
+        {
+          "id": 13780538,
+          "type": 2,
+          "localTime": "2026-08-05T17:01:20.7977163-07:00",
+          "added": false
+        }
+      ],
+      "comments": []
+    },
+    {
+      "date": "2026-08-06",
+      "hours": 7.63,
+      "regular": 7.63,
+      "ot": 0,
+      "dt": 0,
+      "lunch": 0.5,
+      "punches": [
+        {
+          "id": 13782858,
+          "type": 1,
+          "localTime": "2026-08-06T08:57:46-07:00",
+          "added": false
+        },
+        {
+          "id": 13783949,
+          "type": 3,
+          "localTime": "2026-08-06T12:00:03.6359308-07:00",
+          "added": false
+        },
+        {
+          "id": 13784093,
+          "type": 1,
+          "localTime": "2026-08-06T12:30:15.4694498-07:00",
+          "added": false
+        },
+        {
+          "id": 13785554,
+          "type": 2,
+          "localTime": "2026-08-06T17:05:09.4918989-07:00",
+          "added": false
+        }
+      ],
+      "comments": []
+    },
+    {
+      "date": "2026-08-07",
+      "hours": 7.57,
+      "regular": 7.57,
+      "ot": 0,
+      "dt": 0,
+      "lunch": 0.5,
+      "punches": [
+        {
+          "id": 13787894,
+          "type": 1,
+          "localTime": "2026-08-07T09:00:24.2768445-07:00",
+          "added": false
+        },
+        {
+          "id": 13789075,
+          "type": 3,
+          "localTime": "2026-08-07T12:03:16.0447945-07:00",
+          "added": false
+        },
+        {
+          "id": 13789241,
+          "type": 1,
+          "localTime": "2026-08-07T12:33:30.6960119-07:00",
+          "added": false
+        },
+        {
+          "id": 13790827,
+          "type": 2,
+          "localTime": "2026-08-07T17:04:13.9705732-07:00",
+          "added": false
+        }
+      ],
+      "comments": []
+    },
+    {
+      "date": "2026-08-08",
+      "hours": 9.57,
+      "regular": 1.23,
+      "ot": 8.34,
+      "dt": 0,
+      "lunch": 0.5,
+      "punches": [
+        {
+          "id": 13793437,
+          "type": 1,
+          "localTime": "2026-08-08T08:59:18.5361405-07:00",
+          "added": false
+        },
+        {
+          "id": 13793941,
+          "type": 3,
+          "localTime": "2026-08-08T10:56:31.8315111-07:00",
+          "added": false
+        },
+        {
+          "id": 13794076,
+          "type": 1,
+          "localTime": "2026-08-08T11:26:46.0202761-07:00",
+          "added": false
+        },
+        {
+          "id": 13796254,
+          "type": 2,
+          "localTime": "2026-08-08T19:03:17.8169905-07:00",
+          "added": false
+        }
+      ],
+      "comments": []
+    },
+    {
+      "date": "2026-08-09",
+      "hours": 9.53,
+      "regular": 0,
+      "ot": 8,
+      "dt": 1.53,
+      "lunch": 0.52,
+      "punches": [
+        {
+          "id": 13798062,
+          "type": 1,
+          "localTime": "2026-08-09T08:57:34.4846765-07:00",
+          "added": false
+        },
+        {
+          "id": 13798778,
+          "type": 3,
+          "localTime": "2026-08-09T11:14:26.3117039-07:00",
+          "added": false
+        },
+        {
+          "id": 13798879,
+          "type": 1,
+          "localTime": "2026-08-09T11:45:01.9513092-07:00",
+          "added": false
+        },
+        {
+          "id": 13801300,
+          "type": 2,
+          "localTime": "2026-08-09T19:00:10.6456964-07:00",
+          "added": false
+        }
+      ],
+      "comments": []
+    },
+    {
+      "date": "2026-08-10",
+      "hours": 7.6,
+      "regular": 7.6,
+      "ot": 0,
+      "dt": 0,
+      "lunch": 0.5,
+      "punches": [
+        {
+          "id": 13803378,
+          "type": 1,
+          "localTime": "2026-08-10T08:57:50.1302691-07:00",
+          "added": false
+        },
+        {
+          "id": 13804925,
+          "type": 3,
+          "localTime": "2026-08-10T12:17:00-07:00",
+          "added": true
+        },
+        {
+          "id": 13804929,
+          "type": 1,
+          "localTime": "2026-08-10T12:47:00-07:00",
+          "added": true
+        },
+        {
+          "id": 13806350,
+          "type": 2,
+          "localTime": "2026-08-10T17:03:47.2381039-07:00",
+          "added": false
+        }
+      ],
+      "comments": [
+        {
+          "punchId": 13804925,
+          "localTime": "2026-08-10T12:17:00-07:00",
+          "comments": null
+        },
+        {
+          "punchId": 13804929,
+          "localTime": "2026-08-10T12:47:00-07:00",
+          "comments": null
+        }
+      ]
+    },
+    {
+      "date": "2026-08-11",
+      "hours": 9.55,
+      "regular": 8,
+      "ot": 1.55,
+      "dt": 0,
+      "lunch": 0.5,
+      "punches": [
+        {
+          "id": 13808699,
+          "type": 1,
+          "localTime": "2026-08-11T08:57:37.6007942-07:00",
+          "added": false
+        },
+        {
+          "id": 13809869,
+          "type": 3,
+          "localTime": "2026-08-11T11:54:24.0684136-07:00",
+          "added": false
+        },
+        {
+          "id": 13810004,
+          "type": 1,
+          "localTime": "2026-08-11T12:24:31.3548816-07:00",
+          "added": false
+        },
+        {
+          "id": 13812005,
+          "type": 2,
+          "localTime": "2026-08-11T19:00:13.7335528-07:00",
+          "added": false
+        }
+      ],
+      "comments": []
+    },
+    {
+      "date": "2026-08-12",
+      "hours": 9.53,
+      "regular": 8,
+      "ot": 1.53,
+      "dt": 0,
+      "lunch": 0.52,
+      "punches": [
+        {
+          "id": 13813608,
+          "type": 1,
+          "localTime": "2026-08-12T08:57:59.3446704-07:00",
+          "added": false
+        },
+        {
+          "id": 13814631,
+          "type": 3,
+          "localTime": "2026-08-12T12:02:54.7320545-07:00",
+          "added": false
+        },
+        {
+          "id": 13818370,
+          "type": 1,
+          "localTime": "2026-08-12T12:33:26-07:00",
+          "added": false
+        },
+        {
+          "id": 13818392,
+          "type": 2,
+          "localTime": "2026-08-12T19:00:22-07:00",
+          "added": false
+        }
+      ],
+      "comments": []
+    },
+    {
+      "date": "2026-08-13",
+      "hours": 7.57,
+      "regular": 7.57,
+      "ot": 0,
+      "dt": 0,
+      "lunch": 0.5,
+      "punches": [
+        {
+          "id": 13818428,
+          "type": 1,
+          "localTime": "2026-08-13T08:57:24-07:00",
+          "added": false
+        },
+        {
+          "id": 13819197,
+          "type": 3,
+          "localTime": "2026-08-13T12:00:10.9578641-07:00",
+          "added": false
+        },
+        {
+          "id": 13819468,
+          "type": 1,
+          "localTime": "2026-08-13T12:30:55.8732165-07:00",
+          "added": false
+        },
+        {
+          "id": 13820974,
+          "type": 2,
+          "localTime": "2026-08-13T17:01:15.4149176-07:00",
+          "added": false
+        }
+      ],
+      "comments": []
+    },
+    {
+      "date": "2026-08-14",
+      "hours": 7.5,
+      "regular": 7.5,
+      "ot": 0,
+      "dt": 0,
+      "lunch": 0.5,
+      "punches": [
+        {
+          "id": 13823417,
+          "type": 1,
+          "localTime": "2026-08-14T09:02:30.9898116-07:00",
+          "added": false
+        },
+        {
+          "id": 13824209,
+          "type": 3,
+          "localTime": "2026-08-14T11:32:11.4730217-07:00",
+          "added": false
+        },
+        {
+          "id": 13824466,
+          "type": 1,
+          "localTime": "2026-08-14T12:02:42.5112159-07:00",
+          "added": false
+        },
+        {
+          "id": 13826371,
+          "type": 2,
+          "localTime": "2026-08-14T17:02:27.1195929-07:00",
+          "added": false
+        }
+      ],
+      "comments": []
+    },
+    {
+      "date": "2026-08-15",
+      "hours": 8.85,
+      "regular": 1.33,
+      "ot": 7.52,
+      "dt": 0,
+      "lunch": 0.5,
+      "punches": [
+        {
+          "id": 13829091,
+          "type": 1,
+          "localTime": "2026-08-15T08:42:54.0810459-07:00",
+          "added": false
+        },
+        {
+          "id": 13829981,
+          "type": 3,
+          "localTime": "2026-08-15T12:07:06.0850739-07:00",
+          "added": false
+        },
+        {
+          "id": 13830090,
+          "type": 1,
+          "localTime": "2026-08-15T12:37:30.1469831-07:00",
+          "added": false
+        },
+        {
+          "id": 13831777,
+          "type": 2,
+          "localTime": "2026-08-15T18:03:20.0059776-07:00",
+          "added": false
+        }
+      ],
+      "comments": []
+    },
+    {
+      "date": "2026-08-16",
+      "hours": 7.6,
+      "regular": 0,
+      "ot": 7.6,
+      "dt": 0,
+      "lunch": 0.52,
+      "punches": [
+        {
+          "id": 13833906,
+          "type": 1,
+          "localTime": "2026-08-16T08:57:54.3061231-07:00",
+          "added": false
+        },
+        {
+          "id": 13834458,
+          "type": 3,
+          "localTime": "2026-08-16T10:47:58.5887779-07:00",
+          "added": false
+        },
+        {
+          "id": 13834607,
+          "type": 1,
+          "localTime": "2026-08-16T11:18:03.3893987-07:00",
+          "added": false
+        },
+        {
+          "id": 13836458,
+          "type": 2,
+          "localTime": "2026-08-16T17:04:56.4085178-07:00",
+          "added": false
+        }
+      ],
+      "comments": []
+    },
+    {
+      "date": "2026-08-17",
+      "hours": 7.6,
+      "regular": 7.6,
+      "ot": 0,
+      "dt": 0,
+      "lunch": 0.5,
+      "punches": [
+        {
+          "id": 13839280,
+          "type": 1,
+          "localTime": "2026-08-17T08:57:22.9241076-07:00",
+          "added": false
+        },
+        {
+          "id": 13840664,
+          "type": 3,
+          "localTime": "2026-08-17T12:23:39.272437-07:00",
+          "added": false
+        },
+        {
+          "id": 13840952,
+          "type": 1,
+          "localTime": "2026-08-17T12:53:47.910303-07:00",
+          "added": false
+        },
+        {
+          "id": 13842276,
+          "type": 2,
+          "localTime": "2026-08-17T17:03:11.7025284-07:00",
+          "added": false
+        }
+      ],
+      "comments": []
+    },
+    {
+      "date": "2026-08-18",
+      "hours": 9.52,
+      "regular": 8,
+      "ot": 1.52,
+      "dt": 0,
+      "lunch": 0.5,
+      "punches": [
+        {
+          "id": 13845229,
+          "type": 1,
+          "localTime": "2026-08-18T09:00:05.6073995-07:00",
+          "added": false
+        },
+        {
+          "id": 13846108,
+          "type": 3,
+          "localTime": "2026-08-18T11:30:26.0418355-07:00",
+          "added": false
+        },
+        {
+          "id": 13846356,
+          "type": 1,
+          "localTime": "2026-08-18T12:00:40.1323731-07:00",
+          "added": false
+        },
+        {
+          "id": 13848590,
+          "type": 2,
+          "localTime": "2026-08-18T19:01:01.7639773-07:00",
+          "added": false
+        }
+      ],
+      "comments": []
+    },
+    {
+      "date": "2026-08-19",
+      "hours": 12.03,
+      "regular": 8,
+      "ot": 4,
+      "dt": 0.03,
+      "lunch": 1.02,
+      "punches": [
+        {
+          "id": 13850330,
+          "type": 1,
+          "localTime": "2026-08-19T08:57:36.5246215-07:00",
+          "added": false
+        },
+        {
+          "id": 13850917,
+          "type": 3,
+          "localTime": "2026-08-19T10:51:26.1506341-07:00",
+          "added": false
+        },
+        {
+          "id": 13851092,
+          "type": 1,
+          "localTime": "2026-08-19T11:21:35.0724426-07:00",
+          "added": false
+        },
+        {
+          "id": 13853551,
+          "type": 3,
+          "localTime": "2026-08-19T19:06:29.9110754-07:00",
+          "added": false
+        },
+        {
+          "id": 13853644,
+          "type": 1,
+          "localTime": "2026-08-19T19:37:16.5609265-07:00",
+          "added": false
+        },
+        {
+          "id": 13854061,
+          "type": 2,
+          "localTime": "2026-08-19T22:00:24.0686056-07:00",
+          "added": false
+        }
+      ],
+      "comments": []
+    },
+    {
+      "date": "2026-08-20",
+      "hours": 7.57,
+      "regular": 7.57,
+      "ot": 0,
+      "dt": 0,
+      "lunch": 0.55,
+      "punches": [
+        {
+          "id": 13855115,
+          "type": 1,
+          "localTime": "2026-08-20T08:59:06.6460651-07:00",
+          "added": false
+        },
+        {
+          "id": 13855544,
+          "type": 3,
+          "localTime": "2026-08-20T10:14:35.7042563-07:00",
+          "added": false
+        },
+        {
+          "id": 13855672,
+          "type": 1,
+          "localTime": "2026-08-20T10:47:03.7131584-07:00",
+          "added": false
+        },
+        {
+          "id": 13858441,
+          "type": 2,
+          "localTime": "2026-08-20T17:06:11.1145955-07:00",
+          "added": false
+        }
+      ],
+      "comments": []
+    },
+    {
+      "date": "2026-08-21",
+      "hours": 7.63,
+      "regular": 7.63,
+      "ot": 0,
+      "dt": 0,
+      "lunch": 0.52,
+      "punches": [
+        {
+          "id": 13860628,
+          "type": 1,
+          "localTime": "2026-08-21T08:57:39.983345-07:00",
+          "added": false
+        },
+        {
+          "id": 13861788,
+          "type": 3,
+          "localTime": "2026-08-21T12:05:34.9977076-07:00",
+          "added": false
+        },
+        {
+          "id": 13862013,
+          "type": 1,
+          "localTime": "2026-08-21T12:36:24.0670994-07:00",
+          "added": false
+        },
+        {
+          "id": 13863695,
+          "type": 2,
+          "localTime": "2026-08-21T17:06:24.957389-07:00",
+          "added": false
+        }
+      ],
+      "comments": []
+    },
+    {
+      "date": "2026-08-22",
+      "hours": 7.95,
+      "regular": 1.2,
+      "ot": 6.75,
+      "dt": 0,
+      "lunch": 0.5,
+      "punches": [
+        {
+          "id": 13866331,
+          "type": 1,
+          "localTime": "2026-08-22T08:33:12.9367991-07:00",
+          "added": false
+        },
+        {
+          "id": 13866886,
+          "type": 3,
+          "localTime": "2026-08-22T10:50:22.8825116-07:00",
+          "added": false
+        },
+        {
+          "id": 13867036,
+          "type": 1,
+          "localTime": "2026-08-22T11:20:31.1130384-07:00",
+          "added": false
+        },
+        {
+          "id": 13868472,
+          "type": 2,
+          "localTime": "2026-08-22T17:00:41.0942364-07:00",
+          "added": false
+        }
+      ],
+      "comments": []
+    },
+    {
+      "date": "2026-08-23",
+      "hours": 7.53,
+      "regular": 0,
+      "ot": 7.53,
+      "dt": 0,
+      "lunch": 0.5,
+      "punches": [
+        {
+          "id": 13871248,
+          "type": 1,
+          "localTime": "2026-08-23T09:00:46.3854813-07:00",
+          "added": false
+        },
+        {
+          "id": 13871868,
+          "type": 3,
+          "localTime": "2026-08-23T11:27:05.7054905-07:00",
+          "added": false
+        },
+        {
+          "id": 13871984,
+          "type": 1,
+          "localTime": "2026-08-23T11:57:15.1747324-07:00",
+          "added": false
+        },
+        {
+          "id": 13873576,
+          "type": 2,
+          "localTime": "2026-08-23T17:02:23.0093513-07:00",
+          "added": false
+        }
+      ],
+      "comments": []
+    },
+    {
+      "date": "2026-08-24",
+      "hours": 7.58,
+      "regular": 7.58,
+      "ot": 0,
+      "dt": 0,
+      "lunch": 0.5,
+      "punches": [
+        {
+          "id": 13876393,
+          "type": 1,
+          "localTime": "2026-08-24T08:57:08.1479815-07:00",
+          "added": false
+        },
+        {
+          "id": 13878119,
+          "type": 3,
+          "localTime": "2026-08-24T12:49:21.3621718-07:00",
+          "added": false
+        },
+        {
+          "id": 13878485,
+          "type": 1,
+          "localTime": "2026-08-24T13:19:35.2727634-07:00",
+          "added": false
+        },
+        {
+          "id": 13880004,
+          "type": 2,
+          "localTime": "2026-08-24T17:02:49.7988761-07:00",
+          "added": false
+        }
+      ],
+      "comments": []
+    },
+    {
+      "date": "2026-08-25",
+      "hours": 7.58,
+      "regular": 7.58,
+      "ot": 0,
+      "dt": 0,
+      "lunch": 0.5,
+      "punches": [
+        {
+          "id": 13882353,
+          "type": 1,
+          "localTime": "2026-08-25T08:57:58.3591174-07:00",
+          "added": false
+        },
+        {
+          "id": 13883204,
+          "type": 3,
+          "localTime": "2026-08-25T11:23:22.1958155-07:00",
+          "added": false
+        },
+        {
+          "id": 13883339,
+          "type": 1,
+          "localTime": "2026-08-25T11:53:29.3411397-07:00",
+          "added": false
+        },
+        {
+          "id": 13885305,
+          "type": 2,
+          "localTime": "2026-08-25T17:02:50.8062078-07:00",
+          "added": false
+        }
+      ],
+      "comments": []
+    },
+    {
+      "date": "2026-08-26",
+      "hours": 9.53,
+      "regular": 8,
+      "ot": 1.53,
+      "dt": 0,
+      "lunch": 0.5,
+      "punches": [
+        {
+          "id": 13888295,
+          "type": 1,
+          "localTime": "2026-08-26T08:58:46-07:00",
+          "added": false
+        },
+        {
+          "id": 13888452,
+          "type": 3,
+          "localTime": "2026-08-26T11:16:43.6727652-07:00",
+          "added": false
+        },
+        {
+          "id": 13888591,
+          "type": 1,
+          "localTime": "2026-08-26T11:46:53.5910795-07:00",
+          "added": false
+        },
+        {
+          "id": 13890880,
+          "type": 2,
+          "localTime": "2026-08-26T19:00:09.2231689-07:00",
+          "added": false
+        }
+      ],
+      "comments": []
+    },
+    {
+      "date": "2026-08-27",
+      "hours": 0,
+      "regular": 0,
+      "ot": 0,
+      "dt": 0,
+      "lunch": null,
+      "punches": [],
+      "comments": []
+    },
+    {
+      "date": "2026-08-28",
+      "hours": 7.57,
+      "regular": 7.57,
+      "ot": 0,
+      "dt": 0,
+      "lunch": 0.5,
+      "punches": [
+        {
+          "id": 13897775,
+          "type": 1,
+          "localTime": "2026-08-28T08:57:52.1623881-07:00",
+          "added": false
+        },
+        {
+          "id": 13898675,
+          "type": 3,
+          "localTime": "2026-08-28T11:26:25.85479-07:00",
+          "added": false
+        },
+        {
+          "id": 13898850,
+          "type": 1,
+          "localTime": "2026-08-28T11:56:31.1835954-07:00",
+          "added": false
+        },
+        {
+          "id": 13900866,
+          "type": 2,
+          "localTime": "2026-08-28T17:01:02.1261072-07:00",
+          "added": false
+        }
+      ],
+      "comments": []
+    },
+    {
+      "date": "2026-08-29",
+      "hours": 8.02,
+      "regular": 8,
+      "ot": 0.02,
+      "dt": 0,
+      "lunch": 0.52,
+      "punches": [
+        {
+          "id": 13903940,
+          "type": 1,
+          "localTime": "2026-08-29T08:30:04.3206376-07:00",
+          "added": false
+        },
+        {
+          "id": 13904725,
+          "type": 3,
+          "localTime": "2026-08-29T10:40:41.3481353-07:00",
+          "added": false
+        },
+        {
+          "id": 13904888,
+          "type": 1,
+          "localTime": "2026-08-29T11:11:02.7174721-07:00",
+          "added": false
+        },
+        {
+          "id": 13906694,
+          "type": 2,
+          "localTime": "2026-08-29T17:02:10.4463106-07:00",
+          "added": false
+        }
+      ],
+      "comments": []
+    },
+    {
+      "date": "2026-08-30",
+      "hours": 9.53,
+      "regular": 1.27,
+      "ot": 8.26,
+      "dt": 0,
+      "lunch": 0.5,
+      "punches": [
+        {
+          "id": 13909485,
+          "type": 1,
+          "localTime": "2026-08-30T08:59:33.1653048-07:00",
+          "added": false
+        },
+        {
+          "id": 13910218,
+          "type": 3,
+          "localTime": "2026-08-30T11:09:30.0755047-07:00",
+          "added": false
+        },
+        {
+          "id": 13910327,
+          "type": 1,
+          "localTime": "2026-08-30T11:39:39.8018429-07:00",
+          "added": false
+        },
+        {
+          "id": 13912845,
+          "type": 2,
+          "localTime": "2026-08-30T19:01:29.6586937-07:00",
+          "added": false
+        }
+      ],
+      "comments": []
+    },
+    {
+      "date": "2026-08-31",
+      "hours": 7.6,
+      "regular": 7.6,
+      "ot": 0,
+      "dt": 0,
+      "lunch": 0.5,
+      "punches": [
+        {
+          "id": 13915253,
+          "type": 1,
+          "localTime": "2026-08-31T08:57:25.5701294-07:00",
+          "added": false
+        },
+        {
+          "id": 13916107,
+          "type": 3,
+          "localTime": "2026-08-31T11:04:27.7367452-07:00",
+          "added": false
+        },
+        {
+          "id": 13916294,
+          "type": 1,
+          "localTime": "2026-08-31T11:34:34.2538878-07:00",
+          "added": false
+        },
+        {
+          "id": 13919599,
+          "type": 2,
+          "localTime": "2026-08-31T17:03:26.2595551-07:00",
+          "added": false
+        }
+      ],
+      "comments": []
+    },
+    {
+      "date": "2026-09-01",
+      "hours": 7.57,
+      "regular": 7.57,
+      "ot": 0,
+      "dt": 0,
+      "lunch": 0.52,
+      "punches": [
+        {
+          "id": 13921861,
+          "type": 1,
+          "localTime": "2026-09-01T08:58:43.5575075-07:00",
+          "added": false
+        },
+        {
+          "id": 13922558,
+          "type": 3,
+          "localTime": "2026-09-01T10:48:59.083761-07:00",
+          "added": false
+        },
+        {
+          "id": 13922809,
+          "type": 1,
+          "localTime": "2026-09-01T11:19:37.6090045-07:00",
+          "added": false
+        },
+        {
+          "id": 13924828,
+          "type": 2,
+          "localTime": "2026-09-01T17:03:26.4833168-07:00",
+          "added": false
+        }
+      ],
+      "comments": []
+    },
+    {
+      "date": "2026-09-02",
+      "hours": 7.52,
+      "regular": 7.52,
+      "ot": 0,
+      "dt": 0,
+      "lunch": 0.52,
+      "punches": [
+        {
+          "id": 13927140,
+          "type": 1,
+          "localTime": "2026-09-02T08:59:09.361756-07:00",
+          "added": false
+        },
+        {
+          "id": 13927902,
+          "type": 3,
+          "localTime": "2026-09-02T11:12:37.2926969-07:00",
+          "added": false
+        },
+        {
+          "id": 13928062,
+          "type": 1,
+          "localTime": "2026-09-02T11:43:20.5834297-07:00",
+          "added": false
+        },
+        {
+          "id": 13929701,
+          "type": 2,
+          "localTime": "2026-09-02T17:01:05.6387427-07:00",
+          "added": false
+        }
+      ],
+      "comments": []
+    },
+    {
+      "date": "2026-09-03",
+      "hours": 0,
+      "regular": 0,
+      "ot": 0,
+      "dt": 0,
+      "lunch": null,
+      "punches": [],
+      "comments": []
+    },
+    {
+      "date": "2026-09-04",
+      "hours": 7.62,
+      "regular": 7.62,
+      "ot": 0,
+      "dt": 0,
+      "lunch": 0.5,
+      "punches": [
+        {
+          "id": 13936820,
+          "type": 1,
+          "localTime": "2026-09-04T08:57:18.519701-07:00",
+          "added": false
+        },
+        {
+          "id": 13938263,
+          "type": 3,
+          "localTime": "2026-09-04T13:08:07.5005585-07:00",
+          "added": false
+        },
+        {
+          "id": 13938374,
+          "type": 1,
+          "localTime": "2026-09-04T13:38:24.7583816-07:00",
+          "added": false
+        },
+        {
+          "id": 13939726,
+          "type": 2,
+          "localTime": "2026-09-04T17:04:14.3459443-07:00",
+          "added": false
+        }
+      ],
+      "comments": []
+    },
+    {
+      "date": "2026-09-05",
+      "hours": 8.05,
+      "regular": 8,
+      "ot": 0.05,
+      "dt": 0,
+      "lunch": 0.52,
+      "punches": [
+        {
+          "id": 13942400,
+          "type": 1,
+          "localTime": "2026-09-05T08:29:15.0851512-07:00",
+          "added": false
+        },
+        {
+          "id": 13943119,
+          "type": 3,
+          "localTime": "2026-09-05T11:28:56.1108421-07:00",
+          "added": false
+        },
+        {
+          "id": 13943237,
+          "type": 1,
+          "localTime": "2026-09-05T11:59:05.5916801-07:00",
+          "added": false
+        },
+        {
+          "id": 13944615,
+          "type": 2,
+          "localTime": "2026-09-05T17:03:06.0590585-07:00",
+          "added": false
+        }
+      ],
+      "comments": []
+    },
+    {
+      "date": "2026-09-06",
+      "hours": 7.53,
+      "regular": 1.69,
+      "ot": 5.84,
+      "dt": 0,
+      "lunch": 0.52,
+      "punches": [
+        {
+          "id": 13947139,
+          "type": 1,
+          "localTime": "2026-09-06T08:59:56.8462563-07:00",
+          "added": false
+        },
+        {
+          "id": 13947761,
+          "type": 3,
+          "localTime": "2026-09-06T11:12:55.2977995-07:00",
+          "added": false
+        },
+        {
+          "id": 13947867,
+          "type": 1,
+          "localTime": "2026-09-06T11:43:06.0400392-07:00",
+          "added": false
+        },
+        {
+          "id": 13949484,
+          "type": 2,
+          "localTime": "2026-09-06T17:02:27.0334416-07:00",
+          "added": false
+        }
+      ],
+      "comments": []
+    },
+    {
+      "date": "2026-09-07",
+      "hours": 13.98,
+      "regular": 8,
+      "ot": 4,
+      "dt": 1.98,
+      "lunch": 1.05,
+      "punches": [
+        {
+          "id": 13951566,
+          "type": 1,
+          "localTime": "2026-09-07T07:58:46.3641547-07:00",
+          "added": false
+        },
+        {
+          "id": 13952253,
+          "type": 3,
+          "localTime": "2026-09-07T10:52:10.0546277-07:00",
+          "added": false
+        },
+        {
+          "id": 13952410,
+          "type": 1,
+          "localTime": "2026-09-07T11:25:56.5194778-07:00",
+          "added": false
+        },
+        {
+          "id": 13954044,
+          "type": 3,
+          "localTime": "2026-09-07T20:03:49.9854075-07:00",
+          "added": false
+        },
+        {
+          "id": 13954104,
+          "type": 1,
+          "localTime": "2026-09-07T20:33:56.6253403-07:00",
+          "added": false
+        },
+        {
+          "id": 13954627,
+          "type": 2,
+          "localTime": "2026-09-07T23:00:09.4309626-07:00",
+          "added": false
+        }
+      ],
+      "comments": []
+    },
+    {
+      "date": "2026-09-08",
+      "hours": 11.52,
+      "regular": 8,
+      "ot": 3.52,
+      "dt": 0,
+      "lunch": 0.52,
+      "punches": [
+        {
+          "id": 13956231,
+          "type": 1,
+          "localTime": "2026-09-08T08:57:09-07:00",
+          "added": false
+        },
+        {
+          "id": 13956811,
+          "type": 3,
+          "localTime": "2026-09-08T12:08:54.7077213-07:00",
+          "added": false
+        },
+        {
+          "id": 13956962,
+          "type": 1,
+          "localTime": "2026-09-08T12:39:07.6557339-07:00",
+          "added": false
+        },
+        {
+          "id": 13959517,
+          "type": 2,
+          "localTime": "2026-09-08T20:59:46.949734-07:00",
+          "added": false
+        }
+      ],
+      "comments": []
+    },
+    {
+      "date": "2026-09-09",
+      "hours": 7.55,
+      "regular": 7.55,
+      "ot": 0,
+      "dt": 0,
+      "lunch": 0.5,
+      "punches": [
+        {
+          "id": 13960677,
+          "type": 1,
+          "localTime": "2026-09-09T08:59:05.3413038-07:00",
+          "added": false
+        },
+        {
+          "id": 13961889,
+          "type": 3,
+          "localTime": "2026-09-09T11:13:38.0838914-07:00",
+          "added": false
+        },
+        {
+          "id": 13962096,
+          "type": 1,
+          "localTime": "2026-09-09T11:43:44.547433-07:00",
+          "added": false
+        },
+        {
+          "id": 13963662,
+          "type": 2,
+          "localTime": "2026-09-09T17:02:41.1092799-07:00",
+          "added": false
+        }
+      ],
+      "comments": []
+    },
+    {
+      "date": "2026-09-10",
+      "hours": 7.52,
+      "regular": 7.52,
+      "ot": 0,
+      "dt": 0,
+      "lunch": 0.52,
+      "punches": [
+        {
+          "id": 13965864,
+          "type": 1,
+          "localTime": "2026-09-10T08:58:48.1373392-07:00",
+          "added": false
+        },
+        {
+          "id": 13967377,
+          "type": 3,
+          "localTime": "2026-09-10T13:52:56.381547-07:00",
+          "added": false
+        },
+        {
+          "id": 13967501,
+          "type": 1,
+          "localTime": "2026-09-10T14:23:02.7197738-07:00",
+          "added": false
+        },
+        {
+          "id": 13968341,
+          "type": 2,
+          "localTime": "2026-09-10T17:00:32.8310823-07:00",
+          "added": false
+        }
+      ],
+      "comments": []
+    },
+    {
+      "date": "2026-09-11",
+      "hours": 7.52,
+      "regular": 7.52,
+      "ot": 0,
+      "dt": 0,
+      "lunch": 0.5,
+      "punches": [
+        {
+          "id": 13970772,
+          "type": 1,
+          "localTime": "2026-09-11T08:59:05.3059851-07:00",
+          "added": false
+        },
+        {
+          "id": 13971193,
+          "type": 3,
+          "localTime": "2026-09-11T10:16:50.5079171-07:00",
+          "added": false
+        },
+        {
+          "id": 13971351,
+          "type": 1,
+          "localTime": "2026-09-11T10:46:58.1330142-07:00",
+          "added": false
+        },
+        {
+          "id": 13973560,
+          "type": 2,
+          "localTime": "2026-09-11T17:00:07.5077551-07:00",
+          "added": false
+        }
+      ],
+      "comments": []
+    },
+    {
+      "date": "2026-09-12",
+      "hours": 8.02,
+      "regular": 1.41,
+      "ot": 6.61,
+      "dt": 0,
+      "lunch": 0.52,
+      "punches": [
+        {
+          "id": 13976516,
+          "type": 1,
+          "localTime": "2026-09-12T08:30:51.3338058-07:00",
+          "added": false
+        },
+        {
+          "id": 13977206,
+          "type": 3,
+          "localTime": "2026-09-12T11:25:58.7443498-07:00",
+          "added": false
+        },
+        {
+          "id": 13977312,
+          "type": 1,
+          "localTime": "2026-09-12T11:56:42.3741389-07:00",
+          "added": false
+        },
+        {
+          "id": 13978729,
+          "type": 2,
+          "localTime": "2026-09-12T17:02:10.3943682-07:00",
+          "added": false
+        }
+      ],
+      "comments": []
+    },
+    {
+      "date": "2026-09-13",
+      "hours": 11.45,
+      "regular": 0,
+      "ot": 8,
+      "dt": 3.45,
+      "lunch": 0.5,
+      "punches": [
+        {
+          "id": 13981326,
+          "type": 1,
+          "localTime": "2026-09-13T09:02:30.5048875-07:00",
+          "added": false
+        },
+        {
+          "id": 13981853,
+          "type": 3,
+          "localTime": "2026-09-13T10:58:40.8991883-07:00",
+          "added": false
+        },
+        {
+          "id": 13982014,
+          "type": 1,
+          "localTime": "2026-09-13T11:28:50.8658647-07:00",
+          "added": false
+        },
+        {
+          "id": 13987121,
+          "type": 2,
+          "localTime": "2026-09-13T20:59:43-07:00",
+          "added": false
+        }
+      ],
+      "comments": []
+    },
+    {
+      "date": "2026-09-14",
+      "hours": 7.62,
+      "regular": 7.62,
+      "ot": 0,
+      "dt": 0,
+      "lunch": 0.52,
+      "punches": [
+        {
+          "id": 13987146,
+          "type": 1,
+          "localTime": "2026-09-14T08:58:28-07:00",
+          "added": false
+        },
+        {
+          "id": 13987904,
+          "type": 3,
+          "localTime": "2026-09-14T11:27:30.031193-07:00",
+          "added": false
+        },
+        {
+          "id": 13988075,
+          "type": 1,
+          "localTime": "2026-09-14T11:58:45.0657094-07:00",
+          "added": false
+        },
+        {
+          "id": 13989865,
+          "type": 2,
+          "localTime": "2026-09-14T17:06:42.1523167-07:00",
+          "added": false
+        }
+      ],
+      "comments": []
+    },
+    {
+      "date": "2026-09-15",
+      "hours": 7.58,
+      "regular": 7.58,
+      "ot": 0,
+      "dt": 0,
+      "lunch": 0.5,
+      "punches": [
+        {
+          "id": 13992364,
+          "type": 1,
+          "localTime": "2026-09-15T08:57:08.2754752-07:00",
+          "added": false
+        },
+        {
+          "id": 13993437,
+          "type": 3,
+          "localTime": "2026-09-15T11:25:07.2491987-07:00",
+          "added": false
+        },
+        {
+          "id": 13993590,
+          "type": 1,
+          "localTime": "2026-09-15T11:55:47.9739286-07:00",
+          "added": false
+        },
+        {
+          "id": 13995104,
+          "type": 2,
+          "localTime": "2026-09-15T17:02:04.8632631-07:00",
+          "added": false
+        }
+      ],
+      "comments": []
+    },
+    {
+      "date": "2026-09-16",
+      "hours": 7.53,
+      "regular": 7.53,
+      "ot": 0,
+      "dt": 0,
+      "lunch": 0.5,
+      "punches": [
+        {
+          "id": 13997473,
+          "type": 1,
+          "localTime": "2026-09-16T08:58:17.1738412-07:00",
+          "added": false
+        },
+        {
+          "id": 13997868,
+          "type": 3,
+          "localTime": "2026-09-16T10:21:24.5632055-07:00",
+          "added": false
+        },
+        {
+          "id": 13998119,
+          "type": 1,
+          "localTime": "2026-09-16T10:51:38.91883-07:00",
+          "added": false
+        },
+        {
+          "id": 13999942,
+          "type": 2,
+          "localTime": "2026-09-16T17:00:19.8076474-07:00",
+          "added": false
+        }
+      ],
+      "comments": []
+    },
+    {
+      "date": "2026-09-17",
+      "hours": 7.48,
+      "regular": 7.48,
+      "ot": 0,
+      "dt": 0,
+      "lunch": 0.52,
+      "punches": [
+        {
+          "id": 14002371,
+          "type": 1,
+          "localTime": "2026-09-17T08:59:00.468506-07:00",
+          "added": false
+        },
+        {
+          "id": 14002911,
+          "type": 3,
+          "localTime": "2026-09-17T10:41:42.3716453-07:00",
+          "added": false
+        },
+        {
+          "id": 14003223,
+          "type": 1,
+          "localTime": "2026-09-17T11:12:06.1325521-07:00",
+          "added": false
+        },
+        {
+          "id": 14004806,
+          "type": 2,
+          "localTime": "2026-09-17T16:59:08.9413742-07:00",
+          "added": false
+        }
+      ],
+      "comments": []
+    },
+    {
+      "date": "2026-09-18",
+      "hours": 5.4,
+      "regular": 5.4,
+      "ot": 0,
+      "dt": 0,
+      "lunch": 0.5,
+      "punches": [
+        {
+          "id": 14007422,
+          "type": 1,
+          "localTime": "2026-09-18T08:58:40.7549761-07:00",
+          "added": false
+        },
+        {
+          "id": 14008692,
+          "type": 3,
+          "localTime": "2026-09-18T12:04:18.6011767-07:00",
+          "added": false
+        },
+        {
+          "id": 14008813,
+          "type": 1,
+          "localTime": "2026-09-18T12:34:27.835439-07:00",
+          "added": false
+        },
+        {
+          "id": 14009421,
+          "type": 2,
+          "localTime": "2026-09-18T14:52:59.5035859-07:00",
+          "added": false
+        }
+      ],
+      "comments": []
+    },
+    {
+      "date": "2026-09-19",
+      "hours": 8.03,
+      "regular": 4.39,
+      "ot": 3.64,
+      "dt": 0,
+      "lunch": 0.52,
+      "punches": [
+        {
+          "id": 14013560,
+          "type": 1,
+          "localTime": "2026-09-19T08:30:50.3112065-07:00",
+          "added": false
+        },
+        {
+          "id": 14014167,
+          "type": 3,
+          "localTime": "2026-09-19T10:36:48.7966536-07:00",
+          "added": false
+        },
+        {
+          "id": 14014350,
+          "type": 1,
+          "localTime": "2026-09-19T11:07:00.7703109-07:00",
+          "added": false
+        },
+        {
+          "id": 14015962,
+          "type": 2,
+          "localTime": "2026-09-19T17:03:07.1273748-07:00",
+          "added": false
+        }
+      ],
+      "comments": []
+    },
+    {
+      "date": "2026-09-20",
+      "hours": 7.58,
+      "regular": 0,
+      "ot": 7.58,
+      "dt": 0,
+      "lunch": 0.5,
+      "punches": [
+        {
+          "id": 14018537,
+          "type": 1,
+          "localTime": "2026-09-20T08:58:37.083525-07:00",
+          "added": false
+        },
+        {
+          "id": 14019147,
+          "type": 3,
+          "localTime": "2026-09-20T11:08:34.1838154-07:00",
+          "added": false
+        },
+        {
+          "id": 14019257,
+          "type": 1,
+          "localTime": "2026-09-20T11:38:58.7105037-07:00",
+          "added": false
+        },
+        {
+          "id": 14021314,
+          "type": 2,
+          "localTime": "2026-09-20T17:03:40-07:00",
+          "added": false
+        }
+      ],
+      "comments": []
+    }
+  ],
+  "adjustments": [
+    {
+      "date": "2026-07-20",
+      "punchId": 13692559,
+      "approvalId": 2390268,
+      "localTime": "2026-07-20T09:00:00-07:00",
+      "punchType": 1,
+      "added": false,
+      "approval": true,
+      "requesterId": 27590,
+      "responderId": 27590,
+      "approver": 27590,
+      "initials": "CV",
+      "managerRequest": true
+    },
+    {
+      "date": "2026-07-21",
+      "punchId": 13729343,
+      "approvalId": 2394769,
+      "localTime": "2026-07-21T17:03:00-07:00",
+      "punchType": 2,
+      "added": true,
+      "approval": true,
+      "requesterId": 27590,
+      "responderId": 27590,
+      "approver": 0,
+      "initials": "CV",
+      "managerRequest": true
+    },
+    {
+      "date": "2026-08-10",
+      "punchId": 13804925,
+      "approvalId": 2406255,
+      "localTime": "2026-08-10T12:17:00-07:00",
+      "punchType": 3,
+      "added": true,
+      "approval": true,
+      "requesterId": 37548,
+      "responderId": 68,
+      "approver": 27590,
+      "initials": "JC",
+      "managerRequest": false
+    },
+    {
+      "date": "2026-08-10",
+      "punchId": 13804929,
+      "approvalId": 2406258,
+      "localTime": "2026-08-10T12:47:00-07:00",
+      "punchType": 1,
+      "added": true,
+      "approval": true,
+      "requesterId": 37548,
+      "responderId": 68,
+      "approver": 27590,
+      "initials": "JC",
+      "managerRequest": false
+    }
+  ],
+  "livePunchCount": 240,
+  "totals": {
+    "regular": 360,
+    "ot": 116.78,
+    "dt": 6.99,
+    "hours": 483.77,
+    "toast": 484.22,
+    "scheduled": 445.5,
+    "estimatedWages": 9280.64,
+    "premiumAboveBase": 1104.92
+  },
+  "deviations": [
+    {
+      "date": "2026-09-07",
+      "id": "642c68fa-8257-48eb-b4a6-85bd3fc18b5b",
+      "in": "09/07, 07:58",
+      "out": "09/07, 23:00",
+      "hours": 13.96,
+      "ot": 5.96,
+      "rate": 16.9,
+      "scheduledHours": 7.5,
+      "scheduled": [
+        {
+          "id": "be142b32-c3fc-4781-8bc0-9e2f543bb942",
+          "in": "09/07, 09:00",
+          "out": "09/07, 17:00",
+          "created": "2026-09-05T16:04:05.267994+00:00",
+          "status": "published",
+          "source": "manual"
+        }
+      ],
+      "sales": 16633.27,
+      "laborPct": 18.33,
+      "splh": 102.48,
+      "above": 6.46
+    },
+    {
+      "date": "2026-08-19",
+      "id": "d20c4987-cf45-4616-a910-b41c825dfab7",
+      "in": "08/19, 08:57",
+      "out": "08/19, 22:00",
+      "hours": 12.04,
+      "ot": 4.04,
+      "rate": 16.9,
+      "scheduledHours": 7.5,
+      "scheduled": [
+        {
+          "id": "aab08488-1654-4783-b7d0-75f65433fe56",
+          "in": "08/19, 09:00",
+          "out": "08/19, 17:00",
+          "created": "2026-08-16T18:55:43.795056+00:00",
+          "status": "published",
+          "source": "manual"
+        }
+      ],
+      "sales": 14163.29,
+      "laborPct": 18.82,
+      "splh": 99.83,
+      "above": 4.54
+    },
+    {
+      "date": "2026-09-08",
+      "id": "3b2d5f35-d530-4ece-bc52-83abca00aeb9",
+      "in": "09/08, 08:57",
+      "out": "09/08, 20:59",
+      "hours": 11.54,
+      "ot": 3.54,
+      "rate": 16.9,
+      "scheduledHours": 7.5,
+      "scheduled": [
+        {
+          "id": "e70d10a5-2e43-45ac-a209-edf3ac7383b5",
+          "in": "09/08, 09:00",
+          "out": "09/08, 17:00",
+          "created": "2026-09-05T16:04:05.267994+00:00",
+          "status": "published",
+          "source": "manual"
+        }
+      ],
+      "sales": 12639.64,
+      "laborPct": 24.08,
+      "splh": 76.1,
+      "above": 4.04
+    },
+    {
+      "date": "2026-09-13",
+      "id": "30b55004-ecfd-4a7c-a469-aa6b57cc16b7",
+      "in": "09/13, 09:02",
+      "out": "09/13, 20:59",
+      "hours": 11.44,
+      "ot": 11.44,
+      "rate": 16.9,
+      "scheduledHours": 7.5,
+      "scheduled": [
+        {
+          "id": "321bbc91-d037-4004-a671-1883118dd57e",
+          "in": "09/13, 09:00",
+          "out": "09/13, 17:00",
+          "created": "2026-09-05T16:04:05.267994+00:00",
+          "status": "published",
+          "source": "manual"
+        }
+      ],
+      "sales": 22755.39,
+      "laborPct": 21.47,
+      "splh": 113.73,
+      "above": 3.94
+    },
+    {
+      "date": "2026-08-08",
+      "id": "d46c1c36-f277-4dc6-a3ed-67ff6a82f7bb",
+      "in": "08/08, 08:59",
+      "out": "08/08, 19:03",
+      "hours": 9.57,
+      "ot": 8.32,
+      "rate": 16.9,
+      "scheduledHours": 7.5,
+      "scheduled": [
+        {
+          "id": "0935af53-8c5b-4a2b-80f4-60d8861e2d5f",
+          "in": "08/08, 09:00",
+          "out": "08/08, 17:00",
+          "created": "2026-08-03T00:30:09.321994+00:00",
+          "status": "published",
+          "source": "manual"
+        }
+      ],
+      "sales": 23497.88,
+      "laborPct": 17.67,
+      "splh": 112.66,
+      "above": 2.07
+    },
+    {
+      "date": "2026-08-09",
+      "id": "8617dd3e-7526-45d6-9fdd-f90d4118c4ab",
+      "in": "08/09, 08:57",
+      "out": "08/09, 19:00",
+      "hours": 9.55,
+      "ot": 9.55,
+      "rate": 16.9,
+      "scheduledHours": 7.5,
+      "scheduled": [
+        {
+          "id": "022f297d-bf7a-4f34-941a-fcb8506e686a",
+          "in": "08/09, 09:00",
+          "out": "08/09, 17:00",
+          "created": "2026-08-03T00:30:09.321994+00:00",
+          "status": "published",
+          "source": "manual"
+        }
+      ],
+      "sales": 21531.44,
+      "laborPct": 20.1,
+      "splh": 108.96,
+      "above": 2.05
+    },
+    {
+      "date": "2026-08-03",
+      "id": "47e7dd04-ce40-43ba-bc8e-b0fa682baf18",
+      "in": "08/03, 08:59",
+      "out": "08/03, 19:02",
+      "hours": 9.54,
+      "ot": 1.54,
+      "rate": 16.9,
+      "scheduledHours": 7.5,
+      "scheduled": [
+        {
+          "id": "14ff3b29-287e-44ff-aae7-c826b7045216",
+          "in": "08/03, 09:00",
+          "out": "08/03, 17:00",
+          "created": "2026-08-03T00:30:09.321994+00:00",
+          "status": "published",
+          "source": "manual"
+        }
+      ],
+      "sales": 15766.36,
+      "laborPct": 17.7,
+      "splh": 105.38,
+      "above": 2.04
+    },
+    {
+      "date": "2026-08-11",
+      "id": "1399c145-323a-4bbf-8710-b88111a01c92",
+      "in": "08/11, 08:57",
+      "out": "08/11, 19:00",
+      "hours": 9.54,
+      "ot": 1.54,
+      "rate": 16.9,
+      "scheduledHours": 7.5,
+      "scheduled": [
+        {
+          "id": "48086aa3-49a7-4f97-a032-1bfc33adb5c9",
+          "in": "08/11, 09:00",
+          "out": "08/11, 17:00",
+          "created": "2026-08-09T23:47:25.114493+00:00",
+          "status": "published",
+          "source": "manual"
+        }
+      ],
+      "sales": 15166.14,
+      "laborPct": 19.05,
+      "splh": 95.87,
+      "above": 2.04
+    },
+    {
+      "date": "2026-08-12",
+      "id": "66b7f00a-3dfa-4a87-a87f-81027bbf48b6",
+      "in": "08/12, 08:58",
+      "out": "08/12, 19:00",
+      "hours": 9.54,
+      "ot": 1.54,
+      "rate": 16.9,
+      "scheduledHours": 7.5,
+      "scheduled": [
+        {
+          "id": "96f2c748-ed2c-4907-9e4b-059a4c2fe81a",
+          "in": "08/12, 09:00",
+          "out": "08/12, 17:00",
+          "created": "2026-08-09T23:47:25.114493+00:00",
+          "status": "published",
+          "source": "manual"
+        }
+      ],
+      "sales": 14247.07,
+      "laborPct": 22.01,
+      "splh": 84.58,
+      "above": 2.04
+    },
+    {
+      "date": "2026-08-30",
+      "id": "aecc5436-0ebc-4e6c-ab18-779f5b89be59",
+      "in": "08/30, 08:59",
+      "out": "08/30, 19:01",
+      "hours": 9.540000000000001,
+      "ot": 8.07,
+      "rate": 16.9,
+      "scheduledHours": 7.5,
+      "scheduled": [
+        {
+          "id": "33486bd6-247a-48b1-bd7e-58579f065a40",
+          "in": "08/30, 09:00",
+          "out": "08/30, 17:00",
+          "created": "2026-08-22T23:16:31.281037+00:00",
+          "status": "published",
+          "source": "manual"
+        }
+      ],
+      "sales": 22061.04,
+      "laborPct": 20.3,
+      "splh": 115.85,
+      "above": 2.04
+    },
+    {
+      "date": "2026-08-04",
+      "id": "07adedcc-05d3-4148-9991-a6ecf854b759",
+      "in": "08/04, 08:58",
+      "out": "08/04, 19:00",
+      "hours": 9.52,
+      "ot": 1.52,
+      "rate": 16.9,
+      "scheduledHours": 7.5,
+      "scheduled": [
+        {
+          "id": "3d13c610-7bef-42b8-97b2-6c5223b0cf66",
+          "in": "08/04, 09:00",
+          "out": "08/04, 17:00",
+          "created": "2026-08-03T00:30:09.321994+00:00",
+          "status": "published",
+          "source": "manual"
+        }
+      ],
+      "sales": 15560.75,
+      "laborPct": 17.37,
+      "splh": 104.95,
+      "above": 2.02
+    },
+    {
+      "date": "2026-08-26",
+      "id": "eb34f302-3fd8-489f-a921-11647f7c2542",
+      "in": "08/26, 08:58",
+      "out": "08/26, 19:00",
+      "hours": 9.52,
+      "ot": 1.52,
+      "rate": 16.9,
+      "scheduledHours": 7.5,
+      "scheduled": [
+        {
+          "id": "a53142ff-5012-4606-9677-81685372585a",
+          "in": "08/26, 09:00",
+          "out": "08/26, 17:00",
+          "created": "2026-08-22T23:16:31.281037+00:00",
+          "status": "published",
+          "source": "manual"
+        }
+      ],
+      "sales": 15266.95,
+      "laborPct": 18.93,
+      "splh": 99.07,
+      "above": 2.02
+    },
+    {
+      "date": "2026-08-18",
+      "id": "eac86c5a-f26d-409e-ac93-6bccab7d6de4",
+      "in": "08/18, 09:00",
+      "out": "08/18, 19:01",
+      "hours": 9.51,
+      "ot": 1.51,
+      "rate": 16.9,
+      "scheduledHours": 7.5,
+      "scheduled": [
+        {
+          "id": "2c5be92e-74b4-427f-b963-90e0705e5d52",
+          "in": "08/18, 09:00",
+          "out": "08/18, 17:00",
+          "created": "2026-08-16T18:55:43.795056+00:00",
+          "status": "published",
+          "source": "manual"
+        }
+      ],
+      "sales": 13776.58,
+      "laborPct": 21.8,
+      "splh": 83.45,
+      "above": 2.01
+    },
+    {
+      "date": "2026-08-02",
+      "id": "8d4f4598-44b2-4c93-ad8a-dae657af7766",
+      "in": "08/02, 09:00",
+      "out": "08/02, 18:44",
+      "hours": 9.23,
+      "ot": 5.99,
+      "rate": 16.9,
+      "scheduledHours": 7.5,
+      "scheduled": [
+        {
+          "id": "82509634-f030-4f41-ac52-d9909b75ea22",
+          "in": "08/02, 09:00",
+          "out": "08/02, 17:00",
+          "created": "2026-07-26T21:59:00.537447+00:00",
+          "status": "published",
+          "source": "manual"
+        }
+      ],
+      "sales": 24196.61,
+      "laborPct": 17.7,
+      "splh": 129.94,
+      "above": 1.73
+    }
+  ],
+  "peerDeviations": [
+    {
+      "name": "Joseph Castellanos",
+      "hours": 484.22,
+      "scheduled": 445.5,
+      "delta": 38.72,
+      "percent": 8.69
+    },
+    {
+      "name": "Benjamin Chay",
+      "hours": 420.25,
+      "scheduled": 417,
+      "delta": 3.25,
+      "percent": 0.78
+    },
+    {
+      "name": "Jonathan Velasco",
+      "hours": 526.76,
+      "scheduled": 527.04,
+      "delta": -0.28,
+      "percent": -0.05
+    },
+    {
+      "name": "Kevin Garcia",
+      "hours": 415.4,
+      "scheduled": 422.5,
+      "delta": -7.1,
+      "percent": -1.68
+    },
+    {
+      "name": "Alberto Benitez",
+      "hours": 398.39,
+      "scheduled": 406.5,
+      "delta": -8.11,
+      "percent": -2
+    },
+    {
+      "name": "Jose Andres Morales",
+      "hours": 441.98,
+      "scheduled": 452.5,
+      "delta": -10.52,
+      "percent": -2.32
+    },
+    {
+      "name": "Miguel Perez",
+      "hours": 367.69,
+      "scheduled": 378.5,
+      "delta": -10.81,
+      "percent": -2.86
+    },
+    {
+      "name": "Elias Morales",
+      "hours": 481.43,
+      "scheduled": 495,
+      "delta": -13.57,
+      "percent": -2.74
+    },
+    {
+      "name": "Jose Martinez",
+      "hours": 485.34,
+      "scheduled": 511.68,
+      "delta": -26.34,
+      "percent": -5.15
+    }
+  ],
+  "byWeekday": [
+    {
+      "day": 0,
+      "pre": {
+        "days": 9,
+        "sales": 178460.44,
+        "hours": 1557.76,
+        "laborPct": 20.39,
+        "splh": 114.56
+      },
+      "post": {
+        "days": 9,
+        "sales": 192671.21,
+        "hours": 1727.86,
+        "laborPct": 20.81,
+        "splh": 111.51
+      }
+    },
+    {
+      "day": 1,
+      "pre": {
+        "days": 9,
+        "sales": 119371.68,
+        "hours": 1219.94,
+        "laborPct": 19.35,
+        "splh": 97.85
+      },
+      "post": {
+        "days": 9,
+        "sales": 128901.96,
+        "hours": 1355.71,
+        "laborPct": 19.65,
+        "splh": 95.08
+      }
+    },
+    {
+      "day": 2,
+      "pre": {
+        "days": 9,
+        "sales": 126666.07,
+        "hours": 1306.28,
+        "laborPct": 19.17,
+        "splh": 96.97
+      },
+      "post": {
+        "days": 9,
+        "sales": 129864.98,
+        "hours": 1423.01,
+        "laborPct": 20.02,
+        "splh": 91.26
+      }
+    },
+    {
+      "day": 3,
+      "pre": {
+        "days": 9,
+        "sales": 131787.2,
+        "hours": 1266.19,
+        "laborPct": 18.05,
+        "splh": 104.08
+      },
+      "post": {
+        "days": 9,
+        "sales": 133221.05,
+        "hours": 1397.58,
+        "laborPct": 19.74,
+        "splh": 95.32
+      }
+    },
+    {
+      "day": 4,
+      "pre": {
+        "days": 9,
+        "sales": 151582.56,
+        "hours": 1477.46,
+        "laborPct": 18.69,
+        "splh": 102.6
+      },
+      "post": {
+        "days": 9,
+        "sales": 149671.26,
+        "hours": 1613.31,
+        "laborPct": 20.48,
+        "splh": 92.77
+      }
+    },
+    {
+      "day": 5,
+      "pre": {
+        "days": 9,
+        "sales": 193743.71,
+        "hours": 1904.04,
+        "laborPct": 19.04,
+        "splh": 101.75
+      },
+      "post": {
+        "days": 9,
+        "sales": 195028.28,
+        "hours": 1959.27,
+        "laborPct": 19.23,
+        "splh": 99.54
+      }
+    },
+    {
+      "day": 6,
+      "pre": {
+        "days": 9,
+        "sales": 194159.15,
+        "hours": 1830.44,
+        "laborPct": 18.91,
+        "splh": 106.07
+      },
+      "post": {
+        "days": 9,
+        "sales": 211690.24,
+        "hours": 1927.48,
+        "laborPct": 18.09,
+        "splh": 109.83
+      }
+    }
+  ],
+  "jobMix": [
+    {
+      "job": "Prep",
+      "preHours": 3651.09,
+      "postHours": 4798.56
+    },
+    {
+      "job": "Cashier",
+      "preHours": 3582.03,
+      "postHours": 3533.37
+    },
+    {
+      "job": "Shift Leader",
+      "preHours": 2499.13,
+      "postHours": 2248.54
+    },
+    {
+      "job": "Asst Manager",
+      "preHours": 867.25,
+      "postHours": 835.05
+    },
+    {
+      "job": null,
+      "preHours": 7.85,
+      "postHours": 0
+    }
+  ],
+  "historicalAnomalies": {
+    "open": [],
+    "invalidHours": [],
+    "dateMismatch": [],
+    "paidExceedsElapsed": [],
+    "durationMismatch": [
+      {
+        "id": "0112b093-480a-4a98-acf9-2499f28a3f8f",
+        "name": "Alexander Villarreal",
+        "date": "2025-09-07",
+        "hours": 12.48,
+        "elapsed": 13.5,
+        "breaks": 0,
+        "net": 13.5,
+        "difference": -1.02
+      },
+      {
+        "id": "01689ee9-695c-42d5-9f04-3f242c97c21a",
+        "name": "Alexander Villarreal",
+        "date": "2025-10-11",
+        "hours": 8.51,
+        "elapsed": 9.02,
+        "breaks": 0,
+        "net": 9.02,
+        "difference": -0.51
+      },
+      {
+        "id": "0283e1b5-daa6-4b3f-b74b-590a063787aa",
+        "name": "Alexander Villarreal",
+        "date": "2025-11-14",
+        "hours": 8.49,
+        "elapsed": 9.02,
+        "breaks": 0,
+        "net": 9.02,
+        "difference": -0.53
+      },
+      {
+        "id": "06427827-679a-4fc5-8466-f5c24c7aa2f2",
+        "name": "Alexander Villarreal",
+        "date": "2025-11-10",
+        "hours": 8.5,
+        "elapsed": 9.02,
+        "breaks": 0,
+        "net": 9.02,
+        "difference": -0.52
+      },
+      {
+        "id": "0729f7ea-82d5-4bc2-9239-9e3af2e929b1",
+        "name": "Alexander Villarreal",
+        "date": "2025-08-19",
+        "hours": 7.48,
+        "elapsed": 8.01,
+        "breaks": 0,
+        "net": 8.01,
+        "difference": -0.53
+      },
+      {
+        "id": "075e2d42-2244-4a92-b449-c025fc12b955",
+        "name": "Alexander Villarreal",
+        "date": "2025-08-17",
+        "hours": 9.49,
+        "elapsed": 10.02,
+        "breaks": 0,
+        "net": 10.02,
+        "difference": -0.53
+      },
+      {
+        "id": "078143f1-1d2d-4e32-9287-1575d00d21fd",
+        "name": "Enrique Navarrete",
+        "date": "2025-12-28",
+        "hours": 8.52,
+        "elapsed": 9.03,
+        "breaks": 0,
+        "net": 9.03,
+        "difference": -0.51
+      },
+      {
+        "id": "0782f880-ec08-44d8-8179-3824ecf1e13a",
+        "name": "Enrique Navarrete",
+        "date": "2025-06-27",
+        "hours": 7.61,
+        "elapsed": 8.11,
+        "breaks": 0,
+        "net": 8.11,
+        "difference": -0.5
+      },
+      {
+        "id": "07eb87d7-59c2-4cfb-ae6c-1997150f57cf",
+        "name": "Enrique Navarrete",
+        "date": "2025-07-14",
+        "hours": 7.63,
+        "elapsed": 8.13,
+        "breaks": 0,
+        "net": 8.13,
+        "difference": -0.5
+      },
+      {
+        "id": "086c35a7-0b72-46b8-8c82-166cdedef58b",
+        "name": "Alexander Suarez",
+        "date": "2025-06-29",
+        "hours": 6.529999999999999,
+        "elapsed": 7.03,
+        "breaks": 0,
+        "net": 7.03,
+        "difference": -0.5
+      },
+      {
+        "id": "0a5a3ed5-1cf9-420d-bbf1-a8e718586050",
+        "name": "Enrique Navarrete",
+        "date": "2025-08-22",
+        "hours": 7.57,
+        "elapsed": 8.08,
+        "breaks": 0,
+        "net": 8.08,
+        "difference": -0.51
+      },
+      {
+        "id": "0b3e3161-b4ba-48a8-8b88-8e75f5eb821e",
+        "name": "Alexander Villarreal",
+        "date": "2025-12-18",
+        "hours": 8.51,
+        "elapsed": 9.02,
+        "breaks": 0,
+        "net": 9.02,
+        "difference": -0.51
+      },
+      {
+        "id": "0b789ec8-00bd-440a-980b-7900c2e38c2d",
+        "name": "Enrique Navarrete",
+        "date": "2025-10-12",
+        "hours": 8.58,
+        "elapsed": 9.08,
+        "breaks": 0,
+        "net": 9.08,
+        "difference": -0.5
+      },
+      {
+        "id": "0c184497-4f38-4b13-a156-30978e75ac03",
+        "name": "Enrique Navarrete",
+        "date": "2025-11-13",
+        "hours": 7.69,
+        "elapsed": 8.2,
+        "breaks": 0,
+        "net": 8.2,
+        "difference": -0.51
+      },
+      {
+        "id": "0c6e9df5-9088-4e11-b937-c4f54f45cab2",
+        "name": "Alexander Villarreal",
+        "date": "2025-08-04",
+        "hours": 8.43,
+        "elapsed": 8.94,
+        "breaks": 0,
+        "net": 8.94,
+        "difference": -0.51
+      },
+      {
+        "id": "0c961a3e-872a-4882-a09a-4aa8e20320e0",
+        "name": "Enrique Navarrete",
+        "date": "2025-10-10",
+        "hours": 7.58,
+        "elapsed": 8.09,
+        "breaks": 0,
+        "net": 8.09,
+        "difference": -0.51
+      },
+      {
+        "id": "0cdc0f09-8bbe-49b5-a01a-c6bf458901c4",
+        "name": "Alexander Villarreal",
+        "date": "2025-07-10",
+        "hours": 8.57,
+        "elapsed": 9.08,
+        "breaks": 0,
+        "net": 9.08,
+        "difference": -0.51
+      },
+      {
+        "id": "0d48198f-fb14-42c1-a34e-48a262db84d8",
+        "name": "Enrique Navarrete",
+        "date": "2025-08-28",
+        "hours": 7.58,
+        "elapsed": 8.1,
+        "breaks": 0,
+        "net": 8.1,
+        "difference": -0.52
+      },
+      {
+        "id": "0dcdcdcc-032d-4df3-beba-60af4496f771",
+        "name": "Alexander Villarreal",
+        "date": "2025-10-07",
+        "hours": 8.48,
+        "elapsed": 8.98,
+        "breaks": 0,
+        "net": 8.98,
+        "difference": -0.5
+      },
+      {
+        "id": "0de6f13d-b01b-48ed-9c1a-38b8d55074f3",
+        "name": "Alexander Villarreal",
+        "date": "2025-12-26",
+        "hours": 7.5,
+        "elapsed": 8,
+        "breaks": 0,
+        "net": 8,
+        "difference": -0.5
+      },
+      {
+        "id": "0e4d9a4c-2895-42fa-b9cd-f6551712c85b",
+        "name": "Alexander Suarez",
+        "date": "2025-08-17",
+        "hours": 5.5,
+        "elapsed": 6.05,
+        "breaks": 0,
+        "net": 6.05,
+        "difference": -0.55
+      },
+      {
+        "id": "0f50c311-3d66-42bb-92b9-c4e6cc6dbfe7",
+        "name": "Alexander Villarreal",
+        "date": "2025-12-11",
+        "hours": 8.5,
+        "elapsed": 9.01,
+        "breaks": 0,
+        "net": 9.01,
+        "difference": -0.51
+      },
+      {
+        "id": "100e79d9-a8f7-4de1-bf71-c0009f83c22f",
+        "name": "Alexander Villarreal",
+        "date": "2025-08-08",
+        "hours": 8.47,
+        "elapsed": 8.99,
+        "breaks": 0,
+        "net": 8.99,
+        "difference": -0.52
+      },
+      {
+        "id": "106582b5-01a8-419b-b7e9-6d06d9315bf3",
+        "name": "Enrique Navarrete",
+        "date": "2025-09-04",
+        "hours": 7.56,
+        "elapsed": 8.06,
+        "breaks": 0,
+        "net": 8.06,
+        "difference": -0.5
+      },
+      {
+        "id": "13233f37-09c2-4823-ae96-89bde3bfa875",
+        "name": "Enrique Navarrete",
+        "date": "2025-08-02",
+        "hours": 8.61,
+        "elapsed": 9.11,
+        "breaks": 0,
+        "net": 9.11,
+        "difference": -0.5
+      },
+      {
+        "id": "13662cb0-d5a6-42d0-99af-820a2c98b553",
+        "name": "Alexander Suarez",
+        "date": "2025-08-30",
+        "hours": 11,
+        "elapsed": 12.02,
+        "breaks": 0,
+        "net": 12.02,
+        "difference": -1.02
+      },
+      {
+        "id": "13e2f69c-cc87-46b3-b0cd-5d7725761d82",
+        "name": "Enrique Navarrete",
+        "date": "2025-12-14",
+        "hours": 8.61,
+        "elapsed": 9.12,
+        "breaks": 0,
+        "net": 9.12,
+        "difference": -0.51
+      },
+      {
+        "id": "13f0cc17-9334-489d-afb6-69afa39c43db",
+        "name": "Enrique Navarrete",
+        "date": "2025-10-02",
+        "hours": 8.12,
+        "elapsed": 8.66,
+        "breaks": 0,
+        "net": 8.66,
+        "difference": -0.54
+      },
+      {
+        "id": "1675bd47-3cb1-489d-bbdf-3fab87a80f08",
+        "name": "Alexander Villarreal",
+        "date": "2025-08-02",
+        "hours": 7.51,
+        "elapsed": 8.04,
+        "breaks": 0,
+        "net": 8.04,
+        "difference": -0.53
+      },
+      {
+        "id": "16914be1-91b3-4851-ad55-3dfd081be9dc",
+        "name": "Alexander Villarreal",
+        "date": "2025-08-01",
+        "hours": 13.96,
+        "elapsed": 14.99,
+        "breaks": 0,
+        "net": 14.99,
+        "difference": -1.03
+      },
+      {
+        "id": "16a4d6e7-3f4b-4c59-96d9-ed52c3474474",
+        "name": "Alexander Villarreal",
+        "date": "2025-09-04",
+        "hours": 8.52,
+        "elapsed": 9.02,
+        "breaks": 0,
+        "net": 9.02,
+        "difference": -0.5
+      },
+      {
+        "id": "19565cb7-208a-47e1-90c1-ea310757a880",
+        "name": "Alexander Villarreal",
+        "date": "2025-11-18",
+        "hours": 8.52,
+        "elapsed": 9.03,
+        "breaks": 0,
+        "net": 9.03,
+        "difference": -0.51
+      },
+      {
+        "id": "19e25513-8c48-472a-9cb0-2847548674d0",
+        "name": "Alexander Villarreal",
+        "date": "2025-12-23",
+        "hours": 7.55,
+        "elapsed": 8.05,
+        "breaks": 0,
+        "net": 8.05,
+        "difference": -0.5
+      },
+      {
+        "id": "1a5545a8-7710-4508-b2e6-3cc4579e3008",
+        "name": "Alexander Villarreal",
+        "date": "2025-12-01",
+        "hours": 8.49,
+        "elapsed": 9.01,
+        "breaks": 0,
+        "net": 9.01,
+        "difference": -0.52
+      },
+      {
+        "id": "1a730476-f5e9-46ae-9b32-a7f4ec53d8b9",
+        "name": "Enrique Navarrete",
+        "date": "2025-10-29",
+        "hours": 10.620000000000001,
+        "elapsed": 11.13,
+        "breaks": 0,
+        "net": 11.13,
+        "difference": -0.51
+      },
+      {
+        "id": "1b3056c8-4f8b-4890-a3c6-848fba2cc834",
+        "name": "Alexander Villarreal",
+        "date": "2025-12-07",
+        "hours": 9.47,
+        "elapsed": 10,
+        "breaks": 0,
+        "net": 10,
+        "difference": -0.53
+      },
+      {
+        "id": "1c1f8bfe-f3b0-4814-a265-2ed7745cadfd",
+        "name": "Alexander Suarez",
+        "date": "2025-09-17",
+        "hours": 10.879999999999999,
+        "elapsed": 11.98,
+        "breaks": 0,
+        "net": 11.98,
+        "difference": -1.1
+      },
+      {
+        "id": "1c4b7609-1d78-4438-ab0a-2291157cbf5c",
+        "name": "Alexander Villarreal",
+        "date": "2025-11-01",
+        "hours": 8.53,
+        "elapsed": 9.04,
+        "breaks": 0,
+        "net": 9.04,
+        "difference": -0.51
+      },
+      {
+        "id": "1c569333-38fe-47f3-b4f7-885ad58ad8ce",
+        "name": "Enrique Navarrete",
+        "date": "2025-07-20",
+        "hours": 8.62,
+        "elapsed": 9.14,
+        "breaks": 0,
+        "net": 9.14,
+        "difference": -0.52
+      },
+      {
+        "id": "1d8b0bac-56db-497a-8055-25d4b7034cf9",
+        "name": "Alexander Suarez",
+        "date": "2025-06-28",
+        "hours": 7.48,
+        "elapsed": 7.98,
+        "breaks": 0,
+        "net": 7.98,
+        "difference": -0.5
+      },
+      {
+        "id": "1e7ba469-9d63-48ca-b731-b6e14b778017",
+        "name": "Alexander Villarreal",
+        "date": "2025-08-11",
+        "hours": 8.52,
+        "elapsed": 9.03,
+        "breaks": 0,
+        "net": 9.03,
+        "difference": -0.51
+      },
+      {
+        "id": "1ebc4d80-2c96-4e5d-afd2-5488adcaf0cd",
+        "name": "Alexander Villarreal",
+        "date": "2025-06-27",
+        "hours": 8.56,
+        "elapsed": 9.07,
+        "breaks": 0,
+        "net": 9.07,
+        "difference": -0.51
+      },
+      {
+        "id": "1ef3296b-65c6-4f88-a024-1e9431af4554",
+        "name": "Alexander Villarreal",
+        "date": "2025-10-06",
+        "hours": 8.58,
+        "elapsed": 9.08,
+        "breaks": 0,
+        "net": 9.08,
+        "difference": -0.5
+      },
+      {
+        "id": "1f046561-62dc-482c-9f90-04f94b469243",
+        "name": "Alexander Villarreal",
+        "date": "2025-08-24",
+        "hours": 11.41,
+        "elapsed": 11.93,
+        "breaks": 0,
+        "net": 11.93,
+        "difference": -0.52
+      },
+      {
+        "id": "1f4bda3b-5481-4758-b686-7a616efc3eeb",
+        "name": "Alexander Villarreal",
+        "date": "2025-09-27",
+        "hours": 8.52,
+        "elapsed": 9.03,
+        "breaks": 0,
+        "net": 9.03,
+        "difference": -0.51
+      },
+      {
+        "id": "1f4ffa22-f577-4c90-bb45-b75b5a641c39",
+        "name": "Alexander Villarreal",
+        "date": "2025-07-13",
+        "hours": 8.71,
+        "elapsed": 9.26,
+        "breaks": 0,
+        "net": 9.26,
+        "difference": -0.55
+      },
+      {
+        "id": "1f6c54e5-d793-4039-bc4e-bb3eb0264c45",
+        "name": "Enrique Navarrete",
+        "date": "2025-09-06",
+        "hours": 8.62,
+        "elapsed": 9.12,
+        "breaks": 0,
+        "net": 9.12,
+        "difference": -0.5
+      },
+      {
+        "id": "1facb21f-1b8a-4eb9-a17f-76499ca78c12",
+        "name": "Enrique Navarrete",
+        "date": "2025-12-12",
+        "hours": 7.55,
+        "elapsed": 8.05,
+        "breaks": 0,
+        "net": 8.05,
+        "difference": -0.5
+      },
+      {
+        "id": "20ca16ae-f498-4eb5-8a37-c3134aa34e44",
+        "name": "Alexander Villarreal",
+        "date": "2025-08-09",
+        "hours": 8.55,
+        "elapsed": 9.07,
+        "breaks": 0,
+        "net": 9.07,
+        "difference": -0.52
+      },
+      {
+        "id": "20e788b7-e95f-4ef4-905c-e3b2d11a78c3",
+        "name": "Enrique Navarrete",
+        "date": "2025-07-21",
+        "hours": 7.49,
+        "elapsed": 7.99,
+        "breaks": 0,
+        "net": 7.99,
+        "difference": -0.5
+      },
+      {
+        "id": "227f3864-7cde-4ddc-9737-45bc89527e61",
+        "name": "Alexander Suarez",
+        "date": "2025-09-18",
+        "hours": 11,
+        "elapsed": 12.03,
+        "breaks": 0,
+        "net": 12.03,
+        "difference": -1.03
+      },
+      {
+        "id": "23daf23e-816e-4477-b61b-56a0b57e48b8",
+        "name": "Alexander Villarreal",
+        "date": "2025-11-20",
+        "hours": 8.51,
+        "elapsed": 9.03,
+        "breaks": 0,
+        "net": 9.03,
+        "difference": -0.52
+      },
+      {
+        "id": "251a755d-bb8c-4ace-b3d8-84ec0d90d22f",
+        "name": "Enrique Navarrete",
+        "date": "2025-06-28",
+        "hours": 8.62,
+        "elapsed": 9.12,
+        "breaks": 0,
+        "net": 9.12,
+        "difference": -0.5
+      },
+      {
+        "id": "258ea79e-ce8e-4a29-9b03-855f3d99f405",
+        "name": "Alexander Suarez",
+        "date": "2025-09-21",
+        "hours": 11.48,
+        "elapsed": 11.99,
+        "breaks": 0,
+        "net": 11.99,
+        "difference": -0.51
+      },
+      {
+        "id": "259250fd-c5e2-45cb-84e5-a0bf045b3113",
+        "name": "Enrique Navarrete",
+        "date": "2025-07-29",
+        "hours": 8.16,
+        "elapsed": 8.67,
+        "breaks": 0,
+        "net": 8.67,
+        "difference": -0.51
+      },
+      {
+        "id": "25b4d88a-c501-4539-87de-b2a892f463eb",
+        "name": "Enrique Navarrete",
+        "date": "2025-11-08",
+        "hours": 8.53,
+        "elapsed": 9.04,
+        "breaks": 0,
+        "net": 9.04,
+        "difference": -0.51
+      },
+      {
+        "id": "26fac62c-5ddd-442e-b0c1-dc37b8ba4c69",
+        "name": "Enrique Navarrete",
+        "date": "2025-07-08",
+        "hours": 8.51,
+        "elapsed": 9.07,
+        "breaks": 0,
+        "net": 9.07,
+        "difference": -0.56
+      },
+      {
+        "id": "2826bfd9-a565-4234-8a4a-1583d4bd03fe",
+        "name": "Enrique Navarrete",
+        "date": "2025-11-14",
+        "hours": 7.69,
+        "elapsed": 8.21,
+        "breaks": 0,
+        "net": 8.21,
+        "difference": -0.52
+      },
+      {
+        "id": "2a510412-c84e-45b2-9820-629754b475e7",
+        "name": "Alexander Suarez",
+        "date": "2025-07-22",
+        "hours": 8.57,
+        "elapsed": 9.09,
+        "breaks": 0,
+        "net": 9.09,
+        "difference": -0.52
+      },
+      {
+        "id": "2a59748d-3cd4-4634-b1ba-214fbee4af38",
+        "name": "Enrique Navarrete",
+        "date": "2025-10-05",
+        "hours": 11.53,
+        "elapsed": 12.03,
+        "breaks": 0,
+        "net": 12.03,
+        "difference": -0.5
+      },
+      {
+        "id": "2ad31bf6-9fbc-460a-8bbc-ff6435951bc8",
+        "name": "Enrique Navarrete",
+        "date": "2025-12-19",
+        "hours": 7.57,
+        "elapsed": 8.08,
+        "breaks": 0,
+        "net": 8.08,
+        "difference": -0.51
+      },
+      {
+        "id": "2af998e4-392d-46dd-b1a3-11b1a5129cec",
+        "name": "Alexander Suarez",
+        "date": "2025-08-27",
+        "hours": 13.940000000000001,
+        "elapsed": 14.95,
+        "breaks": 0,
+        "net": 14.95,
+        "difference": -1.01
+      },
+      {
+        "id": "2cc00a85-6fb7-455c-aca7-da823a16204b",
+        "name": "Enrique Navarrete",
+        "date": "2025-08-29",
+        "hours": 7.58,
+        "elapsed": 8.09,
+        "breaks": 0,
+        "net": 8.09,
+        "difference": -0.51
+      },
+      {
+        "id": "2d15a527-6d61-40e2-a0fe-4c5eb05deecf",
+        "name": "Alexander Suarez",
+        "date": "2025-08-26",
+        "hours": 13.98,
+        "elapsed": 15,
+        "breaks": 0,
+        "net": 15,
+        "difference": -1.02
+      },
+      {
+        "id": "2d51a971-0e01-4089-9deb-c3be9eecd562",
+        "name": "Enrique Navarrete",
+        "date": "2025-07-24",
+        "hours": 7.46,
+        "elapsed": 7.96,
+        "breaks": 0,
+        "net": 7.96,
+        "difference": -0.5
+      },
+      {
+        "id": "2db6832e-878e-4669-90b2-a0efede57bc6",
+        "name": "Alexander Suarez",
+        "date": "2025-08-25",
+        "hours": 7.47,
+        "elapsed": 8,
+        "breaks": 0,
+        "net": 8,
+        "difference": -0.53
+      },
+      {
+        "id": "2fcb93c8-9929-42f4-8c26-ef3c98066014",
+        "name": "Alexander Villarreal",
+        "date": "2025-11-15",
+        "hours": 8.52,
+        "elapsed": 9.04,
+        "breaks": 0,
+        "net": 9.04,
+        "difference": -0.52
+      },
+      {
+        "id": "31999daa-9fff-4c23-beca-ac793410d536",
+        "name": "Enrique Navarrete",
+        "date": "2025-09-07",
+        "hours": 8.57,
+        "elapsed": 9.09,
+        "breaks": 0,
+        "net": 9.09,
+        "difference": -0.52
+      },
+      {
+        "id": "31d24249-44f9-442b-b4c0-e8c013e37bc7",
+        "name": "Alexander Villarreal",
+        "date": "2025-10-21",
+        "hours": 8.5,
+        "elapsed": 9.01,
+        "breaks": 0,
+        "net": 9.01,
+        "difference": -0.51
+      },
+      {
+        "id": "3281c5e2-9a5b-4cee-a2d6-15d57c82a788",
+        "name": "Enrique Navarrete",
+        "date": "2025-06-30",
+        "hours": 7.57,
+        "elapsed": 8.07,
+        "breaks": 0,
+        "net": 8.07,
+        "difference": -0.5
+      },
+      {
+        "id": "331cb5db-182b-4a08-b87b-37d82c1367c2",
+        "name": "Alexander Villarreal",
+        "date": "2025-07-11",
+        "hours": 8.47,
+        "elapsed": 8.99,
+        "breaks": 0,
+        "net": 8.99,
+        "difference": -0.52
+      },
+      {
+        "id": "3432e458-6f9a-4b3d-8008-0c658276a802",
+        "name": "Alexander Villarreal",
+        "date": "2025-07-28",
+        "hours": 8.6,
+        "elapsed": 9.11,
+        "breaks": 0,
+        "net": 9.11,
+        "difference": -0.51
+      },
+      {
+        "id": "3617ef9d-9028-4c0d-ae43-4719c206a481",
+        "name": "Enrique Navarrete",
+        "date": "2025-10-24",
+        "hours": 7.82,
+        "elapsed": 8.32,
+        "breaks": 0,
+        "net": 8.32,
+        "difference": -0.5
+      },
+      {
+        "id": "366ada7a-8980-4b1a-b1c3-1c6ccc7cf953",
+        "name": "Alexander Villarreal",
+        "date": "2025-08-22",
+        "hours": 8.54,
+        "elapsed": 9.05,
+        "breaks": 0,
+        "net": 9.05,
+        "difference": -0.51
+      },
+      {
+        "id": "36e6ae5b-7a23-4f4c-a629-7deabc42729c",
+        "name": "Alexander Villarreal",
+        "date": "2025-07-19",
+        "hours": 7.47,
+        "elapsed": 8.06,
+        "breaks": 0,
+        "net": 8.06,
+        "difference": -0.59
+      },
+      {
+        "id": "3704dab0-f9ff-41e8-90a2-61c8373de556",
+        "name": "Alexander Villarreal",
+        "date": "2025-10-13",
+        "hours": 8.51,
+        "elapsed": 9.02,
+        "breaks": 0,
+        "net": 9.02,
+        "difference": -0.51
+      },
+      {
+        "id": "3824c4b7-ebd2-4479-9ece-91d6b76271f1",
+        "name": "Enrique Navarrete",
+        "date": "2025-12-22",
+        "hours": 7.67,
+        "elapsed": 8.18,
+        "breaks": 0,
+        "net": 8.18,
+        "difference": -0.51
+      },
+      {
+        "id": "397f7eb4-aae7-4553-90db-175f4b3ceaf9",
+        "name": "Enrique Navarrete",
+        "date": "2025-09-29",
+        "hours": 7.93,
+        "elapsed": 8.43,
+        "breaks": 0,
+        "net": 8.43,
+        "difference": -0.5
+      },
+      {
+        "id": "39b18ab7-2ab5-4d7d-9b23-5f196fb651ac",
+        "name": "Alexander Suarez",
+        "date": "2025-07-24",
+        "hours": 5.53,
+        "elapsed": 6.03,
+        "breaks": 0,
+        "net": 6.03,
+        "difference": -0.5
+      },
+      {
+        "id": "3bc1f5f5-2132-4c33-b09d-3e43298bf510",
+        "name": "Enrique Navarrete",
+        "date": "2025-07-17",
+        "hours": 7.55,
+        "elapsed": 8.05,
+        "breaks": 0,
+        "net": 8.05,
+        "difference": -0.5
+      },
+      {
+        "id": "3c7a55f2-1125-41a9-bd84-1da591d9662b",
+        "name": "Enrique Navarrete",
+        "date": "2025-09-22",
+        "hours": 7.58,
+        "elapsed": 8.09,
+        "breaks": 0,
+        "net": 8.09,
+        "difference": -0.51
+      },
+      {
+        "id": "3dd567d2-69cc-4d8d-b43d-c06f3a3ad4f7",
+        "name": "Enrique Navarrete",
+        "date": "2025-07-22",
+        "hours": 7.51,
+        "elapsed": 8.02,
+        "breaks": 0,
+        "net": 8.02,
+        "difference": -0.51
+      },
+      {
+        "id": "3ea0cfde-c1e1-482c-b1a5-3ae4bbbd2d98",
+        "name": "Alexander Villarreal",
+        "date": "2025-09-02",
+        "hours": 7.53,
+        "elapsed": 8.04,
+        "breaks": 0,
+        "net": 8.04,
+        "difference": -0.51
+      },
+      {
+        "id": "403417e8-59f3-4fe4-b2ab-d6d0a93fd95b",
+        "name": "Alexander Villarreal",
+        "date": "2025-07-26",
+        "hours": 8.51,
+        "elapsed": 9.02,
+        "breaks": 0,
+        "net": 9.02,
+        "difference": -0.51
+      },
+      {
+        "id": "41d280fa-fe46-4af8-a673-7841b4748e75",
+        "name": "Alexander Villarreal",
+        "date": "2025-11-28",
+        "hours": 6.52,
+        "elapsed": 7.03,
+        "breaks": 0,
+        "net": 7.03,
+        "difference": -0.51
+      },
+      {
+        "id": "434e427b-23fd-4135-8171-365d3eff0958",
+        "name": "Alexander Villarreal",
+        "date": "2025-11-07",
+        "hours": 8.49,
+        "elapsed": 9.01,
+        "breaks": 0,
+        "net": 9.01,
+        "difference": -0.52
+      },
+      {
+        "id": "4351043b-f236-4bf0-8533-8885ae2bedb6",
+        "name": "Alexander Villarreal",
+        "date": "2025-09-29",
+        "hours": 8.48,
+        "elapsed": 8.99,
+        "breaks": 0,
+        "net": 8.99,
+        "difference": -0.51
+      },
+      {
+        "id": "4354a33a-2363-46d9-add6-5bebd10cafcd",
+        "name": "Alexander Suarez",
+        "date": "2025-08-31",
+        "hours": 11.5,
+        "elapsed": 12.01,
+        "breaks": 0,
+        "net": 12.01,
+        "difference": -0.51
+      },
+      {
+        "id": "45311263-25c9-4f6e-b573-59ae484f91f8",
+        "name": "Enrique Navarrete",
+        "date": "2025-11-20",
+        "hours": 7.61,
+        "elapsed": 8.11,
+        "breaks": 0,
+        "net": 8.11,
+        "difference": -0.5
+      },
+      {
+        "id": "45357bc7-7162-42f5-a157-8a2b0f0ded88",
+        "name": "Enrique Navarrete",
+        "date": "2025-10-31",
+        "hours": 7.99,
+        "elapsed": 8.49,
+        "breaks": 0,
+        "net": 8.49,
+        "difference": -0.5
+      },
+      {
+        "id": "45fa5b68-efc3-41d5-8457-bac43815bec2",
+        "name": "Enrique Navarrete",
+        "date": "2025-08-30",
+        "hours": 8.63,
+        "elapsed": 9.13,
+        "breaks": 0,
+        "net": 9.13,
+        "difference": -0.5
+      },
+      {
+        "id": "476b3007-7400-4b13-9cee-0621a4447ff9",
+        "name": "Enrique Navarrete",
+        "date": "2025-10-06",
+        "hours": 7.6,
+        "elapsed": 8.1,
+        "breaks": 0,
+        "net": 8.1,
+        "difference": -0.5
+      },
+      {
+        "id": "47b986aa-3c55-46d2-8c39-2d105bf3a868",
+        "name": "Alexander Suarez",
+        "date": "2025-08-20",
+        "hours": 8.43,
+        "elapsed": 8.93,
+        "breaks": 0,
+        "net": 8.93,
+        "difference": -0.5
+      },
+      {
+        "id": "487e5507-8757-41bf-9117-e6c81c619451",
+        "name": "Alexander Villarreal",
+        "date": "2025-08-30",
+        "hours": 7.53,
+        "elapsed": 8.06,
+        "breaks": 0,
+        "net": 8.06,
+        "difference": -0.53
+      },
+      {
+        "id": "48d70369-dc7b-44df-9522-54fb8acf604f",
+        "name": "Alexander Suarez",
+        "date": "2025-08-11",
+        "hours": 8.52,
+        "elapsed": 9.03,
+        "breaks": 0,
+        "net": 9.03,
+        "difference": -0.51
+      },
+      {
+        "id": "4a3a8a3a-1b56-4ed4-ab40-403ce5585f31",
+        "name": "Alexander Suarez",
+        "date": "2025-07-09",
+        "hours": 7.99,
+        "elapsed": 8.16,
+        "breaks": 0,
+        "net": 8.16,
+        "difference": -0.17
+      },
+      {
+        "id": "4ad82fc4-d3c4-4d4b-b77e-5ac26e471e7c",
+        "name": "Alexander Suarez",
+        "date": "2025-08-28",
+        "hours": 11.01,
+        "elapsed": 12.04,
+        "breaks": 0,
+        "net": 12.04,
+        "difference": -1.03
+      },
+      {
+        "id": "4b14b65e-f6bb-4ffe-aa99-5651a969f054",
+        "name": "Alexander Villarreal",
+        "date": "2025-08-07",
+        "hours": 8.55,
+        "elapsed": 9.07,
+        "breaks": 0,
+        "net": 9.07,
+        "difference": -0.52
+      },
+      {
+        "id": "4b7f5d45-5bc3-4f88-8f6e-852f2bee2449",
+        "name": "Enrique Navarrete",
+        "date": "2025-11-02",
+        "hours": 9.75,
+        "elapsed": 10.25,
+        "breaks": 0,
+        "net": 10.25,
+        "difference": -0.5
+      },
+      {
+        "id": "4c1b38e4-8c40-4560-be52-9bb07be7f6a3",
+        "name": "Alexander Suarez",
+        "date": "2025-08-29",
+        "hours": 11.08,
+        "elapsed": 12.08,
+        "breaks": 0,
+        "net": 12.08,
+        "difference": -1
+      },
+      {
+        "id": "4c5f452e-cfc3-4c9d-9e09-dc479212a487",
+        "name": "Alexander Villarreal",
+        "date": "2025-12-14",
+        "hours": 8.55,
+        "elapsed": 9.05,
+        "breaks": 0,
+        "net": 9.05,
+        "difference": -0.5
+      },
+      {
+        "id": "4c6651bc-6528-4734-82a9-74ed8d57c13d",
+        "name": "Alexander Suarez",
+        "date": "2025-08-05",
+        "hours": 8.31,
+        "elapsed": 9.01,
+        "breaks": 0,
+        "net": 9.01,
+        "difference": -0.7
+      },
+      {
+        "id": "4cef96ef-d494-4829-8d30-6467775a9c65",
+        "name": "Alexander Suarez",
+        "date": "2025-07-26",
+        "hours": 6.41,
+        "elapsed": 6.94,
+        "breaks": 0,
+        "net": 6.94,
+        "difference": -0.53
+      },
+      {
+        "id": "4d5e0d69-9cef-494e-8b48-c6a73f4ee38d",
+        "name": "Alexander Suarez",
+        "date": "2025-08-21",
+        "hours": 6.52,
+        "elapsed": 7.02,
+        "breaks": 0,
+        "net": 7.02,
+        "difference": -0.5
+      },
+      {
+        "id": "4e791822-66d5-413b-8afa-d00bc8b6ae25",
+        "name": "Enrique Navarrete",
+        "date": "2025-09-28",
+        "hours": 8.5,
+        "elapsed": 9.01,
+        "breaks": 0,
+        "net": 9.01,
+        "difference": -0.51
+      },
+      {
+        "id": "5027c6cc-ec3d-4865-8157-2aa0b82a8e68",
+        "name": "Alexander Villarreal",
+        "date": "2025-08-28",
+        "hours": 8.49,
+        "elapsed": 9.02,
+        "breaks": 0,
+        "net": 9.02,
+        "difference": -0.53
+      },
+      {
+        "id": "503a6436-abc1-4ddf-8c26-8136867e7718",
+        "name": "Enrique Navarrete",
+        "date": "2025-08-07",
+        "hours": 7.59,
+        "elapsed": 8.09,
+        "breaks": 0,
+        "net": 8.09,
+        "difference": -0.5
+      },
+      {
+        "id": "552f562f-82ab-478c-9ee1-e78e4b53f3f4",
+        "name": "Alexander Suarez",
+        "date": "2025-08-12",
+        "hours": 8.5,
+        "elapsed": 9.01,
+        "breaks": 0,
+        "net": 9.01,
+        "difference": -0.51
+      },
+      {
+        "id": "56489847-0e33-45b5-9c6d-b986e48511d0",
+        "name": "Enrique Navarrete",
+        "date": "2025-08-03",
+        "hours": 8.51,
+        "elapsed": 9.01,
+        "breaks": 0,
+        "net": 9.01,
+        "difference": -0.5
+      },
+      {
+        "id": "568b266f-fcf8-4b20-8495-47fae3e02869",
+        "name": "Enrique Navarrete",
+        "date": "2025-11-12",
+        "hours": 5.42,
+        "elapsed": 5.93,
+        "breaks": 0,
+        "net": 5.93,
+        "difference": -0.51
+      },
+      {
+        "id": "571ee064-4288-48da-b3b6-aa9d988f530b",
+        "name": "Alexander Villarreal",
+        "date": "2025-11-13",
+        "hours": 8.48,
+        "elapsed": 9.01,
+        "breaks": 0,
+        "net": 9.01,
+        "difference": -0.53
+      },
+      {
+        "id": "581613b8-f87a-400c-8967-46d715994152",
+        "name": "Alexander Villarreal",
+        "date": "2025-09-22",
+        "hours": 8.49,
+        "elapsed": 9,
+        "breaks": 0,
+        "net": 9,
+        "difference": -0.51
+      },
+      {
+        "id": "59b0ecd4-3bef-4909-b784-df1f4a8d5c03",
+        "name": "Alexander Villarreal",
+        "date": "2025-07-17",
+        "hours": 8.55,
+        "elapsed": 9.07,
+        "breaks": 0,
+        "net": 9.07,
+        "difference": -0.52
+      },
+      {
+        "id": "59fe45aa-8532-4b7f-86c2-8758bd8b2d01",
+        "name": "Alexander Villarreal",
+        "date": "2025-09-25",
+        "hours": 8.52,
+        "elapsed": 9.03,
+        "breaks": 0,
+        "net": 9.03,
+        "difference": -0.51
+      },
+      {
+        "id": "5b88f658-a850-4094-84b1-f63f9ded2f23",
+        "name": "Enrique Navarrete",
+        "date": "2025-09-09",
+        "hours": 8.06,
+        "elapsed": 8.56,
+        "breaks": 0,
+        "net": 8.56,
+        "difference": -0.5
+      },
+      {
+        "id": "5bb6de6c-91ef-412f-b2ef-a4426073725d",
+        "name": "Enrique Navarrete",
+        "date": "2025-09-11",
+        "hours": 7.59,
+        "elapsed": 8.1,
+        "breaks": 0,
+        "net": 8.1,
+        "difference": -0.51
+      },
+      {
+        "id": "5bcdca71-9f44-4de8-86ea-771f173ddae2",
+        "name": "Enrique Navarrete",
+        "date": "2025-08-05",
+        "hours": 7.52,
+        "elapsed": 8.02,
+        "breaks": 0,
+        "net": 8.02,
+        "difference": -0.5
+      },
+      {
+        "id": "5d0ba414-7560-4631-a17e-4bb94d84b083",
+        "name": "Alexander Villarreal",
+        "date": "2025-11-04",
+        "hours": 8.52,
+        "elapsed": 9.03,
+        "breaks": 0,
+        "net": 9.03,
+        "difference": -0.51
+      },
+      {
+        "id": "5de37376-24bd-4eba-9158-f209498316a5",
+        "name": "Enrique Navarrete",
+        "date": "2025-08-01",
+        "hours": 7.51,
+        "elapsed": 8.02,
+        "breaks": 0,
+        "net": 8.02,
+        "difference": -0.51
+      },
+      {
+        "id": "5e20378b-8b06-405e-923c-35ba736cb65f",
+        "name": "Alexander Villarreal",
+        "date": "2025-10-19",
+        "hours": 8.5,
+        "elapsed": 9.01,
+        "breaks": 0,
+        "net": 9.01,
+        "difference": -0.51
+      },
+      {
+        "id": "5e9b8939-b89d-4b14-a348-083bb33ee22d",
+        "name": "Alexander Villarreal",
+        "date": "2025-09-28",
+        "hours": 8.5,
+        "elapsed": 9.01,
+        "breaks": 0,
+        "net": 9.01,
+        "difference": -0.51
+      },
+      {
+        "id": "5ec4ea91-2ec5-4b60-b35f-7a09c57e89a2",
+        "name": "Enrique Navarrete",
+        "date": "2025-09-27",
+        "hours": 8.58,
+        "elapsed": 9.08,
+        "breaks": 0,
+        "net": 9.08,
+        "difference": -0.5
+      },
+      {
+        "id": "5f75eb83-20c9-4b94-8a62-7cae0335d9d0",
+        "name": "Enrique Navarrete",
+        "date": "2025-11-22",
+        "hours": 8.94,
+        "elapsed": 9.45,
+        "breaks": 0,
+        "net": 9.45,
+        "difference": -0.51
+      },
+      {
+        "id": "603b28fa-2ef6-424d-89be-a82e6d6bfafb",
+        "name": "Alexander Villarreal",
+        "date": "2025-07-29",
+        "hours": 7.81,
+        "elapsed": 8.32,
+        "breaks": 0,
+        "net": 8.32,
+        "difference": -0.51
+      },
+      {
+        "id": "60542fbf-f30d-4e79-8088-32f42c78a2eb",
+        "name": "Enrique Navarrete",
+        "date": "2025-11-10",
+        "hours": 6.97,
+        "elapsed": 7.49,
+        "breaks": 0,
+        "net": 7.49,
+        "difference": -0.52
+      },
+      {
+        "id": "605e9ee2-082e-4a3a-8696-32ab730346a4",
+        "name": "Alexander Villarreal",
+        "date": "2025-09-15",
+        "hours": 8.44,
+        "elapsed": 9.05,
+        "breaks": 0,
+        "net": 9.05,
+        "difference": -0.61
+      },
+      {
+        "id": "60a7d8e9-2170-4d38-9f83-28519058c076",
+        "name": "Alexander Villarreal",
+        "date": "2025-11-16",
+        "hours": 9.53,
+        "elapsed": 10.04,
+        "breaks": 0,
+        "net": 10.04,
+        "difference": -0.51
+      },
+      {
+        "id": "60f3ef5b-59b3-47bf-9bd2-e886430cc2eb",
+        "name": "Enrique Navarrete",
+        "date": "2025-09-18",
+        "hours": 7.53,
+        "elapsed": 8.06,
+        "breaks": 0,
+        "net": 8.06,
+        "difference": -0.53
+      },
+      {
+        "id": "61fe0d0b-461e-434f-91ba-bcf93a1984a7",
+        "name": "Alexander Suarez",
+        "date": "2025-07-03",
+        "hours": 6.47,
+        "elapsed": 7,
+        "breaks": 0,
+        "net": 7,
+        "difference": -0.53
+      },
+      {
+        "id": "6335d613-bd31-4a4d-8fbf-3f72379d96fd",
+        "name": "Alexander Villarreal",
+        "date": "2025-09-14",
+        "hours": 8.53,
+        "elapsed": 9.04,
+        "breaks": 0,
+        "net": 9.04,
+        "difference": -0.51
+      },
+      {
+        "id": "634e2213-ee1e-457a-8796-44aff3728185",
+        "name": "Alexander Villarreal",
+        "date": "2025-11-02",
+        "hours": 13.92,
+        "elapsed": 15.03,
+        "breaks": 0,
+        "net": 15.03,
+        "difference": -1.11
+      },
+      {
+        "id": "638aa6f0-9076-4390-b561-c20696efacd7",
+        "name": "Enrique Navarrete",
+        "date": "2025-10-20",
+        "hours": 7.6,
+        "elapsed": 8.1,
+        "breaks": 0,
+        "net": 8.1,
+        "difference": -0.5
+      },
+      {
+        "id": "649f8941-a26b-4dba-ad68-89c199dd8434",
+        "name": "Alexander Villarreal",
+        "date": "2025-07-03",
+        "hours": 8.51,
+        "elapsed": 9.02,
+        "breaks": 0,
+        "net": 9.02,
+        "difference": -0.51
+      },
+      {
+        "id": "64ad1232-f449-4ce4-be24-c25941bb51cc",
+        "name": "Alexander Villarreal",
+        "date": "2025-12-12",
+        "hours": 8.48,
+        "elapsed": 9.01,
+        "breaks": 0,
+        "net": 9.01,
+        "difference": -0.53
+      },
+      {
+        "id": "64c56ab9-b978-48ce-92c4-578bcd4538f6",
+        "name": "Enrique Navarrete",
+        "date": "2025-11-15",
+        "hours": 8.55,
+        "elapsed": 9.06,
+        "breaks": 0,
+        "net": 9.06,
+        "difference": -0.51
+      },
+      {
+        "id": "6508cb0b-5651-4185-8f78-b623f52f006f",
+        "name": "Alexander Villarreal",
+        "date": "2025-08-14",
+        "hours": 8.01,
+        "elapsed": 8.53,
+        "breaks": 0,
+        "net": 8.53,
+        "difference": -0.52
+      },
+      {
+        "id": "65bc0783-3990-455e-87d8-63c7816c9dea",
+        "name": "Enrique Navarrete",
+        "date": "2025-07-31",
+        "hours": 7.53,
+        "elapsed": 8.04,
+        "breaks": 0,
+        "net": 8.04,
+        "difference": -0.51
+      },
+      {
+        "id": "6687708f-8e91-411a-8f4a-d537c5b097e9",
+        "name": "Enrique Navarrete",
+        "date": "2025-09-14",
+        "hours": 8.56,
+        "elapsed": 9.07,
+        "breaks": 0,
+        "net": 9.07,
+        "difference": -0.51
+      },
+      {
+        "id": "66a91a1d-2b2f-4399-957a-b7544e015f9d",
+        "name": "Alexander Villarreal",
+        "date": "2025-10-05",
+        "hours": 8.14,
+        "elapsed": 8.65,
+        "breaks": 0,
+        "net": 8.65,
+        "difference": -0.51
+      },
+      {
+        "id": "67562cc4-8db0-4248-b980-28dd53c4d925",
+        "name": "Alexander Suarez",
+        "date": "2025-07-28",
+        "hours": 6.57,
+        "elapsed": 7.09,
+        "breaks": 0,
+        "net": 7.09,
+        "difference": -0.52
+      },
+      {
+        "id": "67c23365-72de-4b7e-867a-ef82943aaca6",
+        "name": "Alexander Suarez",
+        "date": "2025-08-04",
+        "hours": 8.51,
+        "elapsed": 9.03,
+        "breaks": 0,
+        "net": 9.03,
+        "difference": -0.52
+      },
+      {
+        "id": "6a58c32e-aabb-479b-98a3-5f246b30d68d",
+        "name": "Enrique Navarrete",
+        "date": "2025-09-26",
+        "hours": 7.57,
+        "elapsed": 8.07,
+        "breaks": 0,
+        "net": 8.07,
+        "difference": -0.5
+      },
+      {
+        "id": "6a85301c-97b7-41d1-8422-ae8c47139d8f",
+        "name": "Enrique Navarrete",
+        "date": "2025-07-25",
+        "hours": 7.56,
+        "elapsed": 8.06,
+        "breaks": 0,
+        "net": 8.06,
+        "difference": -0.5
+      },
+      {
+        "id": "6cb22831-fd58-408a-afce-6cfb7d3278f7",
+        "name": "Enrique Navarrete",
+        "date": "2025-08-25",
+        "hours": 7.57,
+        "elapsed": 8.07,
+        "breaks": 0,
+        "net": 8.07,
+        "difference": -0.5
+      },
+      {
+        "id": "6f68674a-6290-443d-b8e9-0691a95320d9",
+        "name": "Alexander Villarreal",
+        "date": "2025-06-28",
+        "hours": 7.52,
+        "elapsed": 8.03,
+        "breaks": 0,
+        "net": 8.03,
+        "difference": -0.51
+      },
+      {
+        "id": "6f99a909-b2f9-4e2b-9cde-c29db9c20ce8",
+        "name": "Enrique Navarrete",
+        "date": "2025-09-19",
+        "hours": 7.6,
+        "elapsed": 8.1,
+        "breaks": 0,
+        "net": 8.1,
+        "difference": -0.5
+      },
+      {
+        "id": "71934a0f-a2b3-4f18-bcf8-3a7c48c1c688",
+        "name": "Alexander Suarez",
+        "date": "2025-07-19",
+        "hours": 7.64,
+        "elapsed": 8.16,
+        "breaks": 0,
+        "net": 8.16,
+        "difference": -0.52
+      },
+      {
+        "id": "72d60b95-74f5-4c26-9ceb-6087a83a94b7",
+        "name": "Enrique Navarrete",
+        "date": "2025-12-18",
+        "hours": 7.56,
+        "elapsed": 8.07,
+        "breaks": 0,
+        "net": 8.07,
+        "difference": -0.51
+      },
+      {
+        "id": "7326abef-e10a-4d5b-aa54-682099151a0c",
+        "name": "Alexander Suarez",
+        "date": "2025-07-02",
+        "hours": 8.57,
+        "elapsed": 9.07,
+        "breaks": 0,
+        "net": 9.07,
+        "difference": -0.5
+      },
+      {
+        "id": "740ad39a-62ac-47fa-bea9-fa4ce2b0b72d",
+        "name": "Enrique Navarrete",
+        "date": "2025-07-01",
+        "hours": 6.84,
+        "elapsed": 7.35,
+        "breaks": 0,
+        "net": 7.35,
+        "difference": -0.51
+      },
+      {
+        "id": "76b7b7c7-ed41-49c9-8b64-523e21a3bbe7",
+        "name": "Alexander Villarreal",
+        "date": "2025-10-12",
+        "hours": 8.51,
+        "elapsed": 9.03,
+        "breaks": 0,
+        "net": 9.03,
+        "difference": -0.52
+      },
+      {
+        "id": "76e4314c-d247-4929-8452-9d2c4dd04c3f",
+        "name": "Alexander Suarez",
+        "date": "2025-06-26",
+        "hours": 5.55,
+        "elapsed": 6.05,
+        "breaks": 0,
+        "net": 6.05,
+        "difference": -0.5
+      },
+      {
+        "id": "781a151e-7361-43b6-9039-8cc64b892f03",
+        "name": "Alexander Suarez",
+        "date": "2025-08-03",
+        "hours": 4.57,
+        "elapsed": 5.07,
+        "breaks": 0,
+        "net": 5.07,
+        "difference": -0.5
+      },
+      {
+        "id": "78636ecf-1f2c-4279-b816-918d06e8f283",
+        "name": "Enrique Navarrete",
+        "date": "2025-08-31",
+        "hours": 8.52,
+        "elapsed": 9.02,
+        "breaks": 0,
+        "net": 9.02,
+        "difference": -0.5
+      },
+      {
+        "id": "786fb44b-d50c-4b3e-bd75-a9ec189d609c",
+        "name": "Alexander Villarreal",
+        "date": "2025-12-05",
+        "hours": 8.47,
+        "elapsed": 8.99,
+        "breaks": 0,
+        "net": 8.99,
+        "difference": -0.52
+      },
+      {
+        "id": "79186bb7-eec3-434a-b833-4e02018ca431",
+        "name": "Enrique Navarrete",
+        "date": "2025-12-16",
+        "hours": 7.58,
+        "elapsed": 8.08,
+        "breaks": 0,
+        "net": 8.08,
+        "difference": -0.5
+      },
+      {
+        "id": "79855d80-ed9e-4647-877e-5a59a8876059",
+        "name": "Alexander Villarreal",
+        "date": "2025-07-27",
+        "hours": 8.54,
+        "elapsed": 9.07,
+        "breaks": 0,
+        "net": 9.07,
+        "difference": -0.53
+      },
+      {
+        "id": "7a1405b0-0b1d-4ccd-9105-c5f7b2243eed",
+        "name": "Enrique Navarrete",
+        "date": "2025-07-07",
+        "hours": 7.59,
+        "elapsed": 8.11,
+        "breaks": 0,
+        "net": 8.11,
+        "difference": -0.52
+      },
+      {
+        "id": "7b36094b-b948-4bbc-bc54-1778d4a47927",
+        "name": "Alexander Suarez",
+        "date": "2025-07-07",
+        "hours": 8.51,
+        "elapsed": 9.02,
+        "breaks": 0,
+        "net": 9.02,
+        "difference": -0.51
+      },
+      {
+        "id": "7b5f3088-d8f2-4b14-a55e-23af9cb280f2",
+        "name": "Alexander Villarreal",
+        "date": "2025-09-01",
+        "hours": 8.58,
+        "elapsed": 9.09,
+        "breaks": 0,
+        "net": 9.09,
+        "difference": -0.51
+      },
+      {
+        "id": "7ba98190-b10f-4567-8092-2084f1541c33",
+        "name": "Enrique Navarrete",
+        "date": "2025-10-25",
+        "hours": 8.66,
+        "elapsed": 9.16,
+        "breaks": 0,
+        "net": 9.16,
+        "difference": -0.5
+      },
+      {
+        "id": "7bda3699-d78e-422f-bd90-9d8692caa508",
+        "name": "Alexander Suarez",
+        "date": "2025-06-25",
+        "hours": 8.51,
+        "elapsed": 9.02,
+        "breaks": 0,
+        "net": 9.02,
+        "difference": -0.51
+      },
+      {
+        "id": "7be8821c-c85f-4b8d-b1d1-04401a856eec",
+        "name": "Alexander Suarez",
+        "date": "2025-07-23",
+        "hours": 6.55,
+        "elapsed": 7.07,
+        "breaks": 0,
+        "net": 7.07,
+        "difference": -0.52
+      },
+      {
+        "id": "7cf6ad15-59ca-4a54-ad7a-5cd6c7d1cb5f",
+        "name": "Enrique Navarrete",
+        "date": "2025-07-11",
+        "hours": 7.54,
+        "elapsed": 8.05,
+        "breaks": 0,
+        "net": 8.05,
+        "difference": -0.51
+      },
+      {
+        "id": "7d682991-a5c2-4cba-be84-db1ff894e982",
+        "name": "Alexander Suarez",
+        "date": "2025-07-15",
+        "hours": 8.52,
+        "elapsed": 9.02,
+        "breaks": 0,
+        "net": 9.02,
+        "difference": -0.5
+      },
+      {
+        "id": "7d89135f-4c84-4c95-b58e-25ea6b72040f",
+        "name": "Enrique Navarrete",
+        "date": "2025-08-18",
+        "hours": 6.31,
+        "elapsed": 6.82,
+        "breaks": 0,
+        "net": 6.82,
+        "difference": -0.51
+      },
+      {
+        "id": "7f9d0a78-88b6-4e20-bc9e-ce59f6ba9bec",
+        "name": "Enrique Navarrete",
+        "date": "2025-10-27",
+        "hours": 7.57,
+        "elapsed": 8.09,
+        "breaks": 0,
+        "net": 8.09,
+        "difference": -0.52
+      },
+      {
+        "id": "8017fa1a-0db7-4f08-a51f-9a204fd2cf2e",
+        "name": "Enrique Navarrete",
+        "date": "2025-11-21",
+        "hours": 7.57,
+        "elapsed": 8.07,
+        "breaks": 0,
+        "net": 8.07,
+        "difference": -0.5
+      },
+      {
+        "id": "80217cee-ecac-471e-9516-9df1a3b2a46d",
+        "name": "Enrique Navarrete",
+        "date": "2025-07-10",
+        "hours": 7.66,
+        "elapsed": 8.16,
+        "breaks": 0,
+        "net": 8.16,
+        "difference": -0.5
+      },
+      {
+        "id": "80e3c5eb-2a76-4a24-b5a6-171a5a22ef7a",
+        "name": "Alexander Villarreal",
+        "date": "2025-12-08",
+        "hours": 8.5,
+        "elapsed": 9.01,
+        "breaks": 0,
+        "net": 9.01,
+        "difference": -0.51
+      },
+      {
+        "id": "80e4a738-cc84-4af3-b900-bd4cc5a50b2d",
+        "name": "Enrique Navarrete",
+        "date": "2025-12-05",
+        "hours": 7.54,
+        "elapsed": 8.04,
+        "breaks": 0,
+        "net": 8.04,
+        "difference": -0.5
+      },
+      {
+        "id": "8108e524-6948-401a-ad3b-10e29875cf44",
+        "name": "Enrique Navarrete",
+        "date": "2025-09-08",
+        "hours": 7.61,
+        "elapsed": 8.12,
+        "breaks": 0,
+        "net": 8.12,
+        "difference": -0.51
+      },
+      {
+        "id": "8250b8b9-74e2-470a-bfaa-96ae2982f3d9",
+        "name": "Alexander Villarreal",
+        "date": "2025-11-22",
+        "hours": 8.89,
+        "elapsed": 9.41,
+        "breaks": 0,
+        "net": 9.41,
+        "difference": -0.52
+      },
+      {
+        "id": "82c6cfc3-e739-439e-9407-bc0a92f2a24d",
+        "name": "Alexander Villarreal",
+        "date": "2025-11-24",
+        "hours": 8.54,
+        "elapsed": 9.05,
+        "breaks": 0,
+        "net": 9.05,
+        "difference": -0.51
+      },
+      {
+        "id": "841ac5e6-3dd7-4723-9a03-a4a64144c706",
+        "name": "Enrique Navarrete",
+        "date": "2025-12-21",
+        "hours": 8.51,
+        "elapsed": 9.01,
+        "breaks": 0,
+        "net": 9.01,
+        "difference": -0.5
+      },
+      {
+        "id": "84545c55-e1fe-44bc-b26e-3b07b8bc1535",
+        "name": "Alexander Villarreal",
+        "date": "2025-08-15",
+        "hours": 8.61,
+        "elapsed": 9.13,
+        "breaks": 0,
+        "net": 9.13,
+        "difference": -0.52
+      },
+      {
+        "id": "84847143-abd6-4f65-9dcd-580d0d385245",
+        "name": "Alexander Villarreal",
+        "date": "2025-11-29",
+        "hours": 8.54,
+        "elapsed": 9.05,
+        "breaks": 0,
+        "net": 9.05,
+        "difference": -0.51
+      },
+      {
+        "id": "85661fc8-264c-4b25-a509-7ebedc75a9e1",
+        "name": "Alexander Villarreal",
+        "date": "2025-07-06",
+        "hours": 8.579999999999998,
+        "elapsed": 9.09,
+        "breaks": 0,
+        "net": 9.09,
+        "difference": -0.51
+      },
+      {
+        "id": "876eca10-2672-4e90-8f72-9c1045a3315b",
+        "name": "Enrique Navarrete",
+        "date": "2025-07-12",
+        "hours": 8.63,
+        "elapsed": 9.14,
+        "breaks": 0,
+        "net": 9.14,
+        "difference": -0.51
+      },
+      {
+        "id": "87a60407-dc16-410b-8054-fb4c83935e38",
+        "name": "Alexander Villarreal",
+        "date": "2025-11-25",
+        "hours": 8.52,
+        "elapsed": 9.02,
+        "breaks": 0,
+        "net": 9.02,
+        "difference": -0.5
+      },
+      {
+        "id": "881e9ebe-20ee-4c37-b1b6-5f45add534d8",
+        "name": "Enrique Navarrete",
+        "date": "2025-07-05",
+        "hours": 8.59,
+        "elapsed": 9.11,
+        "breaks": 0,
+        "net": 9.11,
+        "difference": -0.52
+      },
+      {
+        "id": "884d0609-4306-4bc0-addf-dc184a8fc357",
+        "name": "Alexander Villarreal",
+        "date": "2025-11-17",
+        "hours": 8.59,
+        "elapsed": 9.1,
+        "breaks": 0,
+        "net": 9.1,
+        "difference": -0.51
+      },
+      {
+        "id": "8854ee96-bfff-4828-94d3-b181c2801afe",
+        "name": "Alexander Suarez",
+        "date": "2025-06-23",
+        "hours": 8.54,
+        "elapsed": 9.04,
+        "breaks": 0,
+        "net": 9.04,
+        "difference": -0.5
+      },
+      {
+        "id": "8aaa2374-061d-4397-a591-e07be1e05373",
+        "name": "Enrique Navarrete",
+        "date": "2025-12-09",
+        "hours": 7.55,
+        "elapsed": 8.07,
+        "breaks": 0,
+        "net": 8.07,
+        "difference": -0.52
+      },
+      {
+        "id": "8b50579e-9afe-419c-9c19-8f57cbcb76ae",
+        "name": "Alexander Villarreal",
+        "date": "2025-11-03",
+        "hours": 8.52,
+        "elapsed": 9.04,
+        "breaks": 0,
+        "net": 9.04,
+        "difference": -0.52
+      },
+      {
+        "id": "8ba3b4d2-bdfa-4e68-80f9-627cc5dc83cc",
+        "name": "Enrique Navarrete",
+        "date": "2025-08-24",
+        "hours": 8.49,
+        "elapsed": 9.02,
+        "breaks": 0,
+        "net": 9.02,
+        "difference": -0.53
+      },
+      {
+        "id": "8cb85a4f-adcc-415c-891a-0a3c18a91f51",
+        "name": "Alexander Suarez",
+        "date": "2025-09-14",
+        "hours": 11.46,
+        "elapsed": 11.98,
+        "breaks": 0,
+        "net": 11.98,
+        "difference": -0.52
+      },
+      {
+        "id": "8d885822-1d68-47fa-bb08-b235c246f7ef",
+        "name": "Alexander Suarez",
+        "date": "2025-09-02",
+        "hours": 7.96,
+        "elapsed": 9.01,
+        "breaks": 0,
+        "net": 9.01,
+        "difference": -1.05
+      },
+      {
+        "id": "8d9023f0-bcff-4680-a5df-574d572ffa2f",
+        "name": "Alexander Villarreal",
+        "date": "2025-12-13",
+        "hours": 8.47,
+        "elapsed": 8.98,
+        "breaks": 0,
+        "net": 8.98,
+        "difference": -0.51
+      },
+      {
+        "id": "8f21b39b-bf3e-40c5-be8d-d72de922d728",
+        "name": "Alexander Villarreal",
+        "date": "2025-10-02",
+        "hours": 8.51,
+        "elapsed": 9.02,
+        "breaks": 0,
+        "net": 9.02,
+        "difference": -0.51
+      },
+      {
+        "id": "91576dc5-8c22-4d84-8e59-2b440aa470ba",
+        "name": "Alexander Suarez",
+        "date": "2025-08-13",
+        "hours": 6.55,
+        "elapsed": 7.05,
+        "breaks": 0,
+        "net": 7.05,
+        "difference": -0.5
+      },
+      {
+        "id": "91a93dab-cb83-4a9c-aa55-e54329ee4a4b",
+        "name": "Alexander Villarreal",
+        "date": "2025-07-20",
+        "hours": 8.549999999999999,
+        "elapsed": 9.06,
+        "breaks": 0,
+        "net": 9.06,
+        "difference": -0.51
+      },
+      {
+        "id": "91e26e04-1108-4e98-9d93-9419e4ce6819",
+        "name": "Alexander Villarreal",
+        "date": "2025-07-21",
+        "hours": 8.48,
+        "elapsed": 8.99,
+        "breaks": 0,
+        "net": 8.99,
+        "difference": -0.51
+      },
+      {
+        "id": "92508611-df21-4252-9598-dd6fb91ccb9f",
+        "name": "Alexander Villarreal",
+        "date": "2025-08-05",
+        "hours": 11.46,
+        "elapsed": 11.97,
+        "breaks": 0,
+        "net": 11.97,
+        "difference": -0.51
+      },
+      {
+        "id": "93205b26-33e9-4da8-aa3a-493abd8d4391",
+        "name": "Enrique Navarrete",
+        "date": "2025-08-21",
+        "hours": 7.59,
+        "elapsed": 8.09,
+        "breaks": 0,
+        "net": 8.09,
+        "difference": -0.5
+      },
+      {
+        "id": "93ee8823-1957-4020-a85f-c92ab11cf6e7",
+        "name": "Enrique Navarrete",
+        "date": "2025-12-06",
+        "hours": 8.5,
+        "elapsed": 9.01,
+        "breaks": 0,
+        "net": 9.01,
+        "difference": -0.51
+      },
+      {
+        "id": "93f86340-0989-4e23-8424-ca7d0addd402",
+        "name": "Alexander Villarreal",
+        "date": "2025-09-16",
+        "hours": 8.5,
+        "elapsed": 9.01,
+        "breaks": 0,
+        "net": 9.01,
+        "difference": -0.51
+      },
+      {
+        "id": "940a83f6-3c3c-44a4-a09f-7480410366a5",
+        "name": "Alexander Villarreal",
+        "date": "2025-08-10",
+        "hours": 8.52,
+        "elapsed": 9.04,
+        "breaks": 0,
+        "net": 9.04,
+        "difference": -0.52
+      },
+      {
+        "id": "95560d9b-6c9b-448e-9638-50c74cf9c613",
+        "name": "Enrique Navarrete",
+        "date": "2025-06-24",
+        "hours": 9.5,
+        "elapsed": 10.01,
+        "breaks": 0,
+        "net": 10.01,
+        "difference": -0.51
+      },
+      {
+        "id": "95850e62-5944-400e-a6c1-723ee67c10d5",
+        "name": "Alexander Villarreal",
+        "date": "2025-08-23",
+        "hours": 13.969999999999999,
+        "elapsed": 15.01,
+        "breaks": 0,
+        "net": 15.01,
+        "difference": -1.04
+      },
+      {
+        "id": "96036191-8bbc-4143-95d8-a26435a9212a",
+        "name": "Alexander Villarreal",
+        "date": "2025-08-18",
+        "hours": 8.59,
+        "elapsed": 9.12,
+        "breaks": 0,
+        "net": 9.12,
+        "difference": -0.53
+      },
+      {
+        "id": "963a7a61-145f-47b1-9f79-8a4c0c5821b0",
+        "name": "Alexander Villarreal",
+        "date": "2025-08-12",
+        "hours": 7.56,
+        "elapsed": 8.08,
+        "breaks": 0,
+        "net": 8.08,
+        "difference": -0.52
+      },
+      {
+        "id": "97347a8f-3dc2-4614-b8c4-9f94c8f1d47d",
+        "name": "Enrique Navarrete",
+        "date": "2025-11-06",
+        "hours": 7.59,
+        "elapsed": 8.09,
+        "breaks": 0,
+        "net": 8.09,
+        "difference": -0.5
+      },
+      {
+        "id": "975d656c-9376-4bf3-92c3-9a929319ec18",
+        "name": "Alexander Villarreal",
+        "date": "2025-09-08",
+        "hours": 8.49,
+        "elapsed": 9.02,
+        "breaks": 0,
+        "net": 9.02,
+        "difference": -0.53
+      },
+      {
+        "id": "987a3873-66e2-4a89-9c41-5ca28637acb8",
+        "name": "Enrique Navarrete",
+        "date": "2025-10-01",
+        "hours": 8.13,
+        "elapsed": 8.64,
+        "breaks": 0,
+        "net": 8.64,
+        "difference": -0.51
+      },
+      {
+        "id": "99e79f78-6d8f-4d4b-822e-3d5ff9f74747",
+        "name": "Alexander Villarreal",
+        "date": "2025-07-25",
+        "hours": 8.54,
+        "elapsed": 9.05,
+        "breaks": 0,
+        "net": 9.05,
+        "difference": -0.51
+      },
+      {
+        "id": "9a440bdb-9a5b-448d-8dc3-51a562719525",
+        "name": "Enrique Navarrete",
+        "date": "2025-11-11",
+        "hours": 7.72,
+        "elapsed": 8.24,
+        "breaks": 0,
+        "net": 8.24,
+        "difference": -0.52
+      },
+      {
+        "id": "9bb36897-e22d-4547-b8f0-4ac5d2427a7f",
+        "name": "Alexander Villarreal",
+        "date": "2025-10-14",
+        "hours": 8.49,
+        "elapsed": 9,
+        "breaks": 0,
+        "net": 9,
+        "difference": -0.51
+      },
+      {
+        "id": "9c43653a-5dc5-463f-a194-208d9e7d0127",
+        "name": "Enrique Navarrete",
+        "date": "2025-10-03",
+        "hours": 11.45,
+        "elapsed": 11.95,
+        "breaks": 0,
+        "net": 11.95,
+        "difference": -0.5
+      },
+      {
+        "id": "9c85fe03-8f69-4fc2-b326-679037c8090c",
+        "name": "Enrique Navarrete",
+        "date": "2025-09-21",
+        "hours": 8.62,
+        "elapsed": 9.12,
+        "breaks": 0,
+        "net": 9.12,
+        "difference": -0.5
+      },
+      {
+        "id": "9c93a13f-94e5-47ec-b8c1-cfe5b8d39454",
+        "name": "Enrique Navarrete",
+        "date": "2025-07-19",
+        "hours": 8.64,
+        "elapsed": 9.18,
+        "breaks": 0,
+        "net": 9.18,
+        "difference": -0.54
+      },
+      {
+        "id": "9cdae6cb-4de1-4898-918f-a57860fac11e",
+        "name": "Alexander Villarreal",
+        "date": "2025-09-30",
+        "hours": 8.52,
+        "elapsed": 9.02,
+        "breaks": 0,
+        "net": 9.02,
+        "difference": -0.5
+      },
+      {
+        "id": "9f0dd3ea-e5e2-47ef-9236-9fef24f6cabd",
+        "name": "Alexander Villarreal",
+        "date": "2025-12-15",
+        "hours": 8.49,
+        "elapsed": 9.01,
+        "breaks": 0,
+        "net": 9.01,
+        "difference": -0.52
+      },
+      {
+        "id": "a0988793-5744-41ba-8176-59ba9b905ab8",
+        "name": "Alexander Villarreal",
+        "date": "2025-12-28",
+        "hours": 7.54,
+        "elapsed": 8.05,
+        "breaks": 0,
+        "net": 8.05,
+        "difference": -0.51
+      },
+      {
+        "id": "a1667cb6-ebb9-4899-9d59-39759a064aa7",
+        "name": "Enrique Navarrete",
+        "date": "2025-08-08",
+        "hours": 7.47,
+        "elapsed": 7.98,
+        "breaks": 0,
+        "net": 7.98,
+        "difference": -0.51
+      },
+      {
+        "id": "a2d214b2-2410-49fd-933d-2275ac2a5906",
+        "name": "Alexander Villarreal",
+        "date": "2025-07-05",
+        "hours": 8.59,
+        "elapsed": 9.12,
+        "breaks": 0,
+        "net": 9.12,
+        "difference": -0.53
+      },
+      {
+        "id": "a2ef26ce-7a37-4675-aa8e-4a8908058dbd",
+        "name": "Alexander Villarreal",
+        "date": "2025-12-22",
+        "hours": 7.62,
+        "elapsed": 8.13,
+        "breaks": 0,
+        "net": 8.13,
+        "difference": -0.51
+      },
+      {
+        "id": "a32fb6ae-8c92-45ba-93bf-c49b892d018e",
+        "name": "Enrique Navarrete",
+        "date": "2025-08-04",
+        "hours": 7.53,
+        "elapsed": 8.04,
+        "breaks": 0,
+        "net": 8.04,
+        "difference": -0.51
+      },
+      {
+        "id": "a34dd487-b98f-4afd-a084-6516b3223a50",
+        "name": "Alexander Villarreal",
+        "date": "2025-12-09",
+        "hours": 8.51,
+        "elapsed": 9.02,
+        "breaks": 0,
+        "net": 9.02,
+        "difference": -0.51
+      },
+      {
+        "id": "a466272a-0677-411f-a4a8-cfab7df53360",
+        "name": "Enrique Navarrete",
+        "date": "2025-09-17",
+        "hours": 7.58,
+        "elapsed": 8.09,
+        "breaks": 0,
+        "net": 8.09,
+        "difference": -0.51
+      },
+      {
+        "id": "a51a64d1-2f96-458a-bec5-7f3a5c63df00",
+        "name": "Alexander Suarez",
+        "date": "2025-09-16",
+        "hours": 10.91,
+        "elapsed": 11.96,
+        "breaks": 0,
+        "net": 11.96,
+        "difference": -1.05
+      },
+      {
+        "id": "a6285bc0-2203-4c69-93b3-963a147ae9eb",
+        "name": "Enrique Navarrete",
+        "date": "2025-09-16",
+        "hours": 7.55,
+        "elapsed": 8.06,
+        "breaks": 0,
+        "net": 8.06,
+        "difference": -0.51
+      },
+      {
+        "id": "a6c8635b-1697-4aca-88d7-7dd7ef025b76",
+        "name": "Alexander Villarreal",
+        "date": "2025-12-16",
+        "hours": 8.33,
+        "elapsed": 8.84,
+        "breaks": 0,
+        "net": 8.84,
+        "difference": -0.51
+      },
+      {
+        "id": "a6d2df3b-9466-465f-bf8a-9c5145fd3047",
+        "name": "Enrique Navarrete",
+        "date": "2025-06-23",
+        "hours": 7.6,
+        "elapsed": 8.11,
+        "breaks": 0,
+        "net": 8.11,
+        "difference": -0.51
+      },
+      {
+        "id": "a7096ca5-80e2-4c31-951e-0defa6e39c51",
+        "name": "Enrique Navarrete",
+        "date": "2025-10-11",
+        "hours": 8.61,
+        "elapsed": 9.14,
+        "breaks": 0,
+        "net": 9.14,
+        "difference": -0.53
+      },
+      {
+        "id": "a70bb969-a34a-4d07-a3e4-12fbecdb5d7b",
+        "name": "Alexander Villarreal",
+        "date": "2025-10-03",
+        "hours": 8.73,
+        "elapsed": 9.24,
+        "breaks": 0,
+        "net": 9.24,
+        "difference": -0.51
+      },
+      {
+        "id": "a734da12-a096-4664-8658-e3a51a8be519",
+        "name": "Alexander Villarreal",
+        "date": "2025-09-18",
+        "hours": 8.54,
+        "elapsed": 9.04,
+        "breaks": 0,
+        "net": 9.04,
+        "difference": -0.5
+      },
+      {
+        "id": "a7b37b49-8554-4441-a261-7ff2b0adfb50",
+        "name": "Alexander Villarreal",
+        "date": "2025-12-06",
+        "hours": 8.46,
+        "elapsed": 8.98,
+        "breaks": 0,
+        "net": 8.98,
+        "difference": -0.52
+      },
+      {
+        "id": "a8459fb4-44d3-4d4d-8717-130f189d19bf",
+        "name": "Alexander Villarreal",
+        "date": "2025-10-18",
+        "hours": 8.51,
+        "elapsed": 9.02,
+        "breaks": 0,
+        "net": 9.02,
+        "difference": -0.51
+      },
+      {
+        "id": "a9b16f9b-86a7-4cab-b912-376584d47730",
+        "name": "Alexander Villarreal",
+        "date": "2025-09-12",
+        "hours": 8.46,
+        "elapsed": 8.98,
+        "breaks": 0,
+        "net": 8.98,
+        "difference": -0.52
+      },
+      {
+        "id": "aa358354-e239-4d16-9555-3c36496d5682",
+        "name": "Alexander Suarez",
+        "date": "2025-08-09",
+        "hours": 8.53,
+        "elapsed": 9.05,
+        "breaks": 0,
+        "net": 9.05,
+        "difference": -0.52
+      },
+      {
+        "id": "aaba269d-11b2-485d-82c4-d9e395e107ec",
+        "name": "Enrique Navarrete",
+        "date": "2025-09-30",
+        "hours": 7.56,
+        "elapsed": 8.07,
+        "breaks": 0,
+        "net": 8.07,
+        "difference": -0.51
+      },
+      {
+        "id": "ac00a67c-53b5-44da-acda-7fd4219cefd7",
+        "name": "Enrique Navarrete",
+        "date": "2025-11-03",
+        "hours": 7.64,
+        "elapsed": 8.15,
+        "breaks": 0,
+        "net": 8.15,
+        "difference": -0.51
+      },
+      {
+        "id": "acc91f83-8b36-484f-8a9f-9e5a4f2184e0",
+        "name": "Alexander Suarez",
+        "date": "2025-09-10",
+        "hours": 10.98,
+        "elapsed": 12.01,
+        "breaks": 0,
+        "net": 12.01,
+        "difference": -1.03
+      },
+      {
+        "id": "ad4748e1-746f-43f7-b88a-f228c550e0e2",
+        "name": "Alexander Suarez",
+        "date": "2025-07-01",
+        "hours": 8.54,
+        "elapsed": 9.05,
+        "breaks": 0,
+        "net": 9.05,
+        "difference": -0.51
+      },
+      {
+        "id": "ae4ea388-ffde-416d-af9a-59edc2d7d466",
+        "name": "Alexander Villarreal",
+        "date": "2025-08-29",
+        "hours": 8.52,
+        "elapsed": 9.04,
+        "breaks": 0,
+        "net": 9.04,
+        "difference": -0.52
+      },
+      {
+        "id": "ae64604e-484f-4967-ade5-34ff65a00aee",
+        "name": "Alexander Villarreal",
+        "date": "2025-11-06",
+        "hours": 8.47,
+        "elapsed": 8.98,
+        "breaks": 0,
+        "net": 8.98,
+        "difference": -0.51
+      },
+      {
+        "id": "b01adb1e-1351-4b4b-a3d7-1632d8127bda",
+        "name": "Alexander Villarreal",
+        "date": "2025-07-12",
+        "hours": 8.51,
+        "elapsed": 9.03,
+        "breaks": 0,
+        "net": 9.03,
+        "difference": -0.52
+      },
+      {
+        "id": "b09bd3a5-c3aa-4a5e-90f8-1cf957a78379",
+        "name": "Enrique Navarrete",
+        "date": "2025-09-02",
+        "hours": 7.59,
+        "elapsed": 8.09,
+        "breaks": 0,
+        "net": 8.09,
+        "difference": -0.5
+      },
+      {
+        "id": "b1447305-c27c-40ea-a5cc-adf4d4af46a3",
+        "name": "Enrique Navarrete",
+        "date": "2025-07-15",
+        "hours": 7.59,
+        "elapsed": 8.1,
+        "breaks": 0,
+        "net": 8.1,
+        "difference": -0.51
+      },
+      {
+        "id": "b1992a20-9dc7-4223-ba79-407ea3e7eb30",
+        "name": "Alexander Villarreal",
+        "date": "2025-11-30",
+        "hours": 9.5,
+        "elapsed": 10.02,
+        "breaks": 0,
+        "net": 10.02,
+        "difference": -0.52
+      },
+      {
+        "id": "b1ff7e6b-5a61-4b92-aaf7-4d957fc08164",
+        "name": "Alexander Villarreal",
+        "date": "2025-11-11",
+        "hours": 8.53,
+        "elapsed": 9.04,
+        "breaks": 0,
+        "net": 9.04,
+        "difference": -0.51
+      },
+      {
+        "id": "b20e8d20-2229-488a-b231-29f18dd65bf2",
+        "name": "Alexander Villarreal",
+        "date": "2025-10-09",
+        "hours": 8.53,
+        "elapsed": 9.04,
+        "breaks": 0,
+        "net": 9.04,
+        "difference": -0.51
+      },
+      {
+        "id": "b2179dcb-ef50-4f94-b2f7-46adef8ea12c",
+        "name": "Enrique Navarrete",
+        "date": "2025-07-16",
+        "hours": 7.6,
+        "elapsed": 8.13,
+        "breaks": 0,
+        "net": 8.13,
+        "difference": -0.53
+      },
+      {
+        "id": "b22d2d13-67b1-4011-aedb-2788a7ad9ccb",
+        "name": "Alexander Suarez",
+        "date": "2025-06-30",
+        "hours": 8.45,
+        "elapsed": 8.96,
+        "breaks": 0,
+        "net": 8.96,
+        "difference": -0.51
+      },
+      {
+        "id": "b24174c8-1892-4d2f-bc68-dd5900c0d437",
+        "name": "Alexander Villarreal",
+        "date": "2025-07-18",
+        "hours": 8.55,
+        "elapsed": 9.09,
+        "breaks": 0,
+        "net": 9.09,
+        "difference": -0.54
+      },
+      {
+        "id": "b2a0529d-b50f-49e4-b3fe-41b65efb3e3e",
+        "name": "Alexander Suarez",
+        "date": "2025-07-06",
+        "hours": 7.58,
+        "elapsed": 8.09,
+        "breaks": 0,
+        "net": 8.09,
+        "difference": -0.51
+      },
+      {
+        "id": "b32ddf35-f111-4319-bdcb-e1f660d5f258",
+        "name": "Enrique Navarrete",
+        "date": "2025-09-05",
+        "hours": 7.55,
+        "elapsed": 8.05,
+        "breaks": 0,
+        "net": 8.05,
+        "difference": -0.5
+      },
+      {
+        "id": "b3cbde94-7b7c-46bf-aa53-61a38ea596fd",
+        "name": "Alexander Villarreal",
+        "date": "2025-08-25",
+        "hours": 8.49,
+        "elapsed": 9.01,
+        "breaks": 0,
+        "net": 9.01,
+        "difference": -0.52
+      },
+      {
+        "id": "b50adc31-708c-425c-9635-e307508007ec",
+        "name": "Alexander Villarreal",
+        "date": "2025-07-07",
+        "hours": 8.57,
+        "elapsed": 9.08,
+        "breaks": 0,
+        "net": 9.08,
+        "difference": -0.51
+      },
+      {
+        "id": "b51e9d95-b627-4bc0-8c35-10c17d4669d1",
+        "name": "Alexander Suarez",
+        "date": "2025-08-06",
+        "hours": 7.53,
+        "elapsed": 8.03,
+        "breaks": 0,
+        "net": 8.03,
+        "difference": -0.5
+      },
+      {
+        "id": "b53a9396-f3e7-4ded-b252-bb068c9cb996",
+        "name": "Alexander Villarreal",
+        "date": "2025-11-23",
+        "hours": 9.51,
+        "elapsed": 10.02,
+        "breaks": 0,
+        "net": 10.02,
+        "difference": -0.51
+      },
+      {
+        "id": "b5837382-af3f-45eb-9387-fbc8275c7464",
+        "name": "Alexander Suarez",
+        "date": "2025-07-08",
+        "hours": 8.57,
+        "elapsed": 9.08,
+        "breaks": 0,
+        "net": 9.08,
+        "difference": -0.51
+      },
+      {
+        "id": "b7366363-18d0-40b9-a5a0-1de5850d5692",
+        "name": "Enrique Navarrete",
+        "date": "2025-10-28",
+        "hours": 7.57,
+        "elapsed": 8.09,
+        "breaks": 0,
+        "net": 8.09,
+        "difference": -0.52
+      },
+      {
+        "id": "b7c0c5b8-7223-4dd6-b658-1683b6dc700f",
+        "name": "Enrique Navarrete",
+        "date": "2025-07-28",
+        "hours": 7.53,
+        "elapsed": 8.07,
+        "breaks": 0,
+        "net": 8.07,
+        "difference": -0.54
+      },
+      {
+        "id": "b89f33e4-9a27-4c46-96c8-d92e7c399de7",
+        "name": "Alexander Villarreal",
+        "date": "2025-06-30",
+        "hours": 8.55,
+        "elapsed": 9.06,
+        "breaks": 0,
+        "net": 9.06,
+        "difference": -0.51
+      },
+      {
+        "id": "bcc09885-73e9-4577-8fba-2b2d56f7266b",
+        "name": "Enrique Navarrete",
+        "date": "2025-12-07",
+        "hours": 9.52,
+        "elapsed": 10.02,
+        "breaks": 0,
+        "net": 10.02,
+        "difference": -0.5
+      },
+      {
+        "id": "bccc5912-9e55-45e5-b70a-2013295f0546",
+        "name": "Enrique Navarrete",
+        "date": "2025-07-27",
+        "hours": 8.58,
+        "elapsed": 9.1,
+        "breaks": 0,
+        "net": 9.1,
+        "difference": -0.52
+      },
+      {
+        "id": "be15537d-c55b-4299-a0bd-e6bb47a55d69",
+        "name": "Alexander Villarreal",
+        "date": "2025-09-05",
+        "hours": 13.99,
+        "elapsed": 15.02,
+        "breaks": 0,
+        "net": 15.02,
+        "difference": -1.03
+      },
+      {
+        "id": "be1f55e3-32d7-477d-ae0b-57db34764811",
+        "name": "Alexander Villarreal",
+        "date": "2025-12-27",
+        "hours": 7.51,
+        "elapsed": 8.02,
+        "breaks": 0,
+        "net": 8.02,
+        "difference": -0.51
+      },
+      {
+        "id": "be4baa51-b957-4c7a-85a9-7705e44abb33",
+        "name": "Enrique Navarrete",
+        "date": "2025-10-04",
+        "hours": 8.549999999999999,
+        "elapsed": 9.05,
+        "breaks": 0,
+        "net": 9.05,
+        "difference": -0.5
+      },
+      {
+        "id": "bed66ada-9a62-40db-81b0-6725c06d1fb3",
+        "name": "Alexander Suarez",
+        "date": "2025-08-10",
+        "hours": 7.55,
+        "elapsed": 8.05,
+        "breaks": 0,
+        "net": 8.05,
+        "difference": -0.5
+      },
+      {
+        "id": "bf442b1e-3cab-4582-a6a0-c477e78683dd",
+        "name": "Alexander Villarreal",
+        "date": "2025-09-26",
+        "hours": 8.53,
+        "elapsed": 9.04,
+        "breaks": 0,
+        "net": 9.04,
+        "difference": -0.51
+      },
+      {
+        "id": "bfe37e74-56a2-402f-b209-fc9ba5e124f9",
+        "name": "Alexander Suarez",
+        "date": "2025-07-30",
+        "hours": 4.51,
+        "elapsed": 5.02,
+        "breaks": 0,
+        "net": 5.02,
+        "difference": -0.51
+      },
+      {
+        "id": "c0296781-c87f-4291-85af-6c7a802c80c8",
+        "name": "Enrique Navarrete",
+        "date": "2025-12-13",
+        "hours": 8.49,
+        "elapsed": 9,
+        "breaks": 0,
+        "net": 9,
+        "difference": -0.51
+      },
+      {
+        "id": "c070a993-0e33-4a37-a282-2c2ddc1175e7",
+        "name": "Alexander Villarreal",
+        "date": "2025-11-21",
+        "hours": 8.47,
+        "elapsed": 8.97,
+        "breaks": 0,
+        "net": 8.97,
+        "difference": -0.5
+      },
+      {
+        "id": "c16f97e6-9298-4a36-bb48-45e21d73a185",
+        "name": "Alexander Suarez",
+        "date": "2025-07-16",
+        "hours": 6.03,
+        "elapsed": 6.54,
+        "breaks": 0,
+        "net": 6.54,
+        "difference": -0.51
+      },
+      {
+        "id": "c18c78fb-dc4c-4774-9135-24a9f4cadfc8",
+        "name": "Enrique Navarrete",
+        "date": "2025-11-07",
+        "hours": 7.93,
+        "elapsed": 8.43,
+        "breaks": 0,
+        "net": 8.43,
+        "difference": -0.5
+      },
+      {
+        "id": "c1fc83f9-ac48-4b56-a98f-da410d7bab1d",
+        "name": "Enrique Navarrete",
+        "date": "2025-06-26",
+        "hours": 7.77,
+        "elapsed": 8.27,
+        "breaks": 0,
+        "net": 8.27,
+        "difference": -0.5
+      },
+      {
+        "id": "c23cbf8f-783c-4863-a041-564c63240003",
+        "name": "Alexander Villarreal",
+        "date": "2025-10-10",
+        "hours": 8.52,
+        "elapsed": 9.04,
+        "breaks": 0,
+        "net": 9.04,
+        "difference": -0.52
+      },
+      {
+        "id": "c3fa0118-ce76-4fe0-b7b6-bf07de630c8c",
+        "name": "Alexander Suarez",
+        "date": "2025-09-19",
+        "hours": 9.44,
+        "elapsed": 9.98,
+        "breaks": 0,
+        "net": 9.98,
+        "difference": -0.54
+      },
+      {
+        "id": "c41a432d-7b0e-4a62-8183-8b10f5cd5603",
+        "name": "Enrique Navarrete",
+        "date": "2025-12-23",
+        "hours": 7.53,
+        "elapsed": 8.04,
+        "breaks": 0,
+        "net": 8.04,
+        "difference": -0.51
+      },
+      {
+        "id": "c421e0d3-1dd3-4668-bff5-0dfde49f5ca7",
+        "name": "Alexander Suarez",
+        "date": "2025-06-24",
+        "hours": 7.53,
+        "elapsed": 8.03,
+        "breaks": 0,
+        "net": 8.03,
+        "difference": -0.5
+      },
+      {
+        "id": "c4391cbc-0d1f-4baf-9ffd-26b915cab0c1",
+        "name": "Alexander Villarreal",
+        "date": "2025-10-20",
+        "hours": 8.52,
+        "elapsed": 9.05,
+        "breaks": 0,
+        "net": 9.05,
+        "difference": -0.53
+      },
+      {
+        "id": "c51f1558-29de-4a7c-b7ca-39f322d25aea",
+        "name": "Alexander Villarreal",
+        "date": "2025-12-20",
+        "hours": 8.48,
+        "elapsed": 8.99,
+        "breaks": 0,
+        "net": 8.99,
+        "difference": -0.51
+      },
+      {
+        "id": "c53253b5-cd9c-4440-9d9f-d6531dc18753",
+        "name": "Alexander Suarez",
+        "date": "2025-07-12",
+        "hours": 5.26,
+        "elapsed": 5.77,
+        "breaks": 0,
+        "net": 5.77,
+        "difference": -0.51
+      },
+      {
+        "id": "c54a858b-cc33-4162-8805-fb0befa64d13",
+        "name": "Alexander Suarez",
+        "date": "2025-08-16",
+        "hours": 8.51,
+        "elapsed": 9.04,
+        "breaks": 0,
+        "net": 9.04,
+        "difference": -0.53
+      },
+      {
+        "id": "c5a7060c-1217-4cfc-84e6-035d879d034d",
+        "name": "Enrique Navarrete",
+        "date": "2025-08-26",
+        "hours": 7.7,
+        "elapsed": 8.22,
+        "breaks": 0,
+        "net": 8.22,
+        "difference": -0.52
+      },
+      {
+        "id": "c6142303-aa03-43bc-a37c-ff8a19ba81d5",
+        "name": "Alexander Suarez",
+        "date": "2025-09-15",
+        "hours": 9.629999999999999,
+        "elapsed": 10.66,
+        "breaks": 0,
+        "net": 10.66,
+        "difference": -1.03
+      },
+      {
+        "id": "c75a0ac5-1b8e-49de-b924-ba925b4495f1",
+        "name": "Enrique Navarrete",
+        "date": "2025-12-27",
+        "hours": 9.629999999999999,
+        "elapsed": 10.14,
+        "breaks": 0,
+        "net": 10.14,
+        "difference": -0.51
+      },
+      {
+        "id": "c86a21f8-fb4f-4392-bf8e-b54be407bf30",
+        "name": "Enrique Navarrete",
+        "date": "2025-10-21",
+        "hours": 7.54,
+        "elapsed": 8.04,
+        "breaks": 0,
+        "net": 8.04,
+        "difference": -0.5
+      },
+      {
+        "id": "ca5eeae3-9ffa-410e-80b4-e5249ace6b77",
+        "name": "Alexander Suarez",
+        "date": "2025-09-03",
+        "hours": 10.98,
+        "elapsed": 12,
+        "breaks": 0,
+        "net": 12,
+        "difference": -1.02
+      },
+      {
+        "id": "cadea6e5-9dbb-4628-bd65-c4c01d8007bd",
+        "name": "Enrique Navarrete",
+        "date": "2025-11-16",
+        "hours": 9.75,
+        "elapsed": 10.26,
+        "breaks": 0,
+        "net": 10.26,
+        "difference": -0.51
+      },
+      {
+        "id": "cb683198-1d97-4a96-9f53-7f940d3959bd",
+        "name": "Enrique Navarrete",
+        "date": "2025-07-03",
+        "hours": 7.52,
+        "elapsed": 8.07,
+        "breaks": 0,
+        "net": 8.07,
+        "difference": -0.55
+      },
+      {
+        "id": "cc2a6122-7f04-4cf1-a290-5b705a87e18e",
+        "name": "Enrique Navarrete",
+        "date": "2025-11-18",
+        "hours": 7.74,
+        "elapsed": 8.25,
+        "breaks": 0,
+        "net": 8.25,
+        "difference": -0.51
+      },
+      {
+        "id": "cc5d6a16-3df8-40b7-b45c-8838735e6f6a",
+        "name": "Enrique Navarrete",
+        "date": "2025-12-04",
+        "hours": 7.65,
+        "elapsed": 8.15,
+        "breaks": 0,
+        "net": 8.15,
+        "difference": -0.5
+      },
+      {
+        "id": "cd47efaf-1677-41b8-8f30-73a176045185",
+        "name": "Alexander Villarreal",
+        "date": "2025-09-23",
+        "hours": 8.53,
+        "elapsed": 9.04,
+        "breaks": 0,
+        "net": 9.04,
+        "difference": -0.51
+      },
+      {
+        "id": "cd5885e8-06e7-4360-bfa8-61c7ca374b49",
+        "name": "Alexander Villarreal",
+        "date": "2025-12-02",
+        "hours": 8.63,
+        "elapsed": 9.14,
+        "breaks": 0,
+        "net": 9.14,
+        "difference": -0.51
+      },
+      {
+        "id": "cd5b7fee-7f90-4811-b261-f4d3b7522fa5",
+        "name": "Alexander Suarez",
+        "date": "2025-09-11",
+        "hours": 10.98,
+        "elapsed": 12.02,
+        "breaks": 0,
+        "net": 12.02,
+        "difference": -1.04
+      },
+      {
+        "id": "cd88bdab-9ac8-4edc-b659-98021e76f23e",
+        "name": "Enrique Navarrete",
+        "date": "2025-12-29",
+        "hours": 7.51,
+        "elapsed": 8.02,
+        "breaks": 0,
+        "net": 8.02,
+        "difference": -0.51
+      },
+      {
+        "id": "cdb4c2cb-f878-4319-a334-e7f133e2ffd1",
+        "name": "Alexander Villarreal",
+        "date": "2025-07-01",
+        "hours": 7.46,
+        "elapsed": 7.97,
+        "breaks": 0,
+        "net": 7.97,
+        "difference": -0.51
+      },
+      {
+        "id": "ce69b882-d4cf-4f6b-b165-43b4312f9f9f",
+        "name": "Alexander Villarreal",
+        "date": "2025-12-04",
+        "hours": 8.47,
+        "elapsed": 8.99,
+        "breaks": 0,
+        "net": 8.99,
+        "difference": -0.52
+      },
+      {
+        "id": "ce971de6-0468-42bb-a763-3687a23e8161",
+        "name": "Enrique Navarrete",
+        "date": "2025-10-17",
+        "hours": 7.56,
+        "elapsed": 8.06,
+        "breaks": 0,
+        "net": 8.06,
+        "difference": -0.5
+      },
+      {
+        "id": "cea53945-ab4c-48bd-b1a9-2c60b4a5c5a8",
+        "name": "Alexander Suarez",
+        "date": "2025-07-21",
+        "hours": 8.53,
+        "elapsed": 9.04,
+        "breaks": 0,
+        "net": 9.04,
+        "difference": -0.51
+      },
+      {
+        "id": "cf4f6e95-1447-4c1e-84f8-14ffa8fd9120",
+        "name": "Alexander Villarreal",
+        "date": "2025-08-21",
+        "hours": 13.98,
+        "elapsed": 15.04,
+        "breaks": 0,
+        "net": 15.04,
+        "difference": -1.06
+      },
+      {
+        "id": "cfa76532-3466-4b19-a412-95037924dd7d",
+        "name": "Alexander Villarreal",
+        "date": "2025-11-08",
+        "hours": 8.51,
+        "elapsed": 9.02,
+        "breaks": 0,
+        "net": 9.02,
+        "difference": -0.51
+      },
+      {
+        "id": "cfda35de-b77b-476f-912e-fa715e15cf81",
+        "name": "Enrique Navarrete",
+        "date": "2025-12-15",
+        "hours": 7.54,
+        "elapsed": 8.05,
+        "breaks": 0,
+        "net": 8.05,
+        "difference": -0.51
+      },
+      {
+        "id": "d1662380-daf4-403c-8cba-4ee6009856b6",
+        "name": "Alexander Villarreal",
+        "date": "2025-12-29",
+        "hours": 8.54,
+        "elapsed": 9.05,
+        "breaks": 0,
+        "net": 9.05,
+        "difference": -0.51
+      },
+      {
+        "id": "d1743645-954e-4fef-984b-f3e3c75abe18",
+        "name": "Enrique Navarrete",
+        "date": "2025-09-23",
+        "hours": 7.59,
+        "elapsed": 8.1,
+        "breaks": 0,
+        "net": 8.1,
+        "difference": -0.51
+      },
+      {
+        "id": "d209e601-d044-4d01-8dda-3c725e769bd5",
+        "name": "Alexander Villarreal",
+        "date": "2025-06-26",
+        "hours": 8.37,
+        "elapsed": 8.89,
+        "breaks": 0,
+        "net": 8.89,
+        "difference": -0.52
+      },
+      {
+        "id": "d24c3ee7-2b9b-4912-81db-27c7278c02b6",
+        "name": "Alexander Suarez",
+        "date": "2025-08-07",
+        "hours": 6.5,
+        "elapsed": 7.02,
+        "breaks": 0,
+        "net": 7.02,
+        "difference": -0.52
+      },
+      {
+        "id": "d2a99a02-5b3d-46f5-9bd3-8b8fd844a11f",
+        "name": "Enrique Navarrete",
+        "date": "2025-12-26",
+        "hours": 7.52,
+        "elapsed": 8.03,
+        "breaks": 0,
+        "net": 8.03,
+        "difference": -0.51
+      },
+      {
+        "id": "d347cfb8-7a9f-4c3b-8ee5-acadbf5c1860",
+        "name": "Enrique Navarrete",
+        "date": "2025-10-13",
+        "hours": 9.57,
+        "elapsed": 10.08,
+        "breaks": 0,
+        "net": 10.08,
+        "difference": -0.51
+      },
+      {
+        "id": "d356a625-da1b-4a0d-8292-74e63c1a8767",
+        "name": "Alexander Villarreal",
+        "date": "2025-10-16",
+        "hours": 8.5,
+        "elapsed": 9.01,
+        "breaks": 0,
+        "net": 9.01,
+        "difference": -0.51
+      },
+      {
+        "id": "d3e5be0f-07c9-4d72-98f3-b5fe54511c7b",
+        "name": "Enrique Navarrete",
+        "date": "2025-10-09",
+        "hours": 8.19,
+        "elapsed": 8.69,
+        "breaks": 0,
+        "net": 8.69,
+        "difference": -0.5
+      },
+      {
+        "id": "d4765589-09b0-47c7-9998-fc8f62c6eb6f",
+        "name": "Alexander Suarez",
+        "date": "2025-07-29",
+        "hours": 8.53,
+        "elapsed": 9.04,
+        "breaks": 0,
+        "net": 9.04,
+        "difference": -0.51
+      },
+      {
+        "id": "d70660f9-9fcf-4414-84c7-a58a700aea36",
+        "name": "Alexander Suarez",
+        "date": "2025-09-09",
+        "hours": 12.86,
+        "elapsed": 13.96,
+        "breaks": 0,
+        "net": 13.96,
+        "difference": -1.1
+      },
+      {
+        "id": "d7fe62f7-72e8-4142-b233-fd5c1be4bab9",
+        "name": "Alexander Villarreal",
+        "date": "2025-06-29",
+        "hours": 7.5600000000000005,
+        "elapsed": 8.07,
+        "breaks": 0,
+        "net": 8.07,
+        "difference": -0.51
+      },
+      {
+        "id": "d808db09-4cf8-466c-a7eb-40c0ebaf7d63",
+        "name": "Alexander Suarez",
+        "date": "2025-08-19",
+        "hours": 8.49,
+        "elapsed": 8.99,
+        "breaks": 0,
+        "net": 8.99,
+        "difference": -0.5
+      },
+      {
+        "id": "d8292a8a-90a9-42a3-9f6b-6a4ae5129231",
+        "name": "Alexander Villarreal",
+        "date": "2025-12-21",
+        "hours": 8.52,
+        "elapsed": 9.02,
+        "breaks": 0,
+        "net": 9.02,
+        "difference": -0.5
+      },
+      {
+        "id": "d9614903-d446-4081-a86d-baf7daeda594",
+        "name": "Enrique Navarrete",
+        "date": "2025-09-20",
+        "hours": 8.65,
+        "elapsed": 9.15,
+        "breaks": 0,
+        "net": 9.15,
+        "difference": -0.5
+      },
+      {
+        "id": "d98d1aab-6527-48d7-a317-913b2838fddb",
+        "name": "Alexander Suarez",
+        "date": "2025-09-12",
+        "hours": 10.95,
+        "elapsed": 12,
+        "breaks": 0,
+        "net": 12,
+        "difference": -1.05
+      },
+      {
+        "id": "da91ac03-c856-4f2f-8e74-e9856ccf06ca",
+        "name": "Enrique Navarrete",
+        "date": "2025-10-19",
+        "hours": 8.5,
+        "elapsed": 9.01,
+        "breaks": 0,
+        "net": 9.01,
+        "difference": -0.51
+      },
+      {
+        "id": "dc38fa70-1d39-41ef-9a73-4664eae65e67",
+        "name": "Alexander Suarez",
+        "date": "2025-07-13",
+        "hours": 7.59,
+        "elapsed": 8.1,
+        "breaks": 0,
+        "net": 8.1,
+        "difference": -0.51
+      },
+      {
+        "id": "dc62d334-7c9b-47b4-aa39-bcdfe71f0337",
+        "name": "Enrique Navarrete",
+        "date": "2025-07-04",
+        "hours": 7.57,
+        "elapsed": 8.09,
+        "breaks": 0,
+        "net": 8.09,
+        "difference": -0.52
+      },
+      {
+        "id": "dd7d6128-7e98-4e49-a52f-cb3a9645f0bd",
+        "name": "Alexander Villarreal",
+        "date": "2025-06-24",
+        "hours": 7.46,
+        "elapsed": 8.01,
+        "breaks": 0,
+        "net": 8.01,
+        "difference": -0.55
+      },
+      {
+        "id": "dea465f3-2ae2-4297-adcf-efd2883a0150",
+        "name": "Enrique Navarrete",
+        "date": "2025-07-09",
+        "hours": 7.61,
+        "elapsed": 8.12,
+        "breaks": 0,
+        "net": 8.12,
+        "difference": -0.51
+      },
+      {
+        "id": "deab398b-aebc-4eda-b09e-d3ff3007a6ef",
+        "name": "Alexander Villarreal",
+        "date": "2025-08-13",
+        "hours": 6.51,
+        "elapsed": 7.04,
+        "breaks": 0,
+        "net": 7.04,
+        "difference": -0.53
+      },
+      {
+        "id": "e1a058e3-9d39-4895-9de5-28640b45b418",
+        "name": "Alexander Suarez",
+        "date": "2025-07-27",
+        "hours": 5.55,
+        "elapsed": 6.06,
+        "breaks": 0,
+        "net": 6.06,
+        "difference": -0.51
+      },
+      {
+        "id": "e1d057c8-4fea-48f8-a428-a2c2074001c6",
+        "name": "Alexander Suarez",
+        "date": "2025-08-24",
+        "hours": 7.54,
+        "elapsed": 8.05,
+        "breaks": 0,
+        "net": 8.05,
+        "difference": -0.51
+      },
+      {
+        "id": "e25049cf-c4f3-4917-a6b6-6b53ab06b672",
+        "name": "Alexander Villarreal",
+        "date": "2025-08-16",
+        "hours": 7.52,
+        "elapsed": 8.03,
+        "breaks": 0,
+        "net": 8.03,
+        "difference": -0.51
+      },
+      {
+        "id": "e2c7cdaa-3b52-43d7-9d33-48622aae415c",
+        "name": "Enrique Navarrete",
+        "date": "2025-06-29",
+        "hours": 8.61,
+        "elapsed": 9.12,
+        "breaks": 0,
+        "net": 9.12,
+        "difference": -0.51
+      },
+      {
+        "id": "e330c474-050a-4f9c-86aa-c223de52a53e",
+        "name": "Alexander Villarreal",
+        "date": "2025-09-21",
+        "hours": 8.32,
+        "elapsed": 9.01,
+        "breaks": 0,
+        "net": 9.01,
+        "difference": -0.69
+      },
+      {
+        "id": "e3a91ecf-bad7-4b0b-837f-36f6f1f276aa",
+        "name": "Alexander Villarreal",
+        "date": "2025-07-04",
+        "hours": 8.52,
+        "elapsed": 9.04,
+        "breaks": 0,
+        "net": 9.04,
+        "difference": -0.52
+      },
+      {
+        "id": "e4389269-6f67-43e7-9ad9-b8b78073a6c8",
+        "name": "Enrique Navarrete",
+        "date": "2025-07-13",
+        "hours": 8.68,
+        "elapsed": 9.18,
+        "breaks": 0,
+        "net": 9.18,
+        "difference": -0.5
+      },
+      {
+        "id": "e4859c2a-73a0-4399-8ca2-8658f980876d",
+        "name": "Enrique Navarrete",
+        "date": "2025-10-23",
+        "hours": 8.01,
+        "elapsed": 8.51,
+        "breaks": 0,
+        "net": 8.51,
+        "difference": -0.5
+      },
+      {
+        "id": "e63411d0-5283-409d-9c2f-bc57c8b7b8b1",
+        "name": "Alexander Villarreal",
+        "date": "2025-08-03",
+        "hours": 13.99,
+        "elapsed": 15.04,
+        "breaks": 0,
+        "net": 15.04,
+        "difference": -1.05
+      },
+      {
+        "id": "e66ef71c-da33-4717-bf33-dee2c8c43124",
+        "name": "Enrique Navarrete",
+        "date": "2025-10-18",
+        "hours": 8.55,
+        "elapsed": 9.05,
+        "breaks": 0,
+        "net": 9.05,
+        "difference": -0.5
+      },
+      {
+        "id": "e697daab-dc07-4f68-894a-6ba9ee239db8",
+        "name": "Enrique Navarrete",
+        "date": "2025-10-07",
+        "hours": 7.91,
+        "elapsed": 8.41,
+        "breaks": 0,
+        "net": 8.41,
+        "difference": -0.5
+      },
+      {
+        "id": "e6b17eb7-1a43-4678-8608-ce43220d5f97",
+        "name": "Alexander Suarez",
+        "date": "2025-07-10",
+        "hours": 6.6,
+        "elapsed": 7.1,
+        "breaks": 0,
+        "net": 7.1,
+        "difference": -0.5
+      },
+      {
+        "id": "e7385760-7050-46e3-af3c-cdca416855a5",
+        "name": "Enrique Navarrete",
+        "date": "2025-10-26",
+        "hours": 8.41,
+        "elapsed": 9.08,
+        "breaks": 0,
+        "net": 9.08,
+        "difference": -0.67
+      },
+      {
+        "id": "e82395a6-8899-430c-96b2-8787c0d2088e",
+        "name": "Enrique Navarrete",
+        "date": "2025-09-12",
+        "hours": 7.5,
+        "elapsed": 8.05,
+        "breaks": 0,
+        "net": 8.05,
+        "difference": -0.55
+      },
+      {
+        "id": "e8c75b73-bd10-4cba-8d25-48862cb756f7",
+        "name": "Alexander Suarez",
+        "date": "2025-07-14",
+        "hours": 8.57,
+        "elapsed": 9.08,
+        "breaks": 0,
+        "net": 9.08,
+        "difference": -0.51
+      },
+      {
+        "id": "ea08a841-f494-442d-9b5c-89fb1e89d16a",
+        "name": "Enrique Navarrete",
+        "date": "2025-12-11",
+        "hours": 7.57,
+        "elapsed": 8.08,
+        "breaks": 0,
+        "net": 8.08,
+        "difference": -0.51
+      },
+      {
+        "id": "eae643bb-c157-4ccd-ad44-cfcecc3c53ca",
+        "name": "Alexander Suarez",
+        "date": "2025-08-02",
+        "hours": 8.5,
+        "elapsed": 9.04,
+        "breaks": 0,
+        "net": 9.04,
+        "difference": -0.54
+      },
+      {
+        "id": "ec133c26-81ad-4709-a34a-e8f419e56cb4",
+        "name": "Alexander Suarez",
+        "date": "2025-07-17",
+        "hours": 5.64,
+        "elapsed": 6.16,
+        "breaks": 0,
+        "net": 6.16,
+        "difference": -0.52
+      },
+      {
+        "id": "ec2d33b4-6255-4238-a109-55b018cc58fa",
+        "name": "Enrique Navarrete",
+        "date": "2025-11-09",
+        "hours": 9.52,
+        "elapsed": 10.02,
+        "breaks": 0,
+        "net": 10.02,
+        "difference": -0.5
+      },
+      {
+        "id": "ec9b6bd8-cba9-4848-8dba-b2f6d3ccfc0f",
+        "name": "Alexander Villarreal",
+        "date": "2025-09-19",
+        "hours": 8.54,
+        "elapsed": 9.05,
+        "breaks": 0,
+        "net": 9.05,
+        "difference": -0.51
+      },
+      {
+        "id": "ee1b9514-8b2b-4df4-8b3c-6281142ce672",
+        "name": "Alexander Suarez",
+        "date": "2025-07-20",
+        "hours": 7.620000000000001,
+        "elapsed": 8.12,
+        "breaks": 0,
+        "net": 8.12,
+        "difference": -0.5
+      },
+      {
+        "id": "ee254f56-ab13-400e-a978-cf6e520cb9f4",
+        "name": "Alexander Villarreal",
+        "date": "2025-12-30",
+        "hours": 8.51,
+        "elapsed": 9.02,
+        "breaks": 0,
+        "net": 9.02,
+        "difference": -0.51
+      },
+      {
+        "id": "ee677472-3bdb-4e29-b8fe-d1edbb5e3f5e",
+        "name": "Alexander Suarez",
+        "date": "2025-08-14",
+        "hours": 5.99,
+        "elapsed": 6.49,
+        "breaks": 0,
+        "net": 6.49,
+        "difference": -0.5
+      },
+      {
+        "id": "ef6d053b-a743-4c59-8543-d40b17322bd0",
+        "name": "Enrique Navarrete",
+        "date": "2025-07-18",
+        "hours": 7.55,
+        "elapsed": 8.06,
+        "breaks": 0,
+        "net": 8.06,
+        "difference": -0.51
+      },
+      {
+        "id": "ef863c76-468a-4520-96ac-e0133a116fea",
+        "name": "Alexander Villarreal",
+        "date": "2025-09-20",
+        "hours": 7.55,
+        "elapsed": 8.06,
+        "breaks": 0,
+        "net": 8.06,
+        "difference": -0.51
+      },
+      {
+        "id": "efab53c8-6fa1-42f7-92e0-975e95c0733a",
+        "name": "Enrique Navarrete",
+        "date": "2025-10-14",
+        "hours": 7.62,
+        "elapsed": 8.12,
+        "breaks": 0,
+        "net": 8.12,
+        "difference": -0.5
+      },
+      {
+        "id": "f157d6e6-51a4-4596-a36f-e7ef185a5e5a",
+        "name": "Alexander Suarez",
+        "date": "2025-09-04",
+        "hours": 8.94,
+        "elapsed": 9.99,
+        "breaks": 0,
+        "net": 9.99,
+        "difference": -1.05
+      },
+      {
+        "id": "f15e7a98-2e73-439d-812e-6daccd956444",
+        "name": "Alexander Villarreal",
+        "date": "2025-11-09",
+        "hours": 9.52,
+        "elapsed": 10.03,
+        "breaks": 0,
+        "net": 10.03,
+        "difference": -0.51
+      },
+      {
+        "id": "f1655fd9-c320-450d-9ca6-80ca66342c61",
+        "name": "Alexander Villarreal",
+        "date": "2025-06-23",
+        "hours": 7.5,
+        "elapsed": 8.02,
+        "breaks": 0,
+        "net": 8.02,
+        "difference": -0.52
+      },
+      {
+        "id": "f1a1a9ab-30b2-48f5-987b-b0202feb2ccc",
+        "name": "Enrique Navarrete",
+        "date": "2025-08-23",
+        "hours": 8.57,
+        "elapsed": 9.08,
+        "breaks": 0,
+        "net": 9.08,
+        "difference": -0.51
+      },
+      {
+        "id": "f348144f-c78d-4f80-a624-28a33bd7d6bb",
+        "name": "Alexander Suarez",
+        "date": "2025-09-13",
+        "hours": 10.99,
+        "elapsed": 12.02,
+        "breaks": 0,
+        "net": 12.02,
+        "difference": -1.03
+      },
+      {
+        "id": "f45f56f3-ec1c-411f-bed2-0862aeae0403",
+        "name": "Alexander Villarreal",
+        "date": "2025-10-17",
+        "hours": 8.49,
+        "elapsed": 9,
+        "breaks": 0,
+        "net": 9,
+        "difference": -0.51
+      },
+      {
+        "id": "f4ee65d8-b18b-44db-b7c1-bd9697e84c74",
+        "name": "Enrique Navarrete",
+        "date": "2025-10-16",
+        "hours": 7.49,
+        "elapsed": 8,
+        "breaks": 0,
+        "net": 8,
+        "difference": -0.51
+      },
+      {
+        "id": "f52026e9-9e40-4305-8071-c52e9ad416e5",
+        "name": "Alexander Villarreal",
+        "date": "2025-11-27",
+        "hours": 8.38,
+        "elapsed": 8.89,
+        "breaks": 0,
+        "net": 8.89,
+        "difference": -0.51
+      },
+      {
+        "id": "f5a684b2-35e0-4469-be7e-e253b69f6901",
+        "name": "Alexander Villarreal",
+        "date": "2025-07-24",
+        "hours": 8.58,
+        "elapsed": 9.09,
+        "breaks": 0,
+        "net": 9.09,
+        "difference": -0.51
+      },
+      {
+        "id": "f5f05e54-73d3-45f3-9771-dccf7f6fcee9",
+        "name": "Enrique Navarrete",
+        "date": "2025-09-25",
+        "hours": 7.63,
+        "elapsed": 8.14,
+        "breaks": 0,
+        "net": 8.14,
+        "difference": -0.51
+      },
+      {
+        "id": "f68b2bc6-3cd8-445b-9a2d-32c57d1044b4",
+        "name": "Alexander Suarez",
+        "date": "2025-08-18",
+        "hours": 6.41,
+        "elapsed": 6.92,
+        "breaks": 0,
+        "net": 6.92,
+        "difference": -0.51
+      },
+      {
+        "id": "f6b7c10d-1722-4ac6-a051-1cad52ca7c24",
+        "name": "Alexander Villarreal",
+        "date": "2025-09-11",
+        "hours": 8.48,
+        "elapsed": 9.01,
+        "breaks": 0,
+        "net": 9.01,
+        "difference": -0.53
+      },
+      {
+        "id": "f9a72d09-5a0a-4de5-aeaa-bc08de3b35d8",
+        "name": "Enrique Navarrete",
+        "date": "2025-11-17",
+        "hours": 7.75,
+        "elapsed": 8.27,
+        "breaks": 0,
+        "net": 8.27,
+        "difference": -0.52
+      },
+      {
+        "id": "f9d70ced-e146-4d5e-86c2-9b4528838756",
+        "name": "Alexander Villarreal",
+        "date": "2025-08-31",
+        "hours": 8.48,
+        "elapsed": 8.99,
+        "breaks": 0,
+        "net": 8.99,
+        "difference": -0.51
+      },
+      {
+        "id": "faaaf33a-4d56-45b8-90f6-8dc4c02f882f",
+        "name": "Alexander Villarreal",
+        "date": "2025-07-08",
+        "hours": 6.61,
+        "elapsed": 7.11,
+        "breaks": 0,
+        "net": 7.11,
+        "difference": -0.5
+      },
+      {
+        "id": "fbbcdc0e-c548-41bc-88a2-c24cf3c3f1b8",
+        "name": "Enrique Navarrete",
+        "date": "2025-07-06",
+        "hours": 8.63,
+        "elapsed": 9.14,
+        "breaks": 0,
+        "net": 9.14,
+        "difference": -0.51
+      },
+      {
+        "id": "fbd3cf81-9fe6-4991-92b1-815eb36a5da9",
+        "name": "Alexander Villarreal",
+        "date": "2025-09-06",
+        "hours": 14.02,
+        "elapsed": 15.06,
+        "breaks": 0,
+        "net": 15.06,
+        "difference": -1.04
+      },
+      {
+        "id": "fc14add5-24be-47ea-af91-bea590d82613",
+        "name": "Enrique Navarrete",
+        "date": "2025-09-13",
+        "hours": 8.55,
+        "elapsed": 9.06,
+        "breaks": 0,
+        "net": 9.06,
+        "difference": -0.51
+      },
+      {
+        "id": "fc4a43ff-9498-4661-949d-7498399ae86d",
+        "name": "Enrique Navarrete",
+        "date": "2025-10-30",
+        "hours": 8.11,
+        "elapsed": 8.62,
+        "breaks": 0,
+        "net": 8.62,
+        "difference": -0.51
+      },
+      {
+        "id": "fd3094cb-8b15-4a29-ba58-dc830c2744a0",
+        "name": "Enrique Navarrete",
+        "date": "2025-12-20",
+        "hours": 8.5,
+        "elapsed": 9.01,
+        "breaks": 0,
+        "net": 9.01,
+        "difference": -0.51
+      },
+      {
+        "id": "fe1fad9d-6ee6-4254-b610-2571d4619fc0",
+        "name": "Alexander Suarez",
+        "date": "2025-07-31",
+        "hours": 6.49,
+        "elapsed": 7,
+        "breaks": 0,
+        "net": 7,
+        "difference": -0.51
+      },
+      {
+        "id": "fe7e080b-0159-478e-ad89-b71bcc250aef",
+        "name": "Enrique Navarrete",
+        "date": "2025-12-30",
+        "hours": 7.52,
+        "elapsed": 8.03,
+        "breaks": 0,
+        "net": 8.03,
+        "difference": -0.51
+      },
+      {
+        "id": "fe7ed08c-6b4e-440b-abc4-335b2d661d78",
+        "name": "Enrique Navarrete",
+        "date": "2025-12-08",
+        "hours": 7.65,
+        "elapsed": 8.15,
+        "breaks": 0,
+        "net": 8.15,
+        "difference": -0.5
+      },
+      {
+        "id": "ff4ba355-0828-40f6-9b15-f7f8769b25f5",
+        "name": "Alexander Villarreal",
+        "date": "2025-10-04",
+        "hours": 7.48,
+        "elapsed": 8,
+        "breaks": 0,
+        "net": 8,
+        "difference": -0.52
+      },
+      {
+        "id": "ffa6f419-6ada-40e1-bec7-182a1d2db578",
+        "name": "Alexander Villarreal",
+        "date": "2025-07-14",
+        "hours": 8.57,
+        "elapsed": 9.08,
+        "breaks": 0,
+        "net": 9.08,
+        "difference": -0.51
+      }
+    ],
+    "overlaps": [],
+    "duplicateIntervals": [],
+    "unmapped": []
+  },
+  "yearCoverage": [
+    {
+      "year": 2023,
+      "punches": 9825,
+      "days": 363,
+      "missingHours": 0,
+      "missingWages": 676,
+      "missingBreaks": 9825
+    },
+    {
+      "year": 2024,
+      "punches": 9517,
+      "days": 364,
+      "missingHours": 0,
+      "missingWages": 25,
+      "missingBreaks": 9517
+    },
+    {
+      "year": 2025,
+      "punches": 8250,
+      "days": 363,
+      "missingHours": 0,
+      "missingWages": 18,
+      "missingBreaks": 8250
+    },
+    {
+      "year": 2026,
+      "punches": 5813,
+      "days": 266,
+      "missingHours": 0,
+      "missingWages": 23,
+      "missingBreaks": 0
+    }
+  ]
+}

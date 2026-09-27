@@ -1,0 +1,1202 @@
+[
+  {
+    "storeId": 14,
+    "storeName": "Lynwood",
+    "businessDate": "2026-09-22",
+    "totalTickets": 763,
+    "totalSelections": 3249,
+    "totalModifiers": 1320,
+    "channelsCount": {
+      "to_go": 127,
+      "for_here": 199,
+      "drive_thru": 344,
+      "delivery": 93
+    },
+    "packagingChannelsCount": {
+      "to_go": 121,
+      "for_here": 199,
+      "drive_thru": 344,
+      "delivery": 99
+    },
+    "specialCases": {
+      "extraMeatTickets": 7,
+      "halfMeatTickets": 15,
+      "carneDoradaTickets": 2,
+      "sideOrderCarneTickets": 3,
+      "cateringMeatTickets": 0,
+      "tacoPlateTickets": 20,
+      "gallonAguaTickets": 1,
+      "specialTortaTickets": 21
+    },
+    "meatConsumption": {
+      "cookedOz": {
+        "asada": 3414.45,
+        "pastor": 726.75,
+        "pollo": 753.1,
+        "cabeza": 558,
+        "lengua": 396,
+        "chorizo": 119.5,
+        "carnitas": 115.5,
+        "buche": 115.5
+      },
+      "rawLbs": {
+        "asada": 346.996951219515,
+        "pastor": 73.8567073170733,
+        "pollo": 72.41346153846175,
+        "cabeza": 40.086206896551694,
+        "lengua": 24.75,
+        "chorizo": 9.958333333333332,
+        "carnitas": 7.21875,
+        "buche": 7.21875
+      }
+    },
+    "packagingTotals": {
+      "plate_9in": 686,
+      "taco_cover": 478,
+      "mixta_bag": 1335,
+      "lime_bag": 1627,
+      "salsa_roja_pack": 1480,
+      "salsa_verde_pack": 611,
+      "ELTSBALA": 469,
+      "jalapeno_2oz_bag": 271,
+      "EL1CS2G": 104,
+      "ELMES2G": 89,
+      "983BLKB": 23,
+      "983LID": 18,
+      "cup_4oz": 35,
+      "lid_4oz": 35,
+      "EL1254": 161,
+      "bolsa_agua_uber": 58,
+      "UP918PR": 43,
+      "cup_8oz_paper": 32,
+      "lid_8oz_flat": 32,
+      "981BLKB": 21,
+      "981LID": 21,
+      "WRHESPBL": 8,
+      "HEFO": 4,
+      "ELLAS2G": 10,
+      "WRHEFOBL": 4,
+      "HESP": 1
+    },
+    "recipeIngredientsUsage": {
+      "dcd79433-e97c-46dc-80c0-8429401e0fa0": {
+        "name": "1100 Tortilla,White Corn 4.7OZ 60CT",
+        "quantity": 3572,
+        "unit": "pza"
+      },
+      "957aef69-a76b-454b-a558-944f9c1a4a51": {
+        "name": "Cafe Regular",
+        "quantity": 3,
+        "unit": "pza"
+      },
+      "55798c3c-a86e-469d-ab70-24e0f1af0c2b": {
+        "name": "358-9673BT 13” Flour Tortilla",
+        "quantity": 374,
+        "unit": "pza"
+      },
+      "557d9414-c769-4399-a6cc-15bb81cba85f": {
+        "name": "Frijol Molido",
+        "quantity": 2007.5,
+        "unit": "oz"
+      },
+      "a1bbc13a-a481-4b7f-a5c6-8a44a96ad562": {
+        "name": "Arroz",
+        "quantity": 2514,
+        "unit": "oz"
+      },
+      "ea165e4e-d939-49a8-af9a-7bc186f50e2e": {
+        "name": "Onion/ Cil. Mix 1/4",
+        "quantity": 62,
+        "unit": "oz"
+      },
+      "d66c2fbf-4e83-45f1-b0c0-e9de57c6dbac": {
+        "name": "Agua Gavilan",
+        "quantity": 15,
+        "unit": "pza"
+      },
+      "fb83420e-8c32-4e85-a29d-e74de2055807": {
+        "name": "Papelito Para Torta",
+        "quantity": 129,
+        "unit": "pza"
+      },
+      "0289794f-e7e1-4a65-9492-56ca6b6767e9": {
+        "name": "Bolsa Aguacate",
+        "quantity": 681,
+        "unit": "oz"
+      },
+      "6549dc7d-7657-4bbd-851e-153707b4556b": {
+        "name": "Queso Cotija 021",
+        "quantity": 70.55,
+        "unit": "oz"
+      },
+      "525a859d-9f16-477b-9a30-a56abeb4ec14": {
+        "name": "Queso Rayado",
+        "quantity": 684,
+        "unit": "oz"
+      },
+      "0166aec7-160a-4c9c-82d4-9ecbb251cb9d": {
+        "name": "Bolsa Crema",
+        "quantity": 338.5499999999992,
+        "unit": "oz"
+      },
+      "085ecb0d-c711-4134-ae1a-f7630a22759c": {
+        "name": "Horchata",
+        "quantity": 7732,
+        "unit": "oz"
+      },
+      "90fb17e3-6ba7-4545-b5a1-94df4f6a9fcb": {
+        "name": "1 oz Bolsa de Mixta",
+        "quantity": 799,
+        "unit": "pza"
+      },
+      "6c0a3378-8309-48c9-a438-15313cabd9d8": {
+        "name": "1.5 oz Salsa Verde Pack",
+        "quantity": 801,
+        "unit": "pza"
+      },
+      "a639ad41-81bf-4de6-8dbc-0291005654ad": {
+        "name": "1.5 oz Salsa Roja Pack",
+        "quantity": 387,
+        "unit": "pza"
+      },
+      "0ae260b8-ec71-4b4f-a38f-e3b81f84f720": {
+        "name": "Quesadilla Bodega",
+        "quantity": 71,
+        "unit": "pza"
+      },
+      "f73fe7a6-105c-4624-a87b-07d5f78c09ea": {
+        "name": "Lima Bolsita",
+        "quantity": 801,
+        "unit": "pza"
+      },
+      "983a3a9a-446a-4b98-b26b-3c3e642508a0": {
+        "name": "Sopes",
+        "quantity": 109,
+        "unit": "pza"
+      },
+      "15871ef1-768e-4176-978e-346edb2006eb": {
+        "name": "Huevo",
+        "quantity": 20,
+        "unit": "pza"
+      },
+      "5a962d06-d162-425e-a942-c7ad6dab663d": {
+        "name": "Jamon Pack",
+        "quantity": 20.999999999999996,
+        "unit": "oz"
+      },
+      "808c43e2-df89-4b6d-bef3-2f5c7310914c": {
+        "name": "Champurrado Mix",
+        "quantity": 505.5999999999996,
+        "unit": "oz"
+      },
+      "6b81f73c-dd80-4376-8e05-fd44138ca0f6": {
+        "name": "El Gavilan - Cup, 4 oz Paper",
+        "quantity": 61,
+        "unit": "pza"
+      },
+      "c46553c8-99ed-4864-a83b-0c46a8ba736a": {
+        "name": "El Gavilan - Flat Lid for 4 oz PP Container",
+        "quantity": 61,
+        "unit": "pza"
+      },
+      "d7d3d6f5-7426-49b0-8567-9d3b4f3c196f": {
+        "name": "Coca-Cola Classic",
+        "quantity": 69.11,
+        "unit": "oz"
+      },
+      "b4e7349c-669a-42e6-9810-ec3a7673b3f2": {
+        "name": "2 oz Bolsas de Rajas con Zanahoria",
+        "quantity": 202,
+        "unit": "pza"
+      },
+      "9851a32c-dc35-4653-a1e4-b2cf7bac9009": {
+        "name": "Piña Concentrate",
+        "quantity": 754,
+        "unit": "oz"
+      },
+      "6051e960-7564-41f6-9a52-ff79ed7c6353": {
+        "name": "Jamaica Concentrate",
+        "quantity": 1352,
+        "unit": "oz"
+      },
+      "cac598b2-9c18-4055-8f2e-16de22d78535": {
+        "name": "Salchicha Bag",
+        "quantity": 12.000000000000002,
+        "unit": "oz"
+      },
+      "fab9d589-8ae8-4381-87da-85f836068996": {
+        "name": "Carne Asada",
+        "quantity": 51,
+        "unit": "oz"
+      },
+      "ad7e3703-2701-4a05-aa97-77866c8c717e": {
+        "name": "Pastor",
+        "quantity": 7.5,
+        "unit": "oz"
+      },
+      "8d211e94-2f16-40e8-aabf-22a26b981011": {
+        "name": "Diet Coke",
+        "quantity": 28.359999999999996,
+        "unit": "oz"
+      },
+      "88a992db-c021-4719-88f9-58c70302392e": {
+        "name": "Frijol Entero",
+        "quantity": 132,
+        "unit": "oz"
+      },
+      "aa8d2711-fbd7-45b7-9223-52a2722ffd0e": {
+        "name": "Salsa Roja",
+        "quantity": 7.800000000000001,
+        "unit": "oz"
+      },
+      "8322778b-a978-478f-8508-a1332ea09551": {
+        "name": "Teleras",
+        "quantity": 92,
+        "unit": "pza"
+      },
+      "3ab4f8a4-97dc-4949-903c-82102cffbb03": {
+        "name": "Bolsa Mayonesa",
+        "quantity": 9.37000000000001,
+        "unit": "oz"
+      },
+      "2275a3db-0ab2-433e-abc4-419058f987ee": {
+        "name": "El Gavilan - Wax Paper, 14x14",
+        "quantity": 30,
+        "unit": "pza"
+      },
+      "c94028ef-cdc5-4173-9686-9eeaa1a76510": {
+        "name": "Mulitas Con Queso",
+        "quantity": 131,
+        "unit": "pza"
+      },
+      "1df90372-7648-4ec1-9a6c-fca4032095a6": {
+        "name": "358_9604BT Tortilla Regular 8 in",
+        "quantity": 12,
+        "unit": "pza"
+      },
+      "5c59d80c-7d7b-45f9-997c-57540127d3a8": {
+        "name": "Milaneza",
+        "quantity": 38,
+        "unit": "pza"
+      },
+      "4ea7ef9c-986e-4fc1-a363-7200ca558aab": {
+        "name": "Pollo",
+        "quantity": 28.5,
+        "unit": "oz"
+      },
+      "03acfdc6-fbdb-4a03-811a-88cfc1d421e5": {
+        "name": "Cafe de olla",
+        "quantity": 4,
+        "unit": "pza"
+      },
+      "dbadf821-79dc-4c1a-9b68-907bb9c8c112": {
+        "name": "Tortilla Nachos",
+        "quantity": 21,
+        "unit": "pza"
+      },
+      "68a502a5-7e28-4b63-a830-47b9acb91bdf": {
+        "name": "Salsa Verde",
+        "quantity": 7,
+        "unit": "oz"
+      },
+      "62968b74-7877-4650-aa43-4ec6e9eb1888": {
+        "name": "Amarillo Cheese",
+        "quantity": 76,
+        "unit": "oz"
+      },
+      "b6f3f5de-c554-4650-b0df-09dd5d3ca053": {
+        "name": "Tamarindo Concentrate",
+        "quantity": 734,
+        "unit": "oz"
+      },
+      "10daaedf-6969-4326-ae10-4c4f69dd0260": {
+        "name": "El Gavilan - Cup, 8 oz Paper",
+        "quantity": 4,
+        "unit": "pza"
+      },
+      "ca483e81-2b40-469e-8264-c232efe2a3db": {
+        "name": "El Gavilan - Flat Lid for 8 oz PP Container",
+        "quantity": 4,
+        "unit": "pza"
+      },
+      "34720160-015c-4623-bb1e-98da0e7b4e51": {
+        "name": "Queso Tortas/platos/Desayuno",
+        "quantity": 1,
+        "unit": "pza"
+      },
+      "baea9049-eae9-4cf4-9c78-b0c0c42e2ca5": {
+        "name": "Sprite",
+        "quantity": 14.08,
+        "unit": "oz"
+      },
+      "baac1d41-3b80-4f80-acfc-7a19f46e03c2": {
+        "name": "Buche 6 oz",
+        "quantity": 1.5,
+        "unit": "oz"
+      },
+      "0fb87578-1185-41a9-a318-97428db20a5d": {
+        "name": "Lengua",
+        "quantity": 4.5,
+        "unit": "oz"
+      },
+      "1e4c43b6-4e1b-4e51-8617-e127b89467f1": {
+        "name": "Chorizo 8 oz",
+        "quantity": 7.5,
+        "unit": "oz"
+      },
+      "f3805b35-5471-458b-a6a8-52e4ff13ca9e": {
+        "name": "Minute Maid Lemonade",
+        "quantity": 7.14,
+        "unit": "oz"
+      },
+      "511e341b-ca42-44ed-89df-a4a84b51a619": {
+        "name": "Cabeza",
+        "quantity": 3,
+        "unit": "oz"
+      },
+      "f8f776c5-3b8c-453e-8161-b49840823933": {
+        "name": "Flan",
+        "quantity": 9,
+        "unit": "pza"
+      },
+      "8ba55664-5ca9-4886-8ac8-acf1fd070713": {
+        "name": "Cheesecake",
+        "quantity": 8,
+        "unit": "pza"
+      },
+      "1cddf490-00c5-43dc-b60f-9edc526a3cd3": {
+        "name": "Fuze Raspberry Iced Tea",
+        "quantity": 13.88,
+        "unit": "oz"
+      },
+      "a6314be5-ded6-45de-8a42-4fe1a48582a0": {
+        "name": "El Gavilan - Bag, 12x6x19 Plastic",
+        "quantity": 3,
+        "unit": "pza"
+      },
+      "c037c42a-8ad9-4aed-a6da-5143ecdee737": {
+        "name": "Primo - Foil Sheets, 12x10.75",
+        "quantity": 4,
+        "unit": "pza"
+      },
+      "ec94de24-258e-46f9-93a7-9a5ec2508d5b": {
+        "name": "Fanta Orange",
+        "quantity": 5.85,
+        "unit": "oz"
+      },
+      "7ce71a1e-7843-4070-9199-3cd1fbafa69e": {
+        "name": "Coca-Cola- Coke Zero Sugar",
+        "quantity": 2.38,
+        "unit": "oz"
+      },
+      "b0fdb895-3807-406d-9e85-cdc001dac951": {
+        "name": "Fanta Strawberry",
+        "quantity": 4.76,
+        "unit": "oz"
+      },
+      "2fba5d5d-2af8-437d-8eae-844ed531dd8d": {
+        "name": "Galones Vacios",
+        "quantity": 1,
+        "unit": "pza"
+      },
+      "5b5098b5-c06f-4c03-8978-0a6744848b20": {
+        "name": "El Gavilan - Bag, 15x16+7 Seal2Go",
+        "quantity": 1,
+        "unit": "pza"
+      }
+    },
+    "warningsCount": 5,
+    "sampleWarnings": [
+      "1 desayuno(s) sin carne identificable: no se asignó salsa.",
+      "1 plato(s) sin carne identificable: no se asignó salsa.",
+      "1 plato(s) sin carne identificable: no se asignó salsa.",
+      "1 plato(s) sin carne identificable: no se asignó salsa.",
+      "1 sope(s) sin carne identificable: no se asignó salsa."
+    ]
+  },
+  {
+    "storeId": 16,
+    "storeName": "Downey",
+    "businessDate": "2026-09-23",
+    "totalTickets": 572,
+    "totalSelections": 2421,
+    "totalModifiers": 1067,
+    "channelsCount": {
+      "for_here": 178,
+      "to_go": 337,
+      "delivery": 57
+    },
+    "packagingChannelsCount": {
+      "for_here": 178,
+      "to_go": 325,
+      "delivery": 69
+    },
+    "specialCases": {
+      "extraMeatTickets": 3,
+      "halfMeatTickets": 10,
+      "carneDoradaTickets": 4,
+      "sideOrderCarneTickets": 1,
+      "cateringMeatTickets": 0,
+      "tacoPlateTickets": 10,
+      "gallonAguaTickets": 0,
+      "specialTortaTickets": 28
+    },
+    "meatConsumption": {
+      "cookedOz": {
+        "asada": 2629.9,
+        "pastor": 627,
+        "pollo": 543.8,
+        "cabeza": 394.5,
+        "lengua": 267,
+        "chorizo": 57,
+        "carnitas": 131.3,
+        "buche": 79.5
+      },
+      "rawLbs": {
+        "asada": 267.2662601626038,
+        "pastor": 63.71951219512202,
+        "pollo": 52.28846153846157,
+        "cabeza": 28.340517241379274,
+        "lengua": 16.6875,
+        "chorizo": 4.75,
+        "carnitas": 8.20625,
+        "buche": 4.96875
+      }
+    },
+    "packagingTotals": {
+      "plate_9in": 541,
+      "mixta_bag": 1032,
+      "lime_bag": 1209,
+      "salsa_roja_pack": 1207,
+      "taco_cover": 333,
+      "ELTSBALA": 324,
+      "EL1254": 135,
+      "jalapeno_2oz_bag": 241,
+      "salsa_verde_pack": 453,
+      "bolsa_agua_uber": 37,
+      "EL1CS2G": 73,
+      "ELMES2G": 65,
+      "983BLKB": 14,
+      "983LID": 10,
+      "UP918PR": 27,
+      "WRHESPBL": 3,
+      "981BLKB": 10,
+      "981LID": 10,
+      "cup_8oz_paper": 21,
+      "lid_8oz_flat": 21,
+      "ELLAS2G": 4,
+      "HEFO": 3,
+      "cup_4oz": 2,
+      "lid_4oz": 2,
+      "HESP": 8,
+      "WRHEFOBL": 1
+    },
+    "recipeIngredientsUsage": {
+      "dcd79433-e97c-46dc-80c0-8429401e0fa0": {
+        "name": "1100 Tortilla,White Corn 4.7OZ 60CT",
+        "quantity": 2754,
+        "unit": "pza"
+      },
+      "c94028ef-cdc5-4173-9686-9eeaa1a76510": {
+        "name": "Mulitas Con Queso",
+        "quantity": 132,
+        "unit": "pza"
+      },
+      "0166aec7-160a-4c9c-82d4-9ecbb251cb9d": {
+        "name": "Bolsa Crema",
+        "quantity": 230.95000000000005,
+        "unit": "oz"
+      },
+      "0289794f-e7e1-4a65-9492-56ca6b6767e9": {
+        "name": "Bolsa Aguacate",
+        "quantity": 529,
+        "unit": "oz"
+      },
+      "55798c3c-a86e-469d-ab70-24e0f1af0c2b": {
+        "name": "358-9673BT 13” Flour Tortilla",
+        "quantity": 277,
+        "unit": "pza"
+      },
+      "557d9414-c769-4399-a6cc-15bb81cba85f": {
+        "name": "Frijol Molido",
+        "quantity": 1576.5,
+        "unit": "oz"
+      },
+      "a1bbc13a-a481-4b7f-a5c6-8a44a96ad562": {
+        "name": "Arroz",
+        "quantity": 1898,
+        "unit": "oz"
+      },
+      "fb83420e-8c32-4e85-a29d-e74de2055807": {
+        "name": "Papelito Para Torta",
+        "quantity": 129,
+        "unit": "pza"
+      },
+      "8322778b-a978-478f-8508-a1332ea09551": {
+        "name": "Teleras",
+        "quantity": 82,
+        "unit": "pza"
+      },
+      "3ab4f8a4-97dc-4949-903c-82102cffbb03": {
+        "name": "Bolsa Mayonesa",
+        "quantity": 11.200000000000012,
+        "unit": "oz"
+      },
+      "5c59d80c-7d7b-45f9-997c-57540127d3a8": {
+        "name": "Milaneza",
+        "quantity": 36,
+        "unit": "pza"
+      },
+      "808c43e2-df89-4b6d-bef3-2f5c7310914c": {
+        "name": "Champurrado Mix",
+        "quantity": 179.20000000000007,
+        "unit": "oz"
+      },
+      "15871ef1-768e-4176-978e-346edb2006eb": {
+        "name": "Huevo",
+        "quantity": 27,
+        "unit": "pza"
+      },
+      "ea165e4e-d939-49a8-af9a-7bc186f50e2e": {
+        "name": "Onion/ Cil. Mix 1/4",
+        "quantity": 159,
+        "unit": "oz"
+      },
+      "085ecb0d-c711-4134-ae1a-f7630a22759c": {
+        "name": "Horchata",
+        "quantity": 8480,
+        "unit": "oz"
+      },
+      "983a3a9a-446a-4b98-b26b-3c3e642508a0": {
+        "name": "Sopes",
+        "quantity": 76,
+        "unit": "pza"
+      },
+      "6549dc7d-7657-4bbd-851e-153707b4556b": {
+        "name": "Queso Cotija 021",
+        "quantity": 62,
+        "unit": "oz"
+      },
+      "525a859d-9f16-477b-9a30-a56abeb4ec14": {
+        "name": "Queso Rayado",
+        "quantity": 363,
+        "unit": "oz"
+      },
+      "0ae260b8-ec71-4b4f-a38f-e3b81f84f720": {
+        "name": "Quesadilla Bodega",
+        "quantity": 68,
+        "unit": "pza"
+      },
+      "cac598b2-9c18-4055-8f2e-16de22d78535": {
+        "name": "Salchicha Bag",
+        "quantity": 16.800000000000004,
+        "unit": "oz"
+      },
+      "5a962d06-d162-425e-a942-c7ad6dab663d": {
+        "name": "Jamon Pack",
+        "quantity": 36.399999999999984,
+        "unit": "oz"
+      },
+      "7ce71a1e-7843-4070-9199-3cd1fbafa69e": {
+        "name": "Coca-Cola- Coke Zero Sugar",
+        "quantity": 4.76,
+        "unit": "oz"
+      },
+      "baea9049-eae9-4cf4-9c78-b0c0c42e2ca5": {
+        "name": "Sprite",
+        "quantity": 5.85,
+        "unit": "oz"
+      },
+      "aa8d2711-fbd7-45b7-9223-52a2722ffd0e": {
+        "name": "Salsa Roja",
+        "quantity": 16.7,
+        "unit": "oz"
+      },
+      "d7d3d6f5-7426-49b0-8567-9d3b4f3c196f": {
+        "name": "Coca-Cola Classic",
+        "quantity": 17.55,
+        "unit": "oz"
+      },
+      "f73fe7a6-105c-4624-a87b-07d5f78c09ea": {
+        "name": "Lima Bolsita",
+        "quantity": 486,
+        "unit": "pza"
+      },
+      "90fb17e3-6ba7-4545-b5a1-94df4f6a9fcb": {
+        "name": "1 oz Bolsa de Mixta",
+        "quantity": 424,
+        "unit": "pza"
+      },
+      "b4e7349c-669a-42e6-9810-ec3a7673b3f2": {
+        "name": "2 oz Bolsas de Rajas con Zanahoria",
+        "quantity": 305,
+        "unit": "pza"
+      },
+      "6c0a3378-8309-48c9-a438-15313cabd9d8": {
+        "name": "1.5 oz Salsa Verde Pack",
+        "quantity": 484,
+        "unit": "pza"
+      },
+      "a639ad41-81bf-4de6-8dbc-0291005654ad": {
+        "name": "1.5 oz Salsa Roja Pack",
+        "quantity": 275,
+        "unit": "pza"
+      },
+      "202c48b0-f9f9-4304-87a5-07d5e970f0cf": {
+        "name": "Salsa Huevos Rancheros",
+        "quantity": 27.299999999999997,
+        "unit": "oz"
+      },
+      "b6f3f5de-c554-4650-b0df-09dd5d3ca053": {
+        "name": "Tamarindo Concentrate",
+        "quantity": 108,
+        "unit": "oz"
+      },
+      "6051e960-7564-41f6-9a52-ff79ed7c6353": {
+        "name": "Jamaica Concentrate",
+        "quantity": 334,
+        "unit": "oz"
+      },
+      "fab9d589-8ae8-4381-87da-85f836068996": {
+        "name": "Carne Asada",
+        "quantity": 31.5,
+        "unit": "oz"
+      },
+      "1df90372-7648-4ec1-9a6c-fca4032095a6": {
+        "name": "358_9604BT Tortilla Regular 8 in",
+        "quantity": 11,
+        "unit": "pza"
+      },
+      "957aef69-a76b-454b-a558-944f9c1a4a51": {
+        "name": "Cafe Regular",
+        "quantity": 5,
+        "unit": "pza"
+      },
+      "6b81f73c-dd80-4376-8e05-fd44138ca0f6": {
+        "name": "El Gavilan - Cup, 4 oz Paper",
+        "quantity": 57,
+        "unit": "pza"
+      },
+      "c46553c8-99ed-4864-a83b-0c46a8ba736a": {
+        "name": "El Gavilan - Flat Lid for 4 oz PP Container",
+        "quantity": 57,
+        "unit": "pza"
+      },
+      "d66c2fbf-4e83-45f1-b0c0-e9de57c6dbac": {
+        "name": "Agua Gavilan",
+        "quantity": 10,
+        "unit": "pza"
+      },
+      "88a992db-c021-4719-88f9-58c70302392e": {
+        "name": "Frijol Entero",
+        "quantity": 16,
+        "unit": "oz"
+      },
+      "ad7e3703-2701-4a05-aa97-77866c8c717e": {
+        "name": "Pastor",
+        "quantity": 10.5,
+        "unit": "oz"
+      },
+      "68a502a5-7e28-4b63-a830-47b9acb91bdf": {
+        "name": "Salsa Verde",
+        "quantity": 5.6,
+        "unit": "oz"
+      },
+      "f8f776c5-3b8c-453e-8161-b49840823933": {
+        "name": "Flan",
+        "quantity": 11,
+        "unit": "pza"
+      },
+      "4ea7ef9c-986e-4fc1-a363-7200ca558aab": {
+        "name": "Pollo",
+        "quantity": 25.5,
+        "unit": "oz"
+      },
+      "dbadf821-79dc-4c1a-9b68-907bb9c8c112": {
+        "name": "Tortilla Nachos",
+        "quantity": 19,
+        "unit": "pza"
+      },
+      "62968b74-7877-4650-aa43-4ec6e9eb1888": {
+        "name": "Amarillo Cheese",
+        "quantity": 72,
+        "unit": "oz"
+      },
+      "ec94de24-258e-46f9-93a7-9a5ec2508d5b": {
+        "name": "Fanta Orange",
+        "quantity": 7.14,
+        "unit": "oz"
+      },
+      "9851a32c-dc35-4653-a1e4-b2cf7bac9009": {
+        "name": "Piña Concentrate",
+        "quantity": 86,
+        "unit": "oz"
+      },
+      "f3805b35-5471-458b-a6a8-52e4ff13ca9e": {
+        "name": "Minute Maid Lemonade",
+        "quantity": 2.38,
+        "unit": "oz"
+      },
+      "1cddf490-00c5-43dc-b60f-9edc526a3cd3": {
+        "name": "Fuze Raspberry Iced Tea",
+        "quantity": 2.38,
+        "unit": "oz"
+      },
+      "0fb87578-1185-41a9-a318-97428db20a5d": {
+        "name": "Lengua",
+        "quantity": 7.5,
+        "unit": "oz"
+      },
+      "b0fdb895-3807-406d-9e85-cdc001dac951": {
+        "name": "Fanta Strawberry",
+        "quantity": 5.85,
+        "unit": "oz"
+      },
+      "8ba55664-5ca9-4886-8ac8-acf1fd070713": {
+        "name": "Cheesecake",
+        "quantity": 4,
+        "unit": "pza"
+      },
+      "14990e85-0d90-467c-ad9d-362e6ed4f1cd": {
+        "name": "Carnitas 6 oz",
+        "quantity": 1.5,
+        "unit": "oz"
+      },
+      "10daaedf-6969-4326-ae10-4c4f69dd0260": {
+        "name": "El Gavilan - Cup, 8 oz Paper",
+        "quantity": 4,
+        "unit": "pza"
+      },
+      "ca483e81-2b40-469e-8264-c232efe2a3db": {
+        "name": "El Gavilan - Flat Lid for 8 oz PP Container",
+        "quantity": 4,
+        "unit": "pza"
+      },
+      "c037c42a-8ad9-4aed-a6da-5143ecdee737": {
+        "name": "Primo - Foil Sheets, 12x10.75",
+        "quantity": 1,
+        "unit": "pza"
+      },
+      "5b5098b5-c06f-4c03-8978-0a6744848b20": {
+        "name": "El Gavilan - Bag, 15x16+7 Seal2Go",
+        "quantity": 1,
+        "unit": "pza"
+      },
+      "2275a3db-0ab2-433e-abc4-419058f987ee": {
+        "name": "El Gavilan - Wax Paper, 14x14",
+        "quantity": 30,
+        "unit": "pza"
+      },
+      "8d211e94-2f16-40e8-aabf-22a26b981011": {
+        "name": "Diet Coke",
+        "quantity": 15.37,
+        "unit": "oz"
+      },
+      "03acfdc6-fbdb-4a03-811a-88cfc1d421e5": {
+        "name": "Cafe de olla",
+        "quantity": 1,
+        "unit": "pza"
+      },
+      "1e4c43b6-4e1b-4e51-8617-e127b89467f1": {
+        "name": "Chorizo 8 oz",
+        "quantity": 4.5,
+        "unit": "oz"
+      }
+    },
+    "warningsCount": 9,
+    "sampleWarnings": [
+      "1 desayuno(s) sin carne identificable: no se asignó salsa.",
+      "1 desayuno(s) sin carne identificable: no se asignó salsa.",
+      "1 desayuno(s) sin carne identificable: no se asignó salsa.",
+      "2 desayuno(s) sin carne identificable: no se asignó salsa.",
+      "1 desayuno(s) sin carne identificable: no se asignó salsa."
+    ]
+  },
+  {
+    "storeId": 15,
+    "storeName": "South Gate",
+    "businessDate": "2026-09-23",
+    "totalTickets": 581,
+    "totalSelections": 2521,
+    "totalModifiers": 536,
+    "channelsCount": {
+      "for_here": 134,
+      "drive_thru": 310,
+      "delivery": 27,
+      "to_go": 110
+    },
+    "packagingChannelsCount": {
+      "for_here": 134,
+      "drive_thru": 310,
+      "delivery": 30,
+      "to_go": 107
+    },
+    "specialCases": {
+      "extraMeatTickets": 7,
+      "halfMeatTickets": 6,
+      "carneDoradaTickets": 3,
+      "sideOrderCarneTickets": 2,
+      "cateringMeatTickets": 1,
+      "tacoPlateTickets": 10,
+      "gallonAguaTickets": 2,
+      "specialTortaTickets": 22
+    },
+    "meatConsumption": {
+      "cookedOz": {
+        "asada": 2910.4,
+        "pastor": 563.7,
+        "pollo": 552,
+        "cabeza": 390.5,
+        "lengua": 205.2,
+        "chorizo": 93.5,
+        "carnitas": 114,
+        "buche": 79.5
+      },
+      "rawLbs": {
+        "asada": 295.7723577235798,
+        "pastor": 57.28658536585372,
+        "pollo": 53.07692307692314,
+        "cabeza": 28.053160919540193,
+        "lengua": 12.825,
+        "chorizo": 7.791666666666666,
+        "carnitas": 7.125,
+        "buche": 4.96875
+      }
+    },
+    "packagingTotals": {
+      "plate_9in": 553,
+      "mixta_bag": 1051,
+      "lime_bag": 1246,
+      "salsa_roja_pack": 1239,
+      "salsa_verde_pack": 420,
+      "UP918PR": 36,
+      "jalapeno_2oz_bag": 213,
+      "taco_cover": 397,
+      "ELTSBALA": 425,
+      "EL1254": 145,
+      "EL1CS2G": 30,
+      "ELMES2G": 26,
+      "983BLKB": 10,
+      "bolsa_agua_uber": 18,
+      "cup_4oz": 14,
+      "lid_4oz": 14,
+      "WRHESPBL": 4,
+      "981BLKB": 6,
+      "981LID": 6,
+      "cup_8oz_paper": 37,
+      "lid_8oz_flat": 37,
+      "HESP": 8,
+      "RC478": 1,
+      "709DO": 1,
+      "983LID": 8,
+      "ELLAS2G": 4,
+      "WRHEFOBL": 1,
+      "HEFO": 1
+    },
+    "recipeIngredientsUsage": {
+      "d7d3d6f5-7426-49b0-8567-9d3b4f3c196f": {
+        "name": "Coca-Cola Classic",
+        "quantity": 89.44,
+        "unit": "oz"
+      },
+      "dcd79433-e97c-46dc-80c0-8429401e0fa0": {
+        "name": "1100 Tortilla,White Corn 4.7OZ 60CT",
+        "quantity": 2858,
+        "unit": "pza"
+      },
+      "983a3a9a-446a-4b98-b26b-3c3e642508a0": {
+        "name": "Sopes",
+        "quantity": 76,
+        "unit": "pza"
+      },
+      "557d9414-c769-4399-a6cc-15bb81cba85f": {
+        "name": "Frijol Molido",
+        "quantity": 1521,
+        "unit": "oz"
+      },
+      "6549dc7d-7657-4bbd-851e-153707b4556b": {
+        "name": "Queso Cotija 021",
+        "quantity": 53.1,
+        "unit": "oz"
+      },
+      "0166aec7-160a-4c9c-82d4-9ecbb251cb9d": {
+        "name": "Bolsa Crema",
+        "quantity": 192.30000000000007,
+        "unit": "oz"
+      },
+      "808c43e2-df89-4b6d-bef3-2f5c7310914c": {
+        "name": "Champurrado Mix",
+        "quantity": 281.60000000000014,
+        "unit": "oz"
+      },
+      "8322778b-a978-478f-8508-a1332ea09551": {
+        "name": "Teleras",
+        "quantity": 82,
+        "unit": "pza"
+      },
+      "3ab4f8a4-97dc-4949-903c-82102cffbb03": {
+        "name": "Bolsa Mayonesa",
+        "quantity": 9.310000000000008,
+        "unit": "oz"
+      },
+      "0289794f-e7e1-4a65-9492-56ca6b6767e9": {
+        "name": "Bolsa Aguacate",
+        "quantity": 481,
+        "unit": "oz"
+      },
+      "fb83420e-8c32-4e85-a29d-e74de2055807": {
+        "name": "Papelito Para Torta",
+        "quantity": 113,
+        "unit": "pza"
+      },
+      "a639ad41-81bf-4de6-8dbc-0291005654ad": {
+        "name": "1.5 oz Salsa Roja Pack",
+        "quantity": 224,
+        "unit": "pza"
+      },
+      "55798c3c-a86e-469d-ab70-24e0f1af0c2b": {
+        "name": "358-9673BT 13” Flour Tortilla",
+        "quantity": 275,
+        "unit": "pza"
+      },
+      "a1bbc13a-a481-4b7f-a5c6-8a44a96ad562": {
+        "name": "Arroz",
+        "quantity": 1844,
+        "unit": "oz"
+      },
+      "8d211e94-2f16-40e8-aabf-22a26b981011": {
+        "name": "Diet Coke",
+        "quantity": 33.61,
+        "unit": "oz"
+      },
+      "15871ef1-768e-4176-978e-346edb2006eb": {
+        "name": "Huevo",
+        "quantity": 24,
+        "unit": "pza"
+      },
+      "5a962d06-d162-425e-a942-c7ad6dab663d": {
+        "name": "Jamon Pack",
+        "quantity": 27.99999999999999,
+        "unit": "oz"
+      },
+      "6051e960-7564-41f6-9a52-ff79ed7c6353": {
+        "name": "Jamaica Concentrate",
+        "quantity": 2002,
+        "unit": "oz"
+      },
+      "957aef69-a76b-454b-a558-944f9c1a4a51": {
+        "name": "Cafe Regular",
+        "quantity": 2,
+        "unit": "pza"
+      },
+      "cac598b2-9c18-4055-8f2e-16de22d78535": {
+        "name": "Salchicha Bag",
+        "quantity": 12.800000000000002,
+        "unit": "oz"
+      },
+      "085ecb0d-c711-4134-ae1a-f7630a22759c": {
+        "name": "Horchata",
+        "quantity": 5012,
+        "unit": "oz"
+      },
+      "c94028ef-cdc5-4173-9686-9eeaa1a76510": {
+        "name": "Mulitas Con Queso",
+        "quantity": 98,
+        "unit": "pza"
+      },
+      "0ae260b8-ec71-4b4f-a38f-e3b81f84f720": {
+        "name": "Quesadilla Bodega",
+        "quantity": 68,
+        "unit": "pza"
+      },
+      "b6f3f5de-c554-4650-b0df-09dd5d3ca053": {
+        "name": "Tamarindo Concentrate",
+        "quantity": 506,
+        "unit": "oz"
+      },
+      "525a859d-9f16-477b-9a30-a56abeb4ec14": {
+        "name": "Queso Rayado",
+        "quantity": 394,
+        "unit": "oz"
+      },
+      "2275a3db-0ab2-433e-abc4-419058f987ee": {
+        "name": "El Gavilan - Wax Paper, 14x14",
+        "quantity": 36,
+        "unit": "pza"
+      },
+      "ea165e4e-d939-49a8-af9a-7bc186f50e2e": {
+        "name": "Onion/ Cil. Mix 1/4",
+        "quantity": 25,
+        "unit": "oz"
+      },
+      "aa8d2711-fbd7-45b7-9223-52a2722ffd0e": {
+        "name": "Salsa Roja",
+        "quantity": 4.9,
+        "unit": "oz"
+      },
+      "6b81f73c-dd80-4376-8e05-fd44138ca0f6": {
+        "name": "El Gavilan - Cup, 4 oz Paper",
+        "quantity": 85,
+        "unit": "pza"
+      },
+      "c46553c8-99ed-4864-a83b-0c46a8ba736a": {
+        "name": "El Gavilan - Flat Lid for 4 oz PP Container",
+        "quantity": 85,
+        "unit": "pza"
+      },
+      "b4e7349c-669a-42e6-9810-ec3a7673b3f2": {
+        "name": "2 oz Bolsas de Rajas con Zanahoria",
+        "quantity": 221,
+        "unit": "pza"
+      },
+      "f73fe7a6-105c-4624-a87b-07d5f78c09ea": {
+        "name": "Lima Bolsita",
+        "quantity": 249,
+        "unit": "pza"
+      },
+      "90fb17e3-6ba7-4545-b5a1-94df4f6a9fcb": {
+        "name": "1 oz Bolsa de Mixta",
+        "quantity": 251,
+        "unit": "pza"
+      },
+      "6c0a3378-8309-48c9-a438-15313cabd9d8": {
+        "name": "1.5 oz Salsa Verde Pack",
+        "quantity": 235,
+        "unit": "pza"
+      },
+      "202c48b0-f9f9-4304-87a5-07d5e970f0cf": {
+        "name": "Salsa Huevos Rancheros",
+        "quantity": 11.7,
+        "unit": "oz"
+      },
+      "0fb87578-1185-41a9-a318-97428db20a5d": {
+        "name": "Lengua",
+        "quantity": 7.5,
+        "unit": "oz"
+      },
+      "62968b74-7877-4650-aa43-4ec6e9eb1888": {
+        "name": "Amarillo Cheese",
+        "quantity": 48,
+        "unit": "oz"
+      },
+      "dbadf821-79dc-4c1a-9b68-907bb9c8c112": {
+        "name": "Tortilla Nachos",
+        "quantity": 15,
+        "unit": "pza"
+      },
+      "5c59d80c-7d7b-45f9-997c-57540127d3a8": {
+        "name": "Milaneza",
+        "quantity": 22,
+        "unit": "pza"
+      },
+      "68a502a5-7e28-4b63-a830-47b9acb91bdf": {
+        "name": "Salsa Verde",
+        "quantity": 8.4,
+        "unit": "oz"
+      },
+      "9851a32c-dc35-4653-a1e4-b2cf7bac9009": {
+        "name": "Piña Concentrate",
+        "quantity": 866,
+        "unit": "oz"
+      },
+      "f8f776c5-3b8c-453e-8161-b49840823933": {
+        "name": "Flan",
+        "quantity": 12,
+        "unit": "pza"
+      },
+      "ec94de24-258e-46f9-93a7-9a5ec2508d5b": {
+        "name": "Fanta Orange",
+        "quantity": 2.38,
+        "unit": "oz"
+      },
+      "d66c2fbf-4e83-45f1-b0c0-e9de57c6dbac": {
+        "name": "Agua Gavilan",
+        "quantity": 5,
+        "unit": "pza"
+      },
+      "baea9049-eae9-4cf4-9c78-b0c0c42e2ca5": {
+        "name": "Sprite",
+        "quantity": 7.14,
+        "unit": "oz"
+      },
+      "7ce71a1e-7843-4070-9199-3cd1fbafa69e": {
+        "name": "Coca-Cola- Coke Zero Sugar",
+        "quantity": 9.32,
+        "unit": "oz"
+      },
+      "1df90372-7648-4ec1-9a6c-fca4032095a6": {
+        "name": "358_9604BT Tortilla Regular 8 in",
+        "quantity": 3,
+        "unit": "pza"
+      },
+      "fab9d589-8ae8-4381-87da-85f836068996": {
+        "name": "Carne Asada",
+        "quantity": 34.5,
+        "unit": "oz"
+      },
+      "10daaedf-6969-4326-ae10-4c4f69dd0260": {
+        "name": "El Gavilan - Cup, 8 oz Paper",
+        "quantity": 12,
+        "unit": "pza"
+      },
+      "ca483e81-2b40-469e-8264-c232efe2a3db": {
+        "name": "El Gavilan - Flat Lid for 8 oz PP Container",
+        "quantity": 12,
+        "unit": "pza"
+      },
+      "88a992db-c021-4719-88f9-58c70302392e": {
+        "name": "Frijol Entero",
+        "quantity": 44,
+        "unit": "oz"
+      },
+      "2fba5d5d-2af8-437d-8eae-844ed531dd8d": {
+        "name": "Galones Vacios",
+        "quantity": 2,
+        "unit": "pza"
+      },
+      "1cddf490-00c5-43dc-b60f-9edc526a3cd3": {
+        "name": "Fuze Raspberry Iced Tea",
+        "quantity": 5.85,
+        "unit": "oz"
+      },
+      "4ea7ef9c-986e-4fc1-a363-7200ca558aab": {
+        "name": "Pollo",
+        "quantity": 3,
+        "unit": "oz"
+      },
+      "a6314be5-ded6-45de-8a42-4fe1a48582a0": {
+        "name": "El Gavilan - Bag, 12x6x19 Plastic",
+        "quantity": 1,
+        "unit": "pza"
+      },
+      "c037c42a-8ad9-4aed-a6da-5143ecdee737": {
+        "name": "Primo - Foil Sheets, 12x10.75",
+        "quantity": 1,
+        "unit": "pza"
+      },
+      "8ba55664-5ca9-4886-8ac8-acf1fd070713": {
+        "name": "Cheesecake",
+        "quantity": 2,
+        "unit": "pza"
+      },
+      "f3805b35-5471-458b-a6a8-52e4ff13ca9e": {
+        "name": "Minute Maid Lemonade",
+        "quantity": 2.38,
+        "unit": "oz"
+      },
+      "03acfdc6-fbdb-4a03-811a-88cfc1d421e5": {
+        "name": "Cafe de olla",
+        "quantity": 1,
+        "unit": "pza"
+      }
+    },
+    "warningsCount": 6,
+    "sampleWarnings": [
+      "1 desayuno(s) sin carne identificable: no se asignó salsa.",
+      "1 desayuno(s) sin carne identificable: no se asignó salsa.",
+      "1 desayuno(s) sin carne identificable: no se asignó salsa.",
+      "1 desayuno(s) sin carne identificable: no se asignó salsa.",
+      "1 desayuno(s) sin carne identificable: no se asignó salsa."
+    ]
+  }
+]

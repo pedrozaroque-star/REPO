@@ -1,0 +1,873 @@
+{
+  "auditRange": {
+    "start": "2026-08-01",
+    "end": "2026-09-23",
+    "closedDays": 54
+  },
+  "summary": {
+    "totalSoldItems": 244,
+    "mappedCount": 217,
+    "unmappedCount": 25,
+    "partialCount": 1,
+    "discontinuedCount": 0,
+    "nonFoodCount": 1
+  },
+  "unmappedItems": [
+    {
+      "guid": "717ae4d3-04a7-4a24-83f7-e89111102a1e",
+      "name": "Large Horchata",
+      "totalQuantity": 10255,
+      "totalNetSales": 42742.88,
+      "storeCount": 1,
+      "stores": [
+        "LA Central"
+      ],
+      "firstDate": "2026-08-01",
+      "lastDate": "2026-09-23",
+      "diningGroups": [
+        "DoorDash - Delivery",
+        "DoorDash - Takeout",
+        "Drive Thru",
+        "For Here",
+        "GrubHub Delivery",
+        "Grubhub - Takeout",
+        "Kiosk Dine In",
+        "Kiosk Take Out",
+        "Online Ordering - Takeout",
+        "Phone",
+        "To Go",
+        "Toast Delivery Services",
+        "Uber Eats - Delivery",
+        "Uber Eats Takeout"
+      ],
+      "reason": "Sin receta en Supabase recipes"
+    },
+    {
+      "guid": "03e71aca-a566-425e-bf6a-31ae9148b7b2",
+      "name": "Cheesecake",
+      "totalQuantity": 4540,
+      "totalNetSales": 22418.82,
+      "storeCount": 15,
+      "stores": [
+        "Azusa",
+        "Bell",
+        "Downey",
+        "Hollywood",
+        "Huntington Park",
+        "LA Broadway",
+        "LA Central",
+        "La Puente",
+        "Lynwood",
+        "Norwalk",
+        "Rialto",
+        "Santa Ana",
+        "Slauson",
+        "South Gate",
+        "West Covina"
+      ],
+      "firstDate": "2026-08-01",
+      "lastDate": "2026-09-23",
+      "diningGroups": [
+        "DoorDash - Delivery",
+        "DoorDash - Takeout",
+        "Drive Thru",
+        "For Here",
+        "GrubHub Delivery",
+        "Grubhub - Delivery",
+        "Kiosk Dine In",
+        "Kiosk Take Out",
+        "Online Ordering - Takeout",
+        "Phone",
+        "To Go",
+        "Toast Delivery Services",
+        "Toast Online",
+        "Uber Eats - Delivery",
+        "Uber Eats Takeout"
+      ],
+      "reason": "Sin receta en Supabase recipes"
+    },
+    {
+      "guid": "ab5adddd-12bd-4871-b6a3-af1c590752b6",
+      "name": "2 lb Meat (Asada)",
+      "totalQuantity": 259,
+      "totalNetSales": 6630.26,
+      "storeCount": 15,
+      "stores": [
+        "Azusa",
+        "Bell",
+        "Downey",
+        "Hollywood",
+        "Huntington Park",
+        "LA Broadway",
+        "LA Central",
+        "La Puente",
+        "Lynwood",
+        "Norwalk",
+        "Rialto",
+        "Santa Ana",
+        "Slauson",
+        "South Gate",
+        "West Covina"
+      ],
+      "firstDate": "2026-08-01",
+      "lastDate": "2026-09-23",
+      "diningGroups": [
+        "Drive Thru",
+        "For Here",
+        "Phone",
+        "To Go"
+      ],
+      "reason": "Sin receta en Supabase recipes"
+    },
+    {
+      "guid": "898d1dd3-a406-4bb7-a5c6-c27aa3f0f961",
+      "name": "6 lb Meat (Asada)",
+      "totalQuantity": 80,
+      "totalNetSales": 5071.3,
+      "storeCount": 11,
+      "stores": [
+        "Azusa",
+        "Downey",
+        "Huntington Park",
+        "LA Broadway",
+        "LA Central",
+        "Lynwood",
+        "Norwalk",
+        "Rialto",
+        "Santa Ana",
+        "Slauson",
+        "West Covina"
+      ],
+      "firstDate": "2026-08-01",
+      "lastDate": "2026-09-23",
+      "diningGroups": [
+        "For Here",
+        "Phone",
+        "To Go"
+      ],
+      "reason": "Sin receta en Supabase recipes"
+    },
+    {
+      "guid": "439d0ba1-cbca-4f78-a1db-122e26ee26ee",
+      "name": "Gallon Agua Fresca (Horchata / Rice water)",
+      "totalQuantity": 254,
+      "totalNetSales": 4401.14,
+      "storeCount": 15,
+      "stores": [
+        "Azusa",
+        "Bell",
+        "Downey",
+        "Hollywood",
+        "Huntington Park",
+        "LA Broadway",
+        "LA Central",
+        "La Puente",
+        "Lynwood",
+        "Norwalk",
+        "Rialto",
+        "Santa Ana",
+        "Slauson",
+        "South Gate",
+        "West Covina"
+      ],
+      "firstDate": "2026-08-01",
+      "lastDate": "2026-09-23",
+      "diningGroups": [
+        "DoorDash - Delivery",
+        "DoorDash - Takeout",
+        "GrubHub Delivery",
+        "Grubhub - Delivery",
+        "Kiosk Dine In",
+        "Kiosk Take Out",
+        "Toast Delivery Services",
+        "Toast Online",
+        "Uber Eats - Delivery",
+        "Uber Eats Takeout"
+      ],
+      "reason": "Sin receta en Supabase recipes"
+    },
+    {
+      "guid": "213d3816-21f2-4297-9d79-82c9a79069d9",
+      "name": "Gallon Agua",
+      "totalQuantity": 295,
+      "totalNetSales": 4274.86,
+      "storeCount": 15,
+      "stores": [
+        "Azusa",
+        "Bell",
+        "Downey",
+        "Hollywood",
+        "Huntington Park",
+        "LA Broadway",
+        "LA Central",
+        "La Puente",
+        "Lynwood",
+        "Norwalk",
+        "Rialto",
+        "Santa Ana",
+        "Slauson",
+        "South Gate",
+        "West Covina"
+      ],
+      "firstDate": "2026-08-01",
+      "lastDate": "2026-09-23",
+      "diningGroups": [
+        "Drive Thru",
+        "For Here",
+        "Phone",
+        "To Go"
+      ],
+      "reason": "Sin receta en Supabase recipes"
+    },
+    {
+      "guid": "43fc20b5-0252-4847-bf66-e1dcdd5ad3a1",
+      "name": "12 lb Meat (Asada)",
+      "totalQuantity": 35,
+      "totalNetSales": 4105.15,
+      "storeCount": 11,
+      "stores": [
+        "Azusa",
+        "Downey",
+        "Hollywood",
+        "LA Broadway",
+        "LA Central",
+        "La Puente",
+        "Norwalk",
+        "Rialto",
+        "Santa Ana",
+        "Slauson",
+        "West Covina"
+      ],
+      "firstDate": "2026-08-04",
+      "lastDate": "2026-09-20",
+      "diningGroups": [
+        "For Here",
+        "To Go"
+      ],
+      "reason": "Sin receta en Supabase recipes"
+    },
+    {
+      "guid": "7badb46f-87aa-4db6-9fbc-1e6cb79ea312",
+      "name": "20 oz. Salsa",
+      "totalQuantity": 32,
+      "totalNetSales": 214.08,
+      "storeCount": 9,
+      "stores": [
+        "Downey",
+        "Hollywood",
+        "LA Broadway",
+        "LA Central",
+        "Lynwood",
+        "Norwalk",
+        "Santa Ana",
+        "South Gate",
+        "West Covina"
+      ],
+      "firstDate": "2026-08-01",
+      "lastDate": "2026-09-22",
+      "diningGroups": [
+        "Drive Thru",
+        "For Here",
+        "To Go"
+      ],
+      "reason": "Sin receta en Supabase recipes"
+    },
+    {
+      "guid": "0c592b57-dc09-4e81-8822-79ee02e9ef24",
+      "name": "Diferneca Soe",
+      "totalQuantity": 1485,
+      "totalNetSales": 164.51,
+      "storeCount": 9,
+      "stores": [
+        "Bell",
+        "Huntington Park",
+        "LA Broadway",
+        "LA Central",
+        "La Puente",
+        "Lynwood",
+        "Norwalk",
+        "Slauson",
+        "South Gate"
+      ],
+      "firstDate": "2026-08-01",
+      "lastDate": "2026-09-23",
+      "diningGroups": [
+        "Drive Thru",
+        "For Here",
+        "Phone",
+        "To Go"
+      ],
+      "reason": "Sin receta en Supabase recipes"
+    },
+    {
+      "guid": "b2522a87-9c5c-4458-a796-2b9610bfc554",
+      "name": "------- Taco Separator-------",
+      "totalQuantity": 44565,
+      "totalNetSales": 52.15,
+      "storeCount": 15,
+      "stores": [
+        "Azusa",
+        "Bell",
+        "Downey",
+        "Hollywood",
+        "Huntington Park",
+        "LA Broadway",
+        "LA Central",
+        "La Puente",
+        "Lynwood",
+        "Norwalk",
+        "Rialto",
+        "Santa Ana",
+        "Slauson",
+        "South Gate",
+        "West Covina"
+      ],
+      "firstDate": "2026-08-01",
+      "lastDate": "2026-09-23",
+      "diningGroups": [
+        "Drive Thru",
+        "E-Gift Cards",
+        "For Here",
+        "Phone",
+        "To Go"
+      ],
+      "reason": "Sin receta en Supabase recipes"
+    },
+    {
+      "guid": "d84f2261-d1d5-468e-9bd9-908f0c81108f",
+      "name": "Test Item",
+      "totalQuantity": 82,
+      "totalNetSales": 14.88,
+      "storeCount": 15,
+      "stores": [
+        "Azusa",
+        "Bell",
+        "Downey",
+        "Hollywood",
+        "Huntington Park",
+        "LA Broadway",
+        "LA Central",
+        "La Puente",
+        "Lynwood",
+        "Norwalk",
+        "Rialto",
+        "Santa Ana",
+        "Slauson",
+        "South Gate",
+        "West Covina"
+      ],
+      "firstDate": "2026-08-01",
+      "lastDate": "2026-09-23",
+      "diningGroups": [
+        "Drive Thru",
+        "For Here",
+        "To Go"
+      ],
+      "reason": "Sin receta en Supabase recipes"
+    },
+    {
+      "guid": "a9b70f10-0fe9-4c5c-b8b1-42e3fd6ef783",
+      "name": "-------Mulita Separator-------",
+      "totalQuantity": 1841,
+      "totalNetSales": 1.98,
+      "storeCount": 15,
+      "stores": [
+        "Azusa",
+        "Bell",
+        "Downey",
+        "Hollywood",
+        "Huntington Park",
+        "LA Broadway",
+        "LA Central",
+        "La Puente",
+        "Lynwood",
+        "Norwalk",
+        "Rialto",
+        "Santa Ana",
+        "Slauson",
+        "South Gate",
+        "West Covina"
+      ],
+      "firstDate": "2026-08-01",
+      "lastDate": "2026-09-23",
+      "diningGroups": [
+        "Drive Thru",
+        "For Here",
+        "Phone",
+        "To Go"
+      ],
+      "reason": "Sin receta en Supabase recipes"
+    },
+    {
+      "guid": "d796e842-2071-465d-8e3e-a3a1f76e7e95",
+      "name": "------- Taco Separator 2-------",
+      "totalQuantity": 20420,
+      "totalNetSales": 1.5,
+      "storeCount": 15,
+      "stores": [
+        "Azusa",
+        "Bell",
+        "Downey",
+        "Hollywood",
+        "Huntington Park",
+        "LA Broadway",
+        "LA Central",
+        "La Puente",
+        "Lynwood",
+        "Norwalk",
+        "Rialto",
+        "Santa Ana",
+        "Slauson",
+        "South Gate",
+        "West Covina"
+      ],
+      "firstDate": "2026-08-01",
+      "lastDate": "2026-09-23",
+      "diningGroups": [
+        "Drive Thru",
+        "For Here",
+        "Phone",
+        "To Go"
+      ],
+      "reason": "Sin receta en Supabase recipes"
+    },
+    {
+      "guid": "d8f4d7cc-e98c-4953-babc-cbb05e96a33d",
+      "name": "Policia",
+      "totalQuantity": 772,
+      "totalNetSales": 0,
+      "storeCount": 12,
+      "stores": [
+        "Azusa",
+        "Bell",
+        "Downey",
+        "Hollywood",
+        "Huntington Park",
+        "LA Broadway",
+        "LA Central",
+        "Norwalk",
+        "Rialto",
+        "Slauson",
+        "South Gate",
+        "West Covina"
+      ],
+      "firstDate": "2026-08-01",
+      "lastDate": "2026-09-23",
+      "diningGroups": [
+        "Drive Thru",
+        "For Here",
+        "To Go"
+      ],
+      "reason": "Sin receta en Supabase recipes"
+    },
+    {
+      "guid": "eb480582-40bb-40f3-9d05-48ae24db506d",
+      "name": "----Sope Separator-----",
+      "totalQuantity": 1609,
+      "totalNetSales": 0,
+      "storeCount": 15,
+      "stores": [
+        "Azusa",
+        "Bell",
+        "Downey",
+        "Hollywood",
+        "Huntington Park",
+        "LA Broadway",
+        "LA Central",
+        "La Puente",
+        "Lynwood",
+        "Norwalk",
+        "Rialto",
+        "Santa Ana",
+        "Slauson",
+        "South Gate",
+        "West Covina"
+      ],
+      "firstDate": "2026-08-01",
+      "lastDate": "2026-09-23",
+      "diningGroups": [
+        "Drive Thru",
+        "For Here",
+        "Phone",
+        "To Go"
+      ],
+      "reason": "Sin receta en Supabase recipes"
+    },
+    {
+      "guid": "de2a6cc5-d93b-4772-8630-419611ec0b62",
+      "name": "Separator",
+      "totalQuantity": 1148,
+      "totalNetSales": 0,
+      "storeCount": 15,
+      "stores": [
+        "Azusa",
+        "Bell",
+        "Downey",
+        "Hollywood",
+        "Huntington Park",
+        "LA Broadway",
+        "LA Central",
+        "La Puente",
+        "Lynwood",
+        "Norwalk",
+        "Rialto",
+        "Santa Ana",
+        "Slauson",
+        "South Gate",
+        "West Covina"
+      ],
+      "firstDate": "2026-08-01",
+      "lastDate": "2026-09-23",
+      "diningGroups": [
+        "Drive Thru",
+        "For Here",
+        "Phone",
+        "To Go"
+      ],
+      "reason": "Sin receta en Supabase recipes"
+    },
+    {
+      "guid": "81226725-e3f4-4520-b8a7-0e89c8669e80",
+      "name": "-------Mulita Separator 4-------",
+      "totalQuantity": 54,
+      "totalNetSales": 0,
+      "storeCount": 11,
+      "stores": [
+        "Azusa",
+        "Bell",
+        "Downey",
+        "Huntington Park",
+        "LA Broadway",
+        "LA Central",
+        "Lynwood",
+        "Santa Ana",
+        "Slauson",
+        "South Gate",
+        "West Covina"
+      ],
+      "firstDate": "2026-08-01",
+      "lastDate": "2026-09-20",
+      "diningGroups": [
+        "Drive Thru",
+        "For Here",
+        "To Go"
+      ],
+      "reason": "Sin receta en Supabase recipes"
+    },
+    {
+      "guid": "ae7954fd-ac97-4e9f-9eae-3cfbd924d775",
+      "name": "-------Mulita Separator 2-------",
+      "totalQuantity": 818,
+      "totalNetSales": 0,
+      "storeCount": 15,
+      "stores": [
+        "Azusa",
+        "Bell",
+        "Downey",
+        "Hollywood",
+        "Huntington Park",
+        "LA Broadway",
+        "LA Central",
+        "La Puente",
+        "Lynwood",
+        "Norwalk",
+        "Rialto",
+        "Santa Ana",
+        "Slauson",
+        "South Gate",
+        "West Covina"
+      ],
+      "firstDate": "2026-08-01",
+      "lastDate": "2026-09-23",
+      "diningGroups": [
+        "Drive Thru",
+        "For Here",
+        "Phone",
+        "To Go"
+      ],
+      "reason": "Sin receta en Supabase recipes"
+    },
+    {
+      "guid": "2c0b4509-f85e-48b0-95c9-a50d164869b0",
+      "name": "------- Taco Separator 3-------",
+      "totalQuantity": 5833,
+      "totalNetSales": 0,
+      "storeCount": 15,
+      "stores": [
+        "Azusa",
+        "Bell",
+        "Downey",
+        "Hollywood",
+        "Huntington Park",
+        "LA Broadway",
+        "LA Central",
+        "La Puente",
+        "Lynwood",
+        "Norwalk",
+        "Rialto",
+        "Santa Ana",
+        "Slauson",
+        "South Gate",
+        "West Covina"
+      ],
+      "firstDate": "2026-08-01",
+      "lastDate": "2026-09-23",
+      "diningGroups": [
+        "Drive Thru",
+        "For Here",
+        "Phone",
+        "To Go"
+      ],
+      "reason": "Sin receta en Supabase recipes"
+    },
+    {
+      "guid": "4a5c8d3c-5eda-4111-acf2-0660b80db443",
+      "name": "------- Taco Separator 5-------",
+      "totalQuantity": 1388,
+      "totalNetSales": 0,
+      "storeCount": 14,
+      "stores": [
+        "Azusa",
+        "Bell",
+        "Downey",
+        "Hollywood",
+        "Huntington Park",
+        "LA Broadway",
+        "LA Central",
+        "La Puente",
+        "Lynwood",
+        "Norwalk",
+        "Santa Ana",
+        "Slauson",
+        "South Gate",
+        "West Covina"
+      ],
+      "firstDate": "2026-08-01",
+      "lastDate": "2026-09-23",
+      "diningGroups": [
+        "Drive Thru",
+        "For Here",
+        "Phone",
+        "To Go"
+      ],
+      "reason": "Sin receta en Supabase recipes"
+    },
+    {
+      "guid": "d6fbdde4-76c4-4fc3-929f-d76d50a84d95",
+      "name": "------- Taco Separator 4-------",
+      "totalQuantity": 2112,
+      "totalNetSales": 0,
+      "storeCount": 15,
+      "stores": [
+        "Azusa",
+        "Bell",
+        "Downey",
+        "Hollywood",
+        "Huntington Park",
+        "LA Broadway",
+        "LA Central",
+        "La Puente",
+        "Lynwood",
+        "Norwalk",
+        "Rialto",
+        "Santa Ana",
+        "Slauson",
+        "South Gate",
+        "West Covina"
+      ],
+      "firstDate": "2026-08-01",
+      "lastDate": "2026-09-23",
+      "diningGroups": [
+        "Drive Thru",
+        "For Here",
+        "Phone",
+        "To Go"
+      ],
+      "reason": "Sin receta en Supabase recipes"
+    },
+    {
+      "guid": "beea2fd1-8294-4970-94ba-50ef07370b28",
+      "name": "----Sope Separator 4-----",
+      "totalQuantity": 36,
+      "totalNetSales": 0,
+      "storeCount": 9,
+      "stores": [
+        "Azusa",
+        "Bell",
+        "Huntington Park",
+        "LA Broadway",
+        "LA Central",
+        "La Puente",
+        "Slauson",
+        "South Gate",
+        "West Covina"
+      ],
+      "firstDate": "2026-08-02",
+      "lastDate": "2026-09-22",
+      "diningGroups": [
+        "Drive Thru",
+        "For Here",
+        "To Go"
+      ],
+      "reason": "Sin receta en Supabase recipes"
+    },
+    {
+      "guid": "6d42184f-8c5e-4e0a-9a7f-677c4e4f95eb",
+      "name": "-------Mulita Separator 3-------",
+      "totalQuantity": 170,
+      "totalNetSales": 0,
+      "storeCount": 12,
+      "stores": [
+        "Bell",
+        "Downey",
+        "Hollywood",
+        "Huntington Park",
+        "LA Broadway",
+        "LA Central",
+        "La Puente",
+        "Lynwood",
+        "Santa Ana",
+        "Slauson",
+        "South Gate",
+        "West Covina"
+      ],
+      "firstDate": "2026-08-01",
+      "lastDate": "2026-09-23",
+      "diningGroups": [
+        "Drive Thru",
+        "For Here",
+        "Phone",
+        "To Go"
+      ],
+      "reason": "Sin receta en Supabase recipes"
+    },
+    {
+      "guid": "ac2ed059-86ff-4fca-a64a-0300e4e3c825",
+      "name": "----Sope Separator 2-----",
+      "totalQuantity": 151,
+      "totalNetSales": 0,
+      "storeCount": 12,
+      "stores": [
+        "Bell",
+        "Downey",
+        "Hollywood",
+        "Huntington Park",
+        "LA Broadway",
+        "LA Central",
+        "La Puente",
+        "Lynwood",
+        "Santa Ana",
+        "Slauson",
+        "South Gate",
+        "West Covina"
+      ],
+      "firstDate": "2026-08-01",
+      "lastDate": "2026-09-23",
+      "diningGroups": [
+        "Drive Thru",
+        "For Here",
+        "To Go"
+      ],
+      "reason": "Sin receta en Supabase recipes"
+    },
+    {
+      "guid": "54854487-11df-488d-af3e-6099390cb1db",
+      "name": "----Sope Separator 3-----",
+      "totalQuantity": 32,
+      "totalNetSales": 0,
+      "storeCount": 11,
+      "stores": [
+        "Bell",
+        "Downey",
+        "Huntington Park",
+        "LA Broadway",
+        "LA Central",
+        "La Puente",
+        "Lynwood",
+        "Santa Ana",
+        "Slauson",
+        "South Gate",
+        "West Covina"
+      ],
+      "firstDate": "2026-08-05",
+      "lastDate": "2026-09-21",
+      "diningGroups": [
+        "Drive Thru",
+        "For Here",
+        "To Go"
+      ],
+      "reason": "Sin receta en Supabase recipes"
+    }
+  ],
+  "partialItems": [
+    {
+      "guid": "ada1f576-a22b-469f-9042-ed1d5ddea10f",
+      "name": "Side Order Carne (Lengua)",
+      "totalQuantity": 2642,
+      "totalNetSales": 13581.79,
+      "storeCount": 15,
+      "stores": [
+        "Azusa",
+        "Bell",
+        "Downey",
+        "Hollywood",
+        "Huntington Park",
+        "LA Broadway",
+        "LA Central",
+        "La Puente",
+        "Lynwood",
+        "Norwalk",
+        "Rialto",
+        "Santa Ana",
+        "Slauson",
+        "South Gate",
+        "West Covina"
+      ],
+      "firstDate": "2026-08-01",
+      "lastDate": "2026-09-23",
+      "diningGroups": [
+        "Drive Thru",
+        "For Here",
+        "Phone",
+        "To Go"
+      ],
+      "reason": "Receta sin insumos clasificados como food",
+      "ingredientCount": 6
+    }
+  ],
+  "discontinuedItems": [],
+  "nonFoodOrDiscounts": [
+    {
+      "guid": "e48435a1-ffef-46b3-9483-8bac6b67df7c",
+      "name": "Empleado",
+      "totalQuantity": 6038,
+      "totalNetSales": 0.34,
+      "storeCount": 15,
+      "stores": [
+        "Azusa",
+        "Bell",
+        "Downey",
+        "Hollywood",
+        "Huntington Park",
+        "LA Broadway",
+        "LA Central",
+        "La Puente",
+        "Lynwood",
+        "Norwalk",
+        "Rialto",
+        "Santa Ana",
+        "Slauson",
+        "South Gate",
+        "West Covina"
+      ],
+      "firstDate": "2026-08-01",
+      "lastDate": "2026-09-23",
+      "diningGroups": [
+        "Drive Thru",
+        "For Here",
+        "To Go"
+      ],
+      "reason": "Registro no consumible / Descuento / Empleado"
+    }
+  ]
+}

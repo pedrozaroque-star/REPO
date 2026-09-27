@@ -1,0 +1,5077 @@
+[
+  {
+    "id": "005fafe7-126f-4db8-bd6a-69ef2f0fbb56",
+    "toast_guid": "64439c9a-9f18-4d8a-a60f-828c64a6640b",
+    "v2_toast_guid": "4e1199f8-01a2-4b0f-a1a4-cb7a14dbb789",
+    "first_name": "Alexander",
+    "last_name": "Suarez",
+    "deleted": true,
+    "created_date": "2024-04-19T20:03:20.637+00:00",
+    "deleted_date": "2025-12-14T21:05:01.232+00:00",
+    "wage_data": [
+      {
+        "wage": 17,
+        "job_guid": "e002a07f-9fe4-429d-b60d-3d2dee905841"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "e002a07f-9fe4-429d-b60d-3d2dee905841",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "02f4e854-0727-498d-a0d3-79c625d28bda",
+    "toast_guid": "2f0e1096-77d8-42e5-90d6-c444ec7c0b02",
+    "v2_toast_guid": "5c4061a7-5e3a-4225-b46a-18af82ca2c16",
+    "first_name": "Aricela",
+    "last_name": "Vasquez",
+    "deleted": true,
+    "created_date": "2022-10-04T19:34:35.74+00:00",
+    "deleted_date": "2023-04-12T17:18:42.941+00:00",
+    "wage_data": [
+      {
+        "wage": 15.5,
+        "job_guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "032224a3-0060-49e1-b438-08bacee1bd6f",
+    "toast_guid": "797fd545-99fe-4fdd-8ab8-1bd2d8c1d105",
+    "v2_toast_guid": "b7df31c5-9a80-44f5-8836-3cdda0d461f5",
+    "first_name": "Katya ",
+    "last_name": "Rodriguez",
+    "deleted": true,
+    "created_date": "2021-12-28T01:20:30.329+00:00",
+    "deleted_date": "2022-10-13T23:34:40.098+00:00",
+    "wage_data": [
+      {
+        "wage": 16,
+        "job_guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "03d3c749-75dc-41bf-b927-8f754a79b16f",
+    "toast_guid": "44a0129a-4efc-4bc1-9e5d-193b33015d3a",
+    "v2_toast_guid": "aa963222-c224-4977-8ea5-1a7173b63a89",
+    "first_name": "Alberto",
+    "last_name": "Benitez",
+    "deleted": false,
+    "created_date": "2024-04-01T03:45:45.504+00:00",
+    "deleted_date": "1970-01-01T00:00:00+00:00",
+    "wage_data": [
+      {
+        "wage": 17.9,
+        "job_guid": "e002a07f-9fe4-429d-b60d-3d2dee905841"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "e002a07f-9fe4-429d-b60d-3d2dee905841",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "054afdf8-2f59-4945-b9dc-6a8dbd4c2028",
+    "toast_guid": "3f6b1315-d556-47d0-851c-336c779d4bdb",
+    "v2_toast_guid": "85faf237-ff2b-4df3-99c1-83f9340e0ae0",
+    "first_name": "Israel",
+    "last_name": "Palacios",
+    "deleted": true,
+    "created_date": "2022-12-03T01:26:10.333+00:00",
+    "deleted_date": "2023-10-19T08:46:25.227+00:00",
+    "wage_data": [],
+    "job_references": [],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "072dca40-b215-4cd1-b7db-e5448049bbdc",
+    "toast_guid": "b2b1ecea-ab74-4828-9741-b7fec7dc6d2e",
+    "v2_toast_guid": "5bf6b8c4-1dd4-458f-aee8-6edb3efc3ead",
+    "first_name": "Irving",
+    "last_name": "Saca",
+    "deleted": false,
+    "created_date": "2023-03-09T01:16:18.748+00:00",
+    "deleted_date": "1970-01-01T00:00:00+00:00",
+    "wage_data": [
+      {
+        "wage": 16.9,
+        "job_guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "08281cd3-c085-4d6c-8f73-6978dcec0f7f",
+    "toast_guid": "5333f68a-f06c-4541-afec-0cdb7defcc69",
+    "v2_toast_guid": "eaed9411-28b2-4f55-9785-e9977853bab5",
+    "first_name": "Maria T",
+    "last_name": "Alejandre",
+    "deleted": true,
+    "created_date": "2023-10-19T08:58:53.935+00:00",
+    "deleted_date": "2026-01-23T21:14:29.775+00:00",
+    "wage_data": [],
+    "job_references": [],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "0a7bb83a-f32b-4ca8-8a6c-2f06bd5078ec",
+    "toast_guid": "ddc641be-86d5-42e7-892b-989290bc0b92",
+    "v2_toast_guid": "a77c3910-3d21-4f99-bb89-40c23ffe4f2e",
+    "first_name": "Santiago",
+    "last_name": "Chiroy",
+    "deleted": true,
+    "created_date": "2021-03-25T02:58:59.842+00:00",
+    "deleted_date": "2025-05-19T00:21:49.974+00:00",
+    "wage_data": [
+      {
+        "wage": 17.5,
+        "job_guid": "e002a07f-9fe4-429d-b60d-3d2dee905841"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "e002a07f-9fe4-429d-b60d-3d2dee905841",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "0b470c14-c72f-4e8d-a9d4-1f5d891ee5a3",
+    "toast_guid": "f7a65cc2-f024-4ce6-bb23-f590e20ae389",
+    "v2_toast_guid": "d4f4c655-8485-48b6-a004-3c4cc6fe599f",
+    "first_name": "tester",
+    "last_name": "tester",
+    "deleted": true,
+    "created_date": "2021-09-30T00:33:12.944+00:00",
+    "deleted_date": "2023-10-19T08:47:17.79+00:00",
+    "wage_data": [],
+    "job_references": [],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "0b7816bb-4030-4c4e-8000-38dc3b2dbc45",
+    "toast_guid": "9faaa25a-a56e-461b-aa8b-7cc455c93a48",
+    "v2_toast_guid": "941ea6a6-4ba8-484b-b84f-1e646fe69cb6",
+    "first_name": "Jose",
+    "last_name": "Martinez",
+    "deleted": false,
+    "created_date": "2023-04-16T19:45:13.69+00:00",
+    "deleted_date": "1970-01-01T00:00:00+00:00",
+    "wage_data": [
+      {
+        "wage": 17.4,
+        "job_guid": "e002a07f-9fe4-429d-b60d-3d2dee905841"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "e002a07f-9fe4-429d-b60d-3d2dee905841",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "0c349625-2932-4081-8a6d-b3a494a1fdba",
+    "toast_guid": "a85460e5-2e6c-4694-96c2-324352f740c1",
+    "v2_toast_guid": "8c3cc8f7-e5d7-43ce-88c5-e9f1d0354662",
+    "first_name": "Alejandra",
+    "last_name": "Gaytan",
+    "deleted": true,
+    "created_date": "2021-11-08T03:16:35.356+00:00",
+    "deleted_date": "2021-12-18T01:17:01.67+00:00",
+    "wage_data": [
+      {
+        "wage": 14.5,
+        "job_guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "0d63fe4e-df95-4a56-82f4-7f119d3cf8c7",
+    "toast_guid": "982e1754-1338-4813-ad60-22a446ea62e2",
+    "v2_toast_guid": "02a8561f-8e9f-47c7-b37b-1a726e585e4f",
+    "first_name": "Jorge",
+    "last_name": "Santizo",
+    "deleted": true,
+    "created_date": "2022-10-01T00:30:29.287+00:00",
+    "deleted_date": "2022-10-04T19:21:06.967+00:00",
+    "wage_data": [],
+    "job_references": [],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "0d8497d3-6314-4bec-b1a4-20982a3981ce",
+    "toast_guid": "67901278-6cd6-4407-af1b-087c5df47b1a",
+    "v2_toast_guid": "e3c9a17b-5107-42ec-b820-1453e1378efd",
+    "first_name": "Javier",
+    "last_name": "Pastor",
+    "deleted": false,
+    "created_date": "2024-06-10T06:17:07.888+00:00",
+    "deleted_date": "1970-01-01T00:00:00+00:00",
+    "wage_data": [],
+    "job_references": [
+      {
+        "guid": "0284a5b6-752f-4ed1-8b9d-2e59b5dca045",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "0f97d078-d15a-42fc-810e-ea6fab1eb541",
+    "toast_guid": "5e60e5a5-4a7b-477b-a2dc-1e2eaad141ef",
+    "v2_toast_guid": "0f8e6706-c09c-4dbe-bab5-35248aab5781",
+    "first_name": "Santos ",
+    "last_name": "Chavajay",
+    "deleted": true,
+    "created_date": "2021-09-24T21:52:01.251+00:00",
+    "deleted_date": "2023-10-19T08:45:12.127+00:00",
+    "wage_data": [
+      {
+        "wage": 17,
+        "job_guid": "f069bfbf-da5a-4da0-bb24-31b4e0340a88"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "f069bfbf-da5a-4da0-bb24-31b4e0340a88",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "0fadb936-7223-470e-ab7f-330c99aa6e61",
+    "toast_guid": "f3a08871-24cc-49d8-adcc-6aefa057093f",
+    "v2_toast_guid": "26ab6ac3-23d5-40eb-a1cc-215500097778",
+    "first_name": "Andrea",
+    "last_name": "Vargas",
+    "deleted": true,
+    "created_date": "2023-06-21T01:27:37.89+00:00",
+    "deleted_date": "2023-10-19T08:47:43.662+00:00",
+    "wage_data": [
+      {
+        "wage": 16,
+        "job_guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "0fdc92aa-b220-4214-a773-6ebd8f5d690f",
+    "toast_guid": "4f48cddd-12d1-44a7-ba25-7b6fe245c9ef",
+    "v2_toast_guid": "0c287011-8323-4b01-b02b-a57ccec73682",
+    "first_name": "Mercedes",
+    "last_name": "Castillo",
+    "deleted": true,
+    "created_date": "2021-02-19T02:07:38.59+00:00",
+    "deleted_date": "2021-05-04T03:58:55.217+00:00",
+    "wage_data": [
+      {
+        "wage": 14,
+        "job_guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "13207560-6c16-4b06-8dc7-ca0dd836f098",
+    "toast_guid": "25a9ce6a-bf97-4c28-9949-21a47750c9e1",
+    "v2_toast_guid": "9132480a-f0c5-4543-9be2-e6f4bf6fc8f5",
+    "first_name": "Willian",
+    "last_name": "Aguilar",
+    "deleted": true,
+    "created_date": "2021-06-15T04:53:16.94+00:00",
+    "deleted_date": "2022-05-26T21:24:28.859+00:00",
+    "wage_data": [],
+    "job_references": [
+      {
+        "guid": "0284a5b6-752f-4ed1-8b9d-2e59b5dca045",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "14091e5f-2d1f-4454-9eea-6305e0a48438",
+    "toast_guid": "0e6250f8-14c3-4347-a426-7e1bf55c360b",
+    "v2_toast_guid": "7bad0016-5bfe-432d-ad12-c9859fced7d8",
+    "first_name": "Carlos",
+    "last_name": "Rivera",
+    "deleted": true,
+    "created_date": "2021-03-25T03:04:01.324+00:00",
+    "deleted_date": "2022-01-22T05:14:54.81+00:00",
+    "wage_data": [],
+    "job_references": [],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "1568f5f3-c2a2-4c63-bb6e-08254752f50f",
+    "toast_guid": "3749a7b1-fa7c-4075-966e-e8146f9cabcb",
+    "v2_toast_guid": "94187ebd-ccda-4098-a6a4-51875b49e688",
+    "first_name": "Jose Andres",
+    "last_name": "Morales",
+    "deleted": false,
+    "created_date": "2025-11-05T22:44:51.355+00:00",
+    "deleted_date": "1970-01-01T00:00:00+00:00",
+    "wage_data": [
+      {
+        "wage": 16.9,
+        "job_guid": "e002a07f-9fe4-429d-b60d-3d2dee905841"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "e002a07f-9fe4-429d-b60d-3d2dee905841",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "163fadca-f303-4671-a132-a3085082bafa",
+    "toast_guid": "1df413fe-f607-4684-9f97-1349e15a3d47",
+    "v2_toast_guid": "73fcfe70-77f1-4ae7-a5b3-ac2b538d08d7",
+    "first_name": "Jocelyn",
+    "last_name": "Gomez",
+    "deleted": true,
+    "created_date": "2021-08-27T01:25:49.032+00:00",
+    "deleted_date": "2021-12-18T01:16:14.914+00:00",
+    "wage_data": [
+      {
+        "wage": 14.5,
+        "job_guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "16513119-572e-4556-b377-79509d551e76",
+    "toast_guid": "484f3456-5c67-409e-9801-69cb499c4c4b",
+    "v2_toast_guid": "5cb59854-d69a-4b4b-8440-2c24f388d7b0",
+    "first_name": "Enrique",
+    "last_name": "Dublan",
+    "deleted": true,
+    "created_date": "2021-03-25T03:00:22.34+00:00",
+    "deleted_date": "2022-03-12T04:37:21.224+00:00",
+    "wage_data": [],
+    "job_references": [],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "17758fa9-d941-49d6-a0a7-37782248e3e1",
+    "toast_guid": "f6da0a19-8f5d-49ad-81bd-2f4c0530ea81",
+    "v2_toast_guid": "1cb5235e-93e3-4619-8604-f4a81c7bdd30",
+    "first_name": "Jennifer",
+    "last_name": "Ortiz",
+    "deleted": true,
+    "created_date": "2024-04-01T04:25:20.762+00:00",
+    "deleted_date": "2026-01-23T19:38:06.681+00:00",
+    "wage_data": [],
+    "job_references": [],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "19aa8f82-f6dd-45e2-a1c6-09027363b89c",
+    "toast_guid": "e72570c2-0ea8-49ba-bb90-5c53a8d624cc",
+    "v2_toast_guid": "03bb7ac9-2321-4f81-aa3e-fe72366b5225",
+    "first_name": "Israel",
+    "last_name": "Palacios",
+    "deleted": true,
+    "created_date": "2022-08-30T00:14:08.823+00:00",
+    "deleted_date": "2023-10-19T08:46:21.612+00:00",
+    "wage_data": [],
+    "job_references": [],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "1b2f1983-6f02-46b8-926f-4821444f0c03",
+    "toast_guid": "35a6324e-1145-4eee-9c1d-3843528313f7",
+    "v2_toast_guid": "55d66d4d-f84a-4c73-b7de-e9c73c47b8ff",
+    "first_name": "Monica",
+    "last_name": "Cadena",
+    "deleted": true,
+    "created_date": "2021-06-27T01:13:31.048+00:00",
+    "deleted_date": "2021-09-06T20:54:27.241+00:00",
+    "wage_data": [
+      {
+        "wage": 14.5,
+        "job_guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "1b835253-0423-4c8f-95ed-171a371de1bb",
+    "toast_guid": "36f1da6e-6929-4556-bea5-3d192d3ef5d8",
+    "v2_toast_guid": "d1d37c6f-50f2-4579-a264-8162e2b95eb5",
+    "first_name": "Arminda",
+    "last_name": "Cancino",
+    "deleted": true,
+    "created_date": "2021-04-07T06:56:38.787+00:00",
+    "deleted_date": "2025-02-23T08:25:39.649+00:00",
+    "wage_data": [
+      {
+        "wage": 17,
+        "job_guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "1b9e12df-e2f2-4879-9f41-6a418428b4f0",
+    "toast_guid": "4eb11bea-d231-4cad-819f-34b893754bbd",
+    "v2_toast_guid": "1dd30743-c40c-42c7-a8ff-60c62d5ac4da",
+    "first_name": "Zyhurave",
+    "last_name": "Ortiz",
+    "deleted": true,
+    "created_date": "2021-04-27T00:28:52.687+00:00",
+    "deleted_date": "2021-05-04T03:30:26.353+00:00",
+    "wage_data": [
+      {
+        "wage": 14.5,
+        "job_guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "1e46cc8a-5607-40b7-ac6f-eec7e70f5a28",
+    "toast_guid": "6d774a88-e84c-490f-86e8-61b118cabefc",
+    "v2_toast_guid": "518b8c98-9b72-43d3-b42b-166039040ef3",
+    "first_name": "Abigail",
+    "last_name": "Serrano",
+    "deleted": true,
+    "created_date": "2021-02-25T02:24:15.672+00:00",
+    "deleted_date": "2021-09-06T21:01:03.25+00:00",
+    "wage_data": [
+      {
+        "wage": 14,
+        "job_guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "1f6d9326-087f-467d-9dd3-bfda25dda305",
+    "toast_guid": "32ad661a-5cea-4582-9646-a2900b23e36b",
+    "v2_toast_guid": "9bb55ccd-6ffc-4784-be3a-119a20790e06",
+    "first_name": "Osman",
+    "last_name": "Rosales",
+    "deleted": true,
+    "created_date": "2024-08-02T22:00:49.634+00:00",
+    "deleted_date": "2024-09-30T21:16:43.886+00:00",
+    "wage_data": [
+      {
+        "wage": 16.5,
+        "job_guid": "e002a07f-9fe4-429d-b60d-3d2dee905841"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "e002a07f-9fe4-429d-b60d-3d2dee905841",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "1fe9f4db-b4e6-40a1-9049-3d30d7ec6bf8",
+    "toast_guid": "524534df-3dd8-44f6-9d93-82e7edf5b974",
+    "v2_toast_guid": "7a0cb936-0191-42d6-bbef-1c5f089934f7",
+    "first_name": "Carmen",
+    "last_name": "Zavala",
+    "deleted": true,
+    "created_date": "2023-12-24T16:28:22.447+00:00",
+    "deleted_date": "2026-03-16T00:19:14.586+00:00",
+    "wage_data": [
+      {
+        "wage": 17.4,
+        "job_guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "215f6c90-af0d-4a18-b4f0-c3f5455a72b0",
+    "toast_guid": "a6697fc9-09cf-4c18-a5c1-be26cc3e4f8a",
+    "v2_toast_guid": "da664e8f-59b6-4d6b-b6af-fdd029370948",
+    "first_name": "Adrian",
+    "last_name": "Hernandez",
+    "deleted": false,
+    "created_date": "2026-09-21T21:35:25.533+00:00",
+    "deleted_date": "1970-01-01T00:00:00+00:00",
+    "wage_data": [
+      {
+        "wage": 16.9,
+        "job_guid": "e002a07f-9fe4-429d-b60d-3d2dee905841"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "e002a07f-9fe4-429d-b60d-3d2dee905841",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "2181378e-727f-415b-af8b-7f95a58ffe62",
+    "toast_guid": "22be5048-a2d4-4516-89c2-2d2e8def114a",
+    "v2_toast_guid": "853c259c-499e-4929-b384-1649761e7edc",
+    "first_name": "Josue",
+    "last_name": "Cruz",
+    "deleted": true,
+    "created_date": "2022-11-27T21:33:53.778+00:00",
+    "deleted_date": "2023-10-19T08:45:21.751+00:00",
+    "wage_data": [],
+    "job_references": [],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "21a7960c-d156-491f-a7ee-ab8b0fed3341",
+    "toast_guid": "ccf739ab-b3e2-406c-9877-64b0b985f735",
+    "v2_toast_guid": "db613d39-5f0b-4a9c-bcb5-72c03ac0aaf0",
+    "first_name": "Cruz Victorino",
+    "last_name": "Castillo",
+    "deleted": false,
+    "created_date": "2023-08-28T17:39:20.403+00:00",
+    "deleted_date": "1970-01-01T00:00:00+00:00",
+    "wage_data": [
+      {
+        "wage": 21.9,
+        "job_guid": "0c02665b-f409-4c5e-919f-2602ccb6febd"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "0c02665b-f409-4c5e-919f-2602ccb6febd",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "224f18cf-eb96-4348-a97a-e39b427f3183",
+    "toast_guid": "ced9bbfa-5aeb-415c-b9d1-2b7ff9c705d4",
+    "v2_toast_guid": "4e7532c3-9a4e-4505-be90-a0d896c258df",
+    "first_name": "Monica",
+    "last_name": "Castaneda Mejia",
+    "deleted": true,
+    "created_date": "2023-08-28T17:38:50.832+00:00",
+    "deleted_date": "2023-11-13T02:38:35.581+00:00",
+    "wage_data": [
+      {
+        "wage": 16,
+        "job_guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "232275d8-b3c0-4e09-a7a2-ebaafa6bdf8a",
+    "toast_guid": "44c987fd-0a46-4b6f-b522-8f0450fd6de9",
+    "v2_toast_guid": "822f5e8b-2a39-4148-adc0-5499f769f8a8",
+    "first_name": "German",
+    "last_name": "Juarez",
+    "deleted": true,
+    "created_date": "2021-03-25T03:01:39.519+00:00",
+    "deleted_date": "2023-01-08T07:49:44.7+00:00",
+    "wage_data": [],
+    "job_references": [],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "2330f26b-41e4-4a09-9c53-0934c0cecd22",
+    "toast_guid": "21befcdc-df54-4b08-ba1f-5c3ff0da2586",
+    "v2_toast_guid": "a902533b-17fb-48f7-ad51-8a99eac999c1",
+    "first_name": "Heidy",
+    "last_name": "Rodarte",
+    "deleted": false,
+    "created_date": "2024-04-20T21:45:29.302+00:00",
+    "deleted_date": "1970-01-01T00:00:00+00:00",
+    "wage_data": [
+      {
+        "wage": 19.88,
+        "job_guid": "f069bfbf-da5a-4da0-bb24-31b4e0340a88"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "f069bfbf-da5a-4da0-bb24-31b4e0340a88",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "25382644-dea4-42e5-acee-709b17c68743",
+    "toast_guid": "a5552dea-e702-4244-a85b-0894c499698c",
+    "v2_toast_guid": "8627ba49-3b0a-4d5e-9358-7e0e49ef6c5a",
+    "first_name": "Luis",
+    "last_name": "Rodriguez",
+    "deleted": true,
+    "created_date": "2023-03-02T03:07:31.403+00:00",
+    "deleted_date": "2023-04-12T17:40:02.601+00:00",
+    "wage_data": [
+      {
+        "wage": 16,
+        "job_guid": "e002a07f-9fe4-429d-b60d-3d2dee905841"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "e002a07f-9fe4-429d-b60d-3d2dee905841",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "2564e45a-3638-49b8-8c06-cc8e3b9e97e4",
+    "toast_guid": "df3072e8-885e-4f19-bdef-ecca3262e55d",
+    "v2_toast_guid": "2c7dc288-71e7-496f-8a9c-9deea9d926ac",
+    "first_name": "Isac",
+    "last_name": "Nava",
+    "deleted": true,
+    "created_date": "2022-12-02T00:27:57.993+00:00",
+    "deleted_date": "2023-10-19T08:46:08.301+00:00",
+    "wage_data": [],
+    "job_references": [],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "2583f388-2bce-41e9-8ed6-0998c5c21cba",
+    "toast_guid": "701ff641-f580-4df7-bad8-edf586c8e6b3",
+    "v2_toast_guid": "544ac4ee-c657-4edf-9dd0-afced2b03188",
+    "first_name": "Samuel",
+    "last_name": "Antunez",
+    "deleted": true,
+    "created_date": "2021-03-05T01:13:12.246+00:00",
+    "deleted_date": "2022-10-13T23:32:33.208+00:00",
+    "wage_data": [],
+    "job_references": [
+      {
+        "guid": "0284a5b6-752f-4ed1-8b9d-2e59b5dca045",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "27322d3e-b16e-4c32-84e1-7ef209295236",
+    "toast_guid": "cecd111b-a9bc-48f9-88b1-4942ae70b01a",
+    "v2_toast_guid": "57f7d102-1ba6-4f4d-9d48-d8bb1855b9d6",
+    "first_name": "Steven",
+    "last_name": "Reyes",
+    "deleted": true,
+    "created_date": "2022-10-04T19:35:30.708+00:00",
+    "deleted_date": "2023-10-19T08:46:35.079+00:00",
+    "wage_data": [
+      {
+        "wage": 16,
+        "job_guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "278b2e44-c68c-43a6-983a-39d662684f4b",
+    "toast_guid": "fd3fd847-0e45-4fd1-a167-01d39469db09",
+    "v2_toast_guid": "04753029-2ec5-4f8c-a54d-68138c2048cf",
+    "first_name": "Denis",
+    "last_name": "Sanchez",
+    "deleted": true,
+    "created_date": "2026-07-29T15:29:23.25+00:00",
+    "deleted_date": "2026-08-16T18:58:49.447+00:00",
+    "wage_data": [
+      {
+        "wage": 16.9,
+        "job_guid": "e002a07f-9fe4-429d-b60d-3d2dee905841"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "e002a07f-9fe4-429d-b60d-3d2dee905841",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "27c81046-56a3-458a-9475-6159bc261865",
+    "toast_guid": "f02fc63f-ca1b-4f1c-98b1-f04c0a049845",
+    "v2_toast_guid": "a13e9d57-101b-4c7b-a797-3ecd67e32dc5",
+    "first_name": "Alejandro",
+    "last_name": "Velasquez",
+    "deleted": false,
+    "created_date": "2021-07-06T16:31:13.325+00:00",
+    "deleted_date": "1970-01-01T00:00:00+00:00",
+    "wage_data": [],
+    "job_references": [
+      {
+        "guid": "0284a5b6-752f-4ed1-8b9d-2e59b5dca045",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "295f78db-27e5-48ad-9122-0d7aea4de089",
+    "toast_guid": "03333440-f871-4bc6-95a0-6c2378f303cb",
+    "v2_toast_guid": "dd83b536-cca9-4236-b131-e46fc945e0af",
+    "first_name": "Librado",
+    "last_name": "Mondragon",
+    "deleted": false,
+    "created_date": "2023-09-03T18:08:17.012+00:00",
+    "deleted_date": "1970-01-01T00:00:00+00:00",
+    "wage_data": [
+      {
+        "wage": 17.4,
+        "job_guid": "e002a07f-9fe4-429d-b60d-3d2dee905841"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "e002a07f-9fe4-429d-b60d-3d2dee905841",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "2dabacb4-33c7-4875-9a56-ba5214a29c9d",
+    "toast_guid": "b02f9722-4d49-4453-b0f8-6b2b7f90e602",
+    "v2_toast_guid": "f2671b93-c344-4656-8e6a-72894a495064",
+    "first_name": "Eliseo Do not use",
+    "last_name": "Velasquez Do not use",
+    "deleted": true,
+    "created_date": "2020-10-06T18:21:43.528+00:00",
+    "deleted_date": "2022-04-29T20:41:41.739+00:00",
+    "wage_data": [],
+    "job_references": [],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "2e7bd731-c622-4acf-a0f5-f5c7065b8b74",
+    "toast_guid": "0ead1c06-fd4e-4e79-8ea2-8ded87e4abce",
+    "v2_toast_guid": "efe50a59-fa08-49b9-a8e8-59a59f733331",
+    "first_name": "Jocelyn",
+    "last_name": "Cabello",
+    "deleted": true,
+    "created_date": "2021-05-22T02:04:14.858+00:00",
+    "deleted_date": "2022-10-13T23:32:46.301+00:00",
+    "wage_data": [
+      {
+        "wage": 16.5,
+        "job_guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "2fb392f3-42ce-46aa-8a32-0f805fd272a5",
+    "toast_guid": "70f3e410-d33b-4279-80c6-d9a6aacc7fa0",
+    "v2_toast_guid": "c004e530-e96a-4dd1-9fd9-3d5f62100459",
+    "first_name": "Melody",
+    "last_name": "Reyes",
+    "deleted": true,
+    "created_date": "2026-05-11T21:25:17.857+00:00",
+    "deleted_date": "2026-05-16T23:02:25.915+00:00",
+    "wage_data": [
+      {
+        "wage": 16.9,
+        "job_guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "3107248a-2508-4c70-9364-10b54204aa07",
+    "toast_guid": "f73ab731-c717-4f1c-a530-581e0ca5e65f",
+    "v2_toast_guid": "d9c1078b-ed94-42a0-aa12-b7425dd85870",
+    "first_name": "Alva",
+    "last_name": "Gonzalez",
+    "deleted": true,
+    "created_date": "2021-02-19T02:07:00.152+00:00",
+    "deleted_date": "2021-09-06T20:55:08.067+00:00",
+    "wage_data": [
+      {
+        "wage": 14,
+        "job_guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "32d672f5-e023-4ac7-b789-56d27ff7666a",
+    "toast_guid": "89c63db4-cbd9-4122-a1b6-3cfbc41ea2b6",
+    "v2_toast_guid": "d8c51b84-4bc3-4513-a019-c5e6fd8825b2",
+    "first_name": "Bayron",
+    "last_name": "Espinoza",
+    "deleted": true,
+    "created_date": "2021-08-27T22:39:13.336+00:00",
+    "deleted_date": "2024-01-22T03:08:12.426+00:00",
+    "wage_data": [
+      {
+        "wage": 17.5,
+        "job_guid": "f069bfbf-da5a-4da0-bb24-31b4e0340a88"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "f069bfbf-da5a-4da0-bb24-31b4e0340a88",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "332477f5-f67c-4022-9b27-0179b654b91f",
+    "toast_guid": "c1be6557-eb5e-46b4-9f09-2076f9b11c3b",
+    "v2_toast_guid": "bd629db5-4ec6-4b43-8039-bc13bd7cf2eb",
+    "first_name": "Anilu",
+    "last_name": "Magaña",
+    "deleted": true,
+    "created_date": "2021-02-19T02:06:19.48+00:00",
+    "deleted_date": "2022-01-22T05:15:38.989+00:00",
+    "wage_data": [
+      {
+        "wage": 17,
+        "job_guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "34240365-e063-4566-8f9a-9d25d5af0023",
+    "toast_guid": "7681c94f-97d6-47dc-954e-5b73bfc6a541",
+    "v2_toast_guid": "2dac0423-5435-4b21-9b3f-12ff74a49110",
+    "first_name": "Juan",
+    "last_name": "Alarcon",
+    "deleted": true,
+    "created_date": "2021-04-27T01:47:13.78+00:00",
+    "deleted_date": "2024-06-24T04:40:34.805+00:00",
+    "wage_data": [
+      {
+        "wage": 17,
+        "job_guid": "e002a07f-9fe4-429d-b60d-3d2dee905841"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "e002a07f-9fe4-429d-b60d-3d2dee905841",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "34d3714d-487b-4fe7-8120-42a31e2a454b",
+    "toast_guid": "c1d8e6da-e18a-45bb-ac2e-50e9d577ef4d",
+    "v2_toast_guid": "b30b6b26-dcb7-47ff-8b37-50b0bc110bea",
+    "first_name": "valentin",
+    "last_name": "santiago",
+    "deleted": true,
+    "created_date": "2021-04-24T01:29:07.305+00:00",
+    "deleted_date": "2021-09-06T21:00:56.936+00:00",
+    "wage_data": [
+      {
+        "wage": 22,
+        "job_guid": "e002a07f-9fe4-429d-b60d-3d2dee905841"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "e002a07f-9fe4-429d-b60d-3d2dee905841",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "35b60b07-84a2-468d-ad33-d656ee4f0e97",
+    "toast_guid": "673c8125-411d-47ca-a727-f40774eb0507",
+    "v2_toast_guid": "cc97ac4b-c500-410e-95e2-4b2f855b8d42",
+    "first_name": "Ricardo",
+    "last_name": "Velasquez",
+    "deleted": false,
+    "created_date": "2021-03-02T00:00:29.204+00:00",
+    "deleted_date": "1970-01-01T00:00:00+00:00",
+    "wage_data": [],
+    "job_references": [
+      {
+        "guid": "0284a5b6-752f-4ed1-8b9d-2e59b5dca045",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "35f5ef79-11ec-49a1-8a8f-7a9f87f6d1f5",
+    "toast_guid": "841d8242-333d-4574-9ed3-6fcba663ee60",
+    "v2_toast_guid": "9bac95cc-aab1-4410-961f-2bd0598ba7ea",
+    "first_name": "Sarai",
+    "last_name": "Santiago",
+    "deleted": true,
+    "created_date": "2022-09-24T02:02:10.469+00:00",
+    "deleted_date": "2022-10-03T23:27:12.689+00:00",
+    "wage_data": [],
+    "job_references": [],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "37c94fcb-9e9e-4fb7-af69-bc954d45a429",
+    "toast_guid": "59b40545-eb0f-4d11-834f-5fb01cba8d55",
+    "v2_toast_guid": "3ff950d6-2df2-43ba-8c06-e57d474ba18a",
+    "first_name": "Daniel",
+    "last_name": "Vazquez",
+    "deleted": true,
+    "created_date": "2025-08-13T23:48:50.668+00:00",
+    "deleted_date": "2026-05-16T23:02:18.067+00:00",
+    "wage_data": [
+      {
+        "wage": 16.5,
+        "job_guid": "e002a07f-9fe4-429d-b60d-3d2dee905841"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "e002a07f-9fe4-429d-b60d-3d2dee905841",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "393bc042-579e-40f0-9798-37b1b3d4e8af",
+    "toast_guid": "d85c8f72-ad47-479a-a0b8-4306a46304fb",
+    "v2_toast_guid": "e61a5b48-a700-4520-9502-91776ef7fb6c",
+    "first_name": "Carlos ",
+    "last_name": "Perez",
+    "deleted": true,
+    "created_date": "2024-07-27T00:37:41.016+00:00",
+    "deleted_date": "2024-07-27T00:42:50.03+00:00",
+    "wage_data": [
+      {
+        "wage": 16,
+        "job_guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "3c7f5e6f-85f9-41de-8c66-3bedaeba8918",
+    "toast_guid": "f0e35b19-99c7-4c76-980b-1e272ff5c394",
+    "v2_toast_guid": "b107e692-7e7b-4015-9285-755dd1467691",
+    "first_name": "Jorge",
+    "last_name": "Perez",
+    "deleted": true,
+    "created_date": "2022-10-13T19:00:52.816+00:00",
+    "deleted_date": "2022-10-17T19:40:13.814+00:00",
+    "wage_data": [],
+    "job_references": [],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "3d85954d-1152-4d0c-8820-1b46c7bb9b8a",
+    "toast_guid": "2c4886ec-61ec-44ce-90c4-ca796580fc90",
+    "v2_toast_guid": "893cc879-1929-4e88-b072-3b9040c945f3",
+    "first_name": "Enmanuel",
+    "last_name": "Lobato",
+    "deleted": true,
+    "created_date": "2023-12-04T17:33:27.624+00:00",
+    "deleted_date": "2025-08-24T02:56:18.719+00:00",
+    "wage_data": [
+      {
+        "wage": 17,
+        "job_guid": "e002a07f-9fe4-429d-b60d-3d2dee905841"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "e002a07f-9fe4-429d-b60d-3d2dee905841",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "3ee38bec-0896-4061-a4a2-2c5ec130655c",
+    "toast_guid": "e9775b62-38bc-4095-916f-fd04d5ddd212",
+    "v2_toast_guid": "14216f01-a91e-4a0b-85cc-927144038348",
+    "first_name": "Maria",
+    "last_name": "Lua",
+    "deleted": true,
+    "created_date": "2021-02-25T02:25:28.734+00:00",
+    "deleted_date": "2022-01-22T05:20:22.154+00:00",
+    "wage_data": [
+      {
+        "wage": 14,
+        "job_guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "4036b018-66b4-439c-9aac-88fdd35c85c7",
+    "toast_guid": "a68961b0-de5e-4424-9b56-6f9847977f18",
+    "v2_toast_guid": "d739d052-0100-44f7-b75b-adb7943234b2",
+    "first_name": "maria",
+    "last_name": "Hernandez",
+    "deleted": true,
+    "created_date": "2021-05-16T01:05:01.048+00:00",
+    "deleted_date": "2021-12-18T01:17:16.87+00:00",
+    "wage_data": [
+      {
+        "wage": 22,
+        "job_guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "417acbc0-686f-48ba-aaca-d841f16bcff9",
+    "toast_guid": "18e32f15-6e16-4512-b042-9c5b7bb6fb88",
+    "v2_toast_guid": "fe4b3bde-5609-4702-a529-1cde0827b0b3",
+    "first_name": "Syed",
+    "last_name": " Azhar Sr",
+    "deleted": true,
+    "created_date": "2021-01-26T16:45:40.643+00:00",
+    "deleted_date": "2023-10-19T08:45:58.032+00:00",
+    "wage_data": [],
+    "job_references": [],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "42deef34-31ed-441e-ba89-3531b78fd1d9",
+    "toast_guid": "828e0a7a-4e14-400b-939e-00cd8219a59f",
+    "v2_toast_guid": "b4625128-d443-4d28-889b-22dbb4fabd96",
+    "first_name": "Carlos",
+    "last_name": "Velazquez",
+    "deleted": false,
+    "created_date": "2023-10-16T19:09:21.837+00:00",
+    "deleted_date": "1970-01-01T00:00:00+00:00",
+    "wage_data": [],
+    "job_references": [
+      {
+        "guid": "0284a5b6-752f-4ed1-8b9d-2e59b5dca045",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      },
+      {
+        "guid": "3f528ffa-b3e8-4cf0-a152-912686b0cb6e",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "435ad995-6169-488d-86f8-4e975dd52ad1",
+    "toast_guid": "a9c108a8-5d46-45d7-8571-9e669ff8fc7e",
+    "v2_toast_guid": "9c9429a5-f728-4563-91ea-d4cc31d1216d",
+    "first_name": "Gerardo",
+    "last_name": "Cardenas",
+    "deleted": true,
+    "created_date": "2021-06-07T20:03:44.524+00:00",
+    "deleted_date": "2022-10-13T23:29:04.078+00:00",
+    "wage_data": [],
+    "job_references": [],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "44f8af02-263e-40b0-b853-094febc7ce9b",
+    "toast_guid": "86c98ec6-d0eb-497c-91e1-18cd704a1c02",
+    "v2_toast_guid": "46965cc0-5d54-48fb-aefb-86c7d87d24ad",
+    "first_name": "Leonai",
+    "last_name": "Mendosa",
+    "deleted": true,
+    "created_date": "2021-03-25T03:02:37.502+00:00",
+    "deleted_date": "2023-01-25T01:03:40.087+00:00",
+    "wage_data": [
+      {
+        "wage": 19,
+        "job_guid": "0c02665b-f409-4c5e-919f-2602ccb6febd"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "0c02665b-f409-4c5e-919f-2602ccb6febd",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      },
+      {
+        "guid": "3f528ffa-b3e8-4cf0-a152-912686b0cb6e",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "45892d02-e215-4299-bb01-5e1376bf389d",
+    "toast_guid": "405938f3-cbf8-436d-9ef8-a1b21bcecb24",
+    "v2_toast_guid": "3f46fa8b-691e-4e73-8342-896d5c2d7ed8",
+    "first_name": "Juan ",
+    "last_name": "Gaytan",
+    "deleted": true,
+    "created_date": "2022-09-24T02:06:13.97+00:00",
+    "deleted_date": "2022-10-03T23:21:36.981+00:00",
+    "wage_data": [],
+    "job_references": [],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "45a65cb1-8087-43e9-9a14-f06921da9a40",
+    "toast_guid": "e72db49a-60d5-4f56-9421-c7c668fbed35",
+    "v2_toast_guid": "42f2da9c-8f2c-4c12-b77d-b4ab0f8c0c23",
+    "first_name": "Juan",
+    "last_name": "Hernandez",
+    "deleted": true,
+    "created_date": "2021-03-25T02:26:50.678+00:00",
+    "deleted_date": "2022-10-13T23:33:11.41+00:00",
+    "wage_data": [
+      {
+        "wage": 18,
+        "job_guid": "f069bfbf-da5a-4da0-bb24-31b4e0340a88"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "f069bfbf-da5a-4da0-bb24-31b4e0340a88",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "46129c7f-944a-48d3-8a32-67f01c404344",
+    "toast_guid": "ac064656-e586-44e7-8969-a4256d27dfed",
+    "v2_toast_guid": "9a4314ba-eb3a-4c6a-a5c6-ed7f26e330fe",
+    "first_name": "Aricela",
+    "last_name": "Vasquez",
+    "deleted": true,
+    "created_date": "2022-08-30T00:11:30.119+00:00",
+    "deleted_date": "2022-10-04T19:21:39.109+00:00",
+    "wage_data": [
+      {
+        "wage": 16,
+        "job_guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "474923ff-47e3-4900-8906-454a57a7b053",
+    "toast_guid": "16feead0-40be-47b3-b931-5589b7572ad0",
+    "v2_toast_guid": "aaf74212-8d1e-4388-a5ac-62f8780953cc",
+    "first_name": "Luis",
+    "last_name": "Martinez",
+    "deleted": true,
+    "created_date": "2026-05-28T03:40:09.482+00:00",
+    "deleted_date": "2026-06-29T00:17:28.979+00:00",
+    "wage_data": [
+      {
+        "wage": 16.9,
+        "job_guid": "e002a07f-9fe4-429d-b60d-3d2dee905841"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "e002a07f-9fe4-429d-b60d-3d2dee905841",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "47f292e8-3dd4-4aaa-a752-6cb6a2fc6d39",
+    "toast_guid": "f9406f61-aa9d-437c-baaa-45eea1d03bd0",
+    "v2_toast_guid": "f9a4cc23-97b8-43d5-9000-d7740f6ac3df",
+    "first_name": "Ashley",
+    "last_name": "Mayoral",
+    "deleted": true,
+    "created_date": "2024-10-10T00:11:50.949+00:00",
+    "deleted_date": "2025-02-23T08:25:51.992+00:00",
+    "wage_data": [
+      {
+        "wage": 16,
+        "job_guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "4817bce0-e359-4df4-90cb-3b6c7667019b",
+    "toast_guid": "3cda9a82-7397-4bf1-84b3-117be7cb944b",
+    "v2_toast_guid": "00ebf002-fea5-4abd-8afc-b692ad587953",
+    "first_name": "Luis",
+    "last_name": "Ortiz",
+    "deleted": true,
+    "created_date": "2021-03-25T03:03:14.254+00:00",
+    "deleted_date": "2024-04-17T20:06:43.32+00:00",
+    "wage_data": [
+      {
+        "wage": 17,
+        "job_guid": "e002a07f-9fe4-429d-b60d-3d2dee905841"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "e002a07f-9fe4-429d-b60d-3d2dee905841",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "48496c38-11fc-42f6-8d7e-4be0a57bf867",
+    "toast_guid": "016c9cb2-f6b2-479c-9e9b-beee918c22ab",
+    "v2_toast_guid": "850b4c38-0b11-4c57-9a28-eacb8c60e720",
+    "first_name": "Eliuth",
+    "last_name": "Alvarez",
+    "deleted": false,
+    "created_date": "2021-02-18T18:19:36.054+00:00",
+    "deleted_date": "1970-01-01T00:00:00+00:00",
+    "wage_data": [
+      {
+        "wage": 18.4,
+        "job_guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "49c7a788-faac-42cc-bddc-73b799842d59",
+    "toast_guid": "3dec90a1-c7e4-4add-ba38-6f61657e25b0",
+    "v2_toast_guid": "0936169f-d1d2-4444-b1e4-6d8361a429d5",
+    "first_name": "Jonathan",
+    "last_name": "Velasco",
+    "deleted": false,
+    "created_date": "2025-05-31T23:37:42.659+00:00",
+    "deleted_date": "1970-01-01T00:00:00+00:00",
+    "wage_data": [
+      {
+        "wage": 16.9,
+        "job_guid": "e002a07f-9fe4-429d-b60d-3d2dee905841"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "e002a07f-9fe4-429d-b60d-3d2dee905841",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "4a23b91e-7533-477d-b0a2-412db327a0cb",
+    "toast_guid": "a7c1c9f2-aa34-48b6-837e-f363e6c73540",
+    "v2_toast_guid": "e271976e-b023-48cc-b51b-5ff8b58e5cc4",
+    "first_name": "janeth",
+    "last_name": "torrijas",
+    "deleted": true,
+    "created_date": "2021-05-10T02:19:35.426+00:00",
+    "deleted_date": "2021-09-06T21:01:20.459+00:00",
+    "wage_data": [
+      {
+        "wage": 22,
+        "job_guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "4d13a5ec-0615-4781-995d-f8aff739d0db",
+    "toast_guid": "27c102bf-52ee-40e9-84e1-2878b3ebd449",
+    "v2_toast_guid": "72f99896-7064-4414-8b9f-253e2a52c73a",
+    "first_name": "Libni",
+    "last_name": "Sarai",
+    "deleted": true,
+    "created_date": "2022-10-04T19:04:49.223+00:00",
+    "deleted_date": "2023-10-19T08:46:55.474+00:00",
+    "wage_data": [
+      {
+        "wage": 16,
+        "job_guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "4df6f21e-ac41-450d-82db-d836c4aafc04",
+    "toast_guid": "610c4993-d5a2-4afe-9766-db8dc9c6e82e",
+    "v2_toast_guid": "ffe5e6f3-4f60-4d23-8e1f-5052c7d8e59f",
+    "first_name": "Maria T",
+    "last_name": "Alejandre",
+    "deleted": false,
+    "created_date": "2021-02-19T03:06:55.764+00:00",
+    "deleted_date": "1970-01-01T00:00:00+00:00",
+    "wage_data": [
+      {
+        "wage": 18.4,
+        "job_guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "5050f792-c955-4a7c-b721-445ede71bf5a",
+    "toast_guid": "57e52295-bb85-4b28-88b9-6a07dfc4c83c",
+    "v2_toast_guid": "bd8e6f24-c70f-4eff-9b64-a36fa5d709d0",
+    "first_name": "Candelaria",
+    "last_name": "Rivas",
+    "deleted": true,
+    "created_date": "2024-09-29T17:25:50.56+00:00",
+    "deleted_date": "2025-02-23T08:26:03.776+00:00",
+    "wage_data": [
+      {
+        "wage": 16,
+        "job_guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "50a00f6c-af92-46f9-9390-e13f1aa518d6",
+    "toast_guid": "dd8bf11d-18d6-4ac7-b1ab-07af1789b7f6",
+    "v2_toast_guid": "d842de40-81bc-4a98-a7a8-34b09785c7e4",
+    "first_name": "Jazmin",
+    "last_name": "Balcazar",
+    "deleted": true,
+    "created_date": "2026-05-26T00:33:18.209+00:00",
+    "deleted_date": "2026-05-31T20:53:53.314+00:00",
+    "wage_data": [
+      {
+        "wage": 16.9,
+        "job_guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "51c1746a-0f6e-4795-a532-96b471f7cb4b",
+    "toast_guid": "e29c8c17-7a73-4ac0-9ffa-c0400ce1d044",
+    "v2_toast_guid": "5fbaf1a7-bed6-4650-9be1-1bf91b964d33",
+    "first_name": "Ana Cecilia",
+    "last_name": "Hernandez",
+    "deleted": true,
+    "created_date": "2023-04-16T19:43:27.433+00:00",
+    "deleted_date": "2024-04-22T16:36:35.104+00:00",
+    "wage_data": [
+      {
+        "wage": 16.51,
+        "job_guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "53fec9cc-852e-410c-b64e-e1334636f7fd",
+    "toast_guid": "d9723c0e-2e39-43a7-8a62-4f29589e4f16",
+    "v2_toast_guid": "4fbb6c29-a1be-4a53-91c1-a1180ba53a2d",
+    "first_name": "Anabell",
+    "last_name": "Marquez",
+    "deleted": true,
+    "created_date": "2025-11-26T01:21:52.404+00:00",
+    "deleted_date": "2026-01-20T06:37:03.179+00:00",
+    "wage_data": [
+      {
+        "wage": 16.5,
+        "job_guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "540b4161-0126-40bd-9e07-1c74af6022b5",
+    "toast_guid": "589ca7eb-358e-473e-8f7a-97a1433209a1",
+    "v2_toast_guid": "cc98dbcb-898a-4ee9-be3b-62e8fd88a0ae",
+    "first_name": "Sarai",
+    "last_name": "Santizo",
+    "deleted": true,
+    "created_date": "2022-09-24T02:18:18.098+00:00",
+    "deleted_date": "2022-10-04T19:20:57.68+00:00",
+    "wage_data": [
+      {
+        "wage": 16,
+        "job_guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "542b82d4-fcc8-4ef2-9f4f-93479731b7dd",
+    "toast_guid": "0d035a99-fed8-4f43-9064-954771db8efc",
+    "v2_toast_guid": "b5d7e050-208e-489a-b7dd-0cd24dd8eecc",
+    "first_name": "Eliseo",
+    "last_name": "Velasquez",
+    "deleted": false,
+    "created_date": "2022-04-29T20:43:51.703+00:00",
+    "deleted_date": "1970-01-01T00:00:00+00:00",
+    "wage_data": [],
+    "job_references": [
+      {
+        "guid": "0284a5b6-752f-4ed1-8b9d-2e59b5dca045",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "54692da0-258c-48c5-b437-e1bcdca0654e",
+    "toast_guid": "c2216ba6-1e45-4a7a-a2b7-d554f2ecfdde",
+    "v2_toast_guid": "d9ccd59a-2ca9-44bd-a0e8-27035e66dc2d",
+    "first_name": "Mitxi",
+    "last_name": "Velazco",
+    "deleted": true,
+    "created_date": "2021-02-18T18:19:10.744+00:00",
+    "deleted_date": "2021-05-04T04:01:52.449+00:00",
+    "wage_data": [],
+    "job_references": [
+      {
+        "guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "55031397-179c-44b6-a03c-63f3f7eec0e6",
+    "toast_guid": "c32c3e62-f563-4075-9aab-26319c965fbf",
+    "v2_toast_guid": "ec6c9d2a-5cd3-4a02-b721-21931d42deb5",
+    "first_name": "Carlos",
+    "last_name": "Ruiz",
+    "deleted": true,
+    "created_date": "2024-07-27T00:37:29.597+00:00",
+    "deleted_date": "2024-07-27T00:42:52.258+00:00",
+    "wage_data": [
+      {
+        "wage": 16.5,
+        "job_guid": "e002a07f-9fe4-429d-b60d-3d2dee905841"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "e002a07f-9fe4-429d-b60d-3d2dee905841",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "55c50528-bfc4-4c20-87e6-086afc828164",
+    "toast_guid": "295eef89-11fb-4abb-83d7-99e714817165",
+    "v2_toast_guid": "9132480a-f0c5-4543-9be2-e6f4bf6fc8f5",
+    "first_name": "Willian",
+    "last_name": "Aguilar",
+    "deleted": false,
+    "created_date": "2022-05-26T21:24:58.628+00:00",
+    "deleted_date": "1970-01-01T00:00:00+00:00",
+    "wage_data": [],
+    "job_references": [
+      {
+        "guid": "0284a5b6-752f-4ed1-8b9d-2e59b5dca045",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "58ec8bb1-4420-42d1-8407-815c57dea38c",
+    "toast_guid": "6c092657-14f6-4bc6-8529-40b5fdedc6f0",
+    "v2_toast_guid": "b64840dd-0133-4659-b4fa-d9876d89ad86",
+    "first_name": "Maria",
+    "last_name": "Lua Sanchez",
+    "deleted": true,
+    "created_date": "2026-05-08T23:02:23.114+00:00",
+    "deleted_date": "2026-05-10T20:29:26.59+00:00",
+    "wage_data": [
+      {
+        "wage": 16.9,
+        "job_guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "58f92968-a202-4cbc-8bf8-6213b8ccaee5",
+    "toast_guid": "60431078-5ba5-42c0-a6cd-dfe147f55cca",
+    "v2_toast_guid": "e9b87dcb-0097-45cb-925d-af157d23e352",
+    "first_name": "Luis",
+    "last_name": "Heredia",
+    "deleted": false,
+    "created_date": "2026-08-10T19:02:27.926+00:00",
+    "deleted_date": "1970-01-01T00:00:00+00:00",
+    "wage_data": [
+      {
+        "wage": 16.9,
+        "job_guid": "e002a07f-9fe4-429d-b60d-3d2dee905841"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "e002a07f-9fe4-429d-b60d-3d2dee905841",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "58fd5b6c-3c5c-498d-a99d-07a122368d6a",
+    "toast_guid": "265282c7-8217-4d6b-adc7-9363f3edab42",
+    "v2_toast_guid": "725dbbbc-ed8d-4b4e-a51b-37a15bbdb0ab",
+    "first_name": "Jose",
+    "last_name": "Leyva",
+    "deleted": true,
+    "created_date": "2023-06-25T21:03:23.12+00:00",
+    "deleted_date": "2026-05-10T20:29:14.166+00:00",
+    "wage_data": [
+      {
+        "wage": 17.4,
+        "job_guid": "e002a07f-9fe4-429d-b60d-3d2dee905841"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "e002a07f-9fe4-429d-b60d-3d2dee905841",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "5af37c12-bf8d-48c4-9faa-c38498991776",
+    "toast_guid": "9138e2df-3446-47d4-968b-bf7245f3062d",
+    "v2_toast_guid": "c2b19e27-9070-4513-9141-f30438bf2eae",
+    "first_name": "Maritza",
+    "last_name": "Avilez",
+    "deleted": false,
+    "created_date": "2021-02-18T18:17:39.284+00:00",
+    "deleted_date": "1970-01-01T00:00:00+00:00",
+    "wage_data": [
+      {
+        "wage": 19.4,
+        "job_guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "5b168fdd-1158-4637-8270-d0ca87fd29ce",
+    "toast_guid": "6d83773f-01a7-4808-a50d-e7b9d98ae145",
+    "v2_toast_guid": "3d4b15f1-2646-4726-9679-067d7d829805",
+    "first_name": "Kevin",
+    "last_name": "Gomez",
+    "deleted": true,
+    "created_date": "2025-05-11T07:02:56.863+00:00",
+    "deleted_date": "2025-08-24T02:56:33.403+00:00",
+    "wage_data": [
+      {
+        "wage": 16.5,
+        "job_guid": "e002a07f-9fe4-429d-b60d-3d2dee905841"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "e002a07f-9fe4-429d-b60d-3d2dee905841",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "5c184e4e-fbdf-4f02-b803-2d318db4893e",
+    "toast_guid": "1b1f21c0-9c7c-4dcd-a4b4-8a83c34a892d",
+    "v2_toast_guid": "9d937345-ede5-4941-a5d6-5d937f56f2db",
+    "first_name": "Miguel Angel",
+    "last_name": "Castro",
+    "deleted": true,
+    "created_date": "2021-02-19T02:06:39.839+00:00",
+    "deleted_date": "2025-02-23T08:26:28.421+00:00",
+    "wage_data": [
+      {
+        "wage": 22.5,
+        "job_guid": "0c02665b-f409-4c5e-919f-2602ccb6febd"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "0c02665b-f409-4c5e-919f-2602ccb6febd",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "5d6a9dfd-4f36-4464-a9a7-4ca3f514c6df",
+    "toast_guid": "334e9514-1dad-49ff-92bd-ffa6af7c2a4c",
+    "v2_toast_guid": "40f139c2-da17-4c83-9b48-aeef63ba9f86",
+    "first_name": "jessica",
+    "last_name": "beltran",
+    "deleted": true,
+    "created_date": "2021-05-10T02:18:38.918+00:00",
+    "deleted_date": "2021-09-06T20:54:17.758+00:00",
+    "wage_data": [
+      {
+        "wage": 22,
+        "job_guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "615c0b4e-e05a-4b1d-bdba-e593900dc1b7",
+    "toast_guid": "d8e4d3f7-d410-4854-a5ea-3c4e3d745b77",
+    "v2_toast_guid": "4dc9d73d-afa8-4808-ab50-a049c4bc4b66",
+    "first_name": "Daniel",
+    "last_name": "Zavelata",
+    "deleted": true,
+    "created_date": "2021-02-18T18:21:56.721+00:00",
+    "deleted_date": "2021-09-06T21:01:52.026+00:00",
+    "wage_data": [
+      {
+        "wage": 20,
+        "job_guid": "0c02665b-f409-4c5e-919f-2602ccb6febd"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "0c02665b-f409-4c5e-919f-2602ccb6febd",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "626477ee-752a-48e9-9b53-6fd39651910e",
+    "toast_guid": "57e28916-eb38-4ddc-a164-3ecca80871e0",
+    "v2_toast_guid": "ae979143-f911-4e5c-8112-06070d7c0d65",
+    "first_name": "Cesar",
+    "last_name": "Romero",
+    "deleted": true,
+    "created_date": "2021-02-18T18:17:11.451+00:00",
+    "deleted_date": "2021-06-29T20:51:56.543+00:00",
+    "wage_data": [],
+    "job_references": [
+      {
+        "guid": "3f528ffa-b3e8-4cf0-a152-912686b0cb6e",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "62d5936a-4117-4dd4-b169-7fda381d3e96",
+    "toast_guid": "d0875088-c573-469f-92c5-324fa7bba58c",
+    "v2_toast_guid": "f49af876-fb1f-42ff-9f75-f2eae4255c2a",
+    "first_name": "Pablo",
+    "last_name": "Villanueva",
+    "deleted": true,
+    "created_date": "2022-06-19T03:53:14.546+00:00",
+    "deleted_date": "2023-10-19T08:48:10.911+00:00",
+    "wage_data": [],
+    "job_references": [],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "63df5399-5a9e-421c-8673-9aa5f3dbd783",
+    "toast_guid": "baf63722-28cf-4321-9332-49f6b18389b0",
+    "v2_toast_guid": "39952589-f4e6-4757-90bc-33e81b90e5aa",
+    "first_name": "Maria",
+    "last_name": "Tapia",
+    "deleted": false,
+    "created_date": "2021-07-18T20:46:05.124+00:00",
+    "deleted_date": "1970-01-01T00:00:00+00:00",
+    "wage_data": [
+      {
+        "wage": 19.4,
+        "job_guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "6413d0d3-0518-44c1-a66a-79051d6d5ed4",
+    "toast_guid": "f8b7de2c-c6a9-4852-b33b-02ce0e094ca3",
+    "v2_toast_guid": "8fc20c33-3689-4d06-9f8c-b37324acf949",
+    "first_name": "Carlos",
+    "last_name": "Flores",
+    "deleted": true,
+    "created_date": "2022-05-22T00:35:47.24+00:00",
+    "deleted_date": "2023-04-12T16:38:19.317+00:00",
+    "wage_data": [
+      {
+        "wage": 17,
+        "job_guid": "0c02665b-f409-4c5e-919f-2602ccb6febd"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "0c02665b-f409-4c5e-919f-2602ccb6febd",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "644cd3a6-8672-46a5-8b04-07ce019d1c59",
+    "toast_guid": "bb19279b-3909-4ce7-9366-5692c6b2ac61",
+    "v2_toast_guid": "e814fd57-9aad-425d-97fe-cdb05825da0a",
+    "first_name": "Pedro",
+    "last_name": "Contreras",
+    "deleted": true,
+    "created_date": "2024-09-12T20:03:09.144+00:00",
+    "deleted_date": "2025-02-23T08:26:37.58+00:00",
+    "wage_data": [
+      {
+        "wage": 21.5,
+        "job_guid": "f069bfbf-da5a-4da0-bb24-31b4e0340a88"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "f069bfbf-da5a-4da0-bb24-31b4e0340a88",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "64a5a716-4ccb-4446-a720-f03d68c29af7",
+    "toast_guid": "9b290725-246f-4d5f-82a1-aa5d76e10aa3",
+    "v2_toast_guid": "3117520b-2c25-4f7c-8b88-e76b9e468787",
+    "first_name": "Eusebio",
+    "last_name": "Reyes",
+    "deleted": true,
+    "created_date": "2021-03-25T03:07:02.511+00:00",
+    "deleted_date": "2022-01-22T05:14:38.817+00:00",
+    "wage_data": [
+      {
+        "wage": 14,
+        "job_guid": "e002a07f-9fe4-429d-b60d-3d2dee905841"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "e002a07f-9fe4-429d-b60d-3d2dee905841",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "66e39084-cc6c-4579-ab4d-58e8a942384c",
+    "toast_guid": "1239932b-39fc-4814-85ab-b8f0e7a1af02",
+    "v2_toast_guid": "9044d5d1-5572-4591-9323-059c7c7abe13",
+    "first_name": "Raquel",
+    "last_name": "Velasquez",
+    "deleted": false,
+    "created_date": "2021-05-07T19:28:09.752+00:00",
+    "deleted_date": "1970-01-01T00:00:00+00:00",
+    "wage_data": [],
+    "job_references": [
+      {
+        "guid": "0284a5b6-752f-4ed1-8b9d-2e59b5dca045",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "6753f667-dd0b-4fbf-af11-bc25ca1be8f1",
+    "toast_guid": "9ec011af-b449-4cd5-85ce-aa347a640bab",
+    "v2_toast_guid": "819f9655-8941-49e1-8b85-7a26741aa125",
+    "first_name": "Stephanie ",
+    "last_name": "Gomez",
+    "deleted": true,
+    "created_date": "2023-04-16T19:44:44.64+00:00",
+    "deleted_date": "2023-10-19T08:45:45.56+00:00",
+    "wage_data": [
+      {
+        "wage": 16,
+        "job_guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "67a87c06-3b34-468d-8791-e33e85913628",
+    "toast_guid": "65ef9c88-cd64-4600-90c0-9e760a9a890d",
+    "v2_toast_guid": "a2a00eb5-3d21-4427-8b30-39e3cfde5167",
+    "first_name": "Fake",
+    "last_name": "Employee",
+    "deleted": true,
+    "created_date": "2021-08-17T00:23:03.723+00:00",
+    "deleted_date": "2021-09-06T20:55:52.731+00:00",
+    "wage_data": [],
+    "job_references": [],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "67bc352e-efdf-42bb-adc6-1df7a6759e66",
+    "toast_guid": "3e795011-20a7-412e-b6fc-215705bb091d",
+    "v2_toast_guid": "432575f6-467c-48fa-830d-a14658bfbedf",
+    "first_name": "Dylan",
+    "last_name": "Alejandre",
+    "deleted": true,
+    "created_date": "2021-05-22T00:48:23.441+00:00",
+    "deleted_date": "2024-06-21T15:02:40.024+00:00",
+    "wage_data": [
+      {
+        "wage": 16.5,
+        "job_guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "68b054eb-a5d7-4690-bc58-d92512a6e254",
+    "toast_guid": "952ac202-72b7-4480-b6a1-d65681dfde10",
+    "v2_toast_guid": "2ae76916-4d1c-40dc-8108-ffdd18c1424f",
+    "first_name": "Anita",
+    "last_name": "Hoffman",
+    "deleted": true,
+    "created_date": "2021-06-17T00:01:56.462+00:00",
+    "deleted_date": "2021-09-06T20:56:39.367+00:00",
+    "wage_data": [],
+    "job_references": [],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "6a7328ce-47b4-4a0b-8569-8273f634f6fb",
+    "toast_guid": "81e943d0-0fd5-4328-92bd-cae06e85e877",
+    "v2_toast_guid": "24adeccd-3189-4680-b36d-d9a97ef460d7",
+    "first_name": "Irvin",
+    "last_name": "Valdez",
+    "deleted": true,
+    "created_date": "2024-07-31T01:55:17.395+00:00",
+    "deleted_date": "2024-09-30T21:16:52.181+00:00",
+    "wage_data": [
+      {
+        "wage": 16.5,
+        "job_guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "6a8a3e10-0b49-4514-9dac-435e796b7857",
+    "toast_guid": "57b129f0-d968-497a-980c-39a338845da0",
+    "v2_toast_guid": "bc5e05c4-9203-4460-9a48-8d2b09b1ad99",
+    "first_name": "Jesus",
+    "last_name": "Nuno",
+    "deleted": true,
+    "created_date": "2023-01-08T02:51:23.901+00:00",
+    "deleted_date": "2023-04-12T17:06:43.812+00:00",
+    "wage_data": [],
+    "job_references": [],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "6cc725d9-6fe0-4198-9536-36d122cac9e8",
+    "toast_guid": "a36ac95a-84ca-4258-bd43-3fbc1edfe7f7",
+    "v2_toast_guid": "96bb26b4-7cb5-47dd-9ce8-547071488070",
+    "first_name": "Blanca",
+    "last_name": "Zarat",
+    "deleted": false,
+    "created_date": "2025-08-23T23:47:38.963+00:00",
+    "deleted_date": "1970-01-01T00:00:00+00:00",
+    "wage_data": [
+      {
+        "wage": 18.21,
+        "job_guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "6d4ae423-43d6-47fe-8e5b-eb8d803e0ba1",
+    "toast_guid": "258c3795-cf1f-43c4-9ce1-3a0c9cc8246f",
+    "v2_toast_guid": "a79b3cb2-f104-46fa-a393-cb4c0b2216bb",
+    "first_name": "Kevin",
+    "last_name": "Campos",
+    "deleted": true,
+    "created_date": "2023-11-15T06:46:23.128+00:00",
+    "deleted_date": "2025-03-24T22:52:15.899+00:00",
+    "wage_data": [],
+    "job_references": [
+      {
+        "guid": "0c02665b-f409-4c5e-919f-2602ccb6febd",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "6e5e530a-5afd-4cf3-8cb5-5d3c0ec39f18",
+    "toast_guid": "ad3b3650-6168-4e13-bdb9-163de0a7436a",
+    "v2_toast_guid": "810c3f33-9504-471c-840e-16f80df55b99",
+    "first_name": "Katherine",
+    "last_name": "Garcia",
+    "deleted": true,
+    "created_date": "2023-07-27T00:04:30.207+00:00",
+    "deleted_date": "2023-10-19T08:45:31.502+00:00",
+    "wage_data": [
+      {
+        "wage": 16,
+        "job_guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "6e7da458-d458-42e1-88d4-df80a22c137c",
+    "toast_guid": "ae6d2039-90b9-4a43-a7a2-1af5509619fd",
+    "v2_toast_guid": "44e44a03-9488-485f-9716-03e205aa0a4f",
+    "first_name": "Fernando",
+    "last_name": "Lacayo Cisne",
+    "deleted": true,
+    "created_date": "2026-08-13T14:49:49.924+00:00",
+    "deleted_date": "2026-09-14T16:30:49.194+00:00",
+    "wage_data": [
+      {
+        "wage": 16.9,
+        "job_guid": "e002a07f-9fe4-429d-b60d-3d2dee905841"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "e002a07f-9fe4-429d-b60d-3d2dee905841",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "6f1ed5cc-9b71-40af-bb26-8e542e510b4c",
+    "toast_guid": "2b2ffb53-e374-4916-9bcf-0cebc9cc5cf5",
+    "v2_toast_guid": "5174f4b5-8406-4763-8d71-aa1703494782",
+    "first_name": "Victor",
+    "last_name": "Muñoz",
+    "deleted": false,
+    "created_date": "2024-08-01T00:20:14.161+00:00",
+    "deleted_date": "1970-01-01T00:00:00+00:00",
+    "wage_data": [
+      {
+        "wage": 21.9,
+        "job_guid": "0c02665b-f409-4c5e-919f-2602ccb6febd"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "0c02665b-f409-4c5e-919f-2602ccb6febd",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "6ff2357e-b7d6-46d9-b7ee-f00e63a6b069",
+    "toast_guid": "d0da7b48-7d7d-4ae4-83e6-82e6d421766d",
+    "v2_toast_guid": "bf84638d-8330-4ad8-a16e-b8d76aa01a1a",
+    "first_name": "Erika",
+    "last_name": "Morales",
+    "deleted": true,
+    "created_date": "2025-05-19T00:07:42.868+00:00",
+    "deleted_date": "2025-12-14T21:04:25.901+00:00",
+    "wage_data": [
+      {
+        "wage": 16.5,
+        "job_guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "71798202-4099-4f73-8416-a254dbe78082",
+    "toast_guid": "62b64080-cd68-46a7-a778-ab624fd6b72e",
+    "v2_toast_guid": "e6b93b7f-d5f5-4aa3-81b0-5083d1d981a4",
+    "first_name": "Gina",
+    "last_name": "Rincon",
+    "deleted": true,
+    "created_date": "2025-05-22T23:30:09.218+00:00",
+    "deleted_date": "2025-11-23T04:45:43.497+00:00",
+    "wage_data": [
+      {
+        "wage": 16.5,
+        "job_guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "72098c81-0c6f-45ff-ace8-5e058f8befef",
+    "toast_guid": "9075168d-3582-4ad4-be99-dad4d4bda06f",
+    "v2_toast_guid": "bc4f3101-88d4-4e5c-a333-28f620ab9de6",
+    "first_name": "Enrique",
+    "last_name": "Navarrete",
+    "deleted": true,
+    "created_date": "2023-01-02T00:32:26.41+00:00",
+    "deleted_date": "2026-07-27T00:35:44.422+00:00",
+    "wage_data": [
+      {
+        "wage": 22.4,
+        "job_guid": "0c02665b-f409-4c5e-919f-2602ccb6febd"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "0c02665b-f409-4c5e-919f-2602ccb6febd",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "7235262e-d86e-43f1-b0e6-d7fa4ccfe363",
+    "toast_guid": "b008079a-61c8-4f36-bec8-1ee138a1b838",
+    "v2_toast_guid": "d0436900-ee3a-4db5-b5e9-c9b77f0f4bf6",
+    "first_name": "Mario",
+    "last_name": "Perez",
+    "deleted": true,
+    "created_date": "2022-03-12T04:35:58.109+00:00",
+    "deleted_date": "2022-10-13T23:34:28.206+00:00",
+    "wage_data": [],
+    "job_references": [],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "733483fa-9400-4187-ba3b-7adabc4c120c",
+    "toast_guid": "5b01f094-33bb-46d2-877a-e84752763abb",
+    "v2_toast_guid": "1177efe3-4058-4d05-b337-1e3dad3c5f1e",
+    "first_name": "Nicole",
+    "last_name": "Rodriguez",
+    "deleted": true,
+    "created_date": "2023-07-29T00:25:37.525+00:00",
+    "deleted_date": "2023-11-05T03:38:37.649+00:00",
+    "wage_data": [
+      {
+        "wage": 16,
+        "job_guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "74a81314-160e-4954-9914-2bec4dc771fc",
+    "toast_guid": "925521f6-494f-495f-addc-d9423f4f1a5d",
+    "v2_toast_guid": "6fa7aae2-88af-49d6-8582-e5d8ea25570b",
+    "first_name": "Camilo",
+    "last_name": "Zurita",
+    "deleted": true,
+    "created_date": "2025-10-28T00:01:39.602+00:00",
+    "deleted_date": "2026-01-20T06:37:12.97+00:00",
+    "wage_data": [
+      {
+        "wage": 16.5,
+        "job_guid": "e002a07f-9fe4-429d-b60d-3d2dee905841"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "e002a07f-9fe4-429d-b60d-3d2dee905841",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "752e830d-8293-48b8-8652-683cd19e9955",
+    "toast_guid": "aef877da-860e-45fa-ac95-7bcc51cf3fca",
+    "v2_toast_guid": "c65f20ac-7080-4f59-94cc-df01e5e17458",
+    "first_name": "Miguel",
+    "last_name": "Perez",
+    "deleted": false,
+    "created_date": "2025-10-05T23:12:07.98+00:00",
+    "deleted_date": "1970-01-01T00:00:00+00:00",
+    "wage_data": [
+      {
+        "wage": 16.9,
+        "job_guid": "e002a07f-9fe4-429d-b60d-3d2dee905841"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "e002a07f-9fe4-429d-b60d-3d2dee905841",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "763909d9-099d-4953-acb9-aacba1eeb26f",
+    "toast_guid": "c44c7694-6abb-4dd1-8ad5-2f8b23dce820",
+    "v2_toast_guid": "2ad5010c-f3e7-441b-ba4b-715f01699fc9",
+    "first_name": "Roberto",
+    "last_name": "Velasquez",
+    "deleted": false,
+    "created_date": "2020-09-29T22:38:44.354+00:00",
+    "deleted_date": "1970-01-01T00:00:00+00:00",
+    "wage_data": [],
+    "job_references": [
+      {
+        "guid": "0284a5b6-752f-4ed1-8b9d-2e59b5dca045",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "76adde37-4b27-48db-957a-88245206391f",
+    "toast_guid": "ac8763a5-5210-4182-badd-1f0e435e1720",
+    "v2_toast_guid": "ee3be676-0744-42e7-98ce-cecf26de8941",
+    "first_name": "TDS",
+    "last_name": "Driver",
+    "deleted": false,
+    "created_date": "2024-11-18T17:26:44.049+00:00",
+    "deleted_date": "1970-01-01T00:00:00+00:00",
+    "wage_data": [],
+    "job_references": [
+      {
+        "guid": "121e5e78-7bd4-485a-8810-7bd82c2a2977",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "77e75fc2-42a8-4807-adae-b00a2fe8d077",
+    "toast_guid": "7970380f-e1c9-4f36-b5bc-b3345a08fed0",
+    "v2_toast_guid": "0f442358-f6cb-43a1-a3c9-3d94a7877861",
+    "first_name": "Eduardo",
+    "last_name": "Molina",
+    "deleted": true,
+    "created_date": "2022-04-23T01:05:11.262+00:00",
+    "deleted_date": "2023-04-12T16:39:20.629+00:00",
+    "wage_data": [],
+    "job_references": [],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "78a0f597-7b0f-4474-8510-7115cf3ee9c5",
+    "toast_guid": "2507b01e-3649-4b13-9939-fdec5e658f9b",
+    "v2_toast_guid": "b7390be2-242f-4f2a-bc5a-adac89dac50c",
+    "first_name": "Oscar",
+    "last_name": "Arias",
+    "deleted": true,
+    "created_date": "2022-12-19T21:08:35.449+00:00",
+    "deleted_date": "2023-10-13T22:01:05.298+00:00",
+    "wage_data": [],
+    "job_references": [
+      {
+        "guid": "3f528ffa-b3e8-4cf0-a152-912686b0cb6e",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "793fabc2-e765-4183-b7fc-bf3b155084f8",
+    "toast_guid": "76839790-10f4-4d51-8358-dfea95dcf98d",
+    "v2_toast_guid": "16a425e7-3eaf-402b-86a5-4f1073a351cd",
+    "first_name": "Martha",
+    "last_name": "Lemus",
+    "deleted": false,
+    "created_date": "2021-02-18T18:22:46.331+00:00",
+    "deleted_date": "1970-01-01T00:00:00+00:00",
+    "wage_data": [
+      {
+        "wage": 18.4,
+        "job_guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "7ab4d75d-8272-42fa-b0dc-761ded44e4f1",
+    "toast_guid": "ddbdc3e1-d7ff-4af4-b1f1-8710b0ec5124",
+    "v2_toast_guid": "ed39ec97-def4-4bae-ab8a-078b85671ef6",
+    "first_name": "Bessie",
+    "last_name": "Vargas",
+    "deleted": true,
+    "created_date": "2023-01-08T02:53:50.037+00:00",
+    "deleted_date": "2023-10-19T08:47:53.439+00:00",
+    "wage_data": [
+      {
+        "wage": 15.5,
+        "job_guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "7bd990b8-d8c1-49e9-b716-372fef88c65b",
+    "toast_guid": "3e5b742c-5cfd-4870-929d-7d69bf5bbd4b",
+    "v2_toast_guid": "09c4428f-4ce0-4e9a-bb62-d13e2a0433a4",
+    "first_name": "Joel",
+    "last_name": "Lopez",
+    "deleted": true,
+    "created_date": "2022-01-24T22:50:34.852+00:00",
+    "deleted_date": "2022-10-13T23:33:38.123+00:00",
+    "wage_data": [],
+    "job_references": [],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "7f12c19e-069c-4ffc-8e5f-0312618b82a8",
+    "toast_guid": "dc2f2c93-9db1-4f6f-bd67-529b337ddb6f",
+    "v2_toast_guid": "71810040-2a7c-49d2-a6d0-cbaa12f3d51f",
+    "first_name": "Elizabeth",
+    "last_name": "Ramirez",
+    "deleted": true,
+    "created_date": "2023-03-23T00:50:55.396+00:00",
+    "deleted_date": "2023-04-12T17:43:52.481+00:00",
+    "wage_data": [
+      {
+        "wage": 15,
+        "job_guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "7f3896b9-741f-4bbf-9f28-18182e050e19",
+    "toast_guid": "e45b8b86-9460-4de5-88d1-3fbe9347c133",
+    "v2_toast_guid": "8437a1c8-0748-4927-acc1-122b2ee7cfee",
+    "first_name": "Alexander",
+    "last_name": "Villarreal",
+    "deleted": true,
+    "created_date": "2024-09-09T20:29:54.686+00:00",
+    "deleted_date": "2026-05-10T20:29:20.026+00:00",
+    "wage_data": [
+      {
+        "wage": 17.4,
+        "job_guid": "e002a07f-9fe4-429d-b60d-3d2dee905841"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "e002a07f-9fe4-429d-b60d-3d2dee905841",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "822014f0-2747-4a1a-bcea-e2169cbecaa3",
+    "toast_guid": "dc469ecc-0941-4a57-9e53-f75af6ca3147",
+    "v2_toast_guid": "61c02517-412c-495e-82c5-df022810626e",
+    "first_name": "Maria de los Angeles",
+    "last_name": "Cortez",
+    "deleted": true,
+    "created_date": "2022-10-09T07:49:33.116+00:00",
+    "deleted_date": "2023-04-12T16:38:10.748+00:00",
+    "wage_data": [
+      {
+        "wage": 18,
+        "job_guid": "f069bfbf-da5a-4da0-bb24-31b4e0340a88"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "f069bfbf-da5a-4da0-bb24-31b4e0340a88",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "82e3e0a1-2aa2-41ce-bb51-a46ff37e83a6",
+    "toast_guid": "9fed8048-f50a-456a-8ac4-11c70d44a2e2",
+    "v2_toast_guid": "438984c4-f8b0-4ade-8c09-fae3cf0e08b9",
+    "first_name": "Steven",
+    "last_name": "Rivas",
+    "deleted": true,
+    "created_date": "2022-10-01T01:15:53.69+00:00",
+    "deleted_date": "2022-10-04T19:21:12.184+00:00",
+    "wage_data": [],
+    "job_references": [],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "831216aa-cddc-473b-b6da-f9d75504706e",
+    "toast_guid": "033d38e1-bea4-44f3-87a3-24ddb53aa205",
+    "v2_toast_guid": "d6298896-d3e0-4bde-9dbc-08e2f351cf5e",
+    "first_name": "Jorge",
+    "last_name": "Perez",
+    "deleted": true,
+    "created_date": "2022-10-17T19:42:06.368+00:00",
+    "deleted_date": "2023-04-12T17:48:54.12+00:00",
+    "wage_data": [],
+    "job_references": [],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "85d096ad-f973-4f72-bc00-754977409d44",
+    "toast_guid": "e34a0ab2-9fd5-4a96-aed5-f9cfc0ca2a06",
+    "v2_toast_guid": "844e66f5-6ca5-4cd7-8dc5-cd1c035b1e88",
+    "first_name": "Juan Carlos",
+    "last_name": "Dominguez",
+    "deleted": true,
+    "created_date": "2023-11-08T20:54:39.14+00:00",
+    "deleted_date": "2023-12-24T16:29:11.967+00:00",
+    "wage_data": [
+      {
+        "wage": 19,
+        "job_guid": "e002a07f-9fe4-429d-b60d-3d2dee905841"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "e002a07f-9fe4-429d-b60d-3d2dee905841",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "8618bbc3-4782-43f4-ab3f-a6416af42ed5",
+    "toast_guid": "2868fa69-5146-4cc2-b354-c322ae214e29",
+    "v2_toast_guid": "82329761-b9b8-44e3-83d1-a9a489269a8d",
+    "first_name": "rubi",
+    "last_name": "colin",
+    "deleted": true,
+    "created_date": "2021-05-02T01:11:26.473+00:00",
+    "deleted_date": "2021-09-06T20:54:43.59+00:00",
+    "wage_data": [
+      {
+        "wage": 22,
+        "job_guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "861fa791-c492-4baa-b15d-afd48fb54329",
+    "toast_guid": "94a09015-fea8-4f22-a216-ed6ecc40851a",
+    "v2_toast_guid": "51767047-bcc7-4d60-ad6b-28ce5f09d7f8",
+    "first_name": "Nancy",
+    "last_name": "Hernandez",
+    "deleted": true,
+    "created_date": "2021-03-15T21:24:51.532+00:00",
+    "deleted_date": "2021-09-06T20:56:32.555+00:00",
+    "wage_data": [
+      {
+        "wage": 14,
+        "job_guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "862c9f75-a8c9-404f-aaae-2a0bdc405cc3",
+    "toast_guid": "7b1c6be6-780d-4f3f-ac1d-031e724fc5b3",
+    "v2_toast_guid": "95753579-3a8f-493d-8b8a-711c84a89c2d",
+    "first_name": "Diana",
+    "last_name": "Suastegui",
+    "deleted": true,
+    "created_date": "2021-10-13T00:57:10.453+00:00",
+    "deleted_date": "2022-01-22T05:39:09.322+00:00",
+    "wage_data": [
+      {
+        "wage": 14.5,
+        "job_guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "88afe447-5ae9-4405-b7e0-d0cfe1959b8c",
+    "toast_guid": "f9d07e0d-8f2f-43ca-943c-22cbb65af55b",
+    "v2_toast_guid": "c2e68417-50d0-4efa-b20b-6be36c99a0db",
+    "first_name": "Denis",
+    "last_name": "Xicay",
+    "deleted": true,
+    "created_date": "2026-02-19T18:50:42.87+00:00",
+    "deleted_date": "2026-03-08T00:36:22.338+00:00",
+    "wage_data": [
+      {
+        "wage": 16.9,
+        "job_guid": "e002a07f-9fe4-429d-b60d-3d2dee905841"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "e002a07f-9fe4-429d-b60d-3d2dee905841",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "88e2d99f-59fb-4c9e-8f71-0fc32c546a64",
+    "toast_guid": "552f6a23-6691-4948-86f1-95065bf2bf73",
+    "v2_toast_guid": "25174ddc-be26-4887-8255-e23cd08d0ef3",
+    "first_name": "Fernando",
+    "last_name": "Rodriguez",
+    "deleted": true,
+    "created_date": "2021-09-06T20:46:51.576+00:00",
+    "deleted_date": "2025-04-21T00:46:06.328+00:00",
+    "wage_data": [
+      {
+        "wage": 18,
+        "job_guid": "e002a07f-9fe4-429d-b60d-3d2dee905841"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "e002a07f-9fe4-429d-b60d-3d2dee905841",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "8a466896-0fd6-491a-bfa6-cf055156031e",
+    "toast_guid": "aedc0e3a-0dfd-460b-96d0-4f445ed69188",
+    "v2_toast_guid": "0adcb378-bb19-4963-bede-3552effcdcab",
+    "first_name": "Adriana",
+    "last_name": "Reyes",
+    "deleted": true,
+    "created_date": "2023-07-27T00:02:19.86+00:00",
+    "deleted_date": "2025-08-13T22:16:47.649+00:00",
+    "wage_data": [
+      {
+        "wage": 19.5,
+        "job_guid": "f069bfbf-da5a-4da0-bb24-31b4e0340a88"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "f069bfbf-da5a-4da0-bb24-31b4e0340a88",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "8bf868e1-3a96-4994-abb7-0cf8a01d0597",
+    "toast_guid": "27d5443c-e172-48e6-ac97-938669ac6bae",
+    "v2_toast_guid": "b5836ab3-36d6-445a-88cf-da65c78d4c2e",
+    "first_name": "Marcela",
+    "last_name": "Barrera",
+    "deleted": true,
+    "created_date": "2023-03-16T00:48:23.326+00:00",
+    "deleted_date": "2023-10-19T08:44:57.988+00:00",
+    "wage_data": [
+      {
+        "wage": 16,
+        "job_guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "8c23fb08-9e40-4c33-bd93-a0d19b5bd80f",
+    "toast_guid": "c5d59880-11a2-45be-8a2d-8866dddd63b0",
+    "v2_toast_guid": "82ef1eb3-f764-4fc8-b6ef-da4c1f7c4ade",
+    "first_name": "Jaqueline",
+    "last_name": "Benitez",
+    "deleted": true,
+    "created_date": "2021-05-22T00:49:25.261+00:00",
+    "deleted_date": "2022-01-18T01:00:56.178+00:00",
+    "wage_data": [
+      {
+        "wage": 15,
+        "job_guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "8c805ac8-cde5-488c-9ee3-df2ac566b4bb",
+    "toast_guid": "c6256ea5-a70c-4a44-a572-960af6a66396",
+    "v2_toast_guid": "3e0f8873-7ead-4dd8-8fe5-48bd821fc82d",
+    "first_name": "Jose",
+    "last_name": "Ramos",
+    "deleted": true,
+    "created_date": "2024-04-17T19:28:13.291+00:00",
+    "deleted_date": "2024-07-21T07:18:00.379+00:00",
+    "wage_data": [
+      {
+        "wage": 16.5,
+        "job_guid": "e002a07f-9fe4-429d-b60d-3d2dee905841"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "e002a07f-9fe4-429d-b60d-3d2dee905841",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "8d52f352-19a1-43af-8ad6-cff2de583490",
+    "toast_guid": "dcb5526c-37c7-4bdd-a65b-1995421cbb29",
+    "v2_toast_guid": "ff023765-cf1f-41e8-93ef-84cb6eef5254",
+    "first_name": "Cristian",
+    "last_name": "Ajeataz",
+    "deleted": true,
+    "created_date": "2024-04-01T04:10:55.365+00:00",
+    "deleted_date": "2026-01-23T20:30:23.181+00:00",
+    "wage_data": [],
+    "job_references": [],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "90298b14-89f5-4f03-946e-9080e2947c85",
+    "toast_guid": "94d96843-1171-4067-a936-1a96b99bd7d7",
+    "v2_toast_guid": "b8e3f246-91f9-4cb5-acfe-c757a73e1679",
+    "first_name": "Jose",
+    "last_name": "Morales",
+    "deleted": true,
+    "created_date": "2026-03-24T15:05:02.842+00:00",
+    "deleted_date": "2026-05-31T20:58:28.627+00:00",
+    "wage_data": [
+      {
+        "wage": 16.9,
+        "job_guid": "e002a07f-9fe4-429d-b60d-3d2dee905841"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "e002a07f-9fe4-429d-b60d-3d2dee905841",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "90400023-4e22-4739-8bd4-e25d8dbcc032",
+    "toast_guid": "3b8cb7ee-d460-4bbe-94c9-966ec5ad78db",
+    "v2_toast_guid": "9346f7f9-fea2-4e33-8382-e52077391334",
+    "first_name": "Yuri",
+    "last_name": "Gomez",
+    "deleted": true,
+    "created_date": "2021-11-05T00:51:51.075+00:00",
+    "deleted_date": "2024-08-25T15:16:39.912+00:00",
+    "wage_data": [
+      {
+        "wage": 17,
+        "job_guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "90d4f56d-b7e3-4dc4-b3c7-d2791dbcb933",
+    "toast_guid": "b7848526-c925-4b3d-82ce-b1a41ecd87d4",
+    "v2_toast_guid": "f8c5af09-a3c5-4bd6-9e06-ad00481d54b4",
+    "first_name": "Diego",
+    "last_name": "Mejia",
+    "deleted": true,
+    "created_date": "2023-01-29T21:15:19.215+00:00",
+    "deleted_date": "2024-04-17T20:06:37.282+00:00",
+    "wage_data": [
+      {
+        "wage": 16.5,
+        "job_guid": "e002a07f-9fe4-429d-b60d-3d2dee905841"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "e002a07f-9fe4-429d-b60d-3d2dee905841",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "90e171ca-f33a-4258-a2df-a147668e38d0",
+    "toast_guid": "099aebd1-6a1d-4056-960a-71456de3497b",
+    "v2_toast_guid": "585cd84b-28b7-4bcd-9bf7-689aff76deba",
+    "first_name": "Gladis",
+    "last_name": "Vizcarra",
+    "deleted": true,
+    "created_date": "2021-07-24T01:25:30.895+00:00",
+    "deleted_date": "2021-09-06T21:01:47.463+00:00",
+    "wage_data": [
+      {
+        "wage": 14.5,
+        "job_guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "90f9bdfc-163f-4701-b6f9-fef70c9d8f7f",
+    "toast_guid": "1b2cd39a-72ba-4005-ab4c-062423824d95",
+    "v2_toast_guid": "98334025-6ad3-4fd2-91f8-e9defebd91c1",
+    "first_name": "Allison",
+    "last_name": "Menendez",
+    "deleted": true,
+    "created_date": "2023-03-16T00:18:53.102+00:00",
+    "deleted_date": "2023-04-12T17:01:35.29+00:00",
+    "wage_data": [
+      {
+        "wage": 16,
+        "job_guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "92564753-3550-4a5e-9078-0bf841c63c59",
+    "toast_guid": "a4728a16-eebd-41e0-bebb-1760bf6679e1",
+    "v2_toast_guid": "dadfb373-e1b4-49e9-9d94-b8d6bebd9fb8",
+    "first_name": "Rey David",
+    "last_name": "Estrada",
+    "deleted": true,
+    "created_date": "2021-04-07T23:53:09.583+00:00",
+    "deleted_date": "2021-04-07T23:54:31.784+00:00",
+    "wage_data": [],
+    "job_references": [],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "93112aa1-2c33-47f3-9478-e89da5a0ec61",
+    "toast_guid": "1d08951c-e4ab-4837-b05b-0d2e36e605e5",
+    "v2_toast_guid": "ccfdf4f3-d823-4555-b29a-caccc5913011",
+    "first_name": "Erika",
+    "last_name": "Gurrula",
+    "deleted": true,
+    "created_date": "2021-05-21T03:56:12.274+00:00",
+    "deleted_date": "2021-09-06T20:56:05.459+00:00",
+    "wage_data": [
+      {
+        "wage": 14.5,
+        "job_guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "95eedd46-a699-4748-a22c-08d3633ad6b2",
+    "toast_guid": "b496aa21-b8ab-4655-b4af-4dc81947ff67",
+    "v2_toast_guid": "940c5c6d-bb8e-48fe-b33a-01c5633b5e3f",
+    "first_name": "Jorge",
+    "last_name": "Santizo",
+    "deleted": true,
+    "created_date": "2022-10-04T19:35:01.468+00:00",
+    "deleted_date": "2023-04-12T17:34:28.233+00:00",
+    "wage_data": [],
+    "job_references": [],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "98bdf2d4-0a93-4768-89ff-1551c070880f",
+    "toast_guid": "745e04f9-e732-407e-afc2-6401426b292f",
+    "v2_toast_guid": "de0d70ff-c023-47d1-a0d1-bc41b591559d",
+    "first_name": "Juan",
+    "last_name": "Valdez",
+    "deleted": true,
+    "created_date": "2022-07-30T23:11:52.336+00:00",
+    "deleted_date": "2022-10-13T23:31:44.556+00:00",
+    "wage_data": [],
+    "job_references": [],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "9a04a154-e702-4c75-b415-3e0c725f8d4d",
+    "toast_guid": "4b9b4b6a-62e9-4678-b7e2-864e74c98f0a",
+    "v2_toast_guid": "52054128-53de-4b0e-aef3-ecf9d487a383",
+    "first_name": "Alberto",
+    "last_name": "Reyes",
+    "deleted": true,
+    "created_date": "2021-02-18T18:21:31.333+00:00",
+    "deleted_date": "2022-01-22T05:14:47.964+00:00",
+    "wage_data": [
+      {
+        "wage": 18,
+        "job_guid": "f069bfbf-da5a-4da0-bb24-31b4e0340a88"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "f069bfbf-da5a-4da0-bb24-31b4e0340a88",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "9c1186cd-1532-4e3f-86f1-f186e213bf65",
+    "toast_guid": "3065aa5c-7edd-41e3-a158-555d77f89500",
+    "v2_toast_guid": "4c79a65d-01a9-4029-98fb-635af696f7c3",
+    "first_name": "Fernando",
+    "last_name": "Alarcon",
+    "deleted": true,
+    "created_date": "2022-09-04T23:08:02.939+00:00",
+    "deleted_date": "2022-10-17T19:32:45.823+00:00",
+    "wage_data": [],
+    "job_references": [],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "9e89d50b-5288-4853-b4b0-0c049ced1340",
+    "toast_guid": "c803c592-5af0-4646-8850-101615787b4e",
+    "v2_toast_guid": "6997b320-753a-4bfa-a07c-3557ec575f22",
+    "first_name": "Alfonso",
+    "last_name": "Alarcon",
+    "deleted": true,
+    "created_date": "2021-03-25T02:57:44.985+00:00",
+    "deleted_date": "2022-10-13T23:32:24.863+00:00",
+    "wage_data": [],
+    "job_references": [],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "a0f35181-f3d0-4b2b-8aae-cefa0706371f",
+    "toast_guid": "6ede290b-34f3-4adb-9243-071976c1c0cb",
+    "v2_toast_guid": "0826875a-fa63-47b4-8af7-5f9835d720da",
+    "first_name": "Laura",
+    "last_name": "Samayoa",
+    "deleted": true,
+    "created_date": "2022-10-13T19:02:53.837+00:00",
+    "deleted_date": "2023-10-19T08:46:45.679+00:00",
+    "wage_data": [
+      {
+        "wage": 16,
+        "job_guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "a11e625d-dcbe-4c28-aaec-08d169c879ad",
+    "toast_guid": "c029fe09-bca4-4718-8833-e1c99b666d27",
+    "v2_toast_guid": "255de6af-00d0-43b7-975b-8c136bffe1f7",
+    "first_name": "Valentina",
+    "last_name": "Valladares",
+    "deleted": false,
+    "created_date": "2021-05-23T00:08:47.519+00:00",
+    "deleted_date": "1970-01-01T00:00:00+00:00",
+    "wage_data": [
+      {
+        "wage": 17.9,
+        "job_guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "a1791259-d265-49cc-98a4-dad51c852058",
+    "toast_guid": "bb3cfeb5-5e09-4792-be16-abff43d96a42",
+    "v2_toast_guid": "f2382809-51c3-4f1f-a20d-1f88f33fe81a",
+    "first_name": "Martin",
+    "last_name": "Rocha",
+    "deleted": true,
+    "created_date": "2021-06-26T06:27:52.525+00:00",
+    "deleted_date": "2021-09-06T21:00:36.201+00:00",
+    "wage_data": [],
+    "job_references": [],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "a27adf19-7474-4e7a-a74b-0d73c089b717",
+    "toast_guid": "11880e74-c74f-4061-ae37-4b5c2caea34c",
+    "v2_toast_guid": "b8e5866b-725e-45ad-83f3-0afb17ed5c7d",
+    "first_name": "Salvador",
+    "last_name": "Hernandez",
+    "deleted": true,
+    "created_date": "2021-04-25T00:44:16.136+00:00",
+    "deleted_date": "2021-09-06T20:59:55.643+00:00",
+    "wage_data": [
+      {
+        "wage": 22,
+        "job_guid": "f069bfbf-da5a-4da0-bb24-31b4e0340a88"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "f069bfbf-da5a-4da0-bb24-31b4e0340a88",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "a3539514-397e-4562-91ca-84277d3791ba",
+    "toast_guid": "57df0ab6-3a72-41f3-bc89-f36373f7a4ec",
+    "v2_toast_guid": "8a5b8ea0-4ab4-43a1-a757-af0d395dfe48",
+    "first_name": "Uriel",
+    "last_name": "Cruz",
+    "deleted": true,
+    "created_date": "2025-12-10T20:53:07.638+00:00",
+    "deleted_date": "2025-12-14T20:54:36.963+00:00",
+    "wage_data": [
+      {
+        "wage": 16.5,
+        "job_guid": "e002a07f-9fe4-429d-b60d-3d2dee905841"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "e002a07f-9fe4-429d-b60d-3d2dee905841",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "a3dcc3bc-383f-4334-90e1-81cf61bde385",
+    "toast_guid": "56eef32a-8e36-4bb3-b81d-a9bbfc49cc65",
+    "v2_toast_guid": "d6c27d06-a38a-4f76-9423-cc27e3d1f3e7",
+    "first_name": "Rosario",
+    "last_name": "Magana",
+    "deleted": true,
+    "created_date": "2021-04-24T01:34:04.609+00:00",
+    "deleted_date": "2021-09-06T20:57:24.737+00:00",
+    "wage_data": [
+      {
+        "wage": 22,
+        "job_guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "a527d9d7-beed-4210-bc46-f8a040463c80",
+    "toast_guid": "343aa260-c2b0-45f4-9ba2-dea95451e4be",
+    "v2_toast_guid": "b7a4632b-9e87-4d66-850f-e8094ee2d882",
+    "first_name": "Default",
+    "last_name": "Online Ordering",
+    "deleted": false,
+    "created_date": "2021-06-22T21:39:42.361+00:00",
+    "deleted_date": "1970-01-01T00:00:00+00:00",
+    "wage_data": [],
+    "job_references": [],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "a531416e-dc05-4720-9037-b751b1b97465",
+    "toast_guid": "b2f492bc-866a-450d-8644-f7a777be0b52",
+    "v2_toast_guid": "92688840-d87f-4085-a5df-5534f63a7630",
+    "first_name": "Mell",
+    "last_name": "Vera",
+    "deleted": true,
+    "created_date": "2024-09-12T02:41:31.499+00:00",
+    "deleted_date": "2025-02-23T08:26:15.499+00:00",
+    "wage_data": [
+      {
+        "wage": 16.5,
+        "job_guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "a76878d3-3566-4d17-96d0-b8659e1619fe",
+    "toast_guid": "c8fe422c-5112-4fe4-b51a-ea418e317024",
+    "v2_toast_guid": "11bad61a-f1fe-451d-8634-a1a1c9b143d9",
+    "first_name": "abdi",
+    "last_name": "lopez",
+    "deleted": true,
+    "created_date": "2021-05-02T01:13:19.517+00:00",
+    "deleted_date": "2021-09-06T20:57:01.236+00:00",
+    "wage_data": [
+      {
+        "wage": 22,
+        "job_guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "a77dbbbb-fa3e-429b-a445-20ef322679c7",
+    "toast_guid": "f6f33690-5f39-4554-87e1-3d38e09d6970",
+    "v2_toast_guid": "d84cfaae-6078-4ef4-b96d-2e06888f601c",
+    "first_name": "testing",
+    "last_name": "testinging",
+    "deleted": true,
+    "created_date": "2021-09-15T22:54:26.733+00:00",
+    "deleted_date": "2023-10-19T08:47:20.831+00:00",
+    "wage_data": [],
+    "job_references": [],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "aa70617c-fcf7-4667-ae1d-a0c37c1e6355",
+    "toast_guid": "1c2e6941-847c-425a-89b6-f4cb2071d065",
+    "v2_toast_guid": "49248f46-0960-4117-9d2d-e97c50a9e8f1",
+    "first_name": "Jocelyn",
+    "last_name": "Sanchez",
+    "deleted": true,
+    "created_date": "2023-01-14T01:43:28.705+00:00",
+    "deleted_date": "2023-04-12T17:36:08.983+00:00",
+    "wage_data": [],
+    "job_references": [
+      {
+        "guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "af5e2c7c-3123-4653-97c4-13f2b718d6f3",
+    "toast_guid": "a3e7f9ed-0b95-46bc-b3b0-68edd159c8e3",
+    "v2_toast_guid": "6f87c82b-da0f-462b-8930-3868d32e2ba0",
+    "first_name": "Jennifer",
+    "last_name": "Ortiz",
+    "deleted": false,
+    "created_date": "2021-02-18T18:18:42.431+00:00",
+    "deleted_date": "1970-01-01T00:00:00+00:00",
+    "wage_data": [
+      {
+        "wage": 17.9,
+        "job_guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "b099cfa1-1b40-4a81-ac96-7bcd4fcba9ac",
+    "toast_guid": "fddeb49c-5d67-4ae2-9930-1b2ec54d9fac",
+    "v2_toast_guid": "38ba36c7-5daa-48e6-9df4-1051b7a6700f",
+    "first_name": "Benjamin",
+    "last_name": "Chay",
+    "deleted": false,
+    "created_date": "2026-06-13T23:18:56.958+00:00",
+    "deleted_date": "1970-01-01T00:00:00+00:00",
+    "wage_data": [
+      {
+        "wage": 16.9,
+        "job_guid": "e002a07f-9fe4-429d-b60d-3d2dee905841"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "e002a07f-9fe4-429d-b60d-3d2dee905841",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "b63e44a8-1e7d-4147-b76a-fc31b981be39",
+    "toast_guid": "d0f54d05-1ba2-4319-9a6a-695679ee1d73",
+    "v2_toast_guid": "44e73fcd-3d1c-4b6b-8111-0bc23bf73fad",
+    "first_name": "Susana",
+    "last_name": "Lara",
+    "deleted": true,
+    "created_date": "2021-05-22T02:02:54.441+00:00",
+    "deleted_date": "2022-10-13T23:33:22.655+00:00",
+    "wage_data": [
+      {
+        "wage": 15.5,
+        "job_guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "b74069f0-ae9f-4a6a-b6fc-f0fad79c7970",
+    "toast_guid": "2f534fd9-8a60-404d-b4d5-b83fef862a00",
+    "v2_toast_guid": "730e455c-f870-4c53-86ef-3849582eb348",
+    "first_name": "Dylan",
+    "last_name": "Flores",
+    "deleted": true,
+    "created_date": "2025-03-23T00:47:05.817+00:00",
+    "deleted_date": "2025-05-19T00:22:16.86+00:00",
+    "wage_data": [
+      {
+        "wage": 16.5,
+        "job_guid": "e002a07f-9fe4-429d-b60d-3d2dee905841"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "e002a07f-9fe4-429d-b60d-3d2dee905841",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "b9fb5a8b-422e-45cc-972c-c890f79d835e",
+    "toast_guid": "b416de05-1fe2-41e0-b3ad-f4235e0697da",
+    "v2_toast_guid": "81230441-10ac-45e1-bb0f-8725f1b19bf4",
+    "first_name": "Fernando ",
+    "last_name": "Alarcon",
+    "deleted": true,
+    "created_date": "2022-10-17T19:34:42.149+00:00",
+    "deleted_date": "2023-04-12T17:54:11.754+00:00",
+    "wage_data": [
+      {
+        "wage": 16.5,
+        "job_guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "bd59a16a-1e16-476a-b0d7-9d90f2326693",
+    "toast_guid": "ddbffc53-32b7-4374-8f9f-b6dc0d4b132b",
+    "v2_toast_guid": "8e6ba60f-1580-45df-a678-35a2b3f0de76",
+    "first_name": "Elias",
+    "last_name": "Morales",
+    "deleted": false,
+    "created_date": "2025-08-31T01:33:50.745+00:00",
+    "deleted_date": "1970-01-01T00:00:00+00:00",
+    "wage_data": [
+      {
+        "wage": 16.9,
+        "job_guid": "e002a07f-9fe4-429d-b60d-3d2dee905841"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "e002a07f-9fe4-429d-b60d-3d2dee905841",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "be14c6c9-b3f6-4a45-8a34-1a91fb46366f",
+    "toast_guid": "8dd5f86b-255f-4cea-8faf-69b361e93ec2",
+    "v2_toast_guid": "0a7c678e-5403-4f8e-a9e7-e8a3640b39e6",
+    "first_name": "Jose ",
+    "last_name": "Vargas",
+    "deleted": true,
+    "created_date": "2023-03-23T00:45:50.615+00:00",
+    "deleted_date": "2023-04-12T17:33:27.054+00:00",
+    "wage_data": [
+      {
+        "wage": 15,
+        "job_guid": "e002a07f-9fe4-429d-b60d-3d2dee905841"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "e002a07f-9fe4-429d-b60d-3d2dee905841",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "bef9a047-70bc-4cae-9d0d-9ddb2657a811",
+    "toast_guid": "d5a6c6fd-8dcc-4492-9c9c-a95b36c82954",
+    "v2_toast_guid": "ac77e665-d4ab-4b1c-8550-004ed9b46c53",
+    "first_name": "Eugenia",
+    "last_name": "Lopez",
+    "deleted": true,
+    "created_date": "2021-04-24T01:33:02.134+00:00",
+    "deleted_date": "2021-09-06T20:57:10.35+00:00",
+    "wage_data": [
+      {
+        "wage": 22,
+        "job_guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "c14ee21f-5970-4f24-8903-84af8d6b6755",
+    "toast_guid": "c8004e9a-63b8-43a8-bb3e-ea92fc567ad0",
+    "v2_toast_guid": "554c9b2e-53ff-49ff-b81d-aa634b9a80ee",
+    "first_name": "Vamse",
+    "last_name": "Nidiganti",
+    "deleted": true,
+    "created_date": "2020-09-29T22:38:44.392+00:00",
+    "deleted_date": "2021-05-24T20:46:41.011+00:00",
+    "wage_data": [],
+    "job_references": [],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "c4aa6480-10fd-4751-b7a6-fdc7ba3e4c47",
+    "toast_guid": "d4c6c8c9-409d-4ed0-8567-3909ca9934e2",
+    "v2_toast_guid": "1c425192-8203-4bc0-b4e2-0e6647ed9566",
+    "first_name": "irene",
+    "last_name": "Mendez",
+    "deleted": true,
+    "created_date": "2022-01-18T00:49:58.141+00:00",
+    "deleted_date": "2022-10-13T23:33:46.519+00:00",
+    "wage_data": [
+      {
+        "wage": 16,
+        "job_guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "c6998f64-0508-4fdf-beaa-67cd3b25c8ec",
+    "toast_guid": "52eec8f5-4283-4f55-b3f3-436564bbe82b",
+    "v2_toast_guid": "c4ef620e-841f-4e6c-8a89-b3e0f7e35277",
+    "first_name": "Daniel",
+    "last_name": "Trejo",
+    "deleted": true,
+    "created_date": "2021-08-14T00:16:38.361+00:00",
+    "deleted_date": "2023-10-19T08:47:31.128+00:00",
+    "wage_data": [
+      {
+        "wage": 18,
+        "job_guid": "f069bfbf-da5a-4da0-bb24-31b4e0340a88"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "f069bfbf-da5a-4da0-bb24-31b4e0340a88",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "c6ad5e83-b1ce-443e-962e-2b951d35cc9c",
+    "toast_guid": "efbf6e40-e69f-44f0-9066-621f4a6fab2d",
+    "v2_toast_guid": "c8b23962-231e-4a90-b52c-f79fd38df268",
+    "first_name": "Manuel S",
+    "last_name": "Vergara",
+    "deleted": true,
+    "created_date": "2021-03-25T03:06:36.693+00:00",
+    "deleted_date": "2025-12-14T21:06:48.195+00:00",
+    "wage_data": [
+      {
+        "wage": 19,
+        "job_guid": "e002a07f-9fe4-429d-b60d-3d2dee905841"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "e002a07f-9fe4-429d-b60d-3d2dee905841",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "c80c48bc-f51b-4a8c-932c-40d6c19916ef",
+    "toast_guid": "aa1a79af-f967-43a6-b813-7814d1ef2db8",
+    "v2_toast_guid": "53df3756-f35c-4396-ad22-8a5f17169bd1",
+    "first_name": "Elizabeth",
+    "last_name": "Gonzales",
+    "deleted": true,
+    "created_date": "2021-02-19T03:06:11.071+00:00",
+    "deleted_date": "2022-01-22T05:10:44.816+00:00",
+    "wage_data": [
+      {
+        "wage": 15,
+        "job_guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "c8e86671-f0fd-4609-aedf-e7ef6bece1a4",
+    "toast_guid": "404e8de2-d39b-4895-9e32-c41ca8b857ab",
+    "v2_toast_guid": "31ae9e1a-be63-404b-b7fa-326486f4c355",
+    "first_name": "Ana Cecilia",
+    "last_name": "Hernandez",
+    "deleted": true,
+    "created_date": "2024-04-01T03:46:30.424+00:00",
+    "deleted_date": "2024-04-03T16:27:04.541+00:00",
+    "wage_data": [],
+    "job_references": [],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "c9bc1567-cd2a-49e9-9833-8205465af1a0",
+    "toast_guid": "d54d9e9d-6885-4740-b9d2-1601937b9aba",
+    "v2_toast_guid": "9778500c-5b83-4b29-86da-c0979c15a550",
+    "first_name": "Jose",
+    "last_name": "Llanos",
+    "deleted": true,
+    "created_date": "2021-07-10T00:23:19.229+00:00",
+    "deleted_date": "2021-09-06T20:56:50.042+00:00",
+    "wage_data": [],
+    "job_references": [],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "ca95f71c-80d4-466c-aa27-f7df40714ccd",
+    "toast_guid": "f89f63d4-e332-49a4-98bf-afc8680f0276",
+    "v2_toast_guid": "716d4691-ad1e-42ff-80ee-8cba1dc049b6",
+    "first_name": "Aylin",
+    "last_name": "Lorenti",
+    "deleted": true,
+    "created_date": "2021-02-19T02:07:22.062+00:00",
+    "deleted_date": "2021-05-04T04:01:02.958+00:00",
+    "wage_data": [
+      {
+        "wage": 14,
+        "job_guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "caebb482-12ac-4367-89d0-792c7a1dca75",
+    "toast_guid": "afd1ec3b-c875-4e84-b25d-f22743abd25b",
+    "v2_toast_guid": "60597bee-8b50-4a0b-a5aa-a6690414ae51",
+    "first_name": "Jacqueline",
+    "last_name": "Cruz",
+    "deleted": true,
+    "created_date": "2021-04-07T23:52:18.357+00:00",
+    "deleted_date": "2021-04-07T23:54:26.905+00:00",
+    "wage_data": [
+      {
+        "wage": 15,
+        "job_guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "cc2c7832-ae4f-4fb2-b0d4-810ecb35abb8",
+    "toast_guid": "c6eae062-ceed-4f10-93f5-187075a064de",
+    "v2_toast_guid": "f0c8eea1-9d1a-4976-b4a0-3682c983d877",
+    "first_name": "Jose",
+    "last_name": "Tielo",
+    "deleted": true,
+    "created_date": "2022-06-05T22:57:24.071+00:00",
+    "deleted_date": "2023-01-08T07:52:58.98+00:00",
+    "wage_data": [],
+    "job_references": [],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "ce52527a-bfb1-4988-906b-804c21326748",
+    "toast_guid": "5eb7cc88-5cc3-4474-b4c4-f94488c44090",
+    "v2_toast_guid": "954ece0e-5c51-41be-be8d-3773c0af714e",
+    "first_name": "test",
+    "last_name": "tester",
+    "deleted": true,
+    "created_date": "2021-08-20T21:51:54.483+00:00",
+    "deleted_date": "2021-09-15T22:53:37.11+00:00",
+    "wage_data": [],
+    "job_references": [],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "cf33b6c0-640f-4cdd-bd5b-fe8132305667",
+    "toast_guid": "9b56daa5-c35f-4317-a48e-6f5dd422c732",
+    "v2_toast_guid": "ebecb80d-4031-47cf-a8ce-147d5475c792",
+    "first_name": "Hismirna",
+    "last_name": "Ajtun",
+    "deleted": true,
+    "created_date": "2022-09-24T02:09:18.468+00:00",
+    "deleted_date": "2022-10-04T19:20:17.627+00:00",
+    "wage_data": [
+      {
+        "wage": 15.5,
+        "job_guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "d1da1e50-79c7-4608-812a-a75e54461453",
+    "toast_guid": "bc6cf0cc-27d8-49ae-88b8-c23e681db6e7",
+    "v2_toast_guid": "4fc25329-d574-4c34-bfe6-d76c0087fbeb",
+    "first_name": "Kevin",
+    "last_name": "Garcia",
+    "deleted": false,
+    "created_date": "2026-05-13T18:40:16.737+00:00",
+    "deleted_date": "1970-01-01T00:00:00+00:00",
+    "wage_data": [
+      {
+        "wage": 16.9,
+        "job_guid": "e002a07f-9fe4-429d-b60d-3d2dee905841"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "e002a07f-9fe4-429d-b60d-3d2dee905841",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "d1ec86e1-ceaf-457d-8efc-55bd4ee3c7bf",
+    "toast_guid": "69c2c6df-628a-46d1-9d81-3afaf1034b9f",
+    "v2_toast_guid": "3eef040e-2473-11ef-a98d-129eca3c4799",
+    "first_name": "Maria",
+    "last_name": "Gonzalez",
+    "deleted": false,
+    "created_date": "2026-06-02T23:21:15.877+00:00",
+    "deleted_date": "1970-01-01T00:00:00+00:00",
+    "wage_data": [
+      {
+        "wage": 16.9,
+        "job_guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "d29ed264-f6a7-4cb0-8082-137774afd72b",
+    "toast_guid": "a62be708-9d04-45eb-991f-ba551c11cf7e",
+    "v2_toast_guid": "f3d44ce4-dd01-4e09-ae0d-35f7c9dc967f",
+    "first_name": "Gilberto",
+    "last_name": "Aguilar",
+    "deleted": true,
+    "created_date": "2025-11-17T03:15:54.257+00:00",
+    "deleted_date": "2025-12-14T21:03:12.466+00:00",
+    "wage_data": [],
+    "job_references": [],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "d2c8ef2f-9427-4d98-8dde-656652265f4c",
+    "toast_guid": "75ab33ef-30f3-4b28-b53a-b21b583fb08e",
+    "v2_toast_guid": "e35e49bb-b2f4-4784-aeca-628d778fb6ca",
+    "first_name": "Nicole",
+    "last_name": "Hurtado",
+    "deleted": true,
+    "created_date": "2021-02-19T02:05:55.608+00:00",
+    "deleted_date": "2021-05-04T04:00:37.452+00:00",
+    "wage_data": [
+      {
+        "wage": 14,
+        "job_guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "d396f236-ca80-40a5-926d-9392ac1a3c43",
+    "toast_guid": "11d121c6-aae8-4690-8fe7-856b4f376ac0",
+    "v2_toast_guid": "fc2de5de-c56d-4999-ab4c-3cecc5ba3dc2",
+    "first_name": "Erick",
+    "last_name": "Velasquez",
+    "deleted": false,
+    "created_date": "2020-12-31T00:45:12.282+00:00",
+    "deleted_date": "1970-01-01T00:00:00+00:00",
+    "wage_data": [],
+    "job_references": [
+      {
+        "guid": "0284a5b6-752f-4ed1-8b9d-2e59b5dca045",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "d51e6dd5-77a2-4f42-be50-004d7f5c1f83",
+    "toast_guid": "1bb2683d-fa94-4263-af93-d2c70bf1982c",
+    "v2_toast_guid": "19b569c7-6d7a-40d9-a9c5-c0458d57abac",
+    "first_name": "Hermeregildo",
+    "last_name": "Albinez",
+    "deleted": true,
+    "created_date": "2021-05-09T00:56:39.704+00:00",
+    "deleted_date": "2021-09-06T20:55:25.996+00:00",
+    "wage_data": [],
+    "job_references": [],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "d6a53c25-c6a3-4f46-86cc-73ada1e2344e",
+    "toast_guid": "54751ad0-1c79-45bb-accd-c5771ee6cc0b",
+    "v2_toast_guid": "7804f191-e24c-41a3-a641-f3750d745528",
+    "first_name": "Fernando",
+    "last_name": "Rodriguez",
+    "deleted": true,
+    "created_date": "2024-04-01T04:23:43.016+00:00",
+    "deleted_date": "2024-04-03T16:27:28.153+00:00",
+    "wage_data": [],
+    "job_references": [],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "d6f2817c-3cb7-46dd-98fb-cafdf5f692f1",
+    "toast_guid": "9adadd4c-c36c-4dbc-86de-32569c0f484f",
+    "v2_toast_guid": "aaa36b95-5959-48cc-9a56-440cf27e40df",
+    "first_name": "Victor",
+    "last_name": "Martinez",
+    "deleted": true,
+    "created_date": "2021-06-26T06:28:44.599+00:00",
+    "deleted_date": "2021-09-06T20:57:32.14+00:00",
+    "wage_data": [],
+    "job_references": [],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "db52f062-b6a5-42b4-8327-ebd8342eff48",
+    "toast_guid": "3478d3c1-612c-47f0-94aa-086509a4fbe2",
+    "v2_toast_guid": "4cd4f4f7-ccd6-421c-bd94-4307e627ce2d",
+    "first_name": "Manuel",
+    "last_name": "Lacanal",
+    "deleted": true,
+    "created_date": "2021-12-18T01:15:26.693+00:00",
+    "deleted_date": "2022-01-22T05:12:07.328+00:00",
+    "wage_data": [
+      {
+        "wage": 14.5,
+        "job_guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "dbdc0914-8d53-4312-abb3-734cb16e7b45",
+    "toast_guid": "56e6d9b8-5040-42e1-b2d0-83dd360dee4f",
+    "v2_toast_guid": "83c49d9a-46a2-4652-83a4-3481a4af596f",
+    "first_name": "Idenia",
+    "last_name": "Vargas",
+    "deleted": true,
+    "created_date": "2021-11-05T00:48:40.011+00:00",
+    "deleted_date": "2022-10-13T23:31:50.472+00:00",
+    "wage_data": [
+      {
+        "wage": 16,
+        "job_guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "dd2a7df2-a301-4f2b-9d37-5e246b873adb",
+    "toast_guid": "847e0b09-099e-4e9a-aaf5-20f51944b759",
+    "v2_toast_guid": "0556d8a2-b8b3-4c7f-ba90-c929c1976266",
+    "first_name": "Joseph",
+    "last_name": "Castellanos",
+    "deleted": false,
+    "created_date": "2026-07-20T16:35:30.794+00:00",
+    "deleted_date": "1970-01-01T00:00:00+00:00",
+    "wage_data": [
+      {
+        "wage": 16.9,
+        "job_guid": "e002a07f-9fe4-429d-b60d-3d2dee905841"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "e002a07f-9fe4-429d-b60d-3d2dee905841",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "de756ccb-b39e-4910-ab87-52108a0d65f2",
+    "toast_guid": "de7e2160-fda4-4168-b6a7-0ccba2144c2e",
+    "v2_toast_guid": "5f8fb048-42b3-4376-8fca-5229c0c249fa",
+    "first_name": "Brenda",
+    "last_name": "Flores",
+    "deleted": false,
+    "created_date": "2024-11-20T19:52:51.938+00:00",
+    "deleted_date": "1970-01-01T00:00:00+00:00",
+    "wage_data": [
+      {
+        "wage": 18.9,
+        "job_guid": "f069bfbf-da5a-4da0-bb24-31b4e0340a88"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "f069bfbf-da5a-4da0-bb24-31b4e0340a88",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "de91b7ef-7f94-4032-863e-f808ad649178",
+    "toast_guid": "a96e8aeb-6720-47aa-a68f-1fdbe12459e2",
+    "v2_toast_guid": "8cbde099-7ffa-4ead-bd2a-796e52ec69f8",
+    "first_name": "Cristian",
+    "last_name": "Ajeataz",
+    "deleted": false,
+    "created_date": "2023-08-02T23:19:20.64+00:00",
+    "deleted_date": "1970-01-01T00:00:00+00:00",
+    "wage_data": [
+      {
+        "wage": 19.9,
+        "job_guid": "f069bfbf-da5a-4da0-bb24-31b4e0340a88"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "f069bfbf-da5a-4da0-bb24-31b4e0340a88",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "e00cf0b8-23fc-4850-a101-a97d2a1e850f",
+    "toast_guid": "4a18eb6f-9770-43df-a903-97cf3488e992",
+    "v2_toast_guid": "bbf3cfe2-74b3-4321-a36b-94d4ec4ca47f",
+    "first_name": "Fredy",
+    "last_name": "Guarchaj",
+    "deleted": true,
+    "created_date": "2026-02-19T18:55:15.934+00:00",
+    "deleted_date": "2026-02-22T22:22:31.75+00:00",
+    "wage_data": [
+      {
+        "wage": 16.9,
+        "job_guid": "e002a07f-9fe4-429d-b60d-3d2dee905841"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "e002a07f-9fe4-429d-b60d-3d2dee905841",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "e1b27bb6-b766-4417-abae-5f60a15d30c9",
+    "toast_guid": "59fbbac9-887f-4fe3-94aa-c8b5b5b9a67b",
+    "v2_toast_guid": "c8f6a018-b3e4-4430-bb48-a82e6d37043e",
+    "first_name": "Estefani",
+    "last_name": "Gonzalez",
+    "deleted": true,
+    "created_date": "2021-08-11T04:56:36.318+00:00",
+    "deleted_date": "2021-12-18T01:17:07.777+00:00",
+    "wage_data": [
+      {
+        "wage": 14.5,
+        "job_guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "e29226db-1ccc-4499-a28a-62224b168c46",
+    "toast_guid": "964ad44e-9113-459f-afa0-c6a69d3fdfd6",
+    "v2_toast_guid": "db10d31b-63ed-430b-9248-51824692d7f2",
+    "first_name": "Hismirna",
+    "last_name": "Chanchavac",
+    "deleted": true,
+    "created_date": "2022-10-22T00:31:44.192+00:00",
+    "deleted_date": "2026-05-10T22:56:55.665+00:00",
+    "wage_data": [
+      {
+        "wage": 18.4,
+        "job_guid": "f069bfbf-da5a-4da0-bb24-31b4e0340a88"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "f069bfbf-da5a-4da0-bb24-31b4e0340a88",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "e38e0070-c922-44b2-adda-41f862c9bab4",
+    "toast_guid": "bb101e7b-fac6-412c-9be3-96e4a19fe771",
+    "v2_toast_guid": "f6de5585-45d8-4592-9db7-656406da5c20",
+    "first_name": "Hortencia",
+    "last_name": "silva",
+    "deleted": true,
+    "created_date": "2021-04-28T22:15:36.379+00:00",
+    "deleted_date": "2021-09-06T21:01:11.399+00:00",
+    "wage_data": [
+      {
+        "wage": 14.5,
+        "job_guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "e46c34cf-add6-4b58-a5f2-c2584256e383",
+    "toast_guid": "6bce01fe-cec0-41ac-99a1-d723dd6e82b9",
+    "v2_toast_guid": "d5250e84-0632-4537-b644-c123b0cf7b47",
+    "first_name": "Estefani",
+    "last_name": "Duran",
+    "deleted": false,
+    "created_date": "2026-01-25T01:28:11.003+00:00",
+    "deleted_date": "1970-01-01T00:00:00+00:00",
+    "wage_data": [],
+    "job_references": [
+      {
+        "guid": "0284a5b6-752f-4ed1-8b9d-2e59b5dca045",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "e4d89782-6ac8-48c9-93bc-75af3d74e4f2",
+    "toast_guid": "695be1de-fd36-46c1-86f8-aa161a63393f",
+    "v2_toast_guid": "a7107d99-1133-41bb-bce8-854494f5c380",
+    "first_name": "Jose",
+    "last_name": "Serrano",
+    "deleted": true,
+    "created_date": "2021-03-25T03:04:23.564+00:00",
+    "deleted_date": "2023-04-12T17:36:35.56+00:00",
+    "wage_data": [],
+    "job_references": [],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "e4dc823d-3654-4194-ba5e-26856ea70d19",
+    "toast_guid": "40f00b5e-88b2-4e56-b4bd-30f563dc7e7d",
+    "v2_toast_guid": "fdd30d47-e29f-46d6-8d45-36909229cd28",
+    "first_name": "Kevin",
+    "last_name": "Suluco",
+    "deleted": true,
+    "created_date": "2023-04-16T19:44:01.332+00:00",
+    "deleted_date": "2023-10-19T08:47:04.887+00:00",
+    "wage_data": [
+      {
+        "wage": 16,
+        "job_guid": "e002a07f-9fe4-429d-b60d-3d2dee905841"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "e002a07f-9fe4-429d-b60d-3d2dee905841",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "e50ceaad-b532-4704-9436-7a06b301dd35",
+    "toast_guid": "0ae1df8d-ef9b-469f-8cdd-fd1090731d9d",
+    "v2_toast_guid": "9eddf4e9-c71d-4a89-8b6b-464f656ab83d",
+    "first_name": "Nathalie ",
+    "last_name": "Ramirez",
+    "deleted": true,
+    "created_date": "2021-09-21T00:10:36.409+00:00",
+    "deleted_date": "2023-01-07T23:36:28.127+00:00",
+    "wage_data": [
+      {
+        "wage": 15.5,
+        "job_guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "e73bd2f6-fc2a-4c48-8471-4edb267f38dd",
+    "toast_guid": "46bd4258-57ca-48ee-a784-3ba32e087318",
+    "v2_toast_guid": "48eb1bb2-6d16-4077-9964-b68ff515f771",
+    "first_name": "Zaira",
+    "last_name": "Rodriguez",
+    "deleted": true,
+    "created_date": "2021-02-18T18:22:29.278+00:00",
+    "deleted_date": "2021-09-06T21:00:42.562+00:00",
+    "wage_data": [
+      {
+        "wage": 14,
+        "job_guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "e7892ea4-e6dc-4cd4-86c0-f3efb7513ca6",
+    "toast_guid": "e4121aa9-ca33-4b9d-9665-66ff493a6943",
+    "v2_toast_guid": "8c62b04f-72b4-49eb-81a3-73e2c5059ef1",
+    "first_name": "Hismirna",
+    "last_name": "Atjun",
+    "deleted": true,
+    "created_date": "2022-10-04T19:32:46.318+00:00",
+    "deleted_date": "2022-10-22T00:31:15.341+00:00",
+    "wage_data": [
+      {
+        "wage": 15.5,
+        "job_guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "eb9e41a7-81e2-4ee7-9a75-2b0807330ac0",
+    "toast_guid": "70f8ea6b-2f01-48bd-9c4c-be2c132182d8",
+    "v2_toast_guid": "aaf87f62-ac57-48de-8cd6-0f86efacc83d",
+    "first_name": "Juan",
+    "last_name": "Dominguez",
+    "deleted": true,
+    "created_date": "2021-06-12T01:44:50.766+00:00",
+    "deleted_date": "2021-09-06T21:03:01.99+00:00",
+    "wage_data": [],
+    "job_references": [],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "ef81e4f6-aefc-4fd2-a6e7-0cac259da837",
+    "toast_guid": "1e1850de-55c3-4d85-86b8-60b421ad7bdf",
+    "v2_toast_guid": "ac21d70c-dc87-41b4-8e3a-67e3ab161acf",
+    "first_name": "Sugey",
+    "last_name": "Reyes",
+    "deleted": false,
+    "created_date": "2023-09-03T18:07:31.941+00:00",
+    "deleted_date": "1970-01-01T00:00:00+00:00",
+    "wage_data": [
+      {
+        "wage": 19.4,
+        "job_guid": "f069bfbf-da5a-4da0-bb24-31b4e0340a88"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "f069bfbf-da5a-4da0-bb24-31b4e0340a88",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "f10fd20b-3978-4e4f-993d-97806d84debd",
+    "toast_guid": "13019c8d-ffab-4504-9c98-00c317ded404",
+    "v2_toast_guid": "ec5020c8-248f-4b72-91e9-3b9ef297969e",
+    "first_name": "Josue",
+    "last_name": "Castro",
+    "deleted": true,
+    "created_date": "2022-08-08T22:42:45.751+00:00",
+    "deleted_date": "2022-10-13T23:29:19.665+00:00",
+    "wage_data": [],
+    "job_references": [],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "f27fc804-daae-4a32-b656-068e3a76e330",
+    "toast_guid": "a49aa99c-4bd5-46a5-b505-8d9520fd8984",
+    "v2_toast_guid": "7f6f0c35-5376-48f9-97f6-61db476c2d41",
+    "first_name": "Jose",
+    "last_name": "Lozano",
+    "deleted": true,
+    "created_date": "2021-07-18T20:53:41.083+00:00",
+    "deleted_date": "2023-04-12T16:40:15.929+00:00",
+    "wage_data": [],
+    "job_references": [],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "f3276558-954a-407f-b8e5-e66b16d0dae9",
+    "toast_guid": "a38ee589-b80c-41ba-9145-e43b7d2be64c",
+    "v2_toast_guid": "9daabd38-6af6-4587-9849-34eaf1f1c43e",
+    "first_name": "Juan",
+    "last_name": "Rivas",
+    "deleted": true,
+    "created_date": "2025-05-22T23:31:53.058+00:00",
+    "deleted_date": "2025-06-01T05:52:10.195+00:00",
+    "wage_data": [
+      {
+        "wage": 16.5,
+        "job_guid": "e002a07f-9fe4-429d-b60d-3d2dee905841"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "e002a07f-9fe4-429d-b60d-3d2dee905841",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "f355b658-be2a-433b-a4eb-aac6b1d38f2a",
+    "toast_guid": "ab369f56-4d03-46ce-9814-616f6a4f3b3f",
+    "v2_toast_guid": "754e1a0b-4f21-4a82-8c02-a89c34ebb1d0",
+    "first_name": "Joel ",
+    "last_name": "Briones ",
+    "deleted": true,
+    "created_date": "2022-03-29T20:44:46.914+00:00",
+    "deleted_date": "2022-04-11T17:17:56.606+00:00",
+    "wage_data": [],
+    "job_references": [],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "f623c818-6daf-4f0f-aaf4-9b53db34e516",
+    "toast_guid": "98caa6d5-b705-4ca2-84ea-6ecee18eea1f",
+    "v2_toast_guid": "f5c51504-f20a-4925-a5b4-7302d07df576",
+    "first_name": "Madeline",
+    "last_name": "Rivera",
+    "deleted": true,
+    "created_date": "2021-02-19T02:05:19.156+00:00",
+    "deleted_date": "2021-09-06T21:00:24.896+00:00",
+    "wage_data": [
+      {
+        "wage": 15,
+        "job_guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "f64d9507-e932-465f-af5d-72b9680dd89f",
+    "toast_guid": "dc6a2974-29c6-4189-8053-67869a014cc0",
+    "v2_toast_guid": "651c8dcc-4ab8-45f7-990b-73c955e25c8c",
+    "first_name": "Alberto",
+    "last_name": "Garcia",
+    "deleted": true,
+    "created_date": "2021-03-25T03:07:36.416+00:00",
+    "deleted_date": "2023-04-12T16:38:24.559+00:00",
+    "wage_data": [
+      {
+        "wage": 16,
+        "job_guid": "e002a07f-9fe4-429d-b60d-3d2dee905841"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "e002a07f-9fe4-429d-b60d-3d2dee905841",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "f6b72895-9025-4e53-9125-f0e76ceaec99",
+    "toast_guid": "d5669270-71bb-4336-9c40-d00c920763b4",
+    "v2_toast_guid": "0b4cb310-9ad0-43a8-befe-6ce0a6ac44d1",
+    "first_name": "Desiree",
+    "last_name": "Escalma",
+    "deleted": true,
+    "created_date": "2021-05-11T03:58:36.142+00:00",
+    "deleted_date": "2021-09-06T20:54:56.415+00:00",
+    "wage_data": [
+      {
+        "wage": -14.5,
+        "job_guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "f7ea20c1-fae9-416c-bd31-b819f52ad9d1",
+    "toast_guid": "73de1566-1a9b-49fd-82ba-cb6acb22d963",
+    "v2_toast_guid": "68a3c9f6-db58-44e6-991f-cb7d306d2144",
+    "first_name": "Cruz",
+    "last_name": "Castillo",
+    "deleted": true,
+    "created_date": "2025-03-05T01:29:03.706+00:00",
+    "deleted_date": "2026-01-25T02:24:39.681+00:00",
+    "wage_data": [
+      {
+        "wage": 21.5,
+        "job_guid": "0c02665b-f409-4c5e-919f-2602ccb6febd"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "0c02665b-f409-4c5e-919f-2602ccb6febd",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "fa5a69a8-e454-4083-b271-5aced0b1b7df",
+    "toast_guid": "93e4f952-8b54-4974-aa8d-acb281b409ee",
+    "v2_toast_guid": "2fc70e4b-1dd6-4bc6-97b3-ea646c652f98",
+    "first_name": "Pedro",
+    "last_name": "Espana",
+    "deleted": true,
+    "created_date": "2024-06-11T01:00:16.307+00:00",
+    "deleted_date": "2025-03-04T01:16:35.47+00:00",
+    "wage_data": [
+      {
+        "wage": 21,
+        "job_guid": "f069bfbf-da5a-4da0-bb24-31b4e0340a88"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "f069bfbf-da5a-4da0-bb24-31b4e0340a88",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "fb419508-9a58-49fa-8b53-d1e6f6a74e3f",
+    "toast_guid": "43b32730-804a-41ad-9a9c-7e901011e6f2",
+    "v2_toast_guid": "b2559592-ee53-4e98-ab30-8f7f7cf77960",
+    "first_name": "Carlos",
+    "last_name": "Arteaga",
+    "deleted": false,
+    "created_date": "2023-04-16T19:42:50.379+00:00",
+    "deleted_date": "1970-01-01T00:00:00+00:00",
+    "wage_data": [
+      {
+        "wage": 19.4,
+        "job_guid": "f069bfbf-da5a-4da0-bb24-31b4e0340a88"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "f069bfbf-da5a-4da0-bb24-31b4e0340a88",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "fc501c85-033d-4760-91b5-54b32a3b0198",
+    "toast_guid": "2ebdb3cd-6762-4f08-b0d1-6e4050dd61dc",
+    "v2_toast_guid": "f2cf5aaa-3fbf-48e8-9fe4-5c760ed424d8",
+    "first_name": "karen",
+    "last_name": "fernandez",
+    "deleted": true,
+    "created_date": "2021-05-09T00:53:10.269+00:00",
+    "deleted_date": "2021-09-06T21:03:41.2+00:00",
+    "wage_data": [
+      {
+        "wage": 22,
+        "job_guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "7caceb17-1039-4196-8b7c-6c4b75c02d32",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "fd3ddf64-b467-4df9-b3e2-daa1ab968041",
+    "toast_guid": "b4f69f72-1107-467e-876e-dc2dbcb0fd2e",
+    "v2_toast_guid": "330ad943-7711-4f19-a3d2-ce3e8be90a61",
+    "first_name": "Alberto",
+    "last_name": "Benitez",
+    "deleted": true,
+    "created_date": "2021-12-08T00:52:44.134+00:00",
+    "deleted_date": "2024-04-03T16:34:17.028+00:00",
+    "wage_data": [
+      {
+        "wage": 17,
+        "job_guid": "e002a07f-9fe4-429d-b60d-3d2dee905841"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "e002a07f-9fe4-429d-b60d-3d2dee905841",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  },
+  {
+    "id": "ff36ddde-8531-42a5-99bd-30b95b2dd3c4",
+    "toast_guid": "35b2aec7-285e-43bf-a600-e0025a65aff5",
+    "v2_toast_guid": "4137c06e-254a-4244-ae06-95f94a67e3c3",
+    "first_name": "Erasto",
+    "last_name": "Barranco",
+    "deleted": true,
+    "created_date": "2021-03-25T02:58:23.327+00:00",
+    "deleted_date": "2025-08-13T22:16:54.393+00:00",
+    "wage_data": [
+      {
+        "wage": 17.5,
+        "job_guid": "e002a07f-9fe4-429d-b60d-3d2dee905841"
+      }
+    ],
+    "job_references": [
+      {
+        "guid": "e002a07f-9fe4-429d-b60d-3d2dee905841",
+        "entityType": "RestaurantJob",
+        "externalId": null
+      }
+    ],
+    "store_ids": [
+      "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+    ]
+  }
+]

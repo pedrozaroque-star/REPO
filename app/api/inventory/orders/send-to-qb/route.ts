@@ -18,17 +18,33 @@
  *
  * @notes
  * - [2026-06-24] Implementación inicial. Requiere QB_LYNWOOD_CUSTOMER_ID en env vars.
+ * - [2026-09-25] Bloquea envíos de Orden Diaria sin captura física completa.
+ * - [2026-09-25] Valida JWT, rol y alcance de tienda; el correo ya no se confía al cliente.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseAdminClient } from '@/lib/supabase'
 import { authClient } from '@/lib/quickbooks'
 import QuickBooks from 'node-quickbooks'
+import { getMissingDailyCounts } from '@/lib/inventory/order-count-validation'
+import { verifyAuthToken } from '@/lib/auth-server'
 
 export async function POST(request: NextRequest) {
     try {
+        const bearer = request.headers.get('authorization')?.replace(/^Bearer\s+/i, '').trim()
+        const token = bearer || request.cookies.get('teg_token')?.value
+        const authenticatedUser = token ? verifyAuthToken(token) : null
+        if (!authenticatedUser) {
+            return NextResponse.json({ error: 'Sesión no válida' }, { status: 401 })
+        }
+
+        const role = (authenticatedUser.user_role || authenticatedUser.user_metadata?.role || '').toLowerCase()
+        if (!['admin', 'supervisor', 'manager'].includes(role)) {
+            return NextResponse.json({ error: 'No tienes permiso para enviar pedidos a QuickBooks' }, { status: 403 })
+        }
+
         const body = await request.json()
-        const { orderId, userEmail } = body
+        const { orderId } = body
 
         if (!orderId) {
             return NextResponse.json({ error: 'orderId es requerido' }, { status: 400 })
@@ -45,6 +61,33 @@ export async function POST(request: NextRequest) {
 
         if (orderError || !order) {
             return NextResponse.json({ error: 'Orden no encontrada' }, { status: 404 })
+        }
+
+        if (role === 'manager') {
+            const metadata = authenticatedUser.user_metadata || {}
+            const allowedStoreIds = new Set([
+                metadata.store_id,
+                ...(Array.isArray(metadata.store_ids) ? metadata.store_ids : []),
+                ...(Array.isArray(metadata.store_scope) ? metadata.store_scope : []),
+            ].filter(value => value !== null && value !== undefined).map(String))
+
+            if (!allowedStoreIds.has(String(order.store_id))) {
+                return NextResponse.json({ error: 'No tienes permiso para enviar pedidos de esta tienda' }, { status: 403 })
+            }
+        }
+
+        if (order.order_type === 'daily') {
+            try {
+                const missing = await getMissingDailyCounts(supabase, order.store_id, order.order_date)
+                if (missing.length) {
+                    return NextResponse.json({
+                        error: `Captura todos los sobrantes antes de enviar a QuickBooks. Faltan ${missing.length}: ${missing.map(i => i.name).join(', ')}`,
+                        missingItems: missing
+                    }, { status: 409 })
+                }
+            } catch (error) {
+                return NextResponse.json({ error: `No se pudo verificar la captura completa: ${error instanceof Error ? error.message : 'error desconocido'}` }, { status: 503 })
+            }
         }
 
         // Se permite re-enviar la orden para actualizar el Estimate en QuickBooks si ya fue enviada antes.
@@ -314,8 +357,8 @@ export async function POST(request: NextRequest) {
             DepartmentRef: { value: "1" },
             ClassRef: { value: "2" },
         }
-        if (userEmail) {
-            estimateData.BillEmail = { Address: userEmail };
+        if (authenticatedUser.email) {
+            estimateData.BillEmail = { Address: authenticatedUser.email };
         }
         if (nextDocNumber) {
             estimateData.DocNumber = nextDocNumber;

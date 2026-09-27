@@ -1,0 +1,77 @@
+[
+  {
+    "id": 1,
+    "name": "Rialto",
+    "external_id": "acf15327-54c8-4da4-8d0d-3ac0544dc422"
+  },
+  {
+    "id": 3,
+    "name": "West Covina",
+    "external_id": "5f4a006e-9a6e-4bcf-b5bd-7f5e9d801a02"
+  },
+  {
+    "id": 4,
+    "name": "Azusa",
+    "external_id": "e0345b1f-d6d6-40b2-bd06-5f9f4fd944e8"
+  },
+  {
+    "id": 5,
+    "name": "LA Broadway",
+    "external_id": "475bc112-187d-4b9c-884d-1f6a041698ce"
+  },
+  {
+    "id": 6,
+    "name": "LA Central",
+    "external_id": "8685e942-3f07-403a-afb6-faec697cd2cb"
+  },
+  {
+    "id": 7,
+    "name": "Slauson",
+    "external_id": "9625621e-1b5e-48d7-87ae-7094fab5a4fd"
+  },
+  {
+    "id": 8,
+    "name": "Hollywood",
+    "external_id": "5fbb58f5-283c-4ea4-9415-04100ee6978b"
+  },
+  {
+    "id": 9,
+    "name": "Santa Ana",
+    "external_id": "3c2d8251-c43c-43b8-8306-387e0a4ed7c2"
+  },
+  {
+    "id": 10,
+    "name": "La Puente",
+    "external_id": "3a803939-eb13-4def-a1a4-462df8e90623"
+  },
+  {
+    "id": 11,
+    "name": "Huntington Park",
+    "external_id": "47256ade-2cd4-4073-9632-84567ad9e2c8"
+  },
+  {
+    "id": 12,
+    "name": "Norwalk",
+    "external_id": "42ed15a6-106b-466a-9076-1e8f72451f6b"
+  },
+  {
+    "id": 13,
+    "name": "Bell",
+    "external_id": "a83901db-2431-4283-834e-9502a2ba4b3b"
+  },
+  {
+    "id": 14,
+    "name": "Lynwood",
+    "external_id": "80a1ec95-bc73-402e-8884-e5abbe9343e6"
+  },
+  {
+    "id": 15,
+    "name": "South Gate",
+    "external_id": "95866cfc-eeb8-4af9-9586-f78931e1ea04"
+  },
+  {
+    "id": 16,
+    "name": "Downey",
+    "external_id": "b7f63b01-f089-4ad7-a346-afdb1803dc1a"
+  }
+]

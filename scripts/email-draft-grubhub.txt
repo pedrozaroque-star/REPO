@@ -1,0 +1,53 @@
+Asunto: Actualización de Grubhub y Toast POS - Impacto y Revisión del 30 de Septiembre
+
+Hola a todos,
+
+Les comparto un resumen sobre la actualización que nos notificó Grubhub respecto a su conexión con nuestras cajas de Toast POS, en qué nos beneficia, qué debemos vigilar y la revisión que realizaremos al día siguiente de su entrada en vigor.
+
+---
+
+1. ¿De qué se trata la actualización?
+
+A partir del próximo martes 29 de septiembre de 2026, Grubhub actualizará en automático la integración con Toast POS en todas las sucursales de Tacos Gavilan.
+
+Con este cambio, Grubhub se alinea a cómo ya funcionan actualmente Uber Eats y DoorDash:
+• Toast registrará en automático los precios reales, el costo exacto de ingredientes extra (modificadores) y cualquier descuento o cupón que el cliente use al pagar en Grubhub.
+• Ya no será necesario hacer ajustes manuales en tienda ni revisar reportes por separado para conciliar las ventas.
+• En sucursales no hay que hacer nada: no se requieren cambios de equipo ni modificaciones al menú; todo se actualiza directo en el sistema.
+
+---
+
+2. ¿En qué nos beneficia y qué debemos cuidar?
+
+Aspectos positivos:
+• Cuadre exacto con el banco: Lo que marque Toast coincidirá con el depósito bancario de Grubhub, eliminando diferencias y confusiones en contabilidad.
+• Costeo de comida preciso: Al registrarse los ingredientes extra con su precio real, el sistema de inventario reflejará con exactitud los insumos utilizados.
+
+Puntos a vigilar:
+• Ventas Netas (Net Sales): Si una tienda tiene promociones activas, las ventas netas en Toast se verán ligeramente menores porque ahora sí restarán el descuento en la caja (antes Toast mostraba la venta inflada a precio regular sin descontar la promoción).
+• Descuentos de la tienda vs de Grubhub: Solo los descuentos pagados por Tacos Gavilan restarán venta en Toast. Si Grubhub lanza promociones pagadas por ellos mismos (ej. usuarios Grubhub+), nosotros recibiremos nuestro pago completo sin reducción.
+• Impuestos (Sales Tax): En California, Grubhub retiene y paga los impuestos directamente al estado como facilitador de mercado. Debemos verificar que no haya duplicidad ni errores en el cálculo.
+
+---
+
+3. Plan de Revisión al Día Siguiente (Miércoles 30 de Septiembre)
+
+Dado que en Tacos Gavilan nuestro día laboral termina a las 5:59 AM del día siguiente, el primer día completo con este cambio cerrará el miércoles 30 de septiembre por la mañana.
+
+Ese mismo miércoles a primera hora (7:00 AM PDT) realizaremos una revisión general de las 15 tiendas para verificar:
+1. Que las ventas de Grubhub en Toast cuadren al centavo ($0.00 de diferencia) contra los reportes de pago.
+2. Que los descuentos de los clientes se estén restando correctamente sin afectar el dinero a recibir.
+3. Que los ingredientes extra se cobren con el precio correspondiente.
+4. Que los reportes diarios de ventas reflejen los números reales de forma automática.
+
+---
+
+4. Estado actual
+
+El sistema ya está preparado con una herramienta de auditoría automatizada y probado con datos reales de control. El miércoles 30 por la mañana les compartiré un breve reporte con los resultados de la revisión para confirmar que todo esté en orden.
+
+Quedo a su disposición para cualquier duda.
+
+Saludos,
+Carlos
+Tacos Gavilan

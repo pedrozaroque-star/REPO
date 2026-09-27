@@ -1,0 +1,64 @@
+{
+  "counts": [
+    {
+      "active": true,
+      "expected": 33,
+      "retrieved": 33
+    },
+    {
+      "active": false,
+      "expected": 33,
+      "retrieved": 33
+    }
+  ],
+  "candidates": [
+    {
+      "id": "6a5ab9054f497bc79fd69a87",
+      "userId": "6a5ab9044f497bc79fd69a7f",
+      "firstName": "Joseph",
+      "lastName": "Castellanos",
+      "assignmentId": "SHR000584",
+      "employeeID": "EMP008355"
+    },
+    {
+      "id": "66205ddf1fd8cbd4b59bd008",
+      "userId": "66205de01fd8cbd4b59bd00c",
+      "firstName": "Carlos",
+      "lastName": "Velazquez",
+      "assignmentId": "306205",
+      "employeeID": "249287"
+    },
+    {
+      "id": "6a68be3360827d4d01894f20",
+      "userId": "66205d731fd8cbd4b59bcd5a",
+      "firstName": "Enrique",
+      "lastName": "Navarrete",
+      "assignmentId": "SHR000654",
+      "employeeID": "258316"
+    },
+    {
+      "id": "6a5ab9054f497bc79fd69a87",
+      "userId": "6a5ab9044f497bc79fd69a7f",
+      "firstName": "Joseph",
+      "lastName": "Castellanos",
+      "assignmentId": "SHR000584",
+      "employeeID": "EMP008355"
+    },
+    {
+      "id": "66205ddf1fd8cbd4b59bd008",
+      "userId": "66205de01fd8cbd4b59bd00c",
+      "firstName": "Carlos",
+      "lastName": "Velazquez",
+      "assignmentId": "306205",
+      "employeeID": "249287"
+    },
+    {
+      "id": "6a68be3360827d4d01894f20",
+      "userId": "66205d731fd8cbd4b59bcd5a",
+      "firstName": "Enrique",
+      "lastName": "Navarrete",
+      "assignmentId": "SHR000654",
+      "employeeID": "258316"
+    }
+  ]
+}

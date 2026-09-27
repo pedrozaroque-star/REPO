@@ -1,0 +1,153 @@
+{
+  "generatedAt": "2026-09-25T16:20:02.795Z",
+  "files": [
+    {
+      "file": "analysis.json",
+      "sha256": "1e0c012768ab4cbaeb1585b4d37aa4e172792562e40e8dc0fb558021f91bec52"
+    },
+    {
+      "file": "anomalies.json",
+      "sha256": "8250a8510ae7219a9fc8bc83163873486eb59a36e6971acf00a35aefb37a4c49"
+    },
+    {
+      "file": "budgets.json",
+      "sha256": "76a22453b7b6d4906e7c053a6838273fdc4192a42ce0d656b95396cf3c3b69fb"
+    },
+    {
+      "file": "context-analysis.json",
+      "sha256": "454dc3f3dd6528d467cb521ad96aa4d6907c7e708e1edd04f6ea15357c080e1d"
+    },
+    {
+      "file": "control-discovery.json",
+      "sha256": "1a5fffd50d7cc6cc65991a3706b681a8d623f75753425f7ca94e8b5e469aba8b"
+    },
+    {
+      "file": "count-validation.json",
+      "sha256": "6af72222ab0e74083610685aab6ca4abc31205b50369fbe63be403cfdbb11f71"
+    },
+    {
+      "file": "coverage-live.json",
+      "sha256": "9d9e2d3a26d8c057bca2fcddaef596d0cfeecbe9f2fb47f8396e3cd2e253a649"
+    },
+    {
+      "file": "daily-reconciliation.json",
+      "sha256": "2d05ef3b7ca5109bca67cb1d4ac79ab3822e20e8c3faf027a55a09766ee8a6ff"
+    },
+    {
+      "file": "employee-weeks.json",
+      "sha256": "da5d60ee355cb29b8b8cf2adccbc752e52681dfc82727a6488e8f828b76eb43a"
+    },
+    {
+      "file": "employees.json",
+      "sha256": "6cd30068cb2b2453bfc6fe0d45340067a8c07d92ecf813d9d5af5370c6127401"
+    },
+    {
+      "file": "extraction-manifest.json",
+      "sha256": "09d9b2b59fc82d81ab9ff8e337aded9a002a71ecd06f21406847bdc7a585c9d6"
+    },
+    {
+      "file": "hr-candidates.json",
+      "sha256": "821d0c27c65fcde75d8206892e49a0604f7476b83f79f4a9a7ca042331e92596"
+    },
+    {
+      "file": "hr-joseph-paystubs.json",
+      "sha256": "915205af07c29fef70ad259a8f922c5bffa806ced77c06b9c9a881ec2f186456"
+    },
+    {
+      "file": "hr-manifest.json",
+      "sha256": "5535ef93c8a29d70fd559bde111630ba874ad47967e53a151ef45f022bd708a8"
+    },
+    {
+      "file": "hr-profiles.json",
+      "sha256": "030e5166e34982dbb8619f5e5a1c4bf73f2301d732889551a24e2c8bcb924537"
+    },
+    {
+      "file": "jobs.json",
+      "sha256": "cca0badaf89e013979464e83437d0e95c0b833689bb78bc32a9c9ff5ba365f70"
+    },
+    {
+      "file": "live-validation.json",
+      "sha256": "fb1602854cf6ee12ce9a648e0d91ecc299fbbeb315eae755fe20232b0115bb56"
+    },
+    {
+      "file": "manager-activity.json",
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "file": "manager-schedules.json",
+      "sha256": "a57b932eef08f9cfa92331b08cea3bc7234e7fe26dd09b6239feafb0a0d6d27f"
+    },
+    {
+      "file": "manager-system-identity.json",
+      "sha256": "3d9dd40a2fcfed0341bd2f061a4283c7491af6b017f1f2d268fd4f33a1f0d2e9"
+    },
+    {
+      "file": "payroll-validation.json",
+      "sha256": "9a649f06b9b7870b86ca7b2a25f15f3ab556967ca69aced1d25c321d0fbf784c"
+    },
+    {
+      "file": "projections.json",
+      "sha256": "f2a09ca7ed812e424250cf36288d694dac7efc82fb2fa9e4989bc96115bb76b4"
+    },
+    {
+      "file": "punches.json",
+      "sha256": "9e8251a063bbde0c815f799fb5249e18ab699478d381a917d0b2c8f5cb96a5c3"
+    },
+    {
+      "file": "report-metrics.json",
+      "sha256": "56b6e04a7fcc6943ef6f2bc632057599ca3899e36e2b6f0e67cba7f20da8701d"
+    },
+    {
+      "file": "ronos-auth-identity.json",
+      "sha256": "fa56c28a3c8e239f001ce97e4682177a9470c76ffac4445ff9dd6f40cab46c8f"
+    },
+    {
+      "file": "ronos-cards.json",
+      "sha256": "2faad224852c0ed2c9216422de58bb9c5187742fc34f9e26902985886a655b72"
+    },
+    {
+      "file": "ronos-joseph-live.json",
+      "sha256": "3ca8ce4b0a93b5c4ae8716b9ba03480ef35758a207e61431f60dd99c7ab9d4c2"
+    },
+    {
+      "file": "ronos-joseph-prehire.json",
+      "sha256": "8c28834ffa8f0b0882d8154d9cc9f111c2c225d1e73f9601700bb82b49a849d1"
+    },
+    {
+      "file": "ronos-live-manifest.json",
+      "sha256": "a25d2253174102c59aa2f5171e9c4153bbce2f196057979158f0a0cf3404fa24"
+    },
+    {
+      "file": "ronos-mappings.json",
+      "sha256": "30b64466be4dc647e0d8926bb5cdf1f2c2d22f69c4a70607be97de168efba89b"
+    },
+    {
+      "file": "ronos-weeks.json",
+      "sha256": "764c95e48e1756d1e238a29dc68d296bb81559562931459d42a82ee81320850d"
+    },
+    {
+      "file": "sales.json",
+      "sha256": "f0be901e6c5822783da2119b5bff7b9a2020e0bba722cd94f4f47ed97396afbe"
+    },
+    {
+      "file": "shifts.json",
+      "sha256": "fff1b6d5c8eea42520ff97a4e4815301ef9f87353bcdb6e87f02dc7ad7789907"
+    },
+    {
+      "file": "source-validation.json",
+      "sha256": "4462cd96c75e66c0088dc69d7a199518928d862f683467be2602b8e0532d3686"
+    },
+    {
+      "file": "stores.json",
+      "sha256": "a8fa13c86a9a0c2e8cadcc8ab58b3d348df6667f133a8299930bb753e74e8457"
+    },
+    {
+      "file": "target-candidates.json",
+      "sha256": "479b2f28799d1c8b76796e4b1a45a422a54e0d135ddec7f6b628965cddea6ed3"
+    },
+    {
+      "file": "validation.json",
+      "sha256": "117cbd82d31fcc3c99d61cf6a1dabbbef61e63f35ac77290036e8d93e87c38e4"
+    }
+  ]
+}

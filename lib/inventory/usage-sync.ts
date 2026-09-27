@@ -26,6 +26,9 @@ import { getSupabaseAdminClient } from '@/lib/supabase'
 import { getProductMix, ProductMixItem } from '@/lib/toast-pmix'
 import { calculateRawUsage, calculateInventoryUsage } from './conversions'
 import { InventoryItem, Recipe } from '@/types/inventory'
+import { getPartyTrayTortillaAllocation, PARTY_TRAY_FOOD_TRAY_ITEMS, PARTY_TRAY_GUIDELINES, PARTY_TRAY_NAPKINS_PER_PACK, resolvePartyTraySize } from './party-tray-guidelines'
+import { calculateHistoricalAllocation, type HistoricalOrder } from './historical-allocation'
+import { ACTIVE_PROTEIN_IDS, parseProteinAllocation } from './meat-allocation'
 
 export interface DailyUsageSummary {
   inventoryItemId: string
@@ -37,7 +40,12 @@ export interface DailyUsageSummary {
 /**
  * Receta virtual para Banquetes (Party Trays) basada en la guía oficial TEG
  */
-function getPartyTrayVirtualRecipe(itemName: string, itemsMap: Map<string, InventoryItem>): { itemId: string; qty: number; unit: string }[] {
+function getPartyTrayVirtualRecipe(
+  itemName: string,
+  itemsMap: Map<string, InventoryItem>,
+  historicalOrders: HistoricalOrder[],
+  businessDate: string,
+): { itemId: string; qty: number; unit: string }[] {
   const nameLower = itemName.toLowerCase()
   if (!nameLower.includes('party tray') && !nameLower.includes('tray')) return []
 
@@ -47,6 +55,12 @@ function getPartyTrayVirtualRecipe(itemName: string, itemsMap: Map<string, Inven
       if (item.name.toLowerCase().includes(term.toLowerCase())) {
         return item
       }
+    }
+    return null
+  }
+  const findItemBySku = (sku: string) => {
+    for (const item of itemsMap.values()) {
+      if ((item as InventoryItem & { sku?: string }).sku === sku) return item
     }
     return null
   }
@@ -62,27 +76,30 @@ function getPartyTrayVirtualRecipe(itemName: string, itemsMap: Map<string, Inven
   const salsaVerdeItem = findItem('1.5 oz salsa verde pack')
   const mixtaItem = findItem('1 oz bolsa de mixta')
   const limaItem = findItem('lima bolsita')
-  const jalapeñoItem = findItem('2 oz bolsas de rajas')
-  const horchataItem = findItem('horchata')
+  const jalapeñoItem = findItem('rajas y zanahorias')
+  const galonesVaciosItem = findItem('galones vacios')
+  const waterItems = [
+    { keys: ['tamarindo'], item: findItem('tamarindo') },
+    { keys: ['horchata'], item: findItem('horchata') },
+    { keys: ['jamaica'], item: findItem('jamaica') },
+    { keys: ['piña', 'pina'], item: findItem('piña') || findItem('pina') },
+  ]
   const platoItem = findItem('plato #3') || findItem('plato ovalado')
   const tenedorItem = findItem('heavy duty plastic fork')
   const cucharaItem = findItem('heavy duty plastic spoon')
-  const vasoItem = findItem('el gavilan - cup, 22 oz')
-  const servilletaItem = findItem('dispenser napkin')
+  const vasoItem = findItem('water cup, 12 oz')
+  const servilletaItem = findItemBySku('DX900GE')
+  const cutleryBagItem = findItem('bag, 7x15+2.5 seal2go')
+  const tortillaContainerItem = findItem('aluminum container, 9\" round')
+  const tortillaContainerLidItem = findItem('container dome lid, 9\" round')
 
   // Determinar tamaño de Party Tray
-  let size: '15-20' | '20-25' | '25-30' | '30-40' = '15-20'
-  if (nameLower.includes('30-40') || nameLower.includes('30 - 40')) size = '30-40'
-  else if (nameLower.includes('25-30') || nameLower.includes('25 - 30')) size = '25-30'
-  else if (nameLower.includes('20-25') || nameLower.includes('20 - 25')) size = '20-25'
-
-  // Configuración por tamaño de la guía oficial TEG
-  const config = {
-    '15-20': { riceLbs: 3, beansLbs: 3, meatLbs: 6, plates: 30, forks: 15, spoons: 15, cups: 20, napkins: 50, roja: 12, verde: 12, mixta: 16, limas: 16, jalapeñosOz: 8, cornPks: 2, flourPks: 5, aguasGal: 3 },
-    '20-25': { riceLbs: 4, beansLbs: 4, meatLbs: 7.5, plates: 35, forks: 15, spoons: 15, cups: 25, napkins: 50, roja: 16, verde: 16, mixta: 20, limas: 20, jalapeñosOz: 12, cornPks: 3, flourPks: 7, aguasGal: 4 },
-    '25-30': { riceLbs: 6, beansLbs: 6, meatLbs: 10, plates: 40, forks: 20, spoons: 20, cups: 30, napkins: 100, roja: 20, verde: 20, mixta: 20, limas: 20, jalapeñosOz: 16, cornPks: 4, flourPks: 9, aguasGal: 5 },
-    '30-40': { riceLbs: 10, beansLbs: 10, meatLbs: 12, plates: 50, forks: 25, spoons: 25, cups: 40, napkins: 150, roja: 24, verde: 24, mixta: 30, limas: 30, jalapeñosOz: 20, cornPks: 5, flourPks: 12, aguasGal: 6 }
-  }[size]
+  const config = PARTY_TRAY_GUIDELINES[resolvePartyTraySize(itemName)]
+  const tortillas = getPartyTrayTortillaAllocation(itemName, config)
+  const foodTrays = PARTY_TRAY_FOOD_TRAY_ITEMS[config.foodTraySize]
+  const selectedWaterItems = waterItems
+    .filter(({ keys, item }) => item && keys.some(key => nameLower.includes(key)))
+    .map(({ item }) => item!)
 
   const ingredients: { itemId: string; qty: number; unit: string }[] = []
 
@@ -97,20 +114,96 @@ function getPartyTrayVirtualRecipe(itemName: string, itemsMap: Map<string, Inven
 
   if (arrozItem) ingredients.push({ itemId: arrozItem.id, qty: config.riceLbs, unit: 'lb' })
   if (frijolItem) ingredients.push({ itemId: frijolItem.id, qty: config.beansLbs, unit: 'lb' })
-  if (tortillaCornItem) ingredients.push({ itemId: tortillaCornItem.id, qty: config.cornPks * 60, unit: 'pza' })
-  if (tortillaFlourItem) ingredients.push({ itemId: tortillaFlourItem.id, qty: config.flourPks * 12, unit: 'pza' })
-  if (salsaRojaItem) ingredients.push({ itemId: salsaRojaItem.id, qty: config.roja, unit: 'pza' })
-  if (salsaVerdeItem) ingredients.push({ itemId: salsaVerdeItem.id, qty: config.verde, unit: 'pza' })
-  if (mixtaItem) ingredients.push({ itemId: mixtaItem.id, qty: config.mixta, unit: 'pza' })
-  if (limaItem) ingredients.push({ itemId: limaItem.id, qty: config.limas, unit: 'pza' })
-  if (horchataItem) ingredients.push({ itemId: horchataItem.id, qty: config.aguasGal, unit: 'gal' })
+  if (tortillaCornItem && tortillas.cornTortillas > 0) ingredients.push({ itemId: tortillaCornItem.id, qty: tortillas.cornTortillas, unit: 'pza' })
+  if (tortillaFlourItem && tortillas.flourTortillas > 0) ingredients.push({ itemId: tortillaFlourItem.id, qty: tortillas.flourTortillas, unit: 'pza' })
+  if (tortillaContainerItem) ingredients.push({ itemId: tortillaContainerItem.id, qty: tortillas.containerPairs, unit: 'pza' })
+  if (tortillaContainerLidItem) ingredients.push({ itemId: tortillaContainerLidItem.id, qty: tortillas.containerPairs, unit: 'pza' })
+  ingredients.push({ itemId: foodTrays.containerId, qty: 3, unit: 'pza' })
+  ingredients.push({ itemId: foodTrays.lidId, qty: 3, unit: 'pza' })
+  if (salsaRojaItem) ingredients.push({ itemId: salsaRojaItem.id, qty: config.salsaRojaPacks, unit: 'pza' })
+  if (salsaVerdeItem) ingredients.push({ itemId: salsaVerdeItem.id, qty: config.salsaVerdePacks, unit: 'pza' })
+  if (mixtaItem) ingredients.push({ itemId: mixtaItem.id, qty: config.mixtaBags, unit: 'pza' })
+  if (limaItem) ingredients.push({ itemId: limaItem.id, qty: config.limeBags, unit: 'pza' })
+  if (jalapeñoItem) ingredients.push({ itemId: jalapeñoItem.id, qty: config.jalapenoOz / 16, unit: 'lb' })
+  if (selectedWaterItems.length > 0) {
+    for (const waterItem of selectedWaterItems) {
+      ingredients.push({ itemId: waterItem.id, qty: config.aguaGallons / selectedWaterItems.length, unit: 'gal' })
+    }
+  } else {
+    const candidates = waterItems.flatMap(({ item }) => item ? [item] : [])
+    const allocation = calculateHistoricalAllocation(historicalOrders, candidates.map(item => item.id), businessDate)
+    for (const waterItem of candidates) {
+      const share = allocation.shares.get(waterItem.id) || 0
+      if (share > 0) ingredients.push({ itemId: waterItem.id, qty: config.aguaGallons * share, unit: 'gal' })
+    }
+  }
+  if (galonesVaciosItem) ingredients.push({ itemId: galonesVaciosItem.id, qty: config.aguaGallons, unit: 'pza' })
   if (platoItem) ingredients.push({ itemId: platoItem.id, qty: config.plates, unit: 'pza' })
   if (tenedorItem) ingredients.push({ itemId: tenedorItem.id, qty: config.forks, unit: 'pza' })
   if (cucharaItem) ingredients.push({ itemId: cucharaItem.id, qty: config.spoons, unit: 'pza' })
   if (vasoItem) ingredients.push({ itemId: vasoItem.id, qty: config.cups, unit: 'pza' })
-  if (servilletaItem) ingredients.push({ itemId: servilletaItem.id, qty: config.napkins, unit: 'pza' })
+  if (cutleryBagItem) ingredients.push({ itemId: cutleryBagItem.id, qty: 1, unit: 'pza' })
+  if (servilletaItem) ingredients.push({ itemId: servilletaItem.id, qty: config.napkinPacks * PARTY_TRAY_NAPKINS_PER_PACK, unit: 'pza' })
 
   return ingredients
+}
+
+/**
+ * Recetas variables de productos vendidos por volumen: galones de agua y salsa de 20 oz.
+ * El sabor explícito de Toast prevalece; si falta, se aplica la misma asignación histórica local.
+ */
+function getVariableFlavorVirtualRecipe(
+  itemName: string,
+  itemsMap: Map<string, InventoryItem>,
+  historicalOrders: HistoricalOrder[],
+  businessDate: string,
+): { itemId: string; qty: number; unit: string }[] {
+  const normalizedName = itemName.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+  const findBySku = (sku: string) => Array.from(itemsMap.values()).find(item =>
+    (item as InventoryItem & { sku?: string }).sku === sku
+  ) || null
+  const findExact = (name: string) => Array.from(itemsMap.values()).find(item => item.name.toLowerCase() === name) || null
+  const findByName = (name: string) => Array.from(itemsMap.values()).find(item => item.name.toLowerCase().includes(name)) || null
+  const allocate = (candidates: { item: InventoryItem; terms: string[] }[], total: number) => {
+    const selected = candidates.filter(candidate => candidate.terms.some(term => normalizedName.includes(term)))
+    const portions = selected.length > 0
+      ? selected.map(({ item }) => [item, 1 / selected.length] as const)
+      : candidates.map(({ item }) => [item, calculateHistoricalAllocation(historicalOrders, candidates.map(candidate => candidate.item.id), businessDate).shares.get(item.id) || 0] as const)
+    return portions.filter(([, share]) => share > 0).map(([item, share]) => ({ itemId: item.id, qty: total * share, unit: 'gal' }))
+  }
+
+  const isWaterGallon = (normalizedName.includes('gallon agua') || normalizedName.includes('gallon de agua')) &&
+    !normalizedName.includes('party tray') && !normalizedName.includes('fiesta platter')
+  if (isWaterGallon) {
+    const flavors = [
+      { terms: ['tamarindo'], item: findExact('Tamarindo Concentrate') || findByName('tamarindo') },
+      { terms: ['horchata'], item: findExact('Horchata') || findByName('horchata') },
+      { terms: ['jamaica'], item: findExact('Jamaica Concentrate') || findByName('jamaica') },
+      { terms: ['pina'], item: findExact('Piña Concentrate') || findByName('piña') || findByName('pina') },
+    ]
+    const candidates = flavors.flatMap(({ item, terms }) => item ? [{ item, terms }] : [])
+    const ingredients = allocate(candidates, 1)
+    const gallonEmpty = findByName('galones vacios')
+    if (gallonEmpty) ingredients.push({ itemId: gallonEmpty.id, qty: 1, unit: 'pza' })
+    return ingredients
+  }
+
+  const isTwentyOzSalsa = /(?:20\s*oz.*salsa|salsa.*20\s*oz)/.test(normalizedName)
+  if (isTwentyOzSalsa) {
+    const salsas = [
+      { terms: ['roja', 'red'], item: findExact('Salsa Roja') },
+      { terms: ['verde', 'green'], item: findExact('Salsa Verde') },
+    ]
+    const candidates = salsas.flatMap(({ item, terms }) => item ? [{ item, terms }] : [])
+    const ingredients = allocate(candidates, 20 / 128)
+    for (const sku of ['RC478', '709DO', 'ELTSBALA']) {
+      const item = findBySku(sku)
+      if (item) ingredients.push({ itemId: item.id, qty: 1, unit: 'pza' })
+    }
+    return ingredients
+  }
+
+  return []
 }
 
 /**
@@ -169,7 +262,7 @@ export async function syncDailyInventoryUsage(
   // 2. Obtener catálogo maestro de inventario
   const { data: inventoryItemsData, error: invError } = await supabase
     .from('inventory_items')
-    .select('id, name, unit_type, purchase_unit_cost, quantity_per_unit, yield_percent')
+    .select('id, sku, name, unit_type, purchase_unit_cost, quantity_per_unit, yield_percent')
 
   if (invError || !inventoryItemsData) {
     throw new Error(`Error al consultar inventory_items: ${invError?.message}`)
@@ -188,6 +281,20 @@ export async function syncDailyInventoryUsage(
     throw new Error(`Error al consultar recetas: ${recipesError.message}`)
   }
 
+  const historicalStartDate = new Date(`${businessDate}T12:00:00Z`)
+  historicalStartDate.setUTCDate(historicalStartDate.getUTCDate() - 90)
+  const { data: historicalOrdersData, error: historicalOrdersError } = await supabase
+    .from('inventory_orders')
+    .select('order_date, inventory_order_lines(inventory_item_id, final_qty, adjusted_qty, calculated_qty, leftover_value)')
+    .eq('store_id', dbStoreId)
+    .gte('order_date', historicalStartDate.toISOString().slice(0, 10))
+    .lt('order_date', businessDate)
+
+  if (historicalOrdersError) {
+    console.warn(`[UsageSync] No se pudo cargar historial de sabores: ${historicalOrdersError.message}`)
+  }
+  const historicalOrders = (historicalOrdersData || []) as HistoricalOrder[]
+
   // Agrupar recetas por toast_menu_item_guid
   const recipeMap = new Map<string, any[]>()
   for (const r of (recipesData || [])) {
@@ -204,8 +311,20 @@ export async function syncDailyInventoryUsage(
     const qtySold = pmixItem.quantity || 0
     if (qtySold <= 0) continue
 
-    // A) Probar primero si es un Party Tray (Receta Virtual)
-    const partyTrayIngredients = getPartyTrayVirtualRecipe(pmixItem.name, inventoryItemsMap)
+    // A) Productos con sabor seleccionado por special request / historial.
+    const variableFlavorIngredients = getVariableFlavorVirtualRecipe(pmixItem.name, inventoryItemsMap, historicalOrders, businessDate)
+    if (variableFlavorIngredients.length > 0) {
+      for (const ing of variableFlavorIngredients) {
+        const item = inventoryItemsMap.get(ing.itemId)
+        if (!item) continue
+        const itemUsage = calculateInventoryUsage(ing.qty * qtySold, ing.unit, item.unit_type || 'pza', item.quantity_per_unit)
+        usageAccumulator.set(item.id, (usageAccumulator.get(item.id) || 0) + itemUsage)
+      }
+      continue
+    }
+
+    // B) Probar si es Party Tray (Receta Virtual)
+    const partyTrayIngredients = getPartyTrayVirtualRecipe(pmixItem.name, inventoryItemsMap, historicalOrders, businessDate)
 
     if (partyTrayIngredients.length > 0) {
       for (const ing of partyTrayIngredients) {
@@ -225,21 +344,30 @@ export async function syncDailyInventoryUsage(
       continue
     }
 
-    // B) Receta estándar de la base de datos
+    // C) Receta estándar de la base de datos
     const dbIngredients = recipeMap.get(pmixItem.guid)
     if (!dbIngredients || dbIngredients.length === 0) continue
+
+    const proteinAllocation = parseProteinAllocation(
+      pmixItem.name,
+      dbIngredients.map(ingredient => ({
+        inventory_item_id: ingredient.inventory_item_id,
+        quantity: Number(ingredient.quantity) || 0,
+        unit: ingredient.unit || 'oz',
+      })),
+    )
+    const activeProteinIds = new Set(Object.values(ACTIVE_PROTEIN_IDS))
+    const baseProteinIngredient = dbIngredients.find(ingredient => activeProteinIds.has(ingredient.inventory_item_id))
 
     for (const ing of dbIngredients) {
       const item = inventoryItemsMap.get(ing.inventory_item_id)
       if (!item) continue
 
+      // La asignación dinámica reemplaza únicamente la carne base; el resto de la receta no cambia.
+      if (proteinAllocation?.replacedBaseMeat && activeProteinIds.has(ing.inventory_item_id)) continue
+
       let ingQty = Number(ing.quantity) || 0
       const recipeType = ing.type || 'food'
-
-      // Ajuste por modificador Half-Meat (media porción)
-      if (pmixItem.half_meat_adjustments && pmixItem.half_meat_adjustments > 0) {
-        ingQty = ingQty * 0.5
-      }
 
       // Ajuste por rendimiento de cocción (yield %) si aplica
       const rawUsage = calculateRawUsage(
@@ -259,6 +387,26 @@ export async function syncDailyInventoryUsage(
 
       const current = usageAccumulator.get(item.id) || 0
       usageAccumulator.set(item.id, current + itemUsage)
+    }
+
+    if (proteinAllocation?.replacedBaseMeat) {
+      for (const [proteinId, portionOz] of proteinAllocation.portionsOz) {
+        const item = inventoryItemsMap.get(proteinId)
+        if (!item) continue
+        const rawUsage = calculateRawUsage(
+          portionOz,
+          'oz',
+          item.yield_percent || 100,
+          baseProteinIngredient?.type || 'cooked',
+        )
+        const itemUsage = calculateInventoryUsage(
+          rawUsage.quantity * qtySold,
+          rawUsage.unit,
+          item.unit_type || 'pza',
+          item.quantity_per_unit,
+        )
+        usageAccumulator.set(item.id, (usageAccumulator.get(item.id) || 0) + itemUsage)
+      }
     }
   }
 

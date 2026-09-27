@@ -1,0 +1,382 @@
+[
+  {
+    "id": "6a5ab9054f497bc79fd69a87",
+    "userId": "6a5ab9044f497bc79fd69a7f",
+    "employeeID": "EMP008355",
+    "assignmentId": "SHR000584",
+    "firstName": "Joseph",
+    "lastName": "Castellanos",
+    "status": "Active",
+    "employmentStatus": "FullTime",
+    "jobPosition": "Employee",
+    "title": "Cashier",
+    "siteId": "657a2e35555bf12601f56284",
+    "departmentId": "PLNS-5N68",
+    "payRate": 16.9,
+    "payType": "Hourly",
+    "paySchedule": "Bi-Weekly",
+    "otPayRate": 25.35,
+    "hireDate": "2026-07-17T00:00:00.000Z",
+    "createdDate": "2026-07-17T23:21:41.058Z",
+    "modifiedDate": "2026-07-17T23:21:47.905Z",
+    "createdBy": "malena@cingularhr.com",
+    "jobHistory": [
+      {
+        "effectiveDate": "2026-07-17T00:00:00.000Z",
+        "jobPosition": "Employee",
+        "title": "Cashier",
+        "employmentStatus": "FullTime",
+        "siteId": "657a2e35555bf12601f56284",
+        "siteName": "TEG - Lynwood",
+        "departmentName": "TEG - Lynwood",
+        "createdByUserEmail": "Malena@cingularhr.com",
+        "createdDate": "2026-07-17T23:21:38.295Z"
+      }
+    ],
+    "compensationHistory": [
+      {
+        "effectiveDate": "2026-07-17T00:00:00.000Z",
+        "payRate": 16.9,
+        "paySchedule": "Bi-Weekly",
+        "payType": "Hourly",
+        "otPayRate": 25.35,
+        "createdByUserEmail": "Malena@cingularhr.com",
+        "createdDate": "2026-07-17T23:21:39.729Z",
+        "status": "Effective"
+      }
+    ]
+  },
+  {
+    "id": "66205ddf1fd8cbd4b59bd008",
+    "userId": "66205de01fd8cbd4b59bd00c",
+    "employeeID": "249287",
+    "assignmentId": "306205",
+    "firstName": "Carlos",
+    "lastName": "Velazquez",
+    "status": "Active",
+    "employmentStatus": "FullTime",
+    "jobPosition": "Site Manager",
+    "title": "Manager",
+    "siteId": "657a2e35555bf12601f56284",
+    "departmentId": "PLNS-5N68",
+    "payRate": 78884,
+    "payType": "Yearly",
+    "paySchedule": "Bi-Weekly",
+    "otPayRate": null,
+    "hireDate": "2020-01-02T08:00:00.000Z",
+    "createdDate": "2024-04-17T23:40:15.239Z",
+    "modifiedDate": "2026-06-18T19:22:38.933Z",
+    "createdBy": "hradmin@email.com",
+    "jobHistory": [
+      {
+        "effectiveDate": "2026-05-01T00:00:00.000Z",
+        "jobPosition": "Site Manager",
+        "title": "Manager",
+        "employmentStatus": "FullTime",
+        "siteId": "657a2e35555bf12601f56284",
+        "siteName": "TEG - Lynwood",
+        "departmentName": "TEG - Lynwood",
+        "comment": "transfering to shr",
+        "createdByUserEmail": "jenniferadmin@cingularhr.com",
+        "createdDate": "2026-06-09T17:29:38.037Z"
+      },
+      {
+        "effectiveDate": "2024-01-01T00:00:00.000Z",
+        "jobPosition": "Site Manager",
+        "title": "pre cook",
+        "employmentStatus": "FullTime",
+        "siteId": "657a2e35555bf12601f56284",
+        "siteName": "TEG - Lynwood",
+        "departmentName": "TEG - Lynwood",
+        "comment": "SHR clean up",
+        "createdByUserEmail": "Malena@cingularhr.com",
+        "createdDate": "2026-06-01T22:45:20.718Z"
+      },
+      {
+        "effectiveDate": "2024-08-27T07:00:00.000Z",
+        "jobPosition": "Site Manager",
+        "title": "Tacos Gavilan - Lynwood",
+        "employmentStatus": "FullTime",
+        "siteId": "657a2e35555bf12601f56284",
+        "siteName": "TEG - Lynwood",
+        "comment": "Updated to site manager ",
+        "createdByUserEmail": "jennifer@cingularhr.com",
+        "createdDate": "2024-08-27T19:25:02.621Z"
+      },
+      {
+        "effectiveDate": "2024-01-01T08:00:00.000Z",
+        "jobPosition": "Employee",
+        "title": "Tacos Gavilan - Lynwood",
+        "employmentStatus": "FullTime",
+        "siteId": "657a2e35555bf12601f56284",
+        "siteName": "TEG - Lynwood",
+        "departmentName": "TEG - Lynwood",
+        "createdByUserEmail": "hradmin@email.com",
+        "createdDate": "2024-04-17T23:40:15.235Z"
+      }
+    ],
+    "compensationHistory": [
+      {
+        "effectiveDate": "2024-01-01T00:00:00.000Z",
+        "payRate": 78884,
+        "paySchedule": "Bi-Weekly",
+        "payType": "Yearly",
+        "otPayRate": null,
+        "createdByUserEmail": "Roxana.Chinchilla@cingularhr.com",
+        "createdDate": "2026-06-12T19:38:45.857Z",
+        "comment": "SHR CLEAN UP",
+        "status": "Effective",
+        "changeReason": "Other",
+        "approverEmail": "Roxana.Chinchilla@cingularhr.com",
+        "approverComment": "SHR CLEAN UP"
+      },
+      {
+        "effectiveDate": "2024-01-01T08:00:00.000Z",
+        "payRate": 16,
+        "paySchedule": "Bi-Weekly",
+        "payType": "Hourly",
+        "otPayRate": 24,
+        "createdByUserEmail": "hradmin@email.com",
+        "createdDate": "2024-04-17T23:40:15.235Z",
+        "status": "Effective"
+      }
+    ]
+  },
+  {
+    "id": "6a68be3360827d4d01894f20",
+    "userId": "66205d731fd8cbd4b59bcd5a",
+    "employeeID": "258316",
+    "assignmentId": "SHR000654",
+    "firstName": "Enrique",
+    "lastName": "Navarrete",
+    "status": "Active",
+    "employmentStatus": "FullTime",
+    "jobPosition": "Employee",
+    "title": "pre cook",
+    "siteId": "657a2e35555bf12601f56284",
+    "departmentId": "PLNS-5N68",
+    "payRate": 22.4,
+    "payType": "Hourly",
+    "paySchedule": "Bi-Weekly",
+    "otPayRate": 33.6,
+    "hireDate": "2026-07-13T00:00:00.000Z",
+    "createdDate": "2026-07-28T14:35:31.655Z",
+    "modifiedDate": "2026-07-28T14:35:37.739Z",
+    "createdBy": "jennifer@cingularhr.com",
+    "jobHistory": [
+      {
+        "effectiveDate": "2026-07-13T00:00:00.000Z",
+        "jobPosition": "Employee",
+        "title": "pre cook",
+        "employmentStatus": "FullTime",
+        "siteId": "657a2e35555bf12601f56284",
+        "siteName": "TEG - Lynwood",
+        "departmentName": "TEG - Lynwood",
+        "createdByUserEmail": "jennifer@cingularhr.com",
+        "createdDate": "2026-07-28T14:35:30.578Z"
+      }
+    ],
+    "compensationHistory": [
+      {
+        "effectiveDate": "2026-07-13T00:00:00.000Z",
+        "payRate": 22.4,
+        "paySchedule": "Bi-Weekly",
+        "payType": "Hourly",
+        "otPayRate": 33.6,
+        "createdByUserEmail": "jennifer@cingularhr.com",
+        "createdDate": "2026-07-28T14:35:31.653Z",
+        "status": "Effective"
+      }
+    ]
+  },
+  {
+    "id": "6a5ab9054f497bc79fd69a87",
+    "userId": "6a5ab9044f497bc79fd69a7f",
+    "employeeID": "EMP008355",
+    "assignmentId": "SHR000584",
+    "firstName": "Joseph",
+    "lastName": "Castellanos",
+    "status": "Active",
+    "employmentStatus": "FullTime",
+    "jobPosition": "Employee",
+    "title": "Cashier",
+    "siteId": "657a2e35555bf12601f56284",
+    "departmentId": "PLNS-5N68",
+    "payRate": 16.9,
+    "payType": "Hourly",
+    "paySchedule": "Bi-Weekly",
+    "otPayRate": 25.35,
+    "hireDate": "2026-07-17T00:00:00.000Z",
+    "createdDate": "2026-07-17T23:21:41.058Z",
+    "modifiedDate": "2026-07-17T23:21:47.905Z",
+    "createdBy": "malena@cingularhr.com",
+    "jobHistory": [
+      {
+        "effectiveDate": "2026-07-17T00:00:00.000Z",
+        "jobPosition": "Employee",
+        "title": "Cashier",
+        "employmentStatus": "FullTime",
+        "siteId": "657a2e35555bf12601f56284",
+        "siteName": "TEG - Lynwood",
+        "departmentName": "TEG - Lynwood",
+        "createdByUserEmail": "Malena@cingularhr.com",
+        "createdDate": "2026-07-17T23:21:38.295Z"
+      }
+    ],
+    "compensationHistory": [
+      {
+        "effectiveDate": "2026-07-17T00:00:00.000Z",
+        "payRate": 16.9,
+        "paySchedule": "Bi-Weekly",
+        "payType": "Hourly",
+        "otPayRate": 25.35,
+        "createdByUserEmail": "Malena@cingularhr.com",
+        "createdDate": "2026-07-17T23:21:39.729Z",
+        "status": "Effective"
+      }
+    ]
+  },
+  {
+    "id": "66205ddf1fd8cbd4b59bd008",
+    "userId": "66205de01fd8cbd4b59bd00c",
+    "employeeID": "249287",
+    "assignmentId": "306205",
+    "firstName": "Carlos",
+    "lastName": "Velazquez",
+    "status": "Active",
+    "employmentStatus": "FullTime",
+    "jobPosition": "Site Manager",
+    "title": "Manager",
+    "siteId": "657a2e35555bf12601f56284",
+    "departmentId": "PLNS-5N68",
+    "payRate": 78884,
+    "payType": "Yearly",
+    "paySchedule": "Bi-Weekly",
+    "otPayRate": null,
+    "hireDate": "2020-01-02T08:00:00.000Z",
+    "createdDate": "2024-04-17T23:40:15.239Z",
+    "modifiedDate": "2026-06-18T19:22:38.933Z",
+    "createdBy": "hradmin@email.com",
+    "jobHistory": [
+      {
+        "effectiveDate": "2026-05-01T00:00:00.000Z",
+        "jobPosition": "Site Manager",
+        "title": "Manager",
+        "employmentStatus": "FullTime",
+        "siteId": "657a2e35555bf12601f56284",
+        "siteName": "TEG - Lynwood",
+        "departmentName": "TEG - Lynwood",
+        "comment": "transfering to shr",
+        "createdByUserEmail": "jenniferadmin@cingularhr.com",
+        "createdDate": "2026-06-09T17:29:38.037Z"
+      },
+      {
+        "effectiveDate": "2024-01-01T00:00:00.000Z",
+        "jobPosition": "Site Manager",
+        "title": "pre cook",
+        "employmentStatus": "FullTime",
+        "siteId": "657a2e35555bf12601f56284",
+        "siteName": "TEG - Lynwood",
+        "departmentName": "TEG - Lynwood",
+        "comment": "SHR clean up",
+        "createdByUserEmail": "Malena@cingularhr.com",
+        "createdDate": "2026-06-01T22:45:20.718Z"
+      },
+      {
+        "effectiveDate": "2024-08-27T07:00:00.000Z",
+        "jobPosition": "Site Manager",
+        "title": "Tacos Gavilan - Lynwood",
+        "employmentStatus": "FullTime",
+        "siteId": "657a2e35555bf12601f56284",
+        "siteName": "TEG - Lynwood",
+        "comment": "Updated to site manager ",
+        "createdByUserEmail": "jennifer@cingularhr.com",
+        "createdDate": "2024-08-27T19:25:02.621Z"
+      },
+      {
+        "effectiveDate": "2024-01-01T08:00:00.000Z",
+        "jobPosition": "Employee",
+        "title": "Tacos Gavilan - Lynwood",
+        "employmentStatus": "FullTime",
+        "siteId": "657a2e35555bf12601f56284",
+        "siteName": "TEG - Lynwood",
+        "departmentName": "TEG - Lynwood",
+        "createdByUserEmail": "hradmin@email.com",
+        "createdDate": "2024-04-17T23:40:15.235Z"
+      }
+    ],
+    "compensationHistory": [
+      {
+        "effectiveDate": "2024-01-01T00:00:00.000Z",
+        "payRate": 78884,
+        "paySchedule": "Bi-Weekly",
+        "payType": "Yearly",
+        "otPayRate": null,
+        "createdByUserEmail": "Roxana.Chinchilla@cingularhr.com",
+        "createdDate": "2026-06-12T19:38:45.857Z",
+        "comment": "SHR CLEAN UP",
+        "status": "Effective",
+        "changeReason": "Other",
+        "approverEmail": "Roxana.Chinchilla@cingularhr.com",
+        "approverComment": "SHR CLEAN UP"
+      },
+      {
+        "effectiveDate": "2024-01-01T08:00:00.000Z",
+        "payRate": 16,
+        "paySchedule": "Bi-Weekly",
+        "payType": "Hourly",
+        "otPayRate": 24,
+        "createdByUserEmail": "hradmin@email.com",
+        "createdDate": "2024-04-17T23:40:15.235Z",
+        "status": "Effective"
+      }
+    ]
+  },
+  {
+    "id": "6a68be3360827d4d01894f20",
+    "userId": "66205d731fd8cbd4b59bcd5a",
+    "employeeID": "258316",
+    "assignmentId": "SHR000654",
+    "firstName": "Enrique",
+    "lastName": "Navarrete",
+    "status": "Active",
+    "employmentStatus": "FullTime",
+    "jobPosition": "Employee",
+    "title": "pre cook",
+    "siteId": "657a2e35555bf12601f56284",
+    "departmentId": "PLNS-5N68",
+    "payRate": 22.4,
+    "payType": "Hourly",
+    "paySchedule": "Bi-Weekly",
+    "otPayRate": 33.6,
+    "hireDate": "2026-07-13T00:00:00.000Z",
+    "createdDate": "2026-07-28T14:35:31.655Z",
+    "modifiedDate": "2026-07-28T14:35:37.739Z",
+    "createdBy": "jennifer@cingularhr.com",
+    "jobHistory": [
+      {
+        "effectiveDate": "2026-07-13T00:00:00.000Z",
+        "jobPosition": "Employee",
+        "title": "pre cook",
+        "employmentStatus": "FullTime",
+        "siteId": "657a2e35555bf12601f56284",
+        "siteName": "TEG - Lynwood",
+        "departmentName": "TEG - Lynwood",
+        "createdByUserEmail": "jennifer@cingularhr.com",
+        "createdDate": "2026-07-28T14:35:30.578Z"
+      }
+    ],
+    "compensationHistory": [
+      {
+        "effectiveDate": "2026-07-13T00:00:00.000Z",
+        "payRate": 22.4,
+        "paySchedule": "Bi-Weekly",
+        "payType": "Hourly",
+        "otPayRate": 33.6,
+        "createdByUserEmail": "jennifer@cingularhr.com",
+        "createdDate": "2026-07-28T14:35:31.653Z",
+        "status": "Effective"
+      }
+    ]
+  }
+]

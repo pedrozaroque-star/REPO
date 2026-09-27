@@ -1,0 +1,28 @@
+{
+  "at": "2026-09-25T16:01:00.966Z",
+  "results": [
+    {
+      "error": "toast_employees: invalid input syntax for type json"
+    },
+    {
+      "file": "jobs",
+      "rows": 114
+    },
+    {
+      "file": "punches",
+      "rows": 50315
+    },
+    {
+      "file": "shifts",
+      "rows": 6283
+    },
+    {
+      "file": "sales",
+      "rows": 2459
+    },
+    {
+      "file": "manager-schedules",
+      "rows": 233
+    }
+  ]
+}

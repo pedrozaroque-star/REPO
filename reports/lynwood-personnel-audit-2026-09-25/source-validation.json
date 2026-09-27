@@ -1,0 +1,13 @@
+{
+  "status": "PASS",
+  "shiftsChecked": 6283,
+  "realHelpers": [
+    "weekly-ops calcDuration extracted verbatim",
+    "normalizePayrollName imported",
+    "moneyCents imported",
+    "comparePayrollGross imported"
+  ],
+  "josephAllHours": 445.5,
+  "josephPublishedHours": 423,
+  "unverifiedPayrollStatus": "estimated"
+}

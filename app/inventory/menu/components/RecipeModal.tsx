@@ -1,3 +1,13 @@
+/**
+ * @module inventory/menu/components/RecipeModal
+ * @description Editor de recetas del catálogo Toast. Permite asignar ingredientes de Bodega,
+ *              restaurante y, en fases posteriores, reglas automáticas de consumo.
+ * @businessRules Los insumos de Bodega también pueden ser ingredientes de una venta Toast;
+ *                no se deben ocultar del editor por su origen de abastecimiento.
+ * @dataFlow toast_menu_items → recipes → inventario, Food Cost y consumo teórico.
+ * @notes [2026-09-23] Se eliminó el filtro que impedía seleccionar artículos de Bodega,
+ *        como Galones Vacíos y carnes, desde una receta.
+ */
 'use client'
 
 import { useState, useEffect } from 'react'
@@ -19,6 +29,7 @@ export function RecipeModal({ isOpen, onClose, item, onSaveSuccess }: RecipeModa
     const [saving, setSaving] = useState(false)
     const [ingredients, setIngredients] = useState<any[]>([]) // Current recipe ingredients
     const [availableItems, setAvailableItems] = useState<any[]>([]) // All inventory items for dropdown
+    const [automationRules, setAutomationRules] = useState<any[]>([])
 
     const [isNa, setIsNa] = useState(false)
 
@@ -38,8 +49,9 @@ export function RecipeModal({ isOpen, onClose, item, onSaveSuccess }: RecipeModa
             const resItems = await fetch('/api/inventory/items')
             const dataItems = await resItems.json()
             const allItems = dataItems.items || []
-            // Filter out Bodega items so they can't be used in restaurant recipes
-            setAvailableItems(allItems.filter((i: any) => !i.is_bodega))
+            // Una venta de restaurante puede consumir artículos de Bodega (p. ej. carnes,
+            // concentrados y Galones Vacíos); excluirlos impedía mapear recetas operativas.
+            setAvailableItems(allItems)
 
             // 2. Load existing recipe
             const resRecipe = await fetch(`/api/inventory/recipes?guid=${item?.guid}`)
@@ -82,6 +94,16 @@ export function RecipeModal({ isOpen, onClose, item, onSaveSuccess }: RecipeModa
                 }
             })
             setIngredients(Array.from(map.values()))
+
+            // 3. Las reglas variables complementan, pero no reemplazan, ingredientes fijos.
+            const rulesResponse = await fetch(`/api/inventory/recipe-automation-rules?guid=${item?.guid}`)
+            if (rulesResponse.ok) {
+                const rulesData = await rulesResponse.json()
+                setAutomationRules(rulesData.rules || [])
+            } else {
+                // La migración puede no haberse aplicado todavía; el editor fijo sigue disponible.
+                setAutomationRules([])
+            }
 
         } catch (e) {
             console.error(e)
@@ -131,6 +153,20 @@ export function RecipeModal({ isOpen, onClose, item, onSaveSuccess }: RecipeModa
         } : i))
     }
 
+    function updateAutomationRule(ruleType: string, enabled: boolean) {
+        setAutomationRules(current => {
+            const existing = current.find(rule => rule.rule_type === ruleType)
+            if (existing) return current.map(rule => rule.rule_type === ruleType ? { ...rule, enabled } : rule)
+            return [...current, {
+                rule_type: ruleType,
+                enabled,
+                config: ruleType === 'historical_allocation'
+                    ? { strategy: 'store_history_then_equal_split' }
+                    : { strategy: 'special_request_then_store_history_then_equal_split' }
+            }]
+        })
+    }
+
     async function handleSave() {
         setSaving(true)
         try {
@@ -172,6 +208,19 @@ export function RecipeModal({ isOpen, onClose, item, onSaveSuccess }: RecipeModa
             if (!res.ok) {
                 const errData = await res.json().catch(() => ({}))
                 throw new Error(errData.error || 'Failed to save')
+            }
+
+            // Guardar reglas variables después de que los componentes fijos se validen.
+            if (automationRules.length > 0) {
+                const rulesRes = await fetch('/api/inventory/recipe-automation-rules', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ toast_guid: item?.guid, rules: automationRules })
+                })
+                if (!rulesRes.ok) {
+                    const errData = await rulesRes.json().catch(() => ({}))
+                    throw new Error(errData.error || 'No se pudieron guardar las reglas automáticas. Verifica que la migración SQL esté aplicada.')
+                }
             }
 
             // Check for anomaly warnings from the validation layer
@@ -430,6 +479,26 @@ export function RecipeModal({ isOpen, onClose, item, onSaveSuccess }: RecipeModa
                                     </div>
                                 )}
                             </div>
+
+                            {/* Automation Rules */}
+                            {!isNa && (
+                                <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-4 dark:border-amber-900/60 dark:bg-amber-950/20">
+                                    <h3 className="font-bold text-amber-950 dark:text-amber-100">⚙️ Reglas automáticas de consumo</h3>
+                                    <p className="mt-1 text-xs text-amber-800 dark:text-amber-200">Los ingredientes de arriba son fijos. Estas reglas resuelven sabores o carnes cuando Toast no trae el detalle completo.</p>
+                                    <div className="mt-3 space-y-2">
+                                        {[
+                                            ['historical_allocation', 'Prorratear sabores por historial de la tienda'],
+                                            ['special_request_protein_mix', 'Interpretar special request y repartir mezcla de carnes automáticamente']
+                                        ].map(([type, label]) => {
+                                            const rule = automationRules.find(item => item.rule_type === type)
+                                            return <label key={type} className="flex items-start gap-2 rounded-lg bg-white/80 p-3 text-sm text-slate-700 dark:bg-slate-900/50 dark:text-slate-200">
+                                                <input type="checkbox" checked={rule?.enabled === true} onChange={event => updateAutomationRule(type, event.target.checked)} className="mt-0.5 rounded border-amber-400 text-amber-600 focus:ring-amber-500" />
+                                                <span>{label}<small className="block mt-0.5 text-xs text-slate-500">Sin información suficiente, usa reparto parejo como último recurso.</small></span>
+                                            </label>
+                                        })}
+                                    </div>
+                                </div>
+                            )}
 
                             {/* Total Footer */}
                             {ingredients.length > 0 && (

@@ -1,0 +1,740 @@
+{
+  "publishedHours": 423,
+  "draftHours": 22.5,
+  "liveHours": 483.77,
+  "deltaPublished": 60.77,
+  "deltaAll": 38.27,
+  "weekly": [
+    {
+      "week": "2026-07-20",
+      "weekId": 150623,
+      "regular": 40,
+      "ot": 4.38,
+      "dt": 0,
+      "total": 44.38,
+      "toast": 44.41,
+      "difference": 0.03,
+      "scheduled": 45,
+      "aboveScheduled": -0.62,
+      "approval": {
+        "employeeApproval": true,
+        "managerApproval": true
+      },
+      "retro": false,
+      "days": 6,
+      "published": 45,
+      "draft": 0,
+      "autoNote": 1
+    },
+    {
+      "week": "2026-07-27",
+      "weekId": 152372,
+      "regular": 40,
+      "ot": 5.93,
+      "dt": 0,
+      "total": 45.93,
+      "toast": 45.99,
+      "difference": 0.06,
+      "scheduled": 45,
+      "aboveScheduled": 0.93,
+      "approval": {
+        "employeeApproval": true,
+        "managerApproval": true
+      },
+      "retro": false,
+      "days": 6,
+      "published": 45,
+      "draft": 0,
+      "autoNote": 1
+    },
+    {
+      "week": "2026-08-03",
+      "weekId": 152373,
+      "regular": 40,
+      "ot": 19.42,
+      "dt": 1.53,
+      "total": 60.95,
+      "toast": 60.93,
+      "difference": -0.02,
+      "scheduled": 52.5,
+      "aboveScheduled": 8.45,
+      "approval": {
+        "employeeApproval": true,
+        "managerApproval": true
+      },
+      "retro": false,
+      "days": 7,
+      "published": 52.5,
+      "draft": 0,
+      "autoNote": 1
+    },
+    {
+      "week": "2026-08-10",
+      "weekId": 154242,
+      "regular": 40,
+      "ot": 18.2,
+      "dt": 0,
+      "total": 58.2,
+      "toast": 58.18,
+      "difference": -0.02,
+      "scheduled": 53,
+      "aboveScheduled": 5.2,
+      "approval": {
+        "employeeApproval": true,
+        "managerApproval": true
+      },
+      "retro": false,
+      "days": 7,
+      "published": 45.5,
+      "draft": 7.5,
+      "autoNote": 2
+    },
+    {
+      "week": "2026-08-17",
+      "weekId": 154243,
+      "regular": 40,
+      "ot": 19.8,
+      "dt": 0.03,
+      "total": 59.83,
+      "toast": 60.39,
+      "difference": 0.56,
+      "scheduled": 53,
+      "aboveScheduled": 6.83,
+      "approval": {
+        "employeeApproval": true,
+        "managerApproval": true
+      },
+      "retro": false,
+      "days": 7,
+      "published": 45.5,
+      "draft": 7.5,
+      "autoNote": 2
+    },
+    {
+      "week": "2026-08-24",
+      "weekId": 155969,
+      "regular": 40,
+      "ot": 9.81,
+      "dt": 0,
+      "total": 49.81,
+      "toast": 49.61,
+      "difference": -0.2,
+      "scheduled": 45.5,
+      "aboveScheduled": 4.31,
+      "approval": {
+        "employeeApproval": true,
+        "managerApproval": true
+      },
+      "retro": false,
+      "days": 6,
+      "published": 45.5,
+      "draft": 0,
+      "autoNote": 1
+    },
+    {
+      "week": "2026-08-31",
+      "weekId": 155970,
+      "regular": 40,
+      "ot": 5.89,
+      "dt": 0,
+      "total": 45.89,
+      "toast": 45.89,
+      "difference": 0,
+      "scheduled": 45.5,
+      "aboveScheduled": 0.39,
+      "approval": {
+        "employeeApproval": true,
+        "managerApproval": true
+      },
+      "retro": false,
+      "days": 6,
+      "published": 45.5,
+      "draft": 0,
+      "autoNote": 1
+    },
+    {
+      "week": "2026-09-07",
+      "weekId": 157766,
+      "regular": 40,
+      "ot": 22.13,
+      "dt": 5.43,
+      "total": 67.56,
+      "toast": 67.56,
+      "difference": 0,
+      "scheduled": 53,
+      "aboveScheduled": 14.56,
+      "approval": {
+        "employeeApproval": true,
+        "managerApproval": true
+      },
+      "retro": false,
+      "days": 7,
+      "published": 53,
+      "draft": 0,
+      "autoNote": 1
+    },
+    {
+      "week": "2026-09-14",
+      "weekId": 157767,
+      "regular": 40,
+      "ot": 11.22,
+      "dt": 0,
+      "total": 51.22,
+      "toast": 51.26,
+      "difference": 0.04,
+      "scheduled": 53,
+      "aboveScheduled": -1.78,
+      "approval": {
+        "employeeApproval": true,
+        "managerApproval": true
+      },
+      "retro": false,
+      "days": 7,
+      "published": 45.5,
+      "draft": 7.5,
+      "autoNote": 2
+    }
+  ],
+  "peers": [
+    {
+      "name": "Jonathan Velasco",
+      "records": 56,
+      "days": 55,
+      "first": "2026-07-20",
+      "last": "2026-09-20",
+      "hours": 526.76,
+      "ot": 166.76,
+      "avgDay": 9.58,
+      "rates": [
+        16.9
+      ],
+      "weeks": 9,
+      "avgActiveWeek": 58.53,
+      "avgCalendarWeek": 58.53,
+      "weeksOver50": 7,
+      "weeks6Days": 7,
+      "weeks7Days": 3,
+      "scheduledHours": 527.04,
+      "published": 500.5,
+      "draft": 26.54,
+      "autoNotes": 3
+    },
+    {
+      "name": "Jose Martinez",
+      "records": 55,
+      "days": 53,
+      "first": "2026-07-20",
+      "last": "2026-09-20",
+      "hours": 485.34,
+      "ot": 125.34,
+      "avgDay": 9.16,
+      "rates": [
+        17.4
+      ],
+      "weeks": 9,
+      "avgActiveWeek": 53.93,
+      "avgCalendarWeek": 53.93,
+      "weeksOver50": 7,
+      "weeks6Days": 7,
+      "weeks7Days": 1,
+      "scheduledHours": 511.68,
+      "published": 504,
+      "draft": 7.68,
+      "autoNotes": 1
+    },
+    {
+      "name": "Joseph Castellanos",
+      "records": 59,
+      "days": 59,
+      "first": "2026-07-20",
+      "last": "2026-09-20",
+      "hours": 484.22,
+      "ot": 124.22,
+      "avgDay": 8.21,
+      "rates": [
+        16.9
+      ],
+      "weeks": 9,
+      "avgActiveWeek": 53.8,
+      "avgCalendarWeek": 53.8,
+      "weeksOver50": 5,
+      "weeks6Days": 9,
+      "weeks7Days": 5,
+      "scheduledHours": 445.5,
+      "published": 423,
+      "draft": 22.5,
+      "autoNotes": 12
+    },
+    {
+      "name": "Elias Morales",
+      "records": 53,
+      "days": 52,
+      "first": "2026-07-21",
+      "last": "2026-09-20",
+      "hours": 481.43,
+      "ot": 122.13,
+      "avgDay": 9.26,
+      "rates": [
+        16.9
+      ],
+      "weeks": 9,
+      "avgActiveWeek": 53.49,
+      "avgCalendarWeek": 53.49,
+      "weeksOver50": 7,
+      "weeks6Days": 7,
+      "weeks7Days": 0,
+      "scheduledHours": 495,
+      "published": 495,
+      "draft": 0,
+      "autoNotes": 0
+    },
+    {
+      "name": "Jose Andres Morales",
+      "records": 48,
+      "days": 48,
+      "first": "2026-07-20",
+      "last": "2026-09-20",
+      "hours": 441.98,
+      "ot": 96.58,
+      "avgDay": 9.21,
+      "rates": [
+        16.9
+      ],
+      "weeks": 9,
+      "avgActiveWeek": 49.11,
+      "avgCalendarWeek": 49.11,
+      "weeksOver50": 4,
+      "weeks6Days": 4,
+      "weeks7Days": 0,
+      "scheduledHours": 452.5,
+      "published": 452.5,
+      "draft": 0,
+      "autoNotes": 0
+    },
+    {
+      "name": "Benjamin Chay",
+      "records": 54,
+      "days": 54,
+      "first": "2026-07-20",
+      "last": "2026-09-20",
+      "hours": 420.25,
+      "ot": 60.25,
+      "avgDay": 7.78,
+      "rates": [
+        16.9
+      ],
+      "weeks": 9,
+      "avgActiveWeek": 46.69,
+      "avgCalendarWeek": 46.69,
+      "weeksOver50": 1,
+      "weeks6Days": 9,
+      "weeks7Days": 0,
+      "scheduledHours": 417,
+      "published": 417,
+      "draft": 0,
+      "autoNotes": 0
+    },
+    {
+      "name": "Kevin Garcia",
+      "records": 52,
+      "days": 52,
+      "first": "2026-07-20",
+      "last": "2026-09-19",
+      "hours": 415.4,
+      "ot": 62.01,
+      "avgDay": 7.99,
+      "rates": [
+        16.9
+      ],
+      "weeks": 9,
+      "avgActiveWeek": 46.16,
+      "avgCalendarWeek": 46.16,
+      "weeksOver50": 3,
+      "weeks6Days": 5,
+      "weeks7Days": 2,
+      "scheduledHours": 422.5,
+      "published": 422.5,
+      "draft": 0,
+      "autoNotes": 7
+    },
+    {
+      "name": "Alberto Benitez",
+      "records": 56,
+      "days": 55,
+      "first": "2026-07-21",
+      "last": "2026-09-20",
+      "hours": 398.39,
+      "ot": 38.39,
+      "avgDay": 7.24,
+      "rates": [
+        17.9
+      ],
+      "weeks": 9,
+      "avgActiveWeek": 44.27,
+      "avgCalendarWeek": 44.27,
+      "weeksOver50": 1,
+      "weeks6Days": 9,
+      "weeks7Days": 1,
+      "scheduledHours": 406.5,
+      "published": 406.5,
+      "draft": 0,
+      "autoNotes": 0
+    },
+    {
+      "name": "Miguel Perez",
+      "records": 52,
+      "days": 51,
+      "first": "2026-07-20",
+      "last": "2026-09-20",
+      "hours": 367.69,
+      "ot": 25.1,
+      "avgDay": 7.21,
+      "rates": [
+        16.9
+      ],
+      "weeks": 9,
+      "avgActiveWeek": 40.85,
+      "avgCalendarWeek": 40.85,
+      "weeksOver50": 0,
+      "weeks6Days": 7,
+      "weeks7Days": 0,
+      "scheduledHours": 378.5,
+      "published": 378.5,
+      "draft": 0,
+      "autoNotes": 0
+    },
+    {
+      "name": "Luis Heredia",
+      "records": 37,
+      "days": 37,
+      "first": "2026-08-10",
+      "last": "2026-09-20",
+      "hours": 278.25,
+      "ot": 40.18,
+      "avgDay": 7.52,
+      "rates": [
+        16.9
+      ],
+      "weeks": 6,
+      "avgActiveWeek": 46.37,
+      "avgCalendarWeek": 30.92,
+      "weeksOver50": 2,
+      "weeks6Days": 5,
+      "weeks7Days": 2,
+      "scheduledHours": 280,
+      "published": 227.5,
+      "draft": 52.5,
+      "autoNotes": 37
+    },
+    {
+      "name": "Librado Mondragon",
+      "records": 40,
+      "days": 40,
+      "first": "2026-08-06",
+      "last": "2026-09-20",
+      "hours": 248.61,
+      "ot": 0,
+      "avgDay": 6.22,
+      "rates": [
+        17.4
+      ],
+      "weeks": 7,
+      "avgActiveWeek": 35.52,
+      "avgCalendarWeek": 27.62,
+      "weeksOver50": 0,
+      "weeks6Days": 6,
+      "weeks7Days": 0,
+      "scheduledHours": 232,
+      "published": 232,
+      "draft": 0,
+      "autoNotes": 40
+    },
+    {
+      "name": "Fernando Lacayo Cisne",
+      "records": 24,
+      "days": 24,
+      "first": "2026-08-12",
+      "last": "2026-09-08",
+      "hours": 182.38,
+      "ot": 12.22,
+      "avgDay": 7.6,
+      "rates": [
+        16.9
+      ],
+      "weeks": 5,
+      "avgActiveWeek": 36.48,
+      "avgCalendarWeek": 20.26,
+      "weeksOver50": 0,
+      "weeks6Days": 2,
+      "weeks7Days": 0,
+      "scheduledHours": 213,
+      "published": 175.5,
+      "draft": 37.5,
+      "autoNotes": 29
+    },
+    {
+      "name": "Denis Sanchez",
+      "records": 9,
+      "days": 9,
+      "first": "2026-07-29",
+      "last": "2026-08-06",
+      "hours": 67.86,
+      "ot": 0,
+      "avgDay": 7.54,
+      "rates": [
+        16.9
+      ],
+      "weeks": 2,
+      "avgActiveWeek": 33.93,
+      "avgCalendarWeek": 7.54,
+      "weeksOver50": 0,
+      "weeks6Days": 0,
+      "weeks7Days": 0,
+      "scheduledHours": 128.03,
+      "published": 90.5,
+      "draft": 37.53,
+      "autoNotes": 5
+    }
+  ],
+  "weeklyBudgets": [
+    {
+      "week": "2026-05-18",
+      "projected": 115623,
+      "days": 7,
+      "target": null,
+      "updated": "2026-05-20T16:20:31.101+00:00"
+    },
+    {
+      "week": "2026-05-25",
+      "projected": 116896,
+      "days": 7,
+      "target": null,
+      "updated": "2026-05-28T03:43:29.533+00:00"
+    },
+    {
+      "week": "2026-06-01",
+      "projected": 115975,
+      "days": 7,
+      "target": null,
+      "updated": "2026-06-02T23:25:28.647+00:00"
+    },
+    {
+      "week": "2026-06-08",
+      "projected": 116586,
+      "days": 7,
+      "target": null,
+      "updated": "2026-06-10T00:18:02.818+00:00"
+    },
+    {
+      "week": "2026-06-15",
+      "projected": 114004,
+      "days": 7,
+      "target": null,
+      "updated": "2026-06-15T01:20:12.321+00:00"
+    },
+    {
+      "week": "2026-06-22",
+      "projected": 115519,
+      "days": 7,
+      "target": null,
+      "updated": "2026-06-22T00:01:41.242+00:00"
+    },
+    {
+      "week": "2026-06-29",
+      "projected": 116458,
+      "days": 7,
+      "target": null,
+      "updated": "2026-06-29T01:24:49.092+00:00"
+    },
+    {
+      "week": "2026-07-06",
+      "projected": 117496,
+      "days": 7,
+      "target": null,
+      "updated": "2026-07-06T14:44:45.062+00:00"
+    },
+    {
+      "week": "2026-07-13",
+      "projected": 118284,
+      "days": 7,
+      "target": null,
+      "updated": "2026-07-14T21:16:17.757+00:00"
+    },
+    {
+      "week": "2026-07-20",
+      "projected": 116817,
+      "days": 7,
+      "target": null,
+      "updated": "2026-07-20T20:09:53.917+00:00"
+    },
+    {
+      "week": "2026-07-27",
+      "projected": 117420,
+      "days": 7,
+      "target": null,
+      "updated": "2026-07-27T01:07:10.385+00:00"
+    },
+    {
+      "week": "2026-08-03",
+      "projected": 121128,
+      "days": 7,
+      "target": null,
+      "updated": "2026-08-06T21:58:35.154+00:00"
+    },
+    {
+      "week": "2026-08-10",
+      "projected": 117351,
+      "days": 7,
+      "target": null,
+      "updated": "2026-08-10T01:36:36.349+00:00"
+    },
+    {
+      "week": "2026-08-17",
+      "projected": 119697,
+      "days": 7,
+      "target": null,
+      "updated": "2026-08-17T03:43:06.157+00:00"
+    },
+    {
+      "week": "2026-08-24",
+      "projected": 117370,
+      "days": 7,
+      "target": null,
+      "updated": "2026-08-23T23:56:50.874+00:00"
+    },
+    {
+      "week": "2026-08-31",
+      "projected": 122156,
+      "days": 7,
+      "target": null,
+      "updated": "2026-08-31T19:59:17.336+00:00"
+    },
+    {
+      "week": "2026-09-07",
+      "projected": 120922,
+      "days": 7,
+      "target": null,
+      "updated": "2026-09-07T17:20:12.856+00:00"
+    },
+    {
+      "week": "2026-09-14",
+      "projected": 119383,
+      "days": 7,
+      "target": null,
+      "updated": "2026-09-16T00:50:06.664+00:00"
+    }
+  ],
+  "extensions": [
+    {
+      "date": "2026-09-07",
+      "toast": 13.96,
+      "ronos": 13.98,
+      "scheduled": 7.5,
+      "in": "09/07, 07:58",
+      "out": "09/07, 23:00",
+      "sales": 16633.27,
+      "labor": 18.33,
+      "projection": 14147,
+      "punchId": "642c68fa-8257-48eb-b4a6-85bd3fc18b5b",
+      "scheduleIds": [
+        "be142b32-c3fc-4781-8bc0-9e2f543bb942"
+      ]
+    },
+    {
+      "date": "2026-09-08",
+      "toast": 11.54,
+      "ronos": 11.52,
+      "scheduled": 7.5,
+      "in": "09/08, 08:57",
+      "out": "09/08, 20:59",
+      "sales": 12639.64,
+      "labor": 24.08,
+      "projection": 13630,
+      "punchId": "3b2d5f35-d530-4ece-bc52-83abca00aeb9",
+      "scheduleIds": [
+        "e70d10a5-2e43-45ac-a209-edf3ac7383b5"
+      ]
+    },
+    {
+      "date": "2026-08-19",
+      "toast": 12.04,
+      "ronos": 12.03,
+      "scheduled": 7.5,
+      "in": "08/19, 08:57",
+      "out": "08/19, 22:00",
+      "sales": 14163.29,
+      "labor": 18.82,
+      "projection": 13648,
+      "punchId": "d20c4987-cf45-4616-a910-b41c825dfab7",
+      "scheduleIds": [
+        "aab08488-1654-4783-b7d0-75f65433fe56"
+      ]
+    },
+    {
+      "date": "2026-09-13",
+      "toast": 11.44,
+      "ronos": 11.45,
+      "scheduled": 7.5,
+      "in": "09/13, 09:02",
+      "out": "09/13, 20:59",
+      "sales": 22755.39,
+      "labor": 21.47,
+      "projection": 20896,
+      "punchId": "30b55004-ecfd-4a7c-a469-aa6b57cc16b7",
+      "scheduleIds": [
+        "321bbc91-d037-4004-a671-1883118dd57e"
+      ]
+    }
+  ],
+  "staffingContext": [
+    {
+      "date": "2026-09-07",
+      "missing": []
+    },
+    {
+      "date": "2026-09-08",
+      "missing": [
+        {
+          "name": "Jose Andres Morales",
+          "start": "16:00",
+          "end": "00:00",
+          "id": "7847b558-42ae-471b-8240-1444622ee225"
+        }
+      ]
+    },
+    {
+      "date": "2026-08-19",
+      "missing": [
+        {
+          "name": "Irving Saca",
+          "start": "17:00",
+          "end": "01:00",
+          "id": "1fafece2-de5d-4430-acc5-c4d081bc9eff"
+        },
+        {
+          "name": "Cruz Victorino Castillo",
+          "start": "17:00",
+          "end": "02:00",
+          "id": "a00b85de-09b1-48d3-b141-fb6ab176ac57"
+        }
+      ]
+    },
+    {
+      "date": "2026-09-13",
+      "missing": [
+        {
+          "name": "Fernando Lacayo Cisne",
+          "start": "10:00",
+          "end": "17:00",
+          "id": "19091fa9-b66b-46ca-a6d7-72959475b3a0"
+        },
+        {
+          "name": "Eliuth Alvarez",
+          "start": "09:00",
+          "end": "17:00",
+          "id": "ba98ad29-c40e-4b39-aef4-17163369e9fe"
+        }
+      ]
+    }
+  ]
+}

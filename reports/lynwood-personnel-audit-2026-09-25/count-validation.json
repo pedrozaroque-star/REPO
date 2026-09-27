@@ -1,0 +1,24 @@
+{
+  "at": "2026-09-25T16:10:14.509Z",
+  "checks": [
+    {
+      "table": "punches",
+      "remote": 50315,
+      "local": 50315,
+      "match": true
+    },
+    {
+      "table": "shifts",
+      "remote": 6283,
+      "local": 6283,
+      "match": true
+    },
+    {
+      "table": "sales_daily_cache",
+      "remote": 2459,
+      "local": 2459,
+      "match": true
+    }
+  ],
+  "status": "PASS"
+}

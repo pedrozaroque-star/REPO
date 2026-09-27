@@ -1,0 +1,54 @@
+[
+  {
+    "id": "34e3bb23-4e85-4a7a-8b01-ca7600c065d4",
+    "ronos_employee_user_id": 34128,
+    "ronos_employee_id": 33430,
+    "ronos_company_id": 34,
+    "ronos_full_name": "Miguel Pablo perez",
+    "ronos_job_title": "Team Member",
+    "toast_employee_id": "752e830d-8293-48b8-8652-683cd19e9955",
+    "toast_guid": "aef877da-860e-45fa-ac95-7bcc51cf3fca",
+    "toast_full_name": "Miguel Perez",
+    "mapping_type": "manual",
+    "is_confirmed": true
+  },
+  {
+    "id": "a67dd3ba-fe17-4e78-9f4c-653daef6014d",
+    "ronos_employee_user_id": 33739,
+    "ronos_employee_id": 33041,
+    "ronos_company_id": 34,
+    "ronos_full_name": "Daniel Vazquez",
+    "ronos_job_title": "Inactivo",
+    "toast_employee_id": null,
+    "toast_guid": null,
+    "toast_full_name": "INACTIVO / NO LABORA",
+    "mapping_type": "inactive",
+    "is_confirmed": true
+  },
+  {
+    "id": "a6948769-b792-47c3-8b2a-db2075d4c1c6",
+    "ronos_employee_user_id": 35652,
+    "ronos_employee_id": 34952,
+    "ronos_company_id": 34,
+    "ronos_full_name": "Jose Morales",
+    "ronos_job_title": "Inactivo",
+    "toast_employee_id": null,
+    "toast_guid": null,
+    "toast_full_name": "INACTIVO / NO LABORA",
+    "mapping_type": "inactive",
+    "is_confirmed": true
+  },
+  {
+    "id": "fda7e7dd-9d7a-43cf-be74-1c39900564dc",
+    "ronos_employee_user_id": 30680,
+    "ronos_employee_id": 29982,
+    "ronos_company_id": 34,
+    "ronos_full_name": "Alexander Villarreal",
+    "ronos_job_title": "Inactivo",
+    "toast_employee_id": null,
+    "toast_guid": null,
+    "toast_full_name": "INACTIVO / NO LABORA",
+    "mapping_type": "inactive",
+    "is_confirmed": true
+  }
+]
