@@ -43,6 +43,7 @@
  *   2. Aislamiento de estado por sucursal con AbortController, limpieza de filas al conmutar y bloqueo en loading.
  *   3. Envío con modos inequívocos ('live' | 'draft') y validación de membresía contra catálogo activo.
  *   4. Manejo de éxito parcial (HTTP 207): descuento inmediato de sodas confirmadas para reintentos seguros.
+ * - [2026-09-27] ADAPTACIÓN RESPONSIVA: Refactorización de modales de confirmación y éxito con max-h-[92vh], flex flex-col, sticky footer y scroll interno para pantallas de computadoras compactas (1366x768).
  */
 
 'use client';
@@ -1393,205 +1394,253 @@ function VieleOrderContent() {
 
       {/* Modal de Confirmación de Envío Oficial a Viele & Sons */}
       {isConfirmModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
-          <div className="bg-white border border-slate-200 rounded-2xl max-w-lg w-full p-6 shadow-2xl animate-in fade-in zoom-in-95 text-slate-900">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-4 mb-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-3 sm:p-4 md:p-6 overflow-hidden">
+          <div className="bg-white border border-slate-200 rounded-2xl max-w-xl w-full max-h-[92vh] flex flex-col shadow-2xl text-slate-900 overflow-hidden animate-in fade-in zoom-in-95">
+            {/* Header Fijo */}
+            <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3.5 sm:px-6 sm:py-4 bg-white shrink-0">
               <div className="flex items-center gap-3">
                 <span className="p-2 bg-emerald-50 text-emerald-600 rounded-xl border border-emerald-200 shadow-sm">
-                  <Truck className="w-6 h-6" />
+                  <Truck className="w-5 h-5 sm:w-6 sm:h-6" />
                 </span>
-                <h3 className="text-lg font-bold text-slate-900">
-                  {t('viele.modal.confirm_title')}
-                </h3>
+                <div>
+                  <h3 className="text-base sm:text-lg font-bold text-slate-900">
+                    {t('viele.modal.confirm_title')}
+                  </h3>
+                  <p className="text-xs text-slate-500 font-medium">
+                    {currentStoreAccount?.storeName} (#{storeId}) · Sage 100: {currentStoreAccount?.sageCustomerCode}
+                  </p>
+                </div>
               </div>
               <button
+                type="button"
                 onClick={() => setIsConfirmModalOpen(false)}
-                className="text-slate-400 hover:text-slate-600 transition-colors"
+                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
+                aria-label={t('viele.modal.btn_cancel')}
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <p className="text-sm text-slate-600 mb-4 leading-relaxed">
-              {t('viele.modal.confirm_desc')}
-            </p>
+            {/* Contenido con Scroll Vertical Interno */}
+            <div className="overflow-y-auto px-5 py-4 sm:px-6 sm:py-5 flex-1 min-h-0 space-y-4 text-sm text-slate-700">
+              <p className="text-xs sm:text-sm text-slate-600 leading-relaxed">
+                {t('viele.modal.confirm_desc')}
+              </p>
 
-            <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-2 mb-5 text-sm">
-              <div className="flex justify-between">
-                <span className="text-slate-500">{t('viele.modal.store_label')}</span>
-                <strong className="text-slate-900">🌮 {currentStoreAccount?.storeName} (#{storeId})</strong>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-500">Sage 100 Customer ID:</span>
-                <span className="font-mono text-amber-800 font-bold">{currentStoreAccount?.sageCustomerCode}</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-slate-500">{t('viele.modal.date_label')}</span>
-                <div className="text-right">
-                  <span className="text-sm font-semibold text-slate-900 tabular-nums">
-                    {formatUsDate(shipDate)}
-                  </span>
-                  <span className="block text-xs text-slate-500 font-medium">
-                    {formatUsFullDate(shipDate, 'en-US')}
-                  </span>
+              {/* Tarjeta de Resumen Operativo */}
+              <div className="bg-slate-50 p-3.5 sm:p-4 rounded-xl border border-slate-200 space-y-2.5 text-xs sm:text-sm">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pb-2 border-b border-slate-200/80">
+                  <div>
+                    <span className="text-[11px] font-semibold text-slate-500 block uppercase tracking-wider">
+                      {t('viele.modal.store_label')}
+                    </span>
+                    <strong className="text-slate-900 font-bold text-sm">
+                      {currentStoreAccount?.storeName} (#{storeId})
+                    </strong>
+                  </div>
+                  <div>
+                    <span className="text-[11px] font-semibold text-slate-500 block uppercase tracking-wider">
+                      Sage 100 Customer ID:
+                    </span>
+                    <span className="font-mono text-amber-800 font-bold text-sm">
+                      {currentStoreAccount?.sageCustomerCode}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex justify-between items-center py-1">
+                  <div>
+                    <span className="text-[11px] font-semibold text-slate-500 block uppercase tracking-wider">
+                      {t('viele.modal.date_label')}
+                    </span>
+                    <span className="text-sm font-semibold text-slate-900 tabular-nums">
+                      {formatUsDate(shipDate)}
+                    </span>
+                    <span className="text-xs text-slate-500 font-medium ml-1.5">
+                      ({formatUsFullDate(shipDate, 'en-US')})
+                    </span>
+                  </div>
                   {!isTuesday(shipDate) && (
-                    <span className="block text-xs text-amber-700 font-medium mt-0.5">
-                      ⚠️ Entrega especial programada
+                    <span className="px-2 py-0.5 bg-amber-50 text-amber-800 border border-amber-200 rounded-lg text-xs font-semibold">
+                      Entrega especial programada
                     </span>
                   )}
                 </div>
-              </div>
 
-              {/* Desglose Dual de Facturación */}
-              <div className="pt-2 border-t border-slate-200 mt-2 space-y-2">
-                {summary.sodas.totalCases > 0 && (
-                  <div className="flex items-center justify-between bg-indigo-50/70 p-2.5 rounded-lg border border-indigo-100 text-xs">
-                    <span className="font-bold text-indigo-900 flex items-center gap-1.5">
-                      <span>🥤</span> Factura 1 (Sodas BIB):
-                    </span>
-                    <div className="text-right tabular-nums">
-                      <span className="font-semibold text-indigo-950">{formatNumber(summary.sodas.totalCases)} cajas</span>
-                      <span className="text-slate-400 mx-1">•</span>
-                      <strong className="text-indigo-700 font-bold">{formatCurrency(summary.sodas.grandTotal)}</strong>
+                {/* Desglose Dual de Facturación */}
+                <div className="pt-2 border-t border-slate-200 space-y-2">
+                  {summary.sodas.totalCases > 0 && (
+                    <div className="flex items-center justify-between bg-indigo-50/70 p-2.5 rounded-lg border border-indigo-100 text-xs">
+                      <span className="font-bold text-indigo-900 flex items-center gap-1.5">
+                        <span className="px-1.5 py-0.5 bg-indigo-200/60 rounded text-[10px] font-black uppercase tracking-wider">BIB</span>
+                        Factura 1 (Sodas):
+                      </span>
+                      <div className="text-right tabular-nums">
+                        <span className="font-semibold text-indigo-950">{formatNumber(summary.sodas.totalCases)} cajas</span>
+                        <span className="text-slate-400 mx-1">•</span>
+                        <strong className="text-indigo-700 font-bold">{formatCurrency(summary.sodas.grandTotal)}</strong>
+                      </div>
                     </div>
-                  </div>
-                )}
-                {summary.general.totalCases > 0 && (
-                  <div className="flex items-center justify-between bg-amber-50/70 p-2.5 rounded-lg border border-amber-100 text-xs">
-                    <span className="font-bold text-amber-900 flex items-center gap-1.5">
-                      <span>📦</span> Factura 2 (Insumos Generales):
-                    </span>
-                    <div className="text-right tabular-nums">
-                      <span className="font-semibold text-amber-950">{formatNumber(summary.general.totalCases)} cajas</span>
-                      <span className="text-slate-400 mx-1">•</span>
-                      <strong className="text-amber-700 font-bold">{formatCurrency(summary.general.grandTotal)}</strong>
+                  )}
+                  {summary.general.totalCases > 0 && (
+                    <div className="flex items-center justify-between bg-amber-50/70 p-2.5 rounded-lg border border-amber-100 text-xs">
+                      <span className="font-bold text-amber-900 flex items-center gap-1.5">
+                        <span className="px-1.5 py-0.5 bg-amber-200/60 rounded text-[10px] font-black uppercase tracking-wider">GEN</span>
+                        Factura 2 (Insumos Generales):
+                      </span>
+                      <div className="text-right tabular-nums">
+                        <span className="font-semibold text-amber-950">{formatNumber(summary.general.totalCases)} cajas</span>
+                        <span className="text-slate-400 mx-1">•</span>
+                        <strong className="text-amber-700 font-bold">{formatCurrency(summary.general.grandTotal)}</strong>
+                      </div>
                     </div>
+                  )}
+                  {summary.isSplit && (
+                    <p className="text-[11px] text-slate-500 leading-snug px-1">
+                      <strong>Protocolo Oficial Viele & Sons:</strong> Se generarán automáticamente 2 órdenes correlativas independientes para emitir facturas separadas de Sodas e Insumos tal como lo requiere el proveedor.
+                    </p>
+                  )}
+                </div>
+
+                <div className="flex justify-between items-center border-t border-slate-200 pt-2">
+                  <span className="text-slate-700 font-bold text-sm">{t('viele.modal.total_label')}</span>
+                  <div className="text-right">
+                    <strong className="text-emerald-700 font-bold tabular-nums text-lg">{formatCurrency(summary.grandTotal)}</strong>
+                    <span className="text-xs text-slate-500 font-medium block">
+                      {formatNumber(summary.totalCases)} cajas en total
+                    </span>
                   </div>
-                )}
-                {summary.isSplit && (
-                  <p className="text-[11px] text-slate-500 leading-snug px-1">
-                    ℹ️ <strong>Protocolo Oficial Viele & Sons:</strong> Se generarán automáticamente 2 órdenes correlativas independientes para emitir facturas separadas de Sodas e Insumos tal como lo requiere el proveedor.
-                  </p>
-                )}
+                </div>
               </div>
 
-              <div className="flex justify-between border-t border-slate-200 pt-2 text-base">
-                <span className="text-slate-700 font-bold">{t('viele.modal.total_label')}</span>
-                <strong className="text-emerald-700 font-bold tabular-nums text-lg">{formatCurrency(summary.grandTotal)}</strong>
-              </div>
-            </div>
+              {/* Inputs del Comprador */}
+              <div className="space-y-3 pt-1">
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-bold text-slate-700">
+                      {t('viele.modal.buyer_label')}
+                    </label>
+                    <span className="text-[11px] text-emerald-700 font-bold px-2 py-0.5 bg-emerald-50 border border-emerald-200 rounded">
+                      Código Oficial: AFV
+                    </span>
+                  </div>
+                  <input
+                    type="text"
+                    value={buyerName}
+                    onChange={(e) => setBuyerName(e.target.value)}
+                    className="w-full bg-white border border-slate-300 rounded-xl px-3.5 py-2 text-slate-900 font-bold font-mono text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 uppercase shadow-sm"
+                  />
+                  {/* Botones de Comprador Registrado en Viele */}
+                  <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                    <span className="text-[10px] text-slate-500 font-semibold">Registrados en Viele & Sons:</span>
+                    {(['AFV', 'LEWIS', 'MARK', 'PV'] as const).map(code => (
+                      <button
+                        key={code}
+                        type="button"
+                        onClick={() => setBuyerName(code)}
+                        className={`px-2 py-0.5 text-xs font-bold rounded-lg transition-colors cursor-pointer ${
+                          buyerName === code
+                            ? 'bg-amber-500 text-slate-950 font-bold shadow-sm'
+                            : 'bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-200'
+                        }`}
+                      >
+                        {code} {code === 'AFV' ? '(Oficial)' : ''}
+                      </button>
+                    ))}
+                  </div>
+                </div>
 
-            {/* Inputs del Comprador */}
-            <div className="space-y-3 mb-6">
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="block text-xs font-bold text-slate-600">
-                    {t('viele.modal.buyer_label')}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    {t('viele.modal.po_label')}
                   </label>
-                  <span className="text-xs text-emerald-700 font-semibold">
-                    ★ Código Oficial: AFV
-                  </span>
+                  <input
+                    type="text"
+                    value={poNumber}
+                    onChange={(e) => setPoNumber(e.target.value)}
+                    placeholder={buyerName || 'AFV'}
+                    className="w-full bg-white border border-slate-300 rounded-xl px-3.5 py-2 text-slate-900 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 shadow-sm"
+                  />
+                  <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                    <span className="text-[10px] text-slate-500 font-semibold">Referencias / Químicos:</span>
+                    {(['AFV', 'AFV / CHEMICAL', 'MARK / CHEMICAL', 'LEWIS/CHEMICALS', 'PV/ CHEMICAL'] as const).map(refCode => (
+                      <button
+                        key={refCode}
+                        type="button"
+                        onClick={() => setPoNumber(refCode)}
+                        className={`px-2 py-0.5 text-[11px] font-bold rounded-lg transition-colors cursor-pointer ${
+                          poNumber === refCode
+                            ? 'bg-emerald-600 text-white font-bold shadow-sm'
+                            : 'bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-200'
+                        }`}
+                      >
+                        {refCode}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-[10px] text-slate-500 mt-1">
+                    Si se deja en blanco, se registrará automáticamente como <strong className="text-slate-800 font-mono">{buyerName || 'AFV'}</strong> tal como siempre se ha registrado en Viele & Sons.
+                  </p>
                 </div>
-                <input
-                  type="text"
-                  value={buyerName}
-                  onChange={(e) => setBuyerName(e.target.value)}
-                  className="w-full bg-white border border-slate-300 rounded-xl px-3.5 py-2 text-slate-900 font-bold font-mono text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 uppercase shadow-sm"
-                />
-                {/* Botones de Comprador Registrado en Viele */}
-                <div className="flex flex-wrap items-center gap-1.5 mt-2">
-                  <span className="text-[10px] text-slate-500">Registrados en Viele & Sons:</span>
-                  {(['AFV', 'LEWIS', 'MARK', 'PV'] as const).map(code => (
-                    <button
-                      key={code}
-                      type="button"
-                      onClick={() => setBuyerName(code)}
-                      className={`px-2 py-0.5 text-xs font-bold rounded-lg transition-colors cursor-pointer ${
-                        buyerName === code
-                          ? 'bg-amber-500 text-slate-950 font-bold shadow-sm'
-                          : 'bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-200'
-                      }`}
-                    >
-                      {code} {code === 'AFV' ? '★ Oficial' : ''}
-                    </button>
-                  ))}
-                </div>
-              </div>
 
-              <div>
-                <label className="block text-xs font-bold text-slate-600 mb-1">
-                  {t('viele.modal.po_label')}
-                </label>
-                <input
-                  type="text"
-                  value={poNumber}
-                  onChange={(e) => setPoNumber(e.target.value)}
-                  placeholder={buyerName || 'AFV'}
-                  className="w-full bg-white border border-slate-300 rounded-xl px-3.5 py-2 text-slate-900 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 shadow-sm"
-                />
-                <div className="flex flex-wrap items-center gap-1.5 mt-2">
-                  <span className="text-[10px] text-slate-500">Referencias / Químicos:</span>
-                  {(['AFV', 'AFV / CHEMICAL', 'MARK / CHEMICAL', 'LEWIS/CHEMICALS', 'PV/ CHEMICAL'] as const).map(refCode => (
-                    <button
-                      key={refCode}
-                      type="button"
-                      onClick={() => setPoNumber(refCode)}
-                      className={`px-2 py-0.5 text-[11px] font-bold rounded-lg transition-colors cursor-pointer ${
-                        poNumber === refCode
-                          ? 'bg-emerald-600 text-white font-bold shadow-sm'
-                          : 'bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-200'
-                      }`}
-                    >
-                      {refCode}
-                    </button>
-                  ))}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    {t('viele.modal.notes_label')}
+                  </label>
+                  <textarea
+                    rows={2}
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    placeholder="Instrucciones de entrega para el chofer..."
+                    className="w-full bg-white border border-slate-300 rounded-xl px-3.5 py-2 text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 resize-none shadow-sm"
+                  />
                 </div>
-                <p className="text-[10px] text-slate-500 mt-1">
-                  Si se deja en blanco, se registrará automáticamente como <strong className="text-slate-800 font-mono">{buyerName || 'AFV'}</strong> tal como siempre se ha registrado en Viele & Sons.
-                </p>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-600 mb-1">
-                  {t('viele.modal.notes_label')}
-                </label>
-                <textarea
-                  rows={2}
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  placeholder="Instrucciones de entrega para el chofer..."
-                  className="w-full bg-white border border-slate-300 rounded-xl px-3.5 py-2 text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 resize-none shadow-sm"
-                />
               </div>
             </div>
 
-            {/* Botones del Modal */}
-            <div className="flex items-center justify-end gap-3 border-t border-slate-100 pt-4">
-              <button
-                onClick={() => setIsConfirmModalOpen(false)}
-                disabled={isSubmitting}
-                className="px-4 py-2 text-sm font-bold text-slate-500 hover:text-slate-800 transition cursor-pointer"
-              >
-                {t('viele.modal.btn_cancel')}
-              </button>
+            {/* Footer Fijo con Botones Visibles Siempre */}
+            <div className="flex items-center justify-between gap-3 border-t border-slate-200 px-5 py-3 sm:px-6 sm:py-3.5 bg-slate-50/95 backdrop-blur-sm shrink-0">
+              <div className="flex flex-col text-left">
+                <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
+                  {t('viele.modal.total_label')}
+                </span>
+                <span className="text-base sm:text-lg font-bold text-emerald-700 tabular-nums">
+                  {formatCurrency(summary.grandTotal)}
+                  <span className="text-xs font-normal text-slate-500 ml-1.5">
+                    ({formatNumber(summary.totalCases)} cajas)
+                  </span>
+                </span>
+              </div>
 
-              <button
-                onClick={handleConfirmLiveSubmit}
-                disabled={isSubmitting}
-                className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold text-sm rounded-xl shadow-lg shadow-emerald-600/20 transition flex items-center gap-2 cursor-pointer"
-              >
-                {isSubmitting ? (
-                  <>
-                    <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                    {t('viele.modal.sending')}
-                  </>
-                ) : (
-                  <>
-                    <Send className="w-4 h-4" />
-                    {t('viele.modal.btn_confirm')}
-                  </>
-                )}
-              </button>
+              <div className="flex items-center gap-2 sm:gap-3">
+                <button
+                  type="button"
+                  onClick={() => setIsConfirmModalOpen(false)}
+                  disabled={isSubmitting}
+                  className="px-3.5 py-2 text-sm font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-200/70 rounded-xl transition cursor-pointer"
+                >
+                  {t('viele.modal.btn_cancel')}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleConfirmLiveSubmit}
+                  disabled={isSubmitting}
+                  className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold text-sm rounded-xl shadow-lg shadow-emerald-600/20 transition flex items-center gap-2 cursor-pointer shrink-0"
+                >
+                  {isSubmitting ? (
+                    <>
+                      <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      {t('viele.modal.sending')}
+                    </>
+                  ) : (
+                    <>
+                      <Send className="w-4 h-4" />
+                      {t('viele.modal.btn_confirm')}
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -1599,92 +1648,98 @@ function VieleOrderContent() {
 
       {/* Modal de Éxito al Finalizar Orden */}
       {submitSuccess && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
-          <div className="bg-white border border-emerald-200 rounded-2xl max-w-md w-full p-6 shadow-2xl text-center text-slate-900 animate-in fade-in zoom-in-95">
-            <div className="w-16 h-16 bg-emerald-50 text-emerald-600 border border-emerald-200 rounded-full flex items-center justify-center mx-auto mb-4 shadow-sm">
-              <CheckCircle className="w-10 h-10" />
-            </div>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-3 sm:p-4 overflow-hidden">
+          <div className="bg-white border border-emerald-200 rounded-2xl max-w-md w-full max-h-[92vh] flex flex-col shadow-2xl text-center text-slate-900 overflow-hidden animate-in fade-in zoom-in-95">
+            <div className="overflow-y-auto p-5 sm:p-6 flex-1 min-h-0 space-y-4">
+              <div className="w-14 h-14 sm:w-16 sm:h-16 bg-emerald-50 text-emerald-600 border border-emerald-200 rounded-full flex items-center justify-center mx-auto shadow-sm">
+                <CheckCircle className="w-8 h-8 sm:w-10 sm:h-10" />
+              </div>
 
-            <h3 className="text-xl font-bold text-slate-900 mb-2">
-              {t('viele.modal.success_title')}
-            </h3>
+              <div>
+                <h3 className="text-lg sm:text-xl font-bold text-slate-900 mb-1.5">
+                  {t('viele.modal.success_title')}
+                </h3>
+                <p className="text-xs sm:text-sm text-slate-600 leading-relaxed">
+                  {submitSuccess.split ? (
+                    <>
+                      Se generaron exitosamente las <strong>2 facturas oficiales</strong> en Viele & Sons:
+                    </>
+                  ) : (
+                    t('viele.modal.success_desc')
+                  )}
+                </p>
+              </div>
 
-            <p className="text-sm text-slate-600 mb-5 leading-relaxed">
               {submitSuccess.split ? (
-                <>
-                  Se generaron exitosamente las <strong>2 facturas oficiales</strong> en Viele & Sons:
-                </>
+                <div className="bg-slate-50 p-3.5 sm:p-4 rounded-xl border border-slate-200 text-left space-y-2.5">
+                  {/* Factura Sodas */}
+                  <div className="p-2.5 sm:p-3 bg-indigo-50/80 rounded-xl border border-indigo-100 flex items-center justify-between">
+                    <div>
+                      <span className="text-[11px] font-bold text-indigo-900 block flex items-center gap-1">
+                        <span className="px-1.5 py-0.5 bg-indigo-200/60 rounded text-[10px] font-black uppercase tracking-wider">BIB</span>
+                        Factura 1 (Sodas BIB)
+                      </span>
+                      <span className="text-base sm:text-lg font-bold text-indigo-950 font-mono">
+                        {submitSuccess.orderNumberSodas}
+                      </span>
+                    </div>
+                    <span className="text-sm font-bold tabular-nums text-indigo-700">
+                      {formatCurrency(submitSuccess.sodasTotal)}
+                    </span>
+                  </div>
+
+                  {/* Factura Insumos */}
+                  <div className="p-2.5 sm:p-3 bg-amber-50/80 rounded-xl border border-amber-100 flex items-center justify-between">
+                    <div>
+                      <span className="text-[11px] font-bold text-amber-900 block flex items-center gap-1">
+                        <span className="px-1.5 py-0.5 bg-amber-200/60 rounded text-[10px] font-black uppercase tracking-wider">GEN</span>
+                        Factura 2 (Insumos Generales)
+                      </span>
+                      <span className="text-base sm:text-lg font-bold text-amber-950 font-mono">
+                        {submitSuccess.orderNumberGeneral}
+                      </span>
+                    </div>
+                    <span className="text-sm font-bold tabular-nums text-amber-700">
+                      {formatCurrency(submitSuccess.generalTotal)}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between border-t border-slate-200 pt-2 text-xs">
+                    <span className="text-slate-500 font-bold">Total Facturado Combinado:</span>
+                    <span className="text-sm sm:text-base font-bold tabular-nums text-emerald-700">
+                      {formatCurrency(submitSuccess.totalAmount)}
+                    </span>
+                  </div>
+                </div>
               ) : (
-                t('viele.modal.success_desc')
+                <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 text-center">
+                  <span className="text-xs text-slate-500 uppercase font-bold block mb-1">
+                    {t('viele.modal.order_number_label')}
+                  </span>
+                  <span className="text-xl sm:text-2xl font-bold text-emerald-700 font-mono tracking-wider">
+                    {submitSuccess.orderNumber}
+                  </span>
+                  <div className="text-xs text-slate-500 mt-1">
+                    {submitSuccess.isSimulation ? 'Simulación verificada' : 'Confirmada oficialmente en Sage 100'}
+                  </div>
+                </div>
               )}
-            </p>
 
-            {submitSuccess.split ? (
-              <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 mb-6 text-left space-y-3">
-                {/* Factura Sodas */}
-                <div className="p-3 bg-indigo-50/80 rounded-xl border border-indigo-100 flex items-center justify-between">
-                  <div>
-                    <span className="text-[11px] font-bold text-indigo-900 block flex items-center gap-1">
-                      <span>🥤</span> Factura 1 (Sodas BIB)
-                    </span>
-                    <span className="text-lg font-bold text-indigo-950 font-mono">
-                      {submitSuccess.orderNumberSodas}
-                    </span>
-                  </div>
-                  <span className="text-sm font-bold tabular-nums text-indigo-700">
-                    {formatCurrency(submitSuccess.sodasTotal)}
-                  </span>
-                </div>
-
-                {/* Factura Insumos */}
-                <div className="p-3 bg-amber-50/80 rounded-xl border border-amber-100 flex items-center justify-between">
-                  <div>
-                    <span className="text-[11px] font-bold text-amber-900 block flex items-center gap-1">
-                      <span>📦</span> Factura 2 (Insumos Generales)
-                    </span>
-                    <span className="text-lg font-bold text-amber-950 font-mono">
-                      {submitSuccess.orderNumberGeneral}
-                    </span>
-                  </div>
-                  <span className="text-sm font-bold tabular-nums text-amber-700">
-                    {formatCurrency(submitSuccess.generalTotal)}
-                  </span>
-                </div>
-
-                <div className="flex items-center justify-between border-t border-slate-200 pt-2 text-xs">
-                  <span className="text-slate-500 font-bold">Total Facturado Combinado:</span>
-                  <span className="text-base font-bold tabular-nums text-emerald-700">
-                    {formatCurrency(submitSuccess.totalAmount)}
-                  </span>
-                </div>
+              <div className="flex flex-col gap-2 pt-2">
+                <Link
+                  href="/admin/compras/viele/historial"
+                  className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm rounded-xl transition shadow-md shadow-emerald-600/20"
+                >
+                  {t('viele.modal.btn_view_history')}
+                </Link>
+                <button
+                  type="button"
+                  onClick={() => setSubmitSuccess(null)}
+                  className="w-full py-2 text-sm font-bold text-slate-500 hover:text-slate-800 transition cursor-pointer"
+                >
+                  {t('viele.modal.btn_new_order')}
+                </button>
               </div>
-            ) : (
-              <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 mb-6 text-center">
-                <span className="text-xs text-slate-500 uppercase font-bold block mb-1">
-                  {t('viele.modal.order_number_label')}
-                </span>
-                <span className="text-2xl font-bold text-emerald-700 font-mono tracking-wider">
-                  {submitSuccess.orderNumber}
-                </span>
-                <div className="text-xs text-slate-500 mt-1">
-                  {submitSuccess.isSimulation ? 'Simulación verificada' : 'Confirmada oficialmente en Sage 100'}
-                </div>
-              </div>
-            )}
-
-            <div className="flex flex-col gap-2">
-              <Link
-                href="/admin/compras/viele/historial"
-                className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm rounded-xl transition shadow-md shadow-emerald-600/20"
-              >
-                {t('viele.modal.btn_view_history')}
-              </Link>
-              <button
-                onClick={() => setSubmitSuccess(null)}
-                className="w-full py-2 text-sm font-bold text-slate-500 hover:text-slate-800 transition cursor-pointer"
-              >
-                {t('viele.modal.btn_new_order')}
-              </button>
             </div>
           </div>
         </div>
