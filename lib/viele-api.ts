@@ -422,7 +422,7 @@ async function executeBatchCheckout(
     const shipToCode = extractInputVal(chkHtml, 'ShipToCode') || '1';
 
     // Construir formulario del Paso 1 (validate_main) exactamente como lo envía el navegador
-    const po = (req.customerPo?.trim() || req.buyerName?.trim() || 'AFV').slice(0, 15);
+    const po = (req.customerPo?.trim() || req.buyerName?.trim() || '').slice(0, 15);
     const comments = (req.notes || '').trim().slice(0, 256);
     const shipDateFormatted = formatShipDateForViele(req.shipDate);
 

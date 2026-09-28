@@ -19,7 +19,7 @@
  * - Soporte Bilingüe: Integrado con useLanguage() de lib/i18n.tsx.
  * - Prevención de órdenes accidentales: Modal de confirmación explícito antes del envío en vivo.
  * - Días de entrega: Siempre los días martes (getNextTuesday), editable para contingencias o cierres.
- * - Comprador oficial: "AFV" (Arturo Flores Velazquez), registrado en el 90% del historial de Viele & Sons.
+ * - Comprador: Campo en blanco por defecto. Viele & Sons solicitó no enviar 'AFV' automáticamente.
  * - Paleta visual: Tema claro (Light Mode) del sistema con fondos slate-50/50, tarjetas blancas, acentos ámbar/esmeralda.
  *
  * @dataFlow
@@ -45,6 +45,7 @@
  *   4. Manejo de éxito parcial (HTTP 207): descuento inmediato de sodas confirmadas para reintentos seguros.
  * - [2026-09-27] ADAPTACIÓN RESPONSIVA: Refactorización de modales de confirmación y éxito con max-h-[92vh], flex flex-col, sticky footer y scroll interno para pantallas de computadoras compactas (1366x768).
  * - [2026-09-27] CAPTURA LIMPIA DE SOBRANTES: En nueva captura, sobrante inicia en blanco (sin placeholder '0'), sugerido en 0 y pedido final en 0. Evita resta automática contra PAR y mantiene totales en 0 hasta que el usuario capture sobrantes, eliminando ruido visual.
+ * - [2026-09-28] CUSTOMER PO EN BLANCO: Representante de Viele & Sons informó que 'AFV' en Customer PO causa conflicto. Se eliminó el fallback 'AFV' de: estado inicial UI, handler del servidor, y formulario de checkout del portal. El campo ahora se envía vacío por defecto.
  */
 
 'use client';
@@ -200,9 +201,9 @@ function VieleOrderContent() {
   // Fecha de entrega: Siempre los días martes (con opción de modificar por emergencias o cierres)
   const [shipDate, setShipDate] = useState<string>(() => getNextTuesday());
 
-  // Modal de confirmación de checkout: Comprador oficial registrado en Viele & Sons ("AFV")
+  // Modal de confirmación de checkout: Campo comprador en blanco por defecto (Viele solicita no enviar 'AFV')
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
-  const [buyerName, setBuyerName] = useState('AFV');
+  const [buyerName, setBuyerName] = useState('');
   const [poNumber, setPoNumber] = useState('');
   const [notes, setNotes] = useState('');
   
@@ -717,7 +718,7 @@ function VieleOrderContent() {
           items: itemsToSubmit,
           shipDate,
           buyerName,
-          customerPo: poNumber.trim() || buyerName.trim() || 'AFV',
+          customerPo: poNumber.trim() || buyerName.trim(),
           notes,
           submitLive: true
         })
@@ -1543,8 +1544,8 @@ function VieleOrderContent() {
                     <label className="block text-xs font-bold text-slate-700">
                       {t('viele.modal.buyer_label')}
                     </label>
-                    <span className="text-[11px] text-emerald-700 font-bold px-2 py-0.5 bg-emerald-50 border border-emerald-200 rounded">
-                      Código Oficial: AFV
+                    <span className="text-[11px] text-slate-500 font-medium px-2 py-0.5 bg-slate-50 border border-slate-200 rounded">
+                      Opcional
                     </span>
                   </div>
                   <input
@@ -1552,6 +1553,7 @@ function VieleOrderContent() {
                     value={buyerName}
                     onChange={(e) => setBuyerName(e.target.value)}
                     className="w-full bg-white border border-slate-300 rounded-xl px-3.5 py-2 text-slate-900 font-bold font-mono text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 uppercase shadow-sm"
+                    placeholder="Dejar en blanco o escribir nombre"
                   />
                   {/* Botones de Comprador Registrado en Viele */}
                   <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
@@ -1567,7 +1569,7 @@ function VieleOrderContent() {
                             : 'bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-200'
                         }`}
                       >
-                        {code} {code === 'AFV' ? '(Oficial)' : ''}
+                        {code}
                       </button>
                     ))}
                   </div>
@@ -1581,12 +1583,12 @@ function VieleOrderContent() {
                     type="text"
                     value={poNumber}
                     onChange={(e) => setPoNumber(e.target.value)}
-                    placeholder={buyerName || 'AFV'}
+                    placeholder="Referencia de orden (opcional)"
                     className="w-full bg-white border border-slate-300 rounded-xl px-3.5 py-2 text-slate-900 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 shadow-sm"
                   />
                   <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
                     <span className="text-[10px] text-slate-500 font-semibold">Referencias / Químicos:</span>
-                    {(['AFV', 'AFV / CHEMICAL', 'MARK / CHEMICAL', 'LEWIS/CHEMICALS', 'PV/ CHEMICAL'] as const).map(refCode => (
+                    {(['CHEMICAL', 'MARK / CHEMICAL', 'LEWIS/CHEMICALS', 'PV/ CHEMICAL'] as const).map(refCode => (
                       <button
                         key={refCode}
                         type="button"
@@ -1602,7 +1604,7 @@ function VieleOrderContent() {
                     ))}
                   </div>
                   <p className="text-[10px] text-slate-500 mt-1">
-                    Si se deja en blanco, se registrará automáticamente como <strong className="text-slate-800 font-mono">{buyerName || 'AFV'}</strong> tal como siempre se ha registrado en Viele & Sons.
+                    Si ambos campos se dejan en blanco, el campo Customer PO se enviará vacío a Viele & Sons.
                   </p>
                 </div>
 

@@ -32,8 +32,8 @@ export async function handleVieleOrder(req: Request, db: SupabaseClient) {
     }
     if (!['live', 'draft', 'simulation'].includes(action)) throw new Error('Acción inválida.');
     for (const key of ['buyerName', 'customerPo', 'notes']) if (body[key] !== undefined && body[key] !== null && typeof body[key] !== 'string') throw new Error(`${key}: texto requerido.`);
-    const buyerName = (body.buyerName?.trim() || 'AFV').slice(0, 100);
-    const customerPo = (body.customerPo?.trim() || buyerName).slice(0, 15);
+    const buyerName = (body.buyerName?.trim() || '').slice(0, 100);
+    const customerPo = (body.customerPo?.trim() || '').slice(0, 15);
     const notes = (body.notes?.trim() || '').slice(0, 256);
     const [catalog, membership] = await Promise.all([
       db.from('viele_items').select('item_code,description,uom,unit_price').eq('is_active', true),
