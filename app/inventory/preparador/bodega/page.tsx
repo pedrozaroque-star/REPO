@@ -12,7 +12,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { AlertOctagon, CheckCircle2, Volume2, VolumeX, Store, Loader2, Play, Clock, Maximize, Minimize, HelpCircle, X, Calendar, Sun, Zap } from 'lucide-react'
+import { AlertOctagon, CheckCircle2, Volume2, VolumeX, Store, Loader2, Play, Clock, Maximize, Minimize, HelpCircle, X, Calendar, Sun, Zap, ChevronLeft, ChevronRight } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { createClient } from '@/lib/supabase-client'
 import { useAuth } from '@/components/ProtectedRoute'
@@ -926,6 +926,35 @@ export default function BodegaPWA() {
                                     </h2>
                                     <p className="text-slate-400 font-medium md:text-lg">Live Projection for Today (Warehouse)</p>
                                 </div>
+                            </div>
+
+                            {/* Stepper Rápido de Bloques de Horario */}
+                            <div className="flex items-center justify-between gap-2 w-full mb-4 bg-slate-800/80 p-1.5 rounded-xl border border-slate-700">
+                                <button
+                                    onClick={() => {
+                                        if (activeIndex > 0) setActiveIndex(prev => prev - 1)
+                                    }}
+                                    disabled={activeIndex === 0}
+                                    className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-slate-700 text-white font-bold text-xs shadow-xs disabled:opacity-30 disabled:cursor-not-allowed hover:bg-slate-600 cursor-pointer transition-colors"
+                                >
+                                    <ChevronLeft size={16} />
+                                    <span>{t('prep.prevBlock')}</span>
+                                </button>
+
+                                <span className="font-extrabold text-xs sm:text-sm text-slate-200 tracking-tight text-center">
+                                    {carouselBuckets[activeIndex]?.label || ''} <span className="opacity-50">({activeIndex + 1}/{carouselBuckets.length})</span>
+                                </span>
+
+                                <button
+                                    onClick={() => {
+                                        if (activeIndex < carouselBuckets.length - 2) setActiveIndex(prev => prev + 1)
+                                    }}
+                                    disabled={activeIndex >= carouselBuckets.length - 2}
+                                    className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-slate-700 text-white font-bold text-xs shadow-xs disabled:opacity-30 disabled:cursor-not-allowed hover:bg-slate-600 cursor-pointer transition-colors"
+                                >
+                                    <span>{t('prep.nextBlock')}</span>
+                                    <ChevronRight size={16} />
+                                </button>
                             </div>
 
                             {fetchingMeat ? (

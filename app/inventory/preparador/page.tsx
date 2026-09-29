@@ -16,7 +16,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { useLanguage } from '@/lib/i18n'
-import { BellRing, ChefHat, Clock, AlertTriangle, Send, UtensilsCrossed, PackageOpen, X, Loader2, Play, Maximize, Minimize, HelpCircle, CheckCircle2, TrendingDown, Calendar, FileText, BookOpen, Sun, Zap } from 'lucide-react'
+import { BellRing, ChefHat, Clock, AlertTriangle, Send, UtensilsCrossed, PackageOpen, X, Loader2, Play, Maximize, Minimize, HelpCircle, CheckCircle2, TrendingDown, Calendar, FileText, BookOpen, Sun, ChevronLeft, ChevronRight, Store, Flame, BarChart3, SlidersHorizontal } from 'lucide-react'
 import { useAuth } from '@/components/ProtectedRoute'
 import { createClient } from '@/lib/supabase-client'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -185,6 +185,8 @@ export default function PreparadorPage() {
     const [touchEnd, setTouchEnd] = useState<number | null>(null)
     const [showInfoModal, setShowInfoModal] = useState(false)
     const [wakeToast, setWakeToast] = useState(false)
+    const [mobileTab, setMobileTab] = useState<'parrilla' | 'insumos' | 'resumen'>('parrilla')
+    const [showMobileSettingsDrawer, setShowMobileSettingsDrawer] = useState(false)
 
     // Manual/Explicit Tablet Wake-up & Shift Start Handler
     const handleWakeUpTablet = async () => {
@@ -995,7 +997,7 @@ export default function PreparadorPage() {
     }
 
     return (
-        <div ref={containerRef} className={`flex flex-col overflow-hidden bg-slate-100 dark:bg-slate-950 transition-all ${isFullscreen ? 'fixed inset-0 z-[9999] h-screen w-screen' : 'h-[calc(100vh-64px)]'}`}>
+        <div ref={containerRef} className={`flex flex-col overflow-hidden bg-slate-100 dark:bg-slate-950 transition-all ${isFullscreen ? 'fixed inset-0 z-[9999] h-screen w-screen' : 'h-[calc(100dvh-64px)]'}`}>
             <audio ref={cookAlarmRef} src="/sounds/alarm.mp3" preload="auto" loop className="hidden" />
 
             {/* Toast Alerta Despertar Tableta */}
@@ -1005,9 +1007,9 @@ export default function PreparadorPage() {
                         initial={{ opacity: 0, y: -40, scale: 0.95 }}
                         animate={{ opacity: 1, y: 0, scale: 1 }}
                         exit={{ opacity: 0, y: -40, scale: 0.95 }}
-                        className="fixed top-4 left-1/2 -translate-x-1/2 z-[999999] bg-gradient-to-r from-emerald-600 to-teal-700 text-white px-6 py-3.5 rounded-2xl font-black text-sm md:text-base shadow-2xl flex items-center gap-3 border-2 border-emerald-300 backdrop-blur-md"
+                        className="fixed top-4 left-1/2 -translate-x-1/2 z-[999999] bg-gradient-to-r from-emerald-600 to-teal-700 text-white px-5 sm:px-6 py-3 sm:py-3.5 rounded-2xl font-black text-xs sm:text-sm md:text-base shadow-2xl flex items-center gap-2.5 sm:gap-3 border-2 border-emerald-300 backdrop-blur-md max-w-[90vw]"
                     >
-                        <CheckCircle2 size={24} className="text-emerald-200 shrink-0" />
+                        <CheckCircle2 size={22} className="text-emerald-200 shrink-0" />
                         <span>{t('prep.tabletAwakeSuccess')}</span>
                     </motion.div>
                 )}
@@ -1026,13 +1028,13 @@ export default function PreparadorPage() {
                             initial={{ scale: 0.9, y: 50 }}
                             animate={{ scale: 1, y: 0 }}
                             exit={{ scale: 0.9, y: 50 }}
-                            className="bg-slate-900 border-2 border-red-500 max-w-4xl w-full rounded-[40px] shadow-[0_0_150px_rgba(239,68,68,0.4)] p-8 md:p-16 flex flex-col items-center text-center"
+                            className="bg-slate-900 border-2 border-red-500 max-w-4xl w-full rounded-[40px] shadow-[0_0_150px_rgba(239,68,68,0.4)] p-6 sm:p-8 md:p-16 flex flex-col items-center text-center"
                         >
-                            <BellRing size={120} className="text-red-500 animate-bounce mb-8" />
-                            <h2 className="text-4xl md:text-6xl font-black text-white px-4 leading-tight uppercase mb-6 tracking-tighter">
+                            <BellRing size={80} className="text-red-500 animate-bounce mb-6 sm:mb-8 sm:w-[120px] sm:h-[120px]" />
+                            <h2 className="text-2xl sm:text-4xl md:text-6xl font-black text-white px-2 sm:px-4 leading-tight uppercase mb-4 sm:mb-6 tracking-tighter">
                                 {t('prep.prepareNextBlock')}
                             </h2>
-                            <p className="text-red-200 font-medium text-2xl md:text-4xl mb-12 uppercase tracking-wide bg-red-950/50 py-4 px-8 rounded-2xl border border-red-500/30">
+                            <p className="text-red-200 font-medium text-lg sm:text-2xl md:text-4xl mb-8 sm:mb-12 uppercase tracking-wide bg-red-950/50 py-3 sm:py-4 px-4 sm:px-8 rounded-2xl border border-red-500/30">
                                 {t('prep.nextSchedule')}<br/>
                                 <span className="text-white font-black">{nextBlockLabel}</span>
                             </p>
@@ -1044,7 +1046,7 @@ export default function PreparadorPage() {
                                         cookAlarmRef.current.currentTime = 0
                                     }
                                 }}
-                                className="w-full bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 text-white font-black py-6 rounded-2xl text-2xl uppercase tracking-wider shadow-2xl transition-transform active:scale-95 cursor-pointer"
+                                className="w-full bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 text-white font-black py-4 sm:py-6 rounded-2xl text-lg sm:text-2xl uppercase tracking-wider shadow-2xl transition-transform active:scale-95 cursor-pointer"
                             >
                                 {t('prep.understood')}
                             </button>
@@ -1053,9 +1055,44 @@ export default function PreparadorPage() {
                 )}
             </AnimatePresence>
 
-            {/* Header / Navbar */}
-            <div className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 p-3 md:p-4 flex justify-between items-center shrink-0 shadow-sm relative">
-                <div className="flex items-center gap-2 md:gap-3">
+            {/* TOP BAR ULTRA-COMPACTO PARA TELÉFONOS MÓVILES (< lg) */}
+            <div className="lg:hidden bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-3 py-2 flex items-center justify-between shrink-0 shadow-xs z-30">
+                <div className="flex items-center gap-2 min-w-0">
+                    <span className="font-black text-sm tracking-wider uppercase text-slate-800 dark:text-white flex items-center gap-1.5 truncate">
+                        <Flame size={18} className="text-orange-500 shrink-0" />
+                        <span>PREPARADOR</span>
+                    </span>
+                    <button 
+                        onClick={() => setShowMobileSettingsDrawer(true)}
+                        className="flex items-center gap-1 text-[11px] font-extrabold bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-2 py-0.5 rounded-full text-slate-700 dark:text-slate-300 truncate cursor-pointer active:scale-95 transition-transform"
+                    >
+                        <Store size={12} className="text-slate-400 shrink-0" />
+                        <span className="truncate max-w-[90px]">{stores.find(s => s.id === storeId)?.name || 'Tienda'}</span>
+                    </button>
+                </div>
+
+                <div className="flex items-center gap-1.5 shrink-0">
+                    <button 
+                        onClick={handleWakeUpTablet}
+                        className="flex items-center gap-1 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-500 text-white font-black px-2.5 py-1.5 rounded-xl text-[11px] shadow-sm shadow-orange-500/20 active:scale-95 transition-all cursor-pointer border border-amber-300/30"
+                        title={t('prep.wakeUpTabletDesc')}
+                    >
+                        <Sun size={14} className="animate-spin text-amber-100" style={{ animationDuration: '10s' }} />
+                        <span className="uppercase tracking-tight">{t('prep.wakeUpTabletShort')}</span>
+                    </button>
+                    <button 
+                        onClick={() => setShowMobileSettingsDrawer(true)}
+                        className="p-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 cursor-pointer active:scale-95 transition-transform"
+                        title={t('prep.ajustes')}
+                    >
+                        <SlidersHorizontal size={16} />
+                    </button>
+                </div>
+            </div>
+
+            {/* HEADER / NAVBAR COMPLETO PARA DESKTOP Y TABLETAS (>= lg) */}
+            <div className="hidden lg:flex bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 p-3 md:p-4 justify-between items-center shrink-0 shadow-sm relative">
+                <div className="flex items-center gap-3">
                     <button 
                         onClick={toggleFullscreen} 
                         className="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 px-3 py-2 rounded-xl font-bold text-xs transition-colors cursor-pointer border border-slate-200 dark:border-slate-700 shadow-xs"
@@ -1179,51 +1216,78 @@ export default function PreparadorPage() {
                 )}
             </div>
 
-            {/* Split Screen Container */}
-            <div className="flex flex-col lg:flex-row flex-1 overflow-y-auto lg:overflow-hidden">
+            {/* CONTENEDOR PRINCIPAL: VISTA APP EN MÓVIL (< lg) / SPLIT SCREEN EN DESKTOP (>= lg) */}
+            <div className="flex flex-col lg:flex-row flex-1 overflow-hidden min-h-0 pb-16 lg:pb-0">
                 
-                {/* LADO IZQUIERDO: PROYECCIÓN POR TRAMOS PICO */}
-                <div className="w-full lg:w-[48%] border-b lg:border-b-0 lg:border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 md:p-6 xl:p-8 flex flex-col shrink-0 lg:shrink lg:overflow-y-auto">
-                    <div className="flex justify-between items-center mb-6 bg-slate-50 dark:bg-slate-800/50 p-4 rounded-xl border border-slate-200 dark:border-slate-700">
-                        <div className="flex items-center gap-4">
-                            <Clock className="w-10 h-10 md:w-12 md:h-12 text-blue-500 shrink-0" />
+                {/* 1. PANEL RITMO DE COCCIÓN / PARRILLA (Visible en móvil si mobileTab === 'parrilla', siempre en desktop) */}
+                <div className={`w-full lg:w-[48%] border-b lg:border-b-0 lg:border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3 sm:p-4 md:p-6 xl:p-8 flex-col shrink-0 lg:shrink overflow-y-auto ${mobileTab === 'parrilla' ? 'flex flex-1' : 'hidden lg:flex'}`}>
+                    
+                    {/* Header del Ritmo de Cocción */}
+                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 sm:gap-3 mb-3 sm:mb-6 bg-slate-50 dark:bg-slate-800/50 p-2.5 sm:p-4 rounded-xl border border-slate-200 dark:border-slate-700">
+                        <div className="flex items-center gap-2 sm:gap-3">
+                            <Clock className="w-7 h-7 sm:w-10 sm:h-10 md:w-12 md:h-12 text-blue-500 shrink-0" />
                             <div>
-                                <h2 className="font-black text-slate-800 dark:text-white uppercase tracking-wider text-lg lg:text-2xl flex items-center gap-2">
+                                <h2 className="font-black text-slate-800 dark:text-white uppercase tracking-wider text-sm sm:text-lg lg:text-2xl flex items-center gap-2">
                                     {t('prep.cookingPace')}
                                     {intelligenceAcelerador !== 1.0 && (
-                                        <span className={`text-sm px-2 py-0.5 rounded-lg border ${intelligenceAcelerador > 1 ? 'bg-red-50 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-300 dark:border-red-800/50 shadow-[0_0_10px_rgba(239,68,68,0.2)]' : 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-800/50'}`}>
+                                        <span className={`text-[11px] sm:text-sm px-2 py-0.5 rounded-lg border ${intelligenceAcelerador > 1 ? 'bg-red-50 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-300 dark:border-red-800/50 shadow-[0_0_10px_rgba(239,68,68,0.2)]' : 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-800/50'}`}>
                                             Pace {intelligenceAcelerador > 1 ? '+' : ''}{((intelligenceAcelerador - 1) * 100).toFixed(0)}%
                                         </span>
                                     )}
                                 </h2>
                                 {cardDisplayMode === 'advanced' && (
-                                    <p className="text-sm md:text-base text-slate-500 font-medium hidden sm:block">{t('prep.liveProjection')}</p>
+                                    <p className="text-xs sm:text-sm text-slate-500 font-medium hidden sm:block">{t('prep.liveProjection')}</p>
                                 )}
                             </div>
                         </div>
-                        <div className="flex items-center gap-2 shrink-0 ml-2">
-                            <button onClick={handleWakeUpTablet} title={t('prep.wakeUpTabletDesc')} className="bg-amber-500 hover:bg-amber-600 text-white px-3 md:px-4 py-2 md:py-3 rounded-xl text-sm md:text-base font-black transition-colors shrink-0 shadow-sm flex items-center gap-1.5 cursor-pointer">
-                                <Zap size={16} />
-                                <span className="hidden sm:inline">{t('prep.syncShift')}</span>
-                            </button>
-                            <button onClick={() => setShowGuideModal(true)} className="bg-red-600 hover:bg-red-700 text-white px-3 md:px-5 py-2 md:py-3 rounded-xl text-sm md:text-base font-black transition-colors shrink-0 shadow-sm flex items-center gap-1.5 cursor-pointer">
-                                <BookOpen size={16} />
+                        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0 w-full sm:w-auto justify-end">
+                            <button onClick={() => setShowGuideModal(true)} className="bg-red-600 hover:bg-red-700 text-white px-2.5 py-1.5 sm:px-3 sm:py-2 md:px-5 md:py-3 rounded-xl text-xs sm:text-sm md:text-base font-black transition-colors shrink-0 shadow-sm flex items-center gap-1 cursor-pointer">
+                                <BookOpen size={14} />
                                 <span>{t('prep.viewGuide')}</span>
                             </button>
-                            <button onClick={() => setShowDayModal(true)} className="bg-blue-100 hover:bg-blue-200 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300 dark:hover:bg-blue-900 px-4 md:px-6 py-2 md:py-3 rounded-xl text-sm md:text-lg font-black transition-colors shrink-0 shadow-sm cursor-pointer">
+                            <button onClick={() => setShowDayModal(true)} className="hidden lg:flex bg-blue-100 hover:bg-blue-200 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300 dark:hover:bg-blue-900 px-4 py-2 md:py-3 rounded-xl text-sm md:text-lg font-black transition-colors shrink-0 shadow-sm cursor-pointer">
                                 {t('prep.viewDay')}
                             </button>
                         </div>
                     </div>
 
+                    {/* Stepper Rápido de Bloques de Horario */}
+                    <div className="flex items-center justify-between gap-2 w-full max-w-lg mx-auto mb-3 bg-slate-100 dark:bg-slate-800/80 p-1.5 rounded-xl border border-slate-200 dark:border-slate-700">
+                        <button
+                            onClick={() => {
+                                if (activeIndex > 0) setActiveIndex(prev => prev - 1)
+                            }}
+                            disabled={activeIndex === 0}
+                            className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-xs shadow-xs disabled:opacity-30 disabled:cursor-not-allowed hover:bg-blue-50 dark:hover:bg-slate-600 cursor-pointer transition-colors"
+                        >
+                            <ChevronLeft size={16} />
+                            <span>{t('prep.prevBlock')}</span>
+                        </button>
+
+                        <span className="font-extrabold text-xs sm:text-sm text-slate-700 dark:text-slate-200 tracking-tight text-center">
+                            {carouselBuckets[activeIndex]?.label || ''} <span className="opacity-50">({activeIndex + 1}/{carouselBuckets.length})</span>
+                        </span>
+
+                        <button
+                            onClick={() => {
+                                if (activeIndex < carouselBuckets.length - 2) setActiveIndex(prev => prev + 1)
+                            }}
+                            disabled={activeIndex >= carouselBuckets.length - 2}
+                            className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-xs shadow-xs disabled:opacity-30 disabled:cursor-not-allowed hover:bg-blue-50 dark:hover:bg-slate-600 cursor-pointer transition-colors"
+                        >
+                            <span>{t('prep.nextBlock')}</span>
+                            <ChevronRight size={16} />
+                        </button>
+                    </div>
+
                     {fetchingMeat ? (
-                        <div className="flex flex-col items-center justify-center flex-1 text-slate-400 gap-3">
+                        <div className="flex flex-col items-center justify-center flex-1 text-slate-400 gap-3 py-12">
                             <Loader2 className="w-10 h-10 animate-spin text-blue-500" />
                             <p className="font-bold">{t('prep.calculatingHistory')}</p>
                         </div>
                     ) : (
                         <div 
-                            className="flex-1 flex flex-col items-center gap-6 xl:gap-8 overflow-hidden touch-none py-4 px-2 [perspective:1200px]"
+                            className="flex-1 flex flex-col items-center gap-4 sm:gap-6 xl:gap-8 overflow-x-hidden py-1 sm:py-4 px-1 sm:px-2 [perspective:1200px]"
                             onWheel={(e) => {
                                 const now = Date.now()
                                 if (now - wheelThrottleRef.current < 400) return
@@ -1265,39 +1329,39 @@ export default function PreparadorPage() {
                                         animate={{ opacity: 1, rotateX: 0, y: 0, z: 0 }}
                                         exit={{ opacity: 0, rotateX: 60, y: -150, z: -300 }}
                                         transition={{ duration: 0.6, type: 'spring', bounce: 0.2 }}
-                                        className="w-full max-w-[95%] md:max-w-[480px] lg:max-w-lg shrink-0 origin-center select-none"
+                                        className="w-full max-w-full sm:max-w-[480px] lg:max-w-lg shrink-0 origin-center select-none"
                                         style={{ transformStyle: 'preserve-3d' }}
                                     >
                                         <div 
                                             onClick={() => { if (isTop && cardDisplayMode === 'advanced') setShowInfoModal(true) }}
-                                            className={`rounded-3xl border border-slate-200/50 dark:border-slate-700/50 p-6 xl:p-8 shadow-2xl transition-all duration-500 overflow-hidden relative ${
+                                            className={`rounded-3xl border border-slate-200/50 dark:border-slate-700/50 p-4 sm:p-6 xl:p-8 shadow-2xl transition-all duration-500 overflow-hidden relative ${
                                             isTop 
                                                 ? `bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-900/40 dark:to-indigo-900/30 ${cardDisplayMode === 'advanced' ? 'cursor-pointer hover:ring-2 hover:ring-blue-500/50' : ''}` 
                                                 : 'bg-white/95 dark:bg-slate-800/95 backdrop-blur-md scale-[0.98] opacity-90'
                                         }`}>
                                             <div className="absolute inset-0 bg-gradient-to-tl from-white/10 to-transparent pointer-events-none" />
                                             
-                                            <div className="flex justify-between items-center mb-6 pb-4 border-b border-slate-200/50 dark:border-slate-700/50">
-                                                <div className={`font-black tracking-tight flex items-center gap-3 ${isTop ? 'text-blue-900 dark:text-blue-300' : 'text-slate-800 dark:text-slate-200'}`}>
-                                                    {isRealCurrent && <div className="w-4 h-4 rounded-full bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.8)] animate-pulse" />}
-                                                    <div className="flex flex-col md:flex-row md:items-center gap-1 md:gap-4">
-                                                        <span className="uppercase text-lg md:text-2xl flex items-center gap-2 font-black">
+                                            <div className="flex justify-between items-center mb-3 sm:mb-6 pb-2.5 sm:pb-4 border-b border-slate-200/50 dark:border-slate-700/50">
+                                                <div className={`font-black tracking-tight flex items-center gap-2 sm:gap-3 ${isTop ? 'text-blue-900 dark:text-blue-300' : 'text-slate-800 dark:text-slate-200'}`}>
+                                                    {isRealCurrent && <div className="w-3 h-3 sm:w-4 sm:h-4 rounded-full bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.8)] animate-pulse shrink-0" />}
+                                                    <div className="flex flex-col sm:flex-row sm:items-center gap-0.5 sm:gap-4">
+                                                        <span className="uppercase text-sm sm:text-xl md:text-2xl flex items-center gap-2 font-black">
                                                             {bucket.name}
                                                             {bucket.isPeak && (
-                                                                <span className="text-xs px-2.5 py-1 rounded-full bg-red-600 text-white font-black animate-pulse shadow-md">
+                                                                <span className="text-[10px] sm:text-xs px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-full bg-red-600 text-white font-black animate-pulse shadow-md">
                                                                     PICO
                                                                 </span>
                                                             )}
-                                                            {isTop && cardDisplayMode === 'advanced' && <HelpCircle size={20} className="text-blue-500/50 hover:text-blue-500 transition-colors" />}
+                                                            {isTop && cardDisplayMode === 'advanced' && <HelpCircle size={18} className="text-blue-500/50 hover:text-blue-500 transition-colors" />}
                                                         </span>
-                                                        <span className={`text-lg md:text-2xl font-black lowercase tracking-tighter [font-feature-settings:'tnum'] ${isTop ? 'opacity-90 text-blue-950 dark:text-blue-100' : 'opacity-60'}`}>
+                                                        <span className={`text-xs sm:text-lg md:text-2xl font-black lowercase tracking-tighter [font-feature-settings:'tnum'] ${isTop ? 'opacity-90 text-blue-950 dark:text-blue-100' : 'opacity-60'}`}>
                                                             {bucket.label} {viewMode === 'tramos' ? `(${bucket.duration}h)` : ''}
                                                         </span>
                                                     </div>
                                                 </div>
                                             </div>
                                             
-                                            <div className="grid grid-cols-2 gap-3 xl:gap-4">
+                                            <div className="grid grid-cols-2 gap-2 sm:gap-3 xl:gap-4">
                                                 {bucket.data.length > 0 ? bucket.data.map((m: any) => {
                                                     const projectedLbs = m.avg_lbs * intelligenceAcelerador
                                                     const displayVal = viewMode === '30min' ? projectedLbs : (projectedLbs / (m.duration || 1))
@@ -1313,13 +1377,13 @@ export default function PreparadorPage() {
                                                     const effectiveMaxLbs = hasOverride ? manualOverrides[overrideKey] : maxTrayLbs
 
                                                     return (
-                                                        <div key={m.meat_type} className={`bg-white/60 dark:bg-slate-900/60 p-3 xl:p-4 rounded-2xl flex flex-col items-center justify-center shadow-sm w-full ${m.meat_type === 'ASADA' ? 'col-span-2 shadow-md border border-blue-200/50 dark:border-blue-800/50 bg-blue-50/50 dark:bg-blue-900/30 py-4 xl:py-6' : 'border border-slate-100 dark:border-slate-800 py-4 xl:py-5'}`}>
-                                                            <div className="flex items-center gap-2 mb-1 md:mb-2">
-                                                                <span className={`uppercase tracking-widest ${m.meat_type === 'ASADA' ? 'text-2xl md:text-3xl font-black text-blue-900 dark:text-blue-200' : 'text-xl md:text-2xl font-black text-slate-800 dark:text-slate-200'}`}>{m.meat_type}</span>
+                                                        <div key={m.meat_type} className={`bg-white/60 dark:bg-slate-900/60 p-2 sm:p-3 xl:p-4 rounded-2xl flex flex-col items-center justify-center shadow-sm w-full ${m.meat_type === 'ASADA' ? 'col-span-2 shadow-md border border-blue-200/50 dark:border-blue-800/50 bg-blue-50/50 dark:bg-blue-900/30 py-3 sm:py-4 xl:py-6' : 'border border-slate-100 dark:border-slate-800 py-2.5 sm:py-4 xl:py-5'}`}>
+                                                            <div className="flex items-center gap-1 sm:gap-2 mb-0.5 sm:mb-2">
+                                                                <span className={`uppercase tracking-widest ${m.meat_type === 'ASADA' ? 'text-lg sm:text-2xl md:text-3xl font-black text-blue-900 dark:text-blue-200' : 'text-sm sm:text-xl md:text-2xl font-black text-slate-800 dark:text-slate-200'}`}>{m.meat_type}</span>
                                                             </div>
                                                             
                                                             {cardDisplayMode === 'manual' ? (
-                                                                /* Modo Manual: Programado Semanal (Desactivada la edición en Modo Tableta) */
+                                                                /* Modo Manual: Programado Semanal */
                                                                 <button 
                                                                     onClick={() => {
                                                                         if (isFullscreen) return;
@@ -1333,18 +1397,18 @@ export default function PreparadorPage() {
                                                                         })
                                                                         setTempEditValue(manualScheduledLbs)
                                                                     }}
-                                                                    className={`flex flex-col items-center justify-center py-2 group w-full rounded-2xl transition-all ${isFullscreen ? 'cursor-default' : 'cursor-pointer hover:bg-purple-100/50 dark:hover:bg-purple-900/30'}`}
+                                                                    className={`flex flex-col items-center justify-center py-0.5 sm:py-2 group w-full rounded-2xl transition-all ${isFullscreen ? 'cursor-default' : 'cursor-pointer hover:bg-purple-100/50 dark:hover:bg-purple-900/30'}`}
                                                                     title={isFullscreen ? undefined : "Clic para fijar meta semanal permanente para este día"}
                                                                 >
-                                                                    <div className="flex items-baseline gap-1.5 my-1">
-                                                                        <span className={`font-black tracking-tighter leading-none transition-transform ${isFullscreen ? '' : 'group-hover:scale-105'} ${m.meat_type === 'ASADA' ? 'text-8xl xl:text-9xl text-purple-700 dark:text-purple-400' : 'text-7xl xl:text-8xl text-slate-900 dark:text-white'}`}>
+                                                                    <div className="flex items-baseline gap-1 sm:gap-1.5 my-0.5 sm:my-1">
+                                                                        <span className={`font-black tracking-tighter leading-none transition-transform ${isFullscreen ? '' : 'group-hover:scale-105'} ${m.meat_type === 'ASADA' ? 'text-6xl sm:text-7xl md:text-8xl xl:text-9xl text-purple-700 dark:text-purple-400' : 'text-4xl sm:text-6xl md:text-7xl xl:text-8xl text-slate-900 dark:text-white'}`}>
                                                                             {manualScheduledLbs}
                                                                         </span>
-                                                                        <span className="text-3xl md:text-4xl font-black text-slate-400 dark:text-slate-500">lbs</span>
+                                                                        <span className="text-xl sm:text-3xl md:text-4xl font-black text-slate-400 dark:text-slate-500">lbs</span>
                                                                     </div>
                                                                 </button>
                                                             ) : cardDisplayMode === 'basic' ? (
-                                                                /* Modo Básico: Ultra-Simple (Desactivada la edición en Modo Tableta) */
+                                                                /* Modo Básico: Ultra-Simple */
                                                                 <button 
                                                                     onClick={() => {
                                                                         if (isFullscreen) return;
@@ -1356,17 +1420,17 @@ export default function PreparadorPage() {
                                                                         })
                                                                         setTempEditValue(effectiveMaxLbs)
                                                                     }}
-                                                                    className={`flex flex-col items-center justify-center py-2 group w-full rounded-2xl transition-all ${isFullscreen ? 'cursor-default' : 'cursor-pointer hover:bg-slate-100/50 dark:hover:bg-slate-800/50'}`}
+                                                                    className={`flex flex-col items-center justify-center py-0.5 sm:py-2 group w-full rounded-2xl transition-all ${isFullscreen ? 'cursor-default' : 'cursor-pointer hover:bg-slate-100/50 dark:hover:bg-slate-800/50'}`}
                                                                     title={isFullscreen ? undefined : "Clic para modificar cantidad de libras"}
                                                                 >
-                                                                    <div className="flex items-baseline gap-1.5 my-1">
-                                                                        <span className={`font-black tracking-tighter leading-none transition-transform ${isFullscreen ? '' : 'group-hover:scale-105'} ${m.meat_type === 'ASADA' ? 'text-8xl xl:text-9xl text-blue-700 dark:text-blue-400' : 'text-7xl xl:text-8xl text-slate-900 dark:text-white'}`}>
+                                                                    <div className="flex items-baseline gap-1 sm:gap-1.5 my-0.5 sm:my-1">
+                                                                        <span className={`font-black tracking-tighter leading-none transition-transform ${isFullscreen ? '' : 'group-hover:scale-105'} ${m.meat_type === 'ASADA' ? 'text-6xl sm:text-7xl md:text-8xl xl:text-9xl text-blue-700 dark:text-blue-400' : 'text-4xl sm:text-6xl md:text-7xl xl:text-8xl text-slate-900 dark:text-white'}`}>
                                                                             {effectiveMaxLbs}
                                                                         </span>
-                                                                        <span className="text-3xl md:text-4xl font-black text-slate-400 dark:text-slate-500">lbs</span>
+                                                                        <span className="text-xl sm:text-3xl md:text-4xl font-black text-slate-400 dark:text-slate-500">lbs</span>
                                                                     </div>
                                                                     {hasOverride && (
-                                                                        <span className="text-[10px] font-black uppercase bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-200 px-2 py-0.5 rounded-full border border-amber-300 dark:border-amber-700 shadow-xs mt-1">
+                                                                        <span className="text-[9px] sm:text-[10px] font-black uppercase bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-200 px-2 py-0.5 rounded-full border border-amber-300 dark:border-amber-700 shadow-xs mt-0.5">
                                                                             ✏️ Modificado
                                                                         </span>
                                                                     )}
@@ -1374,13 +1438,13 @@ export default function PreparadorPage() {
                                                             ) : (
                                                                 /* Modo Avanzado: Vista Completa con Proyección, Real y Máximo */
                                                                 <>
-                                                                    <div className="flex w-full items-center justify-center gap-4">
+                                                                    <div className="flex w-full items-center justify-center gap-1.5 sm:gap-4">
                                                                         {/* Projected Column */}
                                                                         <div className="flex flex-col items-center justify-center leading-none">
-                                                                            <span className={`font-black tracking-tighter leading-none ${m.meat_type === 'ASADA' ? 'text-5xl xl:text-6xl text-blue-700 dark:text-blue-400 drop-shadow-sm' : 'text-4xl xl:text-5xl text-slate-900 dark:text-white'}`}>
+                                                                            <span className={`font-black tracking-tighter leading-none ${m.meat_type === 'ASADA' ? 'text-3xl sm:text-5xl xl:text-6xl text-blue-700 dark:text-blue-400 drop-shadow-sm' : 'text-2xl sm:text-4xl xl:text-5xl text-slate-900 dark:text-white'}`}>
                                                                                 {displayVal.toFixed(1)}
                                                                             </span>
-                                                                            <span className="text-xs md:text-sm font-extrabold text-slate-700 dark:text-slate-200 tracking-wider mt-2 bg-slate-100 dark:bg-slate-800 px-2.5 py-1 rounded-md border border-slate-200/80 dark:border-slate-700 shadow-sm">
+                                                                            <span className="text-[9px] sm:text-xs md:text-sm font-extrabold text-slate-700 dark:text-slate-200 tracking-wider mt-1 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 sm:px-2.5 sm:py-1 rounded-md border border-slate-200/80 dark:border-slate-700 shadow-sm">
                                                                                 {viewMode === '30min' ? `lbs (proy: ${m.avg_lbs.toFixed(1)})` : `lbs/hr (total: ${projectedLbs.toFixed(1)} lbs)`}
                                                                             </span>
                                                                         </div>
@@ -1388,21 +1452,21 @@ export default function PreparadorPage() {
                                                                         {/* Real Consumed Column */}
                                                                         {realVal !== undefined ? (
                                                                             <>
-                                                                                <div className="h-16 w-px bg-slate-300/50 dark:bg-slate-700/50"></div>
+                                                                                <div className="h-8 sm:h-16 w-px bg-slate-300/50 dark:bg-slate-700/50"></div>
                                                                                 <div className="flex flex-col items-center justify-center leading-none">
-                                                                                    <span className={`font-black tracking-tighter leading-none text-emerald-600 dark:text-emerald-400 ${m.meat_type === 'ASADA' ? 'text-4xl xl:text-5xl' : 'text-3xl xl:text-4xl'}`}>
+                                                                                    <span className={`font-black tracking-tighter leading-none text-emerald-600 dark:text-emerald-400 ${m.meat_type === 'ASADA' ? 'text-2xl sm:text-4xl xl:text-5xl' : 'text-xl sm:text-3xl xl:text-4xl'}`}>
                                                                                         {realVal.toFixed(1)}
                                                                                     </span>
-                                                                                    <span className="text-xs md:text-sm font-extrabold text-emerald-800 dark:text-emerald-300 tracking-wider mt-2 bg-emerald-100 dark:bg-emerald-900/50 px-2.5 py-1 rounded-md border border-emerald-300 dark:border-emerald-700">
+                                                                                    <span className="text-[9px] sm:text-xs md:text-sm font-extrabold text-emerald-800 dark:text-emerald-300 tracking-wider mt-1 bg-emerald-100 dark:bg-emerald-900/50 px-1.5 py-0.5 sm:px-2.5 sm:py-1 rounded-md border border-emerald-300 dark:border-emerald-700">
                                                                                         {viewMode === '30min' ? `${t('prep.real')} lbs` : `${t('prep.real')}/hr (total: ${m.real_lbs.toFixed(1)} lbs)`}
                                                                                     </span>
                                                                                 </div>
                                                                             </>
                                                                         ) : (activeIndex < currentBucketIndex) && (
                                                                             <>
-                                                                                <div className="h-16 w-px bg-slate-300/50 dark:bg-slate-700/50"></div>
+                                                                                <div className="h-8 sm:h-16 w-px bg-slate-300/50 dark:bg-slate-700/50"></div>
                                                                                 <div className="flex flex-col items-center justify-center leading-none">
-                                                                                    <span className="text-xs font-extrabold text-amber-700 dark:text-amber-400 tracking-wide mt-2 bg-amber-500/10 px-2 py-1 rounded-md animate-pulse">
+                                                                                    <span className="text-[9px] sm:text-xs font-extrabold text-amber-700 dark:text-amber-400 tracking-wide mt-1 bg-amber-500/10 px-1.5 py-0.5 rounded-md animate-pulse">
                                                                                         {t('prep.syncing')}
                                                                                     </span>
                                                                                 </div>
@@ -1411,7 +1475,7 @@ export default function PreparadorPage() {
                                                                     </div>
 
                                                                     {/* Max Holding Tray Buffer Badge */}
-                                                                    <div className="mt-3 flex items-center gap-1.5 bg-amber-500/10 dark:bg-amber-500/20 border border-amber-300 dark:border-amber-700/80 px-3 py-1 rounded-full text-amber-900 dark:text-amber-200 text-xs font-black shadow-xs">
+                                                                    <div className="mt-1.5 sm:mt-3 flex items-center gap-1 bg-amber-500/10 dark:bg-amber-500/20 border border-amber-300 dark:border-amber-700/80 px-2 sm:px-3 py-0.5 sm:py-1 rounded-full text-amber-900 dark:text-amber-200 text-[9px] sm:text-xs font-black shadow-xs">
                                                                         <span>🔥</span>
                                                                         <span>{t('prep.maxTray')}: {maxTrayLbs} lbs</span>
                                                                     </div>
@@ -1427,7 +1491,7 @@ export default function PreparadorPage() {
                             })}
                             </AnimatePresence>
                             
-                            {/* Pagination Indicators */}
+                            {/* Indicadores de Paginación */}
                             <div className="absolute top-0 right-0 h-full w-8 flex flex-col items-center justify-center gap-1 opacity-30 z-10 pointer-events-none hidden md:flex">
                                 {carouselBuckets.map((b, i) => (
                                     <div key={b.id} className={`w-1.5 h-1.5 rounded-full transition-all duration-300 ${i === activeIndex ? 'bg-blue-600 scale-150' : i === activeIndex + 1 ? 'bg-slate-600' : 'bg-slate-300'}`} />
@@ -1437,30 +1501,30 @@ export default function PreparadorPage() {
                     )}
                 </div>
 
-                {/* LADO DERECHO: GRID DE SOLICITUDES */}
-                <div className="w-full lg:flex-1 flex flex-col bg-slate-100 dark:bg-slate-950 shrink-0 lg:shrink min-h-[600px]">
+                {/* 2. PANEL PEDIR INSUMOS (ALIMENTOS / DESECHABLES) (Visible en móvil si mobileTab === 'insumos', siempre en desktop) */}
+                <div className={`w-full lg:flex-1 flex-col bg-slate-100 dark:bg-slate-950 shrink-0 lg:shrink min-h-0 overflow-hidden ${mobileTab === 'insumos' ? 'flex flex-1' : 'hidden lg:flex'}`}>
                     
-                    {/* TABS */}
-                    <div className="flex p-4 gap-4 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 shadow-sm shrink-0">
+                    {/* TABS DE INSUMOS */}
+                    <div className="flex p-2 sm:p-4 gap-2 sm:gap-4 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 shadow-sm shrink-0">
                         <button 
                             onClick={() => setActiveTab('alimentos')}
-                            className={`flex-1 py-4 font-black flex items-center justify-center gap-2 rounded-xl transition-all shadow-sm
+                            className={`flex-1 py-2.5 sm:py-4 font-black flex items-center justify-center gap-1.5 sm:gap-2 rounded-xl transition-all shadow-sm text-xs sm:text-base cursor-pointer
                                 ${activeTab === 'alimentos' ? 'bg-orange-100 text-orange-700 border-2 border-orange-500 dark:bg-orange-900/30 dark:text-orange-300' : 'bg-slate-50 text-slate-500 hover:bg-slate-200 border-2 border-transparent dark:bg-slate-800'}`}
                         >
-                            <UtensilsCrossed size={20} /> {t('prep.foodItems')}
+                            <UtensilsCrossed size={16} /> {t('prep.foodItems')}
                         </button>
                         <button 
                             onClick={() => setActiveTab('desechables')}
-                            className={`flex-1 py-4 font-black flex items-center justify-center gap-2 rounded-xl transition-all shadow-sm
+                            className={`flex-1 py-2.5 sm:py-4 font-black flex items-center justify-center gap-1.5 sm:gap-2 rounded-xl transition-all shadow-sm text-xs sm:text-base cursor-pointer
                                 ${activeTab === 'desechables' ? 'bg-blue-100 text-blue-700 border-2 border-blue-500 dark:bg-blue-900/30 dark:text-blue-300' : 'bg-slate-50 text-slate-500 hover:bg-slate-200 border-2 border-transparent dark:bg-slate-800'}`}
                         >
-                            <PackageOpen size={20} /> {t('prep.disposables')}
+                            <PackageOpen size={16} /> {t('prep.disposables')}
                         </button>
                     </div>
 
-                    {/* BOTONES LISTA */}
-                    <div className="flex-1 overflow-y-auto p-4">
-                        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                    {/* GRID DE BOTONES */}
+                    <div className="flex-1 overflow-y-auto p-2 sm:p-4 pb-24 lg:pb-4">
+                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-4 gap-2 sm:gap-3">
                             {(activeTab === 'alimentos' ? ALIMENTOS : DESECHABLES).map(itemObj => {
                                 const cartItem = cart.find(c => c.name === itemObj.name)
                                 const isSelected = !!cartItem
@@ -1473,14 +1537,13 @@ export default function PreparadorPage() {
                                 <button
                                     key={itemObj.name}
                                     onClick={() => addToCart(itemObj.name)}
-                                    className={`relative h-16 md:h-20 lg:h-[84px] rounded-2xl flex flex-col items-center justify-center p-2 active:scale-95 transition-all outline-none ${baseStyle} overflow-hidden`}
+                                    className={`relative h-14 sm:h-16 md:h-20 lg:h-[84px] rounded-xl sm:rounded-2xl flex flex-col items-center justify-center p-1.5 sm:p-2 active:scale-95 transition-all outline-none ${baseStyle} overflow-hidden cursor-pointer`}
                                 >
-                                    
-                                    <span className={`relative w-full px-1 text-center text-base md:text-xl lg:text-2xl leading-tight md:leading-snug font-sans tracking-tighter z-10 ${isSelected ? 'font-black scale-105 drop-shadow-sm' : 'font-bold'}`}>
+                                    <span className={`relative w-full px-1 text-center text-xs sm:text-sm md:text-lg lg:text-2xl leading-tight md:leading-snug font-sans tracking-tight z-10 ${isSelected ? 'font-black scale-105 drop-shadow-sm' : 'font-bold'}`}>
                                         {itemObj.name}
                                     </span>
                                     {cartItem && cartItem.qty >= 1 && (
-                                        <div className="absolute top-2 right-2 bg-slate-900 text-white text-[11px] md:text-xs w-6 h-6 md:w-7 md:h-7 flex items-center justify-center rounded-full font-black shadow-xl animate-in zoom-in duration-200 ring-2 ring-white/50 dark:ring-black/50 z-20">
+                                        <div className="absolute top-1.5 right-1.5 sm:top-2 sm:right-2 bg-slate-900 text-white text-[10px] sm:text-xs w-5 h-5 sm:w-6 sm:h-6 md:w-7 md:h-7 flex items-center justify-center rounded-full font-black shadow-xl animate-in zoom-in duration-200 ring-2 ring-white/50 dark:ring-black/50 z-20">
                                             {cartItem.qty}
                                         </div>
                                     )}
@@ -1489,40 +1552,39 @@ export default function PreparadorPage() {
                         </div>
                     </div>
 
-                    {/* BARRA INFERIOR (CART & SEND) */}
+                    {/* BARRA INFERIOR (CARRITO Y BOTÓN ENVIAR) */}
                     {cart.length > 0 && (
-                        <div className="bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 p-4 shrink-0 shadow-[0_-10px_40px_rgba(0,0,0,0.1)] animate-in slide-in-from-bottom-5">
-                            <div className="flex flex-col md:flex-row gap-4">
-                                {/* CART ITEMS */}
-                                <div className="flex-1 flex gap-2 overflow-x-auto py-2 shrink-0">
+                        <div className="fixed lg:static bottom-14 lg:bottom-0 left-0 right-0 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200 dark:border-slate-800 p-2 sm:p-4 shrink-0 shadow-[0_-10px_40px_rgba(0,0,0,0.15)] animate-in slide-in-from-bottom-5 z-40">
+                            <div className="flex flex-col md:flex-row gap-2 sm:gap-4 max-w-[1400px] mx-auto">
+                                {/* ARTÍCULOS EN CARRITO */}
+                                <div className="flex-1 flex gap-2 overflow-x-auto py-1 sm:py-2 shrink-0 no-scrollbar">
                                     {cart.map(c => (
                                         <div 
                                             key={c.name} 
                                             onClick={() => decreaseItem(c.name)}
-                                            className="relative bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-600 px-4 py-3 md:px-5 md:py-4 rounded-xl flex items-center gap-3 shrink-0 group shadow-sm cursor-pointer select-none active:scale-95 transition-transform"
+                                            className="relative bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-600 px-2.5 py-1.5 sm:px-4 sm:py-3 md:px-5 md:py-4 rounded-xl flex items-center gap-1.5 sm:gap-3 shrink-0 group shadow-sm cursor-pointer select-none active:scale-95 transition-transform"
                                         >
-                                            <span className="bg-white dark:bg-slate-700 text-slate-800 dark:text-white font-black w-8 h-8 md:w-10 md:h-10 rounded-full flex items-center justify-center text-sm md:text-lg shadow-sm">
+                                            <span className="bg-white dark:bg-slate-700 text-slate-800 dark:text-white font-black w-5 h-5 sm:w-8 sm:h-8 md:w-10 md:h-10 rounded-full flex items-center justify-center text-xs sm:text-sm md:text-lg shadow-sm">
                                                 {c.qty}
                                             </span>
-                                            <span className="font-bold text-slate-700 dark:text-slate-200 text-sm md:text-base whitespace-nowrap pr-2">{c.name}</span>
+                                            <span className="font-bold text-slate-700 dark:text-slate-200 text-xs sm:text-sm md:text-base whitespace-nowrap pr-2">{c.name}</span>
                                             
-                                            {/* El ícono de menos/borrar gigante para asegurar visibilidad en pantalla normal y touch */}
-                                            <div className="absolute -top-2 -right-2 md:-top-3 md:-right-3 bg-red-500 hover:bg-red-600 text-white rounded-full p-1 border-2 border-white dark:border-slate-900 shadow-md transition-colors opacity-100">
-                                                <X size={14} strokeWidth={4} />
+                                            <div className="absolute -top-1.5 -right-1.5 sm:-top-2 sm:-right-2 md:-top-3 md:-right-3 bg-red-500 hover:bg-red-600 text-white rounded-full p-0.5 sm:p-1 border-2 border-white dark:border-slate-900 shadow-md transition-colors opacity-100">
+                                                <X size={12} strokeWidth={4} />
                                             </div>
                                         </div>
                                     ))}
                                 </div>
                                 
-                                {/* SEND BUTTON */}
+                                {/* BOTÓN ENVIAR PEDIDO */}
                                 <button 
                                     onClick={sendRequest}
                                     disabled={sending}
-                                    className="bg-red-600 hover:bg-red-700 text-white font-black text-lg md:text-2xl px-8 py-4 rounded-2xl flex items-center justify-center gap-3 shadow-[0_0_25px_rgba(220,38,38,0.5)] active:scale-95 transition-all disabled:opacity-50 h-[80px] w-full md:w-[300px] shrink-0"
+                                    className="bg-red-600 hover:bg-red-700 text-white font-black text-sm sm:text-lg md:text-2xl px-4 sm:px-8 py-2.5 sm:py-4 rounded-xl sm:rounded-2xl flex items-center justify-center gap-2 sm:gap-3 shadow-[0_0_25px_rgba(220,38,38,0.5)] active:scale-95 transition-all disabled:opacity-50 h-[48px] sm:h-[70px] md:h-[80px] w-full md:w-[300px] shrink-0 cursor-pointer"
                                 >
-                                    {sending ? <Loader2 className="animate-spin w-8 h-8" /> : (
+                                    {sending ? <Loader2 className="animate-spin w-5 h-5 sm:w-8 sm:h-8" /> : (
                                         <>
-                                            <AlertTriangle size={30} className="animate-pulse" />
+                                            <AlertTriangle size={20} className="animate-pulse sm:w-[30px] sm:h-[30px]" />
                                             {t('prep.send')}
                                         </>
                                     )}
@@ -1532,7 +1594,294 @@ export default function PreparadorPage() {
                     )}
                 </div>
 
+                {/* 3. VISTA RESUMEN DEL DÍA (Exclusiva para Móvil cuando mobileTab === 'resumen') */}
+                {mobileTab === 'resumen' && (() => {
+                    const { sortedHours, hourlyMap, dayTotals, grandTotal } = getHourlyData()
+                    return (
+                        <div className="lg:hidden flex-1 overflow-y-auto p-3 space-y-3 pb-24 bg-slate-100 dark:bg-slate-950">
+                            {/* Card Gran Total */}
+                            <div className="bg-gradient-to-r from-slate-900 to-slate-800 text-white p-4 rounded-2xl shadow-lg flex items-center justify-between border border-slate-700">
+                                <div>
+                                    <span className="text-[11px] uppercase font-extrabold text-blue-300 tracking-wider">{t('prep.dailyPaceTotal')}</span>
+                                    <h3 className="text-3xl font-black">{grandTotal.toFixed(1)} <span className="text-sm font-bold opacity-60">LBS</span></h3>
+                                </div>
+                                <div className="text-right">
+                                    <span className="text-[11px] text-slate-400 block font-bold">{selectedDate}</span>
+                                    <span className="text-xs font-black bg-blue-500/20 text-blue-300 border border-blue-500/40 px-2 py-0.5 rounded-full inline-block mt-1">{stores.find(s => s.id === storeId)?.name}</span>
+                                </div>
+                            </div>
+
+                            {/* Tarjetas de Totales por Carne */}
+                            <div className="grid grid-cols-2 gap-2">
+                                <div className="col-span-2 bg-blue-50 dark:bg-blue-900/30 p-3 rounded-xl border border-blue-200 dark:border-blue-800 flex justify-between items-center">
+                                    <span className="font-black text-sm uppercase text-blue-900 dark:text-blue-200">Total Asada</span>
+                                    <span className="text-2xl font-black text-blue-700 dark:text-blue-300">{dayTotals.ASADA.toFixed(1)} <span className="text-xs opacity-60">lbs</span></span>
+                                </div>
+                                {['POLLO', 'PASTOR', 'CABEZA', 'LENGUA'].map(meat => (
+                                    <div key={meat} className="bg-white dark:bg-slate-900 p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 flex justify-between items-center shadow-xs">
+                                        <span className="font-extrabold text-xs text-slate-600 dark:text-slate-400">{meat}</span>
+                                        <span className="text-base font-black text-slate-900 dark:text-white">{dayTotals[meat as keyof typeof dayTotals].toFixed(1)}</span>
+                                    </div>
+                                ))}
+                            </div>
+
+                            {/* Tabla Desglose Horario */}
+                            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
+                                <div className="p-3 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50">
+                                    <h4 className="font-black text-xs uppercase tracking-wider text-slate-700 dark:text-slate-300">{t('prep.dayProjection')} (Por Hora)</h4>
+                                </div>
+                                <div className="overflow-x-auto">
+                                    <table className="w-full text-left border-collapse text-xs">
+                                        <thead className="bg-slate-50 dark:bg-slate-800 text-slate-500 dark:text-slate-400 font-extrabold">
+                                            <tr>
+                                                <th className="p-2 pl-3">{t('prep.hour')}</th>
+                                                <th className="p-2 text-blue-600 dark:text-blue-400">Asada</th>
+                                                <th className="p-2">Pollo</th>
+                                                <th className="p-2">Pastor</th>
+                                                <th className="p-2">Cabeza</th>
+                                                <th className="p-2">Lengua</th>
+                                                <th className="p-2 text-right pr-3">{t('prep.totalLabel')}</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 font-medium">
+                                            {sortedHours.map(hour => {
+                                                const data = hourlyMap.get(hour) || { ASADA: 0, CABEZA: 0, LENGUA: 0, PASTOR: 0, POLLO: 0 }
+                                                const hrTotal = data.ASADA + data.CABEZA + data.LENGUA + data.PASTOR + data.POLLO
+                                                if (hrTotal === 0) return null;
+                                                return (
+                                                    <tr key={hour} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                                                        <td className="p-2 pl-3 font-black text-slate-700 dark:text-slate-200 whitespace-nowrap">{hour}</td>
+                                                        <td className="p-2 font-black text-blue-600 dark:text-blue-400">{data.ASADA > 0 ? data.ASADA.toFixed(1) : '-'}</td>
+                                                        <td className="p-2">{data.POLLO > 0 ? data.POLLO.toFixed(1) : '-'}</td>
+                                                        <td className="p-2">{data.PASTOR > 0 ? data.PASTOR.toFixed(1) : '-'}</td>
+                                                        <td className="p-2">{data.CABEZA > 0 ? data.CABEZA.toFixed(1) : '-'}</td>
+                                                        <td className="p-2">{data.LENGUA > 0 ? data.LENGUA.toFixed(1) : '-'}</td>
+                                                        <td className="p-2 text-right pr-3 font-black text-slate-800 dark:text-white">{hrTotal.toFixed(1)}</td>
+                                                    </tr>
+                                                )
+                                            })}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    )
+                })()}
+
             </div>
+
+            {/* BARRA DE NAVEGACIÓN INFERIOR FIJA PARA TELÉFONOS MÓVILES (< lg) */}
+            <div className="lg:hidden fixed bottom-0 left-0 right-0 z-50 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200 dark:border-slate-800 px-3 py-1 flex items-center justify-around shadow-2xl">
+                {/* Tab Parrilla */}
+                <button
+                    onClick={() => setMobileTab('parrilla')}
+                    className={`flex flex-col items-center justify-center py-1.5 px-3 rounded-xl transition-all cursor-pointer ${
+                        mobileTab === 'parrilla'
+                            ? 'text-blue-600 dark:text-blue-400 font-black'
+                            : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 font-bold'
+                    }`}
+                >
+                    <Flame size={22} className={mobileTab === 'parrilla' ? 'stroke-[2.5]' : ''} />
+                    <span className="text-[10px] mt-0.5 tracking-tight uppercase">{t('prep.parrilla')}</span>
+                </button>
+
+                {/* Tab Insumos */}
+                <button
+                    onClick={() => setMobileTab('insumos')}
+                    className={`flex flex-col items-center justify-center py-1.5 px-3 rounded-xl transition-all relative cursor-pointer ${
+                        mobileTab === 'insumos'
+                            ? 'text-orange-600 dark:text-orange-400 font-black'
+                            : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 font-bold'
+                    }`}
+                >
+                    <UtensilsCrossed size={22} className={mobileTab === 'insumos' ? 'stroke-[2.5]' : ''} />
+                    <span className="text-[10px] mt-0.5 tracking-tight uppercase">{t('prep.insumos')}</span>
+                    {cart.length > 0 && (
+                        <span className="absolute top-0.5 right-2 bg-red-600 text-white text-[9px] w-4 h-4 rounded-full flex items-center justify-center font-black animate-pulse shadow-sm">
+                            {cart.reduce((a, b) => a + b.qty, 0)}
+                        </span>
+                    )}
+                </button>
+
+                {/* Tab Resumen */}
+                <button
+                    onClick={() => setMobileTab('resumen')}
+                    className={`flex flex-col items-center justify-center py-1.5 px-3 rounded-xl transition-all cursor-pointer ${
+                        mobileTab === 'resumen'
+                            ? 'text-purple-600 dark:text-purple-400 font-black'
+                            : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 font-bold'
+                    }`}
+                >
+                    <BarChart3 size={22} className={mobileTab === 'resumen' ? 'stroke-[2.5]' : ''} />
+                    <span className="text-[10px] mt-0.5 tracking-tight uppercase">{t('prep.resumen')}</span>
+                </button>
+
+                {/* Tab Ajustes / Filtros (Abre Drawer) */}
+                <button
+                    onClick={() => setShowMobileSettingsDrawer(true)}
+                    className="flex flex-col items-center justify-center py-1.5 px-3 rounded-xl text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 font-bold transition-all cursor-pointer"
+                >
+                    <SlidersHorizontal size={20} />
+                    <span className="text-[10px] mt-0.5 tracking-tight uppercase">{t('prep.ajustes')}</span>
+                </button>
+            </div>
+
+            {/* DRAWER DESLIZABLE DE AJUSTES Y FILTROS PARA MÓVILES */}
+            <AnimatePresence>
+                {showMobileSettingsDrawer && (
+                    <div className="fixed inset-0 z-[99999] flex flex-col justify-end lg:hidden">
+                        <motion.div 
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            onClick={() => setShowMobileSettingsDrawer(false)}
+                            className="fixed inset-0 bg-slate-950/70 backdrop-blur-xs"
+                        />
+                        <motion.div 
+                            initial={{ y: '100%' }}
+                            animate={{ y: 0 }}
+                            exit={{ y: '100%' }}
+                            transition={{ type: 'spring', damping: 25, stiffness: 280 }}
+                            className="relative z-10 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 rounded-t-3xl p-5 shadow-2xl space-y-4 max-h-[85vh] overflow-y-auto"
+                        >
+                            <div className="flex justify-between items-center pb-3 border-b border-slate-200 dark:border-slate-800">
+                                <div className="flex items-center gap-2">
+                                    <SlidersHorizontal size={18} className="text-blue-500" />
+                                    <h3 className="font-black text-base uppercase text-slate-800 dark:text-white">{t('prep.filtrosTitulo')}</h3>
+                                </div>
+                                <button 
+                                    onClick={() => setShowMobileSettingsDrawer(false)}
+                                    className="p-1.5 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-500 cursor-pointer"
+                                >
+                                    <X size={18} />
+                                </button>
+                            </div>
+
+                            {/* Selector de Sucursal */}
+                            <div>
+                                <label className="text-[11px] font-black uppercase text-slate-400 tracking-wider block mb-1.5">{t('prep.store') || 'Sucursal'}</label>
+                                <select 
+                                    value={storeId} 
+                                    onChange={e => {
+                                        setStoreId(e.target.value)
+                                        setShowMobileSettingsDrawer(false)
+                                    }}
+                                    className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-3 font-bold text-sm text-slate-800 dark:text-white outline-none cursor-pointer"
+                                >
+                                    {stores.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                                </select>
+                            </div>
+
+                            {/* Selector de Fecha */}
+                            <div>
+                                <label className="text-[11px] font-black uppercase text-slate-400 tracking-wider block mb-1.5">{t('prep.selectDate')}</label>
+                                <div className="flex items-center gap-2">
+                                    <div className="flex-1 flex items-center gap-2 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-2.5">
+                                        <Calendar size={18} className="text-blue-500 shrink-0" />
+                                        <input 
+                                            type="date" 
+                                            value={selectedDate}
+                                            max={currentBusinessDate}
+                                            onChange={e => {
+                                                setSelectedDate(e.target.value)
+                                                recordUserActivity()
+                                            }}
+                                            className="w-full bg-transparent font-bold text-sm text-slate-700 dark:text-slate-200 outline-none"
+                                        />
+                                    </div>
+                                    <button 
+                                        onClick={() => {
+                                            setSelectedDate(currentBusinessDate)
+                                            recordUserActivity()
+                                        }}
+                                        className={`px-3 py-2.5 rounded-xl font-black text-xs transition-colors shrink-0 cursor-pointer ${
+                                            isToday 
+                                                ? 'bg-emerald-600 text-white shadow-xs' 
+                                                : 'bg-blue-600 text-white hover:bg-blue-700'
+                                        }`}
+                                    >
+                                        {t('prep.today')}
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Modo de Tarjeta (Manual | Básica | Avanzada) */}
+                            <div>
+                                <label className="text-[11px] font-black uppercase text-slate-400 tracking-wider block mb-1.5">{t('prep.modoTarjeta')}</label>
+                                <div className="grid grid-cols-3 gap-2">
+                                    <button 
+                                        onClick={() => setCardDisplayMode('manual')}
+                                        className={`py-2.5 rounded-xl font-black text-xs transition-colors cursor-pointer ${cardDisplayMode === 'manual' ? 'bg-purple-600 text-white shadow-md' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'}`}
+                                    >
+                                        {t('prep.manualMode')}
+                                    </button>
+                                    <button 
+                                        onClick={() => setCardDisplayMode('basic')}
+                                        className={`py-2.5 rounded-xl font-black text-xs transition-colors cursor-pointer ${cardDisplayMode === 'basic' ? 'bg-emerald-600 text-white shadow-md' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'}`}
+                                    >
+                                        {t('prep.basicMode')}
+                                    </button>
+                                    <button 
+                                        onClick={() => setCardDisplayMode('advanced')}
+                                        className={`py-2.5 rounded-xl font-black text-xs transition-colors cursor-pointer ${cardDisplayMode === 'advanced' ? 'bg-emerald-600 text-white shadow-md' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'}`}
+                                    >
+                                        {t('prep.advancedMode')}
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Modo de Intervalo (30 Min vs Tramos) */}
+                            <div>
+                                <label className="text-[11px] font-black uppercase text-slate-400 tracking-wider block mb-1.5">{t('prep.modoIntervalo')}</label>
+                                <div className="grid grid-cols-2 gap-2">
+                                    <button 
+                                        onClick={() => setViewMode('30min')}
+                                        className={`py-2.5 rounded-xl font-black text-xs transition-colors cursor-pointer ${viewMode === '30min' ? 'bg-blue-600 text-white shadow-md' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'}`}
+                                    >
+                                        30 Min
+                                    </button>
+                                    <button 
+                                        onClick={() => setViewMode('tramos')}
+                                        className={`py-2.5 rounded-xl font-black text-xs transition-colors cursor-pointer ${viewMode === 'tramos' ? 'bg-blue-600 text-white shadow-md' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'}`}
+                                    >
+                                        Tramos
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Acciones Adicionales */}
+                            <div className="grid grid-cols-2 gap-2 pt-2">
+                                <button 
+                                    onClick={() => {
+                                        setShowMobileSettingsDrawer(false)
+                                        setShowWasteModal(true)
+                                    }}
+                                    className="flex items-center justify-center gap-1.5 bg-red-600 hover:bg-red-700 text-white p-3 rounded-xl font-black text-xs shadow-sm cursor-pointer"
+                                >
+                                    <TrendingDown size={16} />
+                                    <span>{t('prep.wasteReportBtn')}</span>
+                                </button>
+                                <a 
+                                    href="/inventory/preparador/bodega" 
+                                    target="_blank"
+                                    className="flex items-center justify-center gap-1.5 bg-slate-800 hover:bg-black text-white p-3 rounded-xl font-black text-xs shadow-sm cursor-pointer"
+                                >
+                                    <BellRing size={16} className="animate-pulse" />
+                                    <span>{t('prep.openWarehouse')}</span>
+                                </a>
+                            </div>
+
+                            {/* Botón Cerrar */}
+                            <button 
+                                onClick={() => setShowMobileSettingsDrawer(false)}
+                                className="w-full bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 text-slate-800 dark:text-slate-200 font-extrabold py-3 rounded-xl text-xs uppercase cursor-pointer"
+                            >
+                                {t('prep.cerrar')}
+                            </button>
+                        </motion.div>
+                    </div>
+                )}
+            </AnimatePresence>
             {/* Modal de Proyección del Día */}
             {showDayModal && (() => {
                 const { sortedHours, hourlyMap, dayTotals, grandTotal } = getHourlyData()
