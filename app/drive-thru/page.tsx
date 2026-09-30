@@ -23,8 +23,9 @@
  *
  * @notes
  * - Diseño inspirado en HME ZOOM Nitro con podio visual y barras de progreso con colores
- * - Click en una tienda del leaderboard navega a la tab Timeline con esa tienda preseleccionada
- * - Soporta URL param ?store=UUID para preseleccionar tienda en Timeline
+ * - Soporte de pantalla completa (Fullscreen / Tablet mode) para el Leaderboard
+ * - Click en una tienda del leaderboard navega a la tab Consultar Orden (Lookup) con esa tienda y fecha preseleccionadas
+ * - Soporta URL param ?store=UUID [&tab=lookup|timeline] para preseleccionar tienda
  * - Exportar CSV genera un archivo descargable con los datos del reporte activo
  * - Los tabs tienen animaciones suaves y soportan dark mode completo
  */
@@ -37,7 +38,7 @@ import { useLanguage } from '@/lib/i18n'
 import {
     Timer, Trophy, Zap, Car, AlertTriangle, TrendingUp, Clock,
     ChevronLeft, ChevronRight, Search, Download, BarChart3, Calendar,
-    ArrowUp, ArrowDown, Minus
+    ArrowUp, ArrowDown, Minus, Maximize, Minimize
 } from 'lucide-react'
 
 // ─────────────────────────────────────────────────────────
@@ -343,6 +344,48 @@ function DriveThruContent() {
     const realTimeSlotIndex = ALL_SLOTS.indexOf(getCurrentSlot())
     const isLbNextDisabled = lbSlotIndex >= ALL_SLOTS.length - 1 || (isLbToday && lbSlotIndex >= realTimeSlotIndex)
 
+    // Fullscreen state & helpers
+    const [isFullscreen, setIsFullscreen] = useState(false)
+    const leaderboardRef = useRef<HTMLDivElement | null>(null)
+
+    // Listen to native fullscreen changes (por si cierran con ESC o botón del navegador)
+    useEffect(() => {
+        const onFullscreenChange = () => {
+            const doc = document as any
+            setIsFullscreen(!!(doc.fullscreenElement || doc.webkitFullscreenElement))
+        }
+        document.addEventListener('fullscreenchange', onFullscreenChange)
+        document.addEventListener('webkitfullscreenchange', onFullscreenChange)
+        return () => {
+            document.removeEventListener('fullscreenchange', onFullscreenChange)
+            document.removeEventListener('webkitfullscreenchange', onFullscreenChange)
+        }
+    }, [])
+
+    const toggleFullscreen = () => {
+        const doc = document as any
+        const elem = leaderboardRef.current as any
+
+        if (!isFullscreen) {
+            if (elem?.requestFullscreen) {
+                elem.requestFullscreen().catch(() => setIsFullscreen(true))
+            } else if (elem?.webkitRequestFullscreen) {
+                elem.webkitRequestFullscreen()
+                setTimeout(() => { if (!doc.webkitFullscreenElement) setIsFullscreen(true) }, 200)
+            } else {
+                setIsFullscreen(true)
+            }
+        } else {
+            if (doc.exitFullscreen && doc.fullscreenElement) {
+                doc.exitFullscreen().catch(() => setIsFullscreen(false))
+            } else if (doc.webkitExitFullscreen && doc.webkitFullscreenElement) {
+                doc.webkitExitFullscreen()
+            } else {
+                setIsFullscreen(false)
+            }
+        }
+    }
+
     // ═══════════════════════════════════════════════════════
     // TAB 2: TIMELINE
     // ═══════════════════════════════════════════════════════
@@ -353,14 +396,22 @@ function DriveThruContent() {
     const [tlError, setTlError] = useState<string | null>(null)
     const tlAbortRef = useRef<AbortController | null>(null)
 
-    // Preseleccionar tienda desde URL param ?store=UUID
+    // Preseleccionar tienda desde URL param ?store=UUID [&tab=lookup|timeline]
     useEffect(() => {
         const storeParam = searchParams.get('store')
+        const tabParam = searchParams.get('tab')
         if (storeParam) {
-            setTlStoreId(storeParam)
-            setActiveTab('timeline')
+            if (tabParam === 'timeline') {
+                setTlStoreId(storeParam)
+                setActiveTab('timeline')
+            } else {
+                setLuStoreId(storeParam)
+                setLuDate(selectedDate)
+                setLuPage(1)
+                setActiveTab('lookup')
+            }
         }
-    }, [searchParams])
+    }, [searchParams, selectedDate])
 
     const fetchTimeline = useCallback(async () => {
         if (!tlStoreId) return
@@ -642,11 +693,21 @@ function DriveThruContent() {
         { id: 'reports', icon: <BarChart3 size={16} />, label: t('drive_thru.reports') },
     ]
 
-    // Click en tienda del leaderboard → Timeline
+    // Click en tienda del leaderboard → Consultar Orden (Lookup)
     const handleStoreClick = (storeId: string) => {
-        setTlStoreId(storeId)
-        setTlDate(selectedDate)
-        setActiveTab('timeline')
+        if (typeof document !== 'undefined') {
+            const doc = document as any
+            if (doc.fullscreenElement || doc.webkitFullscreenElement) {
+                if (doc.exitFullscreen) doc.exitFullscreen().catch(() => {})
+                else if (doc.webkitExitFullscreen) doc.webkitExitFullscreen()
+            }
+        }
+        setIsFullscreen(false)
+        setLuOrderNumber('')
+        setLuStoreId(storeId)
+        setLuDate(selectedDate)
+        setLuPage(1)
+        setActiveTab('lookup')
     }
 
     return (
@@ -712,52 +773,98 @@ function DriveThruContent() {
                 {/* TAB 1: LEADERBOARD */}
                 {/* ─────────────────────────────────── */}
                 {activeTab === 'leaderboard' && (
-                    <div className="space-y-4">
-                        {/* Controls */}
-                        <div className="flex items-center justify-between flex-wrap gap-3 w-full">
-                            <div className="flex bg-slate-100 dark:bg-slate-800 rounded-lg p-0.5 text-xs sm:text-sm">
+                    <div
+                        ref={leaderboardRef}
+                        className={`space-y-4 transition-all ${isFullscreen ? 'fixed inset-0 z-50 bg-slate-50 dark:bg-slate-950 overflow-y-auto p-4 sm:p-6 lg:p-8' : ''}`}
+                    >
+                        {/* Fullscreen header banner */}
+                        {isFullscreen && (
+                            <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3 mb-2">
+                                <div className="flex items-center gap-3">
+                                    <div className="p-2 bg-gradient-to-br from-orange-500 to-red-500 rounded-xl shadow-md shadow-orange-500/20">
+                                        <Timer className="text-white" size={20} />
+                                    </div>
+                                    <div>
+                                        <h2 className="text-lg font-black text-slate-900 dark:text-white">
+                                            {t('drive_thru.title')} — {t('drive_thru.leaderboard')}
+                                        </h2>
+                                        <p className="text-xs text-slate-500 dark:text-slate-400">
+                                            {selectedDate} • {lbViewMode === 'day' ? t('drive_thru.current_day') : `${t('drive_thru.by_slot')} (${ALL_SLOTS[lbSlotIndex]})`}
+                                        </p>
+                                    </div>
+                                </div>
                                 <button
-                                    onClick={() => setLbViewMode('day')}
-                                    className={`px-3 sm:px-4 py-1.5 sm:py-2 rounded-md transition-all font-medium ${lbViewMode === 'day'
-                                        ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm'
-                                        : 'text-slate-500 hover:text-slate-700'
-                                        }`}
+                                    onClick={toggleFullscreen}
+                                    className="flex items-center gap-2 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/50 text-rose-600 dark:text-rose-400 px-3.5 py-1.5 rounded-xl text-xs sm:text-sm font-bold border border-rose-200 dark:border-rose-800 transition-all cursor-pointer active:scale-95 shadow-sm"
+                                    title={t('drive_thru.exit_fullscreen')}
                                 >
-                                    {t('drive_thru.current_day')}
-                                </button>
-                                <button
-                                    onClick={() => setLbViewMode('slot')}
-                                    className={`px-3 sm:px-4 py-1.5 sm:py-2 rounded-md transition-all font-medium ${lbViewMode === 'slot'
-                                        ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm'
-                                        : 'text-slate-500 hover:text-slate-700'
-                                        }`}
-                                >
-                                    {t('drive_thru.by_slot')}
+                                    <Minimize size={16} />
+                                    <span>{t('drive_thru.exit_fullscreen')}</span>
                                 </button>
                             </div>
+                        )}
 
-                            {/* Slot navigation */}
-                            {lbViewMode === 'slot' && (
-                                <div className="flex items-center gap-1.5">
+                        {/* Controls */}
+                        <div className="flex items-center justify-between flex-wrap gap-3 w-full">
+                            <div className="flex items-center gap-3 flex-wrap">
+                                <div className="flex bg-slate-100 dark:bg-slate-800 rounded-lg p-0.5 text-xs sm:text-sm">
                                     <button
-                                        onClick={() => navigateLbSlot(-1)}
-                                        disabled={lbSlotIndex <= 0}
-                                        className="p-1.5 sm:p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 transition-colors border border-slate-200 dark:border-slate-700"
+                                        onClick={() => setLbViewMode('day')}
+                                        className={`px-3 sm:px-4 py-1.5 sm:py-2 rounded-md transition-all font-medium ${lbViewMode === 'day'
+                                            ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm'
+                                            : 'text-slate-500 hover:text-slate-700'
+                                            }`}
                                     >
-                                        <ChevronLeft size={16} />
+                                        {t('drive_thru.current_day')}
                                     </button>
-                                    <span className="text-xs sm:text-sm font-bold text-slate-700 dark:text-slate-300 min-w-[50px] sm:min-w-[60px] text-center bg-slate-100 dark:bg-slate-800 px-2 sm:px-3 py-1.5 sm:py-2 rounded-lg">
-                                        {ALL_SLOTS[lbSlotIndex]}
-                                    </span>
                                     <button
-                                        onClick={() => navigateLbSlot(1)}
-                                        disabled={isLbNextDisabled}
-                                        className="p-1.5 sm:p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 transition-colors border border-slate-200 dark:border-slate-700"
+                                        onClick={() => setLbViewMode('slot')}
+                                        className={`px-3 sm:px-4 py-1.5 sm:py-2 rounded-md transition-all font-medium ${lbViewMode === 'slot'
+                                            ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm'
+                                            : 'text-slate-500 hover:text-slate-700'
+                                            }`}
                                     >
-                                        <ChevronRight size={16} />
+                                        {t('drive_thru.by_slot')}
                                     </button>
                                 </div>
-                            )}
+
+                                {/* Slot navigation */}
+                                {lbViewMode === 'slot' && (
+                                    <div className="flex items-center gap-1.5">
+                                        <button
+                                            onClick={() => navigateLbSlot(-1)}
+                                            disabled={lbSlotIndex <= 0}
+                                            className="p-1.5 sm:p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 transition-colors border border-slate-200 dark:border-slate-700"
+                                        >
+                                            <ChevronLeft size={16} />
+                                        </button>
+                                        <span className="text-xs sm:text-sm font-bold text-slate-700 dark:text-slate-300 min-w-[50px] sm:min-w-[60px] text-center bg-slate-100 dark:bg-slate-800 px-2 sm:px-3 py-1.5 sm:py-2 rounded-lg">
+                                            {ALL_SLOTS[lbSlotIndex]}
+                                        </span>
+                                        <button
+                                            onClick={() => navigateLbSlot(1)}
+                                            disabled={isLbNextDisabled}
+                                            className="p-1.5 sm:p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 transition-colors border border-slate-200 dark:border-slate-700"
+                                        >
+                                            <ChevronRight size={16} />
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Fullscreen Button */}
+                            <button
+                                onClick={toggleFullscreen}
+                                className={`flex items-center gap-2 px-3.5 py-1.5 sm:py-2 rounded-xl text-xs sm:text-sm font-bold transition-all border shadow-sm cursor-pointer active:scale-95 ${
+                                    isFullscreen
+                                        ? 'bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/60 text-rose-600 dark:text-rose-400 border-rose-200 dark:border-rose-800'
+                                        : 'bg-white hover:bg-slate-50 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700'
+                                }`}
+                                title={isFullscreen ? t('drive_thru.exit_fullscreen') : t('drive_thru.fullscreen')}
+                            >
+                                {isFullscreen ? <Minimize size={16} className="text-rose-500" /> : <Maximize size={16} className="text-orange-500" />}
+                                <span>{isFullscreen ? t('drive_thru.exit_fullscreen') : t('drive_thru.fullscreen')}</span>
+                            </button>
                         </div>
 
                         {/* Alert Banner for red stores */}
@@ -808,6 +915,7 @@ function DriveThruContent() {
                                             <div
                                                 key={entry.store_id}
                                                 onClick={() => handleStoreClick(entry.store_id)}
+                                                title={t('drive_thru.view_store_orders').replace('{store}', entry.store_name)}
                                                 className={`cursor-pointer rounded-2xl border-2 p-4 text-center transition-all hover:scale-[1.02] hover:shadow-lg ${colors.bg} ${colors.border} ${isFirst ? 'ring-2 ring-yellow-400 dark:ring-yellow-600' : ''}`}
                                             >
                                                 <span className="text-3xl">{getMedalEmoji(entry.rank)}</span>
@@ -847,6 +955,7 @@ function DriveThruContent() {
                                                         <tr
                                                             key={entry.store_id}
                                                             onClick={() => handleStoreClick(entry.store_id)}
+                                                            title={t('drive_thru.view_store_orders').replace('{store}', entry.store_name)}
                                                             className="border-b border-slate-100 dark:border-slate-800 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
                                                         >
                                                             <td className="px-4 py-3">

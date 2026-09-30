@@ -2333,6 +2333,9 @@ export const dictionaries: Record<Language, Dictionary> = {
             no_data: 'Sin datos para esta franja',
             no_dt_data: 'Sin datos Drive-Thru disponibles',
             loading: 'Cargando datos Drive-Thru...',
+            fullscreen: 'Pantalla Completa',
+            exit_fullscreen: 'Salir',
+            view_store_orders: 'Ver órdenes de {store}',
             // Alerts
             alert_slow: 'ALERTA: {store} excede los {time}',
             alert_critical: 'CRÍTICO: {count} tiendas en rojo',
@@ -6169,6 +6172,9 @@ export const dictionaries: Record<Language, Dictionary> = {
             no_data: 'No data for this slot',
             no_dt_data: 'No Drive-Thru data available',
             loading: 'Loading Drive-Thru data...',
+            fullscreen: 'Fullscreen',
+            exit_fullscreen: 'Exit',
+            view_store_orders: 'View orders for {store}',
             // Alerts
             alert_slow: 'ALERT: {store} exceeds {time}',
             alert_critical: 'CRITICAL: {count} stores in red',
