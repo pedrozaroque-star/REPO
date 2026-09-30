@@ -47,10 +47,23 @@ interface ServerUser {
  *
  * @returns ServerUser si el token es válido, null de lo contrario.
  */
-export async function getServerUser(): Promise<ServerUser | null> {
+export async function getServerUser(req?: Request): Promise<ServerUser | null> {
   try {
-    const cookieStore = await cookies()
-    const token = cookieStore.get('teg_token')?.value
+    let token: string | undefined;
+
+    try {
+      const cookieStore = await cookies()
+      token = cookieStore.get('teg_token')?.value
+    } catch {
+      // In case cookies() cannot be read in some execution context
+    }
+
+    if (!token && req) {
+      const authHeader = req.headers.get('authorization')
+      if (authHeader?.startsWith('Bearer ')) {
+        token = authHeader.substring(7)
+      }
+    }
 
     if (!token) {
       return null

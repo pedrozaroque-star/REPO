@@ -16,9 +16,10 @@ import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { getServerUser } from '@/lib/auth-server'
 
-export async function GET() {
+export async function GET(req: Request) {
     try {
         // Soft auth: catálogo global de actividades, no bloquear lecturas
+        const user = await getServerUser(req)
 
         const { data, error } = await supabaseAdmin
             .from('position_activities')
@@ -48,7 +49,7 @@ export async function GET() {
 
 export async function POST(req: Request) {
     try {
-        const user = await getServerUser()
+        const user = await getServerUser(req)
         if (!user) {
             return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
         }

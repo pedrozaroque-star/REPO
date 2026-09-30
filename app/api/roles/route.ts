@@ -14,7 +14,7 @@ export async function GET(req: Request) {
     try {
         // Soft auth: intentar verificar JWT pero no bloquear lecturas
         // Los datos ya se filtran por store_id en la query
-        const user = await getServerUser()
+        const user = await getServerUser(req)
 
         const { searchParams } = new URL(req.url)
         const store_id = searchParams.get('store_id')
@@ -49,7 +49,7 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
     try {
-        const user = await getServerUser()
+        const user = await getServerUser(req)
         if (!user) {
             return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
         }
@@ -61,7 +61,21 @@ export async function POST(req: Request) {
             return NextResponse.json({ error: 'Faltan parámetros críticos (assignments, store_id, dates)' }, { status: 400 })
         }
 
-        const canAccessStore = user.role === 'admin' || user.role === 'supervisor' || String(user.store_id) === String(store_id)
+        let canAccessStore = user.role === 'admin' || user.role === 'supervisor';
+        if (!canAccessStore && user.store_id) {
+            if (String(user.store_id) === String(store_id)) {
+                canAccessStore = true;
+            } else {
+                const { data: storeRow } = await supabaseAdmin
+                    .from('stores')
+                    .select('id, external_id')
+                    .or(`id.eq.${Number(user.store_id) || 0},external_id.eq.${user.store_id}`)
+                    .single();
+                if (storeRow && (String(storeRow.id) === String(store_id) || storeRow.external_id === store_id)) {
+                    canAccessStore = true;
+                }
+            }
+        }
         if (!canAccessStore) {
             return NextResponse.json({ error: 'Acceso denegado a esta tienda' }, { status: 403 })
         }
@@ -134,23 +148,36 @@ export async function POST(req: Request) {
             insertedIds = (inserted || []).map(r => r.id);
         }
 
-        // Paso 2: ELIMINAR registros antiguos DESPUÉS (solo si insert fue exitoso)
+        // Paso 2: ELIMINAR registros antiguos DESPUÉS (en chunks de 50 para evitar HTTP 414 URI Too Long)
         if (idsToDelete.length > 0) {
-            const { error: deleteError } = await supabaseAdmin
-                .from('station_assignments')
-                .delete()
-                .in('id', idsToDelete);
-
-            if (deleteError) {
-                // Rollback: si el delete falla, eliminar los recién insertados
-                console.error('DELETE failed, rolling back inserted records:', deleteError);
-                if (insertedIds.length > 0) {
-                    await supabaseAdmin
-                        .from('station_assignments')
-                        .delete()
-                        .in('id', insertedIds);
+            const CHUNK_SIZE = 50;
+            let deleteFailed = false;
+            for (let i = 0; i < idsToDelete.length; i += CHUNK_SIZE) {
+                const chunk = idsToDelete.slice(i, i + CHUNK_SIZE);
+                const { error: deleteError } = await supabaseAdmin
+                    .from('station_assignments')
+                    .delete()
+                    .in('id', chunk);
+                if (deleteError) {
+                    console.error('DELETE chunk failed:', deleteError);
+                    deleteFailed = true;
+                    break;
                 }
-                throw deleteError;
+            }
+
+            if (deleteFailed) {
+                // Rollback: si el delete falla, eliminar los recién insertados
+                console.error('DELETE failed, rolling back inserted records');
+                if (insertedIds.length > 0) {
+                    for (let i = 0; i < insertedIds.length; i += CHUNK_SIZE) {
+                        const chunk = insertedIds.slice(i, i + CHUNK_SIZE);
+                        await supabaseAdmin
+                            .from('station_assignments')
+                            .delete()
+                            .in('id', chunk);
+                    }
+                }
+                throw new Error('Error al reemplazar asignaciones anteriores');
             }
         }
 

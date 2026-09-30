@@ -395,7 +395,7 @@ const BoardSlot: React.FC<BoardSlotProps> = ({
 }) => {
   const { t } = useLanguage();
   const emp = assignee
-    ? employees.find((e) => String(e.id) === String(assignee.employee_id))
+    ? employees.find((e) => String(e.id) === String(assignee.employee_id)) || (assignee as any).toast_employees
     : null;
 
   const sUpper = stationKey?.toUpperCase();
@@ -790,7 +790,7 @@ export default function AsignacionDiariaTab() {
 
   const fetchShifts = useCallback(async () => {
     if (!selectedStoreGuid) return;
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('shifts')
       .select('*')
       .eq('store_id', selectedStoreGuid)
@@ -801,33 +801,64 @@ export default function AsignacionDiariaTab() {
   const fetchEmployees = useCallback(async () => {
     if (!selectedStoreGuid) return;
 
-    // Traer empleados filtrados desde el servidor usando el índice GIN en store_ids
-    // (Server-side filtering using GIN index on store_ids JSONB column)
-    const { data: storeEmps } = await supabase
-      .from('toast_employees')
-      .select('*')
-      .contains('store_ids', [selectedStoreGuid])
-      .eq('deleted', false);
+    try {
+      // 1. Fetch all employees (company has ~530 total; paginated to support scale)
+      let allEmps: Employee[] = [];
+      let page = 0;
+      const PAGE_SIZE = 1000;
+      let hasMore = true;
+      while (hasMore) {
+        const { data, error: empErr } = await supabase
+          .from('toast_employees')
+          .select('*')
+          .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
 
-    // También incluir empleados que tienen turno programado hoy aunque no estén en store_ids
-    // (Also include employees who have a scheduled shift today even if not in store_ids)
-    const shiftEmpIds = new Set(shifts.map((s) => String(s.employee_id)));
-    const storeEmpIds = new Set((storeEmps || []).map((e: any) => String(e.id)));
+        if (empErr) {
+          console.error('[fetchEmployees] Error loading toast_employees:', empErr.message);
+          break;
+        }
+        if (!data || data.length === 0) break;
+        allEmps = [...allEmps, ...data];
+        if (data.length < PAGE_SIZE) hasMore = false;
+        page++;
+      }
 
-    // Solo buscar los que tienen shift pero NO están ya en storeEmps
-    const missingShiftIds = [...shiftEmpIds].filter(id => !storeEmpIds.has(id));
-    let extraEmps: Employee[] = [];
-    if (missingShiftIds.length > 0) {
-      const { data } = await supabase
-        .from('toast_employees')
-        .select('*')
-        .in('id', missingShiftIds.map(Number));
-      if (data) extraEmps = data as Employee[];
+      // 2. Identify employees who have a scheduled shift today OR are assigned to any station
+      const shiftEmpIds = new Set(shifts.map((s) => String(s.employee_id)));
+      const assignEmpIds = new Set(assignments.map((a) => String(a.employee_id)));
+
+      // 3. Filter employees: belongs to this store, has shift today, or is assigned
+      const filtered = allEmps.filter((e: Employee) => {
+        const empIdStr = String(e.id);
+        if (shiftEmpIds.has(empIdStr)) return true;
+        if (assignEmpIds.has(empIdStr)) return true;
+        if (e.deleted) return false;
+
+        let storeIds: string[] = [];
+        if (Array.isArray(e.store_ids)) {
+          storeIds = e.store_ids;
+        } else if (typeof e.store_ids === 'string') {
+          const raw = e.store_ids.trim();
+          if (raw.startsWith('[')) {
+            try {
+              const parsed = JSON.parse(raw);
+              if (Array.isArray(parsed)) storeIds = parsed;
+            } catch {
+              storeIds = [raw];
+            }
+          } else {
+            // PostgreSQL text array format "{uuid1,uuid2}"
+            storeIds = raw.replace(/[{}"']/g, '').split(',').map((s: string) => s.trim());
+          }
+        }
+        return storeIds.includes(selectedStoreGuid);
+      });
+
+      setEmployees(filtered as Employee[]);
+    } catch (err) {
+      console.error('[fetchEmployees] Unexpected error in fetchEmployees:', err);
     }
-
-    const combined = [...(storeEmps || []), ...extraEmps] as Employee[];
-    setEmployees(combined);
-  }, [selectedStoreGuid, shifts]);
+  }, [selectedStoreGuid, shifts, assignments]);
 
   const fetchAssignments = useCallback(async () => {
     if (!selectedStoreGuid) return;
@@ -961,12 +992,12 @@ export default function AsignacionDiariaTab() {
     loadData();
   }, [selectedStoreGuid, selectedDateStr, fetchShifts, fetchAssignments, fetchWeekShiftEmpIds]);
 
-  // ── Load employees when shifts change ──
+  // ── Load employees when store, shifts, or assignments change ──
   useEffect(() => {
     if (selectedStoreGuid) {
       fetchEmployees();
     }
-  }, [selectedStoreGuid, shifts, fetchEmployees]);
+  }, [selectedStoreGuid, shifts, assignments, fetchEmployees]);
 
   // ── Actions ──
   const getAssignee = useCallback((date: Date, station: string) => {
@@ -1656,7 +1687,7 @@ export default function AsignacionDiariaTab() {
                           const assignedEmp = assignment
                             ? employees.find(
                                 (e) => String(e.id) === String(assignment.employee_id)
-                              )
+                              ) || (assignment as any).toast_employees
                             : null;
                           const stationActivities = activityMap[stationName] || [];
                           const isVacant = !assignedEmp;
@@ -2155,7 +2186,7 @@ export default function AsignacionDiariaTab() {
                     const shiftStationKey = `${selectedSlotForCard.stationKey}_${activeShift}`;
                     const currentAssignee = getAssignee(selectedDay, shiftStationKey);
                     const currentEmp = currentAssignee
-                      ? employees.find((e) => String(e.id) === String(currentAssignee.employee_id))
+                      ? employees.find((e) => String(e.id) === String(currentAssignee.employee_id)) || (currentAssignee as any).toast_employees
                       : null;
 
                     if (currentEmp && !isReassigning) {

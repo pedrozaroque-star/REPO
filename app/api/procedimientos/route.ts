@@ -21,9 +21,10 @@ import { getServerUser } from '@/lib/auth-server';
 // ═══════════════════════════════════════
 // GET - Obtener todos los procedimientos
 // ═══════════════════════════════════════
-export async function GET() {
+export async function GET(request: Request) {
   try {
     // Soft auth: catálogo global de procedimientos, no bloquear lecturas
+    const user = await getServerUser(request)
 
     const { data, error } = await supabaseAdmin
       .from('operating_procedures')
@@ -43,7 +44,7 @@ export async function GET() {
 // ═══════════════════════════════════════
 export async function PATCH(request: Request) {
   try {
-    const user = await getServerUser()
+    const user = await getServerUser(request)
     if (!user) {
         return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
     }
@@ -101,7 +102,7 @@ export async function PATCH(request: Request) {
 // ═══════════════════════════════════════
 export async function POST(request: Request) {
   try {
-    const user = await getServerUser()
+    const user = await getServerUser(request)
     if (!user) {
         return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
     }
@@ -166,7 +167,7 @@ export async function POST(request: Request) {
 // ═══════════════════════════════════════
 export async function DELETE(request: Request) {
   try {
-    const user = await getServerUser()
+    const user = await getServerUser(request)
     if (!user) {
         return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
     }
