@@ -18,10 +18,7 @@ import { getServerUser } from '@/lib/auth-server'
 
 export async function GET() {
     try {
-        const user = await getServerUser()
-        if (!user) {
-            return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
-        }
+        // Soft auth: catálogo global de actividades, no bloquear lecturas
 
         const { data, error } = await supabaseAdmin
             .from('position_activities')

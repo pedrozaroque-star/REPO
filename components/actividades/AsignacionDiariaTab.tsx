@@ -835,6 +835,10 @@ export default function AsignacionDiariaTab() {
       const res = await fetch(
         `/api/roles?store_id=${selectedStoreGuid}&start_date=${selectedDateStr}&end_date=${selectedDateStr}`
       );
+      if (!res.ok) {
+        console.error(`[fetchAssignments] HTTP ${res.status}:`, await res.text());
+        return;
+      }
       const data = await res.json();
       if (Array.isArray(data)) {
         setAssignments(data as Assignment[]);
@@ -847,6 +851,10 @@ export default function AsignacionDiariaTab() {
   const fetchPositionActivities = useCallback(async () => {
     try {
       const res = await fetch('/api/roles/activities');
+      if (!res.ok) {
+        console.error(`[fetchPositionActivities] HTTP ${res.status}:`, await res.text());
+        return;
+      }
       const data = await res.json();
       if (Array.isArray(data)) {
         setPositionActivities(data as PositionActivity[]);
