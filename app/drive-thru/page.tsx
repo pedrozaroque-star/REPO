@@ -707,41 +707,41 @@ function DriveThruContent() {
         <div
             ref={containerRef}
             className={`min-h-screen bg-slate-50 dark:bg-slate-950 transition-colors ${
-                isFullscreen ? 'fixed inset-0 z-50 overflow-y-auto p-4 sm:p-6 lg:p-8 bg-slate-50 dark:bg-slate-950' : ''
+                isFullscreen ? 'fixed inset-0 z-50 overflow-y-auto p-2 sm:p-3 bg-slate-50 dark:bg-slate-950' : ''
             }`}
         >
             {/* ═══════════════════════════════════════════ */}
             {/* FULLSCREEN HEADER (SOLO EN PANTALLA COMPLETA) */}
             {/* ═══════════════════════════════════════════ */}
             {isFullscreen && (
-                <div className="max-w-7xl mx-auto mb-6 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-md sticky top-0 z-40 backdrop-blur-md bg-white/95 dark:bg-slate-900/95">
-                    <div className="flex items-center justify-between flex-wrap gap-4">
+                <div className="max-w-7xl mx-auto mb-2 sm:mb-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-1.5 sm:px-4 sm:py-2 shadow-sm sticky top-0 z-40 backdrop-blur-md bg-white/95 dark:bg-slate-900/95">
+                    <div className="flex items-center justify-between flex-wrap gap-2 sm:gap-4">
                         {/* Izquierda: Regreso al Leaderboard O Brand/Live */}
-                        <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-2.5">
                             {activeTab !== 'leaderboard' ? (
                                 <button
                                     onClick={() => setActiveTab('leaderboard')}
-                                    className="flex items-center gap-2.5 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white font-black px-5 py-2.5 rounded-xl text-base shadow-md shadow-orange-500/20 transition-all cursor-pointer active:scale-95 group"
+                                    className="flex items-center gap-2 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white font-black px-4 py-1.5 sm:px-5 sm:py-2 rounded-xl text-sm sm:text-base shadow-md shadow-orange-500/20 transition-all cursor-pointer active:scale-95 group"
                                 >
-                                    <ArrowLeft size={20} className="transition-transform group-hover:-translate-x-1" />
+                                    <ArrowLeft size={18} className="transition-transform group-hover:-translate-x-1" />
                                     <span>{t('drive_thru.back_to_leaderboard')}</span>
                                 </button>
                             ) : (
-                                <div className="flex items-center gap-3">
-                                    <div className="p-2.5 bg-gradient-to-br from-orange-500 to-red-500 rounded-xl shadow-md shadow-orange-500/20">
-                                        <Timer className="text-white" size={24} />
+                                <div className="flex items-center gap-2.5">
+                                    <div className="p-1.5 sm:p-2 bg-gradient-to-br from-orange-500 to-red-500 rounded-lg shadow-sm shadow-orange-500/20">
+                                        <Timer className="text-white" size={20} />
                                     </div>
                                     <div>
                                         <div className="flex items-center gap-2">
-                                            <h1 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white">
+                                            <h1 className="text-base sm:text-lg font-black text-slate-900 dark:text-white leading-tight">
                                                 {t('drive_thru.title')} — {t('drive_thru.leaderboard')}
                                             </h1>
-                                            <span className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 animate-pulse">
-                                                <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                                            <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-bold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 animate-pulse">
+                                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
                                                 LIVE
                                             </span>
                                         </div>
-                                        <p className="text-xs sm:text-sm font-semibold text-slate-500 dark:text-slate-400">
+                                        <p className="text-[11px] sm:text-xs font-semibold text-slate-500 dark:text-slate-400">
                                             {selectedDate} • {lbViewMode === 'day' ? t('drive_thru.current_day') : `${t('drive_thru.by_slot')} (${ALL_SLOTS[lbSlotIndex]})`}
                                         </p>
                                     </div>
@@ -750,12 +750,12 @@ function DriveThruContent() {
                         </div>
 
                         {/* Centro: Selector de tabs en pantalla completa */}
-                        <div className="flex items-center bg-slate-100 dark:bg-slate-800 rounded-xl p-1 gap-1">
+                        <div className="flex items-center bg-slate-100 dark:bg-slate-800 rounded-lg p-0.5 gap-0.5">
                             {tabs.map(tab => (
                                 <button
                                     key={tab.id}
                                     onClick={() => setActiveTab(tab.id)}
-                                    className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs sm:text-sm font-bold transition-all ${
+                                    className={`flex items-center gap-1.5 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-md text-xs font-bold transition-all ${
                                         activeTab === tab.id
                                             ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm'
                                             : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'
@@ -768,22 +768,22 @@ function DriveThruContent() {
                         </div>
 
                         {/* Derecha: Selector de fecha y ÚNICO botón de Salir */}
-                        <div className="flex items-center gap-3">
-                            <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-800 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700">
-                                <Calendar size={16} className="text-slate-400" />
+                        <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800 px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700">
+                                <Calendar size={14} className="text-slate-400" />
                                 <input
                                     type="date"
                                     value={selectedDate}
                                     onChange={(e) => setSelectedDate(e.target.value)}
-                                    className="text-xs sm:text-sm font-bold bg-transparent text-slate-900 dark:text-white outline-none cursor-pointer"
+                                    className="text-xs font-bold bg-transparent text-slate-900 dark:text-white outline-none cursor-pointer"
                                 />
                             </div>
                             <button
                                 onClick={toggleFullscreen}
-                                className="flex items-center gap-2 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/60 text-rose-600 dark:text-rose-400 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold border border-rose-200 dark:border-rose-800 transition-all cursor-pointer active:scale-95 shadow-sm"
+                                className="flex items-center gap-1.5 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/60 text-rose-600 dark:text-rose-400 px-3 py-1 sm:px-3.5 sm:py-1.5 rounded-lg text-xs font-bold border border-rose-200 dark:border-rose-800 transition-all cursor-pointer active:scale-95 shadow-sm"
                                 title={t('drive_thru.exit_fullscreen')}
                             >
-                                <Minimize size={18} />
+                                <Minimize size={15} />
                                 <span>{t('drive_thru.exit_fullscreen')}</span>
                             </button>
                         </div>
@@ -854,14 +854,14 @@ function DriveThruContent() {
                 {/* TAB 1: LEADERBOARD */}
                 {/* ─────────────────────────────────── */}
                 {activeTab === 'leaderboard' && (
-                    <div className="space-y-4">
+                    <div className={isFullscreen ? 'space-y-2 sm:space-y-2.5' : 'space-y-4'}>
                         {/* Controls */}
-                        <div className="flex items-center justify-between flex-wrap gap-3 w-full">
-                            <div className="flex items-center gap-3 flex-wrap">
-                                <div className={`flex bg-slate-100 dark:bg-slate-800 rounded-xl p-1 ${isFullscreen ? 'text-base sm:text-lg' : 'text-xs sm:text-sm'}`}>
+                        <div className="flex items-center justify-between flex-wrap gap-2 sm:gap-3 w-full">
+                            <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
+                                <div className="flex bg-slate-100 dark:bg-slate-800 rounded-xl p-0.5 sm:p-1 text-xs sm:text-sm">
                                     <button
                                         onClick={() => setLbViewMode('day')}
-                                        className={`${isFullscreen ? 'px-5 sm:px-6 py-2.5 sm:py-3' : 'px-3 sm:px-4 py-1.5 sm:py-2'} rounded-lg transition-all font-bold ${lbViewMode === 'day'
+                                        className={`${isFullscreen ? 'px-3.5 sm:px-4 py-1 sm:py-1.5' : 'px-3 sm:px-4 py-1.5 sm:py-2'} rounded-lg transition-all font-bold ${lbViewMode === 'day'
                                             ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm'
                                             : 'text-slate-500 hover:text-slate-700'
                                             }`}
@@ -870,7 +870,7 @@ function DriveThruContent() {
                                     </button>
                                     <button
                                         onClick={() => setLbViewMode('slot')}
-                                        className={`${isFullscreen ? 'px-5 sm:px-6 py-2.5 sm:py-3' : 'px-3 sm:px-4 py-1.5 sm:py-2'} rounded-lg transition-all font-bold ${lbViewMode === 'slot'
+                                        className={`${isFullscreen ? 'px-3.5 sm:px-4 py-1 sm:py-1.5' : 'px-3 sm:px-4 py-1.5 sm:py-2'} rounded-lg transition-all font-bold ${lbViewMode === 'slot'
                                             ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm'
                                             : 'text-slate-500 hover:text-slate-700'
                                             }`}
@@ -881,23 +881,23 @@ function DriveThruContent() {
 
                                 {/* Slot navigation */}
                                 {lbViewMode === 'slot' && (
-                                    <div className="flex items-center gap-2">
+                                    <div className="flex items-center gap-1.5">
                                         <button
                                             onClick={() => navigateLbSlot(-1)}
                                             disabled={lbSlotIndex <= 0}
-                                            className={`${isFullscreen ? 'p-3' : 'p-1.5 sm:p-2'} rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 transition-colors border border-slate-200 dark:border-slate-700`}
+                                            className={`${isFullscreen ? 'p-1.5' : 'p-1.5 sm:p-2'} rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 transition-colors border border-slate-200 dark:border-slate-700`}
                                         >
-                                            <ChevronLeft size={isFullscreen ? 22 : 16} />
+                                            <ChevronLeft size={isFullscreen ? 18 : 16} />
                                         </button>
-                                        <span className={`${isFullscreen ? 'text-lg sm:text-xl px-4 py-2 min-w-[80px]' : 'text-xs sm:text-sm px-2 sm:px-3 py-1.5 sm:py-2 min-w-[50px] sm:min-w-[60px]'} font-black text-slate-700 dark:text-slate-300 text-center bg-slate-100 dark:bg-slate-800 rounded-xl`}>
+                                        <span className={`${isFullscreen ? 'text-xs sm:text-sm px-3 py-1 min-w-[60px]' : 'text-xs sm:text-sm px-2 sm:px-3 py-1.5 sm:py-2 min-w-[50px] sm:min-w-[60px]'} font-black text-slate-700 dark:text-slate-300 text-center bg-slate-100 dark:bg-slate-800 rounded-xl`}>
                                             {ALL_SLOTS[lbSlotIndex]}
                                         </span>
                                         <button
                                             onClick={() => navigateLbSlot(1)}
                                             disabled={isLbNextDisabled}
-                                            className={`${isFullscreen ? 'p-3' : 'p-1.5 sm:p-2'} rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 transition-colors border border-slate-200 dark:border-slate-700`}
+                                            className={`${isFullscreen ? 'p-1.5' : 'p-1.5 sm:p-2'} rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 transition-colors border border-slate-200 dark:border-slate-700`}
                                         >
-                                            <ChevronRight size={isFullscreen ? 22 : 16} />
+                                            <ChevronRight size={isFullscreen ? 18 : 16} />
                                         </button>
                                     </div>
                                 )}
@@ -918,8 +918,8 @@ function DriveThruContent() {
 
                         {/* Alert Banner for red stores */}
                         {!lbLoading && lbRedStores.length > 0 && (
-                            <div className="flex items-center gap-3 bg-rose-100 dark:bg-rose-950/40 text-rose-700 dark:text-rose-400 px-4 py-3 rounded-xl text-sm font-medium animate-pulse">
-                                <AlertTriangle size={18} />
+                            <div className={`flex items-center gap-2.5 bg-rose-100 dark:bg-rose-950/40 text-rose-700 dark:text-rose-400 ${isFullscreen ? 'px-3 py-1.5 text-xs sm:text-sm' : 'px-4 py-3 text-sm'} rounded-xl font-bold animate-pulse`}>
+                                <AlertTriangle size={isFullscreen ? 16 : 18} />
                                 <span>
                                     {t('drive_thru.alert_critical').replace('{count}', String(lbRedStores.length))}:{' '}
                                     {lbRedStores.map(s => s.store_name).join(', ')}
@@ -956,7 +956,7 @@ function DriveThruContent() {
                         {!lbLoading && !lbError && lbData && lbData.entries.length > 0 && (
                             <>
                                 {/* Podio top 3 */}
-                                <div className={`grid grid-cols-3 ${isFullscreen ? 'gap-4 sm:gap-6' : 'gap-3'}`}>
+                                <div className={`grid grid-cols-3 ${isFullscreen ? 'gap-2 sm:gap-3' : 'gap-3'}`}>
                                     {lbData.entries.slice(0, 3).map((entry) => {
                                         const colors = getColorClasses(entry.color)
                                         const isFirst = entry.rank === 1
@@ -965,27 +965,29 @@ function DriveThruContent() {
                                                 key={entry.store_id}
                                                 onClick={() => handleStoreClick(entry.store_id)}
                                                 title={t('drive_thru.view_store_orders').replace('{store}', entry.store_name)}
-                                                className={`cursor-pointer rounded-2xl border-2 text-center transition-all hover:scale-[1.02] hover:shadow-xl ${colors.bg} ${colors.border} ${isFirst ? 'ring-4 ring-yellow-400 dark:ring-yellow-600 shadow-yellow-500/10' : ''} ${
-                                                    isFullscreen ? 'p-6 sm:p-8' : 'p-4'
+                                                className={`cursor-pointer rounded-xl border-2 text-center transition-all hover:scale-[1.01] hover:shadow-lg ${colors.bg} ${colors.border} ${isFirst ? 'ring-2 ring-yellow-400 dark:ring-yellow-600 shadow-yellow-500/10' : ''} ${
+                                                    isFullscreen ? 'py-1.5 px-2.5 sm:py-2 sm:px-3' : 'p-4'
                                                 }`}
                                             >
-                                                <span className={`${isFullscreen ? 'text-5xl sm:text-6xl block mb-2' : 'text-3xl'}`}>
-                                                    {getMedalEmoji(entry.rank)}
-                                                </span>
-                                                <h3 className={`font-black text-slate-800 dark:text-slate-100 truncate ${
-                                                    isFullscreen ? 'text-xl sm:text-2xl mt-2' : 'text-sm mt-1'
-                                                }`}>
-                                                    {entry.store_name}
-                                                </h3>
+                                                <div className="flex items-center justify-center gap-1.5">
+                                                    <span className={`${isFullscreen ? 'text-xl sm:text-2xl' : 'text-3xl'}`}>
+                                                        {getMedalEmoji(entry.rank)}
+                                                    </span>
+                                                    <h3 className={`font-black text-slate-800 dark:text-slate-100 truncate ${
+                                                        isFullscreen ? 'text-sm sm:text-base' : 'text-sm mt-1'
+                                                    }`}>
+                                                        {entry.store_name}
+                                                    </h3>
+                                                </div>
                                                 <p className={`font-black tabular-nums tracking-tight ${colors.text} ${
-                                                    isFullscreen ? 'text-4xl sm:text-5xl lg:text-6xl my-2' : 'text-2xl mt-1'
+                                                    isFullscreen ? 'text-2xl sm:text-3xl my-0.5' : 'text-2xl mt-1'
                                                 }`}>
                                                     {formatDuration(entry.avg_duration_sec)}
                                                 </p>
-                                                <div className={`flex items-center justify-center gap-1.5 ${
-                                                    isFullscreen ? 'text-base sm:text-lg font-bold mt-2' : 'text-xs mt-1'
+                                                <div className={`flex items-center justify-center gap-1 ${
+                                                    isFullscreen ? 'text-xs font-bold' : 'text-xs mt-1'
                                                 }`}>
-                                                    <Car size={isFullscreen ? 20 : 12} className="text-slate-400" />
+                                                    <Car size={isFullscreen ? 13 : 12} className="text-slate-400" />
                                                     <span className="text-slate-600 dark:text-slate-300 tabular-nums">
                                                         {entry.order_count} {t('drive_thru.cars')}
                                                     </span>
@@ -996,18 +998,18 @@ function DriveThruContent() {
                                 </div>
 
                                 {/* Full table */}
-                                <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
+                                <div className="bg-white dark:bg-slate-900 rounded-xl sm:rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
                                     <div className="overflow-x-auto">
                                         <table className="w-full text-sm">
                                             <thead>
                                                 <tr className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-700">
-                                                    <th className={`text-left font-black text-slate-600 dark:text-slate-400 ${isFullscreen ? 'px-6 py-4 text-base sm:text-lg' : 'px-4 py-3 text-sm'} w-16`}>{t('drive_thru.rank')}</th>
-                                                    <th className={`text-left font-black text-slate-600 dark:text-slate-400 ${isFullscreen ? 'px-6 py-4 text-base sm:text-lg' : 'px-4 py-3 text-sm'}`}>{t('drive_thru.store')}</th>
-                                                    <th className={`text-center font-black text-slate-600 dark:text-slate-400 ${isFullscreen ? 'px-6 py-4 text-base sm:text-lg' : 'px-4 py-3 text-sm'}`}>{t('drive_thru.avg_time')}</th>
-                                                    <th className={`text-center font-black text-slate-600 dark:text-slate-400 ${isFullscreen ? 'px-6 py-4 text-base sm:text-lg' : 'px-4 py-3 text-sm'}`}>{t('drive_thru.cars')}</th>
-                                                    <th className={`text-center font-black text-slate-600 dark:text-slate-400 hidden md:table-cell ${isFullscreen ? 'px-6 py-4 text-base sm:text-lg' : 'px-4 py-3 text-sm'}`}>{t('drive_thru.fastest')}</th>
-                                                    <th className={`text-center font-black text-slate-600 dark:text-slate-400 hidden md:table-cell ${isFullscreen ? 'px-6 py-4 text-base sm:text-lg' : 'px-4 py-3 text-sm'}`}>{t('drive_thru.slowest')}</th>
-                                                    <th className={`text-center font-black text-slate-600 dark:text-slate-400 ${isFullscreen ? 'px-6 py-4 text-base sm:text-lg' : 'px-4 py-3 text-sm'} w-24`}>Status</th>
+                                                    <th className={`text-left font-black text-slate-600 dark:text-slate-400 ${isFullscreen ? 'px-3 py-1.5 sm:px-4 sm:py-2 text-xs font-black' : 'px-4 py-3 text-sm'} w-14`}>{t('drive_thru.rank')}</th>
+                                                    <th className={`text-left font-black text-slate-600 dark:text-slate-400 ${isFullscreen ? 'px-3 py-1.5 sm:px-4 sm:py-2 text-xs font-black' : 'px-4 py-3 text-sm'}`}>{t('drive_thru.store')}</th>
+                                                    <th className={`text-center font-black text-slate-600 dark:text-slate-400 ${isFullscreen ? 'px-3 py-1.5 sm:px-4 sm:py-2 text-xs font-black' : 'px-4 py-3 text-sm'}`}>{t('drive_thru.avg_time')}</th>
+                                                    <th className={`text-center font-black text-slate-600 dark:text-slate-400 ${isFullscreen ? 'px-3 py-1.5 sm:px-4 sm:py-2 text-xs font-black' : 'px-4 py-3 text-sm'}`}>{t('drive_thru.cars')}</th>
+                                                    <th className={`text-center font-black text-slate-600 dark:text-slate-400 hidden md:table-cell ${isFullscreen ? 'px-3 py-1.5 sm:px-4 sm:py-2 text-xs font-black' : 'px-4 py-3 text-sm'}`}>{t('drive_thru.fastest')}</th>
+                                                    <th className={`text-center font-black text-slate-600 dark:text-slate-400 hidden md:table-cell ${isFullscreen ? 'px-3 py-1.5 sm:px-4 sm:py-2 text-xs font-black' : 'px-4 py-3 text-sm'}`}>{t('drive_thru.slowest')}</th>
+                                                    <th className={`text-center font-black text-slate-600 dark:text-slate-400 ${isFullscreen ? 'px-3 py-1.5 sm:px-4 sm:py-2 text-xs font-black' : 'px-4 py-3 text-sm'} w-20`}>Status</th>
                                                 </tr>
                                             </thead>
                                             <tbody>
@@ -1019,22 +1021,20 @@ function DriveThruContent() {
                                                             key={entry.store_id}
                                                             onClick={() => handleStoreClick(entry.store_id)}
                                                             title={t('drive_thru.view_store_orders').replace('{store}', entry.store_name)}
-                                                            className={`border-b border-slate-100 dark:border-slate-800 cursor-pointer hover:bg-slate-100/70 dark:hover:bg-slate-800/70 transition-colors ${
-                                                                isFullscreen ? 'py-2' : ''
-                                                            }`}
+                                                            className="border-b border-slate-100 dark:border-slate-800 cursor-pointer hover:bg-slate-100/70 dark:hover:bg-slate-800/70 transition-colors"
                                                         >
-                                                            <td className={isFullscreen ? 'px-6 py-4' : 'px-4 py-3'}>
-                                                                <span className={`font-black ${isFullscreen ? 'text-2xl sm:text-3xl' : 'text-base'}`}>{getMedalEmoji(entry.rank)}</span>
+                                                            <td className={isFullscreen ? 'px-3 py-1 sm:px-4 sm:py-1.5' : 'px-4 py-3'}>
+                                                                <span className={`font-black ${isFullscreen ? 'text-lg sm:text-xl' : 'text-base'}`}>{getMedalEmoji(entry.rank)}</span>
                                                             </td>
-                                                            <td className={`${isFullscreen ? 'px-6 py-4 text-lg sm:text-xl font-black text-slate-900 dark:text-white' : 'px-4 py-3 font-semibold text-slate-800 dark:text-slate-200'}`}>
+                                                            <td className={`${isFullscreen ? 'px-3 py-1 sm:px-4 sm:py-1.5 text-base sm:text-lg font-black text-slate-900 dark:text-white' : 'px-4 py-3 font-semibold text-slate-800 dark:text-slate-200'}`}>
                                                                 {entry.store_name}
                                                             </td>
-                                                            <td className={`${isFullscreen ? 'px-6 py-4' : 'px-4 py-3'} text-center`}>
-                                                                <div className="flex flex-col items-center gap-1.5">
-                                                                    <span className={`tabular-nums font-black ${colors.text} ${isFullscreen ? 'text-2xl sm:text-3xl' : 'font-bold'}`}>
+                                                            <td className={`${isFullscreen ? 'px-3 py-1 sm:px-4 sm:py-1.5' : 'px-4 py-3'} text-center`}>
+                                                                <div className="flex flex-col items-center gap-1">
+                                                                    <span className={`tabular-nums font-black ${colors.text} ${isFullscreen ? 'text-xl sm:text-2xl' : 'font-bold'}`}>
                                                                         {formatDuration(entry.avg_duration_sec)}
                                                                     </span>
-                                                                    <div className={`w-full ${isFullscreen ? 'max-w-[160px] sm:max-w-[200px] h-3.5' : 'max-w-[100px] h-2'} bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden`}>
+                                                                    <div className={`w-full ${isFullscreen ? 'max-w-[130px] sm:max-w-[160px] h-2 sm:h-2.5' : 'max-w-[100px] h-2'} bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden`}>
                                                                         <div
                                                                             className={`h-full rounded-full transition-all duration-700 ease-out ${colors.bar}`}
                                                                             style={{ width: `${barWidth}%` }}
@@ -1042,35 +1042,35 @@ function DriveThruContent() {
                                                                     </div>
                                                                 </div>
                                                             </td>
-                                                            <td className={`${isFullscreen ? 'px-6 py-4' : 'px-4 py-3'} text-center`}>
-                                                                <div className="flex items-center justify-center gap-1.5">
-                                                                    <Car size={isFullscreen ? 20 : 14} className="text-slate-400" />
-                                                                    <span className={`tabular-nums font-black ${isFullscreen ? 'text-lg sm:text-xl text-slate-800 dark:text-slate-200' : 'font-medium text-slate-600 dark:text-slate-400'}`}>
+                                                            <td className={`${isFullscreen ? 'px-3 py-1 sm:px-4 sm:py-1.5' : 'px-4 py-3'} text-center`}>
+                                                                <div className="flex items-center justify-center gap-1">
+                                                                    <Car size={isFullscreen ? 16 : 14} className="text-slate-400" />
+                                                                    <span className={`tabular-nums font-black ${isFullscreen ? 'text-base sm:text-lg text-slate-800 dark:text-slate-200' : 'font-medium text-slate-600 dark:text-slate-400'}`}>
                                                                         {entry.order_count}
                                                                     </span>
                                                                 </div>
                                                             </td>
-                                                            <td className={`${isFullscreen ? 'px-6 py-4' : 'px-4 py-3'} text-center hidden md:table-cell`}>
+                                                            <td className={`${isFullscreen ? 'px-3 py-1 sm:px-4 sm:py-1.5' : 'px-4 py-3'} text-center hidden md:table-cell`}>
                                                                 {entry.fastest_order ? (
-                                                                    <span className={`text-emerald-600 dark:text-emerald-400 font-bold tabular-nums ${isFullscreen ? 'text-base sm:text-lg' : ''}`}>
-                                                                        <Zap size={isFullscreen ? 18 : 12} className="inline mr-1" />
+                                                                    <span className={`text-emerald-600 dark:text-emerald-400 font-bold tabular-nums ${isFullscreen ? 'text-sm sm:text-base' : ''}`}>
+                                                                        <Zap size={isFullscreen ? 15 : 12} className="inline mr-1" />
                                                                         {formatDuration(entry.fastest_order.duration)}
                                                                     </span>
                                                                 ) : (
                                                                     <span className="text-slate-300">—</span>
                                                                 )}
                                                             </td>
-                                                            <td className={`${isFullscreen ? 'px-6 py-4' : 'px-4 py-3'} text-center hidden md:table-cell`}>
+                                                            <td className={`${isFullscreen ? 'px-3 py-1 sm:px-4 sm:py-1.5' : 'px-4 py-3'} text-center hidden md:table-cell`}>
                                                                 {entry.slowest_order ? (
-                                                                    <span className={`text-rose-600 dark:text-rose-400 font-bold tabular-nums ${isFullscreen ? 'text-base sm:text-lg' : ''}`}>
+                                                                    <span className={`text-rose-600 dark:text-rose-400 font-bold tabular-nums ${isFullscreen ? 'text-sm sm:text-base' : ''}`}>
                                                                         {formatDuration(entry.slowest_order.duration)}
                                                                     </span>
                                                                 ) : (
                                                                     <span className="text-slate-300">—</span>
                                                                 )}
                                                             </td>
-                                                            <td className={`${isFullscreen ? 'px-6 py-4' : 'px-4 py-3'} text-center`}>
-                                                                <div className={`${isFullscreen ? 'w-5 h-5' : 'w-3 h-3'} rounded-full mx-auto ${colors.dot} ${entry.color === 'red' ? 'animate-pulse ring-4 ring-rose-400/30' : ''}`} />
+                                                            <td className={`${isFullscreen ? 'px-3 py-1 sm:px-4 sm:py-1.5' : 'px-4 py-3'} text-center`}>
+                                                                <div className={`${isFullscreen ? 'w-3.5 h-3.5 sm:w-4 sm:h-4' : 'w-3 h-3'} rounded-full mx-auto ${colors.dot} ${entry.color === 'red' ? 'animate-pulse ring-4 ring-rose-400/30' : ''}`} />
                                                             </td>
                                                         </tr>
                                                     )
@@ -1080,20 +1080,20 @@ function DriveThruContent() {
                                     </div>
 
                                     {/* Footer Stats */}
-                                    <div className={`border-t border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 ${isFullscreen ? 'px-8 py-5' : 'px-5 py-3'}`}>
+                                    <div className={`border-t border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 ${isFullscreen ? 'px-4 py-1.5 sm:px-6 sm:py-2' : 'px-5 py-3'}`}>
                                         <div className="flex items-center justify-between text-sm">
-                                            <div className={`flex items-center ${isFullscreen ? 'gap-10 text-base sm:text-lg' : 'gap-6 text-sm'}`}>
-                                                <div className="flex items-center gap-2.5">
-                                                    <Clock size={isFullscreen ? 20 : 14} className="text-slate-400" />
+                                            <div className={`flex items-center ${isFullscreen ? 'gap-6 sm:gap-8 text-xs sm:text-sm' : 'gap-6 text-sm'}`}>
+                                                <div className="flex items-center gap-2">
+                                                    <Clock size={isFullscreen ? 16 : 14} className="text-slate-400" />
                                                     <span className="text-slate-500 font-bold">{t('drive_thru.global_avg')}:</span>
-                                                    <span className={`font-black tabular-nums ${isFullscreen ? 'text-2xl sm:text-3xl' : ''} ${lbData.globalAvg <= 210 ? 'text-emerald-600' : lbData.globalAvg <= 300 ? 'text-amber-600' : 'text-rose-600'}`}>
+                                                    <span className={`font-black tabular-nums ${isFullscreen ? 'text-lg sm:text-xl' : ''} ${lbData.globalAvg <= 210 ? 'text-emerald-600' : lbData.globalAvg <= 300 ? 'text-amber-600' : 'text-rose-600'}`}>
                                                         {formatDuration(lbData.globalAvg)}
                                                     </span>
                                                 </div>
-                                                <div className="flex items-center gap-2.5">
-                                                    <Car size={isFullscreen ? 20 : 14} className="text-slate-400" />
+                                                <div className="flex items-center gap-2">
+                                                    <Car size={isFullscreen ? 16 : 14} className="text-slate-400" />
                                                     <span className="text-slate-500 font-bold">{t('drive_thru.total_cars')}:</span>
-                                                    <span className={`font-black text-slate-800 dark:text-slate-200 tabular-nums ${isFullscreen ? 'text-2xl sm:text-3xl' : ''}`}>{lbData.totalCars}</span>
+                                                    <span className={`font-black text-slate-800 dark:text-slate-200 tabular-nums ${isFullscreen ? 'text-lg sm:text-xl' : ''}`}>{lbData.totalCars}</span>
                                                 </div>
                                             </div>
                                         </div>
