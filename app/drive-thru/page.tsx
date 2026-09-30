@@ -736,7 +736,7 @@ function DriveThruContent() {
                                     <div>
                                         <div className="flex items-center gap-2">
                                             <h1 className="text-base sm:text-xl font-black text-slate-900 dark:text-white leading-tight">
-                                                {t('drive_thru.title')} — {t('drive_thru.leaderboard')}
+                                                {t('drive_thru.title')}
                                             </h1>
                                             <span className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 animate-pulse">
                                                 <span className="w-2 h-2 rounded-full bg-emerald-500" />
@@ -1113,15 +1113,17 @@ function DriveThruContent() {
                 {/* ─────────────────────────────────── */}
                 {activeTab === 'timeline' && (
                     <div className="space-y-4">
-                        <div className="flex items-center justify-between">
-                            <button
-                                onClick={() => setActiveTab('leaderboard')}
-                                className="inline-flex items-center gap-2 text-sm sm:text-base font-bold text-orange-600 dark:text-orange-400 hover:text-orange-700 dark:hover:text-orange-300 transition-colors cursor-pointer group"
-                            >
-                                <ArrowLeft size={18} className="transition-transform group-hover:-translate-x-1" />
-                                <span>{t('drive_thru.back_to_leaderboard')}</span>
-                            </button>
-                        </div>
+                        {!isFullscreen && (
+                            <div className="flex items-center justify-between">
+                                <button
+                                    onClick={() => setActiveTab('leaderboard')}
+                                    className="inline-flex items-center gap-2 text-sm sm:text-base font-bold text-orange-600 dark:text-orange-400 hover:text-orange-700 dark:hover:text-orange-300 transition-colors cursor-pointer group"
+                                >
+                                    <ArrowLeft size={18} className="transition-transform group-hover:-translate-x-1" />
+                                    <span>{t('drive_thru.back_to_leaderboard')}</span>
+                                </button>
+                            </div>
+                        )}
                         {/* Controls */}
                         <div className="flex items-center gap-3 flex-wrap">
                             {/* Store selector */}
@@ -1303,20 +1305,24 @@ function DriveThruContent() {
                 {/* ─────────────────────────────────── */}
                 {activeTab === 'lookup' && (
                     <div className="space-y-4">
-                        <div className="flex items-center justify-between">
-                            <button
-                                onClick={() => setActiveTab('leaderboard')}
-                                className="inline-flex items-center gap-2 text-sm sm:text-base font-bold text-orange-600 dark:text-orange-400 hover:text-orange-700 dark:hover:text-orange-300 transition-colors cursor-pointer group"
-                            >
-                                <ArrowLeft size={18} className="transition-transform group-hover:-translate-x-1" />
-                                <span>{t('drive_thru.back_to_leaderboard')}</span>
-                            </button>
-                            {luStoreId && (
-                                <span className="text-xs sm:text-sm font-bold text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-3 py-1 rounded-xl shadow-sm">
-                                    {dtStores.find(s => s.id === luStoreId)?.name || luStoreId}
-                                </span>
-                            )}
-                        </div>
+                        {(!isFullscreen || luStoreId) && (
+                            <div className={`flex items-center ${!isFullscreen ? 'justify-between' : 'justify-end'}`}>
+                                {!isFullscreen && (
+                                    <button
+                                        onClick={() => setActiveTab('leaderboard')}
+                                        className="inline-flex items-center gap-2 text-sm sm:text-base font-bold text-orange-600 dark:text-orange-400 hover:text-orange-700 dark:hover:text-orange-300 transition-colors cursor-pointer group"
+                                    >
+                                        <ArrowLeft size={18} className="transition-transform group-hover:-translate-x-1" />
+                                        <span>{t('drive_thru.back_to_leaderboard')}</span>
+                                    </button>
+                                )}
+                                {luStoreId && (
+                                    <span className="text-xs sm:text-sm font-bold text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-3 py-1 rounded-xl shadow-sm">
+                                        {dtStores.find(s => s.id === luStoreId)?.name || luStoreId}
+                                    </span>
+                                )}
+                            </div>
+                        )}
                         {/* Search form */}
                         <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5">
                             <div className="flex flex-col sm:flex-row gap-3">
@@ -1549,15 +1555,17 @@ function DriveThruContent() {
                 {/* ─────────────────────────────────── */}
                 {activeTab === 'reports' && (
                     <div className="space-y-4">
-                        <div className="flex items-center justify-between">
-                            <button
-                                onClick={() => setActiveTab('leaderboard')}
-                                className="inline-flex items-center gap-2 text-sm sm:text-base font-bold text-orange-600 dark:text-orange-400 hover:text-orange-700 dark:hover:text-orange-300 transition-colors cursor-pointer group"
-                            >
-                                <ArrowLeft size={18} className="transition-transform group-hover:-translate-x-1" />
-                                <span>{t('drive_thru.back_to_leaderboard')}</span>
-                            </button>
-                        </div>
+                        {!isFullscreen && (
+                            <div className="flex items-center justify-between">
+                                <button
+                                    onClick={() => setActiveTab('leaderboard')}
+                                    className="inline-flex items-center gap-2 text-sm sm:text-base font-bold text-orange-600 dark:text-orange-400 hover:text-orange-700 dark:hover:text-orange-300 transition-colors cursor-pointer group"
+                                >
+                                    <ArrowLeft size={18} className="transition-transform group-hover:-translate-x-1" />
+                                    <span>{t('drive_thru.back_to_leaderboard')}</span>
+                                </button>
+                            </div>
+                        )}
                         {/* Controls */}
                         <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5">
                             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 items-end">
