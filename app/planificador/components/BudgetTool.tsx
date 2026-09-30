@@ -1,3 +1,18 @@
+/**
+ * @module app/planificador/components/BudgetTool
+ * @description Sticky weekly and daily budget bar for the schedule planner in Tacos Gavilan.
+ * Displays hours, scheduled labor cost, actual Toast labor cost, sales projections,
+ * and labor cost percentage vs corporate targets.
+ * 
+ * @businessRules
+ * - Corporate labor cost target for Tacos Gavilan is strictly < 21.5%.
+ * - Workday starts at 6:00 AM and ends at 5:59 AM next day.
+ * - General Manager hours and wages are excluded from hourly employee labor budget calculations.
+ * 
+ * @dataFlow
+ * Toast net sales + Intelligence projections -> BudgetTool -> UI indicators & warnings
+ */
+
 'use client'
 
 import React, { useState, useMemo, useEffect, useRef } from 'react'
@@ -78,7 +93,7 @@ export function BudgetTool({ weekStart, shifts, weeklyStats, laborStats, project
     const fmtPct = (n: number) => n > 0 ? `${n.toFixed(1)}%` : '-'
     const getPctColor = (val: number, isBurn = false) => {
         if (isBurn) return 'bg-amber-100 text-amber-700 border-amber-300'
-        if (val > 22) return 'bg-red-100 text-red-700 border-red-300'
+        if (val > 21.5) return 'bg-red-100 text-red-700 border-red-300'
         return 'bg-emerald-100 text-emerald-700 border-emerald-300'
     }
 
@@ -179,7 +194,7 @@ export function BudgetTool({ weekStart, shifts, weeklyStats, laborStats, project
                                 </span>
                             </div>
                             <div className="h-11 grid grid-cols-2 items-center px-1">
-                                <span className={`text-right pr-1 text-sm font-bold ${day.laborPctProj > 22 ? 'text-red-500' : 'text-blue-600'}`}>{fmtPct(day.laborPctProj)}</span>
+                                <span className={`text-right pr-1 text-sm font-bold ${day.laborPctProj > 21.5 ? 'text-red-500' : 'text-blue-600'}`}>{fmtPct(day.laborPctProj)}</span>
                                 <div className="text-left pl-1">
                                     {day.laborPctAct > 0 && (
                                         <span className={`px-1.5 py-0.5 rounded border text-xs font-bold ${getPctColor(day.laborPctAct, day.isBurnRate)}`}>

@@ -1,3 +1,17 @@
+/**
+ * @module app/planificador/imprimir/page
+ * @description Printable high-contrast weekly schedule sheet for Tacos Gavilan stores.
+ * Organizes morning (AM) and evening/night (PM) staff hierarchically by job role.
+ * 
+ * @businessRules
+ * - Workday runs 6:00 AM to 5:59 AM next day.
+ * - AM employees are sorted above PM employees based on shift start times.
+ * - Shows store name, week dates, and clean shift times for physical kitchen posting.
+ * 
+ * @dataFlow
+ * Supabase (stores, toast_employees, toast_jobs, shifts) -> Formatted printable HTML table
+ */
+
 'use client'
 
 import { useEffect, useState, useMemo, Suspense } from 'react'
@@ -39,20 +53,22 @@ function PrintViewContent() {
 
             const [shiftsRes, empsRes, jobsRes] = await Promise.all([
                 supabase.from('shifts').select('*').eq('store_id', storeId).gte('shift_date', startStr).lte('shift_date', endStr),
-                supabase.from('toast_employees').select('*').eq('deleted', false),
+                supabase.from('toast_employees').select('*').eq('deleted', false).contains('store_ids', JSON.stringify([storeId])).order('sort_order', { ascending: true }),
                 supabase.from('toast_jobs').select('*')
             ])
 
             if (shiftsRes.data) setShifts(shiftsRes.data)
-            if (empsRes.data) {
-                const relevant = empsRes.data.filter((e: any) => {
-                    const ids = e.store_ids
-                    if (Array.isArray(ids)) return ids.includes(storeId)
-                    if (typeof ids === 'string') return ids.includes(storeId)
-                    return false
-                })
-                setEmployees(relevant)
+            let storeEmployees = empsRes.data || []
+
+            // Check if any shift belongs to an employee not in storeEmployees (borrowed staff)
+            const existingEmpIds = new Set(storeEmployees.map((e: any) => e.id))
+            const missingIds = (shiftsRes.data || []).map((s: any) => s.employee_id).filter((id: any) => id && !existingEmpIds.has(id))
+            if (missingIds.length > 0) {
+                const { data: missingEmps } = await supabase.from('toast_employees').select('*').in('id', missingIds)
+                if (missingEmps) storeEmployees = [...storeEmployees, ...missingEmps]
             }
+
+            setEmployees(storeEmployees)
             if (jobsRes.data) setJobs(jobsRes.data)
 
             setLoading(false)

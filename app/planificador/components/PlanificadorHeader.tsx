@@ -1,5 +1,20 @@
+/**
+ * @module app/planificador/components/PlanificadorHeader
+ * @description Top navigation and action header for the schedule planner in Tacos Gavilan.
+ * Includes store selector, week selector, clone modal launcher, draft count indicator,
+ * auto-save status indicator, Google/Gmail OAuth connection badge, and schedule publication trigger.
+ * 
+ * @businessRules
+ * - Store selection filters the entire schedule planner to that store's employees and shifts.
+ * - Week selection navigates Monday-to-Sunday schedule weeks.
+ * - All draft changes are automatically saved to Supabase; the header communicates this with an auto-save badge.
+ * - Bilingual labels and tooltips in Spanish and English via useLanguage.
+ * 
+ * @dataFlow
+ * Planner state -> PlanificadorHeader -> User navigation / OAuth / Modal triggers
+ */
 
-import { Calendar, Loader2, Clock, Zap, ChevronRight, Sliders, Coffee, Copy, Mail } from 'lucide-react'
+import { Calendar, Loader2, Clock, Zap, ChevronRight, Sliders, Coffee, Copy, Mail, CheckCircle2 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { WeekSelector } from './WeekSelector'
 import { formatStoreName } from '../lib/utils'
@@ -25,7 +40,7 @@ export function PlanificadorHeader({
     onCloneClick,
     onConnectGmail
 }: any) {
-    const { t } = useLanguage()
+    const { t, language } = useLanguage()
 
     return (
         <>
@@ -52,10 +67,24 @@ export function PlanificadorHeader({
                         <WeekSelector currentDate={currentDate} onDateChange={setCurrentDate} weekStart={weekStart} />
                     </div>
 
-                    {syncing && <div className="hidden sm:flex items-center gap-3 text-xs text-indigo-500 font-bold animate-pulse"><Loader2 size={12} className="animate-spin" /> {t('planner.syncing')}</div>}
+                    {syncing && (
+                        <div className="hidden sm:flex items-center gap-2 text-xs text-indigo-500 font-bold animate-pulse">
+                            <Loader2 size={13} className="animate-spin" />
+                            <span>{t('planner.syncing')}</span>
+                        </div>
+                    )}
                 </div>
 
                 <div className="flex items-center gap-2 sm:gap-4">
+                    {/* Auto-Save Status Badge */}
+                    <div
+                        className="hidden lg:flex items-center gap-1.5 px-2.5 py-1.5 bg-emerald-50/80 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 rounded-lg text-xs font-semibold border border-emerald-200/60 dark:border-emerald-800/40 select-none shadow-2xs"
+                        title={language === 'en' ? 'Changes are automatically saved as drafts' : 'Todos los cambios se guardan automáticamente como borrador'}
+                    >
+                        <CheckCircle2 size={13} className="text-emerald-500 shrink-0" />
+                        <span>{language === 'en' ? 'Auto-Saved' : 'Guardado'}</span>
+                    </div>
+
                     <button
                         onClick={onCloneClick}
                         className="flex items-center gap-1.5 px-3 py-2 bg-indigo-50 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 rounded-lg text-xs font-bold shadow-sm transition-transform hover:scale-105 active:scale-95 cursor-pointer"
@@ -119,10 +148,10 @@ export function PlanificadorHeader({
                         <button
                             onClick={() => setIsToolbarVisible(!isToolbarVisible)}
                             className={`p-2 rounded-lg transition-all border ${isToolbarVisible
-                                ? 'bg-indigo-600 text-white border-indigo-600'
+                                ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
                                 : 'bg-white dark:bg-slate-800 text-gray-500 dark:text-slate-400 border-gray-200 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-700'
                                 }`}
-                            title={isToolbarVisible ? "Ocultar Herramientas" : "Mostrar Herramientas"}
+                            title={isToolbarVisible ? "Ocultar Barra de Herramientas" : "Mostrar Barra de Herramientas"}
                         >
                             <Sliders size={20} />
                         </button>

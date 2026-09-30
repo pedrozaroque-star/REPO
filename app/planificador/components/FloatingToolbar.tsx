@@ -1,5 +1,22 @@
+/**
+ * @module app/planificador/components/FloatingToolbar
+ * @description Docked horizontal tool ribbon for schedule planner operations in Tacos Gavilan.
+ * Provides quick access to AI Smart Generation, Schedule Templates, Store Employee Sync,
+ * Printable View, Alphabetical Sorting, and Draft Clearing.
+ * 
+ * @businessRules
+ * - Docked cleanly below the header to guarantee 0% visual obstruction of Saturday/Sunday columns.
+ * - Employee sync targets the selected store exclusively.
+ * - Bilingual labels and tooltips in Spanish and English via useLanguage.
+ * 
+ * @dataFlow
+ * Planner state & actions -> FloatingToolbar buttons -> Page modal / API dispatchers
+ */
+
+'use client'
+
 import { motion, AnimatePresence } from 'framer-motion'
-import { Bot, Loader2, LayoutTemplate, RefreshCcw, ArrowDownAZ, Trash2, Printer } from 'lucide-react'
+import { Bot, Loader2, LayoutTemplate, RefreshCcw, ArrowDownAZ, Trash2, Printer, Sparkles } from 'lucide-react'
 import { useLanguage } from '@/lib/i18n'
 
 export function FloatingToolbar({
@@ -20,265 +37,233 @@ export function FloatingToolbar({
     setShowClearInfo,
     setShowTemplateInfo,
     showTemplateInfo,
-    handlePrint, // NEW
-    showPrintInfo, // NEW
-    setShowPrintInfo // NEW
+    handlePrint,
+    showPrintInfo,
+    setShowPrintInfo
 }: any) {
-    const { t } = useLanguage()
+    const { t, language } = useLanguage()
 
     return (
-        <div className="fixed bottom-6 right-6 sm:right-6 sm:top-1/2 sm:-translate-y-1/2 z-[60] flex flex-row sm:flex-col gap-2 sm:gap-3 p-2 sm:p-3 bg-white/95 dark:bg-slate-900/95 backdrop-blur-2xl rounded-2xl sm:rounded-3xl shadow-[0_20px_60px_-15px_rgba(0,0,0,0.3)] border border-indigo-500/20 dark:border-slate-700 animate-in slide-in-from-right duration-500 ring-1 ring-black/5">
-            {/* AI Button - Primary */}
-            <div className="relative group/tool">
-                <motion.button
-                    onClick={handleGenerateSmart}
-                    disabled={isGenerating}
-                    onMouseEnter={() => setShowAIInfo(true)}
-                    onMouseLeave={() => setShowAIInfo(false)}
-                    whileHover={isGenerating ? {} : { scale: 1.1 }}
-                    whileTap={isGenerating ? {} : { scale: 0.9 }}
-                    className={`p-3 rounded-2xl flex items-center justify-center transition-all shadow-lg
-                            ${isGenerating ? 'bg-gray-100 text-gray-400' : 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-indigo-200 dark:shadow-none'}
+        <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.2 }}
+            className="w-full bg-slate-50/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-gray-200 dark:border-slate-800 px-4 sm:px-6 py-2 flex items-center justify-between gap-2 overflow-x-auto z-20 shadow-xs"
+        >
+            <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+                {/* AI Smart Schedule Button */}
+                <div className="relative group/tool">
+                    <motion.button
+                        onClick={handleGenerateSmart}
+                        disabled={isGenerating}
+                        onMouseEnter={() => setShowAIInfo(true)}
+                        onMouseLeave={() => setShowAIInfo(false)}
+                        whileTap={isGenerating ? {} : { scale: 0.96 }}
+                        className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl font-bold text-xs shadow-sm transition-all
+                            ${isGenerating
+                                ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                                : 'bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-500 hover:to-indigo-600 text-white shadow-indigo-200 dark:shadow-none'
+                            }
                         `}
-                >
-                    {isGenerating ? <Loader2 size={24} className="animate-spin" /> : <Bot size={24} />}
-                </motion.button>
-                <AnimatePresence>
-                    {showAIInfo && (
-                        <motion.div
-                            initial={{ opacity: 0, scale: 0.9, x: 20 }}
-                            animate={{ opacity: 1, scale: 1, x: 0 }}
-                            exit={{ opacity: 0, scale: 0.9, x: 20 }}
-                            className="absolute right-full mr-5 top-0 w-80 p-5 bg-slate-900 text-white rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.5)] border border-indigo-500/30 z-[100] overflow-hidden"
-                        >
-                            {/* Glassmorphism Background Decoration */}
-                            <div className="absolute -top-10 -right-10 w-32 h-32 bg-indigo-500/10 rounded-full blur-3xl"></div>
+                    >
+                        {isGenerating ? <Loader2 size={16} className="animate-spin" /> : <Bot size={16} />}
+                        <span className="hidden sm:inline">
+                            {language === 'en' ? 'Smart Generator (AI)' : 'Generador Inteligente (IA)'}
+                        </span>
+                        <span className="sm:hidden">IA</span>
+                    </motion.button>
 
-                            <div className="relative z-10">
-                                <div className="flex items-center gap-3 mb-3">
-                                    <div className="p-2 bg-indigo-500/20 rounded-xl border border-indigo-500/30">
-                                        <Bot size={20} className="text-indigo-400" />
-                                    </div>
-                                    <div>
-                                        <h4 className="text-xs font-black uppercase tracking-[0.2em] text-indigo-400">{t('planner.tooltips.ai_generator.title')}</h4>
-                                        <div className="flex gap-1 mt-1">
-                                            {[1, 2, 3].map(i => (
-                                                <motion.div
-                                                    key={i}
-                                                    className="w-1 h-1 bg-indigo-400 rounded-full"
-                                                    animate={{ opacity: [0.3, 1, 0.3] }}
-                                                    transition={{ duration: 1, repeat: Infinity, delay: i * 0.2 }}
-                                                />
-                                            ))}
-                                        </div>
-                                    </div>
+                    <AnimatePresence>
+                        {showAIInfo && (
+                            <motion.div
+                                initial={{ opacity: 0, y: 8, scale: 0.95 }}
+                                animate={{ opacity: 1, y: 0, scale: 1 }}
+                                exit={{ opacity: 0, y: 8, scale: 0.95 }}
+                                className="absolute left-0 top-full mt-2 w-80 p-4 bg-slate-900 text-white rounded-2xl shadow-2xl border border-indigo-500/30 z-[100] overflow-hidden"
+                            >
+                                <div className="flex items-center gap-2 mb-2 text-indigo-400">
+                                    <Sparkles size={16} />
+                                    <h4 className="text-xs font-black uppercase tracking-wider">{t('planner.tooltips.ai_generator.title')}</h4>
                                 </div>
-
-                                <p className="text-[13px] text-slate-300 leading-relaxed font-medium">
+                                <p className="text-[12px] text-slate-300 leading-relaxed font-medium">
                                     {t('planner.tooltips.ai_generator.description')}
                                 </p>
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
+                </div>
 
-                                {/* Animated Neural Network-like Waveform */}
-                                <div className="mt-4 pt-4 border-t border-slate-800 flex items-center justify-between">
-                                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">{t('planner.tooltips.ai_generator.status')}</span>
-                                    <div className="flex items-end gap-1 h-4">
-                                        {[1, 2, 3, 4, 5, 6, 7].map(i => (
-                                            <motion.div
-                                                key={i}
-                                                className="w-1 bg-indigo-500/60 rounded-full"
-                                                animate={{ height: ['30%', '100%', '30%'] }}
-                                                transition={{ duration: 0.8, repeat: Infinity, delay: i * 0.1, ease: "easeInOut" }}
-                                            />
-                                        ))}
-                                    </div>
+                {/* Templates Button */}
+                <div className="relative group/tool">
+                    <motion.button
+                        onClick={() => setShowTemplateModal(true)}
+                        onMouseEnter={() => setShowTemplateInfo(true)}
+                        onMouseLeave={() => setShowTemplateInfo(false)}
+                        whileTap={{ scale: 0.96 }}
+                        className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-amber-500/10 dark:bg-amber-500/20 text-amber-700 dark:text-amber-300 hover:bg-amber-500 hover:text-white border border-amber-500/30 font-bold text-xs transition-colors"
+                    >
+                        <LayoutTemplate size={16} />
+                        <span className="hidden sm:inline">
+                            {language === 'en' ? 'Templates' : 'Plantillas'}
+                        </span>
+                        <span className="sm:hidden">Plantillas</span>
+                    </motion.button>
+
+                    <AnimatePresence>
+                        {showTemplateInfo && (
+                            <motion.div
+                                initial={{ opacity: 0, y: 8 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: 8 }}
+                                className="absolute left-0 top-full mt-2 w-64 p-4 bg-slate-900 text-white rounded-xl shadow-2xl border border-amber-500/30 z-[100]"
+                            >
+                                <div className="flex items-center gap-2 mb-2 text-amber-400">
+                                    <LayoutTemplate size={14} />
+                                    <h4 className="text-[10px] font-black uppercase tracking-widest">{t('planner.tooltips.template.title')}</h4>
                                 </div>
-                            </div>
-                        </motion.div>
-                    )}
-                </AnimatePresence>
-            </div>
+                                <p className="text-[12px] text-slate-300">{t('planner.tooltips.template.description')}</p>
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
+                </div>
 
-            {/* Template Button */}
-            <div className="relative group/tool">
-                <motion.button
-                    onClick={() => setShowTemplateModal(true)}
-                    onMouseEnter={() => setShowTemplateInfo(true)}
-                    onMouseLeave={() => setShowTemplateInfo(false)}
-                    whileHover={{ scale: 1.1 }}
-                    whileTap={{ scale: 0.9 }}
-                    className="p-3 bg-amber-500/10 dark:bg-amber-500/20 text-amber-600 dark:text-amber-400 rounded-2xl flex items-center justify-center hover:bg-amber-500 hover:text-white transition-all border border-amber-500/20"
-                >
-                    <LayoutTemplate size={24} />
-                </motion.button>
-                <AnimatePresence>
-                    {showTemplateInfo && (
-                        <motion.div
-                            initial={{ opacity: 0, x: 20 }}
-                            animate={{ opacity: 1, x: 0 }}
-                            exit={{ opacity: 0, x: 20 }}
-                            className="absolute right-full mr-5 top-0 w-64 p-4 bg-slate-900 text-white rounded-xl shadow-2xl border border-amber-500/30 z-[100]"
-                        >
-                            <div className="flex items-center gap-2 mb-2 text-amber-400">
-                                <LayoutTemplate size={14} />
-                                <h4 className="text-[10px] font-black uppercase tracking-widest">{t('planner.tooltips.template.title')}</h4>
-                            </div>
-                            <p className="text-[12px] text-slate-300">{t('planner.tooltips.template.description')}</p>
-                        </motion.div>
-                    )}
-                </AnimatePresence>
-            </div>
+                <div className="h-5 w-px bg-gray-200 dark:bg-slate-700 mx-1 hidden sm:block" />
 
-            <div className="h-px bg-gray-200 dark:bg-slate-800 mx-2 my-1" />
+                {/* Sync Store Employees Button */}
+                <div className="relative group/tool">
+                    <motion.button
+                        onClick={handleSyncEmployees}
+                        disabled={isSyncingEmployees}
+                        onMouseEnter={() => setShowSyncInfo(true)}
+                        onMouseLeave={() => setShowSyncInfo(false)}
+                        whileTap={{ scale: 0.96 }}
+                        className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white dark:bg-slate-800 text-gray-700 dark:text-gray-200 hover:bg-indigo-50 dark:hover:bg-indigo-900/40 hover:text-indigo-600 font-bold text-xs transition-colors border border-gray-200 dark:border-slate-700 shadow-2xs"
+                    >
+                        <RefreshCcw size={15} className={isSyncingEmployees ? "animate-spin text-indigo-500" : ""} />
+                        <span className="hidden sm:inline">
+                            {language === 'en' ? 'Sync Store Employees' : 'Sincronizar Tienda'}
+                        </span>
+                        <span className="sm:hidden">Sync</span>
+                    </motion.button>
 
-            {/* Sync Button */}
-            <div className="relative group/tool">
-                <motion.button
-                    onClick={handleSyncEmployees}
-                    disabled={isSyncingEmployees}
-                    onMouseEnter={() => setShowSyncInfo(true)}
-                    onMouseLeave={() => setShowSyncInfo(false)}
-                    whileHover={{ scale: 1.1 }}
-                    whileTap={{ scale: 0.9 }}
-                    className="p-3 text-gray-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 hover:text-indigo-600 rounded-2xl flex items-center justify-center transition-all bg-gray-50 dark:bg-slate-800/50"
-                >
-                    <RefreshCcw size={22} className={isSyncingEmployees ? "animate-spin" : ""} />
-                </motion.button>
-                <AnimatePresence>
-                    {showSyncInfo && (
-                        <motion.div
-                            initial={{ opacity: 0, scale: 0.9, x: 20 }}
-                            animate={{ opacity: 1, scale: 1, x: 0 }}
-                            exit={{ opacity: 0, scale: 0.9, x: 20 }}
-                            className="absolute right-full mr-5 top-0 w-64 p-5 bg-slate-900 text-white rounded-2xl shadow-2xl border border-amber-500/30 z-[100] overflow-hidden"
-                        >
-                            <div className="absolute -top-5 -right-5 w-20 h-20 bg-amber-500/10 rounded-full blur-2xl"></div>
-                            <div className="relative z-10">
-                                <div className="flex items-center gap-3 mb-2">
-                                    <div className="p-2 bg-indigo-500/20 rounded-xl border border-indigo-500/30">
-                                        <RefreshCcw size={18} className="text-indigo-400" />
-                                    </div>
-                                    <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-indigo-400">{t('planner.tooltips.sync.title')}</h4>
+                    <AnimatePresence>
+                        {showSyncInfo && (
+                            <motion.div
+                                initial={{ opacity: 0, y: 8 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: 8 }}
+                                className="absolute left-0 top-full mt-2 w-72 p-4 bg-slate-900 text-white rounded-xl shadow-2xl border border-indigo-500/30 z-[100]"
+                            >
+                                <div className="flex items-center gap-2 mb-2 text-indigo-400">
+                                    <RefreshCcw size={14} />
+                                    <h4 className="text-[10px] font-black uppercase tracking-widest">{t('planner.tooltips.sync.title')}</h4>
                                 </div>
-                                <p className="text-[12px] text-slate-300 leading-snug font-medium">
-                                    {t('planner.tooltips.sync.description')}
-                                </p>
-                            </div>
-                        </motion.div>
-                    )}
-                </AnimatePresence>
-            </div>
+                                <p className="text-[12px] text-slate-300 leading-relaxed">{t('planner.tooltips.sync.description')}</p>
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
+                </div>
 
-            {/* Print Button */}
-            <div className="relative group/tool">
-                <motion.button
-                    onClick={handlePrint}
-                    onMouseEnter={() => setShowPrintInfo(true)}
-                    onMouseLeave={() => setShowPrintInfo(false)}
-                    whileHover={{ scale: 1.1 }}
-                    whileTap={{ scale: 0.9 }}
-                    className="p-3 text-gray-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 hover:text-indigo-600 rounded-2xl flex items-center justify-center transition-all bg-gray-50 dark:bg-slate-800/50"
-                >
-                    <Printer size={22} />
-                </motion.button>
-                <AnimatePresence>
-                    {showPrintInfo && (
-                        <motion.div
-                            initial={{ opacity: 0, scale: 0.9, x: 20 }}
-                            animate={{ opacity: 1, scale: 1, x: 0 }}
-                            exit={{ opacity: 0, scale: 0.9, x: 20 }}
-                            className="absolute right-full mr-5 top-0 w-64 p-5 bg-slate-900 text-white rounded-2xl shadow-2xl border border-indigo-500/30 z-[100] overflow-hidden"
-                        >
-                            <div className="relative z-10">
-                                <div className="flex items-center gap-3 mb-2">
-                                    <div className="p-2 bg-indigo-500/20 rounded-xl border border-indigo-500/30">
-                                        <Printer size={18} className="text-indigo-400" />
-                                    </div>
-                                    <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-indigo-400">{t('planner.tooltips.print.title')}</h4>
+                {/* Print Button */}
+                <div className="relative group/tool">
+                    <motion.button
+                        onClick={handlePrint}
+                        onMouseEnter={() => setShowPrintInfo(true)}
+                        onMouseLeave={() => setShowPrintInfo(false)}
+                        whileTap={{ scale: 0.96 }}
+                        className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white dark:bg-slate-800 text-gray-700 dark:text-gray-200 hover:bg-indigo-50 dark:hover:bg-indigo-900/40 hover:text-indigo-600 font-bold text-xs transition-colors border border-gray-200 dark:border-slate-700 shadow-2xs"
+                    >
+                        <Printer size={15} />
+                        <span className="hidden sm:inline">
+                            {language === 'en' ? 'Print Schedule' : 'Imprimir'}
+                        </span>
+                    </motion.button>
+
+                    <AnimatePresence>
+                        {showPrintInfo && (
+                            <motion.div
+                                initial={{ opacity: 0, y: 8 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: 8 }}
+                                className="absolute left-0 top-full mt-2 w-64 p-4 bg-slate-900 text-white rounded-xl shadow-2xl border border-indigo-500/30 z-[100]"
+                            >
+                                <div className="flex items-center gap-2 mb-2 text-indigo-400">
+                                    <Printer size={14} />
+                                    <h4 className="text-[10px] font-black uppercase tracking-widest">{t('planner.tooltips.print.title')}</h4>
                                 </div>
-                                <p className="text-[12px] text-slate-300 leading-snug font-medium">
-                                    {t('planner.tooltips.print.description')}
-                                </p>
-                            </div>
-                        </motion.div>
-                    )}
-                </AnimatePresence>
-            </div>
+                                <p className="text-[12px] text-slate-300 leading-relaxed">{t('planner.tooltips.print.description')}</p>
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
+                </div>
 
-            {/* Sort Button */}
-            <div className="relative group/tool">
-                <motion.button
-                    onClick={handleResetOrder}
-                    onMouseEnter={() => setShowOrderInfo(true)}
-                    onMouseLeave={() => setShowOrderInfo(false)}
-                    whileHover={{ scale: 1.1 }}
-                    whileTap={{ scale: 0.9 }}
-                    className="p-3 text-gray-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 hover:text-indigo-600 rounded-2xl flex items-center justify-center transition-all bg-gray-50 dark:bg-slate-800/50"
-                >
-                    <ArrowDownAZ size={24} />
-                </motion.button>
-                <AnimatePresence>
-                    {showOrderInfo && (
-                        <motion.div
-                            initial={{ opacity: 0, scale: 0.9, x: 20 }}
-                            animate={{ opacity: 1, scale: 1, x: 0 }}
-                            exit={{ opacity: 0, scale: 0.9, x: 20 }}
-                            className="absolute right-full mr-5 top-0 w-64 p-5 bg-slate-900 text-white rounded-2xl shadow-2xl border border-indigo-500/30 z-[100] overflow-hidden"
-                        >
-                            <div className="absolute -top-5 -right-5 w-20 h-20 bg-indigo-500/10 rounded-full blur-2xl"></div>
-                            <div className="relative z-10">
-                                <div className="flex items-center gap-3 mb-2">
-                                    <div className="p-2 bg-indigo-500/20 rounded-xl border border-indigo-500/30">
-                                        <ArrowDownAZ size={18} className="text-indigo-400" />
-                                    </div>
-                                    <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-indigo-400">{t('planner.tooltips.sort.title')}</h4>
+                {/* Sort A-Z Button */}
+                <div className="relative group/tool">
+                    <motion.button
+                        onClick={handleResetOrder}
+                        onMouseEnter={() => setShowOrderInfo(true)}
+                        onMouseLeave={() => setShowOrderInfo(false)}
+                        whileTap={{ scale: 0.96 }}
+                        className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white dark:bg-slate-800 text-gray-700 dark:text-gray-200 hover:bg-indigo-50 dark:hover:bg-indigo-900/40 hover:text-indigo-600 font-bold text-xs transition-colors border border-gray-200 dark:border-slate-700 shadow-2xs"
+                    >
+                        <ArrowDownAZ size={16} />
+                        <span className="hidden sm:inline">
+                            {language === 'en' ? 'Sort A-Z' : 'Ordenar A-Z'}
+                        </span>
+                    </motion.button>
+
+                    <AnimatePresence>
+                        {showOrderInfo && (
+                            <motion.div
+                                initial={{ opacity: 0, y: 8 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: 8 }}
+                                className="absolute left-0 top-full mt-2 w-64 p-4 bg-slate-900 text-white rounded-xl shadow-2xl border border-indigo-500/30 z-[100]"
+                            >
+                                <div className="flex items-center gap-2 mb-2 text-indigo-400">
+                                    <ArrowDownAZ size={14} />
+                                    <h4 className="text-[10px] font-black uppercase tracking-widest">{t('planner.tooltips.sort.title')}</h4>
                                 </div>
-                                <p className="text-[12px] text-slate-300 leading-snug font-medium">
-                                    {t('planner.tooltips.sort.description')}
-                                </p>
-                            </div>
-                        </motion.div>
-                    )}
-                </AnimatePresence>
+                                <p className="text-[12px] text-slate-300 leading-relaxed">{t('planner.tooltips.sort.description')}</p>
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
+                </div>
             </div>
 
-            <div className="h-px bg-gray-200 dark:bg-slate-800 mx-2 my-1" />
-
-            {/* Clear Button */}
-            <div className="relative group/tool">
+            {/* Clear Drafts Button (Danger Action - Kept to the right) */}
+            <div className="relative group/tool shrink-0">
                 <motion.button
                     onClick={handleClearDrafts}
                     onMouseEnter={() => setShowClearInfo(true)}
                     onMouseLeave={() => setShowClearInfo(false)}
-                    whileHover={{ scale: 1.1, backgroundColor: '#fef2f2', color: '#ef4444' }}
-                    whileTap={{ scale: 0.9 }}
-                    className="p-3 text-gray-400 hover:text-red-500 rounded-2xl flex items-center justify-center transition-all bg-gray-50 dark:bg-slate-800/50"
+                    whileTap={{ scale: 0.96 }}
+                    className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-red-50 dark:bg-red-950/30 text-red-600 dark:text-red-400 hover:bg-red-600 hover:text-white font-bold text-xs transition-colors border border-red-200 dark:border-red-900/50"
                 >
-                    <Trash2 size={24} />
+                    <Trash2 size={15} />
+                    <span className="hidden sm:inline">
+                        {language === 'en' ? 'Clear Week' : 'Limpiar Semana'}
+                    </span>
                 </motion.button>
+
                 <AnimatePresence>
                     {showClearInfo && (
                         <motion.div
-                            initial={{ opacity: 0, scale: 0.9, x: 20 }}
-                            animate={{ opacity: 1, scale: 1, x: 0 }}
-                            exit={{ opacity: 0, scale: 0.9, x: 20 }}
-                            className="absolute right-full mr-5 bottom-0 w-64 p-5 bg-slate-900 text-white rounded-2xl shadow-2xl border border-red-500/30 z-[100] overflow-hidden"
+                            initial={{ opacity: 0, y: 8 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: 8 }}
+                            className="absolute right-0 top-full mt-2 w-64 p-4 bg-slate-900 text-white rounded-xl shadow-2xl border border-red-500/30 z-[100]"
                         >
-                            <div className="absolute top-0 right-0 w-20 h-20 bg-red-500/10 rounded-full blur-2xl"></div>
-                            <div className="relative z-10">
-                                <div className="flex items-center gap-3 mb-2">
-                                    <div className="p-2 bg-red-500/20 rounded-xl border border-red-500/30">
-                                        <Trash2 size={18} className="text-red-400" />
-                                    </div>
-                                    <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-red-400">{t('planner.tooltips.clear.title')}</h4>
-                                </div>
-                                <p className="text-[12px] text-slate-300 leading-snug font-medium">
-                                    {t('planner.tooltips.clear.description')}
-                                </p>
+                            <div className="flex items-center gap-2 mb-2 text-red-400">
+                                <Trash2 size={14} />
+                                <h4 className="text-[10px] font-black uppercase tracking-widest">{t('planner.tooltips.clear.title')}</h4>
                             </div>
+                            <p className="text-[12px] text-slate-300 leading-relaxed">{t('planner.tooltips.clear.description')}</p>
                         </motion.div>
                     )}
                 </AnimatePresence>
             </div>
-        </div >
+        </motion.div>
     )
 }
