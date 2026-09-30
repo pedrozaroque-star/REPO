@@ -2336,6 +2336,7 @@ export const dictionaries: Record<Language, Dictionary> = {
             fullscreen: 'Pantalla Completa',
             exit_fullscreen: 'Salir',
             view_store_orders: 'Ver órdenes de {store}',
+            back_to_leaderboard: 'Volver al Leaderboard',
             // Alerts
             alert_slow: 'ALERTA: {store} excede los {time}',
             alert_critical: 'CRÍTICO: {count} tiendas en rojo',
@@ -6175,6 +6176,7 @@ export const dictionaries: Record<Language, Dictionary> = {
             fullscreen: 'Fullscreen',
             exit_fullscreen: 'Exit',
             view_store_orders: 'View orders for {store}',
+            back_to_leaderboard: 'Back to Leaderboard',
             // Alerts
             alert_slow: 'ALERT: {store} exceeds {time}',
             alert_critical: 'CRITICAL: {count} stores in red',
