@@ -55,7 +55,9 @@ import {
   Calendar,
 } from 'lucide-react';
 import { useLanguage } from '@/lib/i18n';
+import { useAuth } from '@/components/ProtectedRoute';
 import { supabase } from '@/lib/supabase';
+import { calculateStoreOffsets, applyTimeOffset, formatOffsetTime, type StoreOffsets } from '@/lib/store-time-offset';
 import {
   startOfWeek,
   addDays,
@@ -260,28 +262,35 @@ const formatDateISO = (d: Date): string => {
   const day = String(d.getDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
 };
+/** Get hour in LA timezone safely */
+const getHourLA = (timeStr: string): number => {
+  if (!timeStr) return -1;
+  // Si es formato HH:MM:SS simple (no ISO), parsear directamente
+  if (timeStr.includes(':') && !timeStr.includes('T')) {
+    return parseInt(timeStr.split(':')[0], 10);
+  }
+  // Si es formato ISO, convertir a hora de Los Ángeles
+  try {
+    const d = new Date(timeStr);
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/Los_Angeles', hour: 'numeric', hour12: false
+    }).formatToParts(d);
+    const hourPart = parts.find(p => p.type === 'hour');
+    return hourPart ? parseInt(hourPart.value, 10) % 24 : d.getHours();
+  } catch { return -1; }
+};
 
 /** Detect shift from ISO start_time */
 const getShiftFromTime = (startTimeStr: string): 'AM' | 'PM' => {
-  if (!startTimeStr) return 'AM';
-  try {
-    if (startTimeStr.includes(':') && !startTimeStr.includes('T')) {
-      const hour = parseInt(startTimeStr.split(':')[0], 10);
-      return hour >= 17 || hour < 6 ? 'PM' : 'AM';
-    }
-    const date = new Date(startTimeStr);
-    const hour = date.getHours();
-    return hour >= 17 || hour < 6 ? 'PM' : 'AM';
-  } catch {
-    return 'AM';
-  }
+  const hour = getHourLA(startTimeStr);
+  if (hour === -1) return 'AM';
+  return hour >= 17 || hour < 6 ? 'PM' : 'AM';
 };
 
 /** Format ISO time to "8:00 AM" style */
 const formatTimeTo12h = (isoTime: string): string => {
   if (!isoTime) return '';
   try {
-    // If it's a simple HH:MM or HH:MM:SS string (without T)
     if (isoTime.includes(':') && !isoTime.includes('T')) {
       const parts = isoTime.split(':');
       let h = parseInt(parts[0], 10);
@@ -292,11 +301,22 @@ const formatTimeTo12h = (isoTime: string): string => {
     }
     const d = new Date(isoTime);
     if (isNaN(d.getTime())) return isoTime;
-    let h = d.getHours();
-    const m = d.getMinutes();
-    const ampm = h >= 12 ? 'PM' : 'AM';
-    h = h % 12 || 12;
-    return `${h}:${String(m).padStart(2, '0')} ${ampm}`;
+    
+    // Parse in LA timezone
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/Los_Angeles',
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true
+    }).formatToParts(d);
+    
+    const h = parts.find(p => p.type === 'hour')?.value;
+    const m = parts.find(p => p.type === 'minute')?.value;
+    const ampm = parts.find(p => p.type === 'dayPeriod')?.value;
+    
+    if (h && m && ampm) return `${h}:${m} ${ampm.toUpperCase()}`;
+    
+    return isoTime;
   } catch {
     return isoTime;
   }
@@ -462,10 +482,19 @@ const BoardSlot: React.FC<BoardSlotProps> = ({
 export default function AsignacionDiariaTab() {
   const { t, language } = useLanguage();
   const locale = language === 'es' ? es : enUS;
+  const { user } = useAuth();
+
+  // Auto-detectar tienda del usuario logueado (Auto-detect logged-in user's store)
+  // Admin y Supervisor pueden cambiar a cualquier tienda; Manager solo su tienda
+  const userRole = (user?.role || '').toLowerCase();
+  const canChangeStore = ['admin', 'supervisor'].includes(userRole);
 
   // ── State ──
   const [stores, setStores] = useState<Store[]>([]);
-  const [selectedStoreId, setSelectedStoreId] = useState<string>('7');
+  const [selectedStoreId, setSelectedStoreId] = useState<string>(() => {
+    // Usar la tienda del usuario logueado, o '7' (Slauson) como fallback
+    return user?.store_id ? String(user.store_id) : '7';
+  });
   const [currentWeekStart, setCurrentWeekStart] = useState<Date>(() =>
     startOfWeek(getBusinessToday(), { weekStartsOn: 1 })
   );
@@ -489,6 +518,12 @@ export default function AsignacionDiariaTab() {
   const [positionActivities, setPositionActivities] = useState<PositionActivity[]>([]);
   const [driveThruCollapsed, setDriveThruCollapsed] = useState(false);
 
+  // @notes: Bug 1 - Sync selectedStoreId when user loads for managers to avoid race condition
+  useEffect(() => {
+    if (user?.store_id && userRole === 'manager') {
+      setSelectedStoreId(String(user.store_id));
+    }
+  }, [user?.store_id, userRole]);
   // ── Visual Board States ──
   const [showVisualBoard, setShowVisualBoard] = useState(false);
   const [selectedSlotForCard, setSelectedSlotForCard] = useState<{ label: string; assignee: any; stationKey?: string } | null>(null);
@@ -561,21 +596,40 @@ export default function AsignacionDiariaTab() {
   }, [showVisualBoard]);
 
   // ── Derived ──
-  const selectedStoreGuid = useMemo(() => {
-    return stores.find((s) => String(s.id) === String(selectedStoreId))?.external_id || '';
+  const selectedStore = useMemo(() => {
+    return stores.find((s) => String(s.id) === String(selectedStoreId));
   }, [stores, selectedStoreId]);
 
-  // Load hasDriveThru from localStorage when store changes
+  const selectedStoreGuid = useMemo(() => {
+    return selectedStore?.external_id || '';
+  }, [selectedStore]);
+
+  // Calcular desfases horarios de la tienda seleccionada (Calculate store time offsets)
+  const storeOffsets: StoreOffsets = useMemo(() => {
+    if (!selectedStore) return { openingOffsetMinutes: 0, closingOffsetMinutes: 0 };
+    return calculateStoreOffsets(
+      (selectedStore as any).opening_time || null,
+      (selectedStore as any).closing_time || null
+    );
+  }, [selectedStore]);
+
+  // has_drive_thru desde la base de datos, con fallback a localStorage
+  // (has_drive_thru from database, with localStorage fallback)
   useEffect(() => {
-    if (selectedStoreGuid) {
-      const stored = localStorage.getItem(`hasDriveThru_${selectedStoreGuid}`);
-      if (stored !== null) {
-        setHasDriveThru(stored === 'true');
-      } else {
-        setHasDriveThru(true);
+    if (selectedStore) {
+      const dbHasDT = (selectedStore as any).has_drive_thru;
+      if (dbHasDT !== undefined && dbHasDT !== null) {
+        setHasDriveThru(Boolean(dbHasDT));
+      } else if (selectedStoreGuid) {
+        const stored = localStorage.getItem(`hasDriveThru_${selectedStoreGuid}`);
+        if (stored !== null) {
+          setHasDriveThru(stored === 'true');
+        } else {
+          setHasDriveThru(true);
+        }
       }
     }
-  }, [selectedStoreGuid]);
+  }, [selectedStore, selectedStoreGuid]);
 
   const selectedDateStr = useMemo(() => formatDateISO(selectedDay), [selectedDay]);
 
@@ -596,31 +650,22 @@ export default function AsignacionDiariaTab() {
     return shifts.filter((s) => {
       if (s.shift_date !== selectedDateStr) return false;
 
-      // Parse start/end hours
-      const getHour = (timeStr: string): number => {
-        if (!timeStr) return 0;
-        try {
-          if (timeStr.includes(':') && !timeStr.includes('T')) {
-            return parseInt(timeStr.split(':')[0], 10);
-          }
-          return new Date(timeStr).getHours();
-        } catch { return 0; }
-      };
-
-      const startH = getHour(s.start_time);
-      const endH = getHour(s.end_time);
+      const startH = getHourLA(s.start_time);
+      const endH = getHourLA(s.end_time);
 
       if (activeShift === 'AM') {
         // AM window: 6:00 - 16:59
         // Show if: starts in AM window, OR starts early before 6AM but works into AM (apertura temprana)
         const startsInAM = startH >= 6 && startH < 17;
-        const earlyOpenIntoAM = startH < 6 && endH > 6;
+        const earlyOpenIntoAM = startH < 6 && endH >= 6; // @notes: Bug 2 - changed to >= 6 to include 5AM-6AM
         return startsInAM || earlyOpenIntoAM;
       } else {
         // PM window: 17:00 - 5:59
-        // Show if: starts in PM window, OR starts before PM but ends in/after PM (crosses 5PM boundary)
-        const startsInPM = startH >= 17 || startH < 6;
-        const crossesIntoPM = startH < 17 && startH >= 6 && (endH >= 17 || endH < startH);
+        // Show if: starts in PM window (after 17:00 or late night graveyard NOT early morning prep), OR starts before PM but ends in/after PM (crosses 5PM boundary)
+        const isEarlyOpenShift = startH < 6 && endH >= 6; // @notes: Bug 2 - changed to >= 6
+        const startsInPM = (startH >= 17 || startH < 6) && !isEarlyOpenShift;
+        const hasEndTime = Boolean(s.end_time);
+        const crossesIntoPM = startH < 17 && startH >= 6 && hasEndTime && (endH >= 17 || endH < startH || endH === 0); // @notes: Bug 2 - Use hasEndTime and check endH === 0
         return startsInPM || crossesIntoPM;
       }
     });
@@ -739,7 +784,7 @@ export default function AsignacionDiariaTab() {
 
   // ── Data Fetching ──
   const fetchStores = useCallback(async () => {
-    const { data } = await supabase.from('stores').select('id, name, external_id').order('name');
+    const { data } = await supabase.from('stores').select('id, name, external_id, opening_time, closing_time, has_drive_thru').order('name');
     if (data) setStores(data as Store[]);
   }, []);
 
@@ -755,47 +800,33 @@ export default function AsignacionDiariaTab() {
 
   const fetchEmployees = useCallback(async () => {
     if (!selectedStoreGuid) return;
-    // Paginate through all employees (>1000 possible)
-    let allEmps: Employee[] = [];
-    let page = 0;
-    const PAGE_SIZE = 1000;
-    let hasMore = true;
-    while (hasMore) {
+
+    // Traer empleados filtrados desde el servidor usando el índice GIN en store_ids
+    // (Server-side filtering using GIN index on store_ids JSONB column)
+    const { data: storeEmps } = await supabase
+      .from('toast_employees')
+      .select('*')
+      .contains('store_ids', [selectedStoreGuid])
+      .eq('deleted', false);
+
+    // También incluir empleados que tienen turno programado hoy aunque no estén en store_ids
+    // (Also include employees who have a scheduled shift today even if not in store_ids)
+    const shiftEmpIds = new Set(shifts.map((s) => String(s.employee_id)));
+    const storeEmpIds = new Set((storeEmps || []).map((e: any) => String(e.id)));
+
+    // Solo buscar los que tienen shift pero NO están ya en storeEmps
+    const missingShiftIds = [...shiftEmpIds].filter(id => !storeEmpIds.has(id));
+    let extraEmps: Employee[] = [];
+    if (missingShiftIds.length > 0) {
       const { data } = await supabase
         .from('toast_employees')
         .select('*')
-        .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
-      if (!data || data.length === 0) break;
-      allEmps = [...allEmps, ...data];
-      if (data.length < PAGE_SIZE) hasMore = false;
-      page++;
+        .in('id', missingShiftIds.map(Number));
+      if (data) extraEmps = data as Employee[];
     }
 
-    // Filter: employees for this store or who have a shift
-    const shiftEmpIds = new Set(shifts.map((s) => String(s.employee_id)));
-    const filtered = allEmps.filter((e: Employee) => {
-      if (shiftEmpIds.has(String(e.id))) return true;
-      if (e.deleted) return false;
-
-      let storeIds: string[] = [];
-      if (Array.isArray(e.store_ids)) {
-        storeIds = e.store_ids;
-      } else if (typeof e.store_ids === 'string') {
-        if (e.store_ids.trim().startsWith('[')) {
-          try {
-            const parsed = JSON.parse(e.store_ids);
-            if (Array.isArray(parsed)) storeIds = parsed;
-          } catch {
-            storeIds = [e.store_ids];
-          }
-        } else {
-          storeIds = [e.store_ids];
-        }
-      }
-      return storeIds.includes(selectedStoreGuid);
-    });
-
-    setEmployees(filtered as Employee[]);
+    const combined = [...(storeEmps || []), ...extraEmps] as Employee[];
+    setEmployees(combined);
   }, [selectedStoreGuid, shifts]);
 
   const fetchAssignments = useCallback(async () => {
@@ -868,7 +899,8 @@ export default function AsignacionDiariaTab() {
     };
 
     const channel = supabase
-      .channel('actividades-tablero-realtime')
+      .channel(`actividades-tablero-realtime-${selectedStoreGuid || 'global'}`)
+      // position_activities y operating_procedures son catálogos globales corporativos (sin filtro de tienda)
       .on('postgres_changes', {
         event: '*',
         schema: 'public',
@@ -879,15 +911,18 @@ export default function AsignacionDiariaTab() {
         schema: 'public',
         table: 'operating_procedures',
       }, triggerRefresh)
+      // station_assignments y shifts se filtran por tienda para no saturar otras tabletas
       .on('postgres_changes', {
         event: '*',
         schema: 'public',
         table: 'station_assignments',
+        ...(selectedStoreGuid ? { filter: `store_id=eq.${selectedStoreGuid}` } : {}),
       }, triggerRefresh)
       .on('postgres_changes', {
         event: '*',
         schema: 'public',
         table: 'shifts',
+        ...(selectedStoreGuid ? { filter: `store_id=eq.${selectedStoreGuid}` } : {}),
       }, triggerRefresh)
       .subscribe();
 
@@ -1045,7 +1080,9 @@ export default function AsignacionDiariaTab() {
           return;
         }
 
-        const clonedAssignments = shiftFiltered.map((a: any) => {
+        const clonedAssignments = shiftFiltered
+          .filter((a: any) => a.employee_id) // @notes: Bug 3 - Filter vacant stations
+          .map((a: any) => {
           const stationActivitiesList = activityMap[a.main_station] || [];
           const defaultTasks = stationActivitiesList
             .map(pa => pa.operating_procedures?.activity)
@@ -1053,7 +1090,7 @@ export default function AsignacionDiariaTab() {
 
           return {
             store_id: selectedStoreGuid,
-            employee_id: String(a.employee_id),
+            employee_id: a.employee_id, // @notes: Bug 3 - Remove String()
             assignment_date: selectedDateStr,
             main_station: a.main_station,
             sub_position: a.sub_position || `${a.main_station}_${activeShift}`,
@@ -1113,7 +1150,9 @@ export default function AsignacionDiariaTab() {
       }
 
       // 3. Map assignments to current week dates (adding 7 days)
-      const clonedAssignments = data.map((a: any) => {
+      const clonedAssignments = data
+        .filter((a: any) => a.employee_id) // @notes: Bug 3 - Filter vacant stations
+        .map((a: any) => {
         const prevAssignDate = new Date(a.assignment_date + 'T00:00:00');
         const nextAssignDate = addDays(prevAssignDate, 7);
         const nextAssignDateStr = formatDateISO(nextAssignDate);
@@ -1126,7 +1165,7 @@ export default function AsignacionDiariaTab() {
 
         return {
           store_id: selectedStoreGuid,
-          employee_id: String(a.employee_id),
+          employee_id: a.employee_id, // @notes: Bug 3 - Remove String()
           assignment_date: nextAssignDateStr,
           main_station: a.main_station,
           sub_position: a.sub_position || `${a.main_station}_${activeShift}`,
@@ -1225,7 +1264,8 @@ export default function AsignacionDiariaTab() {
                 <select
                   value={selectedStoreId}
                   onChange={(e) => setSelectedStoreId(e.target.value)}
-                  className="text-sm font-semibold bg-transparent outline-none text-slate-800 dark:text-slate-200 cursor-pointer"
+                  disabled={!canChangeStore}
+                  className={`text-sm font-semibold bg-transparent outline-none text-slate-800 dark:text-slate-200 ${canChangeStore ? 'cursor-pointer' : 'cursor-default opacity-80'}`}
                 >
                   {stores.map((store) => (
                     <option key={store.id} value={String(store.id)}>

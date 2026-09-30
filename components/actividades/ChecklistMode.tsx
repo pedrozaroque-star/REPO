@@ -20,6 +20,10 @@
  *   - Touch targets de 60px+ para uso con dedos
  *   - Reloj en vivo de Los Ángeles actualizado cada segundo
  *   - Modo CLARO (light mode) por preferencia del cliente
+ *   - Fix: Se filtra correctamente por `store_model` considerando si la tienda tiene drive thru o no.
+ *   - Fix: Selector de tienda está deshabilitado para rol `manager`.
+ *   - Fix: No se guarda `shift_type: "Todos"` en DB, usa shift correcto (PM/AM) en completions.
+ *   - Fix: Se eliminó duplicación de la definición y uso de `fetchProcedures`.
  */
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
@@ -28,6 +32,7 @@ import { X, Check, Clock, AlertTriangle, ChevronDown, Store } from 'lucide-react
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/components/ProtectedRoute'
 import { useLanguage } from '@/lib/i18n'
+import { calculateStoreOffsets, applyTimeOffset, type StoreOffsets } from '@/lib/store-time-offset'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 interface Procedure {
@@ -53,6 +58,9 @@ interface StoreInfo {
   id: number
   name: string
   external_id: string
+  opening_time?: string
+  closing_time?: string
+  has_drive_thru?: boolean
 }
 
 interface ChecklistModeProps {
@@ -168,6 +176,9 @@ export default function ChecklistMode({ onClose }: ChecklistModeProps) {
   const { user } = useAuth()
   const { t } = useLanguage()
 
+  const userRole = (user?.role || 'user').toLowerCase()
+  const canChangeStore = userRole !== 'manager'
+
   // State
   const [stores, setStores] = useState<StoreInfo[]>([])
   const [selectedStoreId, setSelectedStoreId] = useState<string>('')
@@ -184,8 +195,8 @@ export default function ChecklistMode({ onClose }: ChecklistModeProps) {
   const timeGroupRefs = useRef<Map<string, HTMLDivElement>>(new Map())
 
   // Reactive to date changes across live shifts (e.g. 6:00 AM cutoff)
-  const businessDate = useMemo(() => getBusinessDate(), [clock.getHours() === 6 && clock.getMinutes() === 0 ? clock : null])
-  const dayName = useMemo(() => getDayName(), [clock.getHours() === 6 && clock.getMinutes() === 0 ? clock : null])
+  const businessDate = useMemo(() => getBusinessDate(), [clock.toDateString(), clock.getHours() < 6])
+  const dayName = useMemo(() => getDayName(), [businessDate])
 
   // ─── Live clock ──────────────────────────────────────────────────────────
   useEffect(() => {
@@ -207,7 +218,7 @@ export default function ChecklistMode({ onClose }: ChecklistModeProps) {
   // ─── Fetch stores ────────────────────────────────────────────────────────
   useEffect(() => {
     async function fetchStores() {
-      const { data, error } = await supabase.from('stores').select('id, name, external_id').order('name')
+      const { data, error } = await supabase.from('stores').select('id, name, external_id, opening_time, closing_time, has_drive_thru').order('name')
       if (error) {
         console.error('Error fetching stores:', error.message)
         setLoading(false)
@@ -231,19 +242,16 @@ export default function ChecklistMode({ onClose }: ChecklistModeProps) {
     return stores.find(s => String(s.id) === String(selectedStoreId))
   }, [stores, selectedStoreId])
 
-  // ─── Fetch procedures ────────────────────────────────────────────────────
-  useEffect(() => {
-    async function fetchProcedures() {
-      const { data } = await supabase
-        .from('operating_procedures')
-        .select('id, start_time, duration_minutes, activity, shift_type, frequency, role, store_model, overrides')
-      if (data) {
-        const filtered = data.filter((p: Procedure) => p.role !== 'ROLES_MODULE')
-        setProcedures(filtered)
-      }
-    }
-    fetchProcedures()
-  }, [])
+  const hasDriveThru = selectedStore?.has_drive_thru ?? false;
+
+  // Calcular desfases horarios de la tienda seleccionada (Calculate store time offsets)
+  const storeOffsets: StoreOffsets = useMemo(() => {
+    if (!selectedStore) return { openingOffsetMinutes: 0, closingOffsetMinutes: 0 }
+    return calculateStoreOffsets(
+      selectedStore.opening_time || null,
+      selectedStore.closing_time || null
+    )
+  }, [selectedStore])
 
   // ─── Fetch completions for today ─────────────────────────────────────────
   const fetchCompletions = useCallback(async () => {
@@ -277,6 +285,11 @@ export default function ChecklistMode({ onClose }: ChecklistModeProps) {
     }
   }, [])
 
+  // ─── Initial Fetch ────────────────────────────────────────────────────────
+  useEffect(() => {
+    fetchProcedures()
+  }, [fetchProcedures])
+
   useEffect(() => {
     if (selectedStore) {
       setLoading(true)
@@ -296,8 +309,9 @@ export default function ChecklistMode({ onClose }: ChecklistModeProps) {
       }, 500)
     }
 
+    const storeGuid = selectedStore?.external_id || ''
     const channel = supabase
-      .channel('checklist-mode-realtime')
+      .channel(`checklist-mode-realtime-${storeGuid || 'global'}`)
       .on('postgres_changes', {
         event: '*',
         schema: 'public',
@@ -307,6 +321,7 @@ export default function ChecklistMode({ onClose }: ChecklistModeProps) {
         event: '*',
         schema: 'public',
         table: 'checklist_completions',
+        ...(storeGuid ? { filter: `store_id=eq.${storeGuid}` } : {}),
       }, triggerRefresh)
       .subscribe()
 
@@ -320,7 +335,7 @@ export default function ChecklistMode({ onClose }: ChecklistModeProps) {
       clearInterval(heartbeat)
       supabase.removeChannel(channel)
     }
-  }, [fetchProcedures, fetchCompletions])
+  }, [fetchProcedures, fetchCompletions, selectedStore])
 
   // ─── Filter procedures ──────────────────────────────────────────────────
   const filteredProcedures = useMemo(() => {
@@ -328,7 +343,24 @@ export default function ChecklistMode({ onClose }: ChecklistModeProps) {
       .filter(p => {
         if (shiftFilter !== 'Todos' && p.shift_type !== shiftFilter) return false
         if (!isFreqMatch(p.frequency, dayName)) return false
+        
+        // Filtrar por store_model
+        if (p.store_model) {
+          if (hasDriveThru) {
+            // Tienda con DT: muestra AMBOS y DRIVE_THRU
+            if (p.store_model !== 'AMBOS' && p.store_model !== 'DRIVE_THRU') return false;
+          } else {
+            // Tienda regular: muestra AMBOS y REGULAR
+            if (p.store_model !== 'AMBOS' && p.store_model !== 'REGULAR') return false;
+          }
+        }
+        
         return true
+      })
+      // Aplicar desfase horario de la tienda (Apply store time offset)
+      .map(p => {
+        const adjustedTime = applyTimeOffset(p.start_time, p.shift_type, storeOffsets)
+        return adjustedTime !== p.start_time ? { ...p, start_time: adjustedTime || p.start_time } : p
       })
       .sort((a, b) => {
         const av = getSortValue(a.start_time)
@@ -338,7 +370,7 @@ export default function ChecklistMode({ onClose }: ChecklistModeProps) {
         const bi = b.overrides?.order_index ?? 999
         return ai - bi
       })
-  }, [procedures, shiftFilter, dayName])
+  }, [procedures, shiftFilter, dayName, storeOffsets])
 
   // ─── Completion map ──────────────────────────────────────────────────────
   const completionMap = useMemo(() => {
@@ -360,24 +392,35 @@ export default function ChecklistMode({ onClose }: ChecklistModeProps) {
     if (!selectedStore || saving) return
     setSaving(activityId)
 
-    const existing = completionMap.get(activityId)
+    try {
+      const existing = completionMap.get(activityId)
 
-    if (existing) {
-      await supabase.from('checklist_completions').delete().eq('id', existing.id)
-    } else {
-      await supabase.from('checklist_completions').upsert({
-        store_id: selectedStore.external_id,
-        checklist_date: businessDate,
-        shift_type: procedures.find(p => p.id === activityId)?.shift_type || shiftFilter,
-        activity_id: activityId,
-        completed_at: new Date().toISOString(),
-        completed_by: String(user?.id || ''),
-        completed_by_name: user?.name || 'Unknown',
-      }, { onConflict: 'store_id,checklist_date,shift_type,activity_id' })
+      if (existing) {
+        await supabase.from('checklist_completions').delete().eq('id', existing.id)
+      } else {
+        const currentShiftType = (() => {
+          const h = getLATime().getHours();
+          return (h >= 17 || h < 6) ? 'PM' : 'AM';
+        })();
+
+        await supabase.from('checklist_completions').upsert({
+          store_id: selectedStore.external_id,
+          checklist_date: businessDate,
+          shift_type: procedures.find(p => p.id === activityId)?.shift_type || currentShiftType,
+          activity_id: activityId,
+          completed_at: new Date().toISOString(),
+          completed_by: String(user?.id || ''),
+          completed_by_name: user?.name || 'Unknown',
+        }, { onConflict: 'store_id,checklist_date,shift_type,activity_id' })
+      }
+
+      await fetchCompletions()
+    } catch (err) {
+      console.error('Error toggling completion:', err)
+      // Optional: Could add a toast notification here if desired
+    } finally {
+      setSaving(null)
     }
-
-    await fetchCompletions()
-    setSaving(null)
   }, [selectedStore, saving, completionMap, businessDate, shiftFilter, user, fetchCompletions, procedures])
 
   // ─── Group by time ───────────────────────────────────────────────────────
@@ -488,12 +531,13 @@ export default function ChecklistMode({ onClose }: ChecklistModeProps) {
           {/* Store Selector */}
           <div ref={storeDropdownRef} style={{ position: 'relative' }}>
             <button
+              disabled={!canChangeStore}
               onClick={() => setShowStoreDropdown(!showStoreDropdown)}
               style={{
                 background: 'rgba(0,0,0,0.15)', border: '1px solid rgba(255,255,255,0.25)',
                 borderRadius: '10px', padding: '7px 12px', color: '#fff', fontSize: '13px',
-                cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px',
-                minWidth: '150px',
+                cursor: canChangeStore ? 'pointer' : 'not-allowed', display: 'flex', alignItems: 'center', gap: '6px',
+                minWidth: '150px', opacity: canChangeStore ? 1 : 0.7
               }}
             >
               <Store size={14} />

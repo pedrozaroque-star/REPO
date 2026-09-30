@@ -190,7 +190,7 @@ function getShiftTypeBadge(shiftType: string): { bg: string; text: string; emoji
  * actividades.config.positions             → "Posiciones" / "Positions"
  */
 
-export default function ConfigurarPosicionesTab() {
+export default function ConfigurarPosicionesTab({ readOnly = false }: { readOnly?: boolean }) {
   const { t } = useLanguage();
   const supabase = useRef(createClient()).current;
 
@@ -740,7 +740,7 @@ export default function ConfigurarPosicionesTab() {
                                     </span>
                                   </div>
                                 </div>
-                                <button
+                                {!readOnly && <button
                                   onClick={() => handleRemoveActivity(pa)}
                                   disabled={!!actionLoading}
                                   className="flex-shrink-0 w-8 h-8 rounded-xl bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/40 flex items-center justify-center text-red-500 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
@@ -751,7 +751,7 @@ export default function ConfigurarPosicionesTab() {
                                   ) : (
                                     <Trash2 className="w-4 h-4" />
                                   )}
-                                </button>
+                                </button>}
                               </div>
                             </motion.div>
                           );
@@ -821,7 +821,7 @@ export default function ConfigurarPosicionesTab() {
                                     )}
                                   </div>
                                 </div>
-                                <button
+                                {!readOnly && <button
                                   onClick={() => handleAddActivity(proc)}
                                   disabled={!!actionLoading}
                                   className="flex-shrink-0 w-8 h-8 rounded-xl bg-indigo-50 dark:bg-indigo-900/20 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 flex items-center justify-center text-indigo-500 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
@@ -832,7 +832,7 @@ export default function ConfigurarPosicionesTab() {
                                   ) : (
                                     <Plus className="w-4 h-4" />
                                   )}
-                                </button>
+                                </button>}
                               </div>
                             </motion.div>
                           );

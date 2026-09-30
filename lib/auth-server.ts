@@ -39,6 +39,7 @@ interface ServerUser {
   email: string
   name: string
   role: string
+  store_id?: string | number
 }
 
 /**
@@ -70,7 +71,8 @@ export async function getServerUser(): Promise<ServerUser | null> {
       id: decoded.sub,
       email: decoded.email,
       name: decoded.user_metadata?.full_name || decoded.email,
-      role: decoded.user_role || 'user'
+      role: decoded.user_role || 'user',
+      store_id: decoded.user_metadata?.store_id ?? undefined
     }
   } catch (err: any) {
     console.error('❌ [getServerUser] Verification failed:', err.message)

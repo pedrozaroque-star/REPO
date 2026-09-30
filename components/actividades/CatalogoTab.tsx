@@ -22,7 +22,7 @@ import ChecklistMode from '@/components/actividades/ChecklistMode'
 import { useLanguage } from '@/lib/i18n'
 import { ClipboardCheck } from 'lucide-react'
 
-export default function CatalogoTab() {
+export default function CatalogoTab({ readOnly = false }: { readOnly?: boolean }) {
   const [showChecklist, setShowChecklist] = useState(false)
   const { t } = useLanguage()
 
@@ -67,7 +67,7 @@ export default function CatalogoTab() {
         </button>
       </div>
 
-      <ProceduresTimeline />
+      <ProceduresTimeline readOnly={readOnly} />
 
       {showChecklist && (
         <ChecklistMode onClose={() => setShowChecklist(false)} />

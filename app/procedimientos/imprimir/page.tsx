@@ -185,7 +185,7 @@ function PrintProceduresContent() {
           </div>
           <div className="text-right text-xs text-slate-500 font-medium">
             <div>Fecha: {new Date().toLocaleDateString('es-US', { dateStyle: 'long' })}</div>
-            <div>Tienda: Piloto Slauson</div>
+            <div>Tacos Gavilan — Todas las Tiendas</div>
           </div>
         </div>
 

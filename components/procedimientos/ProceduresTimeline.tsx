@@ -71,10 +71,12 @@ const format12HourTo24Hour = (hour12: number, minute: number, ampm: 'AM' | 'PM')
   return `${hh}:${mm}:00`;
 };
 
-export default function ProceduresTimeline() {
+export default function ProceduresTimeline({ readOnly = false }: { readOnly?: boolean }) {
   const { user } = useAuth();
   const { t } = useLanguage();
-  const isAdmin = ['admin', 'supervisor', 'manager'].includes(user?.role?.toLowerCase() || '');
+  // Si readOnly === true (Manager viendo Catálogo), se deshabilitan todos los controles de edición
+  // If readOnly === true (Manager viewing Catalog), all edit controls are disabled
+  const isAdmin = !readOnly && ['admin', 'supervisor', 'manager'].includes(user?.role?.toLowerCase() || '');
 
   const [procedures, setProcedures] = useState<Procedure[]>([]);
   const [loading, setLoading] = useState(true);
@@ -312,7 +314,7 @@ export default function ProceduresTimeline() {
   // ═══════════════════════════════════════
   // DELETE
   // ═══════════════════════════════════════
-  const isAdminForDelete = user?.role?.toLowerCase() === 'admin';
+  const isAdminForDelete = !readOnly && user?.role?.toLowerCase() === 'admin';
 
   const handleDelete = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -797,7 +799,7 @@ export default function ProceduresTimeline() {
                 <Reorder.Group 
                   axis="y" 
                   values={shiftProcedures} 
-                  onReorder={(newOrder) => handleReorder(shiftKey, newOrder)}
+                  onReorder={(newOrder) => !readOnly && handleReorder(shiftKey, newOrder)}
                   className="relative pl-3 sm:pl-12 border-l-2 border-slate-200/60 dark:border-slate-700/60 space-y-4 sm:space-y-6 list-none"
                 >
                   {shiftProcedures.map((proc, idx) => {
@@ -979,7 +981,7 @@ export default function ProceduresTimeline() {
                                 )}
                                 
                                 <div className="flex items-center gap-1 flex-shrink-0">
-                                  {!isEditing && (
+                                  {!isEditing && !readOnly && (
                                     <div className="cursor-grab active:cursor-grabbing text-slate-300 hover:text-slate-500 mr-2" title={t('procedures.actions.drag_reorder')}>
                                       <GripVertical className="w-5 h-5" />
                                     </div>

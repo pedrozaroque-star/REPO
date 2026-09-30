@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
+import { getServerUser } from '@/lib/auth-server';
 
 /**
  * @module ProcedimientosAPI
@@ -11,9 +12,10 @@ import { supabaseAdmin } from '@/lib/supabase';
  * @dataFlow
  *   - Reads/writes to operating_procedures table via supabaseAdmin
  * @notes
- *   - El frontend envía user_id, user_name, user_role en el body
+ *   - El frontend envía user_id, user_name, user_role en el body (obsoletos ahora se leen de JWT).
  *   - created_by_* solo se escribe en POST (crear)
  *   - updated_by_* se escribe en POST y PATCH
+ *   - Modificado: Añadido validación de autenticación de JWT y auditoría desde token.
  */
 
 // ═══════════════════════════════════════
@@ -21,6 +23,11 @@ import { supabaseAdmin } from '@/lib/supabase';
 // ═══════════════════════════════════════
 export async function GET() {
   try {
+    const user = await getServerUser()
+    if (!user) {
+        return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+    }
+
     const { data, error } = await supabaseAdmin
       .from('operating_procedures')
       .select('*')
@@ -39,11 +46,19 @@ export async function GET() {
 // ═══════════════════════════════════════
 export async function PATCH(request: Request) {
   try {
+    const user = await getServerUser()
+    if (!user) {
+        return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+    }
+    
+    if (user.role !== 'admin' && user.role !== 'supervisor' && user.role !== 'manager') {
+        return NextResponse.json({ error: 'Acceso denegado: Rol insuficiente' }, { status: 403 })
+    }
+
     const body = await request.json();
     const {
       id, start_time, duration_minutes, activity, frequency,
       role, description, shift_type, shift, overrides, store_model,
-      user_id, user_name,
     } = body;
 
     if (!id) {
@@ -52,7 +67,10 @@ export async function PATCH(request: Request) {
 
     const updateData: any = { updated_at: new Date().toISOString() };
     if (start_time !== undefined) updateData.start_time = start_time || null;
-    if (duration_minutes !== undefined) updateData.duration_minutes = duration_minutes !== null && duration_minutes !== '' ? Number(duration_minutes) : null;
+    if (duration_minutes !== undefined) {
+        const parsedDuration = Number(duration_minutes);
+        updateData.duration_minutes = duration_minutes !== null && duration_minutes !== '' && !isNaN(parsedDuration) ? parsedDuration : null;
+    }
     if (activity !== undefined) updateData.activity = activity;
     if (shift_type !== undefined) updateData.shift_type = shift_type;
     if (frequency !== undefined) updateData.frequency = frequency;
@@ -62,9 +80,9 @@ export async function PATCH(request: Request) {
     if (overrides !== undefined) updateData.overrides = overrides;
     if (store_model !== undefined) updateData.store_model = store_model;
 
-    // Audit: quién editó
-    if (user_id) updateData.updated_by_id = String(user_id);
-    if (user_name) updateData.updated_by_name = user_name;
+    // Audit: quién editó (desde JWT)
+    if (user.id) updateData.updated_by_id = String(user.id);
+    if (user.name) updateData.updated_by_name = user.name;
 
     const { data, error } = await supabaseAdmin
       .from('operating_procedures')
@@ -86,11 +104,19 @@ export async function PATCH(request: Request) {
 // ═══════════════════════════════════════
 export async function POST(request: Request) {
   try {
+    const user = await getServerUser()
+    if (!user) {
+        return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+    }
+    
+    if (user.role !== 'admin' && user.role !== 'supervisor' && user.role !== 'manager') {
+        return NextResponse.json({ error: 'Acceso denegado: Rol insuficiente' }, { status: 403 })
+    }
+
     const body = await request.json();
     const {
       start_time, duration_minutes, activity, frequency,
       role, description, shift_type, shift, overrides, store_model,
-      user_id, user_name,
     } = body;
 
     if (!activity || !shift_type) {
@@ -100,9 +126,10 @@ export async function POST(request: Request) {
       }, { status: 400 });
     }
 
+    const parsedDuration = Number(duration_minutes);
     const insertData: any = {
       start_time: start_time || null, 
-      duration_minutes: duration_minutes !== null && duration_minutes !== undefined && duration_minutes !== '' ? Number(duration_minutes) : null, 
+      duration_minutes: duration_minutes !== null && duration_minutes !== undefined && duration_minutes !== '' && !isNaN(parsedDuration) ? parsedDuration : null, 
       activity, 
       shift_type,
       frequency: frequency || 'Diario', 
@@ -113,14 +140,14 @@ export async function POST(request: Request) {
       store_model: store_model || 'AMBOS',
     };
 
-    // Audit: quién creó
-    if (user_id) {
-      insertData.created_by_id = String(user_id);
-      insertData.updated_by_id = String(user_id);
+    // Audit: quién creó (desde JWT)
+    if (user.id) {
+      insertData.created_by_id = String(user.id);
+      insertData.updated_by_id = String(user.id);
     }
-    if (user_name) {
-      insertData.created_by_name = user_name;
-      insertData.updated_by_name = user_name;
+    if (user.name) {
+      insertData.created_by_name = user.name;
+      insertData.updated_by_name = user.name;
     }
 
     const { data, error } = await supabaseAdmin
@@ -142,15 +169,20 @@ export async function POST(request: Request) {
 // ═══════════════════════════════════════
 export async function DELETE(request: Request) {
   try {
+    const user = await getServerUser()
+    if (!user) {
+        return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+    }
+
     const body = await request.json();
-    const { id, role: userRole } = body;
+    const { id } = body;
 
     if (!id) {
       return NextResponse.json({ success: false, error: 'ID is required' }, { status: 400 });
     }
 
-    // Verificar que sea admin — ahora desde el body en vez de query params
-    if (userRole?.toLowerCase() !== 'admin') {
+    // Verificar que sea admin — desde JWT
+    if (user.role !== 'admin') {
       return NextResponse.json({
         success: false,
         error: 'ADMIN_ONLY',

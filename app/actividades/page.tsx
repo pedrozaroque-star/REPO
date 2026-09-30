@@ -20,6 +20,7 @@ import React, { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ClipboardList, Settings, CalendarDays, BarChart3, Info, X } from 'lucide-react'
 import { useLanguage } from '@/lib/i18n'
+import { useAuth } from '@/components/ProtectedRoute'
 import dynamic from 'next/dynamic'
 
 // Lazy load tabs for performance
@@ -48,8 +49,14 @@ type TabKey = 'catalogo' | 'configurar' | 'asignacion' | 'reportes'
 
 export default function ActividadesPage() {
   const { t } = useLanguage()
+  const { user } = useAuth()
   const [activeTab, setActiveTab] = useState<TabKey>('asignacion')
   const [showHelpModal, setShowHelpModal] = useState(false)
+
+  // Permisos: Admin y Supervisor pueden editar catálogo y configurar posiciones, Manager solo puede ver
+  // Permissions: Admin & Supervisor can edit catalog and configure positions, Manager is read-only
+  const userRole = (user?.role || '').toLowerCase()
+  const isCatalogReadOnly = !['admin', 'supervisor'].includes(userRole)
 
   const tabs: { key: TabKey; label: string; icon: React.ReactNode; description: string }[] = [
     {
@@ -150,8 +157,8 @@ export default function ActividadesPage() {
             exit={{ opacity: 0, y: -8 }}
             transition={{ duration: 0.2 }}
           >
-            {activeTab === 'catalogo' && <CatalogoTab />}
-            {activeTab === 'configurar' && <ConfigurarPosicionesTab />}
+            {activeTab === 'catalogo' && <CatalogoTab readOnly={isCatalogReadOnly} />}
+            {activeTab === 'configurar' && <ConfigurarPosicionesTab readOnly={isCatalogReadOnly} />}
             {activeTab === 'asignacion' && <AsignacionDiariaTab />}
             {activeTab === 'reportes' && <ReportesChecklistTab />}
           </motion.div>

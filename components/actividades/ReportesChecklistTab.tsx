@@ -18,6 +18,9 @@
  * @notes
  *   - Soporta i18n completo (ES/EN) via useLanguage()
  *   - Optimizado para pantalla completa y tableta
+ *   - Fix: Se filtra correctamente el total de actividades por `store_model` al calcular el cumplimiento.
+ *   - Fix: Soporte para consolidación 'ALL' con cálculo independiente de `has_drive_thru` por tienda.
+ *   - Fix: Integración con `useAuth()` para restringir cambio de tienda según rol.
  */
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react'
@@ -28,11 +31,14 @@ import {
 import { supabase } from '@/lib/supabase'
 import { useLanguage } from '@/lib/i18n'
 
+import { useAuth } from '@/components/ProtectedRoute'
+
 // ─── Types ───────────────────────────────────────────────────────────────────
 interface StoreInfo {
   id: number
   name: string
   external_id: string
+  has_drive_thru?: boolean
 }
 
 interface CompletionRecord {
@@ -49,6 +55,7 @@ interface Procedure {
   shift_type: string
   frequency: string
   role: string
+  store_model?: string
 }
 
 interface ShiftStats {
@@ -144,6 +151,10 @@ function getPercentEmoji(pct: number): string {
 // ─── Component ───────────────────────────────────────────────────────────────
 export default function ReportesChecklistTab() {
   const { t } = useLanguage()
+  const { user } = useAuth()
+
+  const userRole = (user?.role || 'user').toLowerCase()
+  const canChangeStore = userRole !== 'manager'
 
   const [stores, setStores] = useState<StoreInfo[]>([])
   const [selectedStoreId, setSelectedStoreId] = useState<string>('ALL')
@@ -159,18 +170,24 @@ export default function ReportesChecklistTab() {
   // ─── Fetch stores ──────────────────────────────────────────────────────
   useEffect(() => {
     async function load() {
-      const { data } = await supabase.from('stores').select('id, name, external_id').order('name')
-      if (data) setStores(data as StoreInfo[])
+      const { data } = await supabase.from('stores').select('id, name, external_id, has_drive_thru').order('name')
+      if (data) {
+        setStores(data as StoreInfo[])
+        if (!canChangeStore && user?.store_id) {
+          const store = data.find(s => String(s.id) === String(user.store_id))
+          if (store) setSelectedStoreId(String(store.id))
+        }
+      }
     }
     load()
-  }, [])
+  }, [canChangeStore, user])
 
   // ─── Fetch procedures ──────────────────────────────────────────────────
   useEffect(() => {
     async function load() {
       const { data } = await supabase
         .from('operating_procedures')
-        .select('id, shift_type, frequency, role')
+        .select('id, shift_type, frequency, role, store_model')
       if (data) {
         setProcedures(data.filter((p: Procedure) => p.role !== 'ROLES_MODULE'))
       }
@@ -215,22 +232,29 @@ export default function ReportesChecklistTab() {
   }, [fetchCompletions, stores])
 
   // ─── Compute report for a specific date + store ────────────────────────
-  const computeDayReport = useCallback((date: string, storeExternalId?: string): DayReport => {
+  const computeDayReportForStore = useCallback((date: string, store: StoreInfo): DayReport => {
     const dayName = getDayNameForDate(date)
     const shifts = ['Apertura', 'Regular', 'Cierre']
 
-    const dayCompletions = completions.filter(c => {
-      if (c.checklist_date !== date) return false
-      if (storeExternalId && c.store_id !== storeExternalId) return false
-      return true
-    })
-
+    const dayCompletions = completions.filter(c => c.checklist_date === date && c.store_id === store.external_id)
     const completedIds = new Set(dayCompletions.map(c => c.activity_id))
+
+    const hasDriveThru = store.has_drive_thru ?? false
 
     const shiftStats: ShiftStats[] = shifts.map(shift => {
       const shiftProcs = procedures.filter(p => {
         if (p.shift_type !== shift) return false
         if (!isFreqMatch(p.frequency, dayName)) return false
+        
+        // Filtrar por store_model
+        if (p.store_model) {
+          if (hasDriveThru) {
+            if (p.store_model !== 'AMBOS' && p.store_model !== 'DRIVE_THRU') return false;
+          } else {
+            if (p.store_model !== 'AMBOS' && p.store_model !== 'REGULAR') return false;
+          }
+        }
+        
         return true
       })
       const completed = shiftProcs.filter(p => completedIds.has(p.id)).length
@@ -255,6 +279,48 @@ export default function ReportesChecklistTab() {
       shifts: shiftStats,
     }
   }, [procedures, completions])
+
+  const computeDayReport = useCallback((date: string, storeExternalId?: string): DayReport => {
+    if (storeExternalId) {
+      const store = stores.find(s => s.external_id === storeExternalId)
+      if (store) return computeDayReportForStore(date, store)
+    }
+
+    // Modo ALL: agregar todos los reportes de todas las tiendas
+    const allReports = stores.map(store => computeDayReportForStore(date, store))
+    
+    const shifts = ['Apertura', 'Regular', 'Cierre']
+    const aggregatedShifts = shifts.map(shift => {
+      let total = 0
+      let completed = 0
+      allReports.forEach(r => {
+        const s = r.shifts.find(x => x.shift === shift)
+        if (s) {
+          total += s.total
+          completed += s.completed
+        }
+      })
+      return {
+        shift,
+        total,
+        completed,
+        percent: total > 0 ? Math.round((completed / total) * 100) : 0,
+        missing: []
+      }
+    })
+
+    const totalActivities = aggregatedShifts.reduce((s, ss) => s + ss.total, 0)
+    const totalCompleted = aggregatedShifts.reduce((s, ss) => s + ss.completed, 0)
+
+    return {
+      date,
+      totalActivities,
+      totalCompleted,
+      percent: totalActivities > 0 ? Math.round((totalCompleted / totalActivities) * 100) : 0,
+      shifts: aggregatedShifts,
+    }
+
+  }, [stores, computeDayReportForStore])
 
   // ─── Current report ────────────────────────────────────────────────────
   const selectedStore = useMemo(() => stores.find(s => String(s.id) === selectedStoreId), [stores, selectedStoreId])
@@ -361,11 +427,13 @@ export default function ReportesChecklistTab() {
         {/* Store Selector */}
         <select
           value={selectedStoreId}
+          disabled={!canChangeStore}
           onChange={e => setSelectedStoreId(e.target.value)}
           style={{
             padding: '8px 14px', borderRadius: '10px', border: '1px solid #e2e8f0',
             background: '#fff', color: '#334155', fontSize: '13px', fontWeight: 500,
-            cursor: 'pointer', minWidth: '180px',
+            cursor: canChangeStore ? 'pointer' : 'not-allowed', minWidth: '180px',
+            opacity: canChangeStore ? 1 : 0.7
           }}
         >
           <option value="ALL">🏢 {t('actividades.reports.all_stores')}</option>

@@ -9,13 +9,20 @@
  * - Reads and writes to the `position_activities` and `operating_procedures` tables in Supabase.
  * @notes
  * - Uses supabaseAdmin to bypass RLS for configuration read/write operations.
+ * - Modificado: Agregado autenticación en GET y POST. POST requiere rol admin o supervisor.
  */
 
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
+import { getServerUser } from '@/lib/auth-server'
 
 export async function GET() {
     try {
+        const user = await getServerUser()
+        if (!user) {
+            return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+        }
+
         const { data, error } = await supabaseAdmin
             .from('position_activities')
             .select(`
@@ -44,6 +51,15 @@ export async function GET() {
 
 export async function POST(req: Request) {
     try {
+        const user = await getServerUser()
+        if (!user) {
+            return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+        }
+        
+        if (user.role !== 'admin' && user.role !== 'supervisor') {
+            return NextResponse.json({ error: 'Acceso denegado: Se requiere rol admin o supervisor' }, { status: 403 })
+        }
+
         const body = await req.json()
         const { position_key, shift, activity_id, frequency, store_model, action } = body
 
@@ -56,6 +72,21 @@ export async function POST(req: Request) {
         const resolvedModel = store_model || 'AMBOS'
 
         if (action === 'delete') {
+            // Check if it exists before deleting
+            const { data: existing, error: checkError } = await supabaseAdmin
+                .from('position_activities')
+                .select('id')
+                .eq('position_key', position_key)
+                .eq('shift', resolvedShift)
+                .eq('activity_id', activity_id)
+                .eq('frequency', resolvedFreq)
+                .eq('store_model', resolvedModel)
+                .single()
+
+            if (checkError || !existing) {
+                return NextResponse.json({ error: 'Activity assignment not found' }, { status: 404 })
+            }
+
             const { error } = await supabaseAdmin
                 .from('position_activities')
                 .delete()

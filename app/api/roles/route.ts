@@ -1,44 +1,84 @@
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
+import { getServerUser } from '@/lib/auth-server'
+
+/**
+ * @module RolesAPI
+ * @notes
+ * - Modificado: Agregado autenticación y control de acceso basado en rol.
+ * - GET: requiere auth y acceso a tienda.
+ * - POST: requiere auth, acceso a tienda y límite de 14 días.
+ */
 
 export async function GET(req: Request) {
-    const { searchParams } = new URL(req.url)
-    const store_id = searchParams.get('store_id')
-    const start_date = searchParams.get('start_date')
-    const end_date = searchParams.get('end_date')
+    try {
+        const user = await getServerUser()
+        if (!user) {
+            return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+        }
 
-    if (!store_id || !start_date || !end_date) {
-        return NextResponse.json({ error: 'Missing parameters' }, { status: 400 })
+        const { searchParams } = new URL(req.url)
+        const store_id = searchParams.get('store_id')
+        const start_date = searchParams.get('start_date')
+        const end_date = searchParams.get('end_date')
+
+        if (!store_id || !start_date || !end_date) {
+            return NextResponse.json({ error: 'Missing parameters' }, { status: 400 })
+        }
+
+        const canAccessStore = user.role === 'admin' || user.role === 'supervisor' || String(user.store_id) === store_id
+        if (!canAccessStore) {
+            return NextResponse.json({ error: 'Acceso denegado a esta tienda' }, { status: 403 })
+        }
+
+        const { data, error } = await supabaseAdmin
+            .from('station_assignments')
+            .select(`
+                *,
+                toast_employees (
+                    id,
+                    first_name,
+                    last_name
+                )
+            `)
+            .eq('store_id', store_id)
+            .gte('assignment_date', start_date)
+            .lte('assignment_date', end_date)
+
+        if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+        return NextResponse.json(data)
+    } catch (error: any) {
+        return NextResponse.json({ error: error.message }, { status: 500 })
     }
-
-    const { data, error } = await supabaseAdmin
-        .from('station_assignments')
-        .select(`
-            *,
-            toast_employees (
-                id,
-                first_name,
-                last_name
-            )
-        `)
-        .eq('store_id', store_id)
-        .gte('assignment_date', start_date)
-        .lte('assignment_date', end_date)
-
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-
-    return NextResponse.json(data)
 }
 
 export async function POST(req: Request) {
-    const body = await req.json()
-    const { assignments, store_id, start_date, end_date, active_shift } = body
-
-    if (!assignments || !Array.isArray(assignments) || !store_id || !start_date || !end_date) {
-        return NextResponse.json({ error: 'Faltan parámetros críticos (assignments, store_id, dates)' }, { status: 400 })
-    }
-
     try {
+        const user = await getServerUser()
+        if (!user) {
+            return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+        }
+
+        const body = await req.json()
+        const { assignments, store_id, start_date, end_date, active_shift } = body
+
+        if (!assignments || !Array.isArray(assignments) || !store_id || !start_date || !end_date) {
+            return NextResponse.json({ error: 'Faltan parámetros críticos (assignments, store_id, dates)' }, { status: 400 })
+        }
+
+        const canAccessStore = user.role === 'admin' || user.role === 'supervisor' || String(user.store_id) === String(store_id)
+        if (!canAccessStore) {
+            return NextResponse.json({ error: 'Acceso denegado a esta tienda' }, { status: 403 })
+        }
+
+        const start = new Date(start_date)
+        const end = new Date(end_date)
+        const diffDays = Math.ceil(Math.abs(end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24))
+        if (diffDays > 14) {
+            return NextResponse.json({ error: 'El rango de fechas no puede exceder 14 días' }, { status: 400 })
+        }
+
         // ═══ ESTRATEGIA ATÓMICA SEGURA (Safe Atomic Strategy) ═══
         // 1. Identificar registros antiguos a eliminar
         // 2. Insertar registros nuevos PRIMERO
@@ -82,7 +122,7 @@ export async function POST(req: Request) {
         let insertedIds: string[] = [];
         if (assignments.length > 0) {
             const processedAssignments = assignments.map((a: any) => ({
-                store_id: a.store_id || store_id,
+                store_id: store_id,
                 employee_id: a.employee_id,
                 assignment_date: a.assignment_date,
                 main_station: a.main_station || a.sub_position,
