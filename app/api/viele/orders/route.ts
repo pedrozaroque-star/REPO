@@ -11,7 +11,8 @@
  * - Persiste orden de compra oficial de Sage 100 (Wxxxxxx) en viele_orders con estatus 'confirmed'.
  * - Manejo de éxito parcial: si la orden de Sodas se confirma en Viele pero la de Insumos falla,
  *   se persiste inmediatamente la orden de Sodas para evitar reenvíos duplicados.
- * - Idempotencia durable en DB por request; serializa checkout por tienda, sin expiración automática.
+ * - Idempotencia durable en DB por request; serializa checkout por tienda. Un recovery_required con más de 24h pasa a
+ *   'superseded' al reclamar un nuevo envío (migración 202610040001); uno reciente sigue bloqueando para no duplicar.
  * - Control RBAC por sucursal para lectura y emisión de pedidos.
  *
  * @dataFlow
@@ -20,6 +21,7 @@
  * - Supabase → RPC transaccional de encabezados y partidas; fallos requieren conciliación sin reenviar.
  *
  * @notes
+ * - [2026-10-04] Migración 202610040001 (estado 'superseded') + maxDuration=60 por los reintentos de verificación.
  * - [2026-09-22] Migración 202609220001 requerida; fail-closed si falta. Tax desconocido queda pendiente.
  * - [2026-09-21] Implementación de control de acceso verifyVieleAuth, persistencia de éxito parcial,
  *   idempotencia contra doble clic, fecha en zona horaria America/Los_Angeles y validación de enteros.
@@ -29,6 +31,9 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { handleVieleOrder } from '@/lib/viele-order-handler';
 import { verifyVieleAuth } from '@/lib/viele-auth';
+
+// Peor caso: checkout + sondeo de verificación en Sage de hasta 40s por lote (2 lotes) => 120s de margen.
+export const maxDuration = 120;
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;

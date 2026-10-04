@@ -22,6 +22,12 @@
  * @notes
  * - [2026-09-22] financialsVerified exige documento oficial completo y conciliación a un centavo;
  *   la persistencia solo confirma cuando también pasa la validación de partidas.
+ * - [2026-10-04] FIX (causa raíz, 2 problemas): (1) Sage OMITE la fila "Sales Tax" cuando el impuesto es $0 (sodas); el check
+ *   !!taxMatch (endurecimiento 2026-09-22) marcaba TODA orden de sodas como no conciliada → recovery_required → sucursal
+ *   bloqueada. Ahora tax ausente = $0 (Net+Tax=Total sigue obligatorio). (2) Sage publica los renglones de órdenes grandes
+ *   de forma progresiva (confirmado: 10/34 y 14/31 renglones al verificar); la verificación sondea cada 3s hasta 40s por
+ *   lote y sale en cuanto concilia. Precios por tienda pueden diferir del catálogo (Rialto pagó ELDP32 a $41 vs $48);
+ *   eso sigue marcando la orden para conciliación manual, que es intencional.
  * - [2026-09-06] Ingeniería inversa y emulación 100% fiel del flujo de navegador ClearNine:
  *   1) Reset previo de carrito (DELETE /api/v3/shopping_cart) para evitar ítems huérfanos.
  *   2) Inyección de líneas de producto (POST /api/v3/shopping_cart).
@@ -584,6 +590,20 @@ async function executeBatchCheckout(
       expectedItemCount: batchItems.length
     };
 
+    // Sondeo: Sage/ClearNine publica los renglones de una orden grande de forma progresiva (observado 04/oct/2026: 10 de 34
+    // y 14 de 31 renglones al verificar). Se reintenta cada 3s hasta 40s por lote y se detiene en cuanto partidas y
+    // finanzas concilian (sodas y órdenes chicas concilian al primer intento, sin espera).
+    const verifyDeadline = Date.now() + 40000;
+    for (let attempt = 1; ; attempt++) {
+    if (attempt > 1) {
+      await new Promise(resolve => setTimeout(resolve, 3000));
+      financialsVerified = false;
+      officialFinancialHtml = '';
+      finalSubtotal = subtotalAmount;
+      finalTax = taxAmount;
+      finalTotal = totalAmount;
+      validationResult = { valid: false, expectedItemCount: batchItems.length };
+    }
     try {
       const docRes = await fetch(`${BASE_URL}/api/salesOrder_doc?orderNo=${orderNumber}`, {
         headers: {
@@ -602,9 +622,11 @@ async function executeBatchCheckout(
 
         if (totMatch) {
           if (netMatch) finalSubtotal = parseFloat(netMatch[1].replace(/,/g, ''));
-          if (taxMatch) finalTax = parseFloat(taxMatch[1].replace(/,/g, ''));
+          // Sage omite la fila "Sales Tax" cuando el impuesto es $0 (órdenes de sodas): ausente = $0.
+          // La conciliación Net + Tax = Total (abajo) sigue siendo obligatoria, así que un total distinto del neto NO pasa.
+          finalTax = taxMatch ? parseFloat(taxMatch[1].replace(/,/g, '')) : 0;
           finalTotal = parseFloat(totMatch[1].replace(/,/g, ''));
-          financialsVerified = !!netMatch && !!taxMatch &&
+          financialsVerified = !!netMatch &&
             [finalSubtotal, finalTax, finalTotal].every(value => Number.isFinite(value) && value >= 0) &&
             Math.abs(finalSubtotal - subtotalAmount) <= 0.010001 &&
             Math.abs(finalSubtotal + finalTax - finalTotal) <= 0.010001;
@@ -663,7 +685,9 @@ async function executeBatchCheckout(
         if (discrepancies.length > 0) validationResult.discrepancies = discrepancies;
       }
     } catch (docErr) {
-      console.warn('No se pudo extraer el desglose de Viele:', docErr);
+      console.warn(`No se pudo extraer el desglose de Viele (intento ${attempt}):`, docErr);
+    }
+    if ((validationResult.valid && financialsVerified) || Date.now() + 3000 > verifyDeadline) break;
     }
 
     return {
