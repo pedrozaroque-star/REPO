@@ -19,6 +19,11 @@
  * @notes
  * - Toast POS cierra los días de negocio a las 5:59 AM del día siguiente.
  * - Los parámetros de validación se transmiten a accounting_sales_packets para bloquear la publicación.
+ * - Paridad con Cohesion (verificado Broadway 2026-10-03, $26,743.90 al centavo):
+ *   1) Solo se cuentan pagos capturados: se ignoran paymentStatus DENIED/FAILED/VOIDED/OPEN/CANCELLED.
+ *   2) La propina de tarjeta (tipAmount de pagos CREDIT) se suma al depósito de tarjeta y se registra como Tips/Grat Payable (12100).
+ *   3) La Dining Option "Toast Delivery Services" va aparte (cuenta 53060), no en For Here.
+ *   4) Credit Card Other Deductions (MCA) se registra contra 12100, no contra el banco.
  */
 
 import { getAuthToken } from './toast-api'
@@ -48,6 +53,8 @@ export interface ToastAccountingData {
   toGoSales: number
   driveThruSales: number
   toastOnlineSales: number
+  toastDeliverySales: number
+  tipsPayable: number
   uberDeliverySales: number
   uberTakeoutSales: number
   doordashDeliverySales: number
@@ -193,6 +200,8 @@ export async function fetchToastAccountingData(
   let toGo = 0
   let driveThru = 0
   let toastOnline = 0
+  let toastDelivery = 0
+  let tipsPayable = 0
   let uberDel = 0
   let uberTake = 0
   let ddDel = 0
@@ -356,6 +365,9 @@ export async function fetchToastAccountingData(
       } else if (optName.includes('grub')) {
         ghDel += checkNet
         marketplaceTax += checkTax
+      } else if (dOptionRaw.toLowerCase().includes('toast delivery')) {
+        // Dining Option "Toast Delivery Services" -> línea propia 53060 en Cohesion
+        toastDelivery += checkNet
       } else if (optName.includes('online')) {
         toastOnline += checkNet
       } else if (dOptionRaw.toLowerCase().includes('drive') || optName.includes('drive')) {
@@ -369,7 +381,8 @@ export async function fetchToastAccountingData(
       // Clasificar pagos
       for (const p of check.payments || []) {
         if (p.voided) continue
-        if (p.paymentStatus === 'DENIED' || p.paymentStatus === 'FAILED') continue
+        // Cohesion solo cuenta pagos capturados: ignora DENIED, FAILED, VOIDED (status), OPEN (pre-auth) y CANCELLED
+        if (['DENIED', 'FAILED', 'VOIDED', 'OPEN', 'CANCELLED'].includes(String(p.paymentStatus || '').toUpperCase())) continue
 
         const amt = Number(p.amount || 0)
         const pType = (p.type || '').toUpperCase()
@@ -390,7 +403,10 @@ export async function fetchToastAccountingData(
         } else if (pType === 'CASH') {
           cashDeposit += amt
         } else if (pType === 'CREDIT') {
-          creditCardGross += amt
+          // Cohesion incluye la propina de tarjeta en el depósito y la registra como Tips Payable (12100)
+          const tip = Number(p.tipAmount || 0)
+          creditCardGross += amt + tip
+          tipsPayable += tip
           creditCardActualFees += Number(p.originalProcessingFee || 0)
         } else if (pName.includes('uber') || pName.includes('postmates')) {
           uberPayment += amt
@@ -422,7 +438,10 @@ export async function fetchToastAccountingData(
   ghDel = r(ghDel)
   ghTake = r(ghTake)
 
-  const netSales = r(forHere + toGo + driveThru + toastOnline + uberDel + uberTake + ddDel + ddTake + ghDel + ghTake)
+  toastDelivery = r(toastDelivery)
+  tipsPayable = r(tipsPayable)
+
+  const netSales = r(forHere + toGo + driveThru + toastOnline + toastDelivery + uberDel + uberTake + ddDel + ddTake + ghDel + ghTake)
   totalTax = r(totalTax)
   marketplaceTax = r(marketplaceTax)
   taxPaidByUber = r(taxPaidByUber)
@@ -500,6 +519,8 @@ export async function fetchToastAccountingData(
     toGoSales: toGo,
     driveThruSales: driveThru,
     toastOnlineSales: toastOnline,
+    toastDeliverySales: toastDelivery,
+    tipsPayable,
     uberDeliverySales: uberDel,
     uberTakeoutSales: uberTake,
     doordashDeliverySales: ddDel,

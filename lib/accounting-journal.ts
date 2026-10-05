@@ -29,6 +29,8 @@ export interface SalesPacketData {
   to_go_sales: number;
   drive_thru_sales?: number;
   toast_online_sales?: number;
+  toast_delivery_sales?: number;
+  tips_payable?: number;
   uber_delivery_sales: number;
   uber_takeout_sales: number;
   doordash_takeout_sales: number;
@@ -111,6 +113,9 @@ export function generateJournalLines(salesData: SalesPacketData, siteMapping: Si
   if (salesData.delivery_service_charges) {
     addLine('51030', 'Delivery Service', 0, salesData.delivery_service_charges, 'Service Charge: Delivery Service');
   }
+  if (salesData.toast_delivery_sales) {
+    addLine('53060', 'Toast Delivery Services', 0, salesData.toast_delivery_sales, 'Dining Option: Toast Delivery Services');
+  }
   if (salesData.deferred_gift_cards) {
     addLine('20500', 'Deferred Sales - Gift Cards', 0, salesData.deferred_gift_cards, 'Deferred Sales: Gift Cards');
   }
@@ -118,6 +123,9 @@ export function generateJournalLines(salesData: SalesPacketData, siteMapping: Si
   addLine('12050', 'Tax Paid by Uber Eats', 0, salesData.tax_paid_by_uber, 'Tax Paid by Facilitator');
   addLine('24001', 'Sales Tax', 0, salesData.sales_tax, `Tax Rate: ${siteMapping.sales_tax_rate_name}`);
   addLine('24001', 'Marketplace Facilitator Taxes', 0, salesData.marketplace_tax, 'Tax Rate: Marketplace Facilitator Taxes Not Paid');
+  if (salesData.tips_payable) {
+    addLine('12100', 'Tips/Grat Payable', 0, salesData.tips_payable, 'Tips Payable');
+  }
 
   // --- DEBITS ---
   if (salesData.gift_card_redemption) {
@@ -130,7 +138,7 @@ export function generateJournalLines(salesData: SalesPacketData, siteMapping: Si
   addLine(siteMapping.bank_account, 'Credit Card Deposit', salesData.credit_card_deposit, 0, 'Combined Credit Card Deposit');
   addLine('51030', 'Credit Card Fees', salesData.credit_card_fees, 0, 'Credit Cards: Merchant Fees');
   if (salesData.credit_card_other_deductions) {
-    addLine(siteMapping.bank_account, 'Credit Card Other Deductions', salesData.credit_card_other_deductions, 0, 'Credit Cards: Other Deductions');
+    addLine('12100', 'Credit Card Other Deductions', salesData.credit_card_other_deductions, 0, 'Credit Cards: Other Deductions');
   }
   addLine('13200', 'Deposit To Bank', salesData.cash_deposits, 0, 'Cash Deposits');
 
@@ -235,7 +243,8 @@ export function calculateExpectedCash(salesData: SalesPacketData): number {
     salesData.net_sales + 
     salesData.total_taxes + 
     (salesData.deferred_gift_cards || 0) + 
-    (salesData.delivery_service_charges || 0)
+    (salesData.delivery_service_charges || 0) +
+    (salesData.tips_payable || 0)
   );
   const nonCashPayments = round(
     salesData.credit_card_deposit +

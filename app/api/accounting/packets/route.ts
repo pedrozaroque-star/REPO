@@ -181,6 +181,8 @@ export async function POST(request: NextRequest) {
               to_go_sales: toastData.toGoSales,
               drive_thru_sales: toastData.driveThruSales,
               toast_online_sales: toastData.toastOnlineSales,
+              toast_delivery_sales: toastData.toastDeliverySales,
+              tips_payable: toastData.tipsPayable,
               uber_delivery_sales: toastData.uberDeliverySales,
               uber_takeout_sales: toastData.uberTakeoutSales,
               doordash_takeout_sales: toastData.doordashTakeoutSales,
