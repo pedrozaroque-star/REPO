@@ -231,8 +231,10 @@ export async function GET(request: Request) {
             cash_deposits: toastData.cashDeposit
           }
 
-          const journal = generateJournalLines(salesPacketData, siteConfig)
+          // Cohesion parity: "Deposit To Bank" defaults to Expected Cash (Over/Short = 0).
           const expectedCash = calculateExpectedCash(salesPacketData)
+          salesPacketData.cash_deposits = expectedCash
+          const journal = generateJournalLines(salesPacketData, siteConfig)
           const docNumber = formatDocNumber(storeName.replace(/^Tacos Gavilan\s+/i, '').trim(), targetDate)
 
           const validationInfo = {

@@ -22,6 +22,9 @@
  * - The QuickBooks client is obtained via getQuickBooksClient() which handles
  *   token refresh automatically.
  * - AccountRef.value must be the QB internal account ID (not our account number).
+ * - Duplicate guard (2026-10): before posting, QBO is queried for any JournalEntry with the
+ *   same TxnDate + Department(Location); if found → 409 {duplicate:true}. Override with body {force:true}.
+ *   Reason: Cohesion publishes as POS<date><STORE>#n, our DocNumber differs, so both could land in QBO.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -256,6 +259,38 @@ export async function POST(
         expires_at: new Date(Date.now() + newTokens.expires_in * 1000),
         updated_at: new Date().toISOString(),
       }).eq('id', integ.id)
+    }
+
+    // 5b. Duplicate guard (Cohesion coexistence): if QBO already has a JournalEntry for the
+    // same TxnDate + Location (e.g. published by Cohesion as POS<date><STORE>#n), block with 409.
+    // Pass { force: true } in the body to override (e.g. intentional adjustment).
+    if (!(body as { force?: boolean }).force) {
+      const dupQuery = encodeURIComponent(
+        `select Id, DocNumber, TotalAmt, Line from JournalEntry where TxnDate = '${packet.business_date}' maxresults 500`
+      )
+      const dupRes = await fetch(
+        `https://quickbooks.api.intuit.com/v3/company/${realmId}/query?query=${dupQuery}&minorversion=75`,
+        { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } }
+      )
+      if (dupRes.ok) {
+        const dupJson = await dupRes.json()
+        const existing: any[] = dupJson?.QueryResponse?.JournalEntry || []
+        const clash = existing.find((je) =>
+          (je.Line || []).some(
+            (l: any) => String(l?.JournalEntryLineDetail?.DepartmentRef?.value) === String(storeRefs.locationId)
+          )
+        )
+        if (clash) {
+          return NextResponse.json(
+            {
+              error: `QuickBooks ya tiene una póliza para ${storeName} el ${packet.business_date} (DocNumber ${clash.DocNumber}, Id ${clash.Id}, $${clash.TotalAmt}). Publicarla de nuevo la duplicaría. / QuickBooks already has an entry for this store and date.`,
+              duplicate: true,
+              existing: { id: clash.Id, docNumber: clash.DocNumber, total: clash.TotalAmt },
+            },
+            { status: 409 }
+          )
+        }
+      }
     }
 
     // Send directly to QuickBooks Online REST API

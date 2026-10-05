@@ -266,9 +266,13 @@ export async function POST(request: NextRequest) {
           sales_tax_rate_name: mapping.qb_location, // Tax rate name = location name
         }
 
+        // Cohesion parity: "Deposit To Bank" defaults to Expected Cash (Over/Short = 0).
+        // Real deposit is only entered manually (PATCH cash_deposit) — verified vs QBO week 9/28-10/4.
+        const expectedCash = calculateExpectedCash(salesPacketData)
+        salesPacketData.cash_deposits = expectedCash
+
         // Generate journal lines
         const journal = generateJournalLines(salesPacketData, siteConfig)
-        const expectedCash = calculateExpectedCash(salesPacketData)
         const docNumber = formatDocNumber(storeName.replace(/^Tacos Gavilan\s+/i, '').trim(), sale.business_date)
 
         // Determine status based on Open Orders validation (Step 11 Cohesion Rule) and Journal Balance
