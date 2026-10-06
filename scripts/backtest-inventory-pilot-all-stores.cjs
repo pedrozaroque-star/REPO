@@ -1,9 +1,9 @@
 /**
  * @module scripts/backtest-inventory-pilot-all-stores
  * @description Contrasta sobrantes y pedidos reales de las sucursales con la estimación histórica del piloto.
- * @businessRules Acepta un rango cerrado de 2026; excluye 2026-09-22 cuando cae en el rango y no convierte un pedido en recepción comprobada.
+ * @businessRules Acepta un rango cerrado de 2026; excluye Hollywood y 2026-09-22 cuando cae en el rango y no convierte un pedido en recepción comprobada.
  * @dataFlow Supabase stores/counts/orders/usage/items -> cruces por tienda, fecha y artículo -> métricas agregadas.
- * @notes Solo lectura. Las predicciones con consumo real registrado se separan de las que requerirían fallback 20%.
+ * @notes Solo lectura. Las predicciones con consumo real registrado se separan de las que requerirían fallback 20%. Compara la corrección contrafactual de la doble división por docena y la presentación en piezas del Papelito, sin aplicarla a producción.
  *   Descarta capturas extremas con la misma regla de inventory/automation-pilot.
  */
 require('dotenv').config({ path: '.env.local', quiet: true })
@@ -58,7 +58,8 @@ const isImplausibleArrivalQuantity = (quantity, parValue, calculatedQuantity) =>
 }
 
 async function main() {
-  const stores = await all(() => db.from('stores').select('id,name,external_id,is_active').eq('is_active', true).order('id'))
+  const stores = (await all(() => db.from('stores').select('id,name,external_id,is_active').eq('is_active', true).order('id')))
+    .filter(store => String(store.name).toLowerCase() !== 'hollywood')
   const storeIds = stores.map(store => store.id)
   const counts = await all(() => db.from('inventory_counts')
     .select('store_id,inventory_item_id,count_date,quantity_on_hand,created_at')
@@ -84,7 +85,7 @@ async function main() {
   const items = []
   for (let index = 0; index < itemIds.length; index += 100) {
     items.push(...await all(() => db.from('inventory_items')
-      .select('id,name,excel_reference,order_rounding_rule').in('id', itemIds.slice(index, index + 100)).order('id')))
+      .select('id,name,excel_reference,order_rounding_rule,quantity_per_unit,unit_type').in('id', itemIds.slice(index, index + 100)).order('id')))
   }
 
   const countMap = new Map()
@@ -104,6 +105,8 @@ async function main() {
   const itemMap = new Map(items.map(item => [item.id, item]))
   const reports = []
   const productStats = new Map()
+  const unitConversionStats = new Map()
+  const drinkRatios = new Map()
   const anomalies = orderLines.flatMap(line => {
     const quantity = value(line.final_qty ?? line.adjusted_qty ?? line.calculated_qty)
     if (quantity === null || !isImplausibleArrivalQuantity(quantity, value(line.par_value), value(line.calculated_qty))) return []
@@ -173,8 +176,26 @@ async function main() {
         if (usageValue === undefined) continue
         const implied = previous + priorOrdered - physical
         if (implied < 0) report.negativeImplicitUse++
+        if (usageValue > 0 && implied >= 0 && /^(Horchata|Tamarindo Concentrate|Jamaica Concentrate|Piña Concentrate)$/.test(item?.name || '')) {
+          const key = `${store.name}|${item.name}`
+          const ratios = drinkRatios.get(key) || []
+          ratios.push(implied / usageValue)
+          drinkRatios.set(key, ratios)
+        }
         const predicted = Math.max(0, round(previous + priorOrdered - usageValue, item?.order_rounding_rule))
         const error = Math.abs(predicted - physical)
+        const factor = /\bdz\b/i.test(String(item?.unit_type || '')) ? 12
+          : item?.name === 'Papelito Para Torta' ? 60 : NaN
+        if (Number.isFinite(factor) && factor > 1) {
+          const convertedPredicted = Math.max(0, round(previous + priorOrdered - usageValue * factor, item?.order_rounding_rule))
+          const convertedError = Math.abs(convertedPredicted - physical)
+          const conversion = unitConversionStats.get(item.id) || { item: item.excel_reference || item.name, factor, n: 0, rawAbsError: 0, convertedAbsError: 0, convertedWithin1: 0 }
+          conversion.n++
+          conversion.rawAbsError += error
+          conversion.convertedAbsError += convertedError
+          if (convertedError <= 1) conversion.convertedWithin1++
+          unitConversionStats.set(item.id, conversion)
+        }
         const predictedOrder = par === null ? null : round(Math.max(0, par - predicted), item?.order_rounding_rule)
         report.testable++
         report.datesTested.add(day)
@@ -226,7 +247,7 @@ async function main() {
     return acc
   }, {})
   const output = {
-    period: { start: START, end: END, excluded: EXCLUDED }, sourceRows: {
+    period: { start: START, end: END, excluded: EXCLUDED, excludedStore: 'Hollywood' }, sourceRows: {
     stores: stores.length, counts: counts.length, orders: orders.length, orderLines: orderLines.length, usage: usage.length, items: items.length,
     },
     totals,
@@ -241,14 +262,26 @@ async function main() {
     highestErrorProducts: [...productStats.values()]
       .map(stat => ({ ...stat, meanAbsError: Number((stat.totalAbsError / stat.n).toFixed(2)) }))
       .sort((a, b) => b.totalAbsError - a.totalAbsError).slice(0, 12),
+    unitConversionCounterfactual: [...unitConversionStats.values()]
+      .filter(stat => stat.n >= 20)
+      .map(stat => ({ ...stat, rawMeanAbsError: Number((stat.rawAbsError / stat.n).toFixed(2)), convertedMeanAbsError: Number((stat.convertedAbsError / stat.n).toFixed(2)), improvement: Number(((stat.rawAbsError - stat.convertedAbsError) / stat.n).toFixed(2)) }))
+      .sort((a, b) => b.improvement - a.improvement).slice(0, 20),
+    drinkObservedToNominalRatios: [...drinkRatios.entries()].map(([key, values]) => {
+      const ordered = sorted(values)
+      return { key, n: ordered.length, p25: Number(ordered[Math.floor(ordered.length * 0.25)].toFixed(2)), median: Number(ordered[Math.floor(ordered.length * 0.5)].toFixed(2)), p75: Number(ordered[Math.floor(ordered.length * 0.75)].toFixed(2)) }
+    }).filter(row => row.n >= 5).sort((a, b) => a.key.localeCompare(b.key)),
     examples: ['Lynwood', 'Slauson', 'LA Central'].map(name => {
       const row = reports.find(report => report.store === name)
       return { store: name, biggest: row?.biggest || [] }
     }),
   }
-  console.log(JSON.stringify(process.argv.includes('--summary')
+  console.log(JSON.stringify(process.argv.includes('--units-only')
+    ? { period: output.period, unitConversionCounterfactual: output.unitConversionCounterfactual, drinkObservedToNominalRatios: output.drinkObservedToNominalRatios }
+    : process.argv.includes('--summary')
     ? { period: output.period, totals: output.totals, anomalies: output.anomalies,
-      lynwood: output.stores.find(store => store.store === 'Lynwood') }
+      pilots: output.stores.filter(store => ['Lynwood', 'Slauson', 'LA Central'].includes(store.store)),
+      highestErrorProducts: output.highestErrorProducts, unitConversionCounterfactual: output.unitConversionCounterfactual,
+      examples: output.examples }
     : output, null, 2))
 }
 

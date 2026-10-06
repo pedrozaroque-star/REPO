@@ -1,3 +1,10 @@
+/**
+ * @module lib/inventory/conversions
+ * @description Convierte cantidades de recetas a unidades de compra para estimar consumo de inventario.
+ * @businessRules El rendimiento convierte porciones cocidas a crudas; quantity_per_unit prevalece sobre el tamaño escrito en unit_type. Para artículos de docenas, quantity_per_unit puede representar piezas físicas por paquete.
+ * @dataFlow Receta (cantidad y unidad) + catálogo (unit_type, quantity_per_unit, yield) -> unidades de inventario consumidas.
+ * @notes [2026-09-27] Evita dividir dos veces por 12 cuando unit_type es X dz y quantity_per_unit ya equivale a X*12 piezas.
+ */
 import { UnitType } from '@/types/inventory'
 
 const WEIGHT_CONVERSION: Record<string, number> = {
@@ -117,6 +124,9 @@ export function calculateInventoryUsage(
 
     // Si tenemos un factor manual (de la columna quantity_per_unit), lo preferimos
     const invFactor = (manualInvFactor && manualInvFactor > 0) ? manualInvFactor : parsedInvFactor
+    const manualDozenFactorIsPieces = invBase === 'dz' &&
+        manualInvFactor !== undefined &&
+        Math.abs(manualInvFactor - parsedInvFactor * 12) < 1e-9
 
     let quantityInBase = recipeQuantity * recipeFactor // Adjust if recipe unit input was complex like "2 oz"
 
@@ -163,7 +173,7 @@ export function calculateInventoryUsage(
 
 
         // Convert PIECES to INV BASE
-        if (invBase === 'dz') quantityInBase = pieces / 12
+        if (invBase === 'dz') quantityInBase = manualDozenFactorIsPieces ? pieces : pieces / 12
         else quantityInBase = pieces
     }
     else {

@@ -8,9 +8,15 @@
  *   - Salsa roja aplica a asada/pastor/chorizo y verde a pollo/lengua/cabeza/carnitas/buche. Tripa está descontinuada y nunca se infiere.
  *   - Las bolsas exteriores siguen siendo decisión a nivel ticket: no se inventa una capacidad ni se escriben movimientos hasta configurarla.
  *   - channel conserva el canal comercial; packagingChannel aplica Delivery a TakeOut de plataformas y Toast Online.
+ *   - Bebida Medium/Large For Here o To Go de caja entrega un vaso ELDP22/ELDP32.
+ *     El cliente puede servirse soda Coca-Cola, agua fresca o mezcla; no inferir líquido
+ *     ni tapa a partir del botón Toast. Viele & Sons continúa con pedido semanal manual.
  * @dataFlow Toast snapshot + canal → clasificación determinista → TicketPackagingResult → preview/auditoría → futuro kardex.
  * @notes No genera movimientos: evita duplicar inventory_usage_log mientras PMIX siga activo.
  *   La bolsa interior se calcula después de todos los condimentos, incluidos tacos, para evitar omisiones en tickets solo de tacos.
+ *   [2026-09-26] La tapa 709DO es domo de plástico transparente, no de cartón/aluminio; corregida la descripción operativa.
+ *   [2026-10-01] Las recetas Medium/Large muestreadas no tienen línea de vaso;
+ *   se registra una pieza por venta de autoservicio sin duplicar una receta existente.
  */
 
 import { resolveTicketChannel, resolvePackagingChannel, type RecipeChannel } from './recipe-channels'
@@ -21,7 +27,7 @@ export type PackagingItemKey =
   | 'WRHEFOBL' | 'WRHESPBL' | 'HEFO' | 'HESP' | 'EL1CS2G'
   | 'RC478' | '709DO' | 'cup_8oz_paper' | 'lid_8oz_flat' | 'cup_4oz' | 'lid_4oz'
   | 'half_pan' | 'half_pan_lid' | 'full_pan' | 'full_pan_lid'
-  | 'ELTSBALA' | 'ELMES2G' | 'ELLAS2G' | 'bolsa_agua_uber'
+  | 'ELTSBALA' | 'ELMES2G' | 'ELLAS2G' | 'bolsa_agua_uber' | 'ELDP22' | 'ELDP32'
 
 export interface ToastTicketSelection { guid?: string | null; name?: string | null; quantity?: number | null; modifiers?: Array<{ guid?: string | null; name?: string | null; quantity?: number | null }> | null }
 export interface TicketPackagingTicket { diningOptionName?: string | null; diningOptionBehavior?: string | null; source?: string | null; deliveryService?: string | null; selections: ToastTicketSelection[] }
@@ -46,6 +52,7 @@ const isSeparator = (selection: ToastTicketSelection) => /\b(separator|separador
 
 function productKind(selection: ToastTicketSelection): ProductKind {
   const text = normalize(selection.name)
+  if (/^(?:medium|large)\s+(?:horchata|jamaica|pina|tamarindo|coke|diet\s+coke|sprite|(?:orange|strawberry)\s+fanta|lemonade|iced\s+tea|agua\s+fresca)\b/.test(text)) return 'drink'
   if (/\b(taco\s*plate|plate\s*of\s*tacos?)\b/.test(text)) return 'taco_plate'
   if (/\bcheese\s*cake\b|\bcheesecake\b/.test(text) && !/full\s*cheese/.test(text)) return 'cheesecake'
   if (/\bflan\b/.test(text)) return 'flan'
@@ -154,7 +161,7 @@ export function calculateTicketPackaging(ticket: TicketPackagingTicket): TicketP
       const text = normalize(selection.name)
       if (text.includes('2 lb') || text.includes('2lb')) {
         add(lines, 'RC478', quantity, '2 lb Meat: contenedor redondo de aluminio RC478 confirmado por Carlos')
-        add(lines, '709DO', quantity, '2 lb Meat: tapa cartón/aluminio 709DO')
+        add(lines, '709DO', quantity, '2 lb Meat: tapa domo plástico transparente 709DO')
       } else if (text.includes('6 lb') || text.includes('6lb')) {
         add(lines, 'half_pan', quantity, '6 lb Meat: charola aluminio Half Pan confirmada por Carlos')
         add(lines, 'half_pan_lid', quantity, '6 lb Meat: tapa aluminio Half Pan')
@@ -163,6 +170,11 @@ export function calculateTicketPackaging(ticket: TicketPackagingTicket): TicketP
         add(lines, 'full_pan_lid', quantity, '12 lb Meat: tapa aluminio Full Pan')
       }
     } else if (kind === 'drink') {
+      if (channel === 'for_here' || channel === 'to_go') {
+        const size = normalize(selection.name).match(/^(medium|large)\s+/)?.[1]
+        if (size === 'medium') add(lines, 'ELDP22', quantity, 'Autoservicio Medium: vaso 22 oz; líquido no identificado')
+        if (size === 'large') add(lines, 'ELDP32', quantity, 'Autoservicio Large: vaso 32 oz; líquido no identificado')
+      }
       if (channel === 'delivery') {
         add(lines, 'bolsa_agua_uber', quantity, 'Delivery: bolsa individual transparente para bebida')
       }

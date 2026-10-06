@@ -36,6 +36,12 @@
  * - [2026-09-25] Requiere captura completa de sobrantes antes de generar o enviar Orden Diaria.
  * - [2026-09-25] Piloto Lynwood: oculta la estimación automática hasta cerrar el conteo físico completo.
  * - [2026-09-26] Slauson participa con el mismo conteo ciego y validación shadow.
+ * - [2026-09-28] El pedido oficial requiere sobrante físico; la comparación teórica
+ *   nunca sustituye el conteo ni añade un colchón fuera del PAR.
+ * - [2026-09-28] La sugerencia shadow de tickets se etiqueta como preliminar;
+ *   si falla la cobertura de Toast/snapshots, aparece vacía sin afectar el pedido físico.
+ * - [2026-10-01] El conteo aparece como capturado solo tras confirmación de DB;
+ *   fallos de guardado se muestran al manager sin recalcular el pedido local.
  */
 'use client'
 
@@ -62,6 +68,7 @@ import {
 } from './utils'
 import { useAuth } from '@/components/ProtectedRoute'
 import { createClient } from '@/lib/supabase-client'
+import PilotComparisonModal from '@/components/PilotComparisonModal'
 import { useLanguage } from '@/lib/i18n'
 
 // ============================================================================
@@ -88,6 +95,18 @@ function getLocalBusinessDate(d: Date = new Date()): string {
 // TYPES
 // ============================================================================
 type TabId = 'daily_order' | 'weekly_config' | 'history' | 'leftovers' | 'analysis'
+
+export interface OrderAnomaly {
+    itemId: string
+    itemName: string
+    parValue: number
+    leftoverValue: number | null
+    calculatedQty: number
+    adjustedQty?: number
+    finalQty: number
+    type: 'high_leftover' | 'high_adjust' | 'high_final' | 'zero_critical' | 'negative_final'
+    message: string
+}
 
 const WEEK_DAYS = [
     { key: 'mon', baseField: 'mon_par', offset: 0 },
@@ -133,6 +152,13 @@ export default function InventoryOrdersPage() {
     const [savingPar, setSavingPar] = useState(false)
     const [weeklyRightView, setWeeklyRightView] = useState<'leftovers' | 'par_ideal'>('leftovers')
     const lastSyncedKeyRef = useRef('')
+
+    // Order entry safeguards state
+    const [anomalyModal, setAnomalyModal] = useState<{
+        open: boolean
+        anomalies: OrderAnomaly[]
+        pendingAction: 'generate' | 'qb' | null
+    }>({ open: false, anomalies: [], pendingAction: null })
     const [qbAuthRequired, setQbAuthRequired] = useState(false)
 
     // Data
@@ -151,6 +177,7 @@ export default function InventoryOrdersPage() {
         enabled: false, schemaReady: true, status: 'counting', lines: []
     })
     const [closingPilotCount, setClosingPilotCount] = useState(false)
+    const [showPilotComparisonModal, setShowPilotComparisonModal] = useState(false)
 
     // Emergency / extraordinary items states
     const [mappedItems, setMappedItems] = useState<any[]>([])
@@ -384,6 +411,29 @@ export default function InventoryOrdersPage() {
                     weekData.parIdeal, overrideDayField, parBoostPercent,
                     orderType, (weekData as any).nextWeekBases
                 )
+                // Si hay una sesión de piloto revelada para esta fecha, combinar sus líneas guardadas
+                // para que el usuario siempre vea los valores teóricos y varianzas fijadas al cerrar el conteo
+                if (currentPilotSession?.status === 'revealed' && currentPilotSession.lines?.length) {
+                    const pilotMap = new Map(currentPilotSession.lines.map((pl: any) => [pl.inventory_item_id, pl]))
+                    lines.forEach(line => {
+                        const pl = pilotMap.get(line.inventory_item_id)
+                        if (pl) {
+                            if (pl.automatic_leftover !== null && pl.automatic_leftover !== undefined) {
+                                line.suggested_leftover = pl.automatic_leftover
+                            }
+                            if (pl.variance !== null && pl.variance !== undefined) {
+                                line.variance = pl.variance
+                            }
+                            if (pl.automatic_order_qty !== null && pl.automatic_order_qty !== undefined) {
+                                line.suggested_order_qty = pl.automatic_order_qty
+                            }
+                            (line as any).tolerance_value = pl.tolerance_value
+                            (line as any).within_tolerance = pl.within_tolerance
+                        }
+                    })
+                    setShowSuggestedCol(true)
+                }
+
                 setOrderLines([...lines, ...extraordinarySavedLines])
             }
 
@@ -505,8 +555,12 @@ export default function InventoryOrdersPage() {
         const numVal = value === '' ? null : (parseFloat(value) || 0)
         setModalLines(prev => prev.map(line => {
             if (line.inventory_item_id !== itemId) return line
-            const leftoverVal = numVal ?? 0
-            const calculatedQty = line.par_value - leftoverVal
+            const orderBase = numVal === null ? 0 : Math.max(0, line.par_value - numVal)
+            const roundingRule = items.find(item => item.id === itemId)?.order_rounding_rule
+            const calculatedQty = roundingRule === 'ceiling_60' ? Math.ceil(orderBase / 60) * 60
+                : roundingRule === 'ceiling_30' ? Math.ceil(orderBase / 30) * 30
+                : roundingRule === 'ceiling_4' ? Math.ceil(orderBase / 4) * 4
+                : Math.round(orderBase)
             return { ...line, leftover_value: numVal, calculated_qty: calculatedQty }
         }))
     }
@@ -880,52 +934,65 @@ export default function InventoryOrdersPage() {
     }
 
     async function handleLeftoverChange(itemId: string, dateStr: string, value: string) {
-        if (!storeId) return
-        if (value === '') {
-            // Borrar sobrante — usar functional updater para evitar stale state
+        if (!storeId) return false
+        const numVal = value === '' ? null : Number(value)
+        if (numVal !== null && (!Number.isFinite(numVal) || numVal < 0)) {
+            alert('Ingresa un sobrante numérico válido.')
+            return false
+        }
+        try {
+            await updateDailyLeftover(storeId, itemId, dateStr, numVal)
             setCounts(prev => {
                 const itemCounts = { ...(prev[itemId] || {}) }
-                delete itemCounts[dateStr]
+                if (numVal === null) delete itemCounts[dateStr]
+                else itemCounts[dateStr] = numVal
                 return { ...prev, [itemId]: itemCounts }
             })
-            await updateDailyLeftover(storeId, itemId, dateStr, null)
-            return
+            return true
+        } catch (error) {
+            alert(`No se pudo guardar el sobrante: ${error instanceof Error ? error.message : 'error desconocido'}`)
+            return false
         }
-        const numVal = parseFloat(value) || 0
-        // Usar functional updater para evitar stale state al capturar rápido
-        setCounts(prev => ({
-            ...prev,
-            [itemId]: { ...(prev[itemId] || {}), [dateStr]: numVal }
-        }))
-        await updateDailyLeftover(storeId, itemId, dateStr, numVal)
     }
 
     /** Handler para edición inline de sobrantes en la tabla del pedido diario.
      *  Guarda en DB + recalcula la línea de orden en tiempo real. */
     async function handleInlineLeftoverChange(itemId: string, value: string) {
+        if (value !== '' && Number(value) < 0) return
         // 1. Update counts state + save to DB
-        await handleLeftoverChange(itemId, selectedOrderDate, value)
+        if (!await handleLeftoverChange(itemId, selectedOrderDate, value)) return
 
-        // 2. Recalculate that specific order line
-        const numVal = value === '' ? null : (parseFloat(value) || 0)
+        // 2. Recalcular únicamente el pedido oficial a partir del conteo físico.
+        const numVal = value === '' ? null : Math.max(0, parseFloat(value) || 0)
         setOrderLines(prev => prev.map(line => {
             if (line.inventory_item_id !== itemId) return line
-            const effectiveLeftover = numVal ?? 0
-            let calculatedQty = line.par_value - effectiveLeftover
+            const orderBase = numVal === null ? 0 : Math.max(0, line.par_value - numVal)
+            let calculatedQty = orderBase
             
             // Apply rounding rule if positive
             if (calculatedQty > 0) {
                 const rule = line.rounding_rule || 'none'
-                if (rule === 'ceiling_30') {
+                if (rule === 'ceiling_60') {
+                    calculatedQty = Math.ceil(calculatedQty / 60) * 60
+                } else if (rule === 'ceiling_30') {
                     calculatedQty = Math.ceil(calculatedQty / 30) * 30
                 } else if (rule === 'ceiling_4') {
                     calculatedQty = Math.ceil(calculatedQty / 4) * 4
                 } else {
                     calculatedQty = Math.round(calculatedQty)
                 }
+            } else {
+                calculatedQty = 0
             }
 
-            return { ...line, leftover_value: numVal, calculated_qty: calculatedQty }
+            return {
+                ...line,
+                leftover_value: numVal,
+                calculated_qty: calculatedQty,
+                variance: numVal === null || line.suggested_leftover === null || line.suggested_leftover === undefined
+                    ? null
+                    : Number((numVal - line.suggested_leftover).toFixed(2))
+            }
         }))
     }
 
@@ -996,9 +1063,172 @@ export default function InventoryOrdersPage() {
         return true
     }
 
-    async function handleGenerateOrder() {
+    /** Validación de topes máximos y cantidades imposibles (Capa 3 Anti-Catástrofe) */
+    function validateHardCaps(lines: CalculatedOrderLine[], adjustmentsMap: Record<string, number | string>): string | null {
+        for (const l of lines) {
+            const rawAdj = adjustmentsMap[l.inventory_item_id]
+            const adjNum = rawAdj !== undefined && rawAdj !== '' ? Number(rawAdj) : undefined
+            const finalQty = adjNum !== undefined && !isNaN(adjNum) ? adjNum : l.calculated_qty
+
+            if (finalQty < 0) {
+                return `❌ Cantidad inválida: "${l.item_name}" tiene una cantidad final negativa (${finalQty}). La cantidad mínima a pedir es 0.`
+            }
+
+            const maxAllowed = 999
+            if (finalQty > maxAllowed) {
+                return t('bodegaOrders.hardCapError')
+                    .replace('{item}', l.item_name)
+                    .replace('{qty}', String(finalQty))
+                    .replace('{max}', String(maxAllowed))
+            }
+        }
+        return null
+    }
+
+    /** Escaneo inteligente de anomalías y errores de dedo (Capa 2 Pre-Flight) */
+    function detectOrderAnomalies(
+        lines: CalculatedOrderLine[],
+        adjustmentsMap: Record<string, number | string>,
+        countsMap: Record<string, Record<string, number>>,
+        orderDate: string,
+        lang: string
+    ): OrderAnomaly[] {
+        const anomalies: OrderAnomaly[] = []
+
+        for (const l of lines) {
+            const rawAdj = adjustmentsMap[l.inventory_item_id]
+            const adjNum = rawAdj !== undefined && rawAdj !== '' ? Number(rawAdj) : undefined
+            const finalQty = adjNum !== undefined && !isNaN(adjNum) ? adjNum : l.calculated_qty
+            const currentLeftover = countsMap[l.inventory_item_id]?.[orderDate]
+            const par = l.par_value || 0
+
+            // 1. Sobrante anormalmente alto vs PAR (detecta typos como poner 55 en vez de 5)
+            if (
+                !l.is_extraordinary &&
+                currentLeftover !== undefined &&
+                currentLeftover !== null &&
+                par > 0
+            ) {
+                const isHighLeftover = (par >= 3 && currentLeftover >= par * 1.5 && (currentLeftover - par >= 4)) ||
+                    (par < 3 && currentLeftover >= 8)
+
+                if (isHighLeftover) {
+                    const percent = Math.round(((currentLeftover - par) / par) * 100)
+                    anomalies.push({
+                        itemId: l.inventory_item_id,
+                        itemName: l.item_name,
+                        parValue: par,
+                        leftoverValue: currentLeftover,
+                        calculatedQty: l.calculated_qty,
+                        adjustedQty: adjNum,
+                        finalQty,
+                        type: 'high_leftover',
+                        message: lang === 'es'
+                            ? `Sobrante capturado (${currentLeftover}) es ${percent}% mayor al PAR (${par}). Provocará pedir 0 unidades.`
+                            : `Captured leftover (${currentLeftover}) is ${percent}% higher than PAR (${par}). Will result in ordering 0 units.`
+                    })
+                    continue
+                }
+            }
+
+            // 2. Ajuste manual inusualmente alto o negativo
+            if (adjNum !== undefined && !isNaN(adjNum)) {
+                if (adjNum < 0) {
+                    anomalies.push({
+                        itemId: l.inventory_item_id,
+                        itemName: l.item_name,
+                        parValue: par,
+                        leftoverValue: currentLeftover ?? null,
+                        calculatedQty: l.calculated_qty,
+                        adjustedQty: adjNum,
+                        finalQty,
+                        type: 'negative_final',
+                        message: lang === 'es'
+                            ? `El ajuste ingresado (${adjNum}) es negativo.`
+                            : `Entered adjustment (${adjNum}) is negative.`
+                    })
+                    continue
+                }
+
+                const isHighAdjust = (par >= 4 && adjNum >= par * 2.5 && (adjNum - par >= 8)) ||
+                    (par < 4 && par > 0 && adjNum >= 25) ||
+                    (par === 0 && adjNum >= 50)
+
+                if (isHighAdjust) {
+                    anomalies.push({
+                        itemId: l.inventory_item_id,
+                        itemName: l.item_name,
+                        parValue: par,
+                        leftoverValue: currentLeftover ?? null,
+                        calculatedQty: l.calculated_qty,
+                        adjustedQty: adjNum,
+                        finalQty,
+                        type: 'high_adjust',
+                        message: lang === 'es'
+                            ? `Ajuste manual (${adjNum}) excede ampliamente el PAR habitual (${par}). Pedido final: ${finalQty}.`
+                            : `Manual adjustment (${adjNum}) substantially exceeds PAR (${par}). Final order: ${finalQty}.`
+                    })
+                    continue
+                }
+            }
+
+            // 3. Cantidad final elevada no justificada
+            if (par > 0 && finalQty > Math.max(par * 2.5, 30)) {
+                anomalies.push({
+                    itemId: l.inventory_item_id,
+                    itemName: l.item_name,
+                    parValue: par,
+                    leftoverValue: currentLeftover ?? null,
+                    calculatedQty: l.calculated_qty,
+                    adjustedQty: adjNum,
+                    finalQty,
+                    type: 'high_final',
+                    message: lang === 'es'
+                        ? `Cantidad final (${finalQty}) es más de 2.5x el consumo diario normal (PAR ${par}).`
+                        : `Final quantity (${finalQty}) is over 2.5x normal daily consumption (PAR ${par}).`
+                })
+                continue
+            }
+
+            // 4. Insumo de alto volumen que queda en 0
+            if (!l.is_extraordinary && par >= 15 && finalQty === 0 && currentLeftover !== undefined) {
+                anomalies.push({
+                    itemId: l.inventory_item_id,
+                    itemName: l.item_name,
+                    parValue: par,
+                    leftoverValue: currentLeftover,
+                    calculatedQty: l.calculated_qty,
+                    adjustedQty: adjNum,
+                    finalQty,
+                    type: 'zero_critical',
+                    message: lang === 'es'
+                        ? `Insumo de alto volumen (PAR ${par}) quedará en 0 a pedir por el sobrante reportado (${currentLeftover}).`
+                        : `High-volume item (PAR ${par}) will have 0 ordered due to reported leftover (${currentLeftover}).`
+                })
+            }
+        }
+
+        return anomalies
+    }
+
+    async function handleGenerateOrder(skipAnomalyCheck = false) {
         if (!storeId) return
         if (!validateCompleteCounts(orderLines)) return
+
+        const hardCapErr = validateHardCaps(orderLines, adjustments)
+        if (hardCapErr) {
+            alert(hardCapErr)
+            return
+        }
+
+        if (!skipAnomalyCheck) {
+            const anomalies = detectOrderAnomalies(orderLines, adjustments, counts, selectedOrderDate, language)
+            if (anomalies.length > 0) {
+                setAnomalyModal({ open: true, anomalies, pendingAction: 'generate' })
+                return
+            }
+        }
+
         setSaving(true)
         const lines = orderLines.filter(l => {
             if (!l.is_extraordinary && (l.leftover_value === null || l.leftover_value === undefined)) return false
@@ -1053,6 +1283,23 @@ export default function InventoryOrdersPage() {
             }
             const refreshed = await fetchInventoryPilotSession(storeId, selectedOrderDate, orderType)
             setPilotSession(refreshed)
+            if (refreshed?.lines?.length) {
+                const pilotMap = new Map(refreshed.lines.map((pl: any) => [pl.inventory_item_id, pl]))
+                setOrderLines(prev => prev.map(line => {
+                    const pl = pilotMap.get(line.inventory_item_id)
+                    if (!pl) return line
+                    return {
+                        ...line,
+                        suggested_leftover: pl.automatic_leftover ?? line.suggested_leftover,
+                        variance: pl.variance ?? line.variance,
+                        suggested_order_qty: pl.automatic_order_qty ?? line.suggested_order_qty,
+                        tolerance_value: pl.tolerance_value,
+                        within_tolerance: pl.within_tolerance,
+                    }
+                }))
+            }
+            setShowSuggestedCol(true)
+            setShowPilotComparisonModal(true)
         } catch (error: any) {
             alert(`No se pudo cerrar el conteo: ${error.message}`)
         } finally {
@@ -1060,8 +1307,23 @@ export default function InventoryOrdersPage() {
         }
     }
 
-    async function handleSendToQb() {
+    async function handleSendToQb(skipAnomalyCheck = false) {
         if (!validateCompleteCounts(orderLines)) return
+
+        const hardCapErr = validateHardCaps(orderLines, adjustments)
+        if (hardCapErr) {
+            alert(hardCapErr)
+            return
+        }
+
+        if (!skipAnomalyCheck) {
+            const anomalies = detectOrderAnomalies(orderLines, adjustments, counts, selectedOrderDate, language)
+            if (anomalies.length > 0) {
+                setAnomalyModal({ open: true, anomalies, pendingAction: 'qb' })
+                return
+            }
+        }
+
         if (!confirm(t('bodegaOrders.confirmSend'))) return
 
         // SIEMPRE re-guardar las líneas antes de enviar a QB,
@@ -2071,16 +2333,25 @@ export default function InventoryOrdersPage() {
                                                     </p>
                                                 )}
                                             </div>
-                                            {isPilotBlind && (
+                                            {isPilotBlind ? (
                                                 <button
                                                     type="button"
                                                     onClick={handleClosePilotCount}
                                                     disabled={!pilotCanClose || closingPilotCount}
-                                                    className="px-4 py-2.5 rounded-xl bg-violet-700 hover:bg-violet-800 text-white text-xs font-black disabled:opacity-40 disabled:cursor-not-allowed"
+                                                    className="px-4 py-2.5 rounded-xl bg-violet-700 hover:bg-violet-800 text-white text-xs font-black disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
                                                 >
                                                     {closingPilotCount ? 'Cerrando...' : `Cerrar conteo y comparar (${capturedToday}/${items.length})`}
                                                 </button>
-                                            )}
+                                            ) : pilotSession.lines && pilotSession.lines.length > 0 ? (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setShowPilotComparisonModal(true)}
+                                                    className="px-4 py-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-black shadow-sm flex items-center gap-2 cursor-pointer transition-all hover:shadow"
+                                                >
+                                                    <span>📊</span>
+                                                    <span>{t('bodegaOrders.viewPilotComparison')} ({pilotSession.lines.length})</span>
+                                                </button>
+                                            ) : null}
                                         </div>
                                     )}
 
@@ -2200,11 +2471,11 @@ export default function InventoryOrdersPage() {
                                                 <Check size={14} /> {closingPilotCount ? 'Cerrando...' : 'Cerrar conteo y comparar'}
                                             </button>
                                         )}
-                                        <button onClick={handleGenerateOrder} disabled={saving || isPilotBlind}
+                                        <button onClick={() => handleGenerateOrder()} disabled={saving || isPilotBlind}
                                             className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl font-bold text-xs shadow-sm transition-colors disabled:opacity-50">
                                             <Save size={14} /> {saving ? t('bodegaOrders.saving') : t('bodegaOrders.generateOrder')}
                                         </button>
-                                        <button onClick={handleSendToQb} disabled={sendingToQb || !isCurrentWeek || isPilotBlind}
+                                        <button onClick={() => handleSendToQb()} disabled={sendingToQb || !isCurrentWeek || isPilotBlind}
                                             className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2.5 rounded-xl font-bold text-xs shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed">
                                             <Send size={14} /> {sendingToQb ? t('bodegaOrders.sendingToQb') : t('bodegaOrders.sendToQb')}
                                         </button>
@@ -2272,6 +2543,16 @@ export default function InventoryOrdersPage() {
                                                     const isNegative = line.calculated_qty < 0
                                                     const isZeroLeftover = line.leftover_value === null
                                                     const currentLeftover = counts[line.inventory_item_id]?.[selectedOrderDate]
+                                                    const par = line.par_value || 0
+                                                    const isHighLeftover = !line.is_extraordinary && currentLeftover !== undefined && currentLeftover !== null && par > 0 &&
+                                                        ((par >= 3 && currentLeftover >= par * 1.5 && (currentLeftover - par >= 4)) || (par < 3 && currentLeftover >= 8))
+                                                    const isNegativeAdjust = adjNum !== undefined && !isNaN(adjNum) && adjNum < 0
+                                                    const isHighAdjust = adjNum !== undefined && !isNaN(adjNum) && adjNum >= 0 && (
+                                                        (par >= 4 && adjNum >= par * 2.5 && (adjNum - par >= 8)) ||
+                                                        (par < 4 && par > 0 && adjNum >= 25) ||
+                                                        (par === 0 && adjNum >= 50)
+                                                    )
+                                                    const isHighFinal = par > 0 && finalQty > Math.max(par * 2.5, 30)
 
                                                     return (
                                                         <tr key={line.inventory_item_id}
@@ -2313,27 +2594,37 @@ export default function InventoryOrdersPage() {
                                                                     {isPilotBlind ? (
                                                                         <span className="text-violet-500" title="Se revela al cerrar el conteo">🔒</span>
                                                                     ) : line.suggested_leftover !== null && line.suggested_leftover !== undefined ? (
-                                                                        <span title={`Consumo proyectado: ${line.theoretical_consumption ?? '-'} | Órdenes: ${line.yesterday_order_qty ?? '-'}`}>
+                                                                        <span title={`Previsualización no certificada: ${line.theoretical_source_status || 'sin estado'} | Consumo por tickets: ${line.theoretical_consumption ?? '-'} | Órdenes: ${line.yesterday_order_qty ?? '-'} | ${line.theoretical_source_reason || ''}`}>
                                                                             {line.suggested_leftover}
                                                                         </span>
                                                                     ) : (
-                                                                        <span className="text-slate-300">-</span>
+                                                                        <span className="text-slate-300" title={line.theoretical_source_reason || 'Sobrante teórico no certificado'}>-</span>
                                                                     )}
                                                                 </td>
                                                             )}
                                                             {/* Sobrante (daily count) */}
-                                                            <td className="p-0 border-b border-orange-100 bg-orange-50/20">
+                                                            <td className={`p-0 border-b ${isHighLeftover ? 'bg-amber-100/30 border-amber-300' : 'border-orange-100 bg-orange-50/20'}`}>
                                                                 {orderType === 'uniforms' ? (
                                                                     <div className="w-full p-2.5 text-center font-bold text-emerald-800 text-xs bg-emerald-50/60 border-l-[3px] border-l-emerald-500">
                                                                         🎽 {currentLeftover !== undefined ? currentLeftover : '-'}
                                                                     </div>
                                                                 ) : (
                                                                     <div className="relative flex items-center">
+                                                                        {isHighLeftover && (
+                                                                            <span className="absolute left-1 bg-amber-500 text-white text-[9px] font-black px-1.5 py-0.5 rounded shadow-2xs z-1" title={t('bodegaOrders.anomalyReasonHighLeftover').replace('{leftover}', String(currentLeftover)).replace('{par}', String(line.par_value)).replace('{percent}', String(Math.round(((currentLeftover - line.par_value)/line.par_value)*100)))}>
+                                                                                {t('bodegaOrders.anomalyWarningLeftoverChip')}
+                                                                            </span>
+                                                                        )}
                                                                         <input
                                                                             id={`input_${rowIndex}_0`}
                                                                             type="number"
+                                                                            min="0"
                                                                             placeholder={t('bodegaOrders.enterLeftover')}
-                                                                            className="w-full p-2.5 text-center outline-none bg-transparent focus:bg-white focus:ring-2 focus:ring-orange-400 font-bold text-orange-800 text-sm placeholder:text-orange-300 placeholder:text-xs placeholder:font-normal border-l-[3px] border-l-orange-400"
+                                                                            className={`w-full p-2.5 text-center outline-none font-bold text-sm placeholder:text-xs placeholder:font-normal border-l-[4px] transition-all ${
+                                                                                isHighLeftover
+                                                                                    ? 'bg-amber-100/70 focus:bg-white focus:ring-2 focus:ring-amber-500 text-amber-950 border-l-amber-500'
+                                                                                    : 'bg-transparent focus:bg-white focus:ring-2 focus:ring-orange-400 text-orange-800 placeholder:text-orange-300 border-l-orange-400'
+                                                                            }`}
                                                                             value={currentLeftover !== undefined ? currentLeftover : ''}
                                                                             onChange={e => handleInlineLeftoverChange(line.inventory_item_id, e.target.value)}
                                                                             onKeyDown={e => handleGridKeyDown(e, rowIndex, 0)}
@@ -2341,12 +2632,12 @@ export default function InventoryOrdersPage() {
                                                                         />
                                                                         {!isPilotBlind && line.variance !== null && line.variance !== undefined && currentLeftover !== undefined && (
                                                                             <span className={`absolute right-1 text-[9px] px-1 py-0.5 rounded font-black ${
-                                                                                line.variance === 0
+                                                                                (line as any).within_tolerance === true || line.variance === 0
                                                                                     ? 'bg-emerald-100 text-emerald-800'
-                                                                                    : line.variance < 0
+                                                                                    : Math.abs(line.variance) <= 2
                                                                                     ? 'bg-amber-100 text-amber-800'
                                                                                     : 'bg-red-100 text-red-800'
-                                                                            }`} title={`Varianza: ${line.variance > 0 ? '+' : ''}${line.variance}`}>
+                                                                            }`} title={`Varianza: ${line.variance > 0 ? '+' : ''}${line.variance}${(line as any).tolerance_value !== undefined ? ` (Tol: ±${(line as any).tolerance_value})` : ''}`}>
                                                                                 {line.variance > 0 ? `+${line.variance}` : line.variance}
                                                                             </span>
                                                                         )}
@@ -2356,40 +2647,64 @@ export default function InventoryOrdersPage() {
                                                             {/* Pedir (calculated) */}
                                                             <td className={`p-2 text-center font-bold border-b ${
                                                                 isNegative ? 'text-red-600 bg-red-50/40 border-red-100'
-                                                                : isZeroLeftover ? 'text-slate-300 bg-slate-50 border-slate-100'
+                                                                : isZeroLeftover ? 'text-slate-400 bg-slate-50 border-slate-100'
                                                                 : 'text-blue-700 bg-blue-50/30 border-blue-100'
                                                             }`}>
                                                                 {isPilotBlind ? '🔒' : isZeroLeftover ? '-' : line.calculated_qty}
                                                             </td>
                                                             {/* Ajuste (optional override) */}
-                                                            <td className="p-0 border-b border-indigo-100 bg-indigo-50/20">
-                                                                <input
-                                                                    id={`input_${rowIndex}_1`}
-                                                                    type="text"
-                                                                    inputMode="decimal"
-                                                                    placeholder="-"
-                                                                    disabled={isPilotBlind}
-                                                                    className="w-full p-2.5 text-center outline-none bg-transparent focus:bg-white focus:ring-2 focus:ring-indigo-400 font-bold text-indigo-700 text-sm placeholder:text-indigo-200"
-                                                                    value={rawAdj !== undefined ? rawAdj : ''}
-                                                                    onChange={e => {
-                                                                        const v = e.target.value
-                                                                        if (v === '') {
-                                                                            setAdjustments(prev => {
-                                                                                const newAdj = { ...prev }
-                                                                                delete newAdj[line.inventory_item_id]
-                                                                                return newAdj
-                                                                            })
-                                                                        } else if (/^-?\d*\.?\d*$/.test(v)) {
-                                                                            setAdjustments(prev => ({ ...prev, [line.inventory_item_id]: v }))
-                                                                        }
-                                                                    }}
-                                                                    onKeyDown={e => handleGridKeyDown(e, rowIndex, 1)}
-                                                                    onFocus={e => e.target.select()}
-                                                                />
+                                                            <td className={`p-0 border-b ${isNegativeAdjust ? 'bg-red-100/30 border-red-300' : isHighAdjust ? 'bg-purple-100/30 border-purple-300' : 'border-indigo-100 bg-indigo-50/20'}`}>
+                                                                <div className="relative flex items-center">
+                                                                    {(isNegativeAdjust || isHighAdjust) && (
+                                                                        <span className={`absolute left-1 ${isNegativeAdjust ? 'bg-red-600' : 'bg-purple-600'} text-white text-[9px] font-black px-1.5 py-0.5 rounded shadow-2xs z-1`} title={isNegativeAdjust ? t('bodegaOrders.anomalyReasonNegative').replace('{final}', String(adjNum)) : t('bodegaOrders.anomalyReasonHighAdjust').replace('{adjust}', String(adjNum)).replace('{par}', String(line.par_value))}>
+                                                                            {isNegativeAdjust ? '⚠️ Inválido' : t('bodegaOrders.anomalyWarningAdjustChip')}
+                                                                        </span>
+                                                                    )}
+                                                                    <input
+                                                                        id={`input_${rowIndex}_1`}
+                                                                        type="text"
+                                                                        inputMode="decimal"
+                                                                        placeholder="-"
+                                                                        disabled={isPilotBlind}
+                                                                        className={`w-full p-2.5 text-center outline-none font-bold text-sm placeholder:text-indigo-200 border-l-[4px] transition-all ${
+                                                                            isNegativeAdjust
+                                                                                ? 'bg-red-100/70 focus:bg-white focus:ring-2 focus:ring-red-500 text-red-900 border-l-red-500'
+                                                                                : isHighAdjust
+                                                                                ? 'bg-purple-100/70 focus:bg-white focus:ring-2 focus:ring-purple-500 text-purple-900 border-l-purple-500'
+                                                                                : 'bg-transparent focus:bg-white focus:ring-2 focus:ring-indigo-400 text-indigo-700 border-l-transparent'
+                                                                        }`}
+                                                                        value={rawAdj !== undefined ? rawAdj : ''}
+                                                                        onChange={e => {
+                                                                            const v = e.target.value
+                                                                            if (v === '') {
+                                                                                setAdjustments(prev => {
+                                                                                    const newAdj = { ...prev }
+                                                                                    delete newAdj[line.inventory_item_id]
+                                                                                    return newAdj
+                                                                                })
+                                                                            } else if (/^-?\d*\.?\d*$/.test(v)) {
+                                                                                setAdjustments(prev => ({ ...prev, [line.inventory_item_id]: v }))
+                                                                            }
+                                                                        }}
+                                                                        onKeyDown={e => handleGridKeyDown(e, rowIndex, 1)}
+                                                                        onFocus={e => e.target.select()}
+                                                                    />
+                                                                </div>
                                                             </td>
                                                             {/* Final */}
-                                                            <td className={`p-2 text-center font-black text-base border-b border-indigo-100 bg-indigo-50/20 ${isZeroLeftover ? 'text-slate-300' : 'text-indigo-800'}`}>
-                                                                {isPilotBlind ? '🔒' : isZeroLeftover ? '-' : finalQty}
+                                                            <td className={`p-2 text-center font-black text-base border-b border-indigo-100 ${
+                                                                isHighFinal ? 'bg-purple-100/40 text-purple-950 font-black' : isZeroLeftover ? 'text-slate-300 bg-indigo-50/20' : 'text-indigo-800 bg-indigo-50/20'
+                                                            }`}>
+                                                                {isPilotBlind ? '🔒' : isZeroLeftover ? '-' : (
+                                                                    <div className="flex flex-col items-center justify-center">
+                                                                        <span>{finalQty}</span>
+                                                                        {isHighFinal && (
+                                                                            <span className="text-[9px] font-bold text-purple-700 bg-purple-100 px-1 py-0.2 rounded mt-0.5">
+                                                                                ⚠️ {t('bodegaOrders.anomalyHighFinalBadge')}
+                                                                            </span>
+                                                                        )}
+                                                                    </div>
+                                                                )}
                                                             </td>
                                                         </tr>
                                                     )
@@ -2411,6 +2726,9 @@ export default function InventoryOrdersPage() {
                                                     const rawAdj = adjustments[line.inventory_item_id]
                                                     const adjNum = rawAdj !== undefined && rawAdj !== '' ? Number(rawAdj) : undefined
                                                     const finalQty = adjNum !== undefined && !isNaN(adjNum) ? adjNum : line.calculated_qty
+                                                    const isNegativeAdjust = adjNum !== undefined && !isNaN(adjNum) && adjNum < 0
+                                                    const isHighAdjust = adjNum !== undefined && !isNaN(adjNum) && adjNum >= 50
+                                                    const isHighFinal = finalQty > 50
 
                                                     return (
                                                         <tr key={line.inventory_item_id} className="transition-colors border-b border-indigo-100/50 hover:bg-indigo-50/10">
@@ -2461,33 +2779,55 @@ export default function InventoryOrdersPage() {
                                                             {/* Pedir — dash */}
                                                             <td className="p-2 text-center text-slate-300 border-b border-indigo-100 bg-indigo-50/5">—</td>
                                                             {/* Ajuste (optional override) */}
-                                                            <td className="p-0 border-b border-indigo-250 bg-indigo-50/20">
-                                                                <input
-                                                                    id={`input_${rowIndex}_1`}
-                                                                    type="text"
-                                                                    inputMode="decimal"
-                                                                    placeholder="-"
-                                                                    className="w-full p-2.5 text-center outline-none bg-transparent focus:bg-white focus:ring-2 focus:ring-indigo-400 font-bold text-indigo-700 text-sm placeholder:text-indigo-200 border-l-[3px] border-l-indigo-300"
-                                                                    value={rawAdj !== undefined ? rawAdj : ''}
-                                                                    onChange={e => {
-                                                                        const v = e.target.value
-                                                                        if (v === '') {
-                                                                            setAdjustments(prev => {
-                                                                                const newAdj = { ...prev }
-                                                                                delete newAdj[line.inventory_item_id]
-                                                                                return newAdj
-                                                                            })
-                                                                        } else if (/^-?\d*\.?\d*$/.test(v)) {
-                                                                            setAdjustments(prev => ({ ...prev, [line.inventory_item_id]: v }))
-                                                                        }
-                                                                    }}
-                                                                    onKeyDown={e => handleGridKeyDown(e, rowIndex, 1)}
-                                                                    onFocus={e => e.target.select()}
-                                                                />
+                                                            <td className={`p-0 border-b ${isNegativeAdjust ? 'bg-red-100/30 border-red-300' : isHighAdjust ? 'bg-purple-100/30 border-purple-300' : 'border-indigo-250 bg-indigo-50/20'}`}>
+                                                                <div className="relative flex items-center">
+                                                                    {(isNegativeAdjust || isHighAdjust) && (
+                                                                        <span className={`absolute left-1 ${isNegativeAdjust ? 'bg-red-600' : 'bg-purple-600'} text-white text-[9px] font-black px-1.5 py-0.5 rounded shadow-2xs z-1`}>
+                                                                            {isNegativeAdjust ? '⚠️ Inválido' : t('bodegaOrders.anomalyWarningAdjustChip')}
+                                                                        </span>
+                                                                    )}
+                                                                    <input
+                                                                        id={`input_${rowIndex}_1`}
+                                                                        type="text"
+                                                                        inputMode="decimal"
+                                                                        placeholder="-"
+                                                                        className={`w-full p-2.5 text-center outline-none font-bold text-sm placeholder:text-indigo-200 border-l-[4px] transition-all ${
+                                                                            isNegativeAdjust
+                                                                                ? 'bg-red-100/70 focus:bg-white focus:ring-2 focus:ring-red-500 text-red-900 border-l-red-500'
+                                                                                : isHighAdjust
+                                                                                ? 'bg-purple-100/70 focus:bg-white focus:ring-2 focus:ring-purple-500 text-purple-900 border-l-purple-500'
+                                                                                : 'bg-transparent focus:bg-white focus:ring-2 focus:ring-indigo-400 text-indigo-700 border-l-transparent'
+                                                                        }`}
+                                                                        value={rawAdj !== undefined ? rawAdj : ''}
+                                                                        onChange={e => {
+                                                                            const v = e.target.value
+                                                                            if (v === '') {
+                                                                                setAdjustments(prev => {
+                                                                                    const newAdj = { ...prev }
+                                                                                    delete newAdj[line.inventory_item_id]
+                                                                                    return newAdj
+                                                                                })
+                                                                            } else if (/^-?\d*\.?\d*$/.test(v)) {
+                                                                                setAdjustments(prev => ({ ...prev, [line.inventory_item_id]: v }))
+                                                                            }
+                                                                        }}
+                                                                        onKeyDown={e => handleGridKeyDown(e, rowIndex, 1)}
+                                                                        onFocus={e => e.target.select()}
+                                                                    />
+                                                                </div>
                                                             </td>
                                                             {/* Final */}
-                                                            <td className="p-2 text-center font-black text-base border-b border-indigo-100 bg-indigo-50/20 text-indigo-800">
-                                                                {finalQty}
+                                                            <td className={`p-2 text-center font-black text-base border-b border-indigo-100 ${
+                                                                isHighFinal ? 'bg-purple-100/40 text-purple-950 font-black' : 'text-indigo-800 bg-indigo-50/20'
+                                                            }`}>
+                                                                <div className="flex flex-col items-center justify-center">
+                                                                    <span>{finalQty}</span>
+                                                                    {isHighFinal && (
+                                                                        <span className="text-[9px] font-bold text-purple-700 bg-purple-100 px-1 py-0.2 rounded mt-0.5">
+                                                                            ⚠️ {t('bodegaOrders.anomalyHighFinalBadge')}
+                                                                        </span>
+                                                                    )}
+                                                                </div>
                                                             </td>
                                                         </tr>
                                                     )
@@ -2673,11 +3013,11 @@ export default function InventoryOrdersPage() {
                                                 <Check size={16} /> {closingPilotCount ? 'Cerrando...' : 'Cerrar conteo y comparar'}
                                             </button>
                                         )}
-                                        <button onClick={handleGenerateOrder} disabled={saving || isPilotBlind}
+                                        <button onClick={() => handleGenerateOrder()} disabled={saving || isPilotBlind}
                                             className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-xl font-bold shadow-sm transition-colors disabled:opacity-50">
                                             <Save size={16} /> {saving ? t('bodegaOrders.saving') : t('bodegaOrders.generateOrder')}
                                         </button>
-                                        <button onClick={handleSendToQb} disabled={sendingToQb || !isCurrentWeek || isPilotBlind}
+                                        <button onClick={() => handleSendToQb()} disabled={sendingToQb || !isCurrentWeek || isPilotBlind}
                                             className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-3 rounded-xl font-bold shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed">
                                             <Send size={16} /> {sendingToQb ? t('bodegaOrders.sendingToQb') : t('bodegaOrders.sendToQb')}
                                         </button>
@@ -3363,6 +3703,180 @@ export default function InventoryOrdersPage() {
                     </>
                 )}
             </div>
+
+            {/* ============ ANOMALY REVIEW MODAL (CAPA 2 PRE-FLIGHT SAFEGUARD) ============ */}
+            {anomalyModal.open && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm overflow-y-auto">
+                    <div className="relative bg-white rounded-2xl max-w-3xl w-full max-h-[85vh] overflow-hidden shadow-2xl border border-slate-100 flex flex-col">
+                        {/* Header */}
+                        <div className="sticky top-0 bg-gradient-to-r from-amber-50 to-orange-50 px-6 py-4 border-b border-amber-200 flex items-center justify-between z-10">
+                            <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 rounded-xl bg-amber-500 text-white flex items-center justify-center shadow-sm text-xl font-bold">
+                                    ⚠️
+                                </div>
+                                <div>
+                                    <h3 className="text-base font-black text-slate-800 tracking-wide">
+                                        {t('bodegaOrders.anomalyModalTitle')}
+                                    </h3>
+                                    <p className="text-xs text-slate-600 mt-0.5">
+                                        {t('bodegaOrders.anomalyModalSubtitle')}
+                                    </p>
+                                </div>
+                            </div>
+                            <button
+                                onClick={() => setAnomalyModal({ open: false, anomalies: [], pendingAction: null })}
+                                className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-white/80 rounded-full transition-all"
+                            >
+                                <X size={20} />
+                            </button>
+                        </div>
+
+                        {/* Content: List of Anomalies */}
+                        <div className="p-6 space-y-3.5 overflow-y-auto max-h-[60vh]">
+                            {anomalyModal.anomalies.map((ano, idx) => {
+                                const badgeConfig = {
+                                    high_leftover: {
+                                        badge: t('bodegaOrders.anomalyHighLeftoverBadge'),
+                                        style: 'bg-amber-100 text-amber-900 border-amber-300',
+                                        border: 'border-l-amber-500'
+                                    },
+                                    high_adjust: {
+                                        badge: t('bodegaOrders.anomalyHighAdjustBadge'),
+                                        style: 'bg-purple-100 text-purple-900 border-purple-300',
+                                        border: 'border-l-purple-500'
+                                    },
+                                    high_final: {
+                                        badge: t('bodegaOrders.anomalyHighFinalBadge'),
+                                        style: 'bg-indigo-100 text-indigo-900 border-indigo-300',
+                                        border: 'border-l-indigo-500'
+                                    },
+                                    zero_critical: {
+                                        badge: t('bodegaOrders.anomalyZeroCriticalBadge'),
+                                        style: 'bg-rose-100 text-rose-900 border-rose-300',
+                                        border: 'border-l-rose-500'
+                                    },
+                                    negative_final: {
+                                        badge: t('bodegaOrders.anomalyNegativeBadge'),
+                                        style: 'bg-red-100 text-red-900 border-red-300',
+                                        border: 'border-l-red-500'
+                                    }
+                                }[ano.type] || {
+                                    badge: 'Alerta',
+                                    style: 'bg-slate-100 text-slate-800 border-slate-300',
+                                    border: 'border-l-slate-400'
+                                }
+
+                                return (
+                                    <div
+                                        key={`${ano.itemId}-${idx}`}
+                                        className={`p-4 rounded-xl border border-slate-200 bg-slate-50/50 border-l-[5px] ${badgeConfig.border} flex flex-col md:flex-row md:items-center justify-between gap-3 hover:bg-slate-50 transition-colors`}
+                                    >
+                                        <div className="flex-1">
+                                            <div className="flex items-center gap-2 mb-1 flex-wrap">
+                                                <span className="font-bold text-slate-900 text-sm">
+                                                    {ano.itemName}
+                                                </span>
+                                                <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full border ${badgeConfig.style}`}>
+                                                    {badgeConfig.badge}
+                                                </span>
+                                            </div>
+                                            <p className="text-xs text-slate-600 font-medium">
+                                                {ano.message}
+                                            </p>
+                                        </div>
+
+                                        {/* Metrics pill */}
+                                        <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-lg border border-slate-200 shadow-2xs text-xs font-mono self-start md:self-auto">
+                                            <div className="text-center px-1">
+                                                <span className="text-[10px] text-slate-400 block font-sans">PAR</span>
+                                                <span className="font-bold text-slate-700">{ano.parValue}</span>
+                                            </div>
+                                            <div className="h-5 w-[1px] bg-slate-200" />
+                                            <div className="text-center px-1">
+                                                <span className="text-[10px] text-slate-400 block font-sans">Sobrante</span>
+                                                <span className="font-bold text-orange-600">{ano.leftoverValue ?? '-'}</span>
+                                            </div>
+                                            <div className="h-5 w-[1px] bg-slate-200" />
+                                            <div className="text-center px-1">
+                                                <span className="text-[10px] text-slate-400 block font-sans">Ajuste</span>
+                                                <span className="font-bold text-indigo-600">{ano.adjustedQty !== undefined ? ano.adjustedQty : '-'}</span>
+                                            </div>
+                                            <div className="h-5 w-[1px] bg-slate-200" />
+                                            <div className="text-center px-1">
+                                                <span className="text-[10px] text-slate-400 block font-sans">Final</span>
+                                                <span className="font-black text-slate-900">{ano.finalQty}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )
+                            })}
+                        </div>
+
+                        {/* Footer with actions */}
+                        <div className="sticky bottom-0 bg-slate-50 px-6 py-4 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-end gap-3 z-10">
+                            <button
+                                type="button"
+                                onClick={() => setAnomalyModal({ open: false, anomalies: [], pendingAction: null })}
+                                className="w-full sm:w-auto px-5 py-2.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-100 text-slate-700 font-bold text-xs shadow-2xs transition-all flex items-center justify-center gap-2"
+                            >
+                                {t('bodegaOrders.anomalyCorrectBtn')}
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    const action = anomalyModal.pendingAction
+                                    setAnomalyModal({ open: false, anomalies: [], pendingAction: null })
+                                    if (action === 'generate') {
+                                        handleGenerateOrder(true)
+                                    } else if (action === 'qb') {
+                                        handleSendToQb(true)
+                                    }
+                                }}
+                                className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-700 hover:to-orange-700 text-white font-bold text-xs shadow-md transition-all flex items-center justify-center gap-2"
+                            >
+                                {t('bodegaOrders.anomalyConfirmBtn')}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ============ PILOT THEORETICAL VS PHYSICAL COMPARISON MODAL ============ */}
+            <PilotComparisonModal
+                isOpen={showPilotComparisonModal}
+                onClose={() => setShowPilotComparisonModal(false)}
+                storeName={pilotSession.storeName || 'Lynwood'}
+                businessDate={selectedOrderDate}
+                completedBy={pilotSession.completedBy}
+                completedAt={pilotSession.completedAt}
+                lines={pilotSession.lines && pilotSession.lines.length > 0
+                    ? pilotSession.lines.map((pl: any) => ({
+                        inventory_item_id: pl.inventory_item_id,
+                        item_name: pl.item_name,
+                        physical_leftover: pl.physical_leftover,
+                        automatic_leftover: pl.automatic_leftover,
+                        variance: pl.variance,
+                        tolerance_value: pl.tolerance_value,
+                        within_tolerance: pl.within_tolerance,
+                        par_value: pl.par_value,
+                        automatic_order_qty: pl.automatic_order_qty,
+                        official_order_qty: pl.official_order_qty,
+                    }))
+                    : orderLines.filter(l => !l.is_extraordinary).map(l => ({
+                        inventory_item_id: l.inventory_item_id,
+                        item_name: l.item_name,
+                        physical_leftover: l.leftover_value,
+                        automatic_leftover: l.suggested_leftover ?? null,
+                        variance: l.variance,
+                        tolerance_value: (l as any).tolerance_value ?? 1,
+                        within_tolerance: (l as any).within_tolerance ?? (l.variance === 0),
+                        par_value: l.par_value,
+                        automatic_order_qty: l.suggested_order_qty ?? 0,
+                        official_order_qty: l.calculated_qty,
+                        unit_description: l.unit_description
+                    }))
+                }
+            />
 
             {/* ============ INFORMATION MODAL (i) ============ */}
             {showInfoModal && (

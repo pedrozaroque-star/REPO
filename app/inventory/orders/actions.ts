@@ -25,6 +25,13 @@
  * - [2026-09-25] Piloto Lynwood: conteo ciego y snapshot shadow antes de revelar la comparación automática.
  * - [2026-09-26] El piloto se amplió a Slauson; cada manager cierra únicamente su sucursal y Roque conserva acceso global.
  * - [2026-09-26] Capturas históricas extremas no entran como entregas estimadas al sobrante automático.
+ * - [2026-09-28] Pedido oficial = PAR mañana menos conteo físico, redondeado por empaque.
+ *   Sin conteo no hay pedido oficial; sin consumo Toast no se inventa sobrante teórico.
+ *   Una existencia teórica negativa se conserva para investigar la falta de movimientos.
+ * - [2026-09-28] Piloto shadow: tickets reales Toast verificados en dos lecturas
+ *   sustituyen el PMIX sintético para Lynwood; Slauson permanece sin teórico
+ *   hasta versionar sus empaques. Una fuente incompleta nunca altera el pedido físico.
+ * - [2026-10-01] Escrituras fail-closed: sesión y perfil de tienda obligatorios también en desarrollo.
  */
 
 'use server'
@@ -36,6 +43,7 @@ import type { OrderableItem, WeeklyBaseRecord, ParIdealRecord, CalculatedOrderLi
 import { parseUniformCategoryAndSize, getDefaultMinStock } from '../uniforms/utils'
 import { getMissingDailyCounts } from '@/lib/inventory/order-count-validation'
 import { getServerUser } from '@/lib/auth-server'
+import { getPilotTicketUsage, type PilotTicketUsage } from '@/lib/inventory/pilot-ticket-usage'
 import {
     buildPilotComparisonLine,
     canCloseInventoryAutomationPilot,
@@ -66,6 +74,37 @@ export type InventoryPilotSession = {
 // ============================================================================
 // HELPERS (private, not exported — no issue with 'use server')
 // ============================================================================
+
+/** Verifica la identidad del usuario y sus permisos sobre la tienda antes de mutar datos */
+async function assertUserStoreAccess(storeId: string | number) {
+    const user = await getServerUser()
+    if (!user) {
+        throw new Error('Sesión no válida o expirada. Por favor inicia sesión.')
+    }
+
+    const { data: userProfile, error: profileError } = await supabase
+        .from('users')
+        .select('role, store_id, store_scope')
+        .eq('email', user.email)
+        .maybeSingle()
+    if (profileError || !userProfile) {
+        throw new Error('No se pudo verificar tu perfil y sucursal. No se guardaron cambios.')
+    }
+
+    const profileRole = String(userProfile.role || '').trim().toLowerCase()
+    if (profileRole === 'admin' || profileRole === 'supervisor') return user
+    if (profileRole !== 'manager') {
+        throw new Error('No tienes permiso para modificar pedidos.')
+    }
+
+    const profileScope = Array.isArray(userProfile.store_scope) ? userProfile.store_scope : []
+    const assignedStores = [userProfile.store_id, ...profileScope]
+        .filter(value => value !== null && value !== undefined).map(String)
+    if (!assignedStores.includes(String(storeId))) {
+        throw new Error('No tienes permiso para modificar datos de esta sucursal.')
+    }
+    return user
+}
 
 /** Aplica la regla de redondeo de un item */
 function applyRounding(value: number, rule: string): number {
@@ -273,6 +312,7 @@ export async function fetchMappedItems() {
  * Datos completos para una semana: bases, sobrantes, PAR ideal, e historial de órdenes
  */
 export async function fetchWeeklyData(storeId: string | number, mondayStr: string, orderType: OrderType = 'daily') {
+    await assertUserStoreAccess(storeId)
     // 0. Obtener las reglas de redondeo de todos los items
     const { data: items } = await supabase
         .from('inventory_items')
@@ -516,6 +556,15 @@ export async function saveWeeklyBases(
     weekStartDate: string,
     basesList: { inventory_item_id: string; mon_par?: number; tue_par?: number; wed_par?: number; thu_par?: number; fri_par?: number; sat_par?: number; sun_par?: number }[]
 ) {
+    await assertUserStoreAccess(storeId)
+    for (const base of basesList) {
+        for (const key of ['mon_par', 'tue_par', 'wed_par', 'thu_par', 'fri_par', 'sat_par', 'sun_par'] as const) {
+            const value = base[key]
+            if (value !== undefined && (typeof value !== 'number' || !Number.isFinite(value) || value < 0)) {
+                throw new Error('Cada PAR debe ser un número finito no negativo.')
+            }
+        }
+    }
     const weeklyPayload = basesList.map(b => {
         const row: any = {
             store_id: storeId,
@@ -553,6 +602,7 @@ export async function saveSingleItemWeeklyBase(
     weekStartDate: string,
     b: { inventory_item_id: string; mon_par?: number; tue_par?: number; wed_par?: number; thu_par?: number; fri_par?: number; sat_par?: number; sun_par?: number }
 ) {
+    await assertUserStoreAccess(storeId)
     const payload: any = {
         store_id: storeId,
         inventory_item_id: b.inventory_item_id,
@@ -665,21 +715,34 @@ export async function calculateDailyOrder(
     const targetField = overrideDayField && overrideDayField !== 'auto' ? overrideDayField : nextDayBaseField
     const actualTargetField = (orderType === 'liquids' || orderType === 'uniforms') ? 'mon_par' : targetField
 
-    // 1. Cargar consumo teórico del día desde inventory_usage_log
-    const { data: usageLogData } = await supabase
-        .from('inventory_usage_log')
-        .select('inventory_item_id, theoretical_usage')
-        .eq('store_id', storeId.toString())
-        .eq('business_date', dateStr)
-
     const usageMap = new Map<string, number>()
-    usageLogData?.forEach((u: any) => usageMap.set(u.inventory_item_id, Number(u.theoretical_usage) || 0))
+    let pilotUsage: PilotTicketUsage | null = null
+    let theoreticalSource = 'legacy_pmix_unverified'
+    if (orderType === 'daily') {
+        const { data: store, error: storeError } = await supabase.from('stores').select('name').eq('id', storeId).maybeSingle()
+        if (storeError) throw new Error(`No se pudo identificar la sucursal: ${storeError.message}`)
+        if (isInventoryAutomationPilotStore(store?.name)) {
+            pilotUsage = await getPilotTicketUsage(Number(storeId), dateStr)
+            theoreticalSource = pilotUsage.sourceReason
+            for (const [itemId, quantity] of pilotUsage.usageByItemId) usageMap.set(itemId, quantity)
+        }
+    }
+    if (!pilotUsage) {
+        // Otras sucursales aún usan el log histórico, sin declararlo certificado.
+        const { data: usageLogData, error: usageError } = await supabase
+            .from('inventory_usage_log')
+            .select('inventory_item_id, theoretical_usage')
+            .eq('store_id', storeId.toString())
+            .eq('business_date', dateStr)
+        if (usageError) throw new Error(`No se pudo leer consumo teórico: ${usageError.message}`)
+        usageLogData?.forEach((u: any) => usageMap.set(u.inventory_item_id, Number(u.theoretical_usage) || 0))
+    }
 
     // 2. Obtener la fecha de ayer para leer Sobrante de Ayer + Pedido Llegó Hoy
-    const yesterdayStr = addDays(dateStr, -1)
+    const yesterdayStr = addDays(dateStr, new Date(`${dateStr}T12:00:00Z`).getUTCDay() === 0 && orderType === 'daily' ? -2 : -1)
 
     // Leer orden entregada ayer/hoy para saber lo que llegó de Bodega
-    const { data: recentOrderLines } = await supabase
+    const { data: recentOrderLines, error: recentOrderError } = await supabase
         .from('inventory_order_lines')
         .select('inventory_item_id, final_qty, adjusted_qty, calculated_qty, par_value, order_id, inventory_orders!inner(order_date, store_id, order_type, status)')
         .eq('inventory_orders.store_id', storeId)
@@ -695,7 +758,7 @@ export async function calculateDailyOrder(
             unreliableArrivalItems.add(l.inventory_item_id)
             return
         }
-        arrivedMap.set(l.inventory_item_id, qty)
+        arrivedMap.set(l.inventory_item_id, (arrivedMap.get(l.inventory_item_id) || 0) + qty)
     })
 
     const lines: CalculatedOrderLine[] = []
@@ -733,24 +796,20 @@ export async function calculateDailyOrder(
         const yesterdayLeftover = itemCounts[yesterdayStr] ?? null
         const arrivedToday = arrivedMap.get(item.id) || 0
         const theoreticalUsage = usageMap.get(item.id) ?? null
+        const itemTheoreticalBlocked = Boolean(
+            pilotUsage && (pilotUsage.sourceStatus === 'unavailable' || pilotUsage.allItemsBlocked ||
+                pilotUsage.blockedItemIds.has(item.id) || theoreticalUsage === null)
+        )
 
         let suggestedLeftover: number | null = null
-        let isBurnRate = false
 
-        if (unreliableArrivalItems.has(item.id)) {
-            // No tratar una captura anómala como inventario recibido ni producir estimación comparable.
-            suggestedLeftover = null
-        } else if (theoreticalUsage !== null && yesterdayLeftover !== null) {
+        if (theoreticalUsage !== null && yesterdayLeftover !== null) {
             // Ecuación Fundamental: Sobrante Teórico = Sobrante Ayer + Llegó Hoy - Consumo Teórico
             const calc = yesterdayLeftover + arrivedToday - theoreticalUsage
-            suggestedLeftover = Math.max(0, applyRounding(calc, item.order_rounding_rule))
-        } else if (theoreticalUsage === null && yesterdayLeftover !== null) {
-            // Fallback Burn Rate para items de limpieza/suministros
-            // Si el item no tiene receta, estimar un consumo diario moderado basado en el PAR
-            isBurnRate = true
-            const estimatedDailyUsage = parValue > 0 ? Math.max(1, parValue * 0.2) : 0
-            const calc = yesterdayLeftover + arrivedToday - estimatedDailyUsage
-            suggestedLeftover = Math.max(0, applyRounding(calc, item.order_rounding_rule))
+            suggestedLeftover = Number(calc.toFixed(2))
+        } else if (recentOrderError || itemTheoreticalBlocked || unreliableArrivalItems.has(item.id)) {
+            // No tratar una captura anómala como inventario recibido ni producir estimación comparable.
+            suggestedLeftover = null
         }
 
         // Calcular varianza: Sobrante Teórico Sugerido - Sobrante Real Capturado
@@ -759,14 +818,12 @@ export async function calculateDailyOrder(
             variance = Number((leftoverValue - suggestedLeftover).toFixed(2))
         }
 
-        // Sin conteo no existe un pedido calculable; el servidor bloqueará guardar/enviar.
-        let calculatedQty = leftoverValue === null ? 0 : parValue - leftoverValue
-        // Clamp a 0: si sobrante > PAR, no pedir cantidades negativas
-        calculatedQty = Math.max(0, calculatedQty)
-        // Aplicar regla de redondeo
-        if (calculatedQty > 0) {
-            calculatedQty = applyRounding(calculatedQty, item.order_rounding_rule)
-        }
+        // El pedido oficial depende solo del conteo físico. Sin captura, no hay pedido oficial.
+        // El teórico permanece separado y nunca sustituye un sobrante faltante.
+        const officialBase = leftoverValue === null ? null : Math.max(0, parValue - leftoverValue)
+        const calculatedQty = officialBase === null ? 0 : applyRounding(officialBase, item.order_rounding_rule)
+        const suggestedBase = suggestedLeftover === null ? null : Math.max(0, parValue - suggestedLeftover)
+        const suggestedOrderQty = suggestedBase === null ? undefined : applyRounding(suggestedBase, item.order_rounding_rule)
 
         lines.push({
             inventory_item_id: item.id,
@@ -776,13 +833,18 @@ export async function calculateDailyOrder(
             par_ideal_value: itemParIdeal,
             leftover_value: leftoverValue,
             suggested_leftover: suggestedLeftover,
-            is_burn_rate: isBurnRate,
+            is_burn_rate: false,
             variance: variance,
             calculated_qty: calculatedQty,
+            suggested_order_qty: suggestedOrderQty,
             rounding_rule: item.order_rounding_rule,
             qb_item_id: item.qb_item_id,
             purchase_unit_cost: item.purchase_unit_cost,
-            unit_measure: item.unit_measure
+            unit_measure: item.unit_measure,
+            theoretical_consumption: theoreticalUsage,
+            yesterday_order_qty: arrivedToday,
+            theoretical_source_status: itemTheoreticalBlocked || recentOrderError ? 'not_certified' : pilotUsage ? 'verified_source_partial_recipe' : 'legacy_pmix_unverified',
+            theoretical_source_reason: recentOrderError?.message || theoreticalSource,
         })
     }
 
@@ -859,7 +921,7 @@ export async function finalizeInventoryPilotCount(
     const { data: store, error: storeError } = await supabase
         .from('stores').select('id, name').eq('id', storeId).single()
     if (storeError || !store || !isInventoryAutomationPilotStore(store.name)) {
-        return { error: 'El piloto automático está habilitado únicamente para Lynwood y Slauson.' }
+        return { error: 'El piloto supervisado está habilitado únicamente para Lynwood y Slauson.' }
     }
 
     const profileRole = String(userProfile?.role || user.role || '').trim().toLowerCase()
@@ -962,6 +1024,13 @@ export async function updateWeeklyBase(
     field: string,
     value: number
 ) {
+    await assertUserStoreAccess(storeId)
+    if (!['mon_par', 'tue_par', 'wed_par', 'thu_par', 'fri_par', 'sat_par', 'sun_par'].includes(field)) {
+        throw new Error('Campo PAR no permitido.')
+    }
+    if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+        throw new Error('El PAR debe ser un número finito no negativo.')
+    }
     const payload: any = {
         store_id: storeId,
         inventory_item_id: itemId,
@@ -973,7 +1042,7 @@ export async function updateWeeklyBase(
         .from('inventory_weekly_bases')
         .upsert(payload, { onConflict: 'store_id, inventory_item_id, week_start_date' })
 
-    if (error) console.error('Error update base:', error)
+    if (error) throw new Error(`No se pudo guardar el PAR: ${error.message}`)
 }
 
 /** Actualiza o elimina un sobrante diario */
@@ -983,12 +1052,16 @@ export async function updateDailyLeftover(
     dateStr: string,
     value: number | null
 ) {
+    await assertUserStoreAccess(storeId)
+    if (value !== null && (typeof value !== 'number' || !Number.isFinite(value) || value < 0)) {
+        throw new Error('El sobrante debe ser un número finito no negativo.')
+    }
     if (value === null) {
         const { error } = await supabase
             .from('inventory_counts')
             .delete()
             .match({ store_id: storeId.toString(), inventory_item_id: itemId, count_date: dateStr })
-        if (error) console.error('Error deleting count:', error)
+        if (error) throw new Error(`No se pudo eliminar el sobrante: ${error.message}`)
         return
     }
 
@@ -1001,11 +1074,12 @@ export async function updateDailyLeftover(
             quantity_on_hand: value
         }, { onConflict: 'store_id, inventory_item_id, count_date' })
 
-    if (error) console.error('Error update count:', error)
+    if (error) throw new Error(`No se pudo guardar el sobrante: ${error.message}`)
 }
 
 /** Clona las bases de la semana anterior a la semana objetivo */
 export async function clonePreviousWeekBases(storeId: string | number, targetMonday: string) {
+    await assertUserStoreAccess(storeId)
     const lastWeekMonday = addDays(targetMonday, -7)
 
     // 1. Obtener bases de la semana anterior
@@ -1084,6 +1158,7 @@ export async function clonePreviousWeekBases(storeId: string | number, targetMon
 
 /** Copia los valores del PAR Ideal a la semana objetivo */
 export async function copyFromParIdeal(storeId: string | number, targetMonday: string) {
+    await assertUserStoreAccess(storeId)
     const { data: parIdeal } = await supabase
         .from('inventory_par_ideal')
         .select('*')
@@ -1112,6 +1187,13 @@ export async function copyFromParIdeal(storeId: string | number, targetMonday: s
 
 /** Vincula un item de inventario con un nombre del Excel */
 export async function linkExcelItem(itemId: string, excelName: string) {
+    const user = await getServerUser()
+    if (!user) throw new Error('Sesión no válida o expirada.')
+    const { data: profile, error: profileError } = await supabase
+        .from('users').select('role').eq('email', user.email).maybeSingle()
+    if (profileError || String(profile?.role || '').trim().toLowerCase() !== 'admin') {
+        throw new Error('Solo un administrador puede cambiar los mapeos de inventario.')
+    }
     // Limpiar si otro item ya tenía este nombre
     await supabase.from('inventory_items').update({ excel_reference: null }).eq('excel_reference', excelName)
     // Asignar al item elegido
@@ -1131,6 +1213,7 @@ export async function saveOrderDraft(
     notes?: string,
     orderType: OrderType = 'daily'
 ) {
+    await assertUserStoreAccess(storeId)
     if (orderType === 'daily') {
         try {
             const missing = await getMissingDailyCounts(supabase, storeId, orderDate)
@@ -1207,6 +1290,7 @@ export async function saveOrderDraft(
  * 3. Recalcula PAR Ideal con promedio histórico
  */
 export async function executeWeekRollover(storeId: string | number, currentMonday: string) {
+    await assertUserStoreAccess(storeId)
     const sundayDate = addDays(currentMonday, 6)
     const nextMonday = addDays(currentMonday, 7)
 
@@ -1256,6 +1340,7 @@ export async function executeWeekRollover(storeId: string | number, currentMonda
  * ajustadas matemáticamente según el sobrante diario de cada día.
  */
 export async function recalculateParIdeal(storeId: string | number, weeksBack: number = 4) {
+    await assertUserStoreAccess(storeId)
     const today = new Date()
     const currentMonday = getMonday(today)
     const startDate = addDays(currentMonday, -(weeksBack * 7))

@@ -12,6 +12,8 @@
  * @notes No escribe a DB y no recibe columnas generadas; se puede simular sin mocks.
  *   [2026-09-26] Slauson se incorpora al mismo piloto shadow de Lynwood.
  *   [2026-09-26] Un pedido histórico implausible se excluye como recepción inferida; no se compara ese sobrante automático.
+ *   [2026-09-28] La comparación aplica la misma fórmula PAR menos sobrante a ambos lados;
+ *   ningún colchón adicional altera el pedido oficial o el pedido teórico shadow.
  */
 
 export type PilotComparisonInput = {
@@ -118,15 +120,14 @@ export function buildPilotComparisonLine(input: PilotComparisonInput): PilotComp
   const variance = Number((input.physical_leftover - input.automatic_leftover).toFixed(4))
   const tolerance = getPilotTolerance(input.item_name, input.physical_leftover)
 
+  const baseAuto = Math.max(0, input.par_value - input.automatic_leftover)
+
   return {
     ...input,
     variance,
     tolerance_value: tolerance,
     within_tolerance: Math.abs(variance) <= tolerance,
-    automatic_order_qty: applyPilotRounding(
-      Math.max(0, input.par_value - input.automatic_leftover),
-      input.rounding_rule,
-    ),
+    automatic_order_qty: applyPilotRounding(baseAuto, input.rounding_rule),
     official_order_qty: officialOrderQty,
   }
 }

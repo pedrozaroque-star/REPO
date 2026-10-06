@@ -14,7 +14,7 @@
  */
 
 import { NextResponse } from 'next/server'
-import { getOrderReadySpeech, isValidTtsRequest } from '@/lib/order-ready-tts'
+import { getOrderReadySpeech, isValidTtsRequest, VoiceId } from '@/lib/order-ready-tts'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 30
@@ -23,13 +23,14 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url)
   const n = searchParams.get('n')
   const lang = searchParams.get('lang')
+  const voice = (searchParams.get('voice') || 'Kore') as VoiceId
 
-  if (!isValidTtsRequest(n, lang)) {
-    return NextResponse.json({ error: 'Parámetros inválidos: n (1-4 dígitos) y lang (en|es)' }, { status: 400 })
+  if (!isValidTtsRequest(n, lang, voice)) {
+    return NextResponse.json({ error: 'Parámetros inválidos: n (1-4 dígitos), lang (en|es) y voice opcional (Kore, Aoede, Zephyr, Puck, Orus)' }, { status: 400 })
   }
 
   try {
-    const wav = await getOrderReadySpeech(n, lang as 'en' | 'es')
+    const wav = await getOrderReadySpeech(n, lang as 'en' | 'es', voice)
     return new Response(new Uint8Array(wav), {
       status: 200,
       headers: {

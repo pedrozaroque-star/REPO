@@ -7,7 +7,7 @@
  * @dataFlow Toast dining option/source → canonical channel → recipe automation rule → consumption engine.
  * @notes Drive Thru se mantiene separado de To Go porque puede requerir utensilios sellados distintos.
  *   La resolución de tickets exige evidencia. Nombre explícito prevalece sobre behavior: Lynwood configura Drive Thru como DINE_IN.
- *   TakeOut de plataformas y Toast Online usan empaque Delivery sin modificar el canal de venta.
+ *   TakeOut y Toast Online usan empaque Delivery sin modificar el canal de venta.
  */
 
 export const RECIPE_CHANNELS = ['for_here', 'to_go', 'drive_thru', 'delivery'] as const
@@ -20,7 +20,7 @@ export function resolvePackagingChannel(input: {
   const salesChannel = resolveTicketChannel(input)
   const name = (input.diningOption || '').toLowerCase().replace(/[_-]/g, ' ')
   const context = `${name} ${input.source || ''} ${input.deliveryService || ''}`.toLowerCase()
-  if (/\btoast\s*online\b/.test(name)) return 'delivery'
+  if (/\btoast\s*online\b|\btake\s*out\b/.test(name)) return 'delivery'
   if (salesChannel === 'to_go' && /\b(uber\s*eats|doordash|grubhub|postmates|toast\s*pickup\s*app)\b/.test(context)) return 'delivery'
   return salesChannel
 }

@@ -139,7 +139,34 @@ export const CHECKLIST_TRANSLATIONS: Record<string, { en: string }> = {
     "1693": { en: "RAW MEATS" },
     "1694": { en: "ASADA, CHICKEN, PASTOR" },
     "1695": { en: "MONTERREY CHEESE, TOMATO" },
-    "1696": { en: "COTIJA CHEESE, MIXED" }
+    "1696": { en: "COTIJA CHEESE, MIXED" },
+
+    // STAFF EVALUATION (1609-1633)
+    "1609": { en: "Communicates clearly?" },
+    "1610": { en: "Listens to others?" },
+    "1611": { en: "Supports during busy times?" },
+    "1612": { en: "Fosters a positive environment?" },
+    "1613": { en: "Resolves conflicts? (Lead)" },
+    "1614": { en: "Motivates the team?" },
+    "1615": { en: "Provides constructive feedback?" },
+    "1616": { en: "Assigns tasks fairly?" },
+    "1617": { en: "Supports during difficulties?" },
+    "1618": { en: "Is a role model to follow?" },
+    "1619": { en: "Delivers without constant supervision?" },
+    "1620": { en: "Maintains cleanliness?" },
+    "1621": { en: "Follows standard procedures?" },
+    "1622": { en: "Fast and accurate?" },
+    "1623": { en: "Shows initiative? (Lead)" },
+    "1624": { en: "Positive attitude?" },
+    "1625": { en: "Respectful without favoritism?" },
+    "1626": { en: "Represents the brand well?" },
+    "1627": { en: "Accepts constructive criticism well?" },
+    "1628": { en: "Contributes to a great work atmosphere?" },
+    "1629": { en: "Interest in learning?" },
+    "1630": { en: "Seeks professional growth?" },
+    "1631": { en: "Helps train others?" },
+    "1632": { en: "Applies what they have learned?" },
+    "1633": { en: "Open to operational changes?" }
 }
 
 export const SECTION_TRANSLATIONS: Record<string, { en: string }> = {
@@ -170,7 +197,14 @@ export const SECTION_TRANSLATIONS: Record<string, { en: string }> = {
     "157": { en: "REFRIGERATOR 1" },
     "158": { en: "REFRIGERATOR 2" },
     "159": { en: "REFRIGERATOR 3" },
-    "160": { en: "REFRIGERATOR 4" }
+    "160": { en: "REFRIGERATOR 4" },
+
+    // STAFF EVALUATION SECTIONS
+    "145": { en: "Teamwork" },
+    "146": { en: "Leadership" },
+    "147": { en: "Performance" },
+    "148": { en: "Attitude" },
+    "149": { en: "Development & Growth" }
 }
 
 export const TEMPLATE_TRANSLATIONS: Record<string, { en: string }> = {
@@ -181,7 +215,8 @@ export const TEMPLATE_TRANSLATIONS: Record<string, { en: string }> = {
     "sobrante_v1": { en: "Leftover Product" },
     "temperaturas_v1": { en: "Temperature Control" },
     "manager_checklist_v1": { en: "Manager Checklist" },
-    "supervisor_inspection_v1": { en: "Supervisor Inspection" }
+    "supervisor_inspection_v1": { en: "Supervisor Inspection" },
+    "staff_evaluation_v1": { en: "Staff Evaluation" }
 }
 
 export function getTranslatedQuestion(id: string, originalText: string, lang: 'es' | 'en'): string {

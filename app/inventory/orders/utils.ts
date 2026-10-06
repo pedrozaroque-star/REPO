@@ -3,10 +3,16 @@
  * @description Funciones utilitarias y tipos compartidos para el módulo de Pedidos a Bodega.
  *              Separadas de actions.ts porque las server actions requieren que TODAS
  *              las funciones exportadas sean async.
+ * @businessRules El día comercial y el lunes semanal se calculan en America/Los_Angeles
+ *                con corte 6:00 AM; el pedido oficial usa PAR menos conteo físico.
+ * @dataFlow Fechas, catálogo y líneas calculadas de actions.ts -> tipos/funciones puros
+ *           para pantalla y servidor.
  *
  * @notes
  * - [2026-06-24] Extraído de actions.ts para resolver error de Next.js 16:
  *   "Server Actions must be async functions."
+ * - [2026-09-28] Las líneas incluyen estado de fuente teórica; nunca equivale
+ *   por sí solo a un pedido oficial o a un conteo físico.
  */
 
 // ============================================================================
@@ -120,7 +126,13 @@ export type CalculatedOrderLine = {
     unit_measure?: string
     adjusted_qty?: number
     theoretical_consumption?: number | null
+    theoretical_source_status?: 'not_certified' | 'verified_source_partial_recipe' | 'legacy_pmix_unverified'
+    theoretical_source_reason?: string
     yesterday_order_qty?: number | null
+    adaptive_buffer?: number
+    is_tight?: boolean
+    buffer_reason?: string
+    suggested_order_qty?: number
 }
 
 export type OrderRecord = {

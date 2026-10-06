@@ -20,6 +20,8 @@
  * - [2026-06-24] Implementación inicial. Requiere QB_LYNWOOD_CUSTOMER_ID en env vars.
  * - [2026-09-25] Bloquea envíos de Orden Diaria sin captura física completa.
  * - [2026-09-25] Valida JWT, rol y alcance de tienda; el correo ya no se confía al cliente.
+ * - [2026-10-01] Fail-closed: errores al leer/actualizar QB nunca crean otro Estimate;
+ *   un DocNumber encontrado debe pertenecer a la misma tienda y fecha.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -28,6 +30,7 @@ import { authClient } from '@/lib/quickbooks'
 import QuickBooks from 'node-quickbooks'
 import { getMissingDailyCounts } from '@/lib/inventory/order-count-validation'
 import { verifyAuthToken } from '@/lib/auth-server'
+import { isInventoryAutomationPilotStore } from '@/lib/inventory/automation-pilot'
 
 export async function POST(request: NextRequest) {
     try {
@@ -88,6 +91,28 @@ export async function POST(request: NextRequest) {
             } catch (error) {
                 return NextResponse.json({ error: `No se pudo verificar la captura completa: ${error instanceof Error ? error.message : 'error desconocido'}` }, { status: 503 })
             }
+
+            // Si la tienda está en el piloto activo, verificar que la sesión del piloto esté cerrada ('revealed')
+            const { data: storeInfo, error: storeInfoError } = await supabase.from('stores').select('name').eq('id', order.store_id).single()
+            if (storeInfoError || !storeInfo) {
+                return NextResponse.json({ error: 'No se pudo verificar la sucursal y el control del piloto. No se envió el pedido.' }, { status: 503 })
+            }
+            if (isInventoryAutomationPilotStore(storeInfo.name)) {
+                const { data: pilotSession, error: pilotSessionError } = await supabase
+                    .from('inventory_automation_pilot_sessions')
+                    .select('status')
+                    .eq('store_id', order.store_id)
+                    .eq('business_date', order.order_date)
+                    .eq('order_type', order.order_type || 'daily')
+                    .maybeSingle()
+
+                if (pilotSessionError || !pilotSession || pilotSession.status !== 'revealed') {
+                    return NextResponse.json({
+                        error: 'El piloto shadow de conteo ciego está activo para esta sucursal. Debes cerrar y comparar el conteo antes de enviar la orden a QuickBooks.',
+                        pilotBlocked: true
+                    }, { status: 403 })
+                }
+            }
         }
 
         // Se permite re-enviar la orden para actualizar el Estimate en QuickBooks si ya fue enviada antes.
@@ -144,7 +169,7 @@ export async function POST(request: NextRequest) {
                 usingSandboxTokens = true;
                 console.log('[QB-Order] Using local sandbox tokens');
             } else {
-                console.log('[QB-Order] No sandbox tokens, falling back to Supabase production tokens');
+                return NextResponse.json({ error: 'QuickBooks sandbox no está conectado; no se usarán credenciales de producción como respaldo.' }, { status: 503 })
             }
         }
         if (!integration) {
@@ -239,7 +264,8 @@ export async function POST(request: NextRequest) {
                 }
                 console.log(`[QB-Order] ✅ Obtenidas ${qbItemInfoMap.size} tarifas y descripciones del catálogo QB`)
             } catch (rateErr: any) {
-                console.warn('[QB-Order] ⚠️ No se pudieron obtener datos de QB:', rateErr.message)
+                console.error('[QB-Order] No se pudo consultar el catálogo QB:', rateErr.message)
+                return NextResponse.json({ error: 'No se pudo verificar precio y descripción de los artículos en QuickBooks. No se envió el pedido.' }, { status: 503 })
             }
         }
 
@@ -252,6 +278,9 @@ export async function POST(request: NextRequest) {
 
         for (const line of order.inventory_order_lines) {
             const finalQty = line.adjusted_qty ?? line.final_qty ?? line.calculated_qty
+            if (typeof finalQty !== 'number' || !Number.isFinite(finalQty) || finalQty < 0) {
+                return NextResponse.json({ error: `Cantidad final inválida para ${line.inventory_item_id}. No se envió el pedido.` }, { status: 409 })
+            }
             if (finalQty <= 0) continue // No enviar items negativos o cero
 
             // Excluir items que no van a bodega (Flan, Cheesecake)
@@ -270,6 +299,9 @@ export async function POST(request: NextRequest) {
 
             // Usar Rate y Description del catálogo QB (NO de nuestra DB)
             const qbInfo = qbItemInfoMap.get(qbItemId)
+            if (!qbInfo || !Number.isFinite(Number(qbInfo.rate))) {
+                return NextResponse.json({ error: `No se pudo verificar el artículo ${item?.name || line.inventory_item_id} en el catálogo QB. No se envió el pedido.` }, { status: 503 })
+            }
             const qbRate = qbInfo?.rate ?? 0
             const qbDescription = qbInfo?.description || ''
             const amount = Math.round(finalQty * qbRate * 100) / 100
@@ -292,6 +324,9 @@ export async function POST(request: NextRequest) {
                 error: 'No hay items válidos para enviar. Todos los items tienen cantidad 0 o no tienen mapeo QB.',
                 skippedItems
             }, { status: 400 })
+        }
+        if (skippedItems.length > 0) {
+            return NextResponse.json({ error: 'Hay artículos con cantidad positiva sin mapeo de QuickBooks. No se envió un pedido parcial.', skippedItems }, { status: 409 })
         }
 
         // Customer ID dinámico desde la tabla stores (mapeado de QB)
@@ -336,7 +371,8 @@ export async function POST(request: NextRequest) {
                     console.log(`[QB] Max DocNumber: ${maxNum}, asignando #${nextDocNumber}`);
                 }
             } catch (numErr) {
-                console.warn('[QB] No se pudo obtener DocNumber, QB lo asignará automáticamente');
+                console.error('[QB-Order] No se pudo verificar el siguiente DocNumber:', numErr)
+                return NextResponse.json({ error: 'No se pudo verificar la numeración de Estimates en QuickBooks. No se envió el pedido.' }, { status: 503 })
             }
         }
 
@@ -351,7 +387,7 @@ export async function POST(request: NextRequest) {
             TxnDate: order.order_date, // Fecha del pedido (ej. Hoy: 07/01/2026)
             ShipDate: deliveryDateStr, // Fecha de entrega (ej. Mañana: 07/02/2026)
             CustomerMemo: { value: memo },
-            PrivateNote: order.notes || undefined,
+            PrivateNote: `${order.notes || ''}\nTEG_ORDER_ID:${order.id}`.trim(),
             Line: estimateLines,
             // Class y Location fijados en "Warehouse" (Location ID 1, Class ID 2)
             DepartmentRef: { value: "1" },
@@ -378,9 +414,17 @@ export async function POST(request: NextRequest) {
                         else resolve(result)
                     })
                 })
+                const sameOrder = String(existingEstimate?.Id) === String(order.qb_estimate_id)
+                    && String(existingEstimate?.CustomerRef?.value) === String(customerId)
+                    && existingEstimate?.TxnDate === order.order_date
+                    && String(existingEstimate?.PrivateNote || '').includes(`TEG_ORDER_ID:${order.id}`)
+                if (!sameOrder || existingEstimate?.SyncToken === undefined) {
+                    return NextResponse.json({ error: 'El Estimate existente no coincide con esta orden o no tiene SyncToken. Requiere conciliación manual; no se creó otro.' }, { status: 409 })
+                }
                 tryUpdate = true;
             } catch (err: any) {
-                console.warn(`[QB-Order] ⚠️ No se pudo obtener el Estimate ${order.qb_estimate_id} de QB (posiblemente eliminado). Se creará uno nuevo.`, err.message || err)
+                console.error(`[QB-Order] No se pudo verificar el Estimate ${order.qb_estimate_id} en QB:`, err.message || err)
+                return NextResponse.json({ error: 'No se pudo verificar el Estimate existente en QuickBooks. No se creará otro automáticamente.' }, { status: 503 })
             }
         }
 
@@ -399,8 +443,44 @@ export async function POST(request: NextRequest) {
                     })
                 })
             } catch (err: any) {
-                console.error(`[QB-Order] ❌ Falló la actualización del Estimate ${order.qb_estimate_id}. Intentando crear uno nuevo...`, err.message || err)
-                tryUpdate = false; // Fallback a creación
+                console.error(`[QB-Order] Falló la actualización del Estimate ${order.qb_estimate_id}:`, err.message || err)
+                return NextResponse.json({ error: 'Falló la actualización del Estimate existente. No se creará un duplicado.' }, { status: 503 })
+            }
+        }
+
+        if (!tryUpdate && estimateData.DocNumber) {
+            // Idempotencia: Verificar si ya existe un Estimate con este DocNumber en QuickBooks
+            try {
+                const searchRes = await new Promise<any>((resolve, reject) => {
+                    qbo.findEstimates({ DocNumber: estimateData.DocNumber }, (err: any, result: any) => {
+                        if (err) reject(err)
+                        else resolve(result)
+                    })
+                })
+                const found = searchRes?.QueryResponse?.Estimate?.[0]
+                if (found) {
+                    const sameOrder = String(found.DocNumber) === String(estimateData.DocNumber)
+                        && String(found.CustomerRef?.value) === String(customerId)
+                        && found.TxnDate === order.order_date
+                        && String(found.PrivateNote || '').includes(`TEG_ORDER_ID:${order.id}`)
+                    if (!sameOrder) {
+                        return NextResponse.json({ error: `El número de Estimate ${estimateData.DocNumber} ya está ocupado por otra orden. No se modificó ese Estimate.` }, { status: 409 })
+                    }
+                    console.log(`[QB-Order] 🛡️ Idempotencia: Encontrado Estimate existente en QB con DocNumber ${estimateData.DocNumber} (Id: ${found.Id}). Actualizando para evitar duplicado.`)
+                    existingEstimate = found
+                    tryUpdate = true
+                    estimateData.Id = found.Id
+                    estimateData.SyncToken = found.SyncToken
+                    estimate = await new Promise<any>((resolve, reject) => {
+                        qbo.updateEstimate(estimateData, (err: any, result: any) => {
+                            if (err) reject(err)
+                            else resolve(result)
+                        })
+                    })
+                }
+            } catch (searchErr: any) {
+                console.error('[QB-Order] Falló la verificación de idempotencia:', searchErr.message)
+                return NextResponse.json({ error: 'No se pudo verificar si el Estimate ya existe. No se creó uno nuevo.' }, { status: 503 })
             }
         }
 
@@ -415,7 +495,7 @@ export async function POST(request: NextRequest) {
         }
 
         // 8. Actualizar la orden con el ID del Estimate
-        await supabase
+        const { error: saveError } = await supabase
             .from('inventory_orders')
             .update({
                 status: 'sent',
@@ -425,6 +505,14 @@ export async function POST(request: NextRequest) {
                 updated_at: new Date().toISOString()
             })
             .eq('id', orderId)
+        if (saveError) {
+            console.error('[QB-Order] Estimate creado/actualizado, pero no se pudo guardar su ID local:', saveError)
+            return NextResponse.json({
+                error: 'QuickBooks confirmó el Estimate, pero falló guardar la referencia local. No reintentes el envío: contacta al administrador para reconciliarlo.',
+                estimateId: estimate.Id,
+                estimateNumber: estimate.DocNumber,
+            }, { status: 502 })
+        }
 
         console.log(`[QB-Order] ✅ Estimate #${estimate.DocNumber} creado/actualizado para ${store?.name} (${order.order_date})`)
 
@@ -442,16 +530,13 @@ export async function POST(request: NextRequest) {
         // Detectar si el error es de sesión expirada / invalid token en QuickBooks
         const isAuthError = 
             error.statusCode === 401 || 
-            error.statusCode === 400 || 
             (error.message && (
                 error.message.includes('401') || 
-                error.message.includes('400') || 
                 error.message.includes('invalid_token') || 
                 error.message.includes('token_expired') ||
                 error.message.includes('invalid_grant')
             )) ||
             (error.authResponse && (
-                error.authResponse.status === 400 || 
                 error.authResponse.status === 401 ||
                 (error.authResponse.json && (
                     error.authResponse.json.error === 'invalid_grant' ||

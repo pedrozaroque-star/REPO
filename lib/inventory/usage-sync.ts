@@ -12,6 +12,8 @@
  *     (carnes, arroz, frijol, tortillas, salsas, acompañantes, aguas y desechables).
  *   - Modificadores "Half Meat" (media porción): ajustan -50% carne primaria, +50% carne sustituta.
  *   - Rendimiento por cocción (`yield_percent`): Convierte de plated (cocido) a raw (crudo).
+ *   - Salsa de 20 oz sin color explícito: 10 oz roja y 10 oz verde, según confirmación operativa;
+ *     galones de agua y Party Trays conservan su asignación histórica de sabor.
  *   - Persistencia: Upsert en la tabla `inventory_usage_log` por (`store_id`, `business_date`, `inventory_item_id`).
  *
  * @dataFlow
@@ -20,6 +22,11 @@
  *
  * @notes
  *   - [2026-09-09] BUGFIX: Corregido error en fallback de caché donde se consultaba la columna inexistente 'pmix_data' en lugar de 'items'.
+ *   - [2026-09-26] El 50/50 de salsa de 20 oz reemplaza solo el fallback de esa venta; no altera sabores explícitos ni el de aguas.
+ *     Corregida comparación case-insensitive del nombre exacto: antes omitía ambas salsas y solo contabilizaba empaques.
+ *   - [2026-09-27] Unificación con motor determinista de CODEX (calculateDailyOrderConsumption):
+ *     Asegura paridad exacta de recetas, rendimientos de carne (Asada 61.5%, Pastor 61.5%, etc.)
+ *     y ensamblajes (Taco Plate, Burritos, Mulitas, Teleras, Party Trays) para todos los insumos de bodega.
  */
 
 import { getSupabaseAdminClient } from '@/lib/supabase'
@@ -29,6 +36,7 @@ import { InventoryItem, Recipe } from '@/types/inventory'
 import { getPartyTrayTortillaAllocation, PARTY_TRAY_FOOD_TRAY_ITEMS, PARTY_TRAY_GUIDELINES, PARTY_TRAY_NAPKINS_PER_PACK, resolvePartyTraySize } from './party-tray-guidelines'
 import { calculateHistoricalAllocation, type HistoricalOrder } from './historical-allocation'
 import { ACTIVE_PROTEIN_IDS, parseProteinAllocation } from './meat-allocation'
+import { calculateDailyOrderConsumption, type RawToastTicket } from './daily-order-consumption-engine'
 
 export interface DailyUsageSummary {
   inventoryItemId: string
@@ -152,7 +160,7 @@ function getPartyTrayVirtualRecipe(
  * Recetas variables de productos vendidos por volumen: galones de agua y salsa de 20 oz.
  * El sabor explícito de Toast prevalece; si falta, se aplica la misma asignación histórica local.
  */
-function getVariableFlavorVirtualRecipe(
+export function getVariableFlavorVirtualRecipe(
   itemName: string,
   itemsMap: Map<string, InventoryItem>,
   historicalOrders: HistoricalOrder[],
@@ -162,13 +170,13 @@ function getVariableFlavorVirtualRecipe(
   const findBySku = (sku: string) => Array.from(itemsMap.values()).find(item =>
     (item as InventoryItem & { sku?: string }).sku === sku
   ) || null
-  const findExact = (name: string) => Array.from(itemsMap.values()).find(item => item.name.toLowerCase() === name) || null
+  const findExact = (name: string) => Array.from(itemsMap.values()).find(item => item.name.toLowerCase() === name.toLowerCase()) || null
   const findByName = (name: string) => Array.from(itemsMap.values()).find(item => item.name.toLowerCase().includes(name)) || null
-  const allocate = (candidates: { item: InventoryItem; terms: string[] }[], total: number) => {
+  const allocate = (candidates: { item: InventoryItem; terms: string[] }[], total: number, missingFlavor: 'historical' | 'equal' = 'historical') => {
     const selected = candidates.filter(candidate => candidate.terms.some(term => normalizedName.includes(term)))
     const portions = selected.length > 0
       ? selected.map(({ item }) => [item, 1 / selected.length] as const)
-      : candidates.map(({ item }) => [item, calculateHistoricalAllocation(historicalOrders, candidates.map(candidate => candidate.item.id), businessDate).shares.get(item.id) || 0] as const)
+      : candidates.map(({ item }) => [item, missingFlavor === 'equal' ? 1 / candidates.length : calculateHistoricalAllocation(historicalOrders, candidates.map(candidate => candidate.item.id), businessDate).shares.get(item.id) || 0] as const)
     return portions.filter(([, share]) => share > 0).map(([item, share]) => ({ itemId: item.id, qty: total * share, unit: 'gal' }))
   }
 
@@ -195,7 +203,7 @@ function getVariableFlavorVirtualRecipe(
       { terms: ['verde', 'green'], item: findExact('Salsa Verde') },
     ]
     const candidates = salsas.flatMap(({ item, terms }) => item ? [{ item, terms }] : [])
-    const ingredients = allocate(candidates, 20 / 128)
+    const ingredients = allocate(candidates, 20 / 128, 'equal')
     for (const sku of ['RC478', '709DO', 'ELTSBALA']) {
       const item = findBySku(sku)
       if (item) ingredients.push({ itemId: item.id, qty: 1, unit: 'pza' })
@@ -262,14 +270,14 @@ export async function syncDailyInventoryUsage(
   // 2. Obtener catálogo maestro de inventario
   const { data: inventoryItemsData, error: invError } = await supabase
     .from('inventory_items')
-    .select('id, sku, name, unit_type, purchase_unit_cost, quantity_per_unit, yield_percent')
+    .select('id, sku, name, unit_type, purchase_unit_cost, quantity_per_unit, yield_percent, unit_measure, order_rounding_rule, excel_reference')
 
   if (invError || !inventoryItemsData) {
     throw new Error(`Error al consultar inventory_items: ${invError?.message}`)
   }
 
   const inventoryItemsMap = new Map<string, InventoryItem>(
-    inventoryItemsData.map(i => [i.id, i as InventoryItem])
+    inventoryItemsData.map(i => [i.id, i as unknown as InventoryItem])
   )
 
   // 3. Obtener recetas en la base de datos
@@ -304,72 +312,60 @@ export async function syncDailyInventoryUsage(
     recipeMap.get(r.toast_menu_item_guid)!.push(r)
   }
 
-  // 4. Acumular consumo teórico por `inventory_item_id`
+  // 4. Acumular consumo teórico utilizando el Motor Determinista de CODEX (Bodega Staples)
   const usageAccumulator = new Map<string, number>()
+  const codexHandledItemIds = new Set<string>()
 
+  // A) Ejecutar el Motor Determinista de CODEX para todos los insumos de bodega
+  try {
+    const synthesizedTicket: RawToastTicket = {
+      orderGuid: `pmix-${businessDate}`,
+      businessDate: businessDate,
+      diningOptionName: 'Take Out',
+      selections: pmixItems.map(p => ({
+        guid: p.guid,
+        name: p.name,
+        price: p.unit_price || 0,
+        quantity: p.quantity,
+        modifiers: (p.modifier_guids || []).map(g => ({ guid: g }))
+      }))
+    }
+
+    const codexOutput = calculateDailyOrderConsumption(
+      Number(dbStoreId) || 14,
+      businessDate,
+      [synthesizedTicket],
+      (recipesData || []) as any,
+      (inventoryItemsData || []) as any
+    )
+
+    for (const [id, res] of codexOutput.itemConsumption.entries()) {
+      if (res.totalCalculatedUsage > 0) {
+        usageAccumulator.set(res.inventoryItemId, res.totalCalculatedUsage)
+        codexHandledItemIds.add(res.inventoryItemId)
+      }
+    }
+  } catch (err: any) {
+    console.error(`[UsageSync] Error ejecutando motor CODEX:`, err?.message || err)
+  }
+
+  // B) Fallback para insumos/ingredientes adicionales que tengan receta directa en DB pero no estén en el motor de bodega
   for (const pmixItem of pmixItems) {
     const qtySold = pmixItem.quantity || 0
     if (qtySold <= 0) continue
 
-    // A) Productos con sabor seleccionado por special request / historial.
-    const variableFlavorIngredients = getVariableFlavorVirtualRecipe(pmixItem.name, inventoryItemsMap, historicalOrders, businessDate)
-    if (variableFlavorIngredients.length > 0) {
-      for (const ing of variableFlavorIngredients) {
-        const item = inventoryItemsMap.get(ing.itemId)
-        if (!item) continue
-        const itemUsage = calculateInventoryUsage(ing.qty * qtySold, ing.unit, item.unit_type || 'pza', item.quantity_per_unit)
-        usageAccumulator.set(item.id, (usageAccumulator.get(item.id) || 0) + itemUsage)
-      }
-      continue
-    }
-
-    // B) Probar si es Party Tray (Receta Virtual)
-    const partyTrayIngredients = getPartyTrayVirtualRecipe(pmixItem.name, inventoryItemsMap, historicalOrders, businessDate)
-
-    if (partyTrayIngredients.length > 0) {
-      for (const ing of partyTrayIngredients) {
-        const item = inventoryItemsMap.get(ing.itemId)
-        if (!item) continue
-
-        const itemUsage = calculateInventoryUsage(
-          ing.qty * qtySold,
-          ing.unit,
-          item.unit_type || 'pza',
-          item.quantity_per_unit
-        )
-
-        const current = usageAccumulator.get(item.id) || 0
-        usageAccumulator.set(item.id, current + itemUsage)
-      }
-      continue
-    }
-
-    // C) Receta estándar de la base de datos
     const dbIngredients = recipeMap.get(pmixItem.guid)
     if (!dbIngredients || dbIngredients.length === 0) continue
 
-    const proteinAllocation = parseProteinAllocation(
-      pmixItem.name,
-      dbIngredients.map(ingredient => ({
-        inventory_item_id: ingredient.inventory_item_id,
-        quantity: Number(ingredient.quantity) || 0,
-        unit: ingredient.unit || 'oz',
-      })),
-    )
-    const activeProteinIds = new Set(Object.values(ACTIVE_PROTEIN_IDS))
-    const baseProteinIngredient = dbIngredients.find(ingredient => activeProteinIds.has(ingredient.inventory_item_id))
-
     for (const ing of dbIngredients) {
+      if (codexHandledItemIds.has(ing.inventory_item_id)) continue
+
       const item = inventoryItemsMap.get(ing.inventory_item_id)
       if (!item) continue
-
-      // La asignación dinámica reemplaza únicamente la carne base; el resto de la receta no cambia.
-      if (proteinAllocation?.replacedBaseMeat && activeProteinIds.has(ing.inventory_item_id)) continue
 
       let ingQty = Number(ing.quantity) || 0
       const recipeType = ing.type || 'food'
 
-      // Ajuste por rendimiento de cocción (yield %) si aplica
       const rawUsage = calculateRawUsage(
         ingQty,
         ing.unit || 'oz',
@@ -377,7 +373,6 @@ export async function syncDailyInventoryUsage(
         recipeType
       )
 
-      // Convertir a unidades de pedido/inventario del ítem
       const itemUsage = calculateInventoryUsage(
         rawUsage.quantity * qtySold,
         rawUsage.unit,
@@ -389,23 +384,38 @@ export async function syncDailyInventoryUsage(
       usageAccumulator.set(item.id, current + itemUsage)
     }
 
-    if (proteinAllocation?.replacedBaseMeat) {
-      for (const [proteinId, portionOz] of proteinAllocation.portionsOz) {
-        const item = inventoryItemsMap.get(proteinId)
-        if (!item) continue
-        const rawUsage = calculateRawUsage(
-          portionOz,
-          'oz',
-          item.yield_percent || 100,
-          baseProteinIngredient?.type || 'cooked',
-        )
-        const itemUsage = calculateInventoryUsage(
-          rawUsage.quantity * qtySold,
-          rawUsage.unit,
-          item.unit_type || 'pza',
-          item.quantity_per_unit,
-        )
-        usageAccumulator.set(item.id, (usageAccumulator.get(item.id) || 0) + itemUsage)
+    // Modificadores para items no cubiertos por CODEX
+    if (Array.isArray(pmixItem.modifier_guids) && pmixItem.modifier_guids.length > 0) {
+      for (const modGuid of pmixItem.modifier_guids) {
+        const modIngredients = recipeMap.get(modGuid)
+        if (!modIngredients || modIngredients.length === 0) continue
+
+        for (const modIng of modIngredients) {
+          if (codexHandledItemIds.has(modIng.inventory_item_id)) continue
+
+          const modItem = inventoryItemsMap.get(modIng.inventory_item_id)
+          if (!modItem) continue
+
+          const modIngQty = Number(modIng.quantity) || 0
+          const modRecipeType = modIng.type || 'food'
+
+          const rawUsage = calculateRawUsage(
+            modIngQty,
+            modIng.unit || 'oz',
+            modItem.yield_percent || 100,
+            modRecipeType
+          )
+
+          const itemUsage = calculateInventoryUsage(
+            rawUsage.quantity * qtySold,
+            rawUsage.unit,
+            modItem.unit_type || 'pza',
+            modItem.quantity_per_unit
+          )
+
+          const current = usageAccumulator.get(modItem.id) || 0
+          usageAccumulator.set(modItem.id, current + itemUsage)
+        }
       }
     }
   }
