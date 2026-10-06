@@ -224,8 +224,15 @@ async function syncRecentOrdersFromToast(storeCode: string) {
     const token = await getAuthToken()
     if (!token) return
 
-    // Consultar órdenes de hoy en Toast
-    const today = new Date().toISOString().slice(0, 10).replace(/-/g, '')
+    // Consultar órdenes de hoy en Toast con la regla de las 6:00 AM
+    const now = new Date()
+    const laTimeStr = now.toLocaleDateString('en-US', { timeZone: 'America/Los_Angeles' })
+    const laHour = parseInt(now.toLocaleTimeString('en-US', { timeZone: 'America/Los_Angeles', hour: '2-digit', hour12: false }), 10)
+    const laDate = new Date(laTimeStr)
+    if (laHour < 6) {
+      laDate.setDate(laDate.getDate() - 1)
+    }
+    const today = laDate.toISOString().slice(0, 10).replace(/-/g, '')
     const url = new URL(`${TOAST_API_HOST}/orders/v2/ordersBulk`)
     url.searchParams.append('businessDate', today)
     url.searchParams.append('pageSize', '50')
@@ -241,24 +248,46 @@ async function syncRecentOrdersFromToast(storeCode: string) {
     const ordersData = await res.json()
     if (!Array.isArray(ordersData)) return
 
-    // Mapeo básico de las últimas órdenes
-    for (const ord of ordersData.slice(-15)) {
+    // Mapeo de las últimas órdenes
+    for (const ord of ordersData.slice(-25)) {
       const orderNum = ord.displayNumber || ord.orderNumber || (ord.checks && ord.checks[0]?.displayNumber)
       if (!orderNum) continue
 
-      // Determinar si está cumplida/lista o en preparación
-      const isFulfilled = ord.fulfillmentStatus === 'READY' || ord.paidStatus === 'PAID'
+      // Determinar si está cumplida/lista inspeccionando selections
+      let isFulfilled = ord.fulfillmentStatus === 'READY'
+      if (!isFulfilled && ord.checks) {
+        for (const c of ord.checks) {
+          for (const s of c.selections || []) {
+            if (!s.voided && (s.fulfillmentStatus === 'READY' || s.fulfillmentStatus === 'FULFILLED')) {
+              isFulfilled = true
+              break
+            }
+          }
+          if (isFulfilled) break
+        }
+      }
       const status = isFulfilled ? 'READY' : 'IN_PROGRESS'
 
       // Upsert orden
       const { data: existing } = await supabaseAdmin
         .from('order_ready_announcements')
-        .select('id')
+        .select('id, status')
         .eq('store_code', storeCode)
         .eq('order_number', String(orderNum))
         .maybeSingle()
 
-      if (!existing) {
+      if (existing) {
+        if (status === 'READY' && existing.status !== 'READY') {
+          await supabaseAdmin
+            .from('order_ready_announcements')
+            .update({
+              status: 'READY',
+              ready_at: new Date().toISOString(),
+              announced: false
+            })
+            .eq('id', existing.id)
+        }
+      } else {
         let detectedDining = 'TOGO'
         const rawDiningName = (ord.diningOption?.name || '').toUpperCase()
         if (rawDiningName.includes('HERE') || rawDiningName.includes('DINE')) {

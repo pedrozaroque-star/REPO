@@ -59,11 +59,34 @@ export async function POST(request: Request) {
       return NextResponse.json({ message: 'Payload recibido sin orderNumber ni orderGuid, ignorado' }, { status: 200 })
     }
 
+    // Inspeccionar fulfillmentStatus a nivel de items (selections) en los checks de Toast
+    let anyItemReady = false
+    let activeItemCount = 0
+
+    const checks = orderObj.checks || []
+    for (const check of checks) {
+      const selections = check.selections || []
+      for (const sel of selections) {
+        if (!sel.voided) {
+          activeItemCount++
+          const itemFulfillment = (sel.fulfillmentStatus || '').toString().toUpperCase()
+          if (itemFulfillment === 'READY' || itemFulfillment === 'FULFILLED') {
+            anyItemReady = true
+          }
+        }
+      }
+    }
+
     // Traducir estado de Toast a nuestro sistema
     let status: 'IN_PROGRESS' | 'READY' | 'COMPLETED' = 'IN_PROGRESS'
-    if (rawStatus === 'READY_FOR_PICKUP' || rawStatus === 'READY' || rawStatus === 'FULFILLED') {
+    if (
+      rawStatus === 'READY_FOR_PICKUP' ||
+      rawStatus === 'READY' ||
+      rawStatus === 'FULFILLED' ||
+      (activeItemCount > 0 && anyItemReady)
+    ) {
       status = 'READY'
-    } else if (rawStatus === 'CLOSED' || rawStatus === 'COMPLETED') {
+    } else if (rawStatus === 'VOIDED') {
       status = 'COMPLETED'
     }
 
