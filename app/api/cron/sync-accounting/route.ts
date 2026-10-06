@@ -199,7 +199,24 @@ export async function GET(request: Request) {
             location: mapping.qb_location || storeName,
             className: mapping.qb_class || storeName,
             bank_account: mapping.bank_account_number || '10000',
-            sales_tax_rate_name: mapping.sales_tax_rate_name || mapping.qb_location || storeName
+            sales_tax_rate_name: mapping.sales_tax_rate_name || mapping.qb_location || storeName,
+            sales_dine_in_account: mapping.sales_dine_in_account,
+            sales_uber_account: mapping.sales_uber_account,
+            sales_doordash_account: mapping.sales_doordash_account,
+            sales_grubhub_account: mapping.sales_grubhub_account,
+            sales_tax_account: mapping.sales_tax_account,
+            ar_uber_account: mapping.ar_uber_account,
+            ar_doordash_account: mapping.ar_doordash_account,
+            ar_grubhub_account: mapping.ar_grubhub_account,
+            ar_postmates_account: mapping.ar_postmates_account,
+            cc_fees_account: mapping.cc_fees_account,
+            undeposited_funds_account: mapping.undeposited_funds_account,
+            cash_over_short_account: mapping.cash_over_short_account,
+            gift_card_account: mapping.gift_card_account,
+            open_orders_account: mapping.open_orders_account,
+            cash_on_hand_account: mapping.cash_on_hand_account,
+            tips_account: mapping.tips_account,
+            cogs_account: mapping.cogs_account,
           }
 
           const salesPacketData: SalesPacketData = {

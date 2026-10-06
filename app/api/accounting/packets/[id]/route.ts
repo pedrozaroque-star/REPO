@@ -163,19 +163,39 @@ export async function PATCH(
         className: mapping?.qb_class || storeName,
         bank_account: mapping?.bank_account_number || '10000',
         sales_tax_rate_name: storeName,
+        sales_dine_in_account: mapping?.sales_dine_in_account,
+        sales_uber_account: mapping?.sales_uber_account,
+        sales_doordash_account: mapping?.sales_doordash_account,
+        sales_grubhub_account: mapping?.sales_grubhub_account,
+        sales_tax_account: mapping?.sales_tax_account,
+        ar_uber_account: mapping?.ar_uber_account,
+        ar_doordash_account: mapping?.ar_doordash_account,
+        ar_grubhub_account: mapping?.ar_grubhub_account,
+        ar_postmates_account: mapping?.ar_postmates_account,
+        cc_fees_account: mapping?.cc_fees_account,
+        undeposited_funds_account: mapping?.undeposited_funds_account,
+        cash_over_short_account: mapping?.cash_over_short_account,
+        gift_card_account: mapping?.gift_card_account,
+        open_orders_account: mapping?.open_orders_account,
+        cash_on_hand_account: mapping?.cash_on_hand_account,
+        tips_account: mapping?.tips_account,
+        cogs_account: mapping?.cogs_account,
       }
 
       // When updating cash deposit, preserve the exact existing lines (including drive thru, gift cards, etc.)
-      // and update line 13200 (Deposit To Bank) and 51050 (Cash Over/Short) directly
+      // and update undeposited funds (Deposit To Bank) and Cash Over/Short directly
+      const undepositedAcct = mapping?.undeposited_funds_account || '13200'
+      const overShortAcct = mapping?.cash_over_short_account || '51050'
+
       const existingLines: any[] = (packet.journal_lines || []).map((l: any) => ({ ...l }))
-      const depositLine = existingLines.find((l: any) => l.account === '13200')
+      const depositLine = existingLines.find((l: any) => l.account === undepositedAcct)
       if (depositLine) {
         depositLine.debit = Math.round(cash_deposit * 100) / 100
       }
 
-      // Recalculate or add/remove 51050 Cash Over/Short
+      // Recalculate or add/remove Cash Over/Short
       const cashDiff = Math.round((cash_deposit - expectedCash) * 100) / 100
-      let overShortLine = existingLines.find((l: any) => l.account === '51050')
+      let overShortLine = existingLines.find((l: any) => l.account === overShortAcct)
 
       if (cashDiff === 0) {
         // No overage or shortage
@@ -184,10 +204,10 @@ export async function PATCH(
           if (idx !== -1) existingLines.splice(idx, 1)
         }
       } else if (cashDiff > 0) {
-        // Sobrante (Credit 51050)
+        // Sobrante (Credit)
         if (!overShortLine) {
           overShortLine = {
-            account: '51050',
+            account: overShortAcct,
             memo: 'Cash Over/(Short)',
             debit: 0,
             credit: cashDiff,
@@ -202,10 +222,10 @@ export async function PATCH(
           overShortLine.sourceMemo = 'Cash Overage'
         }
       } else {
-        // Faltante (Debit 51050)
+        // Faltante (Debit)
         if (!overShortLine) {
           overShortLine = {
-            account: '51050',
+            account: overShortAcct,
             memo: 'Cash Over/(Short)',
             debit: Math.abs(cashDiff),
             credit: 0,

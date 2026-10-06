@@ -642,7 +642,20 @@ function OrderReadyBoardContent() {
       })
       if (nonMale) return nonMale
 
-      return matchingVoices[0] || null
+      // 4. Si el objetivo es femenino, NUNCA devolver una voz masculina (ej. Microsoft Raul).
+      // Buscar cualquier voz femenina disponible en el navegador antes de rendirse
+      const anyFemale = voices.find(v => {
+        const lower = v.name.toLowerCase()
+        const isMale = lower.includes('male') || lower.includes('david') || lower.includes('george') || 
+                       lower.includes('jorge') || lower.includes('diego') || lower.includes('pablo') ||
+                       lower.includes('guy') || lower.includes('mark') || lower.includes('raul') ||
+                       lower.includes('hombre') || lower.includes('miguel')
+        if (isMale) return false
+        return femaleKeywords.some(kw => lower.includes(kw)) || premiumKeywords.some(kw => lower.includes(kw))
+      })
+      if (anyFemale) return anyFemale
+
+      return null
     },
     [selectedVoice]
   )
@@ -765,7 +778,7 @@ function OrderReadyBoardContent() {
       } catch (e) {
         console.warn('TTS no disponible, se usará la voz del navegador:', e)
         clipCacheRef.current.delete(key)
-        ttsFailUntilRef.current = Date.now() + 60000 // no insistir durante 1 min
+        ttsFailUntilRef.current = Date.now() + 3000 // breve espera de 3s antes de reintentar
         return null
       }
     })()

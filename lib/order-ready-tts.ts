@@ -33,7 +33,7 @@ export type VoiceId = (typeof AVAILABLE_VOICES)[number]['id']
 
 const BUCKET = 'order-ready-tts'
 const DEFAULT_VOICE: VoiceId = 'Kore'
-const MODELS = ['gemini-3.8-flash-tts', 'gemini-2.5-flash-preview-tts', 'gemini-3.1-flash-tts-preview']
+const MODELS = ['gemini-2.5-pro-preview-tts', 'gemini-2.5-flash-preview-tts', 'gemini-3.8-flash-tts']
 const CACHE_VERSION = 'v4'
 
 export type TtsLang = 'en' | 'es'
@@ -183,8 +183,12 @@ async function generateWithGemini(n: string, lang: TtsLang, voice: VoiceId): Pro
             const errText = await res.text()
             lastErr = `${model} (key ...${key.slice(-4)}): ${res.status} ${errText.slice(0, 160)}`
             if (res.status === 429) {
+              if (/per_model_per_day|PerProjectPerModel/i.test(errText)) {
+                // Cuota de ESTE modelo agotada: intentar el siguiente modelo en la lista sin descartar la llave
+                break
+              }
               if (/PerDay/i.test(errText)) {
-                // Cuota diaria de ESTA llave agotada: marcarla bloqueada 15 min y saltar a la siguiente llave del pool
+                // Cuota diaria de la llave: bloquearla temporalmente y pasar a la siguiente llave del pool
                 keyBlockedUntil.set(key, Date.now() + 15 * 60 * 1000)
                 keyExhausted = true
                 break
