@@ -21,7 +21,7 @@
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { getAuthToken } from '@/lib/toast-api'
-import { TOAST_STORE_MAP, evaluateToastOrder, classifyDiningName } from '@/lib/order-ready-sync'
+import { TOAST_STORE_MAP, STORE_GUID_BY_CODE, evaluateToastOrder, classifyDiningName, getDiningMap } from '@/lib/order-ready-sync'
 import { getCaliforniaBusinessDate } from '@/lib/business-date'
 
 const TOAST_API_HOST = process.env.TOAST_API_HOST || 'https://ws-api.toasttab.com'
@@ -58,15 +58,54 @@ export async function POST(request: Request) {
       status = 'COMPLETED'
     }
 
-    // Traducir Dining Option
-    const rawDining = (
-      orderObj.diningOption?.name ||
-      orderObj.diningOption ||
-      payload.diningOption ||
-      ''
-    ).toString().toUpperCase()
+    // Traducir Dining Option usando Toast Dining Map dinámico
+    const diningGuid =
+      orderObj.diningOption?.guid ||
+      orderObj.diningOption?.id ||
+      orderObj.checks?.[0]?.diningOption?.guid ||
+      (typeof orderObj.diningOption === 'string' && /^[0-9a-f-]{36}$/i.test(orderObj.diningOption) ? orderObj.diningOption : null) ||
+      (typeof payload.diningOption === 'string' && /^[0-9a-f-]{36}$/i.test(payload.diningOption) ? payload.diningOption : null)
 
-    const diningOption = classifyDiningName(rawDining)
+    let diningName = ''
+    if (orderObj.diningOption?.name) {
+      diningName = orderObj.diningOption.name
+    } else if (diningGuid) {
+      try {
+        const token = await getAuthToken()
+        if (token) {
+          const rId = String(restaurantId || STORE_GUID_BY_CODE[storeInfo.code] || '')
+          const diningMap = await getDiningMap(token, rId)
+          diningName = diningMap[diningGuid] || ''
+        }
+      } catch (e) {
+        console.warn('Webhook dining map lookup error:', e)
+      }
+    } else if (typeof orderObj.diningOption === 'string') {
+      diningName = orderObj.diningOption
+    } else if (typeof payload.diningOption === 'string') {
+      diningName = payload.diningOption
+    }
+
+    const diningOption = classifyDiningName(diningName)
+
+    // REGLA CRÍTICA: El Order Ready Board es EXCLUSIVO para COMEDOR (FOR_HERE) y PARA LLEVAR (TOGO).
+    // Las órdenes de Drive-Thru y Delivery de plataformas se descartan por completo de este tablero.
+    if (diningOption === 'DRIVE_THRU' || diningOption === 'DELIVERY') {
+      if (orderGuid) {
+        await supabaseAdmin.from('order_ready_announcements').delete().eq('order_guid', orderGuid)
+      }
+      return NextResponse.json({
+        success: true,
+        action: 'ignored',
+        reason: `Canal excluido del Order Ready Board (${diningOption})`,
+        orderNumber
+      })
+    }
+
+    // FAIL-CLOSED: si no se pudo resolver el canal, NO se inserta ni actualiza (el sync activo la registra ya verificada)
+    if (diningOption === 'UNKNOWN') {
+      return NextResponse.json({ success: true, action: 'ignored', reason: 'Canal no resuelto (fail-closed)', orderNumber })
+    }
 
     let customerName = orderObj.customer?.firstName || payload.customerName || null
     const now = new Date().toISOString()
@@ -104,7 +143,7 @@ export async function POST(request: Request) {
     if (existing) {
       const updateData: any = {
         status: existing.status === 'READY' && status === 'IN_PROGRESS' ? 'READY' : status,
-        ...(diningOption ? { dining_option: diningOption } : {})
+        dining_option: diningOption
       }
       if (status === 'READY' && existing.status !== 'READY') {
         updateData.ready_at = evaluation.readyAt || now
@@ -127,32 +166,42 @@ export async function POST(request: Request) {
 
     // Si es orden nueva y no tenemos número de orden pero sí GUID, consultar a Toast API
     let finalOrderNumber = orderNumber ? String(orderNumber) : null
-    let finalDiningOption = diningOption
+    let finalDiningOption: ReturnType<typeof classifyDiningName> = diningOption
 
     if (!finalOrderNumber && orderGuid && restaurantId) {
       try {
         const token = await getAuthToken()
-        const res = await fetch(`${TOAST_API_HOST}/orders/v2/orders/${orderGuid}`, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'Toast-Restaurant-External-ID': restaurantId
-          }
-        })
-        if (res.ok) {
-          const toastOrder = await res.json()
-          if (toastOrder.displayNumber) {
-            finalOrderNumber = String(toastOrder.displayNumber)
-          }
-          if (toastOrder.diningOption?.name) {
-            finalDiningOption = classifyDiningName(toastOrder.diningOption.name)
-          }
-          if (toastOrder.customer?.firstName && !customerName) {
-            customerName = toastOrder.customer.firstName
+        if (token) {
+          const res = await fetch(`${TOAST_API_HOST}/orders/v2/orders/${orderGuid}`, {
+            headers: {
+              Authorization: `Bearer ${token}`,
+              'Toast-Restaurant-External-ID': restaurantId
+            }
+          })
+          if (res.ok) {
+            const toastOrder = await res.json()
+            if (toastOrder.displayNumber) {
+              finalOrderNumber = String(toastOrder.displayNumber)
+            }
+            if (toastOrder.diningOption?.guid || toastOrder.diningOption?.name) {
+              const rId = String(restaurantId || STORE_GUID_BY_CODE[storeInfo.code] || '')
+              const diningMap = await getDiningMap(token, rId)
+              const dGuid = String(toastOrder.diningOption?.guid || '')
+              const dName = diningMap[dGuid] || toastOrder.diningOption?.name || ''
+              finalDiningOption = classifyDiningName(dName)
+            }
+            if (toastOrder.customer?.firstName && !customerName) {
+              customerName = toastOrder.customer.firstName
+            }
           }
         }
       } catch (err) {
         console.warn('Toast order fetch fallback error:', err)
       }
+    }
+
+    if (finalDiningOption === 'DRIVE_THRU' || finalDiningOption === 'DELIVERY' || finalDiningOption === 'UNKNOWN') {
+      return NextResponse.json({ success: true, action: 'ignored', reason: `Canal excluido (${finalDiningOption})` })
     }
 
     // Si la orden no existía y está en COMPLETED (o es un borrador no enviado a cocina), no se inserta

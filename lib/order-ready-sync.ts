@@ -130,19 +130,25 @@ export function evaluateToastOrder(order: any): ToastOrderEvaluation {
   return { status: 'COMPLETED', readyAt: null, sentAt, activeItems, sentItems, readyItems }
 }
 
-/** Traduce el nombre de la dining option de Toast al canal del tablero. */
-export function classifyDiningName(raw: string): 'TOGO' | 'FOR_HERE' | 'DELIVERY' | 'DRIVE_THRU' {
-  const up = (raw || '').toUpperCase()
+/**
+ * Traduce el nombre de la dining option de Toast al canal del tablero.
+ * FAIL-CLOSED: si el nombre viene vacío (GUID no resuelto / mapa caído) devuelve 'UNKNOWN' y la orden NO entra
+ * al tablero (antes se asumía TOGO y se colaban órdenes de Drive-Thru por unos segundos).
+ */
+export function classifyDiningName(raw: string): 'TOGO' | 'FOR_HERE' | 'DELIVERY' | 'DRIVE_THRU' | 'UNKNOWN' {
+  const up = (raw || '').toUpperCase().trim()
+  if (!up) return 'UNKNOWN'
+  if (up.includes('DRIVE') || up.includes('THRU') || up.includes('DT') || up.includes('AUTO')) return 'DRIVE_THRU'
   if (up.includes('HERE') || up.includes('DINE')) return 'FOR_HERE'
-  if (up.includes('UBER') || up.includes('DOORDASH') || up.includes('GRUBHUB') || up.includes('DELIVERY')) return 'DELIVERY'
-  if (up.includes('DRIVE')) return 'DRIVE_THRU'
+  if (up.includes('UBER') || up.includes('DOORDASH') || up.includes('GRUBHUB') || up.includes('POSTMATES') || up.includes('DELIVERY')) return 'DELIVERY'
+  if (up.includes('TO GO') || up.includes('TOGO') || up.includes('TAKEOUT') || up.includes('TAKE OUT') || up.includes('CURBSIDE') || up.includes('PICKUP')) return 'TOGO'
   return 'TOGO'
 }
 
 // ── Mapa GUID -> nombre de dining option por tienda (cache 30 min). NUNCA hardcodear GUIDs de dining options. ──
 const diningCache = new Map<string, { at: number; map: Record<string, string> }>()
 
-async function getDiningMap(token: string, restaurantGuid: string): Promise<Record<string, string>> {
+export async function getDiningMap(token: string, restaurantGuid: string): Promise<Record<string, string>> {
   const cached = diningCache.get(restaurantGuid)
   if (cached && Date.now() - cached.at < 30 * 60 * 1000) return cached.map
   const map: Record<string, string> = {}
@@ -218,7 +224,7 @@ export async function syncStoreFromToast(storeCode: string, force = false): Prom
       const guids = orders.map(o => o.guid).filter(Boolean)
       const { data: existingRows } = await supabaseAdmin
         .from('order_ready_announcements')
-        .select('id, status, order_guid, order_number')
+        .select('id, status, order_guid, order_number, dining_option')
         .eq('store_code', storeCode)
         .in('order_guid', guids)
 
@@ -232,20 +238,45 @@ export async function syncStoreFromToast(storeCode: string, force = false): Prom
         const number = ord.displayNumber || ord.checks?.[0]?.displayNumber
         if (!number || !ord.guid) continue
 
+        const diningGuid = ord.diningOption?.guid || ord.checks?.[0]?.diningOption?.guid
+        const diningName = diningMap[diningGuid] || ord.diningOption?.name || ''
+        const diningOption = classifyDiningName(diningName)
+
         const row = byGuid.get(ord.guid)
+
+        // FAIL-CLOSED: sin canal resuelto no se inserta nada (se reintenta en el siguiente ciclo)
+        if (diningOption === 'UNKNOWN') continue
+
+        // REGLA CRÍTICA: El Order Ready Board es EXCLUSIVO para COMEDOR (FOR_HERE) y PARA LLEVAR (TOGO).
+        // Las órdenes de Drive-Thru y Delivery de plataformas se descartan por completo de este tablero.
+        if (diningOption === 'DRIVE_THRU' || diningOption === 'DELIVERY') {
+          if (row) {
+            // Si la orden estaba en BD por error previo, retirarla de inmediato
+            await supabaseAdmin.from('order_ready_announcements').delete().eq('id', row.id)
+          }
+          continue
+        }
+
         const readyMs = ev.readyAt ? Date.parse(ev.readyAt) : null
         const isStale = readyMs !== null && nowMs - readyMs > SILENT_AFTER_MS
 
         if (row) {
+          const updatePayload: any = {}
+          if (row.dining_option !== diningOption) {
+            updatePayload.dining_option = diningOption
+          }
           if (ev.status === 'READY' && row.status === 'IN_PROGRESS') {
-            await supabaseAdmin
-              .from('order_ready_announcements')
-              .update({ status: 'READY', ready_at: ev.readyAt, announced: isStale })
-              .eq('id', row.id)
+            updatePayload.status = 'READY'
+            updatePayload.ready_at = ev.readyAt
+            updatePayload.announced = isStale
           } else if (ev.status === 'COMPLETED' && row.status === 'IN_PROGRESS') {
+            updatePayload.status = 'COMPLETED'
+          }
+
+          if (Object.keys(updatePayload).length > 0) {
             await supabaseAdmin
               .from('order_ready_announcements')
-              .update({ status: 'COMPLETED' })
+              .update(updatePayload)
               .eq('id', row.id)
           }
           continue
@@ -256,7 +287,6 @@ export async function syncStoreFromToast(storeCode: string, force = false): Prom
         // Orden desconocida (el webhook no llegó): solo la insertamos si sigue activa o se cerró hace poco
         if (ev.status === 'READY' && readyMs !== null && nowMs - readyMs > 10 * 60 * 1000) continue
 
-        const diningName = diningMap[ord.diningOption?.guid] || ord.diningOption?.name || ''
         const orderDate = ev.sentAt || ord.createdDate || ord.openedDate || ord.paidDate || new Date().toISOString()
         const bDate = getCaliforniaBusinessDate(orderDate)
 
@@ -266,7 +296,7 @@ export async function syncStoreFromToast(storeCode: string, force = false): Prom
           store_name: storeInfo.name,
           order_number: String(number),
           order_guid: ord.guid,
-          dining_option: classifyDiningName(diningName),
+          dining_option: diningOption,
           customer_name: ord.customer?.firstName || null,
           status: ev.status,
           business_date: bDate,

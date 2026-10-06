@@ -4040,7 +4040,15 @@ export const dictionaries: Record<Language, Dictionary> = {
             exit_tv_mode_tooltip: "Salir de pantalla completa",
             switch_to_english: "Cambiar idioma de la pantalla a Inglés",
             switch_to_spanish: "Cambiar idioma de la pantalla a Español",
-            screen_language: "Idioma de Pantalla"
+            screen_language: "Idioma de Pantalla",
+            retention_title: "Retiro de Órdenes Listas",
+            retention_20_min_note: "Se limpian de la pantalla tras 20 minutos de listas",
+            card_store_lifecycle: "Sucursal y Retención",
+            card_announcer: "Locutor y Voces",
+            card_sound_volume: "Sonido y Volumen",
+            card_channels_simulation: "Canales y Pruebas",
+            simulate_order_title: "Simular Pedido",
+            test_announcement_btn: "Probar Anuncio Completo"
         }
     },
     en: {
@@ -8061,7 +8069,15 @@ export const dictionaries: Record<Language, Dictionary> = {
             exit_tv_mode_tooltip: "Exit fullscreen",
             switch_to_english: "Switch screen language to English",
             switch_to_spanish: "Switch screen language to Spanish",
-            screen_language: "Screen Language"
+            screen_language: "Screen Language",
+            retention_title: "Ready Orders Retention",
+            retention_20_min_note: "Automatically cleared from screen 20 minutes after ready",
+            card_store_lifecycle: "Store & Retention",
+            card_announcer: "Announcer & Voices",
+            card_sound_volume: "Sound & Volume",
+            card_channels_simulation: "Channels & Testing",
+            simulate_order_title: "Simulate Order",
+            test_announcement_btn: "Test Full Announcement"
         }
     }
 };

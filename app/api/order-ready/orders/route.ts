@@ -66,25 +66,56 @@ export async function GET(request: Request) {
     // El cutoff no debe retroceder antes del inicio de la jornada laboral de hoy (6:00 AM)
     const effectiveCutoff = new Date(Math.max(Date.now() - minutes * 60 * 1000, bDayStartMs)).toISOString()
 
-    // Traer órdenes recientes del día laboral actual no completadas o listas
-    const { data: orders, error } = await supabaseAdmin
-      .from('order_ready_announcements')
-      .select('*')
-      .eq('store_code', storeCode)
-      .eq('business_date', currentBusinessDate)
-      .gte('created_at', effectiveCutoff)
-      .in('status', ['IN_PROGRESS', 'READY'])
-      .order('created_at', { ascending: false })
+    const fetchRows = () =>
+      supabaseAdmin
+        .from('order_ready_announcements')
+        .select('*')
+        .eq('store_code', storeCode)
+        .eq('business_date', currentBusinessDate)
+        .gte('created_at', effectiveCutoff)
+        .in('status', ['IN_PROGRESS', 'READY'])
+        .order('created_at', { ascending: false })
+
+    let { data: orders, error } = await fetchRows()
+
+    // VERIFICACIÓN ANTI-DRIVE-THRU: un webhook (o versión vieja) puede haber insertado una orden DT como TOGO.
+    // Si hay filas recién creadas o por anunciar, se fuerza un sync sin throttle ANTES de entregarlas al cliente,
+    // para que el sync borre/corrija las que no son FOR_HERE/TOGO y nunca lleguen a sonar.
+    if (!error && orders) {
+      const nowCheck = Date.now()
+      const needsVerify = orders.some(
+        (o: any) =>
+          (o.status === 'READY' && !o.announced) ||
+          nowCheck - Date.parse(o.created_at) < 3 * 60 * 1000
+      )
+      if (needsVerify) {
+        await syncStoreFromToast(storeCode, true)
+        const again = await fetchRows()
+        orders = again.data
+        error = again.error
+      }
+    }
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 })
     }
 
-    // Listas: más reciente primero en pantalla (el cliente las anuncia en orden de cierre: ready_at ascendente)
-    const readyOrders = (orders?.filter(o => o.status === 'READY') || []).sort(
+    // Regla de Negocio Tacos Gavilan: El Order Ready Board es exclusivo para comedor (FOR_HERE) y para llevar (TOGO).
+    // Se descartan por completo órdenes de Drive-Thru y Delivery de plataformas.
+    const isAllowedDining = (o: any) => o.dining_option === 'FOR_HERE' || o.dining_option === 'TOGO'
+    const filteredOrders = (orders || []).filter(isAllowedDining)
+
+    // Regla de Negocio Tacos Gavilan: Las órdenes listas se retiran tras 20 minutos para mantener limpia la pantalla
+    const nowMs = Date.now()
+    const MAX_READY_AGE_MS = 20 * 60 * 1000 // 20 minutos
+    const readyOrders = (filteredOrders.filter(o => {
+      if (o.status !== 'READY') return false
+      const readyTime = o.ready_at ? Date.parse(o.ready_at) : Date.parse(o.created_at)
+      return (nowMs - readyTime) <= MAX_READY_AGE_MS
+    }) || []).sort(
       (a, b) => Date.parse(b.ready_at || b.created_at) - Date.parse(a.ready_at || a.created_at)
     )
-    const inProgressOrders = orders?.filter(o => o.status === 'IN_PROGRESS') || []
+    const inProgressOrders = filteredOrders.filter(o => o.status === 'IN_PROGRESS') || []
 
     return NextResponse.json({
       success: true,
@@ -92,13 +123,13 @@ export async function GET(request: Request) {
       businessDate: currentBusinessDate,
       shift: currentShift,
       counts: {
-        total: orders?.length || 0,
+        total: filteredOrders.length,
         ready: readyOrders.length,
         inProgress: inProgressOrders.length
       },
       readyOrders,
       inProgressOrders,
-      allOrders: orders || []
+      allOrders: filteredOrders
     })
   } catch (err: any) {
     return NextResponse.json({ error: err.message || 'Internal Server Error' }, { status: 500 })

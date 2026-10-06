@@ -5,8 +5,8 @@
  * @businessRules
  * - Una sola voz femenina (`Kore`) para AMBOS idiomas: antes se usaba speechSynthesis del navegador, que en español
  *   caía en voces masculinas/robóticas (ej. Microsoft Raul). Con la voz neuronal el acento es natural y siempre femenino.
- * - Frases: EN "Order 141 is ready." / ES "Orden 141, ya está." (cada idioma es un clip aparte con su propio prompt para
- *   que el acento sea nativo).
+ * - Frases: EN "Order 141 is ready." / ES "Orden 141, ¡ya está!" (cada idioma es un clip aparte con su propio prompt para
+ *   que el acento sea nativo y alegre con el slogan de Tacos Gavilan).
  * - Solo se aceptan números de 1 a 4 dígitos (evita abuso de la API de pago).
  *
  * @dataFlow
@@ -33,8 +33,8 @@ export type VoiceId = (typeof AVAILABLE_VOICES)[number]['id']
 
 const BUCKET = 'order-ready-tts'
 const DEFAULT_VOICE: VoiceId = 'Kore'
-const MODELS = ['gemini-3.1-flash-tts-preview', 'gemini-2.5-flash-preview-tts']
-const CACHE_VERSION = 'v2'
+const MODELS = ['gemini-3.8-flash-tts', 'gemini-2.5-flash-preview-tts', 'gemini-3.1-flash-tts-preview']
+const CACHE_VERSION = 'v4'
 
 export type TtsLang = 'en' | 'es'
 
@@ -53,15 +53,17 @@ export function isValidTtsRequest(n: string | null, lang: string | null, voice?:
   return numOk && langOk && voiceOk
 }
 
-function buildPrompt(n: string, lang: TtsLang, voice: VoiceId): string {
+/**
+ * Frase concisa para el mostrador con el slogan institucional de Tacos Gavilan: ¡Ya está!
+ * IMPORTANTE: Gemini 3.8 Flash TTS lee el campo 'text' de forma ESTRICTAMENTE LITERAL (verbatim).
+ * NO incluir instrucciones descriptivas en este string; la modulación de alegría va en speech_metadata.style.
+ */
+function buildPrompt(n: string, lang: TtsLang): string {
   const spoken = String(parseInt(n, 10))
-  const isFemale = voice === 'Kore' || voice === 'Aoede' || voice === 'Zephyr'
   if (lang === 'en') {
-    const tone = isFemale ? 'a friendly young woman' : 'a friendly young man'
-    return `Say warmly, clearly and naturally, like ${tone} working at a restaurant counter: Order ${spoken} is ready.`
+    return `Order ${spoken} is ready.`
   } else {
-    const tone = isFemale ? 'una joven' : 'un joven'
-    return `Di con voz cálida, clara y natural de ${tone} que atiende en el mostrador de un restaurante mexicano: Orden ${spoken}, ya está.`
+    return `Orden ${spoken}, ¡ya está!`
   }
 }
 
@@ -84,6 +86,13 @@ function pcmToWav(pcm: Buffer, sampleRate = 24000, channels = 1, bitDepth = 16):
   return Buffer.concat([header, pcm])
 }
 
+function ensureWav(data: Buffer, sampleRate = 24000, channels = 1, bitDepth = 16): Buffer {
+  if (data.length >= 4 && data.subarray(0, 4).toString('ascii') === 'RIFF') {
+    return data
+  }
+  return pcmToWav(data, sampleRate, channels, bitDepth)
+}
+
 async function ensureBucket() {
   if (bucketReady) return
   const { error } = await supabaseAdmin.storage.createBucket(BUCKET, { public: false })
@@ -95,6 +104,8 @@ async function generateWithGemini(n: string, lang: TtsLang, voice: VoiceId): Pro
   const key = process.env.GEMINI_API_KEY
   if (!key) throw new Error('GEMINI_API_KEY no configurada')
 
+  const textToSpeak = buildPrompt(n, lang)
+
   let lastErr = ''
   for (const model of MODELS) {
     for (let attempt = 0; attempt < 2; attempt++) {
@@ -102,17 +113,36 @@ async function generateWithGemini(n: string, lang: TtsLang, voice: VoiceId): Pro
         method: 'POST',
         headers: { 'x-goog-api-key': key, 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          contents: [{ parts: [{ text: buildPrompt(n, lang, voice) }] }],
+          contents: [{
+            role: 'user',
+            parts: [{
+              text: textToSpeak,
+              speech_metadata: {
+                style: lang === 'es'
+                  ? 'cheerful, energetic and enthusiastic counter announcement, saying the company slogan "¡ya está!" with joyful energy'
+                  : 'cheerful, upbeat and friendly counter announcement'
+              }
+            }]
+          }],
           generationConfig: {
             responseModalities: ['AUDIO'],
-            speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voice } } }
+            speechConfig: {
+              voiceConfig: {
+                prebuiltVoiceConfig: {
+                  voiceName: voice
+                }
+              }
+            }
           }
         })
       })
       if (res.ok) {
         const json: any = await res.json()
         const part = json.candidates?.[0]?.content?.parts?.find((p: any) => p.inlineData?.data)
-        if (part) return pcmToWav(Buffer.from(part.inlineData.data, 'base64'))
+        if (part) {
+          const raw = Buffer.from(part.inlineData.data, 'base64')
+          return ensureWav(raw)
+        }
         lastErr = `${model}: respuesta sin audio`
       } else {
         lastErr = `${model}: ${res.status} ${(await res.text()).slice(0, 160)}`
@@ -129,20 +159,9 @@ export async function getOrderReadySpeech(n: string, lang: TtsLang, voice: Voice
   const selectedVoice = isValidVoice(voice) ? voice : DEFAULT_VOICE
   const path = `${CACHE_VERSION}/${selectedVoice}/${lang}/${num}.wav`
 
-  // 1. Intentar caché v2 en Storage
+  // 1. Intentar caché v3 en Storage
   const hit = await supabaseAdmin.storage.from(BUCKET).download(path)
   if (hit.data) return Buffer.from(await hit.data.arrayBuffer())
-
-  // Si es Kore, revisar la caché previa v1 para reutilizar clips ya generados
-  if (selectedVoice === 'Kore') {
-    const legacyHit = await supabaseAdmin.storage.from(BUCKET).download(`v1/${lang}/${num}.wav`)
-    if (legacyHit.data) {
-      const buf = Buffer.from(await legacyHit.data.arrayBuffer())
-      // Migrar en segundo plano al nuevo path
-      void supabaseAdmin.storage.from(BUCKET).upload(path, buf, { contentType: 'audio/wav', upsert: true }).catch(() => {})
-      return buf
-    }
-  }
 
   const existing = inflight.get(path)
   if (existing) return existing

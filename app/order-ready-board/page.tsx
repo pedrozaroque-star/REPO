@@ -15,10 +15,9 @@
  *   - Text-to-Speech (TTS) configurable en Español, Inglés o Bilingüe.
  *   - Cola de audio ordenada por HORA REAL DE CIERRE (`ready_at`, el momento del doble tap en el KDS): si se cierran varias órdenes casi al mismo tiempo se anuncian en el orden en que se cerraron, sin superponerse. Un Set de ids evita anunciar dos veces la misma orden.
  *   - Precarga inteligente de audio: los clips de las órdenes en preparación se precargan en segundo plano para que el anuncio al momento de doble tap sea instantáneo. Si la red o TTS falla, se usa la voz del navegador como respaldo automático respetando el género seleccionado.
- *   - Control y Filtro de Canales:
- *     * 'FOR_HERE' (Comedor) y 'TOGO' (Para Llevar): activos por defecto.
- *     * 'DRIVE_THRU' (Auto-Servicio): botón de control maestro (ON/OFF) en encabezado y controles detallados en el panel para activar/desactivar anuncios de voz y/o visualización en pantalla, con persistencia en LocalStorage.
- *     * 'DELIVERY' (Plataformas): silenciado por defecto para no saturar el comedor.
+ *   - Alcance Exclusivo de Canales:
+ *     * Operación exclusiva para Comedor ('FOR_HERE') y Para Llevar ('TOGO').
+ *     * Drive-Thru y plataformas de delivery quedan completamente excluidos del tablero y anuncios.
  * - **Gobernanza de Voz Global (Solo Administrador)**:
  *   - Solo los usuarios con rol Administrador (`isAdmin`, `access.all === true`) tienen permiso para cambiar la voz anunciadora del sistema.
  *   - Al seleccionar una voz en cualquier pantalla/tienda, se guarda centralmente en la base de datos Supabase (`order_ready_settings`) y se propaga instantáneamente a todas las 15 sucursales mediante Supabase Realtime sin necesidad de recargar la página.
@@ -31,7 +30,7 @@
  *   - Centinela automático en vivo: al dar las 6:00 AM en punto, el tablero detecta el cambio de día laboral, vacía la memoria de órdenes anunciadas y refresca el estado en limpio.
  * - **Idempotencia ante Recall de Cocina en KDS**:
  *   - Cuando los cocineros hacen "Recall" en el KDS Expediter para revisar órdenes ya despachadas y luego hacen doble tap para cerrarlas nuevamente, el sistema no vuelve a reproducir la campanilla ni la voz gracias a la triple barrera de idempotencia (Set de IDs en memoria, persistencia `announced: true` en Supabase y aislamiento por `business_date`).
- * - **Gestión de Vida Útil**: Las órdenes en 'READY' se retiran visualmente tras un tiempo configurable (por defecto 10 minutos).
+ * - **Gestión de Vida Útil**: Las órdenes en 'READY' se retiran visualmente tras 20 minutos (limpieza automática de pantalla para mantener el tablero ordenado y legible, configurable en 15, 20 o 30 min, 20 min por defecto).
  * - **Resiliencia de Red (Offline Mode)**: Detección proactiva de conectividad de red con aviso visual y caída suave a audio en caché/síntesis local si se corta la conexión a internet.
  * 
  * @dataFlow
@@ -243,10 +242,26 @@ function OrderReadyBoardContent() {
   const [availableVoices, setAvailableVoices] = useState<SpeechSynthesisVoice[]>([])
   const [announceToGo, setAnnounceToGo] = useState<boolean>(true)
   const [announceForHere, setAnnounceForHere] = useState<boolean>(true)
-  const [announceDriveThru, setAnnounceDriveThru] = useState<boolean>(true)
-  const [showDriveThru, setShowDriveThru] = useState<boolean>(true)
-  const [announceDelivery, setAnnounceDelivery] = useState<boolean>(false)
   const [enableChime, setEnableChime] = useState<boolean>(true)
+
+  // Regla de Negocio Tacos Gavilan: Limpieza automática de pantalla para órdenes listas (20 minutos)
+  const [readyRetentionMinutes, setReadyRetentionMinutes] = useState<number>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('teg_order_ready_retention')
+      if (saved) {
+        const val = parseInt(saved, 10)
+        if (!isNaN(val) && val > 0) return val
+      }
+    }
+    return 20
+  })
+
+  const updateRetentionMinutes = (val: number) => {
+    setReadyRetentionMinutes(val)
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('teg_order_ready_retention', String(val))
+    }
+  }
 
   // Cargar configuración global de voz desde Supabase (/api/order-ready/settings)
   const fetchGlobalSettings = useCallback(async () => {
@@ -292,16 +307,10 @@ function OrderReadyBoardContent() {
         setSelectedVoice(savedVoice)
       }
 
-      const savedAnnounceDT = localStorage.getItem('teg_order_ready_announce_dt')
-      if (savedAnnounceDT !== null) setAnnounceDriveThru(savedAnnounceDT === 'true')
-      const savedShowDT = localStorage.getItem('teg_order_ready_show_dt')
-      if (savedShowDT !== null) setShowDriveThru(savedShowDT === 'true')
       const savedAnnounceTG = localStorage.getItem('teg_order_ready_announce_tg')
       if (savedAnnounceTG !== null) setAnnounceToGo(savedAnnounceTG === 'true')
       const savedAnnounceFH = localStorage.getItem('teg_order_ready_announce_fh')
       if (savedAnnounceFH !== null) setAnnounceForHere(savedAnnounceFH === 'true')
-      const savedAnnounceDel = localStorage.getItem('teg_order_ready_announce_del')
-      if (savedAnnounceDel !== null) setAnnounceDelivery(savedAnnounceDel === 'true')
       const savedChime = localStorage.getItem('teg_order_ready_chime')
       if (savedChime !== null) setEnableChime(savedChime === 'true')
     }
@@ -363,25 +372,9 @@ function OrderReadyBoardContent() {
     }
   }
 
-  const updateAnnounceDriveThru = (val: boolean) => {
-    setAnnounceDriveThru(val)
-    if (typeof window !== 'undefined') localStorage.setItem('teg_order_ready_announce_dt', String(val))
-  }
-
-  const updateShowDriveThru = (val: boolean) => {
-    setShowDriveThru(val)
-    if (typeof window !== 'undefined') localStorage.setItem('teg_order_ready_show_dt', String(val))
-  }
-
   const updateEnableChime = (val: boolean) => {
     setEnableChime(val)
     if (typeof window !== 'undefined') localStorage.setItem('teg_order_ready_chime', String(val))
-  }
-
-  const toggleDriveThruMaster = () => {
-    const nextVal = !(announceDriveThru || showDriveThru)
-    updateAnnounceDriveThru(nextVal)
-    updateShowDriveThru(nextVal)
   }
 
   // Fullscreen container and state (Modo TV)
@@ -660,9 +653,13 @@ function OrderReadyBoardContent() {
         const enVoice = getBestBrowserVoice('en', voices, voiceId)
         const esVoice = getBestBrowserVoice('es', voices, voiceId)
 
+        const isFemale = voiceId === 'Kore' || voiceId === 'Aoede' || voiceId === 'Zephyr'
+        const esIsMale = esVoice && /raul|male|hombre|jorge|diego|pablo|miguel|david/i.test(esVoice.name)
+        const targetPitch = (isFemale && esIsMale) ? 1.32 : 1.0
+
         if (voiceLanguage === 'bilingual') {
-          // Frase exacta: "Order #141 is ready, orden #141 ya está."
-          const displayPhrase = `Order #${num} is ready, orden #${num} ya está.`
+          // Frase exacta con slogan institucional: "Order #141 is ready, orden #141, ¡ya está!"
+          const displayPhrase = `Order #${num} is ready, orden #${num}, ¡ya está!`
           setActiveSpeech(displayPhrase)
 
           // Fase 1: Inglés ("Order 141 is ready,")
@@ -672,10 +669,11 @@ function OrderReadyBoardContent() {
           uttEn.lang = 'en-US'
           if (enVoice) uttEn.voice = enVoice
 
-          // Fase 2: Español ("orden 141 ya está.")
-          const uttEs = new SpeechSynthesisUtterance(`orden ${num}, ya está.`)
+          // Fase 2: Español ("orden 141, ¡ya está!")
+          const uttEs = new SpeechSynthesisUtterance(`orden ${num}, ¡ya está!`)
           uttEs.rate = voiceSpeed
           uttEs.volume = isMuted ? 0 : voiceVolume
+          uttEs.pitch = targetPitch
           uttEs.lang = 'es-MX'
           if (esVoice) uttEs.voice = esVoice
 
@@ -720,11 +718,12 @@ function OrderReadyBoardContent() {
           window.speechSynthesis.speak(utt)
         } else {
           // Solo español
-          const phrase = `Orden #${num}, ya está.`
+          const phrase = `Orden #${num}, ¡ya está!`
           setActiveSpeech(phrase)
-          const utt = new SpeechSynthesisUtterance(`Orden ${num}, ya está.`)
+          const utt = new SpeechSynthesisUtterance(`Orden ${num}, ¡ya está!`)
           utt.rate = voiceSpeed
           utt.volume = isMuted ? 0 : voiceVolume
+          utt.pitch = targetPitch
           utt.lang = 'es-MX'
           if (esVoice) utt.voice = esVoice
           utt.onend = () => {
@@ -823,10 +822,10 @@ function OrderReadyBoardContent() {
 
       const phrase =
         voiceLanguage === 'bilingual'
-          ? 'Order #' + num + ' is ready, orden #' + num + ' ya está.'
+          ? 'Order #' + num + ' is ready, orden #' + num + ', ¡ya está!'
           : voiceLanguage === 'en'
             ? 'Order #' + num + ' is ready.'
-            : 'Orden #' + num + ', ya está.'
+            : 'Orden #' + num + ', ¡ya está!'
 
       for (let rep = 0; rep < repeats; rep++) {
         setActiveSpeech(phrase)
@@ -915,11 +914,10 @@ function OrderReadyBoardContent() {
   // Encolar una orden lista. La cola se mantiene ORDENADA por hora real de cierre (ready_at ascendente)
   const enqueueAnnouncement = useCallback(
     (order: OrderItem) => {
-      // Filtrar según canales habilitados
+      // Regla de Negocio Tacos Gavilan: El módulo solo opera para FOR_HERE y TOGO
+      if (order.dining_option !== 'FOR_HERE' && order.dining_option !== 'TOGO') return
       if (order.dining_option === 'TOGO' && !announceToGo) return
       if (order.dining_option === 'FOR_HERE' && !announceForHere) return
-      if (order.dining_option === 'DRIVE_THRU' && !announceDriveThru) return
-      if (order.dining_option === 'DELIVERY' && !announceDelivery) return
 
       // Una orden se anuncia una sola vez por dispositivo (aunque el PATCH tarde en llegar)
       if (announcedIdsRef.current.has(order.id)) return
@@ -937,7 +935,7 @@ function OrderReadyBoardContent() {
         processAudioQueue()
       })
     },
-    [announceToGo, announceForHere, announceDriveThru, announceDelivery, processAudioQueue]
+    [announceToGo, announceForHere, processAudioQueue]
   )
 
   // Recordatorio: se encola sin el filtro de "ya anunciada" (se permite una sola vez por orden)
@@ -1160,7 +1158,7 @@ function OrderReadyBoardContent() {
   }
 
   // Simular creación de orden de prueba
-  const handleSimulateOrder = async (diningOption: 'TOGO' | 'FOR_HERE' | 'DRIVE_THRU' = 'TOGO') => {
+  const handleSimulateOrder = async (diningOption: 'TOGO' | 'FOR_HERE' = 'TOGO') => {
     unlockAudio()
     const randomNum = Math.floor(Math.random() * 800) + 100
     try {
@@ -1172,7 +1170,7 @@ function OrderReadyBoardContent() {
           orderNumber: String(randomNum),
           diningOption,
           status: 'READY',
-          customer_name: diningOption === 'TOGO' ? 'Para Llevar' : diningOption === 'FOR_HERE' ? 'Comer Aquí' : 'Drive-Thru'
+          customer_name: diningOption === 'TOGO' ? 'Para Llevar' : 'Comer Aquí'
         })
       })
       const data = await res.json()
@@ -1458,31 +1456,6 @@ function OrderReadyBoardContent() {
             </span>
           </button>
 
-          {/* Quick Toggle Drive-Thru */}
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation()
-              toggleDriveThruMaster()
-            }}
-            title={announceDriveThru || showDriveThru ? t('orderReadyBoard.drive_thru_enabled') : t('orderReadyBoard.drive_thru_disabled')}
-            className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-bold uppercase tracking-wider transition-all ${
-              announceDriveThru || showDriveThru
-                ? 'bg-orange-500/10 text-orange-400 border-orange-500/30 hover:bg-orange-500/20'
-                : 'bg-slate-800/80 text-slate-500 border-slate-700 hover:bg-slate-800'
-            }`}
-          >
-            <Car className="w-4 h-4" />
-            <span className="hidden md:inline">DT</span>
-            <span className={`text-[10px] font-black px-1.5 py-0.5 rounded ${
-              announceDriveThru || showDriveThru
-                ? 'bg-orange-500 text-slate-950'
-                : 'bg-slate-700 text-slate-400'
-            }`}>
-              {announceDriveThru || showDriveThru ? 'ON' : 'OFF'}
-            </span>
-          </button>
-
           {/* Botón de Ajustes / Drawer de Controles */}
           <button
             type="button"
@@ -1524,41 +1497,96 @@ function OrderReadyBoardContent() {
       {showControls && (
         <div
           onClick={(e) => e.stopPropagation()}
-          className="bg-slate-900 border-b border-slate-800 p-5 shadow-2xl transition-all animate-in slide-in-from-top-4 duration-200"
+          className="bg-slate-900/95 backdrop-blur-md border-b border-slate-800 p-5 shadow-2xl transition-all animate-in slide-in-from-top-4 duration-200"
         >
-          <div className="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-4 gap-6">
-            {/* Selección de Tienda */}
-            <div>
-              <label className="text-xs font-bold uppercase tracking-wider text-slate-400 block mb-2">
-                {t('orderReadyBoard.store')}
-              </label>
-              <select
-                value={selectedStore}
-                onChange={(e) => handleStoreChange(e.target.value)}
-                disabled={visibleStores.length <= 1}
-                className="w-full bg-slate-950 border border-slate-800 text-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-emerald-500 font-medium disabled:opacity-70 disabled:cursor-not-allowed"
-              >
-                {visibleStores.map((s) => (
-                  <option key={s.code} value={s.code}>
-                    {s.name}
-                  </option>
-                ))}
-              </select>
+          <div className="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            {/* Tarjeta 1: SUCURSAL Y TABLERO */}
+            <div className="bg-slate-950/70 border border-slate-800/80 rounded-2xl p-4 flex flex-col justify-between shadow-sm">
+              <div>
+                <div className="flex items-center gap-2 mb-3">
+                  <Store className="w-4 h-4 text-emerald-400" />
+                  <span className="text-xs font-bold uppercase tracking-wider text-slate-300">
+                    {t('orderReadyBoard.card_store_lifecycle')}
+                  </span>
+                </div>
+
+                {/* Selección de Tienda */}
+                <div className="mb-3.5">
+                  <label className="text-[11px] font-semibold text-slate-400 block mb-1">
+                    {t('orderReadyBoard.store')}
+                  </label>
+                  <select
+                    value={selectedStore}
+                    onChange={(e) => handleStoreChange(e.target.value)}
+                    disabled={visibleStores.length <= 1}
+                    className="w-full bg-slate-900 border border-slate-800 text-slate-200 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:border-emerald-500 font-medium disabled:opacity-70 disabled:cursor-not-allowed"
+                  >
+                    {visibleStores.map((s) => (
+                      <option key={s.code} value={s.code}>
+                        {s.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Retención / Limpieza de Órdenes Listas */}
+                <div className="pt-2.5 border-t border-slate-800/80">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="text-[11px] font-semibold text-slate-400">
+                      {t('orderReadyBoard.retention_title')}
+                    </label>
+                    <span className="text-[11px] font-black text-emerald-400">
+                      {readyRetentionMinutes} min
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-1">
+                    {[15, 20, 30].map((mins) => (
+                      <button
+                        key={mins}
+                        type="button"
+                        onClick={() => updateRetentionMinutes(mins)}
+                        className={`py-1 rounded-lg text-xs font-bold transition border ${
+                          readyRetentionMinutes === mins
+                            ? 'bg-emerald-600 text-white border-emerald-400 shadow-sm'
+                            : 'bg-slate-900 text-slate-400 border-slate-800 hover:bg-slate-800'
+                        }`}
+                      >
+                        {mins} min {mins === 20 ? '★' : ''}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-[10px] text-slate-500 mt-1">
+                    {t('orderReadyBoard.retention_20_min_note')}
+                  </p>
+                </div>
+              </div>
+
+              {/* Botón Sincronizar con Toast */}
+              <div className="mt-3.5 pt-2.5 border-t border-slate-800/80">
+                <button
+                  type="button"
+                  onClick={() => fetchOrders(true)}
+                  disabled={isSyncing}
+                  className="w-full flex items-center justify-center gap-2 bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800 hover:border-slate-700 font-semibold text-xs py-2 px-3 rounded-lg transition disabled:opacity-50"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
+                  <span>{isSyncing ? t('orderReadyBoard.syncing') : t('orderReadyBoard.sync_toast')}</span>
+                </button>
+              </div>
             </div>
 
-            {/* Configuración de Voz */}
-            <div>
-              {/* Selector de Voces Neuronales (3 Femeninas, 2 Masculinas) */}
-              <div className="mb-3">
-                <div className="flex items-center justify-between mb-1.5">
-                  <label className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+            {/* Tarjeta 2: LOCUTOR Y VOCES */}
+            <div className="bg-slate-950/70 border border-slate-800/80 rounded-2xl p-4 flex flex-col justify-between shadow-sm">
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
                     {isAdmin ? (
-                      <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                      <Sparkles className="w-4 h-4 text-amber-400" />
                     ) : (
-                      <Lock className="w-3.5 h-3.5 text-amber-400/90" />
+                      <Lock className="w-4 h-4 text-amber-400/90" />
                     )}
-                    {t('orderReadyBoard.voice_speaker')}
-                  </label>
+                    {t('orderReadyBoard.card_announcer')}
+                  </span>
                   <button
                     type="button"
                     onClick={() => handleTestSound(selectedVoice)}
@@ -1570,7 +1598,9 @@ function OrderReadyBoardContent() {
                     <span>{isTestingVoice ? t('orderReadyBoard.testing_voice') : t('orderReadyBoard.test_voice')}</span>
                   </button>
                 </div>
-                <div className="grid grid-cols-5 gap-1">
+
+                {/* 5 Botones de Voces */}
+                <div className="grid grid-cols-5 gap-1 mb-2">
                   {AVAILABLE_VOICES.map((v) => {
                     const isSelected = selectedVoice === v.id
                     return (
@@ -1583,10 +1613,10 @@ function OrderReadyBoardContent() {
                           !isAdmin
                             ? isSelected
                               ? 'bg-slate-800 text-slate-200 border-amber-500/50 cursor-not-allowed opacity-90'
-                              : 'bg-slate-950/60 text-slate-600 border-slate-900 cursor-not-allowed opacity-50'
+                              : 'bg-slate-900/60 text-slate-600 border-slate-900 cursor-not-allowed opacity-50'
                             : isSelected
                               ? 'bg-emerald-600 text-white border-emerald-400 shadow-md ring-1 ring-emerald-400'
-                              : 'bg-slate-950 text-slate-300 border-slate-800 hover:bg-slate-800/80 hover:border-slate-700'
+                              : 'bg-slate-900 text-slate-300 border-slate-800 hover:bg-slate-800/80 hover:border-slate-700'
                         }`}
                         title={!isAdmin ? t('orderReadyBoard.voice_locked_hint') : (language === 'es' ? v.labelEs : v.labelEn)}
                       >
@@ -1601,211 +1631,183 @@ function OrderReadyBoardContent() {
                                 ? 'bg-purple-500/20 text-purple-300'
                                 : 'bg-blue-500/20 text-blue-300'
                         }`}>
-                          {v.gender === 'female' ? (language === 'es' ? 'Fem' : 'Fem') : (language === 'es' ? 'Masc' : 'Male')}
+                          {v.gender === 'female' ? 'Fem' : (language === 'es' ? 'Masc' : 'Male')}
                         </span>
                       </button>
                     )
                   })}
                 </div>
+
                 {!isAdmin ? (
-                  <p className="text-[10px] text-amber-400/90 mt-1.5 flex items-center gap-1 font-medium">
+                  <p className="text-[10px] text-amber-400/90 mt-1 flex items-center gap-1 font-medium">
                     <Lock className="w-3 h-3 shrink-0" />
                     <span>{t('orderReadyBoard.voice_locked_hint')}</span>
                   </p>
                 ) : (
-                  <div className="flex items-center justify-between mt-1 text-[10px]">
+                  <div className="flex items-center justify-between text-[10px] text-slate-400 mt-1">
                     <span className="text-emerald-400 font-semibold flex items-center gap-1 truncate">
                       <Sparkles className="w-3 h-3 shrink-0" />
                       {isSavingVoice ? t('orderReadyBoard.voice_saving') : t('orderReadyBoard.voice_global_badge')}
-                    </span>
-                    <span className="text-slate-400 italic truncate ml-1">
-                      {AVAILABLE_VOICES.find(v => v.id === selectedVoice)?.[language === 'es' ? 'labelEs' : 'labelEn']}
                     </span>
                   </div>
                 )}
               </div>
 
               {/* Idioma de los Anuncios */}
-              <label className="text-xs font-bold uppercase tracking-wider text-slate-400 block mb-1.5">
-                {t('orderReadyBoard.voice_language')}
-              </label>
-              <div className="flex gap-1.5">
-                {(['es', 'en', 'bilingual'] as const).map((langOption) => (
-                  <button
-                    key={langOption}
-                    onClick={() => setVoiceLanguage(langOption)}
-                    className={`flex-1 py-1 px-1.5 rounded-lg text-xs font-bold uppercase tracking-wider border transition ${
-                      voiceLanguage === langOption
-                        ? 'bg-emerald-600 text-white border-emerald-500 shadow-sm'
-                        : 'bg-slate-950 text-slate-400 border-slate-800 hover:bg-slate-800'
-                    }`}
-                  >
-                    {langOption === 'es' ? 'ES' : langOption === 'en' ? 'EN' : (language === 'es' ? 'Bilingüe' : 'Bilingual')}
-                  </button>
-                ))}
-              </div>
-
-              {/* Slider de Volumen */}
-              <div className="mt-2.5">
-                <div className="flex justify-between text-xs text-slate-400 font-semibold mb-1">
-                  <span>{t('orderReadyBoard.voice_volume')}</span>
-                  <span>{Math.round(voiceVolume * 100)}%</span>
-                </div>
-                <input
-                  type="range"
-                  min="0.1"
-                  max="1"
-                  step="0.05"
-                  value={voiceVolume}
-                  onChange={(e) => setVoiceVolume(parseFloat(e.target.value))}
-                  className="w-full accent-emerald-500 h-1.5 bg-slate-800 rounded-lg cursor-pointer"
-                />
-              </div>
-
-              {/* Toggle de Campanilla Ding-Dong */}
-              <div className="mt-2.5 pt-2 border-t border-slate-800">
-                <label className="flex items-center justify-between text-xs font-medium text-slate-300 cursor-pointer">
-                  <span className="flex items-center gap-1.5">
-                    <Bell className="w-3.5 h-3.5 text-amber-400" />
-                    {t('orderReadyBoard.enable_chime')}
-                  </span>
-                  <input
-                    type="checkbox"
-                    checked={enableChime}
-                    onChange={(e) => updateEnableChime(e.target.checked)}
-                    className="accent-emerald-500 rounded"
-                  />
+              <div className="mt-3.5 pt-2.5 border-t border-slate-800/80">
+                <label className="text-[11px] font-semibold text-slate-400 block mb-1.5">
+                  {t('orderReadyBoard.voice_language')}
                 </label>
-              </div>
-            </div>
-
-            {/* Filtros de Canales y Anuncios */}
-            <div>
-              <label className="text-xs font-bold uppercase tracking-wider text-slate-400 block mb-2">
-                {t('orderReadyBoard.channels_settings')}
-              </label>
-              <div className="space-y-2">
-                <label className="flex items-center gap-2 text-xs font-medium text-slate-300 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={announceToGo}
-                    onChange={(e) => {
-                      setAnnounceToGo(e.target.checked)
-                      if (typeof window !== 'undefined') localStorage.setItem('teg_order_ready_announce_tg', String(e.target.checked))
-                    }}
-                    className="accent-emerald-500 rounded"
-                  />
-                  <span>{t('orderReadyBoard.announce_togo')}</span>
-                </label>
-                <label className="flex items-center gap-2 text-xs font-medium text-slate-300 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={announceForHere}
-                    onChange={(e) => {
-                      setAnnounceForHere(e.target.checked)
-                      if (typeof window !== 'undefined') localStorage.setItem('teg_order_ready_announce_fh', String(e.target.checked))
-                    }}
-                    className="accent-emerald-500 rounded"
-                  />
-                  <span>{t('orderReadyBoard.announce_for_here')}</span>
-                </label>
-
-                {/* Control de Drive-Thru */}
-                <div className="p-2.5 rounded-xl bg-orange-500/10 border border-orange-500/30 space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-orange-300 flex items-center gap-1.5">
-                      <Car className="w-3.5 h-3.5" />
-                      Drive-Thru
-                    </span>
+                <div className="flex gap-1.5">
+                  {(['es', 'en', 'bilingual'] as const).map((langOption) => (
                     <button
+                      key={langOption}
                       type="button"
-                      onClick={toggleDriveThruMaster}
-                      className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider transition ${
-                        announceDriveThru || showDriveThru
-                          ? 'bg-orange-500 text-slate-950'
-                          : 'bg-slate-800 text-slate-400 border border-slate-700'
+                      onClick={() => setVoiceLanguage(langOption)}
+                      className={`flex-1 py-1 px-1.5 rounded-lg text-xs font-bold uppercase tracking-wider border transition ${
+                        voiceLanguage === langOption
+                          ? 'bg-emerald-600 text-white border-emerald-500 shadow-sm'
+                          : 'bg-slate-900 text-slate-400 border-slate-800 hover:bg-slate-800'
                       }`}
                     >
-                      {announceDriveThru || showDriveThru ? 'ON' : 'OFF'}
+                      {langOption === 'es' ? 'ES' : langOption === 'en' ? 'EN' : (language === 'es' ? 'Bilingüe' : 'Bilingual')}
                     </button>
-                  </div>
-                  <label className="flex items-center gap-2 text-xs font-medium text-slate-300 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={announceDriveThru}
-                      onChange={(e) => updateAnnounceDriveThru(e.target.checked)}
-                      className="accent-orange-500 rounded"
-                    />
-                    <span>{t('orderReadyBoard.announce_drive_thru')}</span>
-                  </label>
-                  <label className="flex items-center gap-2 text-xs font-medium text-slate-300 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={showDriveThru}
-                      onChange={(e) => updateShowDriveThru(e.target.checked)}
-                      className="accent-orange-500 rounded"
-                    />
-                    <span>{t('orderReadyBoard.show_drive_thru')}</span>
-                  </label>
+                  ))}
                 </div>
-
-                <label className="flex items-center gap-2 text-xs font-medium text-slate-300 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={announceDelivery}
-                    onChange={(e) => {
-                      setAnnounceDelivery(e.target.checked)
-                      if (typeof window !== 'undefined') localStorage.setItem('teg_order_ready_announce_del', String(e.target.checked))
-                    }}
-                    className="accent-emerald-500 rounded"
-                  />
-                  <span>{t('orderReadyBoard.announce_delivery')}</span>
-                </label>
               </div>
             </div>
 
-            {/* Acciones Rápidas de Prueba */}
-            <div className="flex flex-col justify-between">
-              <label className="text-xs font-bold uppercase tracking-wider text-slate-400 block mb-2">
-                {language === 'es' ? 'Acciones' : 'Actions'}
-              </label>
-              <div className="space-y-2">
+            {/* Tarjeta 3: SONIDO Y EFECTOS */}
+            <div className="bg-slate-950/70 border border-slate-800/80 rounded-2xl p-4 flex flex-col justify-between shadow-sm">
+              <div>
+                <div className="flex items-center gap-2 mb-3">
+                  <Volume2 className="w-4 h-4 text-emerald-400" />
+                  <span className="text-xs font-bold uppercase tracking-wider text-slate-300">
+                    {t('orderReadyBoard.card_sound_volume')}
+                  </span>
+                </div>
+
+                {/* Slider de Volumen */}
+                <div className="mb-3.5">
+                  <div className="flex justify-between text-xs text-slate-400 font-semibold mb-1">
+                    <span>{t('orderReadyBoard.voice_volume')}</span>
+                    <span className="text-emerald-400 font-black">{Math.round(voiceVolume * 100)}%</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0.1"
+                    max="1"
+                    step="0.05"
+                    value={voiceVolume}
+                    onChange={(e) => setVoiceVolume(parseFloat(e.target.value))}
+                    className="w-full accent-emerald-500 h-1.5 bg-slate-800 rounded-lg cursor-pointer"
+                  />
+                </div>
+
+                {/* Toggle Campanilla Ding-Dong */}
+                <div className="pt-2.5 border-t border-slate-800/80">
+                  <label className="flex items-center justify-between text-xs font-medium text-slate-300 cursor-pointer py-1">
+                    <span className="flex items-center gap-1.5">
+                      <Bell className="w-3.5 h-3.5 text-amber-400" />
+                      {t('orderReadyBoard.enable_chime')}
+                    </span>
+                    <input
+                      type="checkbox"
+                      checked={enableChime}
+                      onChange={(e) => updateEnableChime(e.target.checked)}
+                      className="accent-emerald-500 rounded w-4 h-4 cursor-pointer"
+                    />
+                  </label>
+                </div>
+              </div>
+
+              {/* Botón Destacado: Probar Anuncio Completo */}
+              <div className="mt-3.5 pt-2.5 border-t border-slate-800/80">
                 <button
+                  type="button"
                   onClick={() => handleTestSound(selectedVoice)}
                   disabled={isTestingVoice}
                   className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs py-2 px-3 rounded-lg shadow transition disabled:opacity-50"
                 >
                   <Play className={`w-3.5 h-3.5 fill-current ${isTestingVoice ? 'animate-spin' : ''}`} />
-                  {isTestingVoice ? t('orderReadyBoard.testing_voice') : `${t('orderReadyBoard.test_voice')} (${selectedVoice} #141)`}
+                  <span>
+                    {isTestingVoice
+                      ? t('orderReadyBoard.testing_voice')
+                      : `${t('orderReadyBoard.test_announcement_btn')} (${selectedVoice} #141)`}
+                  </span>
                 </button>
-                <div className="grid grid-cols-3 gap-1.5">
+              </div>
+            </div>
+
+            {/* Tarjeta 4: CANALES Y SIMULACIÓN */}
+            <div className="bg-slate-950/70 border border-slate-800/80 rounded-2xl p-4 flex flex-col justify-between shadow-sm">
+              <div>
+                <div className="flex items-center gap-2 mb-3">
+                  <Sliders className="w-4 h-4 text-emerald-400" />
+                  <span className="text-xs font-bold uppercase tracking-wider text-slate-300">
+                    {t('orderReadyBoard.card_channels_simulation')}
+                  </span>
+                </div>
+
+                {/* Checkboxes de Canales: Para Llevar & Comer Aquí */}
+                <div className="space-y-2 mb-3">
+                  <label className="flex items-center justify-between p-2 rounded-xl bg-slate-900 border border-slate-800 text-xs font-medium text-slate-300 cursor-pointer hover:border-slate-700 transition">
+                    <span className="flex items-center gap-2 font-semibold">
+                      <ShoppingBag className="w-3.5 h-3.5 text-cyan-400" />
+                      {t('orderReadyBoard.announce_togo')}
+                    </span>
+                    <input
+                      type="checkbox"
+                      checked={announceToGo}
+                      onChange={(e) => {
+                        setAnnounceToGo(e.target.checked)
+                        if (typeof window !== 'undefined') localStorage.setItem('teg_order_ready_announce_tg', String(e.target.checked))
+                      }}
+                      className="accent-emerald-500 rounded w-4 h-4 cursor-pointer"
+                    />
+                  </label>
+
+                  <label className="flex items-center justify-between p-2 rounded-xl bg-slate-900 border border-slate-800 text-xs font-medium text-slate-300 cursor-pointer hover:border-slate-700 transition">
+                    <span className="flex items-center gap-2 font-semibold">
+                      <Utensils className="w-3.5 h-3.5 text-amber-400" />
+                      {t('orderReadyBoard.announce_for_here')}
+                    </span>
+                    <input
+                      type="checkbox"
+                      checked={announceForHere}
+                      onChange={(e) => {
+                        setAnnounceForHere(e.target.checked)
+                        if (typeof window !== 'undefined') localStorage.setItem('teg_order_ready_announce_fh', String(e.target.checked))
+                      }}
+                      className="accent-emerald-500 rounded w-4 h-4 cursor-pointer"
+                    />
+                  </label>
+                </div>
+              </div>
+
+              {/* Botones de Simulación de Órdenes (Solo Togo y Dine-In) */}
+              <div className="mt-3.5 pt-2.5 border-t border-slate-800/80">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block mb-1.5">
+                  {t('orderReadyBoard.simulate_order_title')}
+                </span>
+                <div className="grid grid-cols-2 gap-2">
                   <button
+                    type="button"
                     onClick={() => handleSimulateOrder('TOGO')}
-                    className="flex items-center justify-center gap-1 bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-cyan-500/30 font-semibold text-xs py-1.5 px-1 rounded-lg transition"
+                    className="flex items-center justify-center gap-1.5 bg-slate-900 hover:bg-slate-800 text-cyan-300 border border-cyan-500/30 font-semibold text-xs py-2 px-2 rounded-lg transition"
                   >
+                    <ShoppingBag className="w-3.5 h-3.5" />
                     + Togo
                   </button>
                   <button
+                    type="button"
                     onClick={() => handleSimulateOrder('FOR_HERE')}
-                    className="flex items-center justify-center gap-1 bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/30 font-semibold text-xs py-1.5 px-1 rounded-lg transition"
+                    className="flex items-center justify-center gap-1.5 bg-slate-900 hover:bg-slate-800 text-amber-300 border border-amber-500/30 font-semibold text-xs py-2 px-2 rounded-lg transition"
                   >
+                    <Utensils className="w-3.5 h-3.5" />
                     + Dine-In
                   </button>
-                  <button
-                    onClick={() => handleSimulateOrder('DRIVE_THRU')}
-                    className="flex items-center justify-center gap-1 bg-slate-800 hover:bg-slate-700 text-orange-300 border border-orange-500/30 font-semibold text-xs py-1.5 px-1 rounded-lg transition"
-                  >
-                    + DriveThru
-                  </button>
                 </div>
-                <button
-                  onClick={() => fetchOrders(true)}
-                  disabled={isSyncing}
-                  className="w-full flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs py-1.5 px-3 rounded-lg transition disabled:opacity-50"
-                >
-                  <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
-                  {isSyncing ? t('orderReadyBoard.syncing') : t('orderReadyBoard.sync_toast')}
-                </button>
               </div>
             </div>
           </div>
@@ -1814,13 +1816,21 @@ function OrderReadyBoardContent() {
 
       {/* Cuerpo Principal del Tablero: Dos Columnas Gigantes */}
       {(() => {
+        // Regla de Negocio Tacos Gavilan: Limpieza automática de pantalla a los 20 minutos
+        // y filtro estricto: el módulo Order Ready Board solo opera para FOR_HERE y TOGO.
+        const maxReadyAgeMs = readyRetentionMinutes * 60 * 1000
+        const isAllowedDining = (order: OrderItem) =>
+          order.dining_option === 'FOR_HERE' || order.dining_option === 'TOGO'
+
         const displayedReadyOrders = readyOrders.filter((order) => {
-          if (order.dining_option === 'DRIVE_THRU' && !showDriveThru) return false
+          if (!isAllowedDining(order)) return false
+          const readyTimestamp = order.ready_at ? new Date(order.ready_at).getTime() : new Date(order.created_at).getTime()
+          if (nowMs - readyTimestamp > maxReadyAgeMs) return false
           return true
         })
 
         const displayedInProgressOrders = inProgressOrders.filter((order) => {
-          if (order.dining_option === 'DRIVE_THRU' && !showDriveThru) return false
+          if (!isAllowedDining(order)) return false
           return true
         })
 
@@ -1844,8 +1854,12 @@ function OrderReadyBoardContent() {
                         {displayedReadyOrders.length}
                       </span>
                     </h2>
-                    <p className="text-xs text-emerald-300/70 font-medium">
-                      {language === 'es' ? 'Pasa al mostrador con tu ticket' : 'Please proceed to the counter'}
+                    <p className="text-xs text-emerald-300/70 font-medium flex items-center gap-1.5 mt-0.5">
+                      <span>{language === 'es' ? 'Pasa al mostrador con tu ticket' : 'Please proceed to the counter'}</span>
+                      <span className="text-slate-600">•</span>
+                      <span className="text-[11px] text-slate-400">
+                        {language === 'es' ? `(Se retiran tras ${readyRetentionMinutes} min)` : `(Clears after ${readyRetentionMinutes} mins)`}
+                      </span>
                     </p>
                   </div>
                 </div>
