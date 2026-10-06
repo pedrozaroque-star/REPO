@@ -6,12 +6,42 @@
  * - Adheres to California compliance guidelines by wrapping the AI breaks scheduler.
  * - Performs theoretical cost analysis matching QuickBooks purchase prices.
  * - Para Orden Diaria, el PAR menos sobrante sólo es accionable con captura física completa; cero explícito es válido y faltantes bloquean guardado/envío.
- * - El piloto de Lynwood y Slauson usa conteo ciego: la comparación automática se revela solo después de cerrar el conteo completo; el físico sigue oficial.
+ * - El piloto supervisado de Lynwood y Slauson usa conteo ciego; el físico sigue oficial y el pedido no recibe un colchón fuera del PAR.
+ * - Sin ventas/recetas completas o con unidades incompatibles, el sobrante teórico se informa como no certificado; nunca se fuerza a igualar el físico.
+ * - El backtest revisado usa PAR de semana exacta y pedidos enviados/recibidos, reporta faltantes y excluye papelito dominical no medido. Sus ventanas ya exploradas no certifican autonomía; merma estimada no equivale a merma registrada.
+ * - Un snapshot solo es fuente certificable si sus GUID y selecciones coinciden con Toast vigente; el fin de semana se concilia viernes→domingo y las carnes en bolsas cerradas no se equiparan a onzas servidas.
+ * - Lynwood usa dos lecturas Toast estables para el shadow: compara snapshots cuando existen, y señala expresamente cuando solo hay fuente en vivo. Slauson conserva solo conteo físico hasta versionar empaques. Empleado es sticker de descuento y Test Item es prueba del POS: ninguno aporta consumo; el platillo real sí.
  * - Las cantidades extremas de pedidos históricos no alimentan el sobrante automático ni sus métricas de precisión.
+ * - Salsa roja/verde de salsabar es de uso libre; el domingo se descarta Papelito Para Torta sobrante y el cero capturado significa cero utilizable. Ninguno certifica consumo Toast exacto.
+ * - Bolsa Apadte/Aparte es una instrucción de empaque del platillo, no otra receta; Super Mulita consume 1.15 oz de aguacate y 0.75 oz de crema. Sin esos complementos se vende como Mulita regular.
+ * - Torta Milanesa usa 2 piezas y Plato Milanesa 4 piezas; Milaneza llega en bolsa de 20 piezas.
+ * - Torta Jamón usa tres rebanadas de 1.4 oz cada una de Jamon Pack de 2 lb.
+ * - Plato Asada incluye 2 oz de aguacate por receta y ~0.15 oz de cotija; no necesita un modificador de extra.
+ * - Platos, Taco Plate y desayunos llevan ~0.15 oz de cotija; los desayunos usan plato de tres compartimientos con arroz, frijol y papelito. El aguacate de otros platos depende de su receta.
+ * - Torta Cubana usa una milanesa, 1.4 oz jamón y 0.8 oz salchicha, además de su base de torta; porciones confirmadas por Carlos y verificadas en tickets históricos.
+ * - Huevos Rancheros usa 4 oz de salsa ranchera en EL4OZ (For Here sin tapa; los demás canales usan EL4LID). Las notas Toast comparten GUID y se distinguen por texto para no colapsar excepciones.
+ * - Frijol D/L/O es una cortesía de un vasito de 4 oz; aunque una selección registrada consume 4 oz, el frijol entero libre del salsabar no queda totalmente registrado en tickets.
+ * - Super Burrito Vegetariano usa dos papelitos preparados; Burrito Huevos de desayuno no lleva papelito. Taco Plate sí usa uno aunque esa línea falte en su receta DB.
+ * - Desayunos y vegetarianos usan recetas por GUID y conversiones oz/lb/pza, sin duplicar papelito. No Rice/Beans/Cheese/Sour Cream/Guacamole/Mayo eliminan el ingrediente identificado; extras o notas sin cantidad permanecen no certificados.
+ * - Porciones confirmadas por Carlos: aguacate 2.3 oz en Super Burrito/Super Quesadilla/Torta/Nachos, 1.15 oz en Super Mulita; crema 1.5 oz en Super Burrito/Super Quesadilla/Nachos y 0.75 oz en Super Mulita/Sope; la Torta NO lleva crema y sí 0.6 oz de mayonesa. Cotija ~0.15 oz en Platos/Taco Plate/desayunos; sope 0.3–0.4 oz, registrado provisionalmente a 0.35 oz sin calibrar contra un cierre. Jack es Queso Rayado de bolsa 2 lb: 2.1 oz en Super Burrito, 0.6 oz en taco solicitado (también Taco Plate). Estas medidas no certifican por sí solas paridad con conteos físicos ni activan pedidos automáticos.
+ * - Los modificadores Toast No Aguacate/No Guacamole y No Crema eliminan la porción base en platillos genéricos; el sufijo (In Store) también se reconoce en recetas específicas. Los extras sin porción confirmada no se suman arbitrariamente.
+ * - Meat Only Super Burrito usa receta específica (12 oz carne, queso, aguacate y crema, sin arroz/frijol); Sope/Torta Queso y Quesadilla Jamón también descuentan sus ingredientes guardados. Exclusiones parciales/ambiguas bloquean certificación.
+ * - Super Quesadilla Jamón y Plato Jamón usan sus recetas completas, incluida la porción de 5.6 oz de Jamon Pack por pieza; Plato Jamón exige elección registrada de tortilla maíz/harina.
+ * - "Fiesta Platters" de Uber/plataformas Delivery es siempre el tamaño pequeño 15-20 personas, confirmado por Carlos; otros canales sin tamaño/precio explícito permanecen ambiguos.
+ * - En tacos/platos/burritos un Half reparte la porción entre carne base y elegida. Solo Extra/Doble Carne duplica carne; Extra Salsa/Guacamole y otros extras no cárnicos no la aumentan. Notas de empaque o Cebollas Asadas no cambian proteína; sustituciones no resueltas se advierten.
+ * - Side Order Nacho Cheese consume 4 oz de queso y empaque según receta visible, convertido con caja física de 440 oz; no agrega chips, crema ni aguacate. Papelito vendido individualmente descuenta piezas sin dividir entre 60.
+ * - Un Plato o desayuno con Half Flour/Corn lleva 4 tortillas de maíz y 1 de harina; las alternativas completas son 8 maíz o 2 harina.
+ * - No Cheese y Jack Cheese simultáneos en un mismo taco son ambiguos: no afirmar consumo de Jack sin aclarar qué queso se sirvió.
+ * - Las exclusiones Toast de Aguacate, Crema y Mayo se aplican también cuando una nota libre comienza con No y continúa con texto; las adiciones escritas sin porción confirmada no se inventan.
+ * - Bebidas Medium/Large For Here y To Go de caja entregan vaso ELDP22 (22 oz) o ELDP32 (32 oz), pero el cliente puede elegir soda Coca-Cola, agua fresca o mezcla. El botón no identifica líquido ni volumen servido. En Drive Thru, TakeOut de plataformas, Delivery y Party Trays sí se identifica sabor y tamaño de la bebida preparada; Viele & Sons continúa manual.
+ * - Torta Salchicha consume 2.3 oz de Salchicha Bag por receta (bolsa de 1 lb) y 0.6 oz de mayonesa medida.
+ * - Cada Gallon Agua/Agua Fresca vendido consume un Galón Vacío; su caja en catálogo contiene 48 piezas, así que el consumo teórico por venta es 1/48 caja.
+ * - Al explicar consumo teórico de tortillas o sopes vendidos por docena, quantity_per_unit ya expresa piezas por paquete; no se divide otra vez entre 12.
+ * - Seguridad Orden Diaria (2026-10-01): escrituras de PAR, sobrantes y borradores requieren sesión y perfil de tienda incluso en desarrollo; un fallo DB de sobrante no equivale a captura. QuickBooks no debe crear otro Estimate si falla la lectura o actualización de uno existente, ni enviar artículos positivos sin mapeo QB. La idempotencia/concurrencia del primer envío y el reemplazo transaccional de borradores aún requieren cierre antes de activar autonomía.
  * @dataFlow
  * - Gemini Tool Calls -> executeTool() -> Database Select/Upsert / Local Forecasting Engine / AI Breaks Engine -> Formatted Markdown String Response.
  * @notes Combines multi-year lookups and weather APIs dynamically to generate instant predictive insights inside the support chat. La recuperación histórica de tickets Toast 2026 se archiva localmente y comprimida por defecto, sin PII; los snapshots no representan por sí solos consumo real ni autorizan pedidos automáticos.
- *   Party Tray guidance: selected water flavor consumes the listed gallons plus one Galón Vacío each; absent water/salsa flavor in Party Trays, Gallon Agua/Agua Fresca, and 20 oz salsa uses same-store history (eight matching weekdays, then 28 recent days, then equal split); 20 oz salsa also consumes RC478, 709DO, and ELTSBALA; corn/flour split 50/50 when both are selected; 60 tortillas consume one RC478 + 709DO pair; Party Tray jalapeños are bulk; every tray uses three food-pan/lid pairs sized 1/3 (15-20), 1/2 (20-30), or full (30-40), 12PR cups, one EL1CS2G to group white cutlery, and DX900GE napkin packs of 250 each. Ticket packaging reads preserved Toast channel metadata (dining option, source and delivery service) rather than guessing from API labels.
+ *   Party Tray guidance: selected water flavor consumes the listed gallons plus one Galón Vacío each; absent water flavor in Party Trays and Gallon Agua/Agua Fresca uses same-store history (eight matching weekdays, then 28 recent days, then equal split); 20 oz salsa without color uses 10 oz Roja + 10 oz Verde, and with explicit color uses 20 oz of that color. 20 oz salsa also consumes RC478, 709DO, and currently ELTSBALA pending channel-specific bag validation; corn/flour split 50/50 when both are selected; 60 tortillas consume one RC478 + 709DO pair; Party Tray jalapeños are bulk; every tray uses three food-pan/lid pairs sized 1/3 (15-20), 1/2 (20-30), or full (30-40), 12PR cups, one EL1CS2G to group white cutlery, and DX900GE napkin packs of 250 each. Ticket packaging reads preserved Toast channel metadata (dining option, source and delivery service) rather than guessing from API labels.
  */
 
 import { supabaseAdmin } from '@/lib/supabase'
@@ -307,7 +337,7 @@ export const TOOL_DECLARATIONS = [
   },
   {
     name: 'query_inventory_pilot_status',
-    description: 'Query the Lynwood and Slauson blind-count automation pilot status and accuracy comparison by business date. Physical count remains official; anomalous historical quantities are excluded from automatic estimates.',
+    description: 'Query the Lynwood and Slauson blind-count automation pilot status and accuracy comparison by business date. Physical count remains official; Sunday leftover Papelito discard and free salsa-bar use cannot certify ticket-derived leftovers. Anomalous historical quantities are excluded from automatic estimates.',
     parameters: {
       type: 'OBJECT',
       properties: {
@@ -483,6 +513,27 @@ export const TOOL_DECLARATIONS = [
         order_number: { type: 'STRING', description: 'Número de orden de compra oficial de Sage 100 (ej: "W149964")' }
       }
     }
+  },
+  {
+    name: 'query_grubhub_audit',
+    description: 'Ejecutar auditoría de integración Grubhub en tiempo real: escanea las 15 tiendas contra Toast API, reporta órdenes Grubhub, Net Sales, descuentos promocionales, impuestos marketplace, y valida la Ecuación Contable (Net + Tax = Payments). Útil para verificar la actualización de precios/descuentos automáticos de Grubhub.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        business_date: { type: 'STRING', description: 'Fecha de negocio a auditar en formato YYYY-MM-DD (ej: "2026-09-29"). Si se omite, audita el día de negocio cerrado más reciente.' }
+      }
+    }
+  },
+  {
+    name: 'query_order_ready_board',
+    description: 'Consulta el estado en vivo del Order Ready Board (tablero de órdenes listas y en preparación, canales Drive-Thru, ToGo, For Here, y órdenes anunciadas por voz) para una o todas las sucursales.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        store_code: { type: 'STRING', description: 'Código de la sucursal (ej: "LYNWOOD", "LACENTRAL", "WCOVINA"). Si se omite, devuelve el resumen de todas las sucursales.' },
+        minutes: { type: 'NUMBER', description: 'Ventana de tiempo en minutos hacia atrás (por defecto 45 min).' }
+      }
+    }
   }
 ]
 
@@ -527,6 +578,8 @@ export async function executeTool(name: string, args: any): Promise<string> {
       case 'query_user_chat_history': return await queryUserChatHistory(args)
       case 'query_accounting_packets': return await queryAccountingPackets(args)
       case 'query_viele_procurement': return await queryVieleProcurement(args)
+      case 'query_grubhub_audit': return await queryGrubhubAudit(args)
+      case 'query_order_ready_board': return await queryOrderReadyBoardTool(args)
       default: return `Tool "${name}" not found.`
     }
   } catch (e: any) {
@@ -1013,7 +1066,7 @@ async function queryTicketPackaging(args: { store_name: string; business_date: s
     HESP: 'Cuchara Blanca (Comedor/ToGo)',
     EL1CS2G: 'Bolsa Cubiertos Delivery (EL1CS2G)',
     RC478: 'Contenedor Redondo Aluminio (RC478)',
-    '709DO': 'Tapa Cartón/Aluminio (709DO)',
+    '709DO': 'Tapa Domo Plástico Transparente (709DO)',
     cup_8oz_paper: 'Vaso Papel 8 oz (Arroz/Frijol/Side Carne)',
     lid_8oz_flat: 'Tapa Plana 8 oz',
     cup_4oz: 'Vasito 4 oz (Frijol D/L/O, Guacamole)',
@@ -1025,10 +1078,13 @@ async function queryTicketPackaging(args: { store_name: string; business_date: s
     ELTSBALA: 'Bolsa Camiseta Chica (ToGo/DriveThru)',
     ELMES2G: 'Bolsa Exterior Mediana Delivery',
     ELLAS2G: 'Bolsa Exterior Grande Delivery',
-    bolsa_agua_uber: 'Bolsa Agua Uber'
+    bolsa_agua_uber: 'Bolsa Agua Uber',
+    ELDP22: 'Vaso Medium 22 oz (ELDP22)',
+    ELDP32: 'Vaso Large 32 oz (ELDP32)'
   }
   const lines = Array.from(totals.entries()).map(([key, quantity]) => `- ${label[key] || key}: ${quantity}`)
   lines.push('Regla de canal: TakeOut de plataformas y Toast Online usan perfil Delivery; To Go de caja y Drive Thru usan perfil To Go.')
+  lines.push('Salsa de 20 oz: la receta virtual cuenta RC478 + 709DO y 20 oz de salsa (10 roja + 10 verde si no hay color). Ese envase se calcula fuera de esta vista de empaque por ticket; la bolsa por canal aún no está certificada.')
   return `Empaque por ticket — ${clean(store.name)}, ${args.business_date}\nTickets con productos configurados: ${tacoTickets}; tacos equivalentes: ${tacos}\n${lines.join('\n') || '- Sin consumo'}\n${unresolved ? `Aviso: ${unresolved} taco(s) no tenían carne identificable, por lo que no se asignó color de salsa.\n` : ''}`
 }
 
@@ -2080,7 +2136,7 @@ async function queryInventoryPilotStatus(args: { business_date?: string; days_ba
     return `${storeName || 'Sucursal'} · ${session.business_date}: ${session.status === 'revealed' ? 'Conteo cerrado' : 'En captura'} | ${lines.length} artículos | Precisión dentro de tolerancia: ${accuracy}% | Cerró: ${session.completed_by_name || '—'}`
   })
 
-  return `Piloto de automatización de inventario — Lynwood y Slauson\n${rows.join('\n')}\n\nDurante el piloto, el conteo físico es el oficial para el pedido a QuickBooks.`
+  return `Piloto de automatización de inventario — Lynwood y Slauson\n${rows.join('\n')}\n\nDurante el piloto, el conteo físico es el oficial para el pedido a QuickBooks; las diferencias con el teórico se investigan y no se corrigen con un colchón automático.`
 }
 
 async function querySupervisorMileage(args: { start_date: string; end_date: string; supervisor_name?: string }): Promise<string> {
@@ -2737,4 +2793,85 @@ async function queryVieleOrders(args: any): Promise<string> {
   } catch (err: any) {
     return `Error consultando órdenes de Viele & Sons: ${err.message}`;
   }
+}
+
+// ── Grubhub Audit Tool ──
+async function queryGrubhubAudit(args: { business_date?: string }): Promise<string> {
+  try {
+    const { executeGrubhubAudit } = await import('@/lib/grubhub-audit-sentinel')
+
+    let targetDate = args.business_date
+    if (!targetDate) {
+      const now = new Date()
+      const laNow = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
+      if (laNow.getHours() < 6) laNow.setDate(laNow.getDate() - 1)
+      const yesterday = new Date(laNow)
+      yesterday.setDate(yesterday.getDate() - 1)
+      targetDate = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, '0')}-${String(yesterday.getDate()).padStart(2, '0')}`
+    }
+
+    const report = await executeGrubhubAudit(targetDate)
+    if (!report) return 'Error: La auditoría no retornó resultados.'
+
+    const lines: string[] = []
+    lines.push(`## 🛡️ Auditoría Grubhub — ${report.businessDateFormatted}`)
+    lines.push('')
+    lines.push(`| Métrica | Valor |`)
+    lines.push(`|---------|-------|`)
+    lines.push(`| Tiendas escaneadas | ${report.totalStoresScanned} |`)
+    lines.push(`| Tiendas con Grubhub | ${report.storesWithGrubhub} |`)
+    lines.push(`| Órdenes Grubhub | ${report.totalOrders} |`)
+    lines.push(`| Net Sales | ${fmt$(report.totalNetSales)} |`)
+    lines.push(`| Descuentos | ${fmt$(report.totalDiscounts)} |`)
+    lines.push(`| Impuestos Marketplace | ${fmt$(report.totalTax)} |`)
+    lines.push(`| Pagos | ${fmt$(report.totalPayments)} |`)
+    lines.push(`| Drift contable | ${fmt$(report.totalDrift)} |`)
+    lines.push(`| Ecuación balanceada | ${report.isBalanced ? '✅ Sí' : '❌ NO'} |`)
+    lines.push(`| Órdenes con descuentos | ${report.ordersWithDiscountsCount} |`)
+    lines.push(`| Cache DB coincide | ${report.dbCacheMatch ? '✅ Sí' : '❌ NO'} |`)
+    lines.push('')
+
+    if (report.storeSummaries.length > 0) {
+      lines.push('### Detalle por Tienda')
+      lines.push('')
+      lines.push('| Tienda | Órdenes | Net Sales | Tax | Pagos | Drift | Bal |')
+      lines.push('|--------|---------|-----------|-----|-------|-------|-----|')
+      for (const s of report.storeSummaries) {
+        lines.push(`| ${clean(s.storeName)} | ${s.ordersCount} | ${fmt$(s.netSales)} | ${fmt$(s.tax)} | ${fmt$(s.payments)} | ${fmt$(s.drift)} | ${s.balanced ? '✅' : '❌'} |`)
+      }
+    }
+
+    return lines.join('\n')
+  } catch (err: any) {
+    return `Error ejecutando auditoría Grubhub: ${err.message}`
+  }
+}
+
+async function queryOrderReadyBoardTool(args: { store_code?: string; minutes?: number }): Promise<string> {
+  const minutes = args.minutes || 45
+  const cutoff = new Date(Date.now() - minutes * 60 * 1000).toISOString()
+
+  let q = supabaseAdmin
+    .from('order_ready_announcements')
+    .select('*')
+    .gte('created_at', cutoff)
+    .order('created_at', { ascending: false })
+
+  if (args.store_code) {
+    q = q.eq('store_code', args.store_code.toUpperCase())
+  }
+
+  const { data: orders, error } = await q
+  if (error) return `Error consultando Order Ready Board: ${error.message}`
+  if (!orders || orders.length === 0) {
+    return `No hay órdenes activas en el Order Ready Board en los últimos ${minutes} minutos${args.store_code ? ` para ${args.store_code}` : ''}.`
+  }
+
+  const ready = orders.filter(o => o.status === 'READY')
+  const inProgress = orders.filter(o => o.status === 'IN_PROGRESS')
+
+  return `📢 **Order Ready Board Status (Últimos ${minutes} min)**:
+• **Total órdenes activas**: ${orders.length}
+• **Listas para Recoger (READY)**: ${ready.length} (${ready.map(r => `#${r.order_number} [${r.dining_option}]`).join(', ') || 'Ninguna'})
+• **En Preparación (IN_PROGRESS)**: ${inProgress.length} (${inProgress.slice(0, 10).map(p => `#${p.order_number} [${p.dining_option}]`).join(', ') || 'Ninguna'}${inProgress.length > 10 ? ` ...y ${inProgress.length - 10} más` : ''})`
 }

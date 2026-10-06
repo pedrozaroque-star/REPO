@@ -16,6 +16,9 @@
 
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
+import { getAuthToken } from '@/lib/toast-api'
+
+const TOAST_API_HOST = process.env.TOAST_API_HOST || 'https://ws-api.toasttab.com'
 
 export const dynamic = 'force-dynamic'
 
@@ -49,8 +52,8 @@ export async function POST(request: Request) {
 
     // El número de orden puede venir en varios formatos
     const orderNumber = orderObj.displayNumber || orderObj.orderNumber || payload.orderNumber || payload.displayNumber || payload.ticketNumber
-    const orderGuid = orderObj.guid || payload.orderGuid || payload.guid
-    const guestStatus = payload.guestOrderStatus || orderObj.fulfillmentStatus || payload.status || orderObj.approvalStatus
+    const orderGuid = payload.details?.orderGuid || payload.orderGuid || orderObj.guid || payload.guid
+    const rawStatus = (payload.details?.guestOrderStatus || payload.guestOrderStatus || orderObj.fulfillmentStatus || payload.status || orderObj.approvalStatus || '').toString().toUpperCase()
 
     if (!orderNumber && !orderGuid) {
       return NextResponse.json({ message: 'Payload recibido sin orderNumber ni orderGuid, ignorado' }, { status: 200 })
@@ -58,9 +61,9 @@ export async function POST(request: Request) {
 
     // Traducir estado de Toast a nuestro sistema
     let status: 'IN_PROGRESS' | 'READY' | 'COMPLETED' = 'IN_PROGRESS'
-    if (guestStatus === 'READY_FOR_PICKUP' || guestStatus === 'READY' || guestStatus === 'FULFILLED') {
+    if (rawStatus === 'READY_FOR_PICKUP' || rawStatus === 'READY' || rawStatus === 'FULFILLED') {
       status = 'READY'
-    } else if (guestStatus === 'CLOSED' || guestStatus === 'COMPLETED') {
+    } else if (rawStatus === 'CLOSED' || rawStatus === 'COMPLETED') {
       status = 'COMPLETED'
     }
 
@@ -81,32 +84,50 @@ export async function POST(request: Request) {
       diningOption = 'DRIVE_THRU'
     }
 
-    const customerName = orderObj.customer?.firstName || payload.customerName || null
-    const finalOrderNumber = String(orderNumber || orderGuid?.slice(-4) || '---')
-
+    let customerName = orderObj.customer?.firstName || payload.customerName || null
     const now = new Date().toISOString()
 
-    // Buscar si ya existe la orden en Supabase
-    const { data: existing } = await supabaseAdmin
-      .from('order_ready_announcements')
-      .select('id, status, announced')
-      .eq('store_code', storeInfo.code)
-      .eq('order_number', finalOrderNumber)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle()
+    // 1. Buscar si ya existe la orden en Supabase por order_guid (clave canónica de Toast)
+    let existing: any = null
+    if (orderGuid) {
+      const { data: byGuid } = await supabaseAdmin
+        .from('order_ready_announcements')
+        .select('id, status, announced, order_number, dining_option, customer_name, order_guid')
+        .eq('order_guid', orderGuid)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      existing = byGuid
+    }
 
+    // 2. Si no se encontró por GUID pero tenemos orderNumber, buscar por store_code + order_number
+    if (!existing && orderNumber) {
+      const { data: byNum } = await supabaseAdmin
+        .from('order_ready_announcements')
+        .select('id, status, announced, order_number, dining_option, customer_name, order_guid')
+        .eq('store_code', storeInfo.code)
+        .eq('order_number', String(orderNumber))
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      existing = byNum
+    }
+
+    // Si ya existe la orden, actualizarla
     if (existing) {
       const updateData: any = {
         status,
-        dining_option: diningOption
+        ...(diningOption ? { dining_option: diningOption } : {})
       }
       if (status === 'READY' && existing.status !== 'READY') {
         updateData.ready_at = now
-        updateData.announced = false // Activar anuncio de audio
+        updateData.announced = false // Activar campanilla y voz bilingüe
       }
       if (customerName) {
         updateData.customer_name = customerName
+      }
+      if (orderGuid && !existing.order_guid) {
+        updateData.order_guid = orderGuid
       }
 
       await supabaseAdmin
@@ -114,24 +135,62 @@ export async function POST(request: Request) {
         .update(updateData)
         .eq('id', existing.id)
 
-      return NextResponse.json({ success: true, action: 'updated', orderNumber: finalOrderNumber })
+      return NextResponse.json({ success: true, action: 'updated', orderNumber: existing.order_number, status })
     }
 
-    // Insertar nuevo registro
+    // Si es orden nueva y no tenemos número de orden pero sí GUID, consultar a Toast API
+    let finalOrderNumber = orderNumber ? String(orderNumber) : null
+    let finalDiningOption = diningOption
+
+    if (!finalOrderNumber && orderGuid && restaurantId) {
+      try {
+        const token = await getAuthToken()
+        const res = await fetch(`${TOAST_API_HOST}/orders/v2/orders/${orderGuid}`, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Toast-Restaurant-External-ID': restaurantId
+          }
+        })
+        if (res.ok) {
+          const toastOrder = await res.json()
+          if (toastOrder.displayNumber) {
+            finalOrderNumber = String(toastOrder.displayNumber)
+          }
+          if (toastOrder.diningOption?.name) {
+            const raw = toastOrder.diningOption.name.toUpperCase()
+            if (raw.includes('HERE') || raw.includes('DINE')) finalDiningOption = 'FOR_HERE'
+            else if (raw.includes('DRIVE')) finalDiningOption = 'DRIVE_THRU'
+            else if (raw.includes('UBER') || raw.includes('DOORDASH') || raw.includes('DELIVERY')) finalDiningOption = 'DELIVERY'
+            else finalDiningOption = 'TOGO'
+          }
+          if (toastOrder.customer?.firstName && !customerName) {
+            customerName = toastOrder.customer.firstName
+          }
+        }
+      } catch (err) {
+        console.warn('Toast order fetch fallback error:', err)
+      }
+    }
+
+    if (!finalOrderNumber) {
+      finalOrderNumber = String(orderGuid?.slice(-4) || '---')
+    }
+
+    // Insertar nuevo registro en Supabase
     await supabaseAdmin.from('order_ready_announcements').insert({
       store_code: storeInfo.code,
       store_id: restaurantId || storeInfo.code,
       store_name: storeInfo.name,
       order_number: finalOrderNumber,
-      order_guid: orderGuid,
-      dining_option: diningOption,
+      order_guid: orderGuid || null,
+      dining_option: finalDiningOption,
       customer_name: customerName,
       status,
       announced: false,
       ready_at: status === 'READY' ? now : null
     })
 
-    return NextResponse.json({ success: true, action: 'created', orderNumber: finalOrderNumber })
+    return NextResponse.json({ success: true, action: 'created', orderNumber: finalOrderNumber, status })
   } catch (err: any) {
     console.error('Error procesando webhook de Toast:', err)
     return NextResponse.json({ error: err.message || 'Webhook processing failed' }, { status: 500 })

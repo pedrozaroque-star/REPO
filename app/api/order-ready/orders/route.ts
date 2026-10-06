@@ -259,13 +259,23 @@ async function syncRecentOrdersFromToast(storeCode: string) {
         .maybeSingle()
 
       if (!existing) {
+        let detectedDining = 'TOGO'
+        const rawDiningName = (ord.diningOption?.name || '').toUpperCase()
+        if (rawDiningName.includes('HERE') || rawDiningName.includes('DINE')) {
+          detectedDining = 'FOR_HERE'
+        } else if (rawDiningName.includes('DRIVE')) {
+          detectedDining = 'DRIVE_THRU'
+        } else if (rawDiningName.includes('DELIVERY') || rawDiningName.includes('UBER') || rawDiningName.includes('DOORDASH') || rawDiningName.includes('GRUBHUB')) {
+          detectedDining = 'DELIVERY'
+        }
+
         await supabaseAdmin.from('order_ready_announcements').insert({
           store_code: storeCode,
           store_id: store.external_id,
           store_name: store.name,
           order_number: String(orderNum),
           order_guid: ord.guid,
-          dining_option: ord.diningOption?.name?.toUpperCase()?.includes('HERE') ? 'FOR_HERE' : 'TOGO',
+          dining_option: detectedDining,
           customer_name: ord.customer?.firstName || null,
           status,
           announced: false,

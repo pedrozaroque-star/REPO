@@ -8,24 +8,29 @@
  * - **Separación de Estados**:
  *   - 'IN_PROGRESS': Órdenes en cocina recibidas pero aún no despachadas.
  *   - 'READY': Órdenes marcadas con doble tap en KDS Expediter o por API.
- * - **Motor de Voz y Chime**:
- *   - Sintetizador de campana (Ding-Dong) con Web Audio API de baja latencia sin archivos externos.
+ * - **Motor de Audio (Ding-Dong Chime) y Locución Femenina**:
+ *   - Sintetizador armónico de campana (Ding-Dong) con Web Audio API de baja latencia antes del llamado + Locutora de alta fidelidad bilingüe secuencial (Inglés: "Order #141 is ready," + Español: "orden #141 ya está.").
+ *   - Campanilla Ding-Dong configurable (ON/OFF) con persistencia en LocalStorage.
  *   - Text-to-Speech (TTS) configurable en Español, Inglés o Bilingüe.
  *   - Cola de audio FIFO (First-In, First-Out) para evitar superposición de anuncios en horas pico.
- *   - Filtro de canales: por defecto solo anuncia órdenes 'FOR_HERE' y 'TOGO', silenciando entregas de delivery para no saturar el comedor.
+ *   - Control y Filtro de Canales:
+ *     * 'FOR_HERE' (Comedor) y 'TOGO' (Para Llevar): activos por defecto.
+ *     * 'DRIVE_THRU' (Auto-Servicio): botón de control maestro (ON/OFF) en encabezado y controles detallados en el panel para activar/desactivar anuncios de voz y/o visualización en pantalla, con persistencia en LocalStorage.
+ *     * 'DELIVERY' (Plataformas): silenciado por defecto para no saturar el comedor.
  * - **Gestión de Vida Útil**: Las órdenes en 'READY' se retiran visualmente tras un tiempo configurable (por defecto 10 minutos).
  * 
  * @dataFlow
- * - Supabase Realtime channel (`order_ready_announcements`) + Polling cada 4s -> Actualiza estado React -> Dispara Chime + TTS -> PATCH /api/order-ready/orders (announced: true).
+ * - Supabase Realtime channel (`order_ready_announcements`) + Polling cada 4s -> Actualiza estado React -> Dispara SpeechSynthesis femenino bilingüe -> PATCH /api/order-ready/orders (announced: true).
  * 
  * @notes
  * - Los navegadores web requieren un primer toque o clic para desbloquear el AudioContext y SpeechSynthesis (política de autoplay de navegadores). Se incluye un banner sutil de desbloqueo.
+ * - Preferencias de canales (Drive-Thru, To Go, For Here, Delivery) persisten en `localStorage` del dispositivo.
  */
 
 'use client'
 
 import React, { useState, useEffect, useRef, useCallback } from 'react'
-import { Volume2, VolumeX, Settings, Play, RefreshCw, Bell, CheckCircle2, Clock, Sparkles, ChevronDown, ChevronUp, Store } from 'lucide-react'
+import { Volume2, VolumeX, Settings, Play, RefreshCw, Bell, CheckCircle2, Clock, Sparkles, ChevronDown, ChevronUp, Store, Car } from 'lucide-react'
 import { useLanguage } from '@/lib/i18n'
 import { createClient } from '@supabase/supabase-js'
 
@@ -85,7 +90,75 @@ export default function OrderReadyBoardPage() {
   const [availableVoices, setAvailableVoices] = useState<SpeechSynthesisVoice[]>([])
   const [announceToGo, setAnnounceToGo] = useState<boolean>(true)
   const [announceForHere, setAnnounceForHere] = useState<boolean>(true)
+  const [announceDriveThru, setAnnounceDriveThru] = useState<boolean>(true)
+  const [showDriveThru, setShowDriveThru] = useState<boolean>(true)
   const [announceDelivery, setAnnounceDelivery] = useState<boolean>(false)
+  const [enableChime, setEnableChime] = useState<boolean>(true)
+
+  // Cargar preferencias guardadas en LocalStorage y URL Query Param (?store=...)
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search)
+      const storeParam = params.get('store') || params.get('storeCode')
+      if (storeParam) {
+        const found = STORES_LIST.find(s => s.code.toUpperCase() === storeParam.toUpperCase())
+        if (found) {
+          setSelectedStore(found.code)
+          localStorage.setItem('teg_order_ready_store', found.code)
+        }
+      } else {
+        const savedStore = localStorage.getItem('teg_order_ready_store')
+        if (savedStore) {
+          const found = STORES_LIST.find(s => s.code === savedStore)
+          if (found) setSelectedStore(found.code)
+        }
+      }
+
+      const savedAnnounceDT = localStorage.getItem('teg_order_ready_announce_dt')
+      if (savedAnnounceDT !== null) setAnnounceDriveThru(savedAnnounceDT === 'true')
+      const savedShowDT = localStorage.getItem('teg_order_ready_show_dt')
+      if (savedShowDT !== null) setShowDriveThru(savedShowDT === 'true')
+      const savedAnnounceTG = localStorage.getItem('teg_order_ready_announce_tg')
+      if (savedAnnounceTG !== null) setAnnounceToGo(savedAnnounceTG === 'true')
+      const savedAnnounceFH = localStorage.getItem('teg_order_ready_announce_fh')
+      if (savedAnnounceFH !== null) setAnnounceForHere(savedAnnounceFH === 'true')
+      const savedAnnounceDel = localStorage.getItem('teg_order_ready_announce_del')
+      if (savedAnnounceDel !== null) setAnnounceDelivery(savedAnnounceDel === 'true')
+      const savedChime = localStorage.getItem('teg_order_ready_chime')
+      if (savedChime !== null) setEnableChime(savedChime === 'true')
+    }
+  }, [])
+
+  const handleStoreChange = (storeCode: string) => {
+    setSelectedStore(storeCode)
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('teg_order_ready_store', storeCode)
+      const url = new URL(window.location.href)
+      url.searchParams.set('store', storeCode)
+      window.history.replaceState({}, '', url.toString())
+    }
+  }
+
+  const updateAnnounceDriveThru = (val: boolean) => {
+    setAnnounceDriveThru(val)
+    if (typeof window !== 'undefined') localStorage.setItem('teg_order_ready_announce_dt', String(val))
+  }
+
+  const updateShowDriveThru = (val: boolean) => {
+    setShowDriveThru(val)
+    if (typeof window !== 'undefined') localStorage.setItem('teg_order_ready_show_dt', String(val))
+  }
+
+  const updateEnableChime = (val: boolean) => {
+    setEnableChime(val)
+    if (typeof window !== 'undefined') localStorage.setItem('teg_order_ready_chime', String(val))
+  }
+
+  const toggleDriveThruMaster = () => {
+    const nextVal = !(announceDriveThru || showDriveThru)
+    updateAnnounceDriveThru(nextVal)
+    updateShowDriveThru(nextVal)
+  }
 
   // Paneles de control y testing
   const [showControls, setShowControls] = useState<boolean>(false)
@@ -148,6 +221,55 @@ export default function OrderReadyBoardPage() {
       console.warn('Audio unlock error:', e)
     }
   }, [])
+
+  // Función para sintetizar un Chime de alta fidelidad tipo campanilla ("Ding-Dong")
+  const playChime = useCallback((): Promise<void> => {
+    return new Promise((resolve) => {
+      try {
+        if (!audioCtxRef.current) {
+          unlockAudio()
+        }
+        const ctx = audioCtxRef.current
+        if (!ctx || ctx.state === 'suspended') {
+          resolve()
+          return
+        }
+
+        const now = ctx.currentTime
+
+        // Tono 1: D5 (587.33 Hz)
+        const osc1 = ctx.createOscillator()
+        const gain1 = ctx.createGain()
+        osc1.type = 'sine'
+        osc1.frequency.setValueAtTime(587.33, now)
+        gain1.gain.setValueAtTime(0.28 * voiceVolume, now)
+        gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.6)
+        osc1.connect(gain1)
+        gain1.connect(ctx.destination)
+        osc1.start(now)
+        osc1.stop(now + 0.6)
+
+        // Tono 2: A5 (880 Hz) con leve retraso
+        const osc2 = ctx.createOscillator()
+        const gain2 = ctx.createGain()
+        osc2.type = 'sine'
+        osc2.frequency.setValueAtTime(880, now + 0.18)
+        gain2.gain.setValueAtTime(0.35 * voiceVolume, now + 0.18)
+        gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.9)
+        osc2.connect(gain2)
+        gain2.connect(ctx.destination)
+        osc2.start(now + 0.18)
+        osc2.stop(now + 0.9)
+
+        setTimeout(() => {
+          resolve()
+        }, 850)
+      } catch (err) {
+        console.warn('Chime error:', err)
+        resolve()
+      }
+    })
+  }, [unlockAudio, voiceVolume])
 
   // Helper para seleccionar la mejor voz femenina de alta fidelidad (no robotizada)
   const getBestFemaleVoice = useCallback(
@@ -291,7 +413,7 @@ export default function OrderReadyBoardPage() {
     [availableVoices, getBestFemaleVoice, isMuted, voiceVolume, voiceSpeed, voiceLanguage]
   )
 
-  // Procesador de la cola de audio (FIFO Audio Queue) - SIN DING-DONG
+  // Procesador de la cola de audio (FIFO Audio Queue) - Con Campanilla Ding-Dong y Voz Femenina
   const processAudioQueue = useCallback(async () => {
     if (isPlayingRef.current || audioQueueRef.current.length === 0 || isMuted) {
       return
@@ -301,10 +423,15 @@ export default function OrderReadyBoardPage() {
     const nextOrder = audioQueueRef.current.shift()
 
     if (nextOrder) {
-      // Llamada directa con voz femenina sin sonido de campana previo
+      // 1. Tocar campanilla Ding-Dong si está habilitada
+      if (enableChime) {
+        await playChime()
+      }
+
+      // 2. Anunciar con la voz femenina
       await speakOrder(nextOrder)
 
-      // Marcar como anunciada en backend
+      // 3. Marcar como anunciada en backend
       try {
         await fetch('/api/order-ready/orders', {
           method: 'PATCH',
@@ -322,7 +449,7 @@ export default function OrderReadyBoardPage() {
     if (audioQueueRef.current.length > 0) {
       processAudioQueue()
     }
-  }, [isMuted, speakOrder])
+  }, [isMuted, enableChime, playChime, speakOrder])
 
   // Encolar una orden lista para ser anunciada
   const enqueueAnnouncement = useCallback(
@@ -330,6 +457,7 @@ export default function OrderReadyBoardPage() {
       // Filtrar según canales habilitados
       if (order.dining_option === 'TOGO' && !announceToGo) return
       if (order.dining_option === 'FOR_HERE' && !announceForHere) return
+      if (order.dining_option === 'DRIVE_THRU' && !announceDriveThru) return
       if (order.dining_option === 'DELIVERY' && !announceDelivery) return
 
       // Evitar meter a la cola si ya está en ella
@@ -338,7 +466,7 @@ export default function OrderReadyBoardPage() {
       audioQueueRef.current.push(order)
       processAudioQueue()
     },
-    [announceToGo, announceForHere, announceDelivery, processAudioQueue]
+    [announceToGo, announceForHere, announceDriveThru, announceDelivery, processAudioQueue]
   )
 
   // Cargar órdenes desde el backend
@@ -404,9 +532,12 @@ export default function OrderReadyBoardPage() {
     }
   }, [selectedStore, fetchOrders])
 
-  // Probar voz femenina (SIN DING-DONG)
+  // Probar campanilla Ding-Dong y voz femenina
   const handleTestSound = async () => {
     unlockAudio()
+    if (enableChime) {
+      await playChime()
+    }
     const testOrder: OrderItem = {
       id: 'test-' + Date.now(),
       created_at: new Date().toISOString(),
@@ -424,7 +555,7 @@ export default function OrderReadyBoardPage() {
   }
 
   // Simular creación de orden de prueba
-  const handleSimulateOrder = async (diningOption: 'TOGO' | 'FOR_HERE' = 'TOGO') => {
+  const handleSimulateOrder = async (diningOption: 'TOGO' | 'FOR_HERE' | 'DRIVE_THRU' = 'TOGO') => {
     unlockAudio()
     const randomNum = Math.floor(Math.random() * 800) + 100
     try {
@@ -436,7 +567,7 @@ export default function OrderReadyBoardPage() {
           orderNumber: String(randomNum),
           diningOption,
           status: 'READY',
-          customer_name: diningOption === 'TOGO' ? 'Para Llevar' : 'Comer Aquí'
+          customer_name: diningOption === 'TOGO' ? 'Para Llevar' : diningOption === 'FOR_HERE' ? 'Comer Aquí' : 'Drive-Thru'
         })
       })
       const data = await res.json()
@@ -455,6 +586,13 @@ export default function OrderReadyBoardPage() {
       return (
         <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/40">
           🍽️ {t('orderReadyBoard.for_here')}
+        </span>
+      )
+    }
+    if (dining === 'DRIVE_THRU') {
+      return (
+        <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-orange-500/20 text-orange-300 border border-orange-500/40">
+          🚗 {t('orderReadyBoard.drive_thru')}
         </span>
       )
     }
@@ -504,12 +642,21 @@ export default function OrderReadyBoardPage() {
                 {t('orderReadyBoard.title')}
               </span>
             </div>
-            <p className="text-xs text-slate-400 font-medium flex items-center gap-2">
-              <Store className="w-3.5 h-3.5 text-slate-500" />
-              <span>
-                {STORES_LIST.find(s => s.code === selectedStore)?.name || selectedStore}
-              </span>
-            </p>
+            <div className="mt-1 flex items-center gap-1.5">
+              <Store className="w-3.5 h-3.5 text-emerald-400" />
+              <select
+                value={selectedStore}
+                onChange={(e) => handleStoreChange(e.target.value)}
+                onClick={(e) => e.stopPropagation()}
+                className="bg-slate-800/90 hover:bg-slate-800 text-slate-200 hover:text-white font-bold text-xs rounded-lg px-2.5 py-1 border border-slate-700 focus:outline-none focus:border-emerald-500 cursor-pointer shadow-sm transition"
+              >
+                {STORES_LIST.map((s) => (
+                  <option key={s.code} value={s.code} className="bg-slate-900 text-white">
+                    {s.name}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
         </div>
 
@@ -536,6 +683,30 @@ export default function OrderReadyBoardPage() {
             {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
             <span className="hidden md:inline">
               {isMuted ? t('orderReadyBoard.audio_muted') : t('orderReadyBoard.audio_enabled')}
+            </span>
+          </button>
+
+          {/* Quick Toggle Drive-Thru */}
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              toggleDriveThruMaster()
+            }}
+            title={announceDriveThru || showDriveThru ? t('orderReadyBoard.drive_thru_enabled') : t('orderReadyBoard.drive_thru_disabled')}
+            className={`flex items-center gap-2 px-3.5 py-2 rounded-xl border text-xs font-bold uppercase tracking-wider transition-all ${
+              announceDriveThru || showDriveThru
+                ? 'bg-orange-500/10 text-orange-400 border-orange-500/30 hover:bg-orange-500/20'
+                : 'bg-slate-800/80 text-slate-500 border-slate-700 hover:bg-slate-800'
+            }`}
+          >
+            <Car className="w-4 h-4" />
+            <span className="hidden md:inline">Drive-Thru</span>
+            <span className={`text-[10px] font-black px-1.5 py-0.5 rounded ${
+              announceDriveThru || showDriveThru
+                ? 'bg-orange-500 text-slate-950'
+                : 'bg-slate-700 text-slate-400'
+            }`}>
+              {announceDriveThru || showDriveThru ? 'ON' : 'OFF'}
             </span>
           </button>
 
@@ -576,7 +747,7 @@ export default function OrderReadyBoardPage() {
               </label>
               <select
                 value={selectedStore}
-                onChange={(e) => setSelectedStore(e.target.value)}
+                onChange={(e) => handleStoreChange(e.target.value)}
                 className="w-full bg-slate-950 border border-slate-800 text-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-emerald-500 font-medium"
               >
                 {STORES_LIST.map((s) => (
@@ -624,19 +795,38 @@ export default function OrderReadyBoardPage() {
                   className="w-full accent-emerald-500 h-1.5 bg-slate-800 rounded-lg cursor-pointer"
                 />
               </div>
+
+              {/* Toggle de Campanilla Ding-Dong */}
+              <div className="mt-3 pt-3 border-t border-slate-800">
+                <label className="flex items-center justify-between text-xs font-medium text-slate-300 cursor-pointer">
+                  <span className="flex items-center gap-1.5">
+                    <Bell className="w-3.5 h-3.5 text-amber-400" />
+                    {t('orderReadyBoard.enable_chime')}
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={enableChime}
+                    onChange={(e) => updateEnableChime(e.target.checked)}
+                    className="accent-emerald-500 rounded"
+                  />
+                </label>
+              </div>
             </div>
 
-            {/* Filtros de Anuncios por Tipo */}
+            {/* Filtros de Canales y Anuncios */}
             <div>
               <label className="text-xs font-bold uppercase tracking-wider text-slate-400 block mb-2">
-                {t('orderReadyBoard.testing_panel')}
+                {t('orderReadyBoard.channels_settings')}
               </label>
               <div className="space-y-2">
                 <label className="flex items-center gap-2 text-xs font-medium text-slate-300 cursor-pointer">
                   <input
                     type="checkbox"
                     checked={announceToGo}
-                    onChange={(e) => setAnnounceToGo(e.target.checked)}
+                    onChange={(e) => {
+                      setAnnounceToGo(e.target.checked)
+                      if (typeof window !== 'undefined') localStorage.setItem('teg_order_ready_announce_tg', String(e.target.checked))
+                    }}
                     className="accent-emerald-500 rounded"
                   />
                   <span>{t('orderReadyBoard.announce_togo')}</span>
@@ -645,16 +835,62 @@ export default function OrderReadyBoardPage() {
                   <input
                     type="checkbox"
                     checked={announceForHere}
-                    onChange={(e) => setAnnounceForHere(e.target.checked)}
+                    onChange={(e) => {
+                      setAnnounceForHere(e.target.checked)
+                      if (typeof window !== 'undefined') localStorage.setItem('teg_order_ready_announce_fh', String(e.target.checked))
+                    }}
                     className="accent-emerald-500 rounded"
                   />
                   <span>{t('orderReadyBoard.announce_for_here')}</span>
                 </label>
+
+                {/* Control de Drive-Thru */}
+                <div className="p-2.5 rounded-xl bg-orange-500/10 border border-orange-500/30 space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-orange-300 flex items-center gap-1.5">
+                      <Car className="w-3.5 h-3.5" />
+                      Drive-Thru
+                    </span>
+                    <button
+                      type="button"
+                      onClick={toggleDriveThruMaster}
+                      className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider transition ${
+                        announceDriveThru || showDriveThru
+                          ? 'bg-orange-500 text-slate-950'
+                          : 'bg-slate-800 text-slate-400 border border-slate-700'
+                      }`}
+                    >
+                      {announceDriveThru || showDriveThru ? 'ON' : 'OFF'}
+                    </button>
+                  </div>
+                  <label className="flex items-center gap-2 text-xs font-medium text-slate-300 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={announceDriveThru}
+                      onChange={(e) => updateAnnounceDriveThru(e.target.checked)}
+                      className="accent-orange-500 rounded"
+                    />
+                    <span>{t('orderReadyBoard.announce_drive_thru')}</span>
+                  </label>
+                  <label className="flex items-center gap-2 text-xs font-medium text-slate-300 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={showDriveThru}
+                      onChange={(e) => updateShowDriveThru(e.target.checked)}
+                      className="accent-orange-500 rounded"
+                    />
+                    <span>{t('orderReadyBoard.show_drive_thru')}</span>
+                  </label>
+                </div>
+
                 <label className="flex items-center gap-2 text-xs font-medium text-slate-300 cursor-pointer">
                   <input
                     type="checkbox"
                     checked={announceDelivery}
-                    onChange={(e) => setAnnounceDelivery(e.target.checked)}
+                    onChange={(e) => {
+                      setAnnounceDelivery(e.target.checked)
+                      if (typeof window !== 'undefined') localStorage.setItem('teg_order_ready_announce_del', String(e.target.checked))
+                    }}
                     className="accent-emerald-500 rounded"
                   />
                   <span>{t('orderReadyBoard.announce_delivery')}</span>
@@ -675,18 +911,24 @@ export default function OrderReadyBoardPage() {
                   <Play className="w-3.5 h-3.5 fill-current" />
                   {t('orderReadyBoard.test_sound')}
                 </button>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-3 gap-1.5">
                   <button
                     onClick={() => handleSimulateOrder('TOGO')}
-                    className="flex items-center justify-center gap-1 bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-cyan-500/30 font-semibold text-xs py-1.5 px-2 rounded-lg transition"
+                    className="flex items-center justify-center gap-1 bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-cyan-500/30 font-semibold text-xs py-1.5 px-1 rounded-lg transition"
                   >
                     + Togo
                   </button>
                   <button
                     onClick={() => handleSimulateOrder('FOR_HERE')}
-                    className="flex items-center justify-center gap-1 bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/30 font-semibold text-xs py-1.5 px-2 rounded-lg transition"
+                    className="flex items-center justify-center gap-1 bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/30 font-semibold text-xs py-1.5 px-1 rounded-lg transition"
                   >
                     + Dine-In
+                  </button>
+                  <button
+                    onClick={() => handleSimulateOrder('DRIVE_THRU')}
+                    className="flex items-center justify-center gap-1 bg-slate-800 hover:bg-slate-700 text-orange-300 border border-orange-500/30 font-semibold text-xs py-1.5 px-1 rounded-lg transition"
+                  >
+                    + DriveThru
                   </button>
                 </div>
                 <button
@@ -704,156 +946,170 @@ export default function OrderReadyBoardPage() {
       )}
 
       {/* Cuerpo Principal del Tablero: Dos Columnas Gigantes */}
-      <main className="flex-1 p-6 md:p-8 grid grid-cols-1 md:grid-cols-2 gap-8 max-w-7xl mx-auto w-full">
-        {/* COLUMNA IZQUIERDA: LISTAS PARA RECOGER (READY) */}
-        <section className="flex flex-col bg-slate-900/60 rounded-3xl border-2 border-emerald-500/50 p-6 shadow-2xl relative overflow-hidden backdrop-blur">
-          {/* Luz de fondo en verde */}
-          <div className="absolute -top-32 -left-32 w-80 h-80 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
+      {(() => {
+        const displayedReadyOrders = readyOrders.filter((order) => {
+          if (order.dining_option === 'DRIVE_THRU' && !showDriveThru) return false
+          return true
+        })
 
-          {/* Header de la columna */}
-          <div className="flex items-center justify-between pb-6 border-b border-emerald-500/30 relative z-10">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 shadow-inner">
-                <CheckCircle2 className="w-6 h-6" />
-              </div>
-              <div>
-                <h2 className="text-3xl lg:text-4xl font-black text-emerald-400 tracking-tight uppercase flex items-center gap-2">
-                  {t('orderReadyBoard.ready_for_pickup')}
-                  <span className="text-sm font-bold bg-emerald-500 text-slate-950 px-3 py-0.5 rounded-full ml-2">
-                    {readyOrders.length}
-                  </span>
-                </h2>
-                <p className="text-xs text-emerald-300/70 font-medium">
-                  {language === 'es' ? 'Pasa al mostrador con tu ticket' : 'Please proceed to the counter'}
-                </p>
-              </div>
-            </div>
-            <Sparkles className="w-6 h-6 text-emerald-400 animate-pulse hidden sm:block" />
-          </div>
+        const displayedInProgressOrders = inProgressOrders.filter((order) => {
+          if (order.dining_option === 'DRIVE_THRU' && !showDriveThru) return false
+          return true
+        })
 
-          {/* Tarjetas de Órdenes Listas */}
-          <div className="flex-1 mt-6 overflow-y-auto space-y-4 pr-1 relative z-10">
-            {readyOrders.length === 0 ? (
-              <div className="h-64 flex flex-col items-center justify-center text-slate-500 text-center">
-                <CheckCircle2 className="w-12 h-12 mb-3 text-slate-700" />
-                <p className="text-lg font-semibold text-slate-400">{t('orderReadyBoard.no_orders_ready')}</p>
-                <p className="text-xs text-slate-600 mt-1">
-                  {language === 'es' ? 'Al dar doble tap en el KDS aparecerán aquí' : 'Orders bumped on KDS will appear here'}
-                </p>
-              </div>
-            ) : (
-              readyOrders.map((order) => (
-                <div
-                  key={order.id}
-                  className="bg-gradient-to-r from-emerald-950/80 via-slate-900 to-emerald-950/80 border-2 border-emerald-500/60 rounded-2xl p-5 flex items-center justify-between shadow-xl shadow-emerald-950/40 transform hover:scale-[1.01] transition-all animate-in fade-in zoom-in-95 duration-300"
-                >
-                  <div className="flex items-center gap-5">
-                    {/* Número de Orden en Grande */}
-                    <div className="text-4xl lg:text-6xl font-black tracking-tight text-white font-mono drop-shadow-[0_2px_12px_rgba(16,185,129,0.5)]">
-                      #{order.order_number}
-                    </div>
+        return (
+          <main className="flex-1 p-6 md:p-8 grid grid-cols-1 md:grid-cols-2 gap-8 max-w-7xl mx-auto w-full">
+            {/* COLUMNA IZQUIERDA: LISTAS PARA RECOGER (READY) */}
+            <section className="flex flex-col bg-slate-900/60 rounded-3xl border-2 border-emerald-500/50 p-6 shadow-2xl relative overflow-hidden backdrop-blur">
+              {/* Luz de fondo en verde */}
+              <div className="absolute -top-32 -left-32 w-80 h-80 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
 
-                    {/* Nombre y Canal */}
-                    <div>
-                      {order.customer_name && (
-                        <div className="text-base lg:text-lg font-bold text-slate-200 truncate max-w-[200px]">
-                          {order.customer_name}
-                        </div>
-                      )}
-                      <div className="mt-1 flex items-center gap-2">
-                        {renderDiningBadge(order.dining_option)}
-                      </div>
-                    </div>
+              {/* Header de la columna */}
+              <div className="flex items-center justify-between pb-6 border-b border-emerald-500/30 relative z-10">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 shadow-inner">
+                    <CheckCircle2 className="w-6 h-6" />
                   </div>
-
-                  {/* Badge de Listo y Tiempo */}
-                  <div className="text-right">
-                    <span className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-black uppercase tracking-wider bg-emerald-500 text-slate-950 shadow-md">
-                      <CheckCircle2 className="w-4 h-4" />
-                      {t('orderReadyBoard.ready_badge')}
-                    </span>
-                    {order.ready_at && (
-                      <p className="text-[11px] text-emerald-400/80 font-medium mt-1.5">
-                        {calculateElapsedTime(order.ready_at, language)}
-                      </p>
-                    )}
+                  <div>
+                    <h2 className="text-3xl lg:text-4xl font-black text-emerald-400 tracking-tight uppercase flex items-center gap-2">
+                      {t('orderReadyBoard.ready_for_pickup')}
+                      <span className="text-sm font-bold bg-emerald-500 text-slate-950 px-3 py-0.5 rounded-full ml-2">
+                        {displayedReadyOrders.length}
+                      </span>
+                    </h2>
+                    <p className="text-xs text-emerald-300/70 font-medium">
+                      {language === 'es' ? 'Pasa al mostrador con tu ticket' : 'Please proceed to the counter'}
+                    </p>
                   </div>
                 </div>
-              ))
-            )}
-          </div>
-        </section>
-
-        {/* COLUMNA DERECHA: EN PREPARACIÓN (IN PROGRESS) */}
-        <section className="flex flex-col bg-slate-900/40 rounded-3xl border border-slate-800 p-6 shadow-xl backdrop-blur relative">
-          {/* Header de la columna */}
-          <div className="flex items-center justify-between pb-6 border-b border-slate-800">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-slate-300">
-                <Clock className="w-6 h-6 text-slate-400" />
+                <Sparkles className="w-6 h-6 text-emerald-400 animate-pulse hidden sm:block" />
               </div>
-              <div>
-                <h2 className="text-3xl lg:text-4xl font-black text-slate-200 tracking-tight uppercase flex items-center gap-2">
-                  {t('orderReadyBoard.in_progress')}
-                  <span className="text-sm font-bold bg-slate-800 text-slate-300 px-3 py-0.5 rounded-full ml-2 border border-slate-700">
-                    {inProgressOrders.length}
-                  </span>
-                </h2>
-                <p className="text-xs text-slate-400 font-medium">
-                  {language === 'es' ? 'Preparando con ingredientes frescos' : 'Preparing fresh on the grill'}
-                </p>
-              </div>
-            </div>
-          </div>
 
-          {/* Tarjetas de Órdenes en Preparación */}
-          <div className="flex-1 mt-6 overflow-y-auto space-y-3.5 pr-1">
-            {inProgressOrders.length === 0 ? (
-              <div className="h-64 flex flex-col items-center justify-center text-slate-500 text-center">
-                <Clock className="w-12 h-12 mb-3 text-slate-700" />
-                <p className="text-lg font-semibold text-slate-400">{t('orderReadyBoard.no_orders_in_progress')}</p>
-                <p className="text-xs text-slate-600 mt-1">
-                  {language === 'es' ? 'La cocina está al día' : 'The kitchen is caught up'}
-                </p>
-              </div>
-            ) : (
-              inProgressOrders.map((order) => (
-                <div
-                  key={order.id}
-                  className="bg-slate-900/90 border border-slate-800/80 rounded-2xl p-4 flex items-center justify-between shadow transition hover:border-slate-700"
-                >
-                  <div className="flex items-center gap-4">
-                    {/* Número de Orden */}
-                    <div className="text-3xl lg:text-5xl font-black tracking-tight text-slate-300 font-mono">
-                      #{order.order_number}
-                    </div>
-
-                    {/* Nombre y Canal */}
-                    <div>
-                      {order.customer_name && (
-                        <div className="text-sm lg:text-base font-bold text-slate-300 truncate max-w-[180px]">
-                          {order.customer_name}
+              {/* Tarjetas de Órdenes Listas */}
+              <div className="flex-1 mt-6 overflow-y-auto space-y-4 pr-1 relative z-10">
+                {displayedReadyOrders.length === 0 ? (
+                  <div className="h-64 flex flex-col items-center justify-center text-slate-500 text-center">
+                    <CheckCircle2 className="w-12 h-12 mb-3 text-slate-700" />
+                    <p className="text-lg font-semibold text-slate-400">{t('orderReadyBoard.no_orders_ready')}</p>
+                    <p className="text-xs text-emerald-400 font-medium mt-1">
+                      {STORES_LIST.find(s => s.code === selectedStore)?.name || selectedStore} • {language === 'es' ? 'Al dar doble tap en el KDS aparecerán aquí' : 'Orders bumped on KDS will appear here'}
+                    </p>
+                  </div>
+                ) : (
+                  displayedReadyOrders.map((order) => (
+                    <div
+                      key={order.id}
+                      className="bg-gradient-to-r from-emerald-950/80 via-slate-900 to-emerald-950/80 border-2 border-emerald-500/60 rounded-2xl p-5 flex items-center justify-between shadow-xl shadow-emerald-950/40 transform hover:scale-[1.01] transition-all animate-in fade-in zoom-in-95 duration-300"
+                    >
+                      <div className="flex items-center gap-5">
+                        {/* Número de Orden en Grande */}
+                        <div className="text-4xl lg:text-6xl font-black tracking-tight text-white font-mono drop-shadow-[0_2px_12px_rgba(16,185,129,0.5)]">
+                          #{order.order_number}
                         </div>
-                      )}
-                      <div className="mt-1 flex items-center gap-2">
-                        {renderDiningBadge(order.dining_option)}
+
+                        {/* Nombre y Canal */}
+                        <div>
+                          {order.customer_name && (
+                            <div className="text-base lg:text-lg font-bold text-slate-200 truncate max-w-[200px]">
+                              {order.customer_name}
+                            </div>
+                          )}
+                          <div className="mt-1 flex items-center gap-2">
+                            {renderDiningBadge(order.dining_option)}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Badge de Listo y Tiempo */}
+                      <div className="text-right">
+                        <span className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-black uppercase tracking-wider bg-emerald-500 text-slate-950 shadow-md">
+                          <CheckCircle2 className="w-4 h-4" />
+                          {t('orderReadyBoard.ready_badge')}
+                        </span>
+                        {order.ready_at && (
+                          <p className="text-[11px] text-emerald-400/80 font-medium mt-1.5">
+                            {calculateElapsedTime(order.ready_at, language)}
+                          </p>
+                        )}
                       </div>
                     </div>
-                  </div>
+                  ))
+                )}
+              </div>
+            </section>
 
-                  {/* Estado Casi Listo */}
-                  <div className="text-right">
-                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold text-slate-400 bg-slate-800/80 border border-slate-700/60">
-                      <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
-                      {t('orderReadyBoard.almost_ready')}
-                    </span>
+            {/* COLUMNA DERECHA: EN PREPARACIÓN (IN PROGRESS) */}
+            <section className="flex flex-col bg-slate-900/40 rounded-3xl border border-slate-800 p-6 shadow-xl backdrop-blur relative">
+              {/* Header de la columna */}
+              <div className="flex items-center justify-between pb-6 border-b border-slate-800">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-slate-300">
+                    <Clock className="w-6 h-6 text-slate-400" />
+                  </div>
+                  <div>
+                    <h2 className="text-3xl lg:text-4xl font-black text-slate-200 tracking-tight uppercase flex items-center gap-2">
+                      {t('orderReadyBoard.in_progress')}
+                      <span className="text-sm font-bold bg-slate-800 text-slate-300 px-3 py-0.5 rounded-full ml-2 border border-slate-700">
+                        {displayedInProgressOrders.length}
+                      </span>
+                    </h2>
+                    <p className="text-xs text-slate-400 font-medium">
+                      {language === 'es' ? 'Preparando con ingredientes frescos' : 'Preparing fresh on the grill'}
+                    </p>
                   </div>
                 </div>
-              ))
-            )}
-          </div>
-        </section>
-      </main>
+              </div>
+
+              {/* Tarjetas de Órdenes en Preparación */}
+              <div className="flex-1 mt-6 overflow-y-auto space-y-3.5 pr-1">
+                {displayedInProgressOrders.length === 0 ? (
+                  <div className="h-64 flex flex-col items-center justify-center text-slate-500 text-center">
+                    <Clock className="w-12 h-12 mb-3 text-slate-700" />
+                    <p className="text-lg font-semibold text-slate-400">{t('orderReadyBoard.no_orders_in_progress')}</p>
+                    <p className="text-xs text-slate-400 font-medium mt-1">
+                      {STORES_LIST.find(s => s.code === selectedStore)?.name || selectedStore} • {language === 'es' ? 'La cocina está al día' : 'The kitchen is caught up'}
+                    </p>
+                  </div>
+                ) : (
+                  displayedInProgressOrders.map((order) => (
+                    <div
+                      key={order.id}
+                      className="bg-slate-900/90 border border-slate-800/80 rounded-2xl p-4 flex items-center justify-between shadow transition hover:border-slate-700"
+                    >
+                      <div className="flex items-center gap-4">
+                        {/* Número de Orden */}
+                        <div className="text-3xl lg:text-5xl font-black tracking-tight text-slate-300 font-mono">
+                          #{order.order_number}
+                        </div>
+
+                        {/* Nombre y Canal */}
+                        <div>
+                          {order.customer_name && (
+                            <div className="text-sm lg:text-base font-bold text-slate-300 truncate max-w-[180px]">
+                              {order.customer_name}
+                            </div>
+                          )}
+                          <div className="mt-1 flex items-center gap-2">
+                            {renderDiningBadge(order.dining_option)}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Estado Casi Listo */}
+                      <div className="text-right">
+                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold text-slate-400 bg-slate-800/80 border border-slate-700/60">
+                          <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
+                          {t('orderReadyBoard.almost_ready')}
+                        </span>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </section>
+          </main>
+        )
+      })()}
 
       {/* Footer corporativo */}
       <footer className="bg-slate-950 border-t border-slate-900 px-6 py-3 text-center text-xs text-slate-500 font-medium">
