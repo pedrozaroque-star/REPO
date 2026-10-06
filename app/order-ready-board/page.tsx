@@ -51,7 +51,16 @@ interface OrderItem {
   ready_at: string | null
   announced: boolean
   items_summary: string | null
+  /** Solo cliente: marca un anuncio de recordatorio (no persiste en DB) */
+  _reminder?: boolean
+  /** Solo cliente: clave de orden en la cola de audio (ms epoch) */
+  _sortAt?: number
 }
+
+/** Veces que se anuncia una orden al cerrarse con doble tap en el expediter */
+const ANNOUNCE_REPEATS = 2
+/** Recordatorio único (1 vez) si la orden sigue en "Listo para recoger" tras este tiempo */
+const REMINDER_DELAY_MS = 90_000
 
 const STORES_LIST = [
   { code: 'LYNWOOD', name: 'Lynwood (#14)' },
@@ -171,6 +180,10 @@ export default function OrderReadyBoardPage() {
   const isPlayingRef = useRef<boolean>(false)
   // Ids ya encolados/anunciados en este dispositivo (evita repetir el anuncio mientras el PATCH aún no llega)
   const announcedIdsRef = useRef<Set<string>>(new Set())
+  const readyIdsRef = useRef<Set<string>>(new Set())
+  const reminderTimersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set())
+  const fetchingRef = useRef<boolean>(false)
+  const enqueueReminderRef = useRef<((o: OrderItem) => void) | null>(null)
   // Clips de voz natural ya descargados: "en:141" -> objectURL
   const clipCacheRef = useRef<Map<string, Promise<string | null>>>(new Map())
   const prefetchRunningRef = useRef<boolean>(false)
@@ -237,9 +250,17 @@ export default function OrderReadyBoardPage() {
           unlockAudio()
         }
         const ctx = audioCtxRef.current
-        if (!ctx || ctx.state === 'suspended') {
+        if (!ctx) {
           resolve()
           return
+        }
+        // Tras horas de inactividad el navegador puede suspender el AudioContext: reintentar reanudarlo
+        if (ctx.state === 'suspended') {
+          ctx.resume().catch(() => {})
+          if (ctx.state === 'suspended') {
+            resolve()
+            return
+          }
         }
 
         const now = ctx.currentTime
@@ -465,6 +486,13 @@ export default function OrderReadyBoardPage() {
         const finish = (ok: boolean) => {
           if (!done) {
             done = true
+            // Liberar el elemento de audio (importante en turnos largos / PCs viejas)
+            audio.onended = null
+            audio.onerror = null
+            try {
+              audio.removeAttribute('src')
+              audio.load()
+            } catch {}
             resolve(ok)
           }
         }
@@ -481,7 +509,7 @@ export default function OrderReadyBoardPage() {
 
   // Anuncia la orden con la voz natural; si no hay TTS, cae a la voz del navegador
   const speakOrder = useCallback(
-    async (order: OrderItem): Promise<void> => {
+    async (order: OrderItem, repeats: number = 1): Promise<void> => {
       const isNumeric = /^\d{1,4}$/.test(order.order_number)
       if (!isNumeric) return speakOrderBrowser(order)
 
@@ -496,18 +524,22 @@ export default function OrderReadyBoardPage() {
           : voiceLanguage === 'en'
             ? 'Order #' + num + ' is ready.'
             : 'Orden #' + num + ', ya está.'
-      setActiveSpeech(phrase)
 
-      for (let i = 0; i < urls.length; i++) {
-        const ok = await playClip(urls[i] as string)
-        if (!ok) {
-          setActiveSpeech(null)
-          // Si ni siquiera sonó el primer clip, usar el respaldo; si falló el segundo solo se detiene
-          if (i === 0) return speakOrderBrowser(order)
-          return
+      for (let rep = 0; rep < repeats; rep++) {
+        setActiveSpeech(phrase)
+        for (let i = 0; i < urls.length; i++) {
+          const ok = await playClip(urls[i] as string)
+          if (!ok) {
+            setActiveSpeech(null)
+            // Si ni siquiera sonó el primer clip de la primera vuelta, usar el respaldo
+            if (i === 0 && rep === 0) return speakOrderBrowser(order)
+            return
+          }
         }
+        setActiveSpeech(null)
+        // Pausa entre repeticiones
+        if (rep < repeats - 1) await new Promise((r) => setTimeout(r, 700))
       }
-      setActiveSpeech(null)
       await new Promise((r) => setTimeout(r, 400))
     },
     [clipLangs, getClipUrl, playClip, speakOrderBrowser, voiceLanguage]
@@ -523,6 +555,7 @@ export default function OrderReadyBoardPage() {
     const nextOrder = audioQueueRef.current.shift()
 
     if (nextOrder) {
+      try {
       // Descargar los clips mientras suena la campanilla (si ya están precargados es inmediato)
       if (/^\d{1,4}$/.test(nextOrder.order_number)) {
         const num = String(parseInt(nextOrder.order_number, 10))
@@ -534,18 +567,37 @@ export default function OrderReadyBoardPage() {
         await playChime()
       }
 
-      // 2. Anunciar con la voz femenina
-      await speakOrder(nextOrder)
+      // 2. Anunciar con la voz femenina: 2 veces al cerrar la orden, 1 vez en el recordatorio
+      const isReminder = !!nextOrder._reminder
+      await speakOrder(nextOrder, isReminder ? 1 : ANNOUNCE_REPEATS)
 
-      // 3. Marcar como anunciada en backend
-      try {
-        await fetch('/api/order-ready/orders', {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id: nextOrder.id, announced: true })
-        })
+      if (!isReminder) {
+        // 3. Marcar como anunciada en backend
+        try {
+          await fetch('/api/order-ready/orders', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: nextOrder.id, announced: true })
+          })
+        } catch (e) {
+          console.warn('Error marking announced:', e)
+        }
+
+      // 4. Programar UN solo recordatorio si la orden sigue en "Listo para recoger".
+        // (Toast no informa cuando el cliente la recoge: es solo una regla de tiempo.)
+        const orderId = nextOrder.id
+        const timer = setTimeout(() => {
+          reminderTimersRef.current.delete(timer)
+          if (!readyIdsRef.current.has(orderId)) return
+          const latest = nextOrder
+          enqueueReminderRef.current?.({ ...latest, _reminder: true, _sortAt: Date.now() })
+        }, REMINDER_DELAY_MS)
+        reminderTimersRef.current.add(timer)
+      }
       } catch (e) {
-        console.warn('Error marking announced:', e)
+        // Un error de audio NUNCA debe congelar la cola: se registra y se sigue con la siguiente
+        console.warn('Error announcing order:', e)
+        setActiveSpeech(null)
       }
     }
 
@@ -572,7 +624,9 @@ export default function OrderReadyBoardPage() {
 
       audioQueueRef.current.push(order)
       audioQueueRef.current.sort(
-        (a, b) => Date.parse(a.ready_at || a.created_at) - Date.parse(b.ready_at || b.created_at)
+        (a, b) =>
+          (a._sortAt ?? Date.parse(a.ready_at || a.created_at)) -
+          (b._sortAt ?? Date.parse(b.ready_at || b.created_at))
       )
 
       // Microtask: permite que se encolen todas las órdenes del mismo ciclo antes de arrancar la primera
@@ -583,11 +637,86 @@ export default function OrderReadyBoardPage() {
     [announceToGo, announceForHere, announceDriveThru, announceDelivery, processAudioQueue]
   )
 
+  // Recordatorio: se encola sin el filtro de "ya anunciada" (se permite una sola vez por orden)
+  const enqueueReminder = useCallback(
+    (order: OrderItem) => {
+      audioQueueRef.current.push(order)
+      audioQueueRef.current.sort(
+        (a, b) =>
+          (a._sortAt ?? Date.parse(a.ready_at || a.created_at)) -
+          (b._sortAt ?? Date.parse(b.ready_at || b.created_at))
+      )
+      queueMicrotask(() => {
+        processAudioQueue()
+      })
+    },
+    [processAudioQueue]
+  )
+
+  useEffect(() => {
+    enqueueReminderRef.current = enqueueReminder
+  }, [enqueueReminder])
+
+  // Mantener la pantalla encendida (evita que la PC/tablet se duerma durante el turno)
+  useEffect(() => {
+    let lock: any = null
+    let cancelled = false
+    const acquire = async () => {
+      try {
+        const nav = navigator as any
+        if (nav.wakeLock && document.visibilityState === 'visible') {
+          lock = await nav.wakeLock.request('screen')
+        }
+      } catch {
+        // No soportado o denegado: no es crítico
+      }
+    }
+    const onVisible = () => {
+      if (!cancelled && document.visibilityState === 'visible') acquire()
+    }
+    acquire()
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      cancelled = true
+      document.removeEventListener('visibilitychange', onVisible)
+      try { lock?.release?.() } catch {}
+    }
+  }, [])
+
+  // Recorte de memoria: el set de órdenes ya anunciadas no debe crecer sin límite en turnos de 15+ horas
+  useEffect(() => {
+    const trim = setInterval(() => {
+      const set = announcedIdsRef.current
+      if (set.size > 500) {
+        const keep = Array.from(set).slice(-250)
+        announcedIdsRef.current = new Set(keep)
+      }
+    }, 10 * 60 * 1000)
+    return () => clearInterval(trim)
+  }, [])
+
+  // Limpiar timers de recordatorio al salir de la página
+  useEffect(() => {
+    const timers = reminderTimersRef.current
+    return () => {
+      timers.forEach((tm) => clearTimeout(tm))
+      timers.clear()
+    }
+  }, [])
+
   // Cargar órdenes desde el backend
   const fetchOrders = useCallback(async (syncToast = false) => {
+    // Evita peticiones encimadas si la red/PC va lenta (una a la vez)
+    if (fetchingRef.current && !syncToast) return
+    fetchingRef.current = true
+    const controller = new AbortController()
+    const abortTimer = setTimeout(() => controller.abort(), 15000)
     try {
       if (syncToast) setIsSyncing(true)
-      const res = await fetch(`/api/order-ready/orders?storeCode=${selectedStore}&syncToast=${syncToast}&minutes=45`)
+      const res = await fetch(`/api/order-ready/orders?storeCode=${selectedStore}&syncToast=${syncToast}&minutes=45`, {
+        signal: controller.signal,
+        cache: 'no-store'
+      })
       const data = await res.json()
 
       if (data.success) {
@@ -596,6 +725,7 @@ export default function OrderReadyBoardPage() {
 
         setReadyOrders(ready)
         setInProgressOrders(inProgress)
+        readyIdsRef.current = new Set(ready.map(o => o.id))
 
         // Órdenes listas pendientes de anunciar: en el orden en que se cerraron en el KDS
         ready
@@ -606,6 +736,8 @@ export default function OrderReadyBoardPage() {
     } catch (e) {
       console.error('Error fetching orders:', e)
     } finally {
+      clearTimeout(abortTimer)
+      fetchingRef.current = false
       setIsLoading(false)
       setIsSyncing(false)
     }
