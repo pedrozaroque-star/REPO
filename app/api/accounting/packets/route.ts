@@ -183,6 +183,7 @@ export async function POST(request: NextRequest) {
               toast_online_sales: toastData.toastOnlineSales,
               toast_delivery_sales: toastData.toastDeliverySales,
               tips_payable: toastData.tipsPayable,
+              deposits_collected: toastData.depositsCollected,
               uber_delivery_sales: toastData.uberDeliverySales,
               uber_takeout_sales: toastData.uberTakeoutSales,
               doordash_takeout_sales: toastData.doordashTakeoutSales,

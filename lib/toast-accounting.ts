@@ -55,6 +55,7 @@ export interface ToastAccountingData {
   toastOnlineSales: number
   toastDeliverySales: number
   tipsPayable: number
+  depositsCollected: number
   uberDeliverySales: number
   uberTakeoutSales: number
   doordashDeliverySales: number
@@ -200,8 +201,11 @@ export async function fetchToastAccountingData(
   let toGo = 0
   let driveThru = 0
   let toastOnline = 0
+  // Cohesion cambio su mapeo ~2026-10-03: antes el Toast Delivery iba en 40050 y las Other Deductions dentro de Merchant Fees (51030)
+  const legacyCohesionRules = businessDate < '20261003'
   let toastDelivery = 0
   let tipsPayable = 0
+  let depositsCollected = 0
   let uberDel = 0
   let uberTake = 0
   let ddDel = 0
@@ -323,7 +327,7 @@ export async function fetchToastAccountingData(
 
         // Detección de Ventas de Tarjetas de Regalo (Gift Card Sales -> 20500 Deferred Sales)
         const sName = ((sel.item?.name || '') + ' ' + (sel.itemGroup?.name || '') + ' ' + (sel.displayName || '')).toLowerCase()
-        if (sel.giftCard || sName.includes('gift card')) {
+        if (sel.giftCard || sName.includes('gift card') || sName.includes('add value')) { // 'Add Value ($)' = recarga de gift card (Cohesion la manda a 20500 Deferred)
           deferredSalesGiftCards += p
         } else {
           checkNet += p
@@ -365,7 +369,7 @@ export async function fetchToastAccountingData(
       } else if (optName.includes('grub')) {
         ghDel += checkNet
         marketplaceTax += checkTax
-      } else if (dOptionRaw.toLowerCase().includes('toast delivery')) {
+      } else if (dOptionRaw.toLowerCase().includes('toast delivery') && !legacyCohesionRules) {
         // Dining Option "Toast Delivery Services" -> línea propia 53060 en Cohesion
         toastDelivery += checkNet
       } else if (optName.includes('online')) {
@@ -421,6 +425,18 @@ export async function fetchToastAccountingData(
           else creditCardGross += amt
         }
       }
+
+      // Cohesion: cheque en 0 (items anulados) con pago capturado = Deposit Sales Collected (12049)
+      const chkTotal = Number(check.totalAmount ?? check.amount ?? 0)
+      // Tambien aplica a sobrepagos: pagos capturados > total del cheque (ej. Norwalk 10/3 orden 277: tarjeta 13.04 + efectivo 9.06 sobre total 13.04)
+      let chkPaid = 0
+      for (const p of check.payments || []) {
+        if (p.voided) continue
+        if (['DENIED', 'FAILED', 'VOIDED', 'OPEN', 'CANCELLED'].includes(String(p.paymentStatus || '').toUpperCase())) continue
+        chkPaid += Number(p.amount || 0)
+      }
+      const chkExcess = Math.round((chkPaid - chkTotal) * 100) / 100
+      if (chkExcess > 0.009) depositsCollected += chkExcess
     }
   }
 
@@ -440,6 +456,7 @@ export async function fetchToastAccountingData(
 
   toastDelivery = r(toastDelivery)
   tipsPayable = r(tipsPayable)
+  depositsCollected = r(depositsCollected)
 
   const netSales = r(forHere + toGo + driveThru + toastOnline + toastDelivery + uberDel + uberTake + ddDel + ddTake + ghDel + ghTake)
   totalTax = r(totalTax)
@@ -462,7 +479,8 @@ export async function fetchToastAccountingData(
   // En Cohesion: Credit Card Fees reales de Toast (originalProcessingFee)
   creditCardActualFees = r(creditCardActualFees)
   creditCardOtherDeductions = r(creditCardOtherDeductions)
-  const ccFees = creditCardActualFees > 0 ? creditCardActualFees : (creditCardGross > 0 ? r(creditCardGross * 0.01919) : 0)
+  let ccFees = creditCardActualFees > 0 ? creditCardActualFees : (creditCardGross > 0 ? r(creditCardGross * 0.01919) : 0)
+  if (legacyCohesionRules && creditCardOtherDeductions > 0) { ccFees = r(ccFees + creditCardOtherDeductions); creditCardOtherDeductions = 0 }
   const ccDeposit = r(creditCardGross - ccFees - creditCardOtherDeductions)
 
   // Resolver nombres reales de cajeros/meseros desde toast_employees
@@ -521,6 +539,7 @@ export async function fetchToastAccountingData(
     toastOnlineSales: toastOnline,
     toastDeliverySales: toastDelivery,
     tipsPayable,
+    depositsCollected,
     uberDeliverySales: uberDel,
     uberTakeoutSales: uberTake,
     doordashDeliverySales: ddDel,
