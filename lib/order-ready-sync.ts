@@ -13,7 +13,10 @@
  *   que nos enteramos. Con esto el tablero anuncia en el orden en que se cerraron las órdenes.
  * - **Anuncios viejos en silencio**: si una orden se detecta READY con más de 2 min de antigüedad se guarda con `announced=true`
  *   (evita que al abrir el tablero se anuncien órdenes de hace rato).
- * - **Día laboral**: no se usa businessDate; se filtra por ventana de tiempo, por lo que no depende de la regla de las 6 AM.
+ * - **Día laboral oficial (6:00 AM a 5:59:59 AM)**:
+ *   - Toda orden se etiqueta con su `business_date` oficial según la regla de las 6 AM de Tacos Gavilan (medianoche a 5:59 AM cuenta como día anterior).
+ *   - Al inicio del nuevo día laboral (6:00 AM), el inicio de ventana de sincronización nunca retrocede antes de las 6:00 AM de hoy,
+ *     asegurando que el restaurante amanezca con el tablero 100% limpio y sin residuos del turno nocturno anterior.
  *
  * @dataFlow
  * - Board (poll cada 4 s) -> GET /api/order-ready/orders -> syncStoreFromToast() (throttle 5 s por tienda)
@@ -26,6 +29,7 @@
 
 import { supabaseAdmin } from '@/lib/supabase'
 import { getAuthToken } from '@/lib/toast-api'
+import { getCaliforniaBusinessDate, getBusinessDayStartMs } from '@/lib/business-date'
 
 const TOAST_API_HOST = process.env.TOAST_API_HOST || 'https://ws-api.toasttab.com'
 
@@ -159,7 +163,10 @@ export async function syncStoreFromToast(storeCode: string, force = false): Prom
       lastRun.set(storeCode, Date.now())
 
       const end = new Date()
-      const start = new Date(end.getTime() - WINDOW_MINUTES * 60 * 1000)
+      const bDayStartMs = getBusinessDayStartMs(end)
+      // La ventana no debe traspasar hacia atrás la frontera de las 6:00 AM de hoy
+      const windowStartMs = Math.max(end.getTime() - WINDOW_MINUTES * 60 * 1000, bDayStartMs)
+      const start = new Date(windowStartMs)
 
       const orders: any[] = []
       for (let page = 1; page <= 4; page++) {
@@ -215,6 +222,9 @@ export async function syncStoreFromToast(storeCode: string, force = false): Prom
         if (ev.status === 'READY' && readyMs !== null && nowMs - readyMs > 10 * 60 * 1000) continue
 
         const diningName = diningMap[ord.diningOption?.guid] || ord.diningOption?.name || ''
+        const orderDate = ord.createdDate || ord.paidDate || new Date()
+        const bDate = getCaliforniaBusinessDate(orderDate)
+
         await supabaseAdmin.from('order_ready_announcements').insert({
           store_code: storeCode,
           store_id: restaurantGuid,
@@ -224,6 +234,7 @@ export async function syncStoreFromToast(storeCode: string, force = false): Prom
           dining_option: classifyDiningName(diningName),
           customer_name: ord.customer?.firstName || null,
           status: ev.status,
+          business_date: bDate,
           announced: ev.status === 'READY' ? isStale : false,
           ready_at: ev.status === 'READY' ? ev.readyAt : null
         })

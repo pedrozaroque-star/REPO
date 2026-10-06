@@ -25,6 +25,7 @@ import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { syncStoreFromToast } from '@/lib/order-ready-sync'
 import { getOrderReadyAccess, canAccessStore } from '@/lib/order-ready-access'
+import { getCaliforniaBusinessDate, getBusinessDayStartMs, getCaliforniaShift } from '@/lib/business-date'
 
 export const dynamic = 'force-dynamic'
 
@@ -58,14 +59,20 @@ export async function GET(request: Request) {
     // el botón manual "Sincronizar Toast" fuerza la consulta inmediata).
     await syncStoreFromToast(storeCode, syncToast)
 
-    const cutoff = new Date(Date.now() - minutes * 60 * 1000).toISOString()
+    const currentBusinessDate = getCaliforniaBusinessDate()
+    const currentShift = getCaliforniaShift()
+    const bDayStartMs = getBusinessDayStartMs()
 
-    // Traer órdenes recientes no completadas o listas en los últimos N minutos
+    // El cutoff no debe retroceder antes del inicio de la jornada laboral de hoy (6:00 AM)
+    const effectiveCutoff = new Date(Math.max(Date.now() - minutes * 60 * 1000, bDayStartMs)).toISOString()
+
+    // Traer órdenes recientes del día laboral actual no completadas o listas
     const { data: orders, error } = await supabaseAdmin
       .from('order_ready_announcements')
       .select('*')
       .eq('store_code', storeCode)
-      .gte('created_at', cutoff)
+      .eq('business_date', currentBusinessDate)
+      .gte('created_at', effectiveCutoff)
       .in('status', ['IN_PROGRESS', 'READY'])
       .order('created_at', { ascending: false })
 
@@ -82,6 +89,8 @@ export async function GET(request: Request) {
     return NextResponse.json({
       success: true,
       storeCode,
+      businessDate: currentBusinessDate,
+      shift: currentShift,
       counts: {
         total: orders?.length || 0,
         ready: readyOrders.length,
@@ -114,12 +123,14 @@ export async function POST(request: Request) {
     }
     const status = body.status || 'READY'
     const diningOption = (body.diningOption || 'TOGO').toUpperCase()
+    const currentBusinessDate = getCaliforniaBusinessDate()
 
-    // Buscar si ya existe una orden activa con este número y tienda
+    // Buscar si ya existe una orden activa en ESTA jornada laboral con este número y tienda
     const { data: existing } = await supabaseAdmin
       .from('order_ready_announcements')
       .select('id, status, announced')
       .eq('store_code', storeCode)
+      .eq('business_date', currentBusinessDate)
       .eq('order_number', String(body.orderNumber))
       .order('created_at', { ascending: false })
       .limit(1)
@@ -165,6 +176,7 @@ export async function POST(request: Request) {
       dining_option: diningOption,
       customer_name: body.customerName || null,
       status,
+      business_date: currentBusinessDate,
       items_summary: body.itemsSummary || null,
       announced: false
     }

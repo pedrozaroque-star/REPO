@@ -3998,7 +3998,13 @@ export const dictionaries: Record<Language, Dictionary> = {
             clear_completed: "Limpiar Completadas",
             speech_phrase_es: "Orden {order}, ya está.",
             speech_phrase_en: "Order {order} is ready.",
-            speech_phrase_bilingual: "Order #{order} is ready, orden #{order} ya está."
+            speech_phrase_bilingual: "Order #{order} is ready, orden #{order} ya está.",
+            business_day: "Día Comercial",
+            shift_am: "Turno AM (Apertura)",
+            shift_pm: "Turno PM",
+            shift_am_short: "Turno AM",
+            shift_pm_short: "Turno PM",
+            day_reset_notice: "Inicio de nueva jornada laboral (6:00 AM) • Tablero reiniciado"
         }
     },
     en: {
@@ -7977,7 +7983,13 @@ export const dictionaries: Record<Language, Dictionary> = {
             clear_completed: "Clear Completed",
             speech_phrase_es: "Orden {order}, ya está.",
             speech_phrase_en: "Order {order} is ready.",
-            speech_phrase_bilingual: "Order #{order} is ready, orden #{order} ya está."
+            speech_phrase_bilingual: "Order #{order} is ready, orden #{order} ya está.",
+            business_day: "Business Day",
+            shift_am: "AM Shift (Opening)",
+            shift_pm: "PM Shift",
+            shift_am_short: "AM Shift",
+            shift_pm_short: "PM Shift",
+            day_reset_notice: "New business day started (6:00 AM) • Board refreshed"
         }
     }
 };

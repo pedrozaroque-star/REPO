@@ -19,6 +19,18 @@
  *     * 'FOR_HERE' (Comedor) y 'TOGO' (Para Llevar): activos por defecto.
  *     * 'DRIVE_THRU' (Auto-Servicio): botón de control maestro (ON/OFF) en encabezado y controles detallados en el panel para activar/desactivar anuncios de voz y/o visualización en pantalla, con persistencia en LocalStorage.
  *     * 'DELIVERY' (Plataformas): silenciado por defecto para no saturar el comedor.
+ * - **Gobernanza de Voz Global (Solo Administrador)**:
+ *   - Solo los usuarios con rol Administrador (`isAdmin`, `access.all === true`) tienen permiso para cambiar la voz anunciadora del sistema.
+ *   - Al seleccionar una voz en cualquier pantalla/tienda, se guarda centralmente en la base de datos Supabase (`order_ready_settings`) y se propaga instantáneamente a todas las 15 sucursales mediante Supabase Realtime sin necesidad de recargar la página.
+ *   - Los usuarios supervisores y gerentes tienen los controles bloqueados en modo solo lectura con candado explicativo, pero pueden utilizar el botón "Probar Voz" para escucharla.
+ * - **Día Laboral Oficial y Turnos de Tacos Gavilan**:
+ *   - El día laboral oficial inicia a las 6:00 AM y termina a las 5:59:59 AM del siguiente día (hora del Pacífico `America/Los_Angeles`).
+ *   - Turno AM (Apertura): 6:00 AM - 4:59:59 PM (16:59:59).
+ *   - Turno PM: 5:00 PM - 5:59:59 AM.
+ *   - Aislamiento estricto por `business_date`: la ventana de consulta nunca busca órdenes antes de las 6:00 AM del día en curso (`Math.max(now - 45m, businessDayStartMs)`), evitando que la apertura de la mañana reciba o anuncie órdenes residuales del turno nocturno anterior.
+ *   - Centinela automático en vivo: al dar las 6:00 AM en punto, el tablero detecta el cambio de día laboral, vacía la memoria de órdenes anunciadas y refresca el estado en limpio.
+ * - **Idempotencia ante Recall de Cocina en KDS**:
+ *   - Cuando los cocineros hacen "Recall" en el KDS Expediter para revisar órdenes ya despachadas y luego hacen doble tap para cerrarlas nuevamente, el sistema no vuelve a reproducir la campanilla ni la voz gracias a la triple barrera de idempotencia (Set de IDs en memoria, persistencia `announced: true` en Supabase y aislamiento por `business_date`).
  * - **Gestión de Vida Útil**: Las órdenes en 'READY' se retiran visualmente tras un tiempo configurable (por defecto 10 minutos).
  * - **Resiliencia de Red (Offline Mode)**: Detección proactiva de conectividad de red con aviso visual y caída suave a audio en caché/síntesis local si se corta la conexión a internet.
  * 
@@ -36,11 +48,12 @@
 'use client'
 
 import React, { useState, useEffect, useRef, useCallback } from 'react'
-import { Volume2, VolumeX, Settings, Play, RefreshCw, Bell, CheckCircle2, Clock, Sparkles, ChevronDown, ChevronUp, Store, Car, WifiOff } from 'lucide-react'
+import { Volume2, VolumeX, Settings, Play, RefreshCw, Bell, CheckCircle2, Clock, Sparkles, ChevronDown, ChevronUp, Store, Car, WifiOff, Lock, Sun, Moon, Calendar } from 'lucide-react'
 import { useLanguage } from '@/lib/i18n'
 import { createClient } from '@supabase/supabase-js'
 import ProtectedRoute from '@/components/ProtectedRoute'
 import { AVAILABLE_VOICES, VoiceId, isValidVoice } from '@/lib/order-ready-tts'
+import { getCaliforniaBusinessDate, getCaliforniaShift } from '@/lib/business-date'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
@@ -49,6 +62,7 @@ const supabase = createClient(supabaseUrl, supabaseAnonKey)
 interface OrderItem {
   id: string
   created_at: string
+  business_date?: string
   store_code: string
   store_name: string
   order_number: string
@@ -96,6 +110,7 @@ function OrderReadyBoardContent() {
   // Control de acceso por tienda: admin = todas, supervisor = su alcance, manager/asistente = solo su tienda
   const [access, setAccess] = useState<{ all: boolean; codes: string[] } | null>(null)
   const accessLoaded = access !== null
+  const isAdmin = !!access?.all
   const visibleStores = access
     ? access.all
       ? STORES_LIST
@@ -138,6 +153,10 @@ function OrderReadyBoardContent() {
   const [isLoading, setIsLoading] = useState<boolean>(true)
   const [isSyncing, setIsSyncing] = useState<boolean>(false)
   const [currentTime, setCurrentTime] = useState<string>('')
+  const [businessDate, setBusinessDate] = useState<string>(() => getCaliforniaBusinessDate())
+  const [shift, setShift] = useState<'AM' | 'PM'>(() => getCaliforniaShift())
+  const businessDateRef = useRef<string>(businessDate)
+  const fetchOrdersRef = useRef<((syncToast?: boolean) => Promise<void>) | null>(null)
 
   // Configuración de Audio y Voz
   const [audioUnlocked, setAudioUnlocked] = useState<boolean>(false)
@@ -146,6 +165,7 @@ function OrderReadyBoardContent() {
   const [voiceSpeed, setVoiceSpeed] = useState<number>(0.92)
   const [voiceLanguage, setVoiceLanguage] = useState<'es' | 'en' | 'bilingual'>('bilingual')
   const [selectedVoice, setSelectedVoice] = useState<VoiceId>('Kore')
+  const [isSavingVoice, setIsSavingVoice] = useState<boolean>(false)
   const [isTestingVoice, setIsTestingVoice] = useState<boolean>(false)
   const [isOnline, setIsOnline] = useState<boolean>(true)
   const [availableVoices, setAvailableVoices] = useState<SpeechSynthesisVoice[]>([])
@@ -156,7 +176,27 @@ function OrderReadyBoardContent() {
   const [announceDelivery, setAnnounceDelivery] = useState<boolean>(false)
   const [enableChime, setEnableChime] = useState<boolean>(true)
 
-  // Cargar preferencias guardadas en LocalStorage y URL Query Param (?store=...)
+  // Cargar configuración global de voz desde Supabase (/api/order-ready/settings)
+  const fetchGlobalSettings = useCallback(async () => {
+    try {
+      const res = await fetch('/api/order-ready/settings', { cache: 'no-store' })
+      const data = await res.json()
+      if (data.success && data.settings?.voice && isValidVoice(data.settings.voice)) {
+        setSelectedVoice(data.settings.voice)
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('teg_order_ready_voice', data.settings.voice)
+        }
+      }
+    } catch (e) {
+      console.warn('Error loading global order ready settings:', e)
+    }
+  }, [])
+
+  useEffect(() => {
+    fetchGlobalSettings()
+  }, [fetchGlobalSettings])
+
+  // Cargar preferencias locales guardadas en LocalStorage y URL Query Param (?store=...)
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search)
@@ -219,10 +259,35 @@ function OrderReadyBoardContent() {
     }
   }
 
-  const handleVoiceChange = (voice: VoiceId) => {
+  // Cambiar voz: SOLO ADMIN puede cambiarla, y se propaga a todas las tiendas via DB
+  const handleVoiceChange = async (voice: VoiceId) => {
+    if (!isAdmin) {
+      alert(t('orderReadyBoard.voice_admin_only'))
+      return
+    }
+
     setSelectedVoice(voice)
     if (typeof window !== 'undefined') {
       localStorage.setItem('teg_order_ready_voice', voice)
+    }
+
+    setIsSavingVoice(true)
+    try {
+      const res = await fetch('/api/order-ready/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ voice })
+      })
+      const data = await res.json()
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Error al guardar la voz global')
+      }
+    } catch (err: any) {
+      console.error('Error saving global voice:', err)
+      alert(err.message || 'Error al actualizar la voz global')
+      fetchGlobalSettings()
+    } finally {
+      setIsSavingVoice(false)
     }
   }
 
@@ -283,7 +348,7 @@ function OrderReadyBoardContent() {
     }
   }, [])
 
-  // Reloj local en vivo
+  // Reloj local en vivo con centinela automático de cambio de día laboral (6:00 AM)
   useEffect(() => {
     const updateTime = () => {
       const now = new Date()
@@ -295,6 +360,20 @@ function OrderReadyBoardContent() {
           hour12: true
         })
       )
+
+      // Centinela de cambio de día laboral (corte estricto de las 6:00 AM en punto)
+      const currentBDate = getCaliforniaBusinessDate(now)
+      const currentShift = getCaliforniaShift(now)
+      if (businessDateRef.current && currentBDate !== businessDateRef.current) {
+        businessDateRef.current = currentBDate
+        setBusinessDate(currentBDate)
+        announcedIdsRef.current.clear()
+        readyIdsRef.current.clear()
+        setReadyOrders([])
+        setInProgressOrders([])
+        fetchOrdersRef.current?.(true)
+      }
+      setShift(currentShift)
     }
     updateTime()
     const timer = setInterval(updateTime, 1000)
@@ -812,6 +891,14 @@ function OrderReadyBoardContent() {
       const data = await res.json()
 
       if (data.success) {
+        if (data.businessDate) {
+          setBusinessDate(data.businessDate)
+          businessDateRef.current = data.businessDate
+        }
+        if (data.shift) {
+          setShift(data.shift)
+        }
+
         const ready: OrderItem[] = data.readyOrders || []
         const inProgress: OrderItem[] = data.inProgressOrders || []
 
@@ -834,6 +921,11 @@ function OrderReadyBoardContent() {
       setIsSyncing(false)
     }
   }, [selectedStore, storeOk, enqueueAnnouncement])
+
+  // Mantener referencia actual de fetchOrders para el centinela de las 6:00 AM
+  useEffect(() => {
+    fetchOrdersRef.current = fetchOrders
+  }, [fetchOrders])
 
   // Polling cada 4 segundos + Carga inicial
   useEffect(() => {
@@ -863,7 +955,7 @@ function OrderReadyBoardContent() {
     })()
   }, [inProgressOrders, clipLangs, getClipUrl, selectedVoice])
 
-  // Suscripción a Supabase Realtime
+  // Suscripción a Supabase Realtime (órdenes y configuración global de voz de la cadena)
   useEffect(() => {
     const channel = supabase
       .channel('order-ready-realtime')
@@ -878,6 +970,23 @@ function OrderReadyBoardContent() {
           const row = (payload.new || payload.old) as OrderItem
           if (row && row.store_code === selectedStore) {
             fetchOrders(false)
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'order_ready_settings'
+        },
+        (payload) => {
+          const newRow = payload.new as any
+          if (newRow && newRow.voice && isValidVoice(newRow.voice)) {
+            setSelectedVoice(newRow.voice)
+            if (typeof window !== 'undefined') {
+              localStorage.setItem('teg_order_ready_voice', newRow.voice)
+            }
           }
         }
       )
@@ -1026,33 +1135,72 @@ function OrderReadyBoardContent() {
                 )}
               </div>
 
-              {/* Selector Rápido de Voz en Cabecera */}
-              <div className="flex items-center gap-1 bg-slate-800/90 hover:bg-slate-800 rounded-lg px-2 py-1 border border-slate-700 shadow-sm transition">
-                <Sparkles className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                <select
-                  value={selectedVoice}
-                  onChange={(e) => handleVoiceChange(e.target.value as VoiceId)}
-                  onClick={(e) => e.stopPropagation()}
-                  title={t('orderReadyBoard.voice_speaker')}
-                  className="bg-transparent text-slate-200 hover:text-white font-bold text-xs focus:outline-none cursor-pointer"
+              {/* Selector Rápido de Voz en Cabecera (Solo Admin puede cambiarla) */}
+              {isAdmin ? (
+                <div className="flex items-center gap-1 bg-slate-800/90 hover:bg-slate-800 rounded-lg px-2 py-1 border border-slate-700 shadow-sm transition">
+                  <Sparkles className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                  <select
+                    value={selectedVoice}
+                    onChange={(e) => handleVoiceChange(e.target.value as VoiceId)}
+                    onClick={(e) => e.stopPropagation()}
+                    disabled={isSavingVoice}
+                    title={t('orderReadyBoard.voice_speaker')}
+                    className="bg-transparent text-slate-200 hover:text-white font-bold text-xs focus:outline-none cursor-pointer"
+                  >
+                    {AVAILABLE_VOICES.map((v) => (
+                      <option key={v.id} value={v.id} className="bg-slate-900 text-white font-medium">
+                        {v.gender === 'female' ? '👩' : '👨'} {v.name} ({v.gender === 'female' ? (language === 'es' ? 'Femenina' : 'Female') : (language === 'es' ? 'Masculina' : 'Male')})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : (
+                <div
+                  className="flex items-center gap-1.5 bg-slate-800/60 rounded-lg px-2.5 py-1 border border-slate-700/60 shadow-sm text-slate-300 cursor-help"
+                  title={t('orderReadyBoard.voice_locked_hint')}
                 >
-                  {AVAILABLE_VOICES.map((v) => (
-                    <option key={v.id} value={v.id} className="bg-slate-900 text-white font-medium">
-                      {v.gender === 'female' ? '👩' : '👨'} {v.name} ({v.gender === 'female' ? (language === 'es' ? 'Femenina' : 'Female') : (language === 'es' ? 'Masculina' : 'Male')})
-                    </option>
-                  ))}
-                </select>
-              </div>
+                  <Lock className="w-3 h-3 text-amber-400/80 shrink-0" />
+                  <span className="text-xs font-bold text-slate-300">
+                    {AVAILABLE_VOICES.find(v => v.id === selectedVoice)?.gender === 'female' ? '👩' : '👨'} {selectedVoice}
+                  </span>
+                  <span className="text-[9px] uppercase tracking-wider font-extrabold text-slate-400 bg-slate-700/50 px-1 py-0.5 rounded">
+                    {language === 'es' ? 'Cadena' : 'Global'}
+                  </span>
+                </div>
+              )}
             </div>
           </div>
         </div>
 
-        {/* Reloj y Estado en Vivo */}
+        {/* Reloj y Turno en vivo */}
         <div className="flex items-center gap-4">
-          {/* Reloj en vivo */}
-          <div className="hidden sm:flex items-center gap-2 bg-slate-950/80 px-4 py-2 rounded-xl border border-slate-800 text-slate-200">
-            <Clock className="w-4 h-4 text-emerald-400" />
-            <span className="text-base font-mono font-bold tracking-wider">{currentTime || '--:--:--'}</span>
+          {/* Reloj y Turno de California */}
+          <div className="hidden sm:flex items-center gap-2.5 bg-slate-950/80 px-3.5 py-1.5 rounded-xl border border-slate-800 text-slate-200">
+            <div className="flex items-center gap-1.5 font-mono font-bold text-sm tracking-wider">
+              <Clock className="w-3.5 h-3.5 text-emerald-400" />
+              <span>{currentTime || '--:--:--'}</span>
+            </div>
+            <div className="h-4 w-px bg-slate-800" />
+            <div
+              className={`flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider ${
+                shift === 'AM'
+                  ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
+                  : 'bg-indigo-500/15 text-indigo-300 border border-indigo-500/30'
+              }`}
+              title={`${t('orderReadyBoard.business_day')}: ${businessDate} • ${shift === 'AM' ? t('orderReadyBoard.shift_am') : t('orderReadyBoard.shift_pm')}`}
+            >
+              {shift === 'AM' ? (
+                <>
+                  <Sun className="w-3 h-3 text-amber-400" />
+                  <span>{t('orderReadyBoard.shift_am_short')}</span>
+                </>
+              ) : (
+                <>
+                  <Moon className="w-3 h-3 text-indigo-400" />
+                  <span>{t('orderReadyBoard.shift_pm_short')}</span>
+                </>
+              )}
+            </div>
           </div>
 
           {/* Estado de Audio */}
@@ -1160,7 +1308,11 @@ function OrderReadyBoardContent() {
               <div className="mb-3">
                 <div className="flex items-center justify-between mb-1.5">
                   <label className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-                    <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                    {isAdmin ? (
+                      <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                    ) : (
+                      <Lock className="w-3.5 h-3.5 text-amber-400/90" />
+                    )}
                     {t('orderReadyBoard.voice_speaker')}
                   </label>
                   <button
@@ -1182,21 +1334,28 @@ function OrderReadyBoardContent() {
                         key={v.id}
                         type="button"
                         onClick={() => handleVoiceChange(v.id)}
+                        disabled={!isAdmin || isSavingVoice}
                         className={`py-1.5 px-0.5 rounded-lg text-xs font-bold text-center border transition flex flex-col items-center justify-center gap-0.5 ${
-                          isSelected
-                            ? 'bg-emerald-600 text-white border-emerald-400 shadow-md ring-1 ring-emerald-400'
-                            : 'bg-slate-950 text-slate-300 border-slate-800 hover:bg-slate-800/80 hover:border-slate-700'
+                          !isAdmin
+                            ? isSelected
+                              ? 'bg-slate-800 text-slate-200 border-amber-500/50 cursor-not-allowed opacity-90'
+                              : 'bg-slate-950/60 text-slate-600 border-slate-900 cursor-not-allowed opacity-50'
+                            : isSelected
+                              ? 'bg-emerald-600 text-white border-emerald-400 shadow-md ring-1 ring-emerald-400'
+                              : 'bg-slate-950 text-slate-300 border-slate-800 hover:bg-slate-800/80 hover:border-slate-700'
                         }`}
-                        title={language === 'es' ? v.labelEs : v.labelEn}
+                        title={!isAdmin ? t('orderReadyBoard.voice_locked_hint') : (language === 'es' ? v.labelEs : v.labelEn)}
                       >
                         <span className="text-sm">{v.gender === 'female' ? '👩' : '👨'}</span>
                         <span className="text-[11px] leading-tight font-extrabold">{v.name}</span>
                         <span className={`text-[8px] uppercase tracking-wider px-1 rounded font-bold ${
-                          isSelected
-                            ? 'bg-emerald-700 text-emerald-100'
-                            : v.gender === 'female'
-                              ? 'bg-purple-500/20 text-purple-300'
-                              : 'bg-blue-500/20 text-blue-300'
+                          !isAdmin
+                            ? 'bg-slate-800 text-slate-400'
+                            : isSelected
+                              ? 'bg-emerald-700 text-emerald-100'
+                              : v.gender === 'female'
+                                ? 'bg-purple-500/20 text-purple-300'
+                                : 'bg-blue-500/20 text-blue-300'
                         }`}>
                           {v.gender === 'female' ? (language === 'es' ? 'Fem' : 'Fem') : (language === 'es' ? 'Masc' : 'Male')}
                         </span>
@@ -1204,9 +1363,22 @@ function OrderReadyBoardContent() {
                     )
                   })}
                 </div>
-                <p className="text-[10px] text-slate-400 mt-1 italic truncate">
-                  {AVAILABLE_VOICES.find(v => v.id === selectedVoice)?.[language === 'es' ? 'labelEs' : 'labelEn']}
-                </p>
+                {!isAdmin ? (
+                  <p className="text-[10px] text-amber-400/90 mt-1.5 flex items-center gap-1 font-medium">
+                    <Lock className="w-3 h-3 shrink-0" />
+                    <span>{t('orderReadyBoard.voice_locked_hint')}</span>
+                  </p>
+                ) : (
+                  <div className="flex items-center justify-between mt-1 text-[10px]">
+                    <span className="text-emerald-400 font-semibold flex items-center gap-1 truncate">
+                      <Sparkles className="w-3 h-3 shrink-0" />
+                      {isSavingVoice ? t('orderReadyBoard.voice_saving') : t('orderReadyBoard.voice_global_badge')}
+                    </span>
+                    <span className="text-slate-400 italic truncate ml-1">
+                      {AVAILABLE_VOICES.find(v => v.id === selectedVoice)?.[language === 'es' ? 'labelEs' : 'labelEn']}
+                    </span>
+                  </div>
+                )}
               </div>
 
               {/* Idioma de los Anuncios */}

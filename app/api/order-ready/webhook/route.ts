@@ -22,6 +22,7 @@ import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { getAuthToken } from '@/lib/toast-api'
 import { TOAST_STORE_MAP, evaluateToastOrder, classifyDiningName } from '@/lib/order-ready-sync'
+import { getCaliforniaBusinessDate } from '@/lib/business-date'
 
 const TOAST_API_HOST = process.env.TOAST_API_HOST || 'https://ws-api.toasttab.com'
 
@@ -83,12 +84,15 @@ export async function POST(request: Request) {
       existing = byGuid
     }
 
-    // 2. Si no se encontró por GUID pero tenemos orderNumber, buscar por store_code + order_number
+    const currentBusinessDate = getCaliforniaBusinessDate()
+
+    // 2. Si no se encontró por GUID pero tenemos orderNumber, buscar por store_code + order_number + business_date
     if (!existing && orderNumber) {
       const { data: byNum } = await supabaseAdmin
         .from('order_ready_announcements')
         .select('id, status, announced, order_number, dining_option, customer_name, order_guid')
         .eq('store_code', storeInfo.code)
+        .eq('business_date', currentBusinessDate)
         .eq('order_number', String(orderNumber))
         .order('created_at', { ascending: false })
         .limit(1)
@@ -165,6 +169,7 @@ export async function POST(request: Request) {
       dining_option: finalDiningOption,
       customer_name: customerName,
       status,
+      business_date: currentBusinessDate,
       announced: false,
       ready_at: status === 'READY' ? (evaluation.readyAt || now) : null
     })
