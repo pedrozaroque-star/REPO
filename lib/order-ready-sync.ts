@@ -1,0 +1,240 @@
+/**
+ * @module lib/order-ready-sync
+ * @description Sincronización activa (polling) del Order Ready Board contra la API de Toast.
+ *
+ * @businessRules
+ * - **Doble tap del expediter (KDS bump)**: Toast NO dispara webhook cuando el KDS marca los platillos como listos.
+ *   Se verificó con datos reales (LA Central #1361: READY en Toast 08:22:33, en BD seguía IN_PROGRESS). Por eso se consulta
+ *   `/orders/v2/ordersBulk` (filtrado por fecha de modificación) y se leen los `selections[].fulfillmentStatus`.
+ * - **Orden lista**: al menos un platillo no anulado con `fulfillmentStatus = READY`. Las bebidas/flan que no pasan por el KDS
+ *   quedan `SENT` para siempre (14 de 107 órdenes de Lynwood son "mixtas"), por lo que exigir "todos READY" dejaría órdenes sin anunciar.
+ *   El bump del expediter marca todos los platillos del KDS en el mismo milisegundo.
+ * - **Hora real de cierre**: `ready_at` = mayor `modifiedDate` entre los platillos READY (momento real del doble tap), no el momento en
+ *   que nos enteramos. Con esto el tablero anuncia en el orden en que se cerraron las órdenes.
+ * - **Anuncios viejos en silencio**: si una orden se detecta READY con más de 2 min de antigüedad se guarda con `announced=true`
+ *   (evita que al abrir el tablero se anuncien órdenes de hace rato).
+ * - **Día laboral**: no se usa businessDate; se filtra por ventana de tiempo, por lo que no depende de la regla de las 6 AM.
+ *
+ * @dataFlow
+ * - Board (poll cada 4 s) -> GET /api/order-ready/orders -> syncStoreFromToast() (throttle 5 s por tienda)
+ *   -> Toast ordersBulk -> upsert en order_ready_announcements -> Board.
+ * - Webhook `order_updated` reutiliza `evaluateToastOrder()` para clasificar con la misma lógica.
+ *
+ * @notes
+ * - Mapa de tiendas Toast GUID <-> código vive aquí (única fuente) y lo importa el webhook.
+ */
+
+import { supabaseAdmin } from '@/lib/supabase'
+import { getAuthToken } from '@/lib/toast-api'
+
+const TOAST_API_HOST = process.env.TOAST_API_HOST || 'https://ws-api.toasttab.com'
+
+export const TOAST_STORE_MAP: Record<string, { code: string; name: string }> = {
+  '80a1ec95-bc73-402e-8884-e5abbe9343e6': { code: 'LYNWOOD', name: 'Lynwood' },
+  'acf15327-54c8-4da4-8d0d-3ac0544dc422': { code: 'RIALTO', name: 'Rialto' },
+  'e0345b1f-d6d6-40b2-bd06-5f9f4fd944e8': { code: 'AZUSA', name: 'Azusa' },
+  '42ed15a6-106b-466a-9076-1e8f72451f6b': { code: 'NORWALK', name: 'Norwalk' },
+  'b7f63b01-f089-4ad7-a346-afdb1803dc1a': { code: 'DOWNEY', name: 'Downey' },
+  '475bc112-187d-4b9c-884d-1f6a041698ce': { code: 'LABROADWY', name: 'LA Broadway' },
+  'a83901db-2431-4283-834e-9502a2ba4b3b': { code: 'BELL', name: 'Bell' },
+  '5fbb58f5-283c-4ea4-9415-04100ee6978b': { code: 'HOLLYWOOD', name: 'Hollywood' },
+  '47256ade-2cd4-4073-9632-84567ad9e2c8': { code: 'HPARK', name: 'Huntington Park' },
+  '8685e942-3f07-403a-afb6-faec697cd2cb': { code: 'LACENTRAL', name: 'LA Central' },
+  '3a803939-eb13-4def-a1a4-462df8e90623': { code: 'LAPUENTE', name: 'La Puente' },
+  '3c2d8251-c43c-43b8-8306-387e0a4ed7c2': { code: 'SANTAANA', name: 'Santa Ana' },
+  '9625621e-1b5e-48d7-87ae-7094fab5a4fd': { code: 'SLAUSON', name: 'Slauson' },
+  '95866cfc-eeb8-4af9-9586-f78931e1ea04': { code: 'SOUTHGATE', name: 'South Gate' },
+  '5f4a006e-9a6e-4bcf-b5bd-7f5e9d801a02': { code: 'WCOVINA', name: 'West Covina' }
+}
+
+export const STORE_GUID_BY_CODE: Record<string, string> = Object.fromEntries(
+  Object.entries(TOAST_STORE_MAP).map(([guid, v]) => [v.code, guid])
+)
+
+export type OrderReadyStatus = 'IN_PROGRESS' | 'READY' | 'COMPLETED'
+
+export interface ToastOrderEvaluation {
+  status: OrderReadyStatus
+  /** Momento real del doble tap (ISO) cuando status = READY */
+  readyAt: string | null
+  activeItems: number
+}
+
+/** Clasifica una orden de Toast leyendo el fulfillmentStatus de cada platillo (selection). */
+export function evaluateToastOrder(order: any): ToastOrderEvaluation {
+  if (!order || order.voided || order.deleted) {
+    return { status: 'COMPLETED', readyAt: null, activeItems: 0 }
+  }
+
+  let activeItems = 0
+  let readyItems = 0
+  let latestReadyMs = 0
+
+  for (const check of order.checks || []) {
+    if (check?.voided || check?.deleted) continue
+    for (const sel of check.selections || []) {
+      if (!sel || sel.voided) continue
+      const name = String(sel.displayName || '')
+      // Separadores de tacos del POS ("------- Taco Separator-------") no son platillos reales
+      if (name.includes('---')) continue
+      activeItems++
+      const st = String(sel.fulfillmentStatus || '').toUpperCase()
+      if (st === 'READY' || st === 'FULFILLED') {
+        readyItems++
+        const ms = Date.parse(sel.modifiedDate || '')
+        if (Number.isFinite(ms) && ms > latestReadyMs) latestReadyMs = ms
+      }
+    }
+  }
+
+  if (activeItems > 0 && readyItems > 0) {
+    return {
+      status: 'READY',
+      readyAt: new Date(latestReadyMs || Date.now()).toISOString(),
+      activeItems
+    }
+  }
+  return { status: 'IN_PROGRESS', readyAt: null, activeItems }
+}
+
+/** Traduce el nombre de la dining option de Toast al canal del tablero. */
+export function classifyDiningName(raw: string): 'TOGO' | 'FOR_HERE' | 'DELIVERY' | 'DRIVE_THRU' {
+  const up = (raw || '').toUpperCase()
+  if (up.includes('HERE') || up.includes('DINE')) return 'FOR_HERE'
+  if (up.includes('UBER') || up.includes('DOORDASH') || up.includes('GRUBHUB') || up.includes('DELIVERY')) return 'DELIVERY'
+  if (up.includes('DRIVE')) return 'DRIVE_THRU'
+  return 'TOGO'
+}
+
+// ── Mapa GUID -> nombre de dining option por tienda (cache 30 min). NUNCA hardcodear GUIDs de dining options. ──
+const diningCache = new Map<string, { at: number; map: Record<string, string> }>()
+
+async function getDiningMap(token: string, restaurantGuid: string): Promise<Record<string, string>> {
+  const cached = diningCache.get(restaurantGuid)
+  if (cached && Date.now() - cached.at < 30 * 60 * 1000) return cached.map
+  const map: Record<string, string> = {}
+  try {
+    const res = await fetch(`${TOAST_API_HOST}/config/v2/diningOptions?pageSize=100`, {
+      headers: { Authorization: `Bearer ${token}`, 'Toast-Restaurant-External-ID': restaurantGuid }
+    })
+    if (res.ok) {
+      const list: any[] = await res.json()
+      for (const d of list) if (d?.guid) map[d.guid] = d.name || ''
+    }
+  } catch {
+    /* se reintenta en el siguiente ciclo */
+  }
+  if (Object.keys(map).length > 0) diningCache.set(restaurantGuid, { at: Date.now(), map })
+  return map
+}
+
+// ── Throttle por tienda: varias tablets abiertas no multiplican las llamadas a Toast ──
+const lastRun = new Map<string, number>()
+const inflight = new Map<string, Promise<void>>()
+const THROTTLE_MS = 5000
+const WINDOW_MINUTES = 25
+const SILENT_AFTER_MS = 2 * 60 * 1000
+
+function toastDate(d: Date): string {
+  return d.toISOString().replace('Z', '+0000')
+}
+
+/**
+ * Sincroniza las órdenes recientes (modificadas en los últimos 25 min) de una tienda desde Toast.
+ * - Orden nueva  -> INSERT (IN_PROGRESS, o READY si el bump fue reciente)
+ * - IN_PROGRESS que Toast ya marcó READY -> UPDATE a READY con ready_at real
+ */
+export async function syncStoreFromToast(storeCode: string, force = false): Promise<void> {
+  const restaurantGuid = STORE_GUID_BY_CODE[storeCode]
+  if (!restaurantGuid) return
+
+  const running = inflight.get(storeCode)
+  if (running) return running
+  if (!force && Date.now() - (lastRun.get(storeCode) || 0) < THROTTLE_MS) return
+
+  const job = (async () => {
+    try {
+      const token = await getAuthToken()
+      if (!token) return
+      lastRun.set(storeCode, Date.now())
+
+      const end = new Date()
+      const start = new Date(end.getTime() - WINDOW_MINUTES * 60 * 1000)
+
+      const orders: any[] = []
+      for (let page = 1; page <= 4; page++) {
+        const url = new URL(`${TOAST_API_HOST}/orders/v2/ordersBulk`)
+        url.searchParams.set('startDate', toastDate(start))
+        url.searchParams.set('endDate', toastDate(end))
+        url.searchParams.set('pageSize', '100')
+        url.searchParams.set('page', String(page))
+        const res = await fetch(url.toString(), {
+          headers: { Authorization: `Bearer ${token}`, 'Toast-Restaurant-External-ID': restaurantGuid }
+        })
+        if (!res.ok) break
+        const batch = await res.json()
+        if (!Array.isArray(batch)) break
+        orders.push(...batch)
+        if (batch.length < 100) break
+      }
+      if (orders.length === 0) return
+
+      const guids = orders.map(o => o.guid).filter(Boolean)
+      const { data: existingRows } = await supabaseAdmin
+        .from('order_ready_announcements')
+        .select('id, status, order_guid, order_number')
+        .eq('store_code', storeCode)
+        .in('order_guid', guids)
+
+      const byGuid = new Map<string, any>((existingRows || []).map((r: any) => [r.order_guid, r]))
+      const diningMap = await getDiningMap(token, restaurantGuid)
+      const storeInfo = TOAST_STORE_MAP[restaurantGuid]
+      const nowMs = Date.now()
+
+      for (const ord of orders) {
+        const ev = evaluateToastOrder(ord)
+        if (ev.status === 'COMPLETED') continue
+        const number = ord.displayNumber || ord.checks?.[0]?.displayNumber
+        if (!number || !ord.guid) continue
+
+        const row = byGuid.get(ord.guid)
+        const readyMs = ev.readyAt ? Date.parse(ev.readyAt) : null
+        const isStale = readyMs !== null && nowMs - readyMs > SILENT_AFTER_MS
+
+        if (row) {
+          if (ev.status === 'READY' && row.status === 'IN_PROGRESS') {
+            await supabaseAdmin
+              .from('order_ready_announcements')
+              .update({ status: 'READY', ready_at: ev.readyAt, announced: isStale })
+              .eq('id', row.id)
+          }
+          continue
+        }
+
+        // Orden desconocida (el webhook no llegó): solo la insertamos si sigue activa o se cerró hace poco
+        if (ev.status === 'READY' && readyMs !== null && nowMs - readyMs > 10 * 60 * 1000) continue
+
+        const diningName = diningMap[ord.diningOption?.guid] || ord.diningOption?.name || ''
+        await supabaseAdmin.from('order_ready_announcements').insert({
+          store_code: storeCode,
+          store_id: restaurantGuid,
+          store_name: storeInfo.name,
+          order_number: String(number),
+          order_guid: ord.guid,
+          dining_option: classifyDiningName(diningName),
+          customer_name: ord.customer?.firstName || null,
+          status: ev.status,
+          announced: ev.status === 'READY' ? isStale : false,
+          ready_at: ev.status === 'READY' ? ev.readyAt : null
+        })
+      }
+    } catch (err) {
+      console.warn('[order-ready-sync] error:', err)
+    } finally {
+      inflight.delete(storeCode)
+    }
+  })()
+
+  inflight.set(storeCode, job)
+  return job
+}

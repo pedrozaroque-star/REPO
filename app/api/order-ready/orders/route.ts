@@ -14,13 +14,14 @@
  * 
  * @notes
  * - Soporta sincronización en caliente con Toast API (/orders/v2/ordersBulk) si se solicita `syncToast=true`.
+ * - FIX (2026-10-06): el doble tap del expediter NO genera webhook en Toast. Cada GET dispara `syncStoreFromToast()`
+ *   (lib/order-ready-sync.ts, throttle 5 s por tienda) que lee `selections[].fulfillmentStatus` y marca READY con la hora real del bump.
+ *   Se eliminó el sync anterior que usaba businessDate UTC y un único mapeo por número de orden.
  */
 
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
-import { getAuthToken } from '@/lib/toast-api'
-
-const TOAST_API_HOST = process.env.TOAST_API_HOST || 'https://ws-api.toasttab.com'
+import { syncStoreFromToast } from '@/lib/order-ready-sync'
 
 export const dynamic = 'force-dynamic'
 
@@ -44,10 +45,9 @@ export async function GET(request: Request) {
     const syncToast = searchParams.get('syncToast') === 'true'
     const minutes = parseInt(searchParams.get('minutes') || '45', 10)
 
-    // Si se pide sync con Toast, consultamos la API de Toast para obtener órdenes recientes
-    if (syncToast) {
-      await syncRecentOrdersFromToast(storeCode)
-    }
+    // Toast NO manda webhook en el doble tap del KDS: consultamos Toast activamente (throttle 5 s por tienda;
+    // el botón manual "Sincronizar Toast" fuerza la consulta inmediata).
+    await syncStoreFromToast(storeCode, syncToast)
 
     const cutoff = new Date(Date.now() - minutes * 60 * 1000).toISOString()
 
@@ -64,7 +64,10 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: error.message }, { status: 500 })
     }
 
-    const readyOrders = orders?.filter(o => o.status === 'READY') || []
+    // Listas: más reciente primero en pantalla (el cliente las anuncia en orden de cierre: ready_at ascendente)
+    const readyOrders = (orders?.filter(o => o.status === 'READY') || []).sort(
+      (a, b) => Date.parse(b.ready_at || b.created_at) - Date.parse(a.ready_at || a.created_at)
+    )
     const inProgressOrders = orders?.filter(o => o.status === 'IN_PROGRESS') || []
 
     return NextResponse.json({
@@ -205,114 +208,5 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ success: true, order: data })
   } catch (err: any) {
     return NextResponse.json({ error: err.message || 'Internal Server Error' }, { status: 500 })
-  }
-}
-
-// Helper para sincronizar órdenes recientes directamente desde Toast si se requiere
-async function syncRecentOrdersFromToast(storeCode: string) {
-  try {
-    // Buscar el external_id de Toast para esta tienda
-    const { data: store } = await supabaseAdmin
-      .from('stores')
-      .select('external_id, name')
-      .ilike('name', `%${storeCode}%`)
-      .limit(1)
-      .maybeSingle()
-
-    if (!store?.external_id) return
-
-    const token = await getAuthToken()
-    if (!token) return
-
-    // Consultar órdenes de hoy en Toast con la regla de las 6:00 AM
-    const now = new Date()
-    const laTimeStr = now.toLocaleDateString('en-US', { timeZone: 'America/Los_Angeles' })
-    const laHour = parseInt(now.toLocaleTimeString('en-US', { timeZone: 'America/Los_Angeles', hour: '2-digit', hour12: false }), 10)
-    const laDate = new Date(laTimeStr)
-    if (laHour < 6) {
-      laDate.setDate(laDate.getDate() - 1)
-    }
-    const today = laDate.toISOString().slice(0, 10).replace(/-/g, '')
-    const url = new URL(`${TOAST_API_HOST}/orders/v2/ordersBulk`)
-    url.searchParams.append('businessDate', today)
-    url.searchParams.append('pageSize', '50')
-
-    const res = await fetch(url.toString(), {
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Toast-Restaurant-External-ID': store.external_id
-      }
-    })
-
-    if (!res.ok) return
-    const ordersData = await res.json()
-    if (!Array.isArray(ordersData)) return
-
-    // Mapeo de las últimas órdenes
-    for (const ord of ordersData.slice(-25)) {
-      const orderNum = ord.displayNumber || ord.orderNumber || (ord.checks && ord.checks[0]?.displayNumber)
-      if (!orderNum) continue
-
-      // Determinar si está cumplida/lista inspeccionando selections
-      let isFulfilled = ord.fulfillmentStatus === 'READY'
-      if (!isFulfilled && ord.checks) {
-        for (const c of ord.checks) {
-          for (const s of c.selections || []) {
-            if (!s.voided && (s.fulfillmentStatus === 'READY' || s.fulfillmentStatus === 'FULFILLED')) {
-              isFulfilled = true
-              break
-            }
-          }
-          if (isFulfilled) break
-        }
-      }
-      const status = isFulfilled ? 'READY' : 'IN_PROGRESS'
-
-      // Upsert orden
-      const { data: existing } = await supabaseAdmin
-        .from('order_ready_announcements')
-        .select('id, status')
-        .eq('store_code', storeCode)
-        .eq('order_number', String(orderNum))
-        .maybeSingle()
-
-      if (existing) {
-        if (status === 'READY' && existing.status !== 'READY') {
-          await supabaseAdmin
-            .from('order_ready_announcements')
-            .update({
-              status: 'READY',
-              ready_at: new Date().toISOString(),
-              announced: false
-            })
-            .eq('id', existing.id)
-        }
-      } else {
-        let detectedDining = 'TOGO'
-        const rawDiningName = (ord.diningOption?.name || '').toUpperCase()
-        if (rawDiningName.includes('HERE') || rawDiningName.includes('DINE')) {
-          detectedDining = 'FOR_HERE'
-        } else if (rawDiningName.includes('DRIVE')) {
-          detectedDining = 'DRIVE_THRU'
-        } else if (rawDiningName.includes('DELIVERY') || rawDiningName.includes('UBER') || rawDiningName.includes('DOORDASH') || rawDiningName.includes('GRUBHUB')) {
-          detectedDining = 'DELIVERY'
-        }
-
-        await supabaseAdmin.from('order_ready_announcements').insert({
-          store_code: storeCode,
-          store_id: store.external_id,
-          store_name: store.name,
-          order_number: String(orderNum),
-          order_guid: ord.guid,
-          dining_option: detectedDining,
-          customer_name: ord.customer?.firstName || null,
-          status,
-          announced: false,
-          ready_at: status === 'READY' ? new Date().toISOString() : null
-        })
-      }
-    }
-  } catch (e) {
-    console.error('Error syncing with Toast API:', e)
   }
 }

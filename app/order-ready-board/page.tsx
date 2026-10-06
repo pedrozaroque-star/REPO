@@ -1,7 +1,7 @@
 /**
  * @module app/order-ready-board/page
  * @description Customer-facing Order Ready Board and Voice Announcer for Tacos Gavilan.
- * Displays live orders in "In Progress" and "Ready for Pickup", and synthesizes audio chimes and voice announcements via Web Audio API and SpeechSynthesis.
+ * Displays live orders in "In Progress" and "Ready for Pickup", and plays an audio chime (Web Audio API) plus a natural female neural voice (Gemini TTS via /api/order-ready/tts) in English and Spanish.
  * 
  * @businessRules
  * - **Tacos Gavilan Official Branding**: Presenta el nombre canónico y la identidad visual de la marca para displays en sucursal.
@@ -12,7 +12,8 @@
  *   - Sintetizador armónico de campana (Ding-Dong) con Web Audio API de baja latencia antes del llamado + Locutora de alta fidelidad bilingüe secuencial (Inglés: "Order #141 is ready," + Español: "orden #141 ya está.").
  *   - Campanilla Ding-Dong configurable (ON/OFF) con persistencia en LocalStorage.
  *   - Text-to-Speech (TTS) configurable en Español, Inglés o Bilingüe.
- *   - Cola de audio FIFO (First-In, First-Out) para evitar superposición de anuncios en horas pico.
+ *   - Cola de audio ordenada por HORA REAL DE CIERRE (`ready_at`, el momento del doble tap en el KDS): si se cierran varias órdenes casi al mismo tiempo se anuncian en el orden en que se cerraron, sin superponerse. Un Set de ids evita anunciar dos veces la misma orden.
+ *   - Voz femenina natural y única en ambos idiomas (Gemini TTS, voz "Kore") en vez de speechSynthesis del navegador (que en español caía en voces masculinas/robóticas). Los clips de las órdenes en preparación se precargan para que el anuncio sea instantáneo; si el TTS falla se usa la voz del navegador como respaldo.
  *   - Control y Filtro de Canales:
  *     * 'FOR_HERE' (Comedor) y 'TOGO' (Para Llevar): activos por defecto.
  *     * 'DRIVE_THRU' (Auto-Servicio): botón de control maestro (ON/OFF) en encabezado y controles detallados en el panel para activar/desactivar anuncios de voz y/o visualización en pantalla, con persistencia en LocalStorage.
@@ -20,7 +21,7 @@
  * - **Gestión de Vida Útil**: Las órdenes en 'READY' se retiran visualmente tras un tiempo configurable (por defecto 10 minutos).
  * 
  * @dataFlow
- * - Supabase Realtime channel (`order_ready_announcements`) + Polling cada 4s -> Actualiza estado React -> Dispara SpeechSynthesis femenino bilingüe -> PATCH /api/order-ready/orders (announced: true).
+ * - Supabase Realtime channel (`order_ready_announcements`) + Polling cada 4s (cada GET sincroniza con Toast, porque Toast no manda webhook en el doble tap) -> Actualiza estado React -> Chime + clips de voz natural (/api/order-ready/tts) -> PATCH /api/order-ready/orders (announced: true).
  * 
  * @notes
  * - Los navegadores web requieren un primer toque o clic para desbloquear el AudioContext y SpeechSynthesis (política de autoplay de navegadores). Se incluye un banner sutil de desbloqueo.
@@ -168,6 +169,12 @@ export default function OrderReadyBoardPage() {
   const audioCtxRef = useRef<AudioContext | null>(null)
   const audioQueueRef = useRef<OrderItem[]>([])
   const isPlayingRef = useRef<boolean>(false)
+  // Ids ya encolados/anunciados en este dispositivo (evita repetir el anuncio mientras el PATCH aún no llega)
+  const announcedIdsRef = useRef<Set<string>>(new Set())
+  // Clips de voz natural ya descargados: "en:141" -> objectURL
+  const clipCacheRef = useRef<Map<string, Promise<string | null>>>(new Map())
+  const prefetchRunningRef = useRef<boolean>(false)
+  const ttsFailUntilRef = useRef<number>(0)
 
   // Cargar catálogo de voces del navegador y detectar cambios de voces
   useEffect(() => {
@@ -317,8 +324,8 @@ export default function OrderReadyBoardPage() {
     []
   )
 
-  // Función para reproducir el mensaje con voz de mujer (SIN DING-DONG)
-  const speakOrder = useCallback(
+  // RESPALDO: voz del navegador (speechSynthesis). Solo se usa si el TTS neuronal no está disponible.
+  const speakOrderBrowser = useCallback(
     (order: OrderItem): Promise<void> => {
       return new Promise((resolve) => {
         if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
@@ -413,7 +420,100 @@ export default function OrderReadyBoardPage() {
     [availableVoices, getBestFemaleVoice, isMuted, voiceVolume, voiceSpeed, voiceLanguage]
   )
 
-  // Procesador de la cola de audio (FIFO Audio Queue) - Con Campanilla Ding-Dong y Voz Femenina
+  // ── Voz natural (Gemini TTS, femenina en ambos idiomas) ──
+  const getClipUrl = useCallback((lang: 'en' | 'es', num: string): Promise<string | null> => {
+    if (Date.now() < ttsFailUntilRef.current) return Promise.resolve(null)
+    const key = lang + ':' + num
+    const cached = clipCacheRef.current.get(key)
+    if (cached) return cached
+
+    const job = (async (): Promise<string | null> => {
+      try {
+        const res = await fetch('/api/order-ready/tts?n=' + num + '&lang=' + lang)
+        if (!res.ok) throw new Error('tts ' + res.status)
+        return URL.createObjectURL(await res.blob())
+      } catch (e) {
+        console.warn('TTS no disponible, se usará la voz del navegador:', e)
+        clipCacheRef.current.delete(key)
+        ttsFailUntilRef.current = Date.now() + 60000 // no insistir durante 1 min
+        return null
+      }
+    })()
+    clipCacheRef.current.set(key, job)
+
+    // Límite de memoria: descartar el clip más antiguo
+    if (clipCacheRef.current.size > 300) {
+      const oldest = clipCacheRef.current.keys().next().value
+      if (oldest) {
+        clipCacheRef.current.get(oldest)?.then((u) => { if (u) URL.revokeObjectURL(u) })
+        clipCacheRef.current.delete(oldest)
+      }
+    }
+    return job
+  }, [])
+
+  const clipLangs = useCallback((): Array<'en' | 'es'> => {
+    return voiceLanguage === 'bilingual' ? ['en', 'es'] : [voiceLanguage]
+  }, [voiceLanguage])
+
+  const playClip = useCallback(
+    (url: string): Promise<boolean> =>
+      new Promise((resolve) => {
+        const audio = new Audio(url)
+        audio.volume = isMuted ? 0 : Math.min(1, Math.max(0, voiceVolume))
+        let done = false
+        const finish = (ok: boolean) => {
+          if (!done) {
+            done = true
+            resolve(ok)
+          }
+        }
+        audio.onended = () => finish(true)
+        audio.onerror = () => finish(false)
+        setTimeout(() => {
+          if (!done) audio.pause()
+          finish(false)
+        }, 15000)
+        audio.play().catch(() => finish(false))
+      }),
+    [isMuted, voiceVolume]
+  )
+
+  // Anuncia la orden con la voz natural; si no hay TTS, cae a la voz del navegador
+  const speakOrder = useCallback(
+    async (order: OrderItem): Promise<void> => {
+      const isNumeric = /^\d{1,4}$/.test(order.order_number)
+      if (!isNumeric) return speakOrderBrowser(order)
+
+      const num = String(parseInt(order.order_number, 10))
+      const langs = clipLangs()
+      const urls = await Promise.all(langs.map((l) => getClipUrl(l, num)))
+      if (urls.some((u) => !u)) return speakOrderBrowser(order)
+
+      const phrase =
+        voiceLanguage === 'bilingual'
+          ? 'Order #' + num + ' is ready, orden #' + num + ' ya está.'
+          : voiceLanguage === 'en'
+            ? 'Order #' + num + ' is ready.'
+            : 'Orden #' + num + ', ya está.'
+      setActiveSpeech(phrase)
+
+      for (let i = 0; i < urls.length; i++) {
+        const ok = await playClip(urls[i] as string)
+        if (!ok) {
+          setActiveSpeech(null)
+          // Si ni siquiera sonó el primer clip, usar el respaldo; si falló el segundo solo se detiene
+          if (i === 0) return speakOrderBrowser(order)
+          return
+        }
+      }
+      setActiveSpeech(null)
+      await new Promise((r) => setTimeout(r, 400))
+    },
+    [clipLangs, getClipUrl, playClip, speakOrderBrowser, voiceLanguage]
+  )
+
+  // Procesador de la cola de audio - Campanilla Ding-Dong + voz femenina natural, en orden de cierre
   const processAudioQueue = useCallback(async () => {
     if (isPlayingRef.current || audioQueueRef.current.length === 0 || isMuted) {
       return
@@ -423,6 +523,12 @@ export default function OrderReadyBoardPage() {
     const nextOrder = audioQueueRef.current.shift()
 
     if (nextOrder) {
+      // Descargar los clips mientras suena la campanilla (si ya están precargados es inmediato)
+      if (/^\d{1,4}$/.test(nextOrder.order_number)) {
+        const num = String(parseInt(nextOrder.order_number, 10))
+        clipLangs().forEach((l) => { void getClipUrl(l, num) })
+      }
+
       // 1. Tocar campanilla Ding-Dong si está habilitada
       if (enableChime) {
         await playChime()
@@ -449,9 +555,9 @@ export default function OrderReadyBoardPage() {
     if (audioQueueRef.current.length > 0) {
       processAudioQueue()
     }
-  }, [isMuted, enableChime, playChime, speakOrder])
+  }, [isMuted, enableChime, playChime, speakOrder, clipLangs, getClipUrl])
 
-  // Encolar una orden lista para ser anunciada
+  // Encolar una orden lista. La cola se mantiene ORDENADA por hora real de cierre (ready_at ascendente)
   const enqueueAnnouncement = useCallback(
     (order: OrderItem) => {
       // Filtrar según canales habilitados
@@ -460,11 +566,19 @@ export default function OrderReadyBoardPage() {
       if (order.dining_option === 'DRIVE_THRU' && !announceDriveThru) return
       if (order.dining_option === 'DELIVERY' && !announceDelivery) return
 
-      // Evitar meter a la cola si ya está en ella
-      if (audioQueueRef.current.some(item => item.id === order.id)) return
+      // Una orden se anuncia una sola vez por dispositivo (aunque el PATCH tarde en llegar)
+      if (announcedIdsRef.current.has(order.id)) return
+      announcedIdsRef.current.add(order.id)
 
       audioQueueRef.current.push(order)
-      processAudioQueue()
+      audioQueueRef.current.sort(
+        (a, b) => Date.parse(a.ready_at || a.created_at) - Date.parse(b.ready_at || b.created_at)
+      )
+
+      // Microtask: permite que se encolen todas las órdenes del mismo ciclo antes de arrancar la primera
+      queueMicrotask(() => {
+        processAudioQueue()
+      })
     },
     [announceToGo, announceForHere, announceDriveThru, announceDelivery, processAudioQueue]
   )
@@ -483,12 +597,11 @@ export default function OrderReadyBoardPage() {
         setReadyOrders(ready)
         setInProgressOrders(inProgress)
 
-        // Verificar si hay órdenes listas pendientes de anunciar
-        ready.forEach(ord => {
-          if (!ord.announced) {
-            enqueueAnnouncement(ord)
-          }
-        })
+        // Órdenes listas pendientes de anunciar: en el orden en que se cerraron en el KDS
+        ready
+          .filter(ord => !ord.announced)
+          .sort((a, b) => Date.parse(a.ready_at || a.created_at) - Date.parse(b.ready_at || b.created_at))
+          .forEach(ord => enqueueAnnouncement(ord))
       }
     } catch (e) {
       console.error('Error fetching orders:', e)
@@ -506,6 +619,25 @@ export default function OrderReadyBoardPage() {
     }, 4000)
     return () => clearInterval(interval)
   }, [fetchOrders])
+
+  // Precargar la voz de las órdenes en preparación (las más antiguas primero) para que el anuncio sea instantáneo
+  useEffect(() => {
+    if (prefetchRunningRef.current || inProgressOrders.length === 0) return
+    prefetchRunningRef.current = true
+    const targets = [...inProgressOrders].reverse().slice(0, 12)
+    const langs = clipLangs()
+    ;(async () => {
+      try {
+        for (const o of targets) {
+          if (!/^\d{1,4}$/.test(o.order_number)) continue
+          const num = String(parseInt(o.order_number, 10))
+          for (const l of langs) await getClipUrl(l, num)
+        }
+      } finally {
+        prefetchRunningRef.current = false
+      }
+    })()
+  }, [inProgressOrders, clipLangs, getClipUrl])
 
   // Suscripción a Supabase Realtime
   useEffect(() => {
