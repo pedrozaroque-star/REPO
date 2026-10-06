@@ -40,6 +40,18 @@ export type TtsLang = 'en' | 'es'
 
 let bucketReady = false
 const inflight = new Map<string, Promise<Buffer>>()
+let poolIndex = 0
+const keyBlockedUntil = new Map<string, number>()
+
+export function getGeminiKeyPool(): string[] {
+  const raw = [
+    process.env.GEMINI_API_KEY,
+    process.env.GEMINI_API_KEY_2,
+    process.env.GEMINI_API_KEY_3,
+    ...(process.env.GEMINI_API_KEYS ? process.env.GEMINI_API_KEYS.split(',') : [])
+  ]
+  return Array.from(new Set(raw.map((k) => (k || '').trim()).filter(Boolean)))
+}
 
 export function isValidVoice(v: string | null | undefined): v is VoiceId {
   if (!v) return false
@@ -101,56 +113,95 @@ async function ensureBucket() {
 }
 
 async function generateWithGemini(n: string, lang: TtsLang, voice: VoiceId): Promise<Buffer> {
-  const key = process.env.GEMINI_API_KEY
-  if (!key) throw new Error('GEMINI_API_KEY no configurada')
+  const allKeys = getGeminiKeyPool()
+  if (allKeys.length === 0) throw new Error('No hay ninguna GEMINI_API_KEY configurada')
 
   const textToSpeak = buildPrompt(n, lang)
 
+  // Priorizar llaves que no estén temporalmente bloqueadas por 429
+  const now = Date.now()
+  const unblockedKeys = allKeys.filter((k) => (keyBlockedUntil.get(k) || 0) <= now)
+  const candidateKeys = unblockedKeys.length > 0 ? unblockedKeys : allKeys
+
+  // Rotación balanceada (round-robin)
+  const startIndex = (poolIndex++) % candidateKeys.length
+  const rotatedKeys = [
+    ...candidateKeys.slice(startIndex),
+    ...candidateKeys.slice(0, startIndex)
+  ]
+
   let lastErr = ''
-  for (const model of MODELS) {
-    for (let attempt = 0; attempt < 2; attempt++) {
-      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
-        method: 'POST',
-        headers: { 'x-goog-api-key': key, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{
-            role: 'user',
-            parts: [{
-              text: textToSpeak,
-              speech_metadata: {
-                style: lang === 'es'
-                  ? 'cheerful, energetic and enthusiastic counter announcement, saying the company slogan "¡ya está!" with joyful energy'
-                  : 'cheerful, upbeat and friendly counter announcement'
-              }
-            }]
-          }],
-          generationConfig: {
-            responseModalities: ['AUDIO'],
-            speechConfig: {
-              voiceConfig: {
-                prebuiltVoiceConfig: {
-                  voiceName: voice
+
+  for (const key of rotatedKeys) {
+    let keyExhausted = false
+    for (const model of MODELS) {
+      if (keyExhausted) break
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+            method: 'POST',
+            headers: { 'x-goog-api-key': key, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{
+                role: 'user',
+                parts: [{
+                  text: textToSpeak,
+                  ...(model.includes('3.8')
+                    ? {
+                        speech_metadata: {
+                          style:
+                            lang === 'es'
+                              ? 'cheerful, energetic and enthusiastic counter announcement, saying the company slogan "¡ya está!" with joyful energy'
+                              : 'cheerful, upbeat and friendly counter announcement'
+                        }
+                      }
+                    : {})
+                }]
+              }],
+              generationConfig: {
+                responseModalities: ['AUDIO'],
+                speechConfig: {
+                  voiceConfig: {
+                    prebuiltVoiceConfig: {
+                      voiceName: voice
+                    }
+                  }
                 }
               }
+            })
+          })
+
+          if (res.ok) {
+            const json: any = await res.json()
+            const part = json.candidates?.[0]?.content?.parts?.find((p: any) => p.inlineData?.data)
+            if (part) {
+              const raw = Buffer.from(part.inlineData.data, 'base64')
+              return ensureWav(raw)
+            }
+            lastErr = `${model}: respuesta sin audio`
+          } else {
+            const errText = await res.text()
+            lastErr = `${model} (key ...${key.slice(-4)}): ${res.status} ${errText.slice(0, 160)}`
+            if (res.status === 429) {
+              if (/PerDay/i.test(errText)) {
+                // Cuota diaria de ESTA llave agotada: marcarla bloqueada 15 min y saltar a la siguiente llave del pool
+                keyBlockedUntil.set(key, Date.now() + 15 * 60 * 1000)
+                keyExhausted = true
+                break
+              }
+              await new Promise((r) => setTimeout(r, 1200))
+            } else {
+              break
             }
           }
-        })
-      })
-      if (res.ok) {
-        const json: any = await res.json()
-        const part = json.candidates?.[0]?.content?.parts?.find((p: any) => p.inlineData?.data)
-        if (part) {
-          const raw = Buffer.from(part.inlineData.data, 'base64')
-          return ensureWav(raw)
+        } catch (fetchErr: any) {
+          lastErr = `${model}: ${fetchErr.message}`
+          break
         }
-        lastErr = `${model}: respuesta sin audio`
-      } else {
-        lastErr = `${model}: ${res.status} ${(await res.text()).slice(0, 160)}`
-        if (res.status === 429) await new Promise(r => setTimeout(r, 1500))
-        else break
       }
     }
   }
+
   throw new Error(`Gemini TTS falló (${lastErr})`)
 }
 
