@@ -31,6 +31,18 @@ import { supabaseAdmin } from '@/lib/supabase'
 
 const TOAST_API_HOST = process.env.TOAST_API_HOST || 'https://ws-api.toasttab.com'
 
+// Estados de pago no válidos / no cobrados que Cohesion y Toast excluyen de las ventas y depósitos
+export const INVALID_PAYMENT_STATUSES = new Set([
+  'DENIED',
+  'FAILED',
+  'VOIDED',
+  'OPEN',
+  'CANCELLED',
+  'PROCESSING_VOID',
+  'ERROR',
+  'REVERSED',
+])
+
 export interface ToastOpenOrder {
   orderId: string
   orderNumber: string
@@ -148,6 +160,7 @@ export async function fetchToastAccountingData(
     'checks.appliedDiscounts',
     'checks.appliedServiceCharges',
     'checks.server',
+    'checks.payments.guid',
     'checks.payments.type',
     'checks.payments.amount',
     'checks.payments.tipAmount',
@@ -230,6 +243,9 @@ export async function fetchToastAccountingData(
   let doordashPayment = 0
   let grubhubPayment = 0
   let cashDeposit = 0
+
+  // Registro de GUIDs de pagos procesados hoy para identificar pagos de fechas cruzadas (Paid In)
+  const processedPaymentGuids = new Set<string>()
 
   // Acumuladores de Validación (Órdenes Abiertas y Desbalanceadas)
   const openOrdersList: ToastOpenOrder[] = []
@@ -385,9 +401,10 @@ export async function fetchToastAccountingData(
 
       // Clasificar pagos
       for (const p of check.payments || []) {
+        if (p.guid) processedPaymentGuids.add(p.guid)
         if (p.voided) continue
-        // Cohesion solo cuenta pagos capturados: ignora DENIED, FAILED, VOIDED (status), OPEN (pre-auth) y CANCELLED
-        if (['DENIED', 'FAILED', 'VOIDED', 'OPEN', 'CANCELLED'].includes(String(p.paymentStatus || '').toUpperCase())) continue
+        // Cohesion solo cuenta pagos capturados: ignora DENIED, FAILED, VOIDED, OPEN, CANCELLED, PROCESSING_VOID, ERROR, REVERSED
+        if (INVALID_PAYMENT_STATUSES.has(String(p.paymentStatus || '').toUpperCase())) continue
 
         const amt = Number(p.amount || 0)
         const pType = (p.type || '').toUpperCase()
@@ -433,7 +450,7 @@ export async function fetchToastAccountingData(
       let chkPaid = 0
       for (const p of check.payments || []) {
         if (p.voided) continue
-        if (['DENIED', 'FAILED', 'VOIDED', 'OPEN', 'CANCELLED'].includes(String(p.paymentStatus || '').toUpperCase())) continue
+        if (INVALID_PAYMENT_STATUSES.has(String(p.paymentStatus || '').toUpperCase())) continue
         chkPaid += Number(p.amount || 0)
       }
       const chkExcess = Math.round((chkPaid - chkTotal) * 100) / 100
@@ -441,57 +458,60 @@ export async function fetchToastAccountingData(
     }
   }
 
-  // PAID IN (Cohesion: "Paid In Total (Deposits Received)"): pagos recibidos HOY por cheques de la fecha comercial ANTERIOR
-  // (ej. South Gate 10/3: orden 904 de businessDate 10/2 cobrada 11:01 AM del 10/3 con tarjeta $10.22).
-  // Se cuentan por fecha de pago dentro de la ventana 6:00 AM - 5:59 AM (America/Los_Angeles).
+  // PAID IN (Cohesion: "Paid In Total (Deposits Received)"):
+  // Pagos capturados en la fecha comercial actual (paidBusinessDate) pero que pertenecen a órdenes de OTRA fecha (pasada o futura).
+  // Ejemplos auditados al centavo:
+  // 1. West Covina 10/5: Orden #1 de businessDate 20261015 (Catering Party Tray programado para el 15 de oct) cobrada el 10/5 con Visa ($270.98, fee $6.90).
+  // 2. South Gate 10/3: Orden #904 de businessDate 10/2 cobrada el 10/3 ($10.22).
   let paidIn = 0
   try {
-    const y = Number(businessDate.slice(0, 4)), mo = Number(businessDate.slice(4, 6)), dd = Number(businessDate.slice(6, 8))
-    const laHour = (ms: number) => Number(new Intl.DateTimeFormat('en-US', { timeZone: 'America/Los_Angeles', hour: '2-digit', hour12: false }).format(new Date(ms))) % 24
-    let winStart = Date.UTC(y, mo - 1, dd, 14, 0, 0)
-    if (laHour(winStart) !== 6) winStart = Date.UTC(y, mo - 1, dd, 13, 0, 0)
-    const winEnd = winStart + 24 * 3600 * 1000
-    const prev = new Date(Date.UTC(y, mo - 1, dd - 1))
-    const prevDate = `${prev.getUTCFullYear()}${String(prev.getUTCMonth() + 1).padStart(2, '0')}${String(prev.getUTCDate()).padStart(2, '0')}`
-    const pUrl = new URL(`${TOAST_API_HOST}/orders/v2/ordersBulk`)
-    pUrl.searchParams.append('businessDate', prevDate)
-    pUrl.searchParams.append('pageSize', '100')
-    pUrl.searchParams.append('fields', ['voided', 'deleted', 'paidDate', 'checks.voided', 'checks.deleted', 'checks.paidDate', 'checks.closedDate', 'checks.payments.type', 'checks.payments.amount', 'checks.payments.tipAmount', 'checks.payments.voided', 'checks.payments.originalProcessingFee', 'checks.payments.paymentStatus'].join(','))
-    let pPage = 1
-    for (;;) {
-      pUrl.searchParams.set('page', String(pPage))
-      const pRes = await fetch(pUrl.toString(), { headers: { Authorization: `Bearer ${token}`, 'Toast-Restaurant-External-ID': storeExternalId } })
-      if (!pRes.ok) break
-      const pData: any[] = await pRes.json()
-      for (const po of pData) {
-        if (po.voided || po.deleted) continue
-        for (const pc of po.checks || []) {
-          if (pc.voided || pc.deleted) continue
-          const paidMs = Date.parse(pc.paidDate || pc.closedDate || po.paidDate || '')
-          if (!Number.isFinite(paidMs) || paidMs < winStart || paidMs >= winEnd) continue
-          for (const pp of pc.payments || []) {
-            if (pp.voided) continue
-            if (['DENIED', 'FAILED', 'VOIDED', 'OPEN', 'CANCELLED'].includes(String(pp.paymentStatus || '').toUpperCase())) continue
-            const pAmt = Number(pp.amount || 0)
-            const pT = String(pp.type || '').toUpperCase()
-            if (pT === 'CREDIT') {
-              const tip = Number(pp.tipAmount || 0)
-              creditCardGross += pAmt + tip
-              tipsPayable += tip
-              creditCardActualFees += Number(pp.originalProcessingFee || 0)
-              paidIn += pAmt
-            } else if (pT === 'CASH') {
-              cashDeposit += pAmt
-              paidIn += pAmt
-            }
-          }
+    const payUrl = new URL(`${TOAST_API_HOST}/orders/v2/payments`)
+    payUrl.searchParams.set('paidBusinessDate', businessDate)
+    const pListRes = await fetch(payUrl.toString(), {
+      headers: { Authorization: `Bearer ${token}`, 'Toast-Restaurant-External-ID': storeExternalId },
+    })
+    if (pListRes.ok) {
+      const paymentGuids: string[] = await pListRes.json()
+      if (Array.isArray(paymentGuids) && paymentGuids.length > 0) {
+        // Encontrar pagos cobrados hoy que no provienen de las órdenes de hoy (fechas pasadas o pedidos futuros)
+        const crossPaymentGuids = paymentGuids.filter(guid => !processedPaymentGuids.has(guid))
+        if (crossPaymentGuids.length > 0) {
+          await Promise.all(
+            crossPaymentGuids.map(async (pGuid) => {
+              try {
+                const pRes = await fetch(`${TOAST_API_HOST}/orders/v2/payments/${pGuid}`, {
+                  headers: { Authorization: `Bearer ${token}`, 'Toast-Restaurant-External-ID': storeExternalId },
+                })
+                if (!pRes.ok) return
+                const pp = await pRes.json()
+                if (pp.voided || INVALID_PAYMENT_STATUSES.has(String(pp.paymentStatus || '').toUpperCase())) return
+
+                const pAmt = Number(pp.amount || 0)
+                const pTip = Number(pp.tipAmount || 0)
+                const pT = String(pp.type || '').toUpperCase()
+                const fee = Number(pp.originalProcessingFee || 0)
+
+                if (pT === 'CREDIT') {
+                  creditCardGross += pAmt + pTip
+                  tipsPayable += pTip
+                  creditCardActualFees += fee
+                  paidIn += pAmt
+                } else if (pT === 'CASH') {
+                  cashDeposit += pAmt
+                  paidIn += pAmt
+                } else {
+                  paidIn += pAmt
+                }
+              } catch (fetchErr) {
+                console.warn(`[toast-accounting] Error consultando pago cross-date ${pGuid}:`, (fetchErr as Error).message)
+              }
+            })
+          )
         }
       }
-      if (pData.length < 100) break
-      pPage++
     }
   } catch (paidInErr) {
-    console.warn('[toast-accounting] Paid In (dia anterior) no disponible:', (paidInErr as Error).message)
+    console.warn('[toast-accounting] Paid In (cross-date payments) no disponible:', (paidInErr as Error).message)
   }
   // Redondear a centavos
   const r = (n: number) => Math.round(n * 100) / 100

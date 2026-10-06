@@ -28,8 +28,9 @@
  *   - Turno PM: 5:00 PM - 5:59:59 AM.
  *   - Aislamiento estricto por `business_date`: la ventana de consulta nunca busca órdenes antes de las 6:00 AM del día en curso (`Math.max(now - 45m, businessDayStartMs)`), evitando que la apertura de la mañana reciba o anuncie órdenes residuales del turno nocturno anterior.
  *   - Centinela automático en vivo: al dar las 6:00 AM en punto, el tablero detecta el cambio de día laboral, vacía la memoria de órdenes anunciadas y refresca el estado en limpio.
- * - **Idempotencia ante Recall de Cocina en KDS**:
- *   - Cuando los cocineros hacen "Recall" en el KDS Expediter para revisar órdenes ya despachadas y luego hacen doble tap para cerrarlas nuevamente, el sistema no vuelve a reproducir la campanilla ni la voz gracias a la triple barrera de idempotencia (Set de IDs en memoria, persistencia `announced: true` en Supabase y aislamiento por `business_date`).
+ * - **Idempotencia ante Recall de Cocina en KDS y Supresión de Avalancha Inicial**:
+ *   - Al abrir el módulo, recargar la página o cambiar de sucursal, todas las órdenes preexistentes en "Listo para recoger" se renderizan en pantalla en SILENCIO total. Solo se activan el Ding-Dong y la voz para órdenes recién completadas capturadas en vivo mientras el módulo está abierto (o al pulsar "Llamar" manualmente).
+ *   - Cuando los cocineros hacen "Recall" en el KDS Expediter para revisar órdenes ya despachadas y luego hacen doble tap para cerrarlas nuevamente, el sistema no vuelve a reproducir la campanilla ni la voz gracias a la cuádruple barrera de idempotencia (Set de IDs en memoria, supresión de backlog inicial por tienda, persistencia `announced: true` en Supabase y aislamiento por `business_date`).
  * - **Gestión de Vida Útil**: Las órdenes en 'READY' se retiran visualmente tras 20 minutos (limpieza automática de pantalla para mantener el tablero ordenado y legible, configurable en 15, 20 o 30 min, 20 min por defecto).
  * - **Resiliencia de Red (Offline Mode)**: Detección proactiva de conectividad de red con aviso visual y caída suave a audio en caché/síntesis local si se corta la conexión a internet.
  * 
@@ -332,6 +333,9 @@ function OrderReadyBoardContent() {
 
   const handleStoreChange = (storeCode: string) => {
     setSelectedStore(storeCode)
+    // Limpiar cola de audio para que órdenes de la tienda anterior no sigan sonando
+    audioQueueRef.current = []
+    activeStoreRef.current = null
     if (typeof window !== 'undefined') {
       localStorage.setItem('teg_order_ready_store', storeCode)
       const url = new URL(window.location.href)
@@ -449,6 +453,8 @@ function OrderReadyBoardContent() {
   // Ids ya encolados/anunciados en este dispositivo (evita repetir el anuncio mientras el PATCH aún no llega)
   const announcedIdsRef = useRef<Set<string>>(new Set())
   const readyIdsRef = useRef<Set<string>>(new Set())
+  // Tienda actualmente sincronizada: si cambia o es la primera carga, se suprimen los anuncios por voz de órdenes preexistentes
+  const activeStoreRef = useRef<string | null>(null)
   const reminderTimersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set())
   const fetchingRef = useRef<boolean>(false)
   const enqueueReminderRef = useRef<((o: OrderItem) => void) | null>(null)
@@ -496,6 +502,8 @@ function OrderReadyBoardContent() {
         setBusinessDate(currentBDate)
         announcedIdsRef.current.clear()
         readyIdsRef.current.clear()
+        activeStoreRef.current = null
+        audioQueueRef.current = []
         setReadyOrders([])
         setInProgressOrders([])
         fetchOrdersRef.current?.(true)
@@ -1038,11 +1046,36 @@ function OrderReadyBoardContent() {
         setInProgressOrders(inProgress)
         readyIdsRef.current = new Set(ready.map(o => o.id))
 
-        // Órdenes listas pendientes de anunciar: en el orden en que se cerraron en el KDS
-        ready
-          .filter(ord => !ord.announced)
-          .sort((a, b) => Date.parse(a.ready_at || a.created_at) - Date.parse(b.ready_at || b.created_at))
-          .forEach(ord => enqueueAnnouncement(ord))
+        const isFirstFetchForStore = activeStoreRef.current !== selectedStore
+
+        if (isFirstFetchForStore) {
+          // Primera carga al abrir el módulo o al cambiar de tienda:
+          // Se muestran en pantalla todas las órdenes que ya estaban en la fila, pero en SILENCIO.
+          // Registramos los IDs en announcedIdsRef para que la cola de audio NO anuncie en avalancha
+          // órdenes que ya estaban listas antes de ingresar a la vista.
+          activeStoreRef.current = selectedStore
+          ready.forEach(ord => {
+            announcedIdsRef.current.add(ord.id)
+          })
+        } else {
+          // En ciclos posteriores (pantalla ya abierta y operando en vivo):
+          // Solo se anuncian órdenes recién marcadas como listas capturadas en vivo mientras el módulo está abierto,
+          // con una antigüedad máxima razonable (últimos 3 minutos) para evitar cantar órdenes viejas.
+          const nowTime = Date.now()
+          ready
+            .filter(ord => {
+              if (ord.announced) return false
+              if (announcedIdsRef.current.has(ord.id)) return false
+              const readyTime = Date.parse(ord.ready_at || ord.created_at)
+              if (!isNaN(readyTime) && nowTime - readyTime > 3 * 60 * 1000) {
+                announcedIdsRef.current.add(ord.id)
+                return false
+              }
+              return true
+            })
+            .sort((a, b) => Date.parse(a.ready_at || a.created_at) - Date.parse(b.ready_at || b.created_at))
+            .forEach(ord => enqueueAnnouncement(ord))
+        }
       }
     } catch (e) {
       console.error('Error fetching orders:', e)

@@ -321,6 +321,19 @@ export default function StaffEvaluationForm({
             setSubmittedRecord(created)
             setShowThanks(true)
 
+            // Notificación ejecutiva a Raquel, Roberto, Gonzalo y Carlos
+            try {
+                fetch('/api/evaluacion/notify', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(created)
+                }).catch(notifyErr => {
+                    console.warn('[StaffEvaluationForm] Aviso: error asíncrono notificando a directivos:', notifyErr)
+                })
+            } catch (notifyErr) {
+                console.warn('[StaffEvaluationForm] Error al despachar notificación:', notifyErr)
+            }
+
             if (onCompleted) {
                 onCompleted(created)
             }

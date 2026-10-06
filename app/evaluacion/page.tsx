@@ -26,7 +26,7 @@ import {
     UserCheck, Users, Star, Award, ThumbsUp, ThumbsDown,
     Filter, Search, MapPin, Calendar, Clock, ChevronRight,
     Plus, RefreshCw, ExternalLink, CheckCircle2, AlertCircle,
-    Briefcase, User, Sparkles, Building2
+    Briefcase, User, Sparkles, Building2, QrCode
 } from 'lucide-react'
 import { getSupabaseClient, formatStoreName } from '@/lib/supabase'
 import { formatDateLA, formatTimeLA } from '@/lib/checklistPermissions'
@@ -35,6 +35,7 @@ import { useAuth } from '@/components/ProtectedRoute'
 import SurpriseLoader from '@/components/SurpriseLoader'
 import StaffEvaluationForm, { STAFF_ROLES, STORE_ROLES, CORPORATE_ROLES } from '@/components/StaffEvaluationForm'
 import StaffEvaluationReviewModal from '@/components/StaffEvaluationReviewModal'
+import StaffEvaluationQRModal from '@/components/StaffEvaluationQRModal'
 
 interface Store {
     id: number
@@ -66,6 +67,7 @@ export default function StaffEvaluationsPage() {
     // Modal state
     const [selectedEvaluation, setSelectedEvaluation] = useState<any | null>(null)
     const [isModalOpen, setIsModalOpen] = useState(false)
+    const [isQRModalOpen, setIsQRModalOpen] = useState(false)
 
     useEffect(() => {
         fetchStores()
@@ -241,6 +243,15 @@ export default function StaffEvaluationsPage() {
                         <span>📱</span>
                         <span>{isEs ? 'Modo Kiosko / Tablet' : 'Kiosk / Tablet Mode'}</span>
                         <ExternalLink size={13} className="opacity-60" />
+                    </button>
+
+                    <button
+                        onClick={() => setIsQRModalOpen(true)}
+                        className="px-4 py-2.5 bg-gradient-to-r from-red-600 to-amber-600 hover:from-red-500 hover:to-amber-500 text-white font-bold text-xs rounded-xl shadow-md shadow-red-600/20 transition-all flex items-center gap-2 active:scale-95"
+                        title={isEs ? 'Ver y generar códigos QR y stickers' : 'View and generate QR codes and stickers'}
+                    >
+                        <QrCode size={15} />
+                        <span>{isEs ? 'Códigos QR & Stickers' : 'QR Codes & Stickers'}</span>
                     </button>
 
                     <button
@@ -626,6 +637,13 @@ export default function StaffEvaluationsPage() {
                     onUpdate={fetchEvaluations}
                 />
             )}
+
+            {/* QR CODES & STICKERS MODAL */}
+            <StaffEvaluationQRModal
+                isOpen={isQRModalOpen}
+                onClose={() => setIsQRModalOpen(false)}
+                stores={stores}
+            />
         </div>
     )
 }

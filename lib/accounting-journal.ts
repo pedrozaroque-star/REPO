@@ -133,8 +133,8 @@ export function generateJournalLines(salesData: SalesPacketData, siteMapping: Si
     addLine('12049', 'Deposit Sales Collected & Open Orders', 0, salesData.deposits_collected, 'Deposit Sales Collected');
   }
   if (salesData.paid_in) {
-    // Pagos de hoy por cheques del dia comercial anterior (Cohesion: Paid In Total (Deposits Received))
-    addLine('51050', 'Paid In Total (Deposits Received)', 0, salesData.paid_in, 'Paid In Totals');
+    // Pagos de hoy por cheques de otra fecha comercial o pedidos futuros (Cohesion: Paid In Total (Deposits Received) -> cuenta 12049)
+    addLine('12049', 'Paid In Total (Deposits Received)', 0, salesData.paid_in, 'Paid In Totals');
   }
 
   // --- DEBITS ---

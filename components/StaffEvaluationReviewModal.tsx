@@ -22,7 +22,7 @@ import React, { useState, useEffect } from 'react'
 import {
     X, Star, CheckCircle, Clock, MapPin, Calendar, User, Briefcase,
     ThumbsUp, ThumbsDown, Award, TrendingUp, AlertCircle, Quote,
-    Printer, Save, ChevronDown, ChevronUp, Image as ImageIcon
+    Printer, Save, ChevronDown, ChevronUp, Image as ImageIcon, Mail
 } from 'lucide-react'
 import { getSupabaseClient, formatStoreName } from '@/lib/supabase'
 import { formatDateLA, formatTimeLA } from '@/lib/checklistPermissions'
@@ -143,6 +143,8 @@ export default function StaffEvaluationReviewModal({
         1: true, 2: true, 3: true, 4: true, 5: true
     })
     const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null)
+    const [emailSending, setEmailSending] = useState(false)
+    const [emailSent, setEmailSent] = useState(false)
 
     useEffect(() => {
         if (evaluation) {
@@ -246,6 +248,28 @@ export default function StaffEvaluationReviewModal({
         }
     }
 
+    const handleSendEmail = async () => {
+        try {
+            setEmailSending(true)
+            const res = await fetch('/api/evaluacion/notify', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(evaluation)
+            })
+            const data = await res.json()
+            if (data.success) {
+                setEmailSent(true)
+                setTimeout(() => setEmailSent(false), 4000)
+            } else {
+                alert((isEs ? 'Error al enviar correo: ' : 'Error sending email: ') + (data.error || ''))
+            }
+        } catch (err: any) {
+            alert((isEs ? 'Error al enviar correo: ' : 'Error sending email: ') + err.message)
+        } finally {
+            setEmailSending(false)
+        }
+    }
+
     const handlePrint = () => {
         window.print()
     }
@@ -310,6 +334,14 @@ export default function StaffEvaluationReviewModal({
                     </div>
 
                     <div className="flex items-center gap-2 print:hidden">
+                        <button
+                            onClick={handleSendEmail}
+                            disabled={emailSending}
+                            title={isEs ? 'Enviar notificación por correo a Raquel, Roberto y Gonzalo' : 'Email report to Raquel, Roberto and Gonzalo'}
+                            className="p-2 rounded-xl bg-white/10 hover:bg-white/20 text-white transition-colors disabled:opacity-50"
+                        >
+                            <Mail size={20} className={emailSending ? 'animate-pulse' : ''} />
+                        </button>
                         <button
                             onClick={handlePrint}
                             title={isEs ? 'Imprimir Ficha' : 'Print Review'}
@@ -653,27 +685,44 @@ export default function StaffEvaluationReviewModal({
                             />
                         </div>
 
-                        <div className="flex items-center justify-between pt-2">
-                            <div>
+                        <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
+                            <div className="flex items-center gap-3">
                                 {savedSuccess && (
                                     <span className="text-xs font-black text-emerald-600 dark:text-emerald-400 animate-in fade-in">
                                         ✓ {isEs ? '¡Dictamen guardado exitosamente!' : 'Review saved successfully!'}
                                     </span>
                                 )}
-                            </div>
-                            <button
-                                type="button"
-                                onClick={handleSaveReview}
-                                disabled={saving}
-                                className="px-5 py-2.5 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl shadow-md transition-all flex items-center gap-2 text-sm disabled:opacity-50"
-                            >
-                                {saving ? (
-                                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                                ) : (
-                                    <Save size={16} />
+                                {emailSent && (
+                                    <span className="text-xs font-black text-emerald-600 dark:text-emerald-400 animate-in fade-in">
+                                        ✓ {isEs ? '¡Notificación enviada a Directores!' : 'Notification sent to Directors!'}
+                                    </span>
                                 )}
-                                <span>{isEs ? 'Guardar Dictamen' : 'Save Review'}</span>
-                            </button>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <button
+                                    type="button"
+                                    onClick={handleSendEmail}
+                                    disabled={emailSending}
+                                    className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold rounded-xl transition-all flex items-center gap-2 text-sm border border-slate-200 dark:border-slate-700 disabled:opacity-50"
+                                    title={isEs ? 'Enviar correo ejecutivo a Raquel, Roberto y Gonzalo' : 'Send executive email to Raquel, Roberto and Gonzalo'}
+                                >
+                                    <Mail size={16} className="text-red-500" />
+                                    <span>{emailSending ? (isEs ? 'Enviando...' : 'Sending...') : (isEs ? 'Notificar Directores' : 'Notify Directors')}</span>
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={handleSaveReview}
+                                    disabled={saving}
+                                    className="px-5 py-2.5 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl shadow-md transition-all flex items-center gap-2 text-sm disabled:opacity-50"
+                                >
+                                    {saving ? (
+                                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                    ) : (
+                                        <Save size={16} />
+                                    )}
+                                    <span>{isEs ? 'Guardar Dictamen' : 'Save Review'}</span>
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
