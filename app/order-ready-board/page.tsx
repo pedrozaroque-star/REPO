@@ -79,7 +79,7 @@ import { createClient } from '@supabase/supabase-js'
 import ProtectedRoute from '@/components/ProtectedRoute'
 import { AVAILABLE_VOICES, VoiceId, isValidVoice } from '@/lib/order-ready-tts'
 import { getCaliforniaBusinessDate, getCaliforniaShift } from '@/lib/business-date'
-import { STORE_GUID_BY_CODE } from '@/lib/order-ready-sync'
+import { STORE_GUID_BY_CODE } from '@/lib/toast-stores'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
