@@ -7,6 +7,8 @@
  * - Semantic styling badges for critical (>35%), warning (32-35%), and healthy (<32%) food costs.
  * @dataFlow
  * - Props (data, foodCost) -> Framer Motion Cards -> UI Grid.
+ * @notes
+ * - RESPONSIVE: el monto principal usa `FitValue` (container query) para no salirse de la tarjeta en teléfonos; 2 columnas en vertical, 4 en horizontal (sm+landscape) y escritorio.
  */
 'use client'
 
@@ -14,6 +16,7 @@ import React from 'react'
 import { DollarSign, ShoppingBag, Clock, UtensilsCrossed, AlertTriangle } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { useLanguage } from '@/lib/i18n'
+import FitValue from './FitValue'
 
 interface SummaryProps {
     data?: {
@@ -122,37 +125,44 @@ export default function SalesSummary({ data, foodCost }: SummaryProps) {
     const allCards = foodCostCard ? [...cards, foodCostCard] : cards
 
     return (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        // Mobile-first: 2 columnas en teléfono vertical, 4 en horizontal (sm+landscape) y en escritorio (lg+).
+        <div className="grid grid-cols-2 sm:landscape:grid-cols-4 lg:grid-cols-4 gap-2.5 sm:gap-4 short:gap-2 mb-4 sm:mb-6 short:mb-3">
             {allCards.map((card, index) => (
                 <motion.div
                     key={card.title}
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: index * 0.1 }}
-                    className={`relative p-5 rounded-3xl border ${card.border} ${card.bg} backdrop-blur-xl overflow-hidden shadow-lg shadow-black/5`}
+                    className={`relative min-w-0 p-3 sm:p-5 short:p-2.5 rounded-2xl sm:rounded-3xl short:rounded-2xl border ${card.border} ${card.bg} backdrop-blur-xl overflow-hidden shadow-lg shadow-black/5`}
                 >
-                    <div className="flex justify-between items-start mb-2">
-                        <div className={`p-2.5 rounded-2xl bg-white/20 dark:bg-white/5 ${card.color}`}>
-                            <card.icon size={20} />
+                    <div className="flex justify-between items-start mb-1 sm:mb-2 short:mb-0.5">
+                        <div className={`p-2 sm:p-2.5 short:p-1.5 rounded-xl sm:rounded-2xl short:rounded-lg bg-white/20 dark:bg-white/5 ${card.color}`}>
+                            <card.icon className="w-4 h-4 sm:w-5 sm:h-5 short:w-3.5 short:h-3.5" />
                         </div>
                     </div>
 
-                    <div className="mt-2 relative z-10">
-                        <p className="text-sm font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-widest mb-1">
+                    <div className="mt-1 sm:mt-2 short:mt-0.5 relative z-10 min-w-0">
+                        <p className="text-[10px] sm:text-sm short:text-[10px] font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wider sm:tracking-widest short:tracking-wider mb-1 short:mb-0.5 leading-tight break-words">
                             {card.title}
                         </p>
-                        <h3 className={`text-3xl lg:text-4xl font-semibold text-slate-900 dark:text-white tracking-tighter ${
-                            card.icon === AlertTriangle ? 'text-rose-500 dark:text-rose-400' : ''
-                        }`}>
-                            {card.value}
+                        {/* FitValue: el monto se autoajusta al ancho real de la tarjeta (nunca se sale del cuadro) */}
+                        <h3 className="text-slate-900 dark:text-white">
+                            <FitValue
+                                text={card.value}
+                                maxPx={30}
+                                minPx={14}
+                                className={`font-semibold tracking-tighter lg:[--fit-max:36px] short:[--fit-max:24px] ${
+                                    card.icon === AlertTriangle ? 'text-rose-500 dark:text-rose-400' : ''
+                                }`}
+                            />
                         </h3>
                         {card.subValue && (
-                            <p className="text-sm text-slate-600 dark:text-slate-400 font-mono font-bold mt-1">
+                            <p className="text-[11px] sm:text-sm short:text-[11px] text-slate-600 dark:text-slate-400 font-mono font-bold mt-1 short:mt-0.5 break-words leading-snug">
                                 {card.subValue}
                             </p>
                         )}
                         {'secondarySubValue' in card && card.secondarySubValue && (
-                            <p className={`text-xs font-semibold mt-0.5 ${
+                            <p className={`text-[11px] sm:text-xs short:text-[11px] font-semibold mt-0.5 break-words leading-snug ${
                                 card.status === 'critical'
                                     ? 'text-rose-500 dark:text-rose-400' 
                                     : card.status === 'prime'
