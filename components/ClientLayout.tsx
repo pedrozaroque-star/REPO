@@ -41,10 +41,11 @@ export default function ClientLayout({
         '/', 
         '/auth/login', 
         '/clientes', 
-        '/evaluacion', 
+        '/evaluacion/kiosk', 
         '/feedback-publico', 
         '/planificador/imprimir', 
         '/tv', 
+        '/order-ready-board',
         '/procedimientos/imprimir',
         '/inventory/orders/print-sheet',
         '/admin/compras/viele/print-sheet'

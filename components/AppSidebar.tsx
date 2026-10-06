@@ -13,7 +13,7 @@ import {
     DollarSign, TrendingUp, Calendar, MessageSquare, CalendarCheck, UserCog,
     Monitor, ChefHat, Zap, X, PanelLeftClose, PanelLeft, RefreshCw,
     Settings, Keyboard, HelpCircle, ExternalLink, Moon, Sun, Globe, Shield,
-    CalendarDays, Sparkles, Info, UserCircle, Menu, Folder, Truck, Timer, Shirt, Car, Calculator, Package, BarChart3
+    CalendarDays, Sparkles, Info, UserCircle, Menu, Folder, Truck, Timer, Shirt, Car, Calculator, Package, BarChart3, UserCheck, Bell
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useLanguage } from '@/lib/i18n'
@@ -202,6 +202,16 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                     tooltip: language === 'en'
                         ? 'Drive-Thru speed of service metrics and store leaderboard (Métricas de velocidad de atención autoservicio)'
                         : 'Métricas de velocidad de atención y ranking entre sucursales para el Drive-Thru'
+                },
+                {
+                    name: t('items.order_ready_board'),
+                    plainName: 'Order Ready Board',
+                    path: '/order-ready-board',
+                    icon: <Bell size={20} />,
+                    roles: ['asistente', 'manager', 'supervisor', 'admin'],
+                    tooltip: language === 'en'
+                        ? 'Customer-facing order pickup display and voice announcer (Tablero de pedidos listos y locutor de voz)'
+                        : 'Tablero de pedidos listos para clientes y locutor de voz automático'
                 },
             ]
         },
@@ -544,19 +554,14 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                         : 'Configuración de pantallas de encuestas de satisfacción del cliente en comedor'
                 },
                 {
-                    name: (
-                        <div className="flex items-center gap-2">
-                            <span>{t('items.eval_staff')}</span>
-                            <span className="text-[10px] bg-slate-100 dark:bg-slate-800 text-slate-500 border border-slate-200 dark:border-slate-700 px-1.5 py-0.5 rounded font-black tracking-widest">DEMO</span>
-                        </div>
-                    ),
-                    plainName: 'Eval. Staff',
+                    name: t('items.eval_staff'),
+                    plainName: 'Evaluación Staff',
                     path: '/evaluacion',
-                    icon: <QrCode size={20} />,
+                    icon: <UserCheck size={20} />,
                     roles: ['admin', 'manager', 'supervisor'],
                     tooltip: language === 'en'
-                        ? 'Periodic staff performance reviews and skills evaluation (Evaluación de desempeño del personal)'
-                        : 'Evaluación periódica de desempeño y habilidades del personal de tienda'
+                        ? 'Staff performance evaluation dashboard and review system (Evaluaciones de desempeño del personal)'
+                        : 'Tablero ejecutivo y evaluaciones de desempeño y habilidades del personal de tienda'
                 },
                 {
                     name: t('items.system_health'),
