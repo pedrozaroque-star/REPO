@@ -15,10 +15,23 @@
 
 'use client'
 
-import React from 'react'
+import React, { Suspense } from 'react'
 import { motion } from 'framer-motion'
 import StaffEvaluationForm from '@/components/StaffEvaluationForm'
 import { useLanguage } from '@/lib/i18n'
+import { useSearchParams } from 'next/navigation'
+
+function KioskFormContainer() {
+    const searchParams = useSearchParams()
+    const storeParam = searchParams.get('store') || searchParams.get('store_id') || undefined
+
+    return (
+        <StaffEvaluationForm
+            isKioskMode={true}
+            preselectedStoreId={storeParam}
+        />
+    )
+}
 
 export default function StaffEvaluationKioskPage() {
     const { t, language, setLanguage } = useLanguage()
@@ -70,7 +83,9 @@ export default function StaffEvaluationKioskPage() {
 
             {/* Contenedor del Formulario */}
             <main className="w-full max-w-3xl z-10 pb-12">
-                <StaffEvaluationForm isKioskMode={true} />
+                <Suspense fallback={null}>
+                    <KioskFormContainer />
+                </Suspense>
             </main>
 
             {/* Pie de Página */}

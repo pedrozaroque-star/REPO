@@ -1,31 +1,33 @@
 /**
  * @module app/order-ready-board/page
  * @description Customer-facing Order Ready Board and Voice Announcer for Tacos Gavilan.
- * Displays live orders in "In Progress" and "Ready for Pickup", and plays an audio chime (Web Audio API) plus a natural female neural voice (Gemini TTS via /api/order-ready/tts) in English and Spanish.
+ * Displays live orders in "In Progress" and "Ready for Pickup", and plays an audio chime (Web Audio API) plus a natural high-fidelity neural voice (Gemini Neural TTS via /api/order-ready/tts with 5 selectable voices: 3 female [Kore, Aoede, Zephyr] and 2 male [Puck, Orus]) in English, Spanish or Bilingual.
  * 
  * @businessRules
  * - **Tacos Gavilan Official Branding**: Presenta el nombre canónico y la identidad visual de la marca para displays en sucursal.
  * - **Separación de Estados**:
  *   - 'IN_PROGRESS': Órdenes en cocina recibidas pero aún no despachadas.
  *   - 'READY': Órdenes marcadas con doble tap en KDS Expediter o por API.
- * - **Motor de Audio (Ding-Dong Chime) y Locución Femenina**:
- *   - Sintetizador armónico de campana (Ding-Dong) con Web Audio API de baja latencia antes del llamado + Locutora de alta fidelidad bilingüe secuencial (Inglés: "Order #141 is ready," + Español: "orden #141 ya está.").
+ * - **Motor de Audio (Ding-Dong Chime) y Catálogo de 5 Voces Neuronales**:
+ *   - Sintetizador armónico de campana (Ding-Dong) con Web Audio API de baja latencia antes del llamado + Locutor(a) de alta fidelidad bilingüe secuencial (Inglés: "Order #141 is ready," + Español: "orden #141 ya está.").
+ *   - 5 Voces Neuronales Gemini TTS de alta fidelidad (3 Femeninas: Kore, Aoede, Zephyr; 2 Masculinas: Puck, Orus) con persistencia en LocalStorage (`teg_order_ready_voice`).
  *   - Campanilla Ding-Dong configurable (ON/OFF) con persistencia en LocalStorage.
  *   - Text-to-Speech (TTS) configurable en Español, Inglés o Bilingüe.
  *   - Cola de audio ordenada por HORA REAL DE CIERRE (`ready_at`, el momento del doble tap en el KDS): si se cierran varias órdenes casi al mismo tiempo se anuncian en el orden en que se cerraron, sin superponerse. Un Set de ids evita anunciar dos veces la misma orden.
- *   - Voz femenina natural y única en ambos idiomas (Gemini TTS, voz "Kore") en vez de speechSynthesis del navegador (que en español caía en voces masculinas/robóticas). Los clips de las órdenes en preparación se precargan para que el anuncio sea instantáneo; si el TTS falla se usa la voz del navegador como respaldo.
+ *   - Precarga inteligente de audio: los clips de las órdenes en preparación se precargan en segundo plano para que el anuncio al momento de doble tap sea instantáneo. Si la red o TTS falla, se usa la voz del navegador como respaldo automático respetando el género seleccionado.
  *   - Control y Filtro de Canales:
  *     * 'FOR_HERE' (Comedor) y 'TOGO' (Para Llevar): activos por defecto.
  *     * 'DRIVE_THRU' (Auto-Servicio): botón de control maestro (ON/OFF) en encabezado y controles detallados en el panel para activar/desactivar anuncios de voz y/o visualización en pantalla, con persistencia en LocalStorage.
  *     * 'DELIVERY' (Plataformas): silenciado por defecto para no saturar el comedor.
  * - **Gestión de Vida Útil**: Las órdenes en 'READY' se retiran visualmente tras un tiempo configurable (por defecto 10 minutos).
+ * - **Resiliencia de Red (Offline Mode)**: Detección proactiva de conectividad de red con aviso visual y caída suave a audio en caché/síntesis local si se corta la conexión a internet.
  * 
  * @dataFlow
  * - Supabase Realtime channel (`order_ready_announcements`) + Polling cada 4s (cada GET sincroniza con Toast, porque Toast no manda webhook en el doble tap) -> Actualiza estado React -> Chime + clips de voz natural (/api/order-ready/tts) -> PATCH /api/order-ready/orders (announced: true).
  * 
  * @notes
  * - Los navegadores web requieren un primer toque o clic para desbloquear el AudioContext y SpeechSynthesis (política de autoplay de navegadores). Se incluye un banner sutil de desbloqueo.
- * - Preferencias de canales (Drive-Thru, To Go, For Here, Delivery) persisten en `localStorage` del dispositivo.
+ * - Preferencias de canales y voz persisten en `localStorage` del dispositivo.
  * - ACCESO POR TIENDA: el selector solo lista las tiendas permitidas (GET /api/order-ready/my-stores): admin = todas,
  *   supervisor = su alcance, manager/asistente = solo la suya (selector bloqueado). Una tienda guardada/URL no permitida se
  *   reemplaza por la primera permitida y el servidor responde 403 si se intenta consultar otra.
@@ -34,10 +36,11 @@
 'use client'
 
 import React, { useState, useEffect, useRef, useCallback } from 'react'
-import { Volume2, VolumeX, Settings, Play, RefreshCw, Bell, CheckCircle2, Clock, Sparkles, ChevronDown, ChevronUp, Store, Car } from 'lucide-react'
+import { Volume2, VolumeX, Settings, Play, RefreshCw, Bell, CheckCircle2, Clock, Sparkles, ChevronDown, ChevronUp, Store, Car, WifiOff } from 'lucide-react'
 import { useLanguage } from '@/lib/i18n'
 import { createClient } from '@supabase/supabase-js'
 import ProtectedRoute from '@/components/ProtectedRoute'
+import { AVAILABLE_VOICES, VoiceId, isValidVoice } from '@/lib/order-ready-tts'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
@@ -142,6 +145,9 @@ function OrderReadyBoardContent() {
   const [voiceVolume, setVoiceVolume] = useState<number>(1.0)
   const [voiceSpeed, setVoiceSpeed] = useState<number>(0.92)
   const [voiceLanguage, setVoiceLanguage] = useState<'es' | 'en' | 'bilingual'>('bilingual')
+  const [selectedVoice, setSelectedVoice] = useState<VoiceId>('Kore')
+  const [isTestingVoice, setIsTestingVoice] = useState<boolean>(false)
+  const [isOnline, setIsOnline] = useState<boolean>(true)
   const [availableVoices, setAvailableVoices] = useState<SpeechSynthesisVoice[]>([])
   const [announceToGo, setAnnounceToGo] = useState<boolean>(true)
   const [announceForHere, setAnnounceForHere] = useState<boolean>(true)
@@ -169,6 +175,11 @@ function OrderReadyBoardContent() {
         }
       }
 
+      const savedVoice = localStorage.getItem('teg_order_ready_voice')
+      if (savedVoice && isValidVoice(savedVoice)) {
+        setSelectedVoice(savedVoice)
+      }
+
       const savedAnnounceDT = localStorage.getItem('teg_order_ready_announce_dt')
       if (savedAnnounceDT !== null) setAnnounceDriveThru(savedAnnounceDT === 'true')
       const savedShowDT = localStorage.getItem('teg_order_ready_show_dt')
@@ -184,6 +195,20 @@ function OrderReadyBoardContent() {
     }
   }, [])
 
+  // Monitorear conectividad a internet para avisar en UI si la red cae
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    setIsOnline(navigator.onLine)
+    const onOnline = () => setIsOnline(true)
+    const onOffline = () => setIsOnline(false)
+    window.addEventListener('online', onOnline)
+    window.addEventListener('offline', onOffline)
+    return () => {
+      window.removeEventListener('online', onOnline)
+      window.removeEventListener('offline', onOffline)
+    }
+  }, [])
+
   const handleStoreChange = (storeCode: string) => {
     setSelectedStore(storeCode)
     if (typeof window !== 'undefined') {
@@ -191,6 +216,13 @@ function OrderReadyBoardContent() {
       const url = new URL(window.location.href)
       url.searchParams.set('store', storeCode)
       window.history.replaceState({}, '', url.toString())
+    }
+  }
+
+  const handleVoiceChange = (voice: VoiceId) => {
+    setSelectedVoice(voice)
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('teg_order_ready_voice', voice)
     }
   }
 
@@ -344,13 +376,24 @@ function OrderReadyBoardContent() {
     })
   }, [unlockAudio, voiceVolume])
 
-  // Helper para seleccionar la mejor voz femenina de alta fidelidad (no robotizada)
-  const getBestFemaleVoice = useCallback(
-    (lang: 'en' | 'es', voices: SpeechSynthesisVoice[]): SpeechSynthesisVoice | null => {
+  // Helper para seleccionar la mejor voz del navegador según el género configurado (respaldo)
+  const getBestBrowserVoice = useCallback(
+    (lang: 'en' | 'es', voices: SpeechSynthesisVoice[], voiceId: VoiceId = selectedVoice): SpeechSynthesisVoice | null => {
       const langPrefix = lang === 'es' ? 'es' : 'en'
       const matchingVoices = voices.filter(v => v.lang.toLowerCase().replace('_', '-').startsWith(langPrefix))
+      const isMaleTarget = voiceId === 'Puck' || voiceId === 'Orus'
 
-      // 1. Prioridad absoluta: Voces Neuronales/Naturales Femeninas (cero robotizadas)
+      if (isMaleTarget) {
+        const maleKeywords = ['male', 'hombre', 'david', 'jorge', 'diego', 'pablo', 'raul', 'guy', 'mark', 'george', 'miguel']
+        const namedMale = matchingVoices.find(v => {
+          const lower = v.name.toLowerCase()
+          return maleKeywords.some(kw => lower.includes(kw))
+        })
+        if (namedMale) return namedMale
+        return matchingVoices[0] || null
+      }
+
+      // 1. Prioridad absoluta: Voces Neuronales/Naturales Femeninas
       const premiumKeywords = ['natural', 'neural', 'online', 'dalia', 'jenny', 'samantha', 'victoria', 'paulina', 'sabina', 'monica', 'google']
       const premiumFemale = matchingVoices.find(v => {
         const lower = v.name.toLowerCase()
@@ -387,12 +430,12 @@ function OrderReadyBoardContent() {
 
       return matchingVoices[0] || null
     },
-    []
+    [selectedVoice]
   )
 
   // RESPALDO: voz del navegador (speechSynthesis). Solo se usa si el TTS neuronal no está disponible.
   const speakOrderBrowser = useCallback(
-    (order: OrderItem): Promise<void> => {
+    (order: OrderItem, voiceId: VoiceId = selectedVoice): Promise<void> => {
       return new Promise((resolve) => {
         if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
           resolve()
@@ -401,22 +444,22 @@ function OrderReadyBoardContent() {
 
         const num = order.order_number
         const voices = availableVoices.length > 0 ? availableVoices : window.speechSynthesis.getVoices()
-        const enVoice = getBestFemaleVoice('en', voices)
-        const esVoice = getBestFemaleVoice('es', voices)
+        const enVoice = getBestBrowserVoice('en', voices, voiceId)
+        const esVoice = getBestBrowserVoice('es', voices, voiceId)
 
         if (voiceLanguage === 'bilingual') {
-          // Frase exacta solicitada: "Order #141 is ready, orden #141 ya está."
+          // Frase exacta: "Order #141 is ready, orden #141 ya está."
           const displayPhrase = `Order #${num} is ready, orden #${num} ya está.`
           setActiveSpeech(displayPhrase)
 
-          // Fase 1: Inglés ("Order 141 is ready,") con voz de mujer
+          // Fase 1: Inglés ("Order 141 is ready,")
           const uttEn = new SpeechSynthesisUtterance(`Order ${num} is ready,`)
           uttEn.rate = voiceSpeed
           uttEn.volume = isMuted ? 0 : voiceVolume
           uttEn.lang = 'en-US'
           if (enVoice) uttEn.voice = enVoice
 
-          // Fase 2: Español ("orden 141 ya está.") con voz de mujer
+          // Fase 2: Español ("orden 141 ya está.")
           const uttEs = new SpeechSynthesisUtterance(`orden ${num}, ya está.`)
           uttEs.rate = voiceSpeed
           uttEs.volume = isMuted ? 0 : voiceVolume
@@ -483,19 +526,20 @@ function OrderReadyBoardContent() {
         }
       })
     },
-    [availableVoices, getBestFemaleVoice, isMuted, voiceVolume, voiceSpeed, voiceLanguage]
+    [availableVoices, getBestBrowserVoice, isMuted, voiceVolume, voiceSpeed, voiceLanguage, selectedVoice]
   )
 
-  // ── Voz natural (Gemini TTS, femenina en ambos idiomas) ──
-  const getClipUrl = useCallback((lang: 'en' | 'es', num: string): Promise<string | null> => {
+  // ── Voz natural (Gemini TTS con 5 opciones de voces de alta fidelidad) ──
+  const getClipUrl = useCallback((lang: 'en' | 'es', num: string, voiceOverride?: VoiceId): Promise<string | null> => {
     if (Date.now() < ttsFailUntilRef.current) return Promise.resolve(null)
-    const key = lang + ':' + num
+    const voice = voiceOverride || selectedVoice
+    const key = `${voice}:${lang}:${num}`
     const cached = clipCacheRef.current.get(key)
     if (cached) return cached
 
     const job = (async (): Promise<string | null> => {
       try {
-        const res = await fetch('/api/order-ready/tts?n=' + num + '&lang=' + lang)
+        const res = await fetch(`/api/order-ready/tts?n=${num}&lang=${lang}&voice=${voice}`)
         if (!res.ok) throw new Error('tts ' + res.status)
         return URL.createObjectURL(await res.blob())
       } catch (e) {
@@ -516,7 +560,7 @@ function OrderReadyBoardContent() {
       }
     }
     return job
-  }, [])
+  }, [selectedVoice])
 
   const clipLangs = useCallback((): Array<'en' | 'es'> => {
     return voiceLanguage === 'bilingual' ? ['en', 'es'] : [voiceLanguage]
@@ -552,16 +596,17 @@ function OrderReadyBoardContent() {
     [isMuted, voiceVolume]
   )
 
-  // Anuncia la orden con la voz natural; si no hay TTS, cae a la voz del navegador
+  // Anuncia la orden con la voz natural seleccionada; si no hay TTS, cae a la voz del navegador
   const speakOrder = useCallback(
-    async (order: OrderItem, repeats: number = 1): Promise<void> => {
+    async (order: OrderItem, repeats: number = 1, voiceOverride?: VoiceId): Promise<void> => {
+      const voice = voiceOverride || selectedVoice
       const isNumeric = /^\d{1,4}$/.test(order.order_number)
-      if (!isNumeric) return speakOrderBrowser(order)
+      if (!isNumeric) return speakOrderBrowser(order, voice)
 
       const num = String(parseInt(order.order_number, 10))
       const langs = clipLangs()
-      const urls = await Promise.all(langs.map((l) => getClipUrl(l, num)))
-      if (urls.some((u) => !u)) return speakOrderBrowser(order)
+      const urls = await Promise.all(langs.map((l) => getClipUrl(l, num, voice)))
+      if (urls.some((u) => !u)) return speakOrderBrowser(order, voice)
 
       const phrase =
         voiceLanguage === 'bilingual'
@@ -577,7 +622,7 @@ function OrderReadyBoardContent() {
           if (!ok) {
             setActiveSpeech(null)
             // Si ni siquiera sonó el primer clip de la primera vuelta, usar el respaldo
-            if (i === 0 && rep === 0) return speakOrderBrowser(order)
+            if (i === 0 && rep === 0) return speakOrderBrowser(order, voice)
             return
           }
         }
@@ -587,10 +632,10 @@ function OrderReadyBoardContent() {
       }
       await new Promise((r) => setTimeout(r, 400))
     },
-    [clipLangs, getClipUrl, playClip, speakOrderBrowser, voiceLanguage]
+    [clipLangs, getClipUrl, playClip, speakOrderBrowser, voiceLanguage, selectedVoice]
   )
 
-  // Procesador de la cola de audio - Campanilla Ding-Dong + voz femenina natural, en orden de cierre
+  // Procesador de la cola de audio - Campanilla Ding-Dong + voz natural seleccionada, en orden de cierre
   const processAudioQueue = useCallback(async () => {
     if (isPlayingRef.current || audioQueueRef.current.length === 0 || isMuted) {
       return
@@ -604,7 +649,7 @@ function OrderReadyBoardContent() {
       // Descargar los clips mientras suena la campanilla (si ya están precargados es inmediato)
       if (/^\d{1,4}$/.test(nextOrder.order_number)) {
         const num = String(parseInt(nextOrder.order_number, 10))
-        clipLangs().forEach((l) => { void getClipUrl(l, num) })
+        clipLangs().forEach((l) => { void getClipUrl(l, num, selectedVoice) })
       }
 
       // 1. Tocar campanilla Ding-Dong si está habilitada
@@ -612,9 +657,9 @@ function OrderReadyBoardContent() {
         await playChime()
       }
 
-      // 2. Anunciar con la voz femenina: 2 veces al cerrar la orden, 1 vez en el recordatorio
+      // 2. Anunciar con la voz seleccionada: 2 veces al cerrar la orden, 1 vez en el recordatorio
       const isReminder = !!nextOrder._reminder
-      await speakOrder(nextOrder, isReminder ? 1 : ANNOUNCE_REPEATS)
+      await speakOrder(nextOrder, isReminder ? 1 : ANNOUNCE_REPEATS, selectedVoice)
 
       if (!isReminder) {
         // 3. Marcar como anunciada en backend
@@ -810,13 +855,13 @@ function OrderReadyBoardContent() {
         for (const o of targets) {
           if (!/^\d{1,4}$/.test(o.order_number)) continue
           const num = String(parseInt(o.order_number, 10))
-          for (const l of langs) await getClipUrl(l, num)
+          for (const l of langs) await getClipUrl(l, num, selectedVoice)
         }
       } finally {
         prefetchRunningRef.current = false
       }
     })()
-  }, [inProgressOrders, clipLangs, getClipUrl])
+  }, [inProgressOrders, clipLangs, getClipUrl, selectedVoice])
 
   // Suscripción a Supabase Realtime
   useEffect(() => {
@@ -843,26 +888,32 @@ function OrderReadyBoardContent() {
     }
   }, [selectedStore, fetchOrders])
 
-  // Probar campanilla Ding-Dong y voz femenina
-  const handleTestSound = async () => {
+  // Probar campanilla Ding-Dong y voz natural con la voz seleccionada
+  const handleTestSound = async (voiceToTest?: VoiceId) => {
     unlockAudio()
-    if (enableChime) {
-      await playChime()
+    const voice = voiceToTest || selectedVoice
+    setIsTestingVoice(true)
+    try {
+      if (enableChime) {
+        await playChime()
+      }
+      const testOrder: OrderItem = {
+        id: 'test-' + Date.now(),
+        created_at: new Date().toISOString(),
+        store_code: selectedStore,
+        store_name: selectedStore,
+        order_number: '141',
+        dining_option: 'TOGO',
+        customer_name: 'Cliente Prueba',
+        status: 'READY',
+        ready_at: new Date().toISOString(),
+        announced: false,
+        items_summary: '3 Tacos Asada, 1 Coca Cola'
+      }
+      await speakOrder(testOrder, 1, voice)
+    } finally {
+      setIsTestingVoice(false)
     }
-    const testOrder: OrderItem = {
-      id: 'test-' + Date.now(),
-      created_at: new Date().toISOString(),
-      store_code: selectedStore,
-      store_name: selectedStore,
-      order_number: '141',
-      dining_option: 'TOGO',
-      customer_name: 'Cliente Prueba',
-      status: 'READY',
-      ready_at: new Date().toISOString(),
-      announced: false,
-      items_summary: '3 Tacos Asada, 1 Coca Cola'
-    }
-    await speakOrder(testOrder)
   }
 
   // Simular creación de orden de prueba
@@ -953,25 +1004,45 @@ function OrderReadyBoardContent() {
                 {t('orderReadyBoard.title')}
               </span>
             </div>
-            <div className="mt-1 flex items-center gap-1.5">
-              <Store className="w-3.5 h-3.5 text-emerald-400" />
-              {accessLoaded && visibleStores.length === 0 ? (
-                <span className="text-xs font-bold text-amber-400">{t('orderReadyBoard.no_store_assigned')}</span>
-              ) : (
+            <div className="mt-1 flex flex-wrap items-center gap-2">
+              <div className="flex items-center gap-1.5">
+                <Store className="w-3.5 h-3.5 text-emerald-400" />
+                {accessLoaded && visibleStores.length === 0 ? (
+                  <span className="text-xs font-bold text-amber-400">{t('orderReadyBoard.no_store_assigned')}</span>
+                ) : (
+                  <select
+                    value={selectedStore}
+                    onChange={(e) => handleStoreChange(e.target.value)}
+                    onClick={(e) => e.stopPropagation()}
+                    disabled={visibleStores.length <= 1}
+                    className="bg-slate-800/90 hover:bg-slate-800 text-slate-200 hover:text-white font-bold text-xs rounded-lg px-2.5 py-1 border border-slate-700 focus:outline-none focus:border-emerald-500 cursor-pointer shadow-sm transition disabled:opacity-80 disabled:cursor-default"
+                  >
+                    {visibleStores.map((s) => (
+                      <option key={s.code} value={s.code} className="bg-slate-900 text-white">
+                        {s.name}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+
+              {/* Selector Rápido de Voz en Cabecera */}
+              <div className="flex items-center gap-1 bg-slate-800/90 hover:bg-slate-800 rounded-lg px-2 py-1 border border-slate-700 shadow-sm transition">
+                <Sparkles className="w-3.5 h-3.5 text-amber-400 shrink-0" />
                 <select
-                  value={selectedStore}
-                  onChange={(e) => handleStoreChange(e.target.value)}
+                  value={selectedVoice}
+                  onChange={(e) => handleVoiceChange(e.target.value as VoiceId)}
                   onClick={(e) => e.stopPropagation()}
-                  disabled={visibleStores.length <= 1}
-                  className="bg-slate-800/90 hover:bg-slate-800 text-slate-200 hover:text-white font-bold text-xs rounded-lg px-2.5 py-1 border border-slate-700 focus:outline-none focus:border-emerald-500 cursor-pointer shadow-sm transition disabled:opacity-80 disabled:cursor-default"
+                  title={t('orderReadyBoard.voice_speaker')}
+                  className="bg-transparent text-slate-200 hover:text-white font-bold text-xs focus:outline-none cursor-pointer"
                 >
-                  {visibleStores.map((s) => (
-                    <option key={s.code} value={s.code} className="bg-slate-900 text-white">
-                      {s.name}
+                  {AVAILABLE_VOICES.map((v) => (
+                    <option key={v.id} value={v.id} className="bg-slate-900 text-white font-medium">
+                      {v.gender === 'female' ? '👩' : '👨'} {v.name} ({v.gender === 'female' ? (language === 'es' ? 'Femenina' : 'Female') : (language === 'es' ? 'Masculina' : 'Male')})
                     </option>
                   ))}
                 </select>
-              )}
+              </div>
             </div>
           </div>
         </div>
@@ -1041,6 +1112,14 @@ function OrderReadyBoardContent() {
         </div>
       </header>
 
+      {/* Aviso de falta de conexión a Internet (Offline Banner) */}
+      {!isOnline && (
+        <div className="bg-amber-600 text-white px-4 py-1.5 text-center text-xs font-bold flex items-center justify-center gap-2 shadow-md z-40 animate-pulse">
+          <WifiOff className="w-4 h-4 shrink-0" />
+          <span>{t('orderReadyBoard.offline_warning')}</span>
+        </div>
+      )}
+
       {/* Banner de locutor activo (cuando habla la voz) */}
       {activeSpeech && (
         <div className="bg-gradient-to-r from-emerald-500/20 via-teal-500/30 to-emerald-500/20 border-b border-emerald-500/40 px-4 py-2 flex items-center justify-center gap-3 text-emerald-300 font-semibold text-sm animate-pulse">
@@ -1077,15 +1156,69 @@ function OrderReadyBoardContent() {
 
             {/* Configuración de Voz */}
             <div>
-              <label className="text-xs font-bold uppercase tracking-wider text-slate-400 block mb-2">
+              {/* Selector de Voces Neuronales (3 Femeninas, 2 Masculinas) */}
+              <div className="mb-3">
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                    {t('orderReadyBoard.voice_speaker')}
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => handleTestSound(selectedVoice)}
+                    disabled={isTestingVoice}
+                    className="text-[11px] font-bold text-emerald-400 hover:text-emerald-300 flex items-center gap-1 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/30 transition disabled:opacity-50"
+                    title={t('orderReadyBoard.test_voice')}
+                  >
+                    <Play className={`w-2.5 h-2.5 fill-current ${isTestingVoice ? 'animate-spin' : ''}`} />
+                    <span>{isTestingVoice ? t('orderReadyBoard.testing_voice') : t('orderReadyBoard.test_voice')}</span>
+                  </button>
+                </div>
+                <div className="grid grid-cols-5 gap-1">
+                  {AVAILABLE_VOICES.map((v) => {
+                    const isSelected = selectedVoice === v.id
+                    return (
+                      <button
+                        key={v.id}
+                        type="button"
+                        onClick={() => handleVoiceChange(v.id)}
+                        className={`py-1.5 px-0.5 rounded-lg text-xs font-bold text-center border transition flex flex-col items-center justify-center gap-0.5 ${
+                          isSelected
+                            ? 'bg-emerald-600 text-white border-emerald-400 shadow-md ring-1 ring-emerald-400'
+                            : 'bg-slate-950 text-slate-300 border-slate-800 hover:bg-slate-800/80 hover:border-slate-700'
+                        }`}
+                        title={language === 'es' ? v.labelEs : v.labelEn}
+                      >
+                        <span className="text-sm">{v.gender === 'female' ? '👩' : '👨'}</span>
+                        <span className="text-[11px] leading-tight font-extrabold">{v.name}</span>
+                        <span className={`text-[8px] uppercase tracking-wider px-1 rounded font-bold ${
+                          isSelected
+                            ? 'bg-emerald-700 text-emerald-100'
+                            : v.gender === 'female'
+                              ? 'bg-purple-500/20 text-purple-300'
+                              : 'bg-blue-500/20 text-blue-300'
+                        }`}>
+                          {v.gender === 'female' ? (language === 'es' ? 'Fem' : 'Fem') : (language === 'es' ? 'Masc' : 'Male')}
+                        </span>
+                      </button>
+                    )
+                  })}
+                </div>
+                <p className="text-[10px] text-slate-400 mt-1 italic truncate">
+                  {AVAILABLE_VOICES.find(v => v.id === selectedVoice)?.[language === 'es' ? 'labelEs' : 'labelEn']}
+                </p>
+              </div>
+
+              {/* Idioma de los Anuncios */}
+              <label className="text-xs font-bold uppercase tracking-wider text-slate-400 block mb-1.5">
                 {t('orderReadyBoard.voice_language')}
               </label>
-              <div className="flex gap-2">
+              <div className="flex gap-1.5">
                 {(['es', 'en', 'bilingual'] as const).map((langOption) => (
                   <button
                     key={langOption}
                     onClick={() => setVoiceLanguage(langOption)}
-                    className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-bold uppercase tracking-wider border transition ${
+                    className={`flex-1 py-1 px-1.5 rounded-lg text-xs font-bold uppercase tracking-wider border transition ${
                       voiceLanguage === langOption
                         ? 'bg-emerald-600 text-white border-emerald-500 shadow-sm'
                         : 'bg-slate-950 text-slate-400 border-slate-800 hover:bg-slate-800'
@@ -1097,7 +1230,7 @@ function OrderReadyBoardContent() {
               </div>
 
               {/* Slider de Volumen */}
-              <div className="mt-3">
+              <div className="mt-2.5">
                 <div className="flex justify-between text-xs text-slate-400 font-semibold mb-1">
                   <span>{t('orderReadyBoard.voice_volume')}</span>
                   <span>{Math.round(voiceVolume * 100)}%</span>
@@ -1114,7 +1247,7 @@ function OrderReadyBoardContent() {
               </div>
 
               {/* Toggle de Campanilla Ding-Dong */}
-              <div className="mt-3 pt-3 border-t border-slate-800">
+              <div className="mt-2.5 pt-2 border-t border-slate-800">
                 <label className="flex items-center justify-between text-xs font-medium text-slate-300 cursor-pointer">
                   <span className="flex items-center gap-1.5">
                     <Bell className="w-3.5 h-3.5 text-amber-400" />
@@ -1222,11 +1355,12 @@ function OrderReadyBoardContent() {
               </label>
               <div className="space-y-2">
                 <button
-                  onClick={handleTestSound}
-                  className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs py-2 px-3 rounded-lg shadow transition"
+                  onClick={() => handleTestSound(selectedVoice)}
+                  disabled={isTestingVoice}
+                  className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs py-2 px-3 rounded-lg shadow transition disabled:opacity-50"
                 >
-                  <Play className="w-3.5 h-3.5 fill-current" />
-                  {t('orderReadyBoard.test_sound')}
+                  <Play className={`w-3.5 h-3.5 fill-current ${isTestingVoice ? 'animate-spin' : ''}`} />
+                  {isTestingVoice ? t('orderReadyBoard.testing_voice') : `${t('orderReadyBoard.test_voice')} (${selectedVoice} #141)`}
                 </button>
                 <div className="grid grid-cols-3 gap-1.5">
                   <button
