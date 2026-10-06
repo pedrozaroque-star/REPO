@@ -38,10 +38,11 @@
  * - Supabase Realtime channel (`order_ready_announcements`) + Polling cada 4s (cada GET sincroniza con Toast, porque Toast no manda webhook en el doble tap) -> Actualiza estado React -> Chime + clips de voz natural (/api/order-ready/tts) -> PATCH /api/order-ready/orders (announced: true).
  * 
  * @notes
+ * - Modo Normal (Claro) por defecto integrado con la estética limpia de SM TEG (fondos blancos/slate-50, bordes nítidos y alto contraste), con selector dinámico a Modo Oscuro para pantallas nocturnas (persistente en `localStorage` vía `teg_order_ready_theme`).
  * - Soporta integración en el panel administrativo del sistema (sidebar visible) y botón nativo para Modo TV / Pantalla Completa.
  * - Incluye selector de idioma en cabecera (ES / EN) para alternar la pantalla en inglés o español al instante.
  * - Los navegadores web requieren un primer toque o clic para desbloquear el AudioContext y SpeechSynthesis (política de autoplay de navegadores). Se incluye un banner sutil de desbloqueo.
- * - Preferencias de canales, voz y visibilidad de controles persisten en `localStorage` del dispositivo.
+ * - Preferencias de canales, voz, visibilidad de controles y tema visual persisten en `localStorage` del dispositivo.
  * - ACCESO POR TIENDA: el selector solo lista las tiendas permitidas (GET /api/order-ready/my-stores): admin = todas,
  *   supervisor = su alcance, manager/asistente = solo la suya (selector bloqueado). Una tienda guardada/URL no permitida se
  *   reemplaza por la primera permitida y el servidor responde 403 si se intenta consultar otra.
@@ -444,6 +445,28 @@ function OrderReadyBoardContent() {
     })
   }
 
+  // Tema visual: 'light' (Normal por defecto en SM TEG) | 'dark' (Oscuro para TV de noche)
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('teg_order_ready_theme')
+      if (saved === 'light' || saved === 'dark') return saved
+    }
+    return 'light'
+  })
+
+  const toggleTheme = (e?: React.MouseEvent) => {
+    if (e) e.stopPropagation()
+    setTheme((prev) => {
+      const next = prev === 'light' ? 'dark' : 'light'
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('teg_order_ready_theme', next)
+      }
+      return next
+    })
+  }
+
+  const isDark = theme === 'dark'
+
   const [activeSpeech, setActiveSpeech] = useState<string | null>(null)
 
   // Referencias para Audio Engine
@@ -591,14 +614,17 @@ function OrderReadyBoardContent() {
   }, [unlockAudio, voiceVolume])
 
   // Helper para seleccionar la mejor voz del navegador según el género configurado (respaldo)
+  // REGLA CRÍTICA TACOS GAVILAN: MICROSOFT RAUL (o cualquier voz con 'raul') ESTÁ 100% PROHIBIDO.
   const getBestBrowserVoice = useCallback(
     (lang: 'en' | 'es', voices: SpeechSynthesisVoice[], voiceId: VoiceId = selectedVoice): SpeechSynthesisVoice | null => {
       const langPrefix = lang === 'es' ? 'es' : 'en'
-      const matchingVoices = voices.filter(v => v.lang.toLowerCase().replace('_', '-').startsWith(langPrefix))
+      // 0. Filtro absoluto: descartar cualquier voz que contenga 'raul'
+      const sanitizedVoices = voices.filter(v => !/raul/i.test(v.name))
+      const matchingVoices = sanitizedVoices.filter(v => v.lang.toLowerCase().replace('_', '-').startsWith(langPrefix))
       const isMaleTarget = voiceId === 'Puck' || voiceId === 'Orus'
 
       if (isMaleTarget) {
-        const maleKeywords = ['male', 'hombre', 'david', 'jorge', 'diego', 'pablo', 'raul', 'guy', 'mark', 'george', 'miguel']
+        const maleKeywords = ['male', 'hombre', 'david', 'jorge', 'diego', 'pablo', 'guy', 'mark', 'george', 'miguel']
         const namedMale = matchingVoices.find(v => {
           const lower = v.name.toLowerCase()
           return maleKeywords.some(kw => lower.includes(kw))
@@ -607,19 +633,24 @@ function OrderReadyBoardContent() {
         return matchingVoices[0] || null
       }
 
-      // 1. Prioridad absoluta: Voces Neuronales/Naturales Femeninas
+      // 1. Prioridad absoluta: Voces Neuronales/Naturales Femeninas en el idioma solicitado
       const premiumKeywords = ['natural', 'neural', 'online', 'dalia', 'jenny', 'samantha', 'victoria', 'paulina', 'sabina', 'monica', 'google']
+      const isMaleVoice = (name: string) => {
+        const lower = name.toLowerCase()
+        return lower.includes('male') || lower.includes('david') || lower.includes('george') || 
+               lower.includes('jorge') || lower.includes('diego') || lower.includes('pablo') ||
+               lower.includes('guy') || lower.includes('mark') || lower.includes('raul') ||
+               lower.includes('hombre') || lower.includes('miguel')
+      }
+
       const premiumFemale = matchingVoices.find(v => {
+        if (isMaleVoice(v.name)) return false
         const lower = v.name.toLowerCase()
-        const isMale = lower.includes('male') || lower.includes('david') || lower.includes('george') || 
-                       lower.includes('jorge') || lower.includes('diego') || lower.includes('pablo') ||
-                       lower.includes('guy') || lower.includes('raul')
-        if (isMale) return false
         return premiumKeywords.some(kw => lower.includes(kw))
       })
       if (premiumFemale) return premiumFemale
 
-      // 2. Voces femeninas identificadas
+      // 2. Voces femeninas identificadas en el idioma solicitado
       const femaleKeywords = [
         'female', 'woman', 'mujer', 'femenina',
         'samantha', 'victoria', 'karen', 'zira', 'jenny', 'monica', 'paulina', 
@@ -627,30 +658,21 @@ function OrderReadyBoardContent() {
         'maria', 'luciana', 'mia', 'ava', 'allison', 'angie', 'serena', 'susan'
       ]
       const namedFemale = matchingVoices.find(v => {
+        if (isMaleVoice(v.name)) return false
         const lower = v.name.toLowerCase()
         return femaleKeywords.some(kw => lower.includes(kw))
       })
       if (namedFemale) return namedFemale
 
-      // 3. Descartar cualquier voz con etiqueta masculina
-      const nonMale = matchingVoices.find(v => {
-        const lower = v.name.toLowerCase()
-        const isMale = lower.includes('male') || lower.includes('david') || lower.includes('george') || 
-                       lower.includes('jorge') || lower.includes('diego') || lower.includes('pablo') ||
-                       lower.includes('guy') || lower.includes('mark') || lower.includes('raul')
-        return !isMale
-      })
+      // 3. Cualquier voz en el idioma solicitado que no sea masculina
+      const nonMale = matchingVoices.find(v => !isMaleVoice(v.name))
       if (nonMale) return nonMale
 
-      // 4. Si el objetivo es femenino, NUNCA devolver una voz masculina (ej. Microsoft Raul).
-      // Buscar cualquier voz femenina disponible en el navegador antes de rendirse
-      const anyFemale = voices.find(v => {
+      // 4. Si el objetivo es femenino y NO hay voz femenina en el idioma solicitado (común en Windows stock para español),
+      // buscar cualquier voz femenina disponible en el navegador (ej. Microsoft Zira Desktop, Google US English).
+      const anyFemale = sanitizedVoices.find(v => {
+        if (isMaleVoice(v.name)) return false
         const lower = v.name.toLowerCase()
-        const isMale = lower.includes('male') || lower.includes('david') || lower.includes('george') || 
-                       lower.includes('jorge') || lower.includes('diego') || lower.includes('pablo') ||
-                       lower.includes('guy') || lower.includes('mark') || lower.includes('raul') ||
-                       lower.includes('hombre') || lower.includes('miguel')
-        if (isMale) return false
         return femaleKeywords.some(kw => lower.includes(kw)) || premiumKeywords.some(kw => lower.includes(kw))
       })
       if (anyFemale) return anyFemale
@@ -661,6 +683,7 @@ function OrderReadyBoardContent() {
   )
 
   // RESPALDO: voz del navegador (speechSynthesis). Solo se usa si el TTS neuronal no está disponible.
+  // PROHIBICIÓN ESTRICTA: RAUL NUNCA DEBE HABLAR BAJO NINGUNA CIRCUNSTANCIA.
   const speakOrderBrowser = useCallback(
     (order: OrderItem, voiceId: VoiceId = selectedVoice): Promise<void> => {
       return new Promise((resolve) => {
@@ -670,16 +693,53 @@ function OrderReadyBoardContent() {
         }
 
         const num = order.order_number
-        const voices = availableVoices.length > 0 ? availableVoices : window.speechSynthesis.getVoices()
+        const allBrowserVoices = availableVoices.length > 0 ? availableVoices : window.speechSynthesis.getVoices()
+        // Filtrar permanentemente cualquier rastro de Raul
+        const voices = allBrowserVoices.filter(v => !/raul/i.test(v.name))
         const enVoice = getBestBrowserVoice('en', voices, voiceId)
         const esVoice = getBestBrowserVoice('es', voices, voiceId)
 
         const isFemale = voiceId === 'Kore' || voiceId === 'Aoede' || voiceId === 'Zephyr'
-        const esIsMale = esVoice && /raul|male|hombre|jorge|diego|pablo|miguel|david/i.test(esVoice.name)
-        const targetPitch = (isFemale && esIsMale) ? 1.32 : 1.0
+
+        // Helper seguro de emisión: Si la voz es Raul o si no hay voz femenina para una meta femenina, NUNCA EMITIR
+        const safeSpeak = (utt: SpeechSynthesisUtterance, onEndCallback: () => void) => {
+          const vName = (utt.voice?.name || '').toLowerCase()
+          // 1. Bloqueo incondicional de Raul
+          if (vName.includes('raul')) {
+            console.warn('[order-ready] Bloqueo absoluto anti-Raul: voz descartada.')
+            onEndCallback()
+            return
+          }
+          // 2. Si la voz seleccionada es femenina (Kore, Aoede, Zephyr):
+          if (isFemale) {
+            // Si no tiene voz asignada, asignar forzosamente la mejor voz femenina encontrada
+            if (!utt.voice) {
+              const fallbackFemale = voices.find(v => !/raul|david|male|hombre|jorge|diego|pablo|miguel|guy|mark|george/i.test(v.name))
+              if (fallbackFemale) {
+                utt.voice = fallbackFemale
+                utt.lang = fallbackFemale.lang
+              }
+            }
+            // Si aún no hay voz, o si la voz asignada es masculina: ¡PROHIBIDO HABLAR!
+            if (!utt.voice || /raul|david|male|hombre|jorge|diego|pablo|miguel|guy|mark|george/i.test(utt.voice.name)) {
+              console.warn('[order-ready] Bloqueo de seguridad: voz no femenina detectada cuando se configuró voz femenina.')
+              onEndCallback()
+              return
+            }
+          }
+
+          utt.onend = () => onEndCallback()
+          utt.onerror = () => onEndCallback()
+
+          try {
+            window.speechSynthesis.speak(utt)
+          } catch (e) {
+            console.warn('[order-ready] Error en speechSynthesis.speak:', e)
+            onEndCallback()
+          }
+        }
 
         if (voiceLanguage === 'bilingual') {
-          // Frase exacta con slogan institucional: "Order #141 is ready, orden #141, ¡ya está!"
           const displayPhrase = `Order #${num} is ready, orden #${num}, ¡ya está!`
           setActiveSpeech(displayPhrase)
 
@@ -687,56 +747,52 @@ function OrderReadyBoardContent() {
           const uttEn = new SpeechSynthesisUtterance(`Order ${num} is ready,`)
           uttEn.rate = voiceSpeed
           uttEn.volume = isMuted ? 0 : voiceVolume
-          uttEn.lang = 'en-US'
-          if (enVoice) uttEn.voice = enVoice
+          if (enVoice) {
+            uttEn.voice = enVoice
+            uttEn.lang = enVoice.lang || 'en-US'
+          } else {
+            uttEn.lang = 'en-US'
+          }
 
           // Fase 2: Español ("orden 141, ¡ya está!")
           const uttEs = new SpeechSynthesisUtterance(`orden ${num}, ¡ya está!`)
           uttEs.rate = voiceSpeed
           uttEs.volume = isMuted ? 0 : voiceVolume
-          uttEs.pitch = targetPitch
-          uttEs.lang = 'es-MX'
-          if (esVoice) uttEs.voice = esVoice
+          if (esVoice) {
+            uttEs.voice = esVoice
+            // IMPORTANTE: lang DEBE coincidir con esVoice.lang para evitar que Windows SAPI
+            // sobreescriba la voz femenina con la voz por defecto del sistema (Raul)
+            uttEs.lang = esVoice.lang || 'es-MX'
+          } else if (enVoice) {
+            // Si no hay voz española disponible pero sí inglesa femenina (ej. Zira), usarla
+            uttEs.voice = enVoice
+            uttEs.lang = enVoice.lang || 'en-US'
+          }
 
-          uttEn.onend = () => {
-            // Pausa fluida entre inglés y español
+          safeSpeak(uttEn, () => {
             setTimeout(() => {
-              window.speechSynthesis.speak(uttEs)
+              safeSpeak(uttEs, () => {
+                setActiveSpeech(null)
+                setTimeout(resolve, 500)
+              })
             }, 200)
-          }
-
-          uttEn.onerror = () => {
-            window.speechSynthesis.speak(uttEs)
-          }
-
-          uttEs.onend = () => {
-            setActiveSpeech(null)
-            setTimeout(resolve, 500)
-          }
-
-          uttEs.onerror = () => {
-            setActiveSpeech(null)
-            resolve()
-          }
-
-          window.speechSynthesis.speak(uttEn)
+          })
         } else if (voiceLanguage === 'en') {
           const phrase = `Order #${num} is ready.`
           setActiveSpeech(phrase)
           const utt = new SpeechSynthesisUtterance(`Order ${num} is ready.`)
           utt.rate = voiceSpeed
           utt.volume = isMuted ? 0 : voiceVolume
-          utt.lang = 'en-US'
-          if (enVoice) utt.voice = enVoice
-          utt.onend = () => {
+          if (enVoice) {
+            utt.voice = enVoice
+            utt.lang = enVoice.lang || 'en-US'
+          } else {
+            utt.lang = 'en-US'
+          }
+          safeSpeak(utt, () => {
             setActiveSpeech(null)
             setTimeout(resolve, 500)
-          }
-          utt.onerror = () => {
-            setActiveSpeech(null)
-            resolve()
-          }
-          window.speechSynthesis.speak(utt)
+          })
         } else {
           // Solo español
           const phrase = `Orden #${num}, ¡ya está!`
@@ -744,18 +800,17 @@ function OrderReadyBoardContent() {
           const utt = new SpeechSynthesisUtterance(`Orden ${num}, ¡ya está!`)
           utt.rate = voiceSpeed
           utt.volume = isMuted ? 0 : voiceVolume
-          utt.pitch = targetPitch
-          utt.lang = 'es-MX'
-          if (esVoice) utt.voice = esVoice
-          utt.onend = () => {
+          if (esVoice) {
+            utt.voice = esVoice
+            utt.lang = esVoice.lang || 'es-MX'
+          } else if (enVoice) {
+            utt.voice = enVoice
+            utt.lang = enVoice.lang || 'en-US'
+          }
+          safeSpeak(utt, () => {
             setActiveSpeech(null)
             setTimeout(resolve, 500)
-          }
-          utt.onerror = () => {
-            setActiveSpeech(null)
-            resolve()
-          }
-          window.speechSynthesis.speak(utt)
+          })
         }
       })
     },
@@ -1203,10 +1258,12 @@ function OrderReadyBoardContent() {
     }
   }
 
-  // Simular creación de orden de prueba
+  // Simular creación de orden de prueba con números representativos de Toast
   const handleSimulateOrder = async (diningOption: 'TOGO' | 'FOR_HERE' = 'TOGO') => {
     unlockAudio()
-    const randomNum = Math.floor(Math.random() * 800) + 100
+    // Números representativos con audio de alta fidelidad garantizado en Storage
+    const sampleNumbers = ['141', '50', '61', '12', '15', '18', '20', '24', '25', '30', '35', '40']
+    const randomNum = sampleNumbers[Math.floor(Math.random() * sampleNumbers.length)]
     try {
       const res = await fetch('/api/order-ready/orders', {
         method: 'POST',
@@ -1229,11 +1286,16 @@ function OrderReadyBoardContent() {
     }
   }
 
-  // Helper para clases visuales de Speed of Service (SOS)
+  // Helper para clases visuales de Speed of Service (SOS) adaptadas a tema claro y oscuro
   const getSosBadgeClasses = (color: 'green' | 'yellow' | 'red') => {
-    if (color === 'green') return 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
-    if (color === 'yellow') return 'bg-amber-500/20 text-amber-300 border-amber-500/40'
-    return 'bg-rose-500/20 text-rose-400 border-rose-500/40 animate-pulse'
+    if (isDark) {
+      if (color === 'green') return 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
+      if (color === 'yellow') return 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+      return 'bg-rose-500/20 text-rose-400 border-rose-500/40 animate-pulse'
+    }
+    if (color === 'green') return 'bg-emerald-100 text-emerald-800 border-emerald-300 font-bold'
+    if (color === 'yellow') return 'bg-amber-100 text-amber-800 border-amber-300 font-bold'
+    return 'bg-rose-100 text-rose-800 border-rose-300 font-bold animate-pulse'
   }
 
   // Abrir modal de ticket idéntico al módulo de Drive-Thru
@@ -1298,7 +1360,11 @@ function OrderReadyBoardContent() {
   const renderDiningBadge = (dining: string) => {
     if (dining === 'FOR_HERE') {
       return (
-        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/40">
+        <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wider ${
+          isDark
+            ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+            : 'bg-amber-100 text-amber-800 border border-amber-300'
+        }`}>
           <Utensils className="w-3.5 h-3.5" />
           <span>{t('orderReadyBoard.for_here_badge')}</span>
         </span>
@@ -1306,7 +1372,11 @@ function OrderReadyBoardContent() {
     }
     if (dining === 'DRIVE_THRU') {
       return (
-        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wider bg-orange-500/20 text-orange-300 border border-orange-500/40">
+        <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wider ${
+          isDark
+            ? 'bg-orange-500/20 text-orange-300 border border-orange-500/40'
+            : 'bg-orange-100 text-orange-800 border border-orange-300'
+        }`}>
           <Car className="w-3.5 h-3.5" />
           <span>{t('orderReadyBoard.dt_badge')}</span>
         </span>
@@ -1314,14 +1384,22 @@ function OrderReadyBoardContent() {
     }
     if (dining === 'DELIVERY') {
       return (
-        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wider bg-purple-500/20 text-purple-300 border border-purple-500/40">
+        <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wider ${
+          isDark
+            ? 'bg-purple-500/20 text-purple-300 border border-purple-500/40'
+            : 'bg-purple-100 text-purple-800 border border-purple-300'
+        }`}>
           <span>🛵</span>
           <span>{t('orderReadyBoard.delivery_badge')}</span>
         </span>
       )
     }
     return (
-      <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wider bg-cyan-500/20 text-cyan-300 border border-cyan-500/40">
+      <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wider ${
+        isDark
+          ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40'
+          : 'bg-sky-100 text-sky-800 border border-sky-300'
+      }`}>
         <ShoppingBag className="w-3.5 h-3.5" />
         <span>{t('orderReadyBoard.to_go_badge')}</span>
       </span>
@@ -1332,8 +1410,14 @@ function OrderReadyBoardContent() {
     <div
       ref={containerRef}
       onClick={unlockAudio}
-      className={`min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans select-none overflow-x-hidden relative transition-all ${
-        isFullscreen ? 'fixed inset-0 z-50 w-screen h-screen rounded-none border-0' : 'rounded-2xl border border-slate-800/80 shadow-2xl'
+      className={`min-h-screen flex flex-col font-sans select-none overflow-x-hidden relative transition-colors duration-200 ${
+        isDark ? 'bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-900'
+      } ${
+        isFullscreen
+          ? 'fixed inset-0 z-50 w-screen h-screen rounded-none border-0'
+          : isDark
+            ? 'rounded-2xl border border-slate-800/80 shadow-2xl'
+            : 'rounded-2xl border border-slate-200 shadow-xl'
       }`}
     >
       {/* Banner de Activación de Audio (si aún no se ha interactuado) */}
@@ -1348,7 +1432,9 @@ function OrderReadyBoardContent() {
       )}
 
       {/* Top Header / Barra Superior */}
-      <header className="bg-slate-900/90 backdrop-blur border-b border-slate-800 px-4 sm:px-6 py-3.5 flex flex-wrap items-center justify-between gap-3 shadow-md">
+      <header className={`px-4 sm:px-6 py-3.5 flex flex-wrap items-center justify-between gap-3 shadow-md backdrop-blur border-b transition-colors ${
+        isDark ? 'bg-slate-900/90 border-slate-800' : 'bg-white/95 border-slate-200'
+      }`}>
         {/* Logo e Identidad */}
         <div className="flex items-center gap-3.5">
           <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-red-600 to-amber-600 flex items-center justify-center font-black text-xl text-white shadow-lg border border-amber-500/30 tracking-tight shrink-0">
@@ -1356,28 +1442,34 @@ function OrderReadyBoardContent() {
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="text-xl sm:text-2xl font-black tracking-tight text-white uppercase">
+              <h1 className={`text-xl sm:text-2xl font-black tracking-tight uppercase ${isDark ? 'text-white' : 'text-slate-900'}`}>
                 Tacos Gavilan
               </h1>
-              <span className="text-[11px] font-bold px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 uppercase tracking-widest hidden sm:inline">
+              <span className={`text-[11px] font-bold px-2 py-0.5 rounded border uppercase tracking-widest hidden sm:inline ${
+                isDark ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' : 'bg-emerald-50 text-emerald-700 border-emerald-300'
+              }`}>
                 {t('orderReadyBoard.title')}
               </span>
             </div>
             <div className="mt-0.5 flex flex-wrap items-center gap-2">
               <div className="flex items-center gap-1.5">
-                <Store className="w-3.5 h-3.5 text-emerald-400" />
+                <Store className="w-3.5 h-3.5 text-emerald-500" />
                 {accessLoaded && visibleStores.length === 0 ? (
-                  <span className="text-xs font-bold text-amber-400">{t('orderReadyBoard.no_store_assigned')}</span>
+                  <span className="text-xs font-bold text-amber-500">{t('orderReadyBoard.no_store_assigned')}</span>
                 ) : (
                   <select
                     value={selectedStore}
                     onChange={(e) => handleStoreChange(e.target.value)}
                     onClick={(e) => e.stopPropagation()}
                     disabled={visibleStores.length <= 1}
-                    className="bg-slate-800/90 hover:bg-slate-800 text-slate-200 hover:text-white font-bold text-xs rounded-lg px-2.5 py-1 border border-slate-700 focus:outline-none focus:border-emerald-500 cursor-pointer shadow-sm transition disabled:opacity-80 disabled:cursor-default"
+                    className={`font-bold text-xs rounded-lg px-2.5 py-1 border focus:outline-none focus:border-emerald-500 cursor-pointer shadow-sm transition disabled:opacity-80 disabled:cursor-default ${
+                      isDark
+                        ? 'bg-slate-800/90 hover:bg-slate-800 text-slate-200 hover:text-white border-slate-700'
+                        : 'bg-slate-100 hover:bg-slate-200/80 text-slate-800 hover:text-slate-900 border-slate-300'
+                    }`}
                   >
                     {visibleStores.map((s) => (
-                      <option key={s.code} value={s.code} className="bg-slate-900 text-white">
+                      <option key={s.code} value={s.code} className={isDark ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}>
                         {s.name}
                       </option>
                     ))}
@@ -1387,18 +1479,22 @@ function OrderReadyBoardContent() {
 
               {/* Selector Rápido de Voz en Cabecera (Solo Admin puede cambiarla) */}
               {isAdmin ? (
-                <div className="flex items-center gap-1 bg-slate-800/90 hover:bg-slate-800 rounded-lg px-2 py-1 border border-slate-700 shadow-sm transition">
-                  <Sparkles className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                <div className={`flex items-center gap-1 rounded-lg px-2 py-1 border shadow-sm transition ${
+                  isDark ? 'bg-slate-800/90 hover:bg-slate-800 border-slate-700' : 'bg-slate-100 hover:bg-slate-200/80 border-slate-300'
+                }`}>
+                  <Sparkles className="w-3.5 h-3.5 text-amber-500 shrink-0" />
                   <select
                     value={selectedVoice}
                     onChange={(e) => handleVoiceChange(e.target.value as VoiceId)}
                     onClick={(e) => e.stopPropagation()}
                     disabled={isSavingVoice}
                     title={t('orderReadyBoard.voice_speaker')}
-                    className="bg-transparent text-slate-200 hover:text-white font-bold text-xs focus:outline-none cursor-pointer"
+                    className={`bg-transparent font-bold text-xs focus:outline-none cursor-pointer ${
+                      isDark ? 'text-slate-200 hover:text-white' : 'text-slate-800 hover:text-slate-900'
+                    }`}
                   >
                     {AVAILABLE_VOICES.map((v) => (
-                      <option key={v.id} value={v.id} className="bg-slate-900 text-white font-medium">
+                      <option key={v.id} value={v.id} className={isDark ? 'bg-slate-900 text-white font-medium' : 'bg-white text-slate-900 font-medium'}>
                         {v.gender === 'female' ? '👩' : '👨'} {v.name} ({v.gender === 'female' ? (language === 'es' ? 'Femenina' : 'Female') : (language === 'es' ? 'Masculina' : 'Male')})
                       </option>
                     ))}
@@ -1406,14 +1502,18 @@ function OrderReadyBoardContent() {
                 </div>
               ) : (
                 <div
-                  className="flex items-center gap-1.5 bg-slate-800/60 rounded-lg px-2.5 py-1 border border-slate-700/60 shadow-sm text-slate-300 cursor-help"
+                  className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1 border shadow-sm cursor-help ${
+                    isDark ? 'bg-slate-800/60 border-slate-700/60 text-slate-300' : 'bg-slate-100 border-slate-200 text-slate-700'
+                  }`}
                   title={t('orderReadyBoard.voice_locked_hint')}
                 >
-                  <Lock className="w-3 h-3 text-amber-400/80 shrink-0" />
-                  <span className="text-xs font-bold text-slate-300">
+                  <Lock className="w-3 h-3 text-amber-500 shrink-0" />
+                  <span className={`text-xs font-bold ${isDark ? 'text-slate-300' : 'text-slate-800'}`}>
                     {AVAILABLE_VOICES.find(v => v.id === selectedVoice)?.gender === 'female' ? '👩' : '👨'} {selectedVoice}
                   </span>
-                  <span className="text-[9px] uppercase tracking-wider font-extrabold text-slate-400 bg-slate-700/50 px-1 py-0.5 rounded">
+                  <span className={`text-[9px] uppercase tracking-wider font-extrabold px-1 py-0.5 rounded ${
+                    isDark ? 'text-slate-400 bg-slate-700/50' : 'text-slate-600 bg-slate-200'
+                  }`}>
                     {language === 'es' ? 'Cadena' : 'Global'}
                   </span>
                 </div>
@@ -1422,31 +1522,33 @@ function OrderReadyBoardContent() {
           </div>
         </div>
 
-        {/* Reloj, Idioma, Pantalla Completa y Controles */}
-        <div className="flex items-center gap-2 sm:gap-3">
+        {/* Reloj, Idioma, Modo Normal/Oscuro, Pantalla Completa y Controles */}
+        <div className="flex items-center gap-2 sm:gap-2.5">
           {/* Reloj y Turno de California */}
-          <div className="hidden lg:flex items-center gap-2.5 bg-slate-950/80 px-3 py-1.5 rounded-xl border border-slate-800 text-slate-200">
+          <div className={`hidden lg:flex items-center gap-2.5 px-3 py-1.5 rounded-xl border ${
+            isDark ? 'bg-slate-950/80 border-slate-800 text-slate-200' : 'bg-slate-100 border-slate-200 text-slate-800'
+          }`}>
             <div className="flex items-center gap-1.5 font-mono font-bold text-sm tracking-wider">
-              <Clock className="w-3.5 h-3.5 text-emerald-400" />
+              <Clock className="w-3.5 h-3.5 text-emerald-500" />
               <span>{currentTime || '--:--:--'}</span>
             </div>
-            <div className="h-4 w-px bg-slate-800" />
+            <div className={`h-4 w-px ${isDark ? 'bg-slate-800' : 'bg-slate-300'}`} />
             <div
               className={`flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider ${
                 shift === 'AM'
-                  ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
-                  : 'bg-indigo-500/15 text-indigo-300 border border-indigo-500/30'
+                  ? isDark ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30' : 'bg-amber-100 text-amber-800 border border-amber-300'
+                  : isDark ? 'bg-indigo-500/15 text-indigo-300 border border-indigo-500/30' : 'bg-indigo-100 text-indigo-800 border border-indigo-300'
               }`}
               title={`${t('orderReadyBoard.business_day')}: ${businessDate} • ${shift === 'AM' ? t('orderReadyBoard.shift_am') : t('orderReadyBoard.shift_pm')}`}
             >
               {shift === 'AM' ? (
                 <>
-                  <Sun className="w-3 h-3 text-amber-400" />
+                  <Sun className="w-3 h-3 text-amber-500" />
                   <span>{t('orderReadyBoard.shift_am_short')}</span>
                 </>
               ) : (
                 <>
-                  <Moon className="w-3 h-3 text-indigo-400" />
+                  <Moon className="w-3 h-3 text-indigo-500" />
                   <span>{t('orderReadyBoard.shift_pm_short')}</span>
                 </>
               )}
@@ -1460,13 +1562,41 @@ function OrderReadyBoardContent() {
               e.stopPropagation()
               setLanguage(language === 'es' ? 'en' : 'es')
             }}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800/90 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-black transition shadow-sm"
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-black transition shadow-sm ${
+              isDark
+                ? 'bg-slate-800/90 hover:bg-slate-700 text-slate-200 border-slate-700'
+                : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
+            }`}
             title={language === 'es' ? t('orderReadyBoard.switch_to_english') : t('orderReadyBoard.switch_to_spanish')}
           >
-            <Globe className="w-4 h-4 text-emerald-400" />
-            <span className={language === 'en' ? 'text-emerald-400 font-black' : 'text-slate-400 font-bold'}>EN</span>
-            <span className="text-slate-600 font-normal">/</span>
-            <span className={language === 'es' ? 'text-emerald-400 font-black' : 'text-slate-400 font-bold'}>ES</span>
+            <Globe className="w-4 h-4 text-emerald-500" />
+            <span className={language === 'en' ? 'text-emerald-500 font-black' : isDark ? 'text-slate-400 font-bold' : 'text-slate-500 font-bold'}>EN</span>
+            <span className={isDark ? 'text-slate-600 font-normal' : 'text-slate-400 font-normal'}>/</span>
+            <span className={language === 'es' ? 'text-emerald-500 font-black' : isDark ? 'text-slate-400 font-bold' : 'text-slate-500 font-bold'}>ES</span>
+          </button>
+
+          {/* Botón Selector de Tema: Normal (Claro) vs Oscuro */}
+          <button
+            type="button"
+            onClick={(e) => toggleTheme(e)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition shadow-sm cursor-pointer ${
+              isDark
+                ? 'bg-slate-800/90 hover:bg-slate-700 text-slate-200 border-slate-700'
+                : 'bg-slate-100 hover:bg-slate-200 text-slate-800 border-slate-300'
+            }`}
+            title={isDark ? t('orderReadyBoard.theme_toggle_to_light') : t('orderReadyBoard.theme_toggle_to_dark')}
+          >
+            {isDark ? (
+              <>
+                <Sun className="w-4 h-4 text-amber-400" />
+                <span className="hidden sm:inline">{t('orderReadyBoard.theme_normal')}</span>
+              </>
+            ) : (
+              <>
+                <Moon className="w-4 h-4 text-slate-700" />
+                <span className="hidden sm:inline">{t('orderReadyBoard.theme_dark')}</span>
+              </>
+            )}
           </button>
 
           {/* Modo TV / Pantalla Completa (Fullscreen) */}
@@ -1476,10 +1606,18 @@ function OrderReadyBoardContent() {
               e.stopPropagation()
               toggleFullscreen()
             }}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800/90 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-bold transition shadow-sm"
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition shadow-sm ${
+              isDark
+                ? 'bg-slate-800/90 hover:bg-slate-700 text-slate-200 border-slate-700'
+                : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
+            }`}
             title={isFullscreen ? t('orderReadyBoard.exit_tv_mode_tooltip') : t('orderReadyBoard.tv_mode_tooltip')}
           >
-            {isFullscreen ? <Minimize className="w-4 h-4 text-amber-400" /> : <Maximize className="w-4 h-4 text-slate-300" />}
+            {isFullscreen ? (
+              <Minimize className="w-4 h-4 text-amber-500" />
+            ) : (
+              <Maximize className={`w-4 h-4 ${isDark ? 'text-slate-300' : 'text-slate-600'}`} />
+            )}
             <span className="hidden xl:inline">{isFullscreen ? t('orderReadyBoard.exit_tv_mode') : t('orderReadyBoard.tv_mode')}</span>
           </button>
 
@@ -1492,8 +1630,12 @@ function OrderReadyBoardContent() {
             }}
             className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-bold uppercase tracking-wider transition-all ${
               isMuted
-                ? 'bg-rose-500/10 text-rose-400 border-rose-500/30 hover:bg-rose-500/20'
-                : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20'
+                ? isDark
+                  ? 'bg-rose-500/10 text-rose-400 border-rose-500/30 hover:bg-rose-500/20'
+                  : 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'
+                : isDark
+                  ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20'
+                  : 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100'
             }`}
           >
             {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
@@ -1512,7 +1654,9 @@ function OrderReadyBoardContent() {
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold transition ${
               showControls
                 ? 'bg-emerald-600 text-white border-emerald-500 shadow-md'
-                : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700'
+                : isDark
+                  ? 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700'
+                  : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300'
             }`}
             title={showControls ? t('orderReadyBoard.hide_controls') : t('orderReadyBoard.show_controls')}
           >
@@ -1543,32 +1687,38 @@ function OrderReadyBoardContent() {
       {showControls && (
         <div
           onClick={(e) => e.stopPropagation()}
-          className="bg-slate-900/95 backdrop-blur-md border-b border-slate-800 p-5 shadow-2xl transition-all animate-in slide-in-from-top-4 duration-200"
+          className={`border-b p-5 shadow-xl transition-all animate-in slide-in-from-top-4 duration-200 ${
+            isDark ? 'bg-slate-900/95 backdrop-blur-md border-slate-800' : 'bg-slate-100/95 backdrop-blur-md border-slate-200'
+          }`}
         >
           <div className="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {/* Tarjeta 1: SUCURSAL Y TABLERO */}
-            <div className="bg-slate-950/70 border border-slate-800/80 rounded-2xl p-4 flex flex-col justify-between shadow-sm">
+            <div className={`rounded-2xl p-4 flex flex-col justify-between shadow-sm border ${
+              isDark ? 'bg-slate-950/70 border-slate-800/80' : 'bg-white border-slate-200'
+            }`}>
               <div>
                 <div className="flex items-center gap-2 mb-3">
-                  <Store className="w-4 h-4 text-emerald-400" />
-                  <span className="text-xs font-bold uppercase tracking-wider text-slate-300">
+                  <Store className="w-4 h-4 text-emerald-500" />
+                  <span className={`text-xs font-bold uppercase tracking-wider ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
                     {t('orderReadyBoard.card_store_lifecycle')}
                   </span>
                 </div>
 
                 {/* Selección de Tienda */}
                 <div className="mb-3.5">
-                  <label className="text-[11px] font-semibold text-slate-400 block mb-1">
+                  <label className={`text-[11px] font-semibold block mb-1 ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
                     {t('orderReadyBoard.store')}
                   </label>
                   <select
                     value={selectedStore}
                     onChange={(e) => handleStoreChange(e.target.value)}
                     disabled={visibleStores.length <= 1}
-                    className="w-full bg-slate-900 border border-slate-800 text-slate-200 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:border-emerald-500 font-medium disabled:opacity-70 disabled:cursor-not-allowed"
+                    className={`w-full rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:border-emerald-500 font-medium disabled:opacity-70 disabled:cursor-not-allowed border ${
+                      isDark ? 'bg-slate-900 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-200 text-slate-800'
+                    }`}
                   >
                     {visibleStores.map((s) => (
-                      <option key={s.code} value={s.code}>
+                      <option key={s.code} value={s.code} className={isDark ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}>
                         {s.name}
                       </option>
                     ))}
@@ -1576,12 +1726,12 @@ function OrderReadyBoardContent() {
                 </div>
 
                 {/* Retención / Limpieza de Órdenes Listas */}
-                <div className="pt-2.5 border-t border-slate-800/80">
+                <div className={`pt-2.5 border-t ${isDark ? 'border-slate-800/80' : 'border-slate-200'}`}>
                   <div className="flex items-center justify-between mb-1.5">
-                    <label className="text-[11px] font-semibold text-slate-400">
+                    <label className={`text-[11px] font-semibold ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
                       {t('orderReadyBoard.retention_title')}
                     </label>
-                    <span className="text-[11px] font-black text-emerald-400">
+                    <span className="text-[11px] font-black text-emerald-500">
                       {readyRetentionMinutes} min
                     </span>
                   </div>
@@ -1594,26 +1744,32 @@ function OrderReadyBoardContent() {
                         className={`py-1 rounded-lg text-xs font-bold transition border ${
                           readyRetentionMinutes === mins
                             ? 'bg-emerald-600 text-white border-emerald-400 shadow-sm'
-                            : 'bg-slate-900 text-slate-400 border-slate-800 hover:bg-slate-800'
+                            : isDark
+                              ? 'bg-slate-900 text-slate-400 border-slate-800 hover:bg-slate-800'
+                              : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200'
                         }`}
                       >
                         {mins} min {mins === 20 ? '★' : ''}
                       </button>
                     ))}
                   </div>
-                  <p className="text-[10px] text-slate-500 mt-1">
+                  <p className={`text-[10px] mt-1 ${isDark ? 'text-slate-500' : 'text-slate-500'}`}>
                     {t('orderReadyBoard.retention_20_min_note')}
                   </p>
                 </div>
               </div>
 
               {/* Botón Sincronizar con Toast */}
-              <div className="mt-3.5 pt-2.5 border-t border-slate-800/80">
+              <div className={`mt-3.5 pt-2.5 border-t ${isDark ? 'border-slate-800/80' : 'border-slate-200'}`}>
                 <button
                   type="button"
                   onClick={() => fetchOrders(true)}
                   disabled={isSyncing}
-                  className="w-full flex items-center justify-center gap-2 bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800 hover:border-slate-700 font-semibold text-xs py-2 px-3 rounded-lg transition disabled:opacity-50"
+                  className={`w-full flex items-center justify-center gap-2 font-semibold text-xs py-2 px-3 rounded-lg transition disabled:opacity-50 border ${
+                    isDark
+                      ? 'bg-slate-900 hover:bg-slate-800 text-slate-300 border-slate-800 hover:border-slate-700'
+                      : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200 hover:border-slate-300 shadow-sm'
+                  }`}
                 >
                   <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
                   <span>{isSyncing ? t('orderReadyBoard.syncing') : t('orderReadyBoard.sync_toast')}</span>
@@ -1622,14 +1778,18 @@ function OrderReadyBoardContent() {
             </div>
 
             {/* Tarjeta 2: LOCUTOR Y VOCES */}
-            <div className="bg-slate-950/70 border border-slate-800/80 rounded-2xl p-4 flex flex-col justify-between shadow-sm">
+            <div className={`rounded-2xl p-4 flex flex-col justify-between shadow-sm border ${
+              isDark ? 'bg-slate-950/70 border-slate-800/80' : 'bg-white border-slate-200'
+            }`}>
               <div>
                 <div className="flex items-center justify-between mb-3">
-                  <span className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
+                  <span className={`text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 ${
+                    isDark ? 'text-slate-300' : 'text-slate-700'
+                  }`}>
                     {isAdmin ? (
-                      <Sparkles className="w-4 h-4 text-amber-400" />
+                      <Sparkles className="w-4 h-4 text-amber-500" />
                     ) : (
-                      <Lock className="w-4 h-4 text-amber-400/90" />
+                      <Lock className="w-4 h-4 text-amber-500" />
                     )}
                     {t('orderReadyBoard.card_announcer')}
                   </span>
@@ -1637,7 +1797,11 @@ function OrderReadyBoardContent() {
                     type="button"
                     onClick={() => handleTestSound(selectedVoice)}
                     disabled={isTestingVoice}
-                    className="text-[11px] font-bold text-emerald-400 hover:text-emerald-300 flex items-center gap-1 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/30 transition disabled:opacity-50"
+                    className={`text-[11px] font-bold flex items-center gap-1 px-2 py-0.5 rounded border transition disabled:opacity-50 ${
+                      isDark
+                        ? 'text-emerald-400 hover:text-emerald-300 bg-emerald-500/10 border-emerald-500/30'
+                        : 'text-emerald-700 hover:text-emerald-800 bg-emerald-50 border-emerald-300 shadow-sm'
+                    }`}
                     title={t('orderReadyBoard.test_voice')}
                   >
                     <Play className={`w-2.5 h-2.5 fill-current ${isTestingVoice ? 'animate-spin' : ''}`} />
@@ -1658,11 +1822,17 @@ function OrderReadyBoardContent() {
                         className={`py-1.5 px-0.5 rounded-lg text-xs font-bold text-center border transition flex flex-col items-center justify-center gap-0.5 ${
                           !isAdmin
                             ? isSelected
-                              ? 'bg-slate-800 text-slate-200 border-amber-500/50 cursor-not-allowed opacity-90'
-                              : 'bg-slate-900/60 text-slate-600 border-slate-900 cursor-not-allowed opacity-50'
+                              ? isDark
+                                ? 'bg-slate-800 text-slate-200 border-amber-500/50 cursor-not-allowed opacity-90'
+                                : 'bg-slate-100 text-slate-800 border-amber-500/50 cursor-not-allowed opacity-90'
+                              : isDark
+                                ? 'bg-slate-900/60 text-slate-600 border-slate-900 cursor-not-allowed opacity-50'
+                                : 'bg-slate-50 text-slate-400 border-slate-200 cursor-not-allowed opacity-50'
                             : isSelected
                               ? 'bg-emerald-600 text-white border-emerald-400 shadow-md ring-1 ring-emerald-400'
-                              : 'bg-slate-900 text-slate-300 border-slate-800 hover:bg-slate-800/80 hover:border-slate-700'
+                              : isDark
+                                ? 'bg-slate-900 text-slate-300 border-slate-800 hover:bg-slate-800/80 hover:border-slate-700'
+                                : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100 hover:border-slate-300'
                         }`}
                         title={!isAdmin ? t('orderReadyBoard.voice_locked_hint') : (language === 'es' ? v.labelEs : v.labelEn)}
                       >
@@ -1670,12 +1840,12 @@ function OrderReadyBoardContent() {
                         <span className="text-[11px] leading-tight font-extrabold">{v.name}</span>
                         <span className={`text-[8px] uppercase tracking-wider px-1 rounded font-bold ${
                           !isAdmin
-                            ? 'bg-slate-800 text-slate-400'
+                            ? isDark ? 'bg-slate-800 text-slate-400' : 'bg-slate-200 text-slate-600'
                             : isSelected
                               ? 'bg-emerald-700 text-emerald-100'
                               : v.gender === 'female'
-                                ? 'bg-purple-500/20 text-purple-300'
-                                : 'bg-blue-500/20 text-blue-300'
+                                ? isDark ? 'bg-purple-500/20 text-purple-300' : 'bg-purple-100 text-purple-800'
+                                : isDark ? 'bg-blue-500/20 text-blue-300' : 'bg-blue-100 text-blue-800'
                         }`}>
                           {v.gender === 'female' ? 'Fem' : (language === 'es' ? 'Masc' : 'Male')}
                         </span>
@@ -1685,13 +1855,13 @@ function OrderReadyBoardContent() {
                 </div>
 
                 {!isAdmin ? (
-                  <p className="text-[10px] text-amber-400/90 mt-1 flex items-center gap-1 font-medium">
+                  <p className="text-[10px] text-amber-500 mt-1 flex items-center gap-1 font-medium">
                     <Lock className="w-3 h-3 shrink-0" />
                     <span>{t('orderReadyBoard.voice_locked_hint')}</span>
                   </p>
                 ) : (
-                  <div className="flex items-center justify-between text-[10px] text-slate-400 mt-1">
-                    <span className="text-emerald-400 font-semibold flex items-center gap-1 truncate">
+                  <div className={`flex items-center justify-between text-[10px] mt-1 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                    <span className="text-emerald-500 font-semibold flex items-center gap-1 truncate">
                       <Sparkles className="w-3 h-3 shrink-0" />
                       {isSavingVoice ? t('orderReadyBoard.voice_saving') : t('orderReadyBoard.voice_global_badge')}
                     </span>
@@ -1700,8 +1870,8 @@ function OrderReadyBoardContent() {
               </div>
 
               {/* Idioma de los Anuncios */}
-              <div className="mt-3.5 pt-2.5 border-t border-slate-800/80">
-                <label className="text-[11px] font-semibold text-slate-400 block mb-1.5">
+              <div className={`mt-3.5 pt-2.5 border-t ${isDark ? 'border-slate-800/80' : 'border-slate-200'}`}>
+                <label className={`text-[11px] font-semibold block mb-1.5 ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
                   {t('orderReadyBoard.voice_language')}
                 </label>
                 <div className="flex gap-1.5">
@@ -1713,7 +1883,9 @@ function OrderReadyBoardContent() {
                       className={`flex-1 py-1 px-1.5 rounded-lg text-xs font-bold uppercase tracking-wider border transition ${
                         voiceLanguage === langOption
                           ? 'bg-emerald-600 text-white border-emerald-500 shadow-sm'
-                          : 'bg-slate-900 text-slate-400 border-slate-800 hover:bg-slate-800'
+                          : isDark
+                            ? 'bg-slate-900 text-slate-400 border-slate-800 hover:bg-slate-800'
+                            : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200'
                       }`}
                     >
                       {langOption === 'es' ? 'ES' : langOption === 'en' ? 'EN' : (language === 'es' ? 'Bilingüe' : 'Bilingual')}
@@ -1724,20 +1896,22 @@ function OrderReadyBoardContent() {
             </div>
 
             {/* Tarjeta 3: SONIDO Y EFECTOS */}
-            <div className="bg-slate-950/70 border border-slate-800/80 rounded-2xl p-4 flex flex-col justify-between shadow-sm">
+            <div className={`rounded-2xl p-4 flex flex-col justify-between shadow-sm border ${
+              isDark ? 'bg-slate-950/70 border-slate-800/80' : 'bg-white border-slate-200'
+            }`}>
               <div>
                 <div className="flex items-center gap-2 mb-3">
-                  <Volume2 className="w-4 h-4 text-emerald-400" />
-                  <span className="text-xs font-bold uppercase tracking-wider text-slate-300">
+                  <Volume2 className="w-4 h-4 text-emerald-500" />
+                  <span className={`text-xs font-bold uppercase tracking-wider ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
                     {t('orderReadyBoard.card_sound_volume')}
                   </span>
                 </div>
 
                 {/* Slider de Volumen */}
                 <div className="mb-3.5">
-                  <div className="flex justify-between text-xs text-slate-400 font-semibold mb-1">
+                  <div className={`flex justify-between text-xs font-semibold mb-1 ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
                     <span>{t('orderReadyBoard.voice_volume')}</span>
-                    <span className="text-emerald-400 font-black">{Math.round(voiceVolume * 100)}%</span>
+                    <span className="text-emerald-500 font-black">{Math.round(voiceVolume * 100)}%</span>
                   </div>
                   <input
                     type="range"
@@ -1746,15 +1920,19 @@ function OrderReadyBoardContent() {
                     step="0.05"
                     value={voiceVolume}
                     onChange={(e) => setVoiceVolume(parseFloat(e.target.value))}
-                    className="w-full accent-emerald-500 h-1.5 bg-slate-800 rounded-lg cursor-pointer"
+                    className={`w-full accent-emerald-500 h-1.5 rounded-lg cursor-pointer ${
+                      isDark ? 'bg-slate-800' : 'bg-slate-200'
+                    }`}
                   />
                 </div>
 
                 {/* Toggle Campanilla Ding-Dong */}
-                <div className="pt-2.5 border-t border-slate-800/80">
-                  <label className="flex items-center justify-between text-xs font-medium text-slate-300 cursor-pointer py-1">
+                <div className={`pt-2.5 border-t ${isDark ? 'border-slate-800/80' : 'border-slate-200'}`}>
+                  <label className={`flex items-center justify-between text-xs font-medium cursor-pointer py-1 ${
+                    isDark ? 'text-slate-300' : 'text-slate-700'
+                  }`}>
                     <span className="flex items-center gap-1.5">
-                      <Bell className="w-3.5 h-3.5 text-amber-400" />
+                      <Bell className="w-3.5 h-3.5 text-amber-500" />
                       {t('orderReadyBoard.enable_chime')}
                     </span>
                     <input
@@ -1768,7 +1946,7 @@ function OrderReadyBoardContent() {
               </div>
 
               {/* Botón Destacado: Probar Anuncio Completo */}
-              <div className="mt-3.5 pt-2.5 border-t border-slate-800/80">
+              <div className={`mt-3.5 pt-2.5 border-t ${isDark ? 'border-slate-800/80' : 'border-slate-200'}`}>
                 <button
                   type="button"
                   onClick={() => handleTestSound(selectedVoice)}
@@ -1786,20 +1964,26 @@ function OrderReadyBoardContent() {
             </div>
 
             {/* Tarjeta 4: CANALES Y SIMULACIÓN */}
-            <div className="bg-slate-950/70 border border-slate-800/80 rounded-2xl p-4 flex flex-col justify-between shadow-sm">
+            <div className={`rounded-2xl p-4 flex flex-col justify-between shadow-sm border ${
+              isDark ? 'bg-slate-950/70 border-slate-800/80' : 'bg-white border-slate-200'
+            }`}>
               <div>
                 <div className="flex items-center gap-2 mb-3">
-                  <Sliders className="w-4 h-4 text-emerald-400" />
-                  <span className="text-xs font-bold uppercase tracking-wider text-slate-300">
+                  <Sliders className="w-4 h-4 text-emerald-500" />
+                  <span className={`text-xs font-bold uppercase tracking-wider ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
                     {t('orderReadyBoard.card_channels_simulation')}
                   </span>
                 </div>
 
                 {/* Checkboxes de Canales: Para Llevar & Comer Aquí */}
                 <div className="space-y-2 mb-3">
-                  <label className="flex items-center justify-between p-2 rounded-xl bg-slate-900 border border-slate-800 text-xs font-medium text-slate-300 cursor-pointer hover:border-slate-700 transition">
+                  <label className={`flex items-center justify-between p-2 rounded-xl text-xs font-medium cursor-pointer transition border ${
+                    isDark
+                      ? 'bg-slate-900 border-slate-800 text-slate-300 hover:border-slate-700'
+                      : 'bg-slate-50 border-slate-200 text-slate-700 hover:border-slate-300'
+                  }`}>
                     <span className="flex items-center gap-2 font-semibold">
-                      <ShoppingBag className="w-3.5 h-3.5 text-cyan-400" />
+                      <ShoppingBag className="w-3.5 h-3.5 text-cyan-500" />
                       {t('orderReadyBoard.announce_togo')}
                     </span>
                     <input
@@ -1813,9 +1997,13 @@ function OrderReadyBoardContent() {
                     />
                   </label>
 
-                  <label className="flex items-center justify-between p-2 rounded-xl bg-slate-900 border border-slate-800 text-xs font-medium text-slate-300 cursor-pointer hover:border-slate-700 transition">
+                  <label className={`flex items-center justify-between p-2 rounded-xl text-xs font-medium cursor-pointer transition border ${
+                    isDark
+                      ? 'bg-slate-900 border-slate-800 text-slate-300 hover:border-slate-700'
+                      : 'bg-slate-50 border-slate-200 text-slate-700 hover:border-slate-300'
+                  }`}>
                     <span className="flex items-center gap-2 font-semibold">
-                      <Utensils className="w-3.5 h-3.5 text-amber-400" />
+                      <Utensils className="w-3.5 h-3.5 text-amber-500" />
                       {t('orderReadyBoard.announce_for_here')}
                     </span>
                     <input
@@ -1832,15 +2020,19 @@ function OrderReadyBoardContent() {
               </div>
 
               {/* Botones de Simulación de Órdenes (Solo Togo y Dine-In) */}
-              <div className="mt-3.5 pt-2.5 border-t border-slate-800/80">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block mb-1.5">
+              <div className={`mt-3.5 pt-2.5 border-t ${isDark ? 'border-slate-800/80' : 'border-slate-200'}`}>
+                <span className={`text-[10px] font-bold uppercase tracking-wider block mb-1.5 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
                   {t('orderReadyBoard.simulate_order_title')}
                 </span>
                 <div className="grid grid-cols-2 gap-2">
                   <button
                     type="button"
                     onClick={() => handleSimulateOrder('TOGO')}
-                    className="flex items-center justify-center gap-1.5 bg-slate-900 hover:bg-slate-800 text-cyan-300 border border-cyan-500/30 font-semibold text-xs py-2 px-2 rounded-lg transition"
+                    className={`flex items-center justify-center gap-1.5 font-semibold text-xs py-2 px-2 rounded-lg transition border ${
+                      isDark
+                        ? 'bg-slate-900 hover:bg-slate-800 text-cyan-300 border-cyan-500/30'
+                        : 'bg-sky-50 hover:bg-sky-100 text-sky-800 border-sky-300 shadow-sm'
+                    }`}
                   >
                     <ShoppingBag className="w-3.5 h-3.5" />
                     + Togo
@@ -1848,7 +2040,11 @@ function OrderReadyBoardContent() {
                   <button
                     type="button"
                     onClick={() => handleSimulateOrder('FOR_HERE')}
-                    className="flex items-center justify-center gap-1.5 bg-slate-900 hover:bg-slate-800 text-amber-300 border border-amber-500/30 font-semibold text-xs py-2 px-2 rounded-lg transition"
+                    className={`flex items-center justify-center gap-1.5 font-semibold text-xs py-2 px-2 rounded-lg transition border ${
+                      isDark
+                        ? 'bg-slate-900 hover:bg-slate-800 text-amber-300 border-amber-500/30'
+                        : 'bg-amber-50 hover:bg-amber-100 text-amber-800 border-amber-300 shadow-sm'
+                    }`}
                   >
                     <Utensils className="w-3.5 h-3.5" />
                     + Dine-In
@@ -1883,42 +2079,58 @@ function OrderReadyBoardContent() {
         return (
           <main className="flex-1 p-6 md:p-8 grid grid-cols-1 md:grid-cols-2 gap-8 max-w-7xl mx-auto w-full">
             {/* COLUMNA IZQUIERDA: LISTAS PARA RECOGER (READY) */}
-            <section className="flex flex-col bg-slate-900/60 rounded-3xl border-2 border-emerald-500/50 p-6 shadow-2xl relative overflow-hidden backdrop-blur">
+            <section className={`flex flex-col rounded-3xl p-6 relative overflow-hidden backdrop-blur ${
+              isDark
+                ? 'bg-slate-900/60 border-2 border-emerald-500/50 shadow-2xl'
+                : 'bg-white border-2 border-emerald-500 shadow-xl'
+            }`}>
               {/* Luz de fondo en verde */}
-              <div className="absolute -top-32 -left-32 w-80 h-80 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
+              <div className={`absolute -top-32 -left-32 w-80 h-80 rounded-full blur-3xl pointer-events-none ${
+                isDark ? 'bg-emerald-500/10' : 'bg-emerald-500/5'
+              }`} />
 
               {/* Header de la columna */}
-              <div className="flex items-center justify-between pb-6 border-b border-emerald-500/30 relative z-10">
+              <div className={`flex items-center justify-between pb-6 border-b relative z-10 ${
+                isDark ? 'border-emerald-500/30' : 'border-emerald-200'
+              }`}>
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 shadow-inner">
+                  <div className={`w-10 h-10 rounded-full flex items-center justify-center shadow-inner ${
+                    isDark ? 'bg-emerald-500/20 border border-emerald-500/40 text-emerald-400' : 'bg-emerald-100 border border-emerald-300 text-emerald-700'
+                  }`}>
                     <CheckCircle2 className="w-6 h-6" />
                   </div>
                   <div>
-                    <h2 className="text-3xl lg:text-4xl font-black text-emerald-400 tracking-tight uppercase flex items-center gap-2">
+                    <h2 className={`text-3xl lg:text-4xl font-black tracking-tight uppercase flex items-center gap-2 ${
+                      isDark ? 'text-emerald-400' : 'text-emerald-700'
+                    }`}>
                       {t('orderReadyBoard.ready_for_pickup')}
-                      <span className="text-sm font-bold bg-emerald-500 text-slate-950 px-3 py-0.5 rounded-full ml-2">
+                      <span className="text-sm font-bold bg-emerald-600 text-white px-3 py-0.5 rounded-full ml-2 shadow-sm">
                         {displayedReadyOrders.length}
                       </span>
                     </h2>
-                    <p className="text-xs text-emerald-300/70 font-medium flex items-center gap-1.5 mt-0.5">
+                    <p className={`text-xs font-medium flex items-center gap-1.5 mt-0.5 ${
+                      isDark ? 'text-emerald-300/70' : 'text-emerald-700'
+                    }`}>
                       <span>{language === 'es' ? 'Pasa al mostrador con tu ticket' : 'Please proceed to the counter'}</span>
-                      <span className="text-slate-600">•</span>
-                      <span className="text-[11px] text-slate-400">
+                      <span className={isDark ? 'text-slate-600' : 'text-slate-400'}>•</span>
+                      <span className={`text-[11px] ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
                         {language === 'es' ? `(Se retiran tras ${readyRetentionMinutes} min)` : `(Clears after ${readyRetentionMinutes} mins)`}
                       </span>
                     </p>
                   </div>
                 </div>
-                <Sparkles className="w-6 h-6 text-emerald-400 animate-pulse hidden sm:block" />
+                <Sparkles className="w-6 h-6 text-emerald-500 animate-pulse hidden sm:block" />
               </div>
 
               {/* Tarjetas de Órdenes Listas */}
               <div className="flex-1 mt-6 overflow-y-auto space-y-4 pr-1 relative z-10">
                 {displayedReadyOrders.length === 0 ? (
-                  <div className="h-64 flex flex-col items-center justify-center text-slate-500 text-center">
-                    <CheckCircle2 className="w-12 h-12 mb-3 text-slate-700" />
-                    <p className="text-lg font-semibold text-slate-400">{t('orderReadyBoard.no_orders_ready')}</p>
-                    <p className="text-xs text-emerald-400 font-medium mt-1">
+                  <div className={`h-64 flex flex-col items-center justify-center text-center ${
+                    isDark ? 'text-slate-500' : 'text-slate-400'
+                  }`}>
+                    <CheckCircle2 className={`w-12 h-12 mb-3 ${isDark ? 'text-slate-700' : 'text-slate-300'}`} />
+                    <p className={`text-lg font-semibold ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>{t('orderReadyBoard.no_orders_ready')}</p>
+                    <p className="text-xs text-emerald-600 font-medium mt-1">
                       {STORES_LIST.find(s => s.code === selectedStore)?.name || selectedStore} • {language === 'es' ? 'Al dar doble tap en el KDS aparecerán aquí' : 'Orders bumped on KDS will appear here'}
                     </p>
                   </div>
@@ -1934,7 +2146,11 @@ function OrderReadyBoardContent() {
                     return (
                       <div
                         key={order.id}
-                        className="bg-gradient-to-r from-emerald-950/80 via-slate-900 to-emerald-950/80 border-2 border-emerald-500/60 rounded-2xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-xl shadow-emerald-950/40 transform hover:scale-[1.01] transition-all animate-in fade-in zoom-in-95 duration-300"
+                        className={`rounded-2xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 transform hover:scale-[1.01] transition-all animate-in fade-in zoom-in-95 duration-300 ${
+                          isDark
+                            ? 'bg-gradient-to-r from-emerald-950/80 via-slate-900 to-emerald-950/80 border-2 border-emerald-500/60 shadow-xl shadow-emerald-950/40 text-white'
+                            : 'bg-gradient-to-r from-emerald-50/70 via-white to-emerald-50/70 border-2 border-emerald-500/70 shadow-md shadow-emerald-100/60 text-slate-900 hover:border-emerald-500'
+                        }`}
                       >
                         <div className="flex items-center gap-5">
                           {/* Número de Orden en Grande */}
@@ -1942,7 +2158,11 @@ function OrderReadyBoardContent() {
                             type="button"
                             onClick={() => handleOrderClick(order)}
                             title={t('orderReadyBoard.view_ticket')}
-                            className="text-left text-4xl lg:text-6xl font-black tracking-tight text-white font-mono drop-shadow-[0_2px_12px_rgba(16,185,129,0.5)] hover:text-emerald-300 transition-colors cursor-pointer"
+                            className={`text-left text-4xl lg:text-6xl font-black tracking-tight font-mono cursor-pointer transition-colors ${
+                              isDark
+                                ? 'text-white drop-shadow-[0_2px_12px_rgba(16,185,129,0.5)] hover:text-emerald-300'
+                                : 'text-emerald-900 drop-shadow-sm hover:text-emerald-600'
+                            }`}
                           >
                             #{order.order_number}
                           </button>
@@ -1950,7 +2170,9 @@ function OrderReadyBoardContent() {
                           {/* Nombre, Canal y Tiempo de Preparación SOS */}
                           <div>
                             {order.customer_name && (
-                              <div className="text-base lg:text-lg font-bold text-slate-200 truncate max-w-[200px]">
+                              <div className={`text-base lg:text-lg font-bold truncate max-w-[200px] ${
+                                isDark ? 'text-slate-200' : 'text-slate-900'
+                              }`}>
                                 {order.customer_name}
                               </div>
                             )}
@@ -1971,21 +2193,29 @@ function OrderReadyBoardContent() {
                         </div>
 
                         {/* Info de Cierre / Doble Tap y Acciones */}
-                        <div className="flex sm:flex-col items-center sm:items-end justify-between gap-2 border-t sm:border-t-0 pt-3 sm:pt-0 border-emerald-500/20">
+                        <div className={`flex sm:flex-col items-center sm:items-end justify-between gap-2 border-t sm:border-t-0 pt-3 sm:pt-0 ${
+                          isDark ? 'border-emerald-500/20' : 'border-emerald-200'
+                        }`}>
                           <div className="text-left sm:text-right">
                             <div className="flex items-center sm:justify-end gap-2">
-                              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black uppercase tracking-wider bg-emerald-500 text-slate-950 shadow-md">
+                              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black uppercase tracking-wider bg-emerald-600 text-white shadow-sm">
                                 <CheckCircle2 className="w-3.5 h-3.5" />
                                 {t('orderReadyBoard.ready_badge')}
                               </span>
                               {readyTimeStr && (
-                                <span className="text-xs font-bold text-emerald-300 bg-emerald-950/60 px-2 py-0.5 rounded-md border border-emerald-500/30">
+                                <span className={`text-xs font-bold px-2 py-0.5 rounded-md border ${
+                                  isDark
+                                    ? 'text-emerald-300 bg-emerald-950/60 border-emerald-500/30'
+                                    : 'text-emerald-800 bg-emerald-100 border-emerald-300'
+                                }`}>
                                   {readyTimeStr}
                                 </span>
                               )}
                             </div>
                             {order.ready_at && (
-                              <p className="text-[11px] text-emerald-400/80 font-medium mt-1">
+                              <p className={`text-[11px] font-medium mt-1 ${
+                                isDark ? 'text-emerald-400/80' : 'text-emerald-700'
+                              }`}>
                                 {calculateElapsedTime(order.ready_at, language)}
                               </p>
                             )}
@@ -2010,9 +2240,13 @@ function OrderReadyBoardContent() {
                               type="button"
                               onClick={() => handleOrderClick(order)}
                               title={t('orderReadyBoard.view_ticket')}
-                              className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white border border-slate-700 transition active:scale-95 cursor-pointer shadow-sm"
+                              className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold transition active:scale-95 cursor-pointer shadow-sm border ${
+                                isDark
+                                  ? 'bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white border-slate-700'
+                                  : 'bg-white hover:bg-slate-100 text-slate-700 hover:text-slate-900 border-slate-300'
+                              }`}
                             >
-                              <Receipt className="w-3.5 h-3.5 text-amber-400" />
+                              <Receipt className="w-3.5 h-3.5 text-amber-500" />
                               <span className="hidden md:inline">{t('orderReadyBoard.view_ticket')}</span>
                             </button>
                           </div>
@@ -2025,21 +2259,33 @@ function OrderReadyBoardContent() {
             </section>
 
             {/* COLUMNA DERECHA: EN PREPARACIÓN (IN PROGRESS) */}
-            <section className="flex flex-col bg-slate-900/40 rounded-3xl border border-slate-800 p-6 shadow-xl backdrop-blur relative">
+            <section className={`flex flex-col rounded-3xl p-6 backdrop-blur relative ${
+              isDark
+                ? 'bg-slate-900/40 border border-slate-800 shadow-xl'
+                : 'bg-white border border-slate-200 shadow-lg'
+            }`}>
               {/* Header de la columna */}
-              <div className="flex items-center justify-between pb-6 border-b border-slate-800">
+              <div className={`flex items-center justify-between pb-6 border-b ${
+                isDark ? 'border-slate-800' : 'border-slate-200'
+              }`}>
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-slate-300">
-                    <Clock className="w-6 h-6 text-slate-400" />
+                  <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                    isDark ? 'bg-slate-800 border border-slate-700 text-slate-300' : 'bg-slate-100 border border-slate-200 text-slate-600'
+                  }`}>
+                    <Clock className="w-6 h-6" />
                   </div>
                   <div>
-                    <h2 className="text-3xl lg:text-4xl font-black text-slate-200 tracking-tight uppercase flex items-center gap-2">
+                    <h2 className={`text-3xl lg:text-4xl font-black tracking-tight uppercase flex items-center gap-2 ${
+                      isDark ? 'text-slate-200' : 'text-slate-800'
+                    }`}>
                       {t('orderReadyBoard.in_progress')}
-                      <span className="text-sm font-bold bg-slate-800 text-slate-300 px-3 py-0.5 rounded-full ml-2 border border-slate-700">
+                      <span className={`text-sm font-bold px-3 py-0.5 rounded-full ml-2 border ${
+                        isDark ? 'bg-slate-800 text-slate-300 border-slate-700' : 'bg-slate-100 text-slate-700 border-slate-200 shadow-sm'
+                      }`}>
                         {displayedInProgressOrders.length}
                       </span>
                     </h2>
-                    <p className="text-xs text-slate-400 font-medium">
+                    <p className={`text-xs font-medium ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
                       {language === 'es' ? 'Preparando con ingredientes frescos' : 'Preparing fresh on the grill'}
                     </p>
                   </div>
@@ -2049,9 +2295,11 @@ function OrderReadyBoardContent() {
               {/* Tarjetas de Órdenes en Preparación */}
               <div className="flex-1 mt-6 overflow-y-auto space-y-3.5 pr-1">
                 {displayedInProgressOrders.length === 0 ? (
-                  <div className="h-64 flex flex-col items-center justify-center text-slate-500 text-center">
-                    <Clock className="w-12 h-12 mb-3 text-slate-700" />
-                    <p className="text-lg font-semibold text-slate-400">{t('orderReadyBoard.no_orders_in_progress')}</p>
+                  <div className={`h-64 flex flex-col items-center justify-center text-center ${
+                    isDark ? 'text-slate-500' : 'text-slate-400'
+                  }`}>
+                    <Clock className={`w-12 h-12 mb-3 ${isDark ? 'text-slate-700' : 'text-slate-300'}`} />
+                    <p className={`text-lg font-semibold ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>{t('orderReadyBoard.no_orders_in_progress')}</p>
                     <p className="text-xs text-slate-400 font-medium mt-1">
                       {STORES_LIST.find(s => s.code === selectedStore)?.name || selectedStore} • {language === 'es' ? 'La cocina está al día' : 'The kitchen is caught up'}
                     </p>
@@ -2068,7 +2316,11 @@ function OrderReadyBoardContent() {
                     return (
                       <div
                         key={order.id}
-                        className="bg-slate-900/90 border border-slate-800/80 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow transition hover:border-slate-700"
+                        className={`rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition ${
+                          isDark
+                            ? 'bg-slate-900/90 border border-slate-800/80 hover:border-slate-700 shadow text-slate-200'
+                            : 'bg-slate-50/90 border border-slate-200 hover:bg-slate-100/80 shadow-sm text-slate-800'
+                        }`}
                       >
                         <div className="flex items-center gap-4">
                           {/* Número de Orden */}
@@ -2076,7 +2328,9 @@ function OrderReadyBoardContent() {
                             type="button"
                             onClick={() => handleOrderClick(order)}
                             title={t('orderReadyBoard.view_ticket')}
-                            className="text-3xl lg:text-5xl font-black tracking-tight text-slate-300 hover:text-white font-mono transition-colors text-left cursor-pointer"
+                            className={`text-3xl lg:text-5xl font-black tracking-tight font-mono transition-colors text-left cursor-pointer ${
+                              isDark ? 'text-slate-300 hover:text-white' : 'text-slate-800 hover:text-slate-900'
+                            }`}
                           >
                             #{order.order_number}
                           </button>
@@ -2084,7 +2338,9 @@ function OrderReadyBoardContent() {
                           {/* Nombre, Canal y Cronómetro en Vivo */}
                           <div>
                             {order.customer_name && (
-                              <div className="text-sm lg:text-base font-bold text-slate-300 truncate max-w-[180px]">
+                              <div className={`text-sm lg:text-base font-bold truncate max-w-[180px] ${
+                                isDark ? 'text-slate-300' : 'text-slate-800'
+                              }`}>
                                 {order.customer_name}
                               </div>
                             )}
@@ -2104,14 +2360,20 @@ function OrderReadyBoardContent() {
                         </div>
 
                         {/* Estado y Hora de Envío */}
-                        <div className="flex sm:flex-col items-center sm:items-end justify-between gap-2 border-t sm:border-t-0 pt-2 sm:pt-0 border-slate-800">
+                        <div className={`flex sm:flex-col items-center sm:items-end justify-between gap-2 border-t sm:border-t-0 pt-2 sm:pt-0 ${
+                          isDark ? 'border-slate-800' : 'border-slate-200'
+                        }`}>
                           <div className="text-left sm:text-right">
-                            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold text-slate-400 bg-slate-800/80 border border-slate-700/60">
-                              <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
+                            <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold ${
+                              isDark
+                                ? 'text-slate-400 bg-slate-800/80 border border-slate-700/60'
+                                : 'text-slate-700 bg-slate-200/80 border border-slate-300'
+                            }`}>
+                              <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping" />
                               {t('orderReadyBoard.almost_ready')}
                             </span>
                             {sentTimeStr && (
-                              <p className="text-[11px] text-slate-400 font-medium mt-1">
+                              <p className={`text-[11px] font-medium mt-1 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
                                 {t('orderReadyBoard.sent_at_time').replace('{time}', sentTimeStr)}
                               </p>
                             )}
@@ -2122,9 +2384,13 @@ function OrderReadyBoardContent() {
                             type="button"
                             onClick={() => handleOrderClick(order)}
                             title={t('orderReadyBoard.view_ticket')}
-                            className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 transition active:scale-95 cursor-pointer shadow-sm"
+                            className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold transition active:scale-95 cursor-pointer shadow-sm border ${
+                              isDark
+                                ? 'bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border-slate-700'
+                                : 'bg-white hover:bg-slate-100 text-slate-700 hover:text-slate-900 border-slate-300'
+                            }`}
                           >
-                            <Receipt className="w-3.5 h-3.5 text-amber-400" />
+                            <Receipt className="w-3.5 h-3.5 text-amber-500" />
                             <span>{t('orderReadyBoard.view_ticket')}</span>
                           </button>
                         </div>
@@ -2139,7 +2405,9 @@ function OrderReadyBoardContent() {
       })()}
 
       {/* Footer corporativo */}
-      <footer className="bg-slate-950 border-t border-slate-900 px-6 py-3 text-center text-xs text-slate-500 font-medium">
+      <footer className={`border-t px-6 py-3 text-center text-xs font-medium transition-colors ${
+        isDark ? 'bg-slate-950 border-slate-900 text-slate-500' : 'bg-white border-slate-200 text-slate-500 shadow-sm'
+      }`}>
         <span>Tacos Gavilan • {t('orderReadyBoard.subtitle')}</span>
       </footer>
 

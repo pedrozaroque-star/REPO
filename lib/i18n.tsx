@@ -4118,7 +4118,11 @@ export const dictionaries: Record<Language, Dictionary> = {
             card_sound_volume: "Sonido y Volumen",
             card_channels_simulation: "Canales y Pruebas",
             simulate_order_title: "Simular Pedido",
-            test_announcement_btn: "Probar Anuncio Completo"
+            test_announcement_btn: "Probar Anuncio Completo",
+            theme_normal: "Normal",
+            theme_dark: "Oscuro",
+            theme_toggle_to_dark: "Cambiar a modo oscuro",
+            theme_toggle_to_light: "Cambiar a modo normal (claro)"
         }
     },
     en: {
@@ -8217,7 +8221,11 @@ export const dictionaries: Record<Language, Dictionary> = {
             card_sound_volume: "Sound & Volume",
             card_channels_simulation: "Channels & Testing",
             simulate_order_title: "Simulate Order",
-            test_announcement_btn: "Test Full Announcement"
+            test_announcement_btn: "Test Full Announcement",
+            theme_normal: "Normal",
+            theme_dark: "Dark",
+            theme_toggle_to_dark: "Switch to dark mode",
+            theme_toggle_to_light: "Switch to normal mode (light)"
         }
     }
 };

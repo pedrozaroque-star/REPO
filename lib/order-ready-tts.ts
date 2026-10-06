@@ -33,7 +33,7 @@ export type VoiceId = (typeof AVAILABLE_VOICES)[number]['id']
 
 const BUCKET = 'order-ready-tts'
 const DEFAULT_VOICE: VoiceId = 'Kore'
-const MODELS = ['gemini-2.5-pro-preview-tts', 'gemini-2.5-flash-preview-tts', 'gemini-3.8-flash-tts']
+const MODELS = ['gemini-3.8-flash-lite-tts', 'gemini-3.8-flash-tts', 'gemini-2.5-pro-preview-tts']
 const CACHE_VERSION = 'v4'
 
 export type TtsLang = 'en' | 'es'
