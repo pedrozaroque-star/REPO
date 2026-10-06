@@ -23,7 +23,7 @@
 
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
-import { syncStoreFromToast } from '@/lib/order-ready-sync'
+import { syncStoreFromToast, STORE_GUID_BY_CODE } from '@/lib/order-ready-sync'
 import { getOrderReadyAccess, canAccessStore } from '@/lib/order-ready-access'
 import { getCaliforniaBusinessDate, getBusinessDayStartMs, getCaliforniaShift } from '@/lib/business-date'
 
@@ -169,7 +169,7 @@ export async function POST(request: Request) {
     // Insertar nueva orden
     const newRecord: any = {
       store_code: storeCode,
-      store_id: body.storeId || storeCode,
+      store_id: body.storeId || STORE_GUID_BY_CODE[storeCode] || storeCode,
       store_name: body.storeName || storeCode,
       order_number: String(body.orderNumber),
       order_guid: body.orderGuid || null,

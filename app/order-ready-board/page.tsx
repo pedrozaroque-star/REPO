@@ -48,12 +48,38 @@
 'use client'
 
 import React, { useState, useEffect, useRef, useCallback } from 'react'
-import { Volume2, VolumeX, Settings, Play, RefreshCw, Bell, CheckCircle2, Clock, Sparkles, ChevronDown, ChevronUp, Store, Car, WifiOff, Lock, Sun, Moon, Calendar } from 'lucide-react'
+import {
+  Volume2,
+  VolumeX,
+  Settings,
+  Play,
+  RefreshCw,
+  Bell,
+  CheckCircle2,
+  Clock,
+  Sparkles,
+  ChevronDown,
+  ChevronUp,
+  Store,
+  Car,
+  WifiOff,
+  Lock,
+  Sun,
+  Moon,
+  Calendar,
+  FileText,
+  Receipt,
+  Timer,
+  Utensils,
+  ShoppingBag,
+  X
+} from 'lucide-react'
 import { useLanguage } from '@/lib/i18n'
 import { createClient } from '@supabase/supabase-js'
 import ProtectedRoute from '@/components/ProtectedRoute'
 import { AVAILABLE_VOICES, VoiceId, isValidVoice } from '@/lib/order-ready-tts'
 import { getCaliforniaBusinessDate, getCaliforniaShift } from '@/lib/business-date'
+import { STORE_GUID_BY_CODE } from '@/lib/order-ready-sync'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
@@ -63,9 +89,11 @@ interface OrderItem {
   id: string
   created_at: string
   business_date?: string
+  store_id?: string
   store_code: string
   store_name: string
   order_number: string
+  order_guid?: string
   dining_option: 'FOR_HERE' | 'TOGO' | 'DELIVERY' | 'DRIVE_THRU' | string
   customer_name: string | null
   status: 'IN_PROGRESS' | 'READY' | 'COMPLETED'
@@ -76,6 +104,34 @@ interface OrderItem {
   _reminder?: boolean
   /** Solo cliente: clave de orden en la cola de audio (ms epoch) */
   _sortAt?: number
+}
+
+/** Umbrales Speed of Service (SOS) en segundos: 🟢 ≤210s (3:30) | 🟡 211–300s (5:00) | 🔴 >300s */
+function getColorForDuration(seconds: number): 'green' | 'yellow' | 'red' {
+  if (seconds <= 210) return 'green'
+  if (seconds <= 300) return 'yellow'
+  return 'red'
+}
+
+function formatDuration(seconds: number): string {
+  const mins = Math.floor(seconds / 60)
+  const secs = Math.floor(seconds % 60)
+  return `${mins}:${String(secs).padStart(2, '0')}`
+}
+
+function formatTimeOnly(timestamp: string | null | undefined): string {
+  if (!timestamp) return ''
+  try {
+    const d = new Date(timestamp)
+    return d.toLocaleTimeString('en-US', {
+      timeZone: 'America/Los_Angeles',
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true
+    })
+  } catch {
+    return ''
+  }
 }
 
 /** Veces que se anuncia una orden al cerrarse con doble tap en el expediter */
@@ -153,8 +209,18 @@ function OrderReadyBoardContent() {
   const [isLoading, setIsLoading] = useState<boolean>(true)
   const [isSyncing, setIsSyncing] = useState<boolean>(false)
   const [currentTime, setCurrentTime] = useState<string>('')
+  const [nowMs, setNowMs] = useState<number>(() => Date.now())
   const [businessDate, setBusinessDate] = useState<string>(() => getCaliforniaBusinessDate())
   const [shift, setShift] = useState<'AM' | 'PM'>(() => getCaliforniaShift())
+  const [replayingId, setReplayingId] = useState<string | null>(null)
+  const [orderDetailData, setOrderDetailData] = useState<{
+    loading: boolean
+    checkId: string
+    storeName: string
+    cajeraName: string
+    data?: any
+    error?: string
+  } | null>(null)
   const businessDateRef = useRef<string>(businessDate)
   const fetchOrdersRef = useRef<((syncToast?: boolean) => Promise<void>) | null>(null)
 
@@ -352,6 +418,7 @@ function OrderReadyBoardContent() {
   useEffect(() => {
     const updateTime = () => {
       const now = new Date()
+      setNowMs(now.getTime())
       setCurrentTime(
         now.toLocaleTimeString('en-US', {
           hour: '2-digit',
@@ -1051,32 +1118,101 @@ function OrderReadyBoardContent() {
     }
   }
 
-  // Helper para el badge de Dining Option
+  // Helper para clases visuales de Speed of Service (SOS)
+  const getSosBadgeClasses = (color: 'green' | 'yellow' | 'red') => {
+    if (color === 'green') return 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
+    if (color === 'yellow') return 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+    return 'bg-rose-500/20 text-rose-400 border-rose-500/40 animate-pulse'
+  }
+
+  // Abrir modal de ticket idéntico al módulo de Drive-Thru
+  const handleOrderClick = useCallback((order: OrderItem) => {
+    const storeId = order.store_id || STORE_GUID_BY_CODE[order.store_code] || ''
+    const orderGuid = order.order_guid || ''
+
+    setOrderDetailData({
+      loading: true,
+      checkId: order.order_number,
+      storeName: order.store_name || selectedStore,
+      cajeraName: order.dining_option === 'DRIVE_THRU' ? 'Drive-Thru' : 'Caja'
+    })
+
+    if (!orderGuid || !storeId) {
+      setOrderDetailData(prev =>
+        prev
+          ? {
+              ...prev,
+              loading: false,
+              error:
+                language === 'es'
+                  ? 'No se encontró el identificador GUID de la orden en Toast'
+                  : 'Order GUID identifier not found in Toast POS'
+            }
+          : null
+      )
+      return
+    }
+
+    fetch(`/api/toast-order-detail?guid=${orderGuid}&storeId=${storeId}`)
+      .then(res => res.json())
+      .then(data => {
+        if (data.error) {
+          setOrderDetailData(prev => (prev ? { ...prev, loading: false, error: data.error } : null))
+        } else {
+          setOrderDetailData(prev => (prev ? { ...prev, loading: false, data: data.order } : null))
+        }
+      })
+      .catch(err => {
+        setOrderDetailData(prev => (prev ? { ...prev, loading: false, error: err.message } : null))
+      })
+  }, [language, selectedStore])
+
+  // Re-anunciar orden manualmente a solicitud del usuario desde la columna LISTAS PARA RECOGER
+  const handleReplayVoice = async (order: OrderItem) => {
+    unlockAudio()
+    setReplayingId(order.id)
+    try {
+      if (enableChime) {
+        await playChime()
+      }
+      await speakOrder(order, 1, selectedVoice)
+    } catch (err) {
+      console.warn('Error replaying voice announcement:', err)
+    } finally {
+      setReplayingId(null)
+    }
+  }
+
+  // Helper para el badge de Dining Option con ícono y traducción
   const renderDiningBadge = (dining: string) => {
     if (dining === 'FOR_HERE') {
       return (
-        <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/40">
-          🍽️ {t('orderReadyBoard.for_here')}
+        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/40">
+          <Utensils className="w-3.5 h-3.5" />
+          <span>{t('orderReadyBoard.for_here_badge')}</span>
         </span>
       )
     }
     if (dining === 'DRIVE_THRU') {
       return (
-        <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-orange-500/20 text-orange-300 border border-orange-500/40">
-          🚗 {t('orderReadyBoard.drive_thru')}
+        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wider bg-orange-500/20 text-orange-300 border border-orange-500/40">
+          <Car className="w-3.5 h-3.5" />
+          <span>{t('orderReadyBoard.dt_badge')}</span>
         </span>
       )
     }
     if (dining === 'DELIVERY') {
       return (
-        <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-purple-500/20 text-purple-300 border border-purple-500/40">
-          🛵 {t('orderReadyBoard.delivery')}
+        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wider bg-purple-500/20 text-purple-300 border border-purple-500/40">
+          <span>🛵</span>
+          <span>{t('orderReadyBoard.delivery_badge')}</span>
         </span>
       )
     }
     return (
-      <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-cyan-500/20 text-cyan-300 border border-cyan-500/40">
-        🛍️ {t('orderReadyBoard.to_go')}
+      <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wider bg-cyan-500/20 text-cyan-300 border border-cyan-500/40">
+        <ShoppingBag className="w-3.5 h-3.5" />
+        <span>{t('orderReadyBoard.to_go_badge')}</span>
       </span>
     )
   }
@@ -1619,44 +1755,103 @@ function OrderReadyBoardContent() {
                     </p>
                   </div>
                 ) : (
-                  displayedReadyOrders.map((order) => (
-                    <div
-                      key={order.id}
-                      className="bg-gradient-to-r from-emerald-950/80 via-slate-900 to-emerald-950/80 border-2 border-emerald-500/60 rounded-2xl p-5 flex items-center justify-between shadow-xl shadow-emerald-950/40 transform hover:scale-[1.01] transition-all animate-in fade-in zoom-in-95 duration-300"
-                    >
-                      <div className="flex items-center gap-5">
-                        {/* Número de Orden en Grande */}
-                        <div className="text-4xl lg:text-6xl font-black tracking-tight text-white font-mono drop-shadow-[0_2px_12px_rgba(16,185,129,0.5)]">
-                          #{order.order_number}
+                  displayedReadyOrders.map((order) => {
+                    const prepSeconds = order.ready_at && order.created_at
+                      ? Math.max(0, Math.round((new Date(order.ready_at).getTime() - new Date(order.created_at).getTime()) / 1000))
+                      : 0
+                    const sosColor = getColorForDuration(prepSeconds)
+                    const sosClass = getSosBadgeClasses(sosColor)
+                    const readyTimeStr = formatTimeOnly(order.ready_at)
+
+                    return (
+                      <div
+                        key={order.id}
+                        className="bg-gradient-to-r from-emerald-950/80 via-slate-900 to-emerald-950/80 border-2 border-emerald-500/60 rounded-2xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-xl shadow-emerald-950/40 transform hover:scale-[1.01] transition-all animate-in fade-in zoom-in-95 duration-300"
+                      >
+                        <div className="flex items-center gap-5">
+                          {/* Número de Orden en Grande */}
+                          <button
+                            type="button"
+                            onClick={() => handleOrderClick(order)}
+                            title={t('orderReadyBoard.view_ticket')}
+                            className="text-left text-4xl lg:text-6xl font-black tracking-tight text-white font-mono drop-shadow-[0_2px_12px_rgba(16,185,129,0.5)] hover:text-emerald-300 transition-colors cursor-pointer"
+                          >
+                            #{order.order_number}
+                          </button>
+
+                          {/* Nombre, Canal y Tiempo de Preparación SOS */}
+                          <div>
+                            {order.customer_name && (
+                              <div className="text-base lg:text-lg font-bold text-slate-200 truncate max-w-[200px]">
+                                {order.customer_name}
+                              </div>
+                            )}
+                            <div className="mt-1 flex flex-wrap items-center gap-2">
+                              {renderDiningBadge(order.dining_option)}
+
+                              {prepSeconds > 0 && (
+                                <span
+                                  className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold font-mono border ${sosClass}`}
+                                  title={`${t('orderReadyBoard.prep_duration')}: ${formatDuration(prepSeconds)}`}
+                                >
+                                  <Timer className="w-3 h-3" />
+                                  <span>{formatDuration(prepSeconds)}</span>
+                                </span>
+                              )}
+                            </div>
+                          </div>
                         </div>
 
-                        {/* Nombre y Canal */}
-                        <div>
-                          {order.customer_name && (
-                            <div className="text-base lg:text-lg font-bold text-slate-200 truncate max-w-[200px]">
-                              {order.customer_name}
+                        {/* Info de Cierre / Doble Tap y Acciones */}
+                        <div className="flex sm:flex-col items-center sm:items-end justify-between gap-2 border-t sm:border-t-0 pt-3 sm:pt-0 border-emerald-500/20">
+                          <div className="text-left sm:text-right">
+                            <div className="flex items-center sm:justify-end gap-2">
+                              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black uppercase tracking-wider bg-emerald-500 text-slate-950 shadow-md">
+                                <CheckCircle2 className="w-3.5 h-3.5" />
+                                {t('orderReadyBoard.ready_badge')}
+                              </span>
+                              {readyTimeStr && (
+                                <span className="text-xs font-bold text-emerald-300 bg-emerald-950/60 px-2 py-0.5 rounded-md border border-emerald-500/30">
+                                  {readyTimeStr}
+                                </span>
+                              )}
                             </div>
-                          )}
-                          <div className="mt-1 flex items-center gap-2">
-                            {renderDiningBadge(order.dining_option)}
+                            {order.ready_at && (
+                              <p className="text-[11px] text-emerald-400/80 font-medium mt-1">
+                                {calculateElapsedTime(order.ready_at, language)}
+                              </p>
+                            )}
+                          </div>
+
+                          {/* Botones de Acción: Llamar por voz y Ver Ticket */}
+                          <div className="flex items-center gap-1.5 mt-1">
+                            <button
+                              type="button"
+                              onClick={() => handleReplayVoice(order)}
+                              disabled={replayingId === order.id}
+                              title={t('orderReadyBoard.replay_tooltip').replace('{order}', order.order_number)}
+                              className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm border border-emerald-400/40 transition active:scale-95 disabled:opacity-50 cursor-pointer"
+                            >
+                              <Volume2 className={`w-3.5 h-3.5 ${replayingId === order.id ? 'animate-bounce text-amber-300' : ''}`} />
+                              <span>
+                                {replayingId === order.id ? t('orderReadyBoard.replaying') : t('orderReadyBoard.replay_voice')}
+                              </span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => handleOrderClick(order)}
+                              title={t('orderReadyBoard.view_ticket')}
+                              className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white border border-slate-700 transition active:scale-95 cursor-pointer shadow-sm"
+                            >
+                              <Receipt className="w-3.5 h-3.5 text-amber-400" />
+                              <span className="hidden md:inline">{t('orderReadyBoard.view_ticket')}</span>
+                            </button>
                           </div>
                         </div>
                       </div>
-
-                      {/* Badge de Listo y Tiempo */}
-                      <div className="text-right">
-                        <span className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-black uppercase tracking-wider bg-emerald-500 text-slate-950 shadow-md">
-                          <CheckCircle2 className="w-4 h-4" />
-                          {t('orderReadyBoard.ready_badge')}
-                        </span>
-                        {order.ready_at && (
-                          <p className="text-[11px] text-emerald-400/80 font-medium mt-1.5">
-                            {calculateElapsedTime(order.ready_at, language)}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                  ))
+                    )
+                  })
                 )}
               </div>
             </section>
@@ -1694,39 +1889,80 @@ function OrderReadyBoardContent() {
                     </p>
                   </div>
                 ) : (
-                  displayedInProgressOrders.map((order) => (
-                    <div
-                      key={order.id}
-                      className="bg-slate-900/90 border border-slate-800/80 rounded-2xl p-4 flex items-center justify-between shadow transition hover:border-slate-700"
-                    >
-                      <div className="flex items-center gap-4">
-                        {/* Número de Orden */}
-                        <div className="text-3xl lg:text-5xl font-black tracking-tight text-slate-300 font-mono">
-                          #{order.order_number}
-                        </div>
+                  displayedInProgressOrders.map((order) => {
+                    const elapsedSeconds = order.created_at
+                      ? Math.max(0, Math.round((nowMs - new Date(order.created_at).getTime()) / 1000))
+                      : 0
+                    const sosColor = getColorForDuration(elapsedSeconds)
+                    const sosClass = getSosBadgeClasses(sosColor)
+                    const sentTimeStr = formatTimeOnly(order.created_at)
 
-                        {/* Nombre y Canal */}
-                        <div>
-                          {order.customer_name && (
-                            <div className="text-sm lg:text-base font-bold text-slate-300 truncate max-w-[180px]">
-                              {order.customer_name}
+                    return (
+                      <div
+                        key={order.id}
+                        className="bg-slate-900/90 border border-slate-800/80 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow transition hover:border-slate-700"
+                      >
+                        <div className="flex items-center gap-4">
+                          {/* Número de Orden */}
+                          <button
+                            type="button"
+                            onClick={() => handleOrderClick(order)}
+                            title={t('orderReadyBoard.view_ticket')}
+                            className="text-3xl lg:text-5xl font-black tracking-tight text-slate-300 hover:text-white font-mono transition-colors text-left cursor-pointer"
+                          >
+                            #{order.order_number}
+                          </button>
+
+                          {/* Nombre, Canal y Cronómetro en Vivo */}
+                          <div>
+                            {order.customer_name && (
+                              <div className="text-sm lg:text-base font-bold text-slate-300 truncate max-w-[180px]">
+                                {order.customer_name}
+                              </div>
+                            )}
+                            <div className="mt-1 flex flex-wrap items-center gap-2">
+                              {renderDiningBadge(order.dining_option)}
+
+                              {/* Cronómetro en vivo con colores SOS */}
+                              <span
+                                className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold font-mono border ${sosClass}`}
+                                title={`${t('orderReadyBoard.elapsed')}: ${formatDuration(elapsedSeconds)}`}
+                              >
+                                <Timer className="w-3 h-3" />
+                                <span>{formatDuration(elapsedSeconds)}</span>
+                              </span>
                             </div>
-                          )}
-                          <div className="mt-1 flex items-center gap-2">
-                            {renderDiningBadge(order.dining_option)}
                           </div>
                         </div>
-                      </div>
 
-                      {/* Estado Casi Listo */}
-                      <div className="text-right">
-                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold text-slate-400 bg-slate-800/80 border border-slate-700/60">
-                          <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
-                          {t('orderReadyBoard.almost_ready')}
-                        </span>
+                        {/* Estado y Hora de Envío */}
+                        <div className="flex sm:flex-col items-center sm:items-end justify-between gap-2 border-t sm:border-t-0 pt-2 sm:pt-0 border-slate-800">
+                          <div className="text-left sm:text-right">
+                            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold text-slate-400 bg-slate-800/80 border border-slate-700/60">
+                              <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
+                              {t('orderReadyBoard.almost_ready')}
+                            </span>
+                            {sentTimeStr && (
+                              <p className="text-[11px] text-slate-400 font-medium mt-1">
+                                {t('orderReadyBoard.sent_at_time').replace('{time}', sentTimeStr)}
+                              </p>
+                            )}
+                          </div>
+
+                          {/* Botón Ver Ticket */}
+                          <button
+                            type="button"
+                            onClick={() => handleOrderClick(order)}
+                            title={t('orderReadyBoard.view_ticket')}
+                            className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 transition active:scale-95 cursor-pointer shadow-sm"
+                          >
+                            <Receipt className="w-3.5 h-3.5 text-amber-400" />
+                            <span>{t('orderReadyBoard.view_ticket')}</span>
+                          </button>
+                        </div>
                       </div>
-                    </div>
-                  ))
+                    )
+                  })
                 )}
               </div>
             </section>
@@ -1738,6 +1974,276 @@ function OrderReadyBoardContent() {
       <footer className="bg-slate-950 border-t border-slate-900 px-6 py-3 text-center text-xs text-slate-500 font-medium">
         <span>Tacos Gavilan • {t('orderReadyBoard.subtitle')}</span>
       </footer>
+
+      {/* SECONDARY MODAL: VISOR DE RECIBO / TICKET TOAST POS */}
+      {orderDetailData && (
+        <div
+          className="fixed inset-0 z-[110] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-in zoom-in-95 duration-200"
+          onClick={() => setOrderDetailData(null)}
+        >
+          <div
+            className="bg-white text-slate-900 rounded-2xl shadow-2xl w-full max-w-sm max-h-[90vh] flex flex-col font-mono text-sm border-2 border-slate-200 overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header del Ticket */}
+            <div className="p-4 border-b-2 border-dashed border-slate-300 font-bold text-center bg-slate-50 shrink-0 relative">
+              <button
+                type="button"
+                onClick={() => setOrderDetailData(null)}
+                className="absolute right-3 top-3 p-1 rounded-full text-slate-400 hover:text-slate-700 hover:bg-slate-200 transition cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+              <div className="text-base tracking-wider uppercase">
+                {t('orderReadyBoard.receipt_ticket')} #{orderDetailData.checkId}
+              </div>
+              {orderDetailData.loading && (
+                <p className="text-amber-600 animate-pulse text-xs mt-1">
+                  {t('orderReadyBoard.connecting_virtual_cashier')}
+                </p>
+              )}
+            </div>
+
+            {/* Contenido del Ticket */}
+            <div className="p-4 overflow-y-auto flex-1 bg-[#fafafa]">
+              {orderDetailData.error && (
+                <div className="text-rose-600 text-xs break-all bg-rose-50 p-3 rounded-lg border border-rose-200">
+                  {orderDetailData.error}
+                </div>
+              )}
+
+              {orderDetailData.data && (
+                <div className="space-y-4 text-slate-800">
+                  <div className="text-xs text-center border-b border-slate-200 pb-3">
+                    <div className="font-bold text-[14px] uppercase tracking-wider mb-1">
+                      {t('orderReadyBoard.receipt_store')}{' '}
+                      {orderDetailData.storeName || orderDetailData.data.restaurantService?.name || 'TACOS GAVILAN'}
+                    </div>
+                    <div>{orderDetailData.data.diningOption?.name || 'Para Llevar / Dine In'}</div>
+                    <div>
+                      {orderDetailData.data.openedDate
+                        ? new Date(orderDetailData.data.openedDate).toLocaleString('en-US', {
+                            timeZone: 'America/Los_Angeles'
+                          })
+                        : ''}
+                    </div>
+                    <div className="mt-1">
+                      {t('orderReadyBoard.cashier')}:{' '}
+                      <span className="font-bold">
+                        {orderDetailData.cajeraName || orderDetailData.data.server?.name || t('orderReadyBoard.automatic')}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="border-b-2 border-dashed border-slate-300 pb-3 space-y-1">
+                    <div className="flex justify-between font-bold text-[10px] text-slate-400 mb-2 uppercase tracking-widest">
+                      <span>{t('orderReadyBoard.item')}</span>
+                      <span>{t('orderReadyBoard.total')}</span>
+                    </div>
+                    {orderDetailData.data.checks?.map((check: any, idx: number) => (
+                      <div key={idx} className="space-y-2">
+                        {check.selections
+                          ?.filter((s: any) => !s.deleted && !s.voided)
+                          .map((sel: any, i: number) => {
+                            const qty = sel.quantity || 1
+                            const unitPrice = Number(sel.receiptLinePrice || Number(sel.price) / qty || 0)
+                            const originalLinePrice = unitPrice * qty
+                            const finalLinePrice = Number(sel.price || 0)
+                            const inferredDiscount = originalLinePrice - finalLinePrice
+                            const validDiscounts =
+                              sel.appliedDiscounts?.filter(
+                                (d: any) =>
+                                  !d.deleted &&
+                                  !d.voided &&
+                                  d.state !== 'VOIDED' &&
+                                  d.state !== 'REMOVED' &&
+                                  d.applied !== false &&
+                                  Number(d.discountAmount || 0) <= inferredDiscount + 0.05
+                              ) || []
+
+                            return (
+                              <div key={i} className="flex justify-between items-start text-xs">
+                                <span className="flex-1 pr-2">
+                                  {qty}x {sel.displayName || sel.item?.name}
+                                  {validDiscounts.map((d: any, j: number) => (
+                                    <div
+                                      key={`expl-${j}`}
+                                      className="text-amber-700 text-[10px] ml-4 font-bold border-l-2 border-amber-400 pl-1 mt-0.5"
+                                    >
+                                      ↳ DESC: {d.name} (-$
+                                      {Number(d.discountAmount).toLocaleString('en-US', {
+                                        minimumFractionDigits: 2,
+                                        maximumFractionDigits: 2
+                                      })}
+                                      )
+                                    </div>
+                                  ))}
+                                  {validDiscounts.length === 0 && inferredDiscount > 0.009 && (
+                                    <div className="text-amber-700 text-[10px] ml-4 font-bold border-l-2 border-amber-400 pl-1 mt-0.5">
+                                      ↳ DESC. (-$
+                                      {inferredDiscount.toLocaleString('en-US', {
+                                        minimumFractionDigits: 2,
+                                        maximumFractionDigits: 2
+                                      })}
+                                      )
+                                    </div>
+                                  )}
+                                </span>
+                                <span className="font-bold whitespace-nowrap">
+                                  $
+                                  {originalLinePrice.toLocaleString('en-US', {
+                                    minimumFractionDigits: 2,
+                                    maximumFractionDigits: 2
+                                  })}
+                                </span>
+                              </div>
+                            )
+                          })}
+
+                        {check.appliedDiscounts
+                          ?.filter(
+                            (d: any) =>
+                              !d.deleted &&
+                              !d.voided &&
+                              d.state !== 'VOIDED' &&
+                              d.state !== 'REMOVED' &&
+                              d.applied !== false
+                          )
+                          .map((d: any, j: number) => (
+                            <div
+                              key={`chk-${j}`}
+                              className="flex justify-between items-start text-[11px] text-amber-700 font-bold bg-amber-50 p-1 -mx-1 rounded"
+                            >
+                              <span>REF TICKET: {d.name}</span>
+                              <span>
+                                (-$
+                                {Number(d.discountAmount).toLocaleString('en-US', {
+                                  minimumFractionDigits: 2,
+                                  maximumFractionDigits: 2
+                                })}
+                                )
+                              </span>
+                            </div>
+                          ))}
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="text-right space-y-1 text-xs">
+                    {(() => {
+                      const checks = orderDetailData.data.checks || []
+                      const check = checks[0]
+                      if (!check) return null
+
+                      const subtotalBruto =
+                        check.selections
+                          ?.filter((s: any) => !s.deleted && !s.voided)
+                          .reduce((sum: number, sel: any) => {
+                            const qty = sel.quantity || 1
+                            const unitPrice = Number(sel.receiptLinePrice || Number(sel.price) / qty || 0)
+                            return sum + unitPrice * qty
+                          }, 0) || 0
+
+                      const subtotalNeto = Number(check.amount || 0)
+                      const totalDiscounts = Math.max(0, subtotalBruto - subtotalNeto)
+
+                      return (
+                        <>
+                          <div className="flex justify-between text-slate-500">
+                            <span>{t('orderReadyBoard.gross_subtotal')}</span>{' '}
+                            <span>
+                              $
+                              {subtotalBruto.toLocaleString('en-US', {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2
+                              })}
+                            </span>
+                          </div>
+                          {totalDiscounts > 0.009 && (
+                            <div className="flex justify-between font-bold text-amber-700">
+                              <span>{t('orderReadyBoard.discounts_applied')}</span>{' '}
+                              <span>
+                                -$
+                                {totalDiscounts.toLocaleString('en-US', {
+                                  minimumFractionDigits: 2,
+                                  maximumFractionDigits: 2
+                                })}
+                              </span>
+                            </div>
+                          )}
+                          <div className="flex justify-between text-slate-800 font-semibold mt-1">
+                            <span>{t('orderReadyBoard.net_subtotal')}</span>{' '}
+                            <span>
+                              $
+                              {subtotalNeto.toLocaleString('en-US', {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2
+                              })}
+                            </span>
+                          </div>
+                          <div className="flex justify-between text-slate-500">
+                            <span>{t('orderReadyBoard.tax')}</span>{' '}
+                            <span>
+                              $
+                              {Number(check.taxAmount || 0).toLocaleString('en-US', {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2
+                              })}
+                            </span>
+                          </div>
+                          <div className="flex justify-between font-bold text-lg mt-2 text-slate-900 border-t border-slate-200 pt-2">
+                            <span>{t('orderReadyBoard.total')}:</span>{' '}
+                            <span>
+                              $
+                              {Number(check.totalAmount || 0).toLocaleString('en-US', {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2
+                              })}
+                            </span>
+                          </div>
+                        </>
+                      )
+                    })()}
+                  </div>
+
+                  {orderDetailData.data.checks?.[0]?.payments?.length > 0 && (
+                    <div className="text-xs pt-3 border-t-2 border-dashed border-slate-300">
+                      <div className="font-bold text-slate-500 mb-1">{t('orderReadyBoard.payments_applied')}</div>
+                      {orderDetailData.data.checks?.[0]?.payments.map((p: any, pIdx: number) => (
+                        <div key={pIdx} className="flex justify-between text-slate-600">
+                          <span>
+                            {p.type || 'Pago'}{' '}
+                            {p.originalPaymentStatus && p.originalPaymentStatus !== 'NONE' ? '(Original)' : ''}{' '}
+                            {p.refundStatus && p.refundStatus !== 'NONE' ? '(Reembolsado)' : ''}
+                          </span>
+                          <span>
+                            $
+                            {Number(p.amount).toLocaleString('en-US', {
+                              minimumFractionDigits: 2,
+                              maximumFractionDigits: 2
+                            })}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Footer del Modal */}
+            <div className="p-3 text-center border-t-2 border-dashed border-slate-300 bg-slate-50 shrink-0">
+              <button
+                type="button"
+                onClick={() => setOrderDetailData(null)}
+                className="text-xs uppercase tracking-widest font-bold text-slate-600 hover:text-slate-900 hover:bg-slate-200 px-6 py-2 rounded-xl transition-colors w-full border border-slate-300 cursor-pointer"
+              >
+                {t('orderReadyBoard.close_receipt')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

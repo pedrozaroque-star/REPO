@@ -155,6 +155,11 @@ export async function POST(request: Request) {
       }
     }
 
+    // Si la orden no existía y está en COMPLETED (o es un borrador no enviado a cocina), no se inserta
+    if (status === 'COMPLETED') {
+      return NextResponse.json({ success: true, action: 'ignored', status })
+    }
+
     if (!finalOrderNumber) {
       finalOrderNumber = String(orderGuid?.slice(-4) || '---')
     }
@@ -171,7 +176,8 @@ export async function POST(request: Request) {
       status,
       business_date: currentBusinessDate,
       announced: false,
-      ready_at: status === 'READY' ? (evaluation.readyAt || now) : null
+      ready_at: status === 'READY' ? (evaluation.readyAt || now) : null,
+      created_at: evaluation.sentAt || now
     })
 
     return NextResponse.json({ success: true, action: 'created', orderNumber: finalOrderNumber, status })

@@ -61,44 +61,92 @@ export interface ToastOrderEvaluation {
   status: OrderReadyStatus
   /** Momento real del doble tap (ISO) cuando status = READY */
   readyAt: string | null
+  /** Momento en que la orden se envió a cocina / expediter (ISO) */
+  sentAt: string | null
   activeItems: number
+  sentItems: number
+  readyItems: number
 }
 
 /** Clasifica una orden de Toast leyendo el fulfillmentStatus de cada platillo (selection). */
 export function evaluateToastOrder(order: any): ToastOrderEvaluation {
   if (!order || order.voided || order.deleted) {
-    return { status: 'COMPLETED', readyAt: null, activeItems: 0 }
+    return { status: 'COMPLETED', readyAt: null, sentAt: null, activeItems: 0, sentItems: 0, readyItems: 0 }
   }
 
   let activeItems = 0
+  let sentItems = 0
   let readyItems = 0
   let latestReadyMs = 0
+  let earliestSentMs = Infinity
 
   for (const check of order.checks || []) {
     if (check?.voided || check?.deleted) continue
     for (const sel of check.selections || []) {
-      if (!sel || sel.voided) continue
+      if (!sel || sel.voided || sel.deleted) continue
       const name = String(sel.displayName || '')
       // Separadores de tacos del POS ("------- Taco Separator-------") no son platillos reales
       if (name.includes('---')) continue
       activeItems++
+
+      const itemDateStr = sel.sentDate || sel.createdDate || sel.modifiedDate
+      const itemDateMs = Date.parse(itemDateStr || '')
+      if (Number.isFinite(itemDateMs) && itemDateMs < earliestSentMs) {
+        earliestSentMs = itemDateMs
+      }
+
       const st = String(sel.fulfillmentStatus || '').toUpperCase()
       if (st === 'READY' || st === 'FULFILLED') {
         readyItems++
         const ms = Date.parse(sel.modifiedDate || '')
         if (Number.isFinite(ms) && ms > latestReadyMs) latestReadyMs = ms
+      } else if (st === 'SENT') {
+        sentItems++
       }
     }
   }
 
-  if (activeItems > 0 && readyItems > 0) {
+  const orderOpenedMs = Date.parse(order.openedDate || order.createdDate || '')
+  if (Number.isFinite(orderOpenedMs) && orderOpenedMs < earliestSentMs) {
+    earliestSentMs = orderOpenedMs
+  }
+  const sentAt = Number.isFinite(earliestSentMs) ? new Date(earliestSentMs).toISOString() : null
+
+  // 1. Si no hay platillos activos, la orden no es válida para el tablero
+  if (activeItems === 0) {
+    return { status: 'COMPLETED', readyAt: null, sentAt, activeItems: 0, sentItems: 0, readyItems: 0 }
+  }
+
+  // 2. Si ya tiene platillos marcados con doble tap en expediter -> READY
+  if (readyItems > 0) {
     return {
       status: 'READY',
       readyAt: new Date(latestReadyMs || Date.now()).toISOString(),
-      activeItems
+      sentAt,
+      activeItems,
+      sentItems,
+      readyItems
     }
   }
-  return { status: 'IN_PROGRESS', readyAt: null, activeItems }
+
+  // 3. Si está enviada al expediter pero aún no lista -> IN_PROGRESS
+  // REGLA CRÍTICA: Debe tener platillos en estado 'SENT' en la cocina.
+  // Si la orden está abierta en la caja sin enviar al expediter (draft / no enviada),
+  // ningún platillo tendrá fulfillmentStatus = 'SENT' ni 'READY'.
+  if (sentItems > 0) {
+    return {
+      status: 'IN_PROGRESS',
+      readyAt: null,
+      sentAt,
+      activeItems,
+      sentItems,
+      readyItems
+    }
+  }
+
+  // 4. Si no tiene platillos SENT ni READY, la orden está abierta en la caja sin enviar al expediter
+  // -> No debe aparecer en "EN PREPARACIÓN"
+  return { status: 'COMPLETED', readyAt: null, sentAt, activeItems, sentItems, readyItems }
 }
 
 /** Traduce el nombre de la dining option de Toast al canal del tablero. */
@@ -200,7 +248,6 @@ export async function syncStoreFromToast(storeCode: string, force = false): Prom
 
       for (const ord of orders) {
         const ev = evaluateToastOrder(ord)
-        if (ev.status === 'COMPLETED') continue
         const number = ord.displayNumber || ord.checks?.[0]?.displayNumber
         if (!number || !ord.guid) continue
 
@@ -214,15 +261,22 @@ export async function syncStoreFromToast(storeCode: string, force = false): Prom
               .from('order_ready_announcements')
               .update({ status: 'READY', ready_at: ev.readyAt, announced: isStale })
               .eq('id', row.id)
+          } else if (ev.status === 'COMPLETED' && row.status === 'IN_PROGRESS') {
+            await supabaseAdmin
+              .from('order_ready_announcements')
+              .update({ status: 'COMPLETED' })
+              .eq('id', row.id)
           }
           continue
         }
+
+        if (ev.status === 'COMPLETED') continue
 
         // Orden desconocida (el webhook no llegó): solo la insertamos si sigue activa o se cerró hace poco
         if (ev.status === 'READY' && readyMs !== null && nowMs - readyMs > 10 * 60 * 1000) continue
 
         const diningName = diningMap[ord.diningOption?.guid] || ord.diningOption?.name || ''
-        const orderDate = ord.createdDate || ord.paidDate || new Date()
+        const orderDate = ev.sentAt || ord.createdDate || ord.openedDate || ord.paidDate || new Date().toISOString()
         const bDate = getCaliforniaBusinessDate(orderDate)
 
         await supabaseAdmin.from('order_ready_announcements').insert({
@@ -236,7 +290,8 @@ export async function syncStoreFromToast(storeCode: string, force = false): Prom
           status: ev.status,
           business_date: bDate,
           announced: ev.status === 'READY' ? isStale : false,
-          ready_at: ev.status === 'READY' ? ev.readyAt : null
+          ready_at: ev.status === 'READY' ? ev.readyAt : null,
+          created_at: orderDate
         })
       }
     } catch (err) {
