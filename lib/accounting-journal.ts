@@ -32,6 +32,7 @@ export interface SalesPacketData {
   toast_delivery_sales?: number;
   tips_payable?: number;
   deposits_collected?: number;
+  paid_in?: number;
   uber_delivery_sales: number;
   uber_takeout_sales: number;
   doordash_takeout_sales: number;
@@ -130,6 +131,10 @@ export function generateJournalLines(salesData: SalesPacketData, siteMapping: Si
   }
   if (salesData.deposits_collected) {
     addLine('12049', 'Deposit Sales Collected & Open Orders', 0, salesData.deposits_collected, 'Deposit Sales Collected');
+  }
+  if (salesData.paid_in) {
+    // Pagos de hoy por cheques del dia comercial anterior (Cohesion: Paid In Total (Deposits Received))
+    addLine('51050', 'Paid In Total (Deposits Received)', 0, salesData.paid_in, 'Paid In Totals');
   }
 
   // --- DEBITS ---
@@ -252,7 +257,8 @@ export function calculateExpectedCash(salesData: SalesPacketData): number {
     (salesData.deferred_gift_cards || 0) + 
     (salesData.delivery_service_charges || 0) +
     (salesData.tips_payable || 0) +
-    (salesData.deposits_collected || 0)
+    (salesData.deposits_collected || 0) +
+    (salesData.paid_in || 0)
   );
   const nonCashPayments = round(
     salesData.credit_card_deposit +

@@ -212,6 +212,7 @@ export async function GET(request: Request) {
             toast_delivery_sales: toastData.toastDeliverySales,
             tips_payable: toastData.tipsPayable,
               deposits_collected: toastData.depositsCollected,
+              paid_in: toastData.paidIn,
             uber_delivery_sales: toastData.uberDeliverySales,
             uber_takeout_sales: toastData.uberTakeoutSales,
             doordash_takeout_sales: toastData.doordashTakeoutSales,
