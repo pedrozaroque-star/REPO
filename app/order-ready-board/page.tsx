@@ -26,6 +26,9 @@
  * @notes
  * - Los navegadores web requieren un primer toque o clic para desbloquear el AudioContext y SpeechSynthesis (política de autoplay de navegadores). Se incluye un banner sutil de desbloqueo.
  * - Preferencias de canales (Drive-Thru, To Go, For Here, Delivery) persisten en `localStorage` del dispositivo.
+ * - ACCESO POR TIENDA: el selector solo lista las tiendas permitidas (GET /api/order-ready/my-stores): admin = todas,
+ *   supervisor = su alcance, manager/asistente = solo la suya (selector bloqueado). Una tienda guardada/URL no permitida se
+ *   reemplaza por la primera permitida y el servidor responde 403 si se intenta consultar otra.
  */
 
 'use client'
@@ -34,6 +37,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { Volume2, VolumeX, Settings, Play, RefreshCw, Bell, CheckCircle2, Clock, Sparkles, ChevronDown, ChevronUp, Store, Car } from 'lucide-react'
 import { useLanguage } from '@/lib/i18n'
 import { createClient } from '@supabase/supabase-js'
+import ProtectedRoute from '@/components/ProtectedRoute'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
@@ -80,11 +84,52 @@ const STORES_LIST = [
   { code: 'WCOVINA', name: 'West Covina' }
 ]
 
-export default function OrderReadyBoardPage() {
+function OrderReadyBoardContent() {
   const { t, language } = useLanguage()
 
   // Estado general
   const [selectedStore, setSelectedStore] = useState<string>('LYNWOOD')
+
+  // Control de acceso por tienda: admin = todas, supervisor = su alcance, manager/asistente = solo su tienda
+  const [access, setAccess] = useState<{ all: boolean; codes: string[] } | null>(null)
+  const accessLoaded = access !== null
+  const visibleStores = access
+    ? access.all
+      ? STORES_LIST
+      : STORES_LIST.filter((s) => access.codes.includes(s.code))
+    : []
+  const storeOk = accessLoaded && visibleStores.some((s) => s.code === selectedStore)
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch('/api/order-ready/my-stores', { cache: 'no-store' })
+        const data = await res.json()
+        if (!cancelled) {
+          setAccess(res.ok && data.success ? { all: !!data.all, codes: data.codes || [] } : { all: false, codes: [] })
+        }
+      } catch {
+        if (!cancelled) setAccess({ all: false, codes: [] })
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  // Si la tienda guardada/URL no está permitida, se cambia a la primera tienda permitida
+  useEffect(() => {
+    if (!access) return
+    if (visibleStores.length === 0) {
+      setIsLoading(false)
+      return
+    }
+    if (!visibleStores.some((s) => s.code === selectedStore)) {
+      setSelectedStore(visibleStores[0].code)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [access, selectedStore])
   const [readyOrders, setReadyOrders] = useState<OrderItem[]>([])
   const [inProgressOrders, setInProgressOrders] = useState<OrderItem[]>([])
   const [isLoading, setIsLoading] = useState<boolean>(true)
@@ -706,6 +751,8 @@ export default function OrderReadyBoardPage() {
 
   // Cargar órdenes desde el backend
   const fetchOrders = useCallback(async (syncToast = false) => {
+    // No consultar hasta confirmar que el usuario tiene permiso para esta tienda
+    if (!storeOk) return
     // Evita peticiones encimadas si la red/PC va lenta (una a la vez)
     if (fetchingRef.current && !syncToast) return
     fetchingRef.current = true
@@ -741,7 +788,7 @@ export default function OrderReadyBoardPage() {
       setIsLoading(false)
       setIsSyncing(false)
     }
-  }, [selectedStore, enqueueAnnouncement])
+  }, [selectedStore, storeOk, enqueueAnnouncement])
 
   // Polling cada 4 segundos + Carga inicial
   useEffect(() => {
@@ -908,18 +955,23 @@ export default function OrderReadyBoardPage() {
             </div>
             <div className="mt-1 flex items-center gap-1.5">
               <Store className="w-3.5 h-3.5 text-emerald-400" />
-              <select
-                value={selectedStore}
-                onChange={(e) => handleStoreChange(e.target.value)}
-                onClick={(e) => e.stopPropagation()}
-                className="bg-slate-800/90 hover:bg-slate-800 text-slate-200 hover:text-white font-bold text-xs rounded-lg px-2.5 py-1 border border-slate-700 focus:outline-none focus:border-emerald-500 cursor-pointer shadow-sm transition"
-              >
-                {STORES_LIST.map((s) => (
-                  <option key={s.code} value={s.code} className="bg-slate-900 text-white">
-                    {s.name}
-                  </option>
-                ))}
-              </select>
+              {accessLoaded && visibleStores.length === 0 ? (
+                <span className="text-xs font-bold text-amber-400">{t('orderReadyBoard.no_store_assigned')}</span>
+              ) : (
+                <select
+                  value={selectedStore}
+                  onChange={(e) => handleStoreChange(e.target.value)}
+                  onClick={(e) => e.stopPropagation()}
+                  disabled={visibleStores.length <= 1}
+                  className="bg-slate-800/90 hover:bg-slate-800 text-slate-200 hover:text-white font-bold text-xs rounded-lg px-2.5 py-1 border border-slate-700 focus:outline-none focus:border-emerald-500 cursor-pointer shadow-sm transition disabled:opacity-80 disabled:cursor-default"
+                >
+                  {visibleStores.map((s) => (
+                    <option key={s.code} value={s.code} className="bg-slate-900 text-white">
+                      {s.name}
+                    </option>
+                  ))}
+                </select>
+              )}
             </div>
           </div>
         </div>
@@ -1012,9 +1064,10 @@ export default function OrderReadyBoardPage() {
               <select
                 value={selectedStore}
                 onChange={(e) => handleStoreChange(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-800 text-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-emerald-500 font-medium"
+                disabled={visibleStores.length <= 1}
+                className="w-full bg-slate-950 border border-slate-800 text-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-emerald-500 font-medium disabled:opacity-70 disabled:cursor-not-allowed"
               >
-                {STORES_LIST.map((s) => (
+                {visibleStores.map((s) => (
                   <option key={s.code} value={s.code}>
                     {s.name}
                   </option>
@@ -1394,4 +1447,12 @@ function calculateElapsedTime(timestamp: string, language: string): string {
   } catch (e) {
     return ''
   }
+}
+
+export default function OrderReadyBoardPage() {
+  return (
+    <ProtectedRoute allowedRoles={['admin', 'supervisor', 'manager', 'asistente']}>
+      <OrderReadyBoardContent />
+    </ProtectedRoute>
+  )
 }

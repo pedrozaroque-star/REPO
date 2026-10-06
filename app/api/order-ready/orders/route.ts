@@ -17,11 +17,14 @@
  * - FIX (2026-10-06): el doble tap del expediter NO genera webhook en Toast. Cada GET dispara `syncStoreFromToast()`
  *   (lib/order-ready-sync.ts, throttle 5 s por tienda) que lee `selections[].fulfillmentStatus` y marca READY con la hora real del bump.
  *   Se eliminó el sync anterior que usaba businessDate UTC y un único mapeo por número de orden.
+ * - ACCESO POR TIENDA (2026-10-06): GET/POST/PATCH exigen sesión y validan la tienda con lib/order-ready-access.ts
+ *   (admin = todas, supervisor = su alcance, manager/asistente = solo su tienda). 401 sin sesión, 403 fuera de alcance.
  */
 
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { syncStoreFromToast } from '@/lib/order-ready-sync'
+import { getOrderReadyAccess, canAccessStore } from '@/lib/order-ready-access'
 
 export const dynamic = 'force-dynamic'
 
@@ -40,8 +43,14 @@ interface OrderPayload {
 // GET: Consultar órdenes activas (en preparación y listas)
 export async function GET(request: Request) {
   try {
+    const access = await getOrderReadyAccess(request)
+    if (!access) return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
+
     const { searchParams } = new URL(request.url)
     const storeCode = (searchParams.get('storeCode') || searchParams.get('store') || 'LYNWOOD').toUpperCase()
+    if (!canAccessStore(access, storeCode)) {
+      return NextResponse.json({ error: 'Sin acceso a esta tienda' }, { status: 403 })
+    }
     const syncToast = searchParams.get('syncToast') === 'true'
     const minutes = parseInt(searchParams.get('minutes') || '45', 10)
 
@@ -90,6 +99,9 @@ export async function GET(request: Request) {
 // POST: Crear o actualizar una orden (ej. desde el KDS bridge, simulación o webhook)
 export async function POST(request: Request) {
   try {
+    const access = await getOrderReadyAccess(request)
+    if (!access) return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
+
     const body: OrderPayload = await request.json()
 
     if (!body.orderNumber) {
@@ -97,6 +109,9 @@ export async function POST(request: Request) {
     }
 
     const storeCode = (body.storeCode || 'LYNWOOD').toUpperCase()
+    if (!canAccessStore(access, storeCode)) {
+      return NextResponse.json({ error: 'Sin acceso a esta tienda' }, { status: 403 })
+    }
     const status = body.status || 'READY'
     const diningOption = (body.diningOption || 'TOGO').toUpperCase()
 
@@ -177,10 +192,23 @@ export async function POST(request: Request) {
 // PATCH: Marcar orden como anunciada o completada
 export async function PATCH(request: Request) {
   try {
+    const access = await getOrderReadyAccess(request)
+    if (!access) return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
+
     const { id, announced, status } = await request.json()
 
     if (!id) {
       return NextResponse.json({ error: 'id es obligatorio' }, { status: 400 })
+    }
+
+    // La orden debe pertenecer a una tienda permitida para el usuario
+    const { data: target } = await supabaseAdmin
+      .from('order_ready_announcements')
+      .select('store_code')
+      .eq('id', id)
+      .maybeSingle()
+    if (!target || !canAccessStore(access, target.store_code)) {
+      return NextResponse.json({ error: 'Sin acceso a esta tienda' }, { status: 403 })
     }
 
     const updatePayload: any = {}
