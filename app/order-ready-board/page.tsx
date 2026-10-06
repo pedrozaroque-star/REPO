@@ -38,8 +38,10 @@
  * - Supabase Realtime channel (`order_ready_announcements`) + Polling cada 4s (cada GET sincroniza con Toast, porque Toast no manda webhook en el doble tap) -> Actualiza estado React -> Chime + clips de voz natural (/api/order-ready/tts) -> PATCH /api/order-ready/orders (announced: true).
  * 
  * @notes
+ * - Soporta integración en el panel administrativo del sistema (sidebar visible) y botón nativo para Modo TV / Pantalla Completa.
+ * - Incluye selector de idioma en cabecera (ES / EN) para alternar la pantalla en inglés o español al instante.
  * - Los navegadores web requieren un primer toque o clic para desbloquear el AudioContext y SpeechSynthesis (política de autoplay de navegadores). Se incluye un banner sutil de desbloqueo.
- * - Preferencias de canales y voz persisten en `localStorage` del dispositivo.
+ * - Preferencias de canales, voz y visibilidad de controles persisten en `localStorage` del dispositivo.
  * - ACCESO POR TIENDA: el selector solo lista las tiendas permitidas (GET /api/order-ready/my-stores): admin = todas,
  *   supervisor = su alcance, manager/asistente = solo la suya (selector bloqueado). Una tienda guardada/URL no permitida se
  *   reemplaza por la primera permitida y el servidor responde 403 si se intenta consultar otra.
@@ -52,6 +54,7 @@ import {
   Volume2,
   VolumeX,
   Settings,
+  Sliders,
   Play,
   RefreshCw,
   Bell,
@@ -72,6 +75,9 @@ import {
   Timer,
   Utensils,
   ShoppingBag,
+  Globe,
+  Maximize,
+  Minimize,
   X
 } from 'lucide-react'
 import { useLanguage } from '@/lib/i18n'
@@ -158,7 +164,7 @@ const STORES_LIST = [
 ]
 
 function OrderReadyBoardContent() {
-  const { t, language } = useLanguage()
+  const { t, language, setLanguage } = useLanguage()
 
   // Estado general
   const [selectedStore, setSelectedStore] = useState<string>('LYNWOOD')
@@ -378,8 +384,69 @@ function OrderReadyBoardContent() {
     updateShowDriveThru(nextVal)
   }
 
-  // Paneles de control y testing
-  const [showControls, setShowControls] = useState<boolean>(false)
+  // Fullscreen container and state (Modo TV)
+  const containerRef = useRef<HTMLDivElement | null>(null)
+  const [isFullscreen, setIsFullscreen] = useState<boolean>(false)
+
+  // Sincronizar estado con eventos nativos del navegador (F11, ESC)
+  useEffect(() => {
+    const handleFsChange = () => {
+      const doc = document as any
+      setIsFullscreen(!!(doc.fullscreenElement || doc.webkitFullscreenElement))
+    }
+    document.addEventListener('fullscreenchange', handleFsChange)
+    document.addEventListener('webkitfullscreenchange', handleFsChange)
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFsChange)
+      document.removeEventListener('webkitfullscreenchange', handleFsChange)
+    }
+  }, [])
+
+  const toggleFullscreen = () => {
+    const doc = document as any
+    const elem = containerRef.current as any
+    if (!isFullscreen) {
+      if (elem?.requestFullscreen) {
+        elem.requestFullscreen().catch(() => setIsFullscreen(true))
+      } else if (elem?.webkitRequestFullscreen) {
+        elem.webkitRequestFullscreen()
+        setTimeout(() => { if (!doc.webkitFullscreenElement) setIsFullscreen(true) }, 200)
+      } else {
+        setIsFullscreen(true)
+      }
+      setShowControls(false)
+    } else {
+      if (doc.exitFullscreen && doc.fullscreenElement) {
+        doc.exitFullscreen().catch(() => setIsFullscreen(false))
+      } else if (doc.webkitExitFullscreen && doc.webkitFullscreenElement) {
+        doc.webkitExitFullscreen()
+      } else {
+        setIsFullscreen(false)
+      }
+    }
+  }
+
+  // Paneles de control y testing (persistente en localStorage, visible por defecto en dashboard)
+  const [showControls, setShowControls] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('teg_order_ready_show_controls')
+      if (saved !== null) return saved === 'true'
+      return window.innerWidth >= 1024
+    }
+    return true
+  })
+
+  const toggleControls = (e?: React.MouseEvent) => {
+    if (e) e.stopPropagation()
+    setShowControls((prev) => {
+      const next = !prev
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('teg_order_ready_show_controls', String(next))
+      }
+      return next
+    })
+  }
+
   const [activeSpeech, setActiveSpeech] = useState<string | null>(null)
 
   // Referencias para Audio Engine
@@ -1219,8 +1286,11 @@ function OrderReadyBoardContent() {
 
   return (
     <div
+      ref={containerRef}
       onClick={unlockAudio}
-      className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans select-none overflow-x-hidden relative"
+      className={`min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans select-none overflow-x-hidden relative transition-all ${
+        isFullscreen ? 'fixed inset-0 z-50 w-screen h-screen rounded-none border-0' : 'rounded-2xl border border-slate-800/80 shadow-2xl'
+      }`}
     >
       {/* Banner de Activación de Audio (si aún no se ha interactuado) */}
       {!audioUnlocked && (
@@ -1234,22 +1304,22 @@ function OrderReadyBoardContent() {
       )}
 
       {/* Top Header / Barra Superior */}
-      <header className="bg-slate-900/90 backdrop-blur border-b border-slate-800 px-6 py-4 flex items-center justify-between shadow-md">
+      <header className="bg-slate-900/90 backdrop-blur border-b border-slate-800 px-4 sm:px-6 py-3.5 flex flex-wrap items-center justify-between gap-3 shadow-md">
         {/* Logo e Identidad */}
-        <div className="flex items-center gap-4">
-          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-red-600 to-amber-600 flex items-center justify-center font-black text-2xl text-white shadow-lg border border-amber-500/30 tracking-tight">
+        <div className="flex items-center gap-3.5">
+          <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-red-600 to-amber-600 flex items-center justify-center font-black text-xl text-white shadow-lg border border-amber-500/30 tracking-tight shrink-0">
             TG
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="text-2xl font-black tracking-tight text-white uppercase">
+              <h1 className="text-xl sm:text-2xl font-black tracking-tight text-white uppercase">
                 Tacos Gavilan
               </h1>
-              <span className="text-xs font-bold px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 uppercase tracking-widest">
+              <span className="text-[11px] font-bold px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 uppercase tracking-widest hidden sm:inline">
                 {t('orderReadyBoard.title')}
               </span>
             </div>
-            <div className="mt-1 flex flex-wrap items-center gap-2">
+            <div className="mt-0.5 flex flex-wrap items-center gap-2">
               <div className="flex items-center gap-1.5">
                 <Store className="w-3.5 h-3.5 text-emerald-400" />
                 {accessLoaded && visibleStores.length === 0 ? (
@@ -1308,10 +1378,10 @@ function OrderReadyBoardContent() {
           </div>
         </div>
 
-        {/* Reloj y Turno en vivo */}
-        <div className="flex items-center gap-4">
+        {/* Reloj, Idioma, Pantalla Completa y Controles */}
+        <div className="flex items-center gap-2 sm:gap-3">
           {/* Reloj y Turno de California */}
-          <div className="hidden sm:flex items-center gap-2.5 bg-slate-950/80 px-3.5 py-1.5 rounded-xl border border-slate-800 text-slate-200">
+          <div className="hidden lg:flex items-center gap-2.5 bg-slate-950/80 px-3 py-1.5 rounded-xl border border-slate-800 text-slate-200">
             <div className="flex items-center gap-1.5 font-mono font-bold text-sm tracking-wider">
               <Clock className="w-3.5 h-3.5 text-emerald-400" />
               <span>{currentTime || '--:--:--'}</span>
@@ -1339,13 +1409,44 @@ function OrderReadyBoardContent() {
             </div>
           </div>
 
+          {/* Botón Selector de Idioma de Pantalla (ES / EN) */}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation()
+              setLanguage(language === 'es' ? 'en' : 'es')
+            }}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800/90 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-black transition shadow-sm"
+            title={language === 'es' ? t('orderReadyBoard.switch_to_english') : t('orderReadyBoard.switch_to_spanish')}
+          >
+            <Globe className="w-4 h-4 text-emerald-400" />
+            <span className={language === 'en' ? 'text-emerald-400 font-black' : 'text-slate-400 font-bold'}>EN</span>
+            <span className="text-slate-600 font-normal">/</span>
+            <span className={language === 'es' ? 'text-emerald-400 font-black' : 'text-slate-400 font-bold'}>ES</span>
+          </button>
+
+          {/* Modo TV / Pantalla Completa (Fullscreen) */}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation()
+              toggleFullscreen()
+            }}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800/90 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-bold transition shadow-sm"
+            title={isFullscreen ? t('orderReadyBoard.exit_tv_mode_tooltip') : t('orderReadyBoard.tv_mode_tooltip')}
+          >
+            {isFullscreen ? <Minimize className="w-4 h-4 text-amber-400" /> : <Maximize className="w-4 h-4 text-slate-300" />}
+            <span className="hidden xl:inline">{isFullscreen ? t('orderReadyBoard.exit_tv_mode') : t('orderReadyBoard.tv_mode')}</span>
+          </button>
+
           {/* Estado de Audio */}
           <button
+            type="button"
             onClick={(e) => {
               e.stopPropagation()
               setIsMuted(!isMuted)
             }}
-            className={`flex items-center gap-2 px-3.5 py-2 rounded-xl border text-xs font-bold uppercase tracking-wider transition-all ${
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-bold uppercase tracking-wider transition-all ${
               isMuted
                 ? 'bg-rose-500/10 text-rose-400 border-rose-500/30 hover:bg-rose-500/20'
                 : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20'
@@ -1359,19 +1460,20 @@ function OrderReadyBoardContent() {
 
           {/* Quick Toggle Drive-Thru */}
           <button
+            type="button"
             onClick={(e) => {
               e.stopPropagation()
               toggleDriveThruMaster()
             }}
             title={announceDriveThru || showDriveThru ? t('orderReadyBoard.drive_thru_enabled') : t('orderReadyBoard.drive_thru_disabled')}
-            className={`flex items-center gap-2 px-3.5 py-2 rounded-xl border text-xs font-bold uppercase tracking-wider transition-all ${
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-bold uppercase tracking-wider transition-all ${
               announceDriveThru || showDriveThru
                 ? 'bg-orange-500/10 text-orange-400 border-orange-500/30 hover:bg-orange-500/20'
                 : 'bg-slate-800/80 text-slate-500 border-slate-700 hover:bg-slate-800'
             }`}
           >
             <Car className="w-4 h-4" />
-            <span className="hidden md:inline">Drive-Thru</span>
+            <span className="hidden md:inline">DT</span>
             <span className={`text-[10px] font-black px-1.5 py-0.5 rounded ${
               announceDriveThru || showDriveThru
                 ? 'bg-orange-500 text-slate-950'
@@ -1381,15 +1483,21 @@ function OrderReadyBoardContent() {
             </span>
           </button>
 
-          {/* Botón de Ajustes / Drawer */}
+          {/* Botón de Ajustes / Drawer de Controles */}
           <button
+            type="button"
             onClick={(e) => {
               e.stopPropagation()
-              setShowControls(!showControls)
+              toggleControls(e)
             }}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold transition"
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold transition ${
+              showControls
+                ? 'bg-emerald-600 text-white border-emerald-500 shadow-md'
+                : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700'
+            }`}
+            title={showControls ? t('orderReadyBoard.hide_controls') : t('orderReadyBoard.show_controls')}
           >
-            <Settings className="w-4 h-4" />
+            <Sliders className="w-4 h-4" />
             <span className="hidden lg:inline">{showControls ? t('orderReadyBoard.hide_controls') : t('orderReadyBoard.show_controls')}</span>
             {showControls ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
           </button>
@@ -1532,7 +1640,7 @@ function OrderReadyBoardContent() {
                         : 'bg-slate-950 text-slate-400 border-slate-800 hover:bg-slate-800'
                     }`}
                   >
-                    {langOption === 'es' ? 'ES' : langOption === 'en' ? 'EN' : 'Bilingüe'}
+                    {langOption === 'es' ? 'ES' : langOption === 'en' ? 'EN' : (language === 'es' ? 'Bilingüe' : 'Bilingual')}
                   </button>
                 ))}
               </div>
@@ -1659,7 +1767,7 @@ function OrderReadyBoardContent() {
             {/* Acciones Rápidas de Prueba */}
             <div className="flex flex-col justify-between">
               <label className="text-xs font-bold uppercase tracking-wider text-slate-400 block mb-2">
-                Acciones
+                {language === 'es' ? 'Acciones' : 'Actions'}
               </label>
               <div className="space-y-2">
                 <button

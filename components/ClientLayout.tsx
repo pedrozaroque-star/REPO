@@ -45,15 +45,26 @@ export default function ClientLayout({
         '/feedback-publico', 
         '/planificador/imprimir', 
         '/tv', 
-        '/order-ready-board',
         '/procedimientos/imprimir',
         '/inventory/orders/print-sheet',
         '/admin/compras/viele/print-sheet'
     ]
-    const isPublicPage = publicRoutes.includes(pathname)
+
+    // Dedicated kiosk / TV mode for order-ready-board via query param (?tv=1 or ?kiosk=1)
+    const [isDedicatedKiosk, setIsDedicatedKiosk] = useState(false)
+    useEffect(() => {
+        if (typeof window !== 'undefined' && pathname === '/order-ready-board') {
+            const params = new URLSearchParams(window.location.search)
+            setIsDedicatedKiosk(params.get('tv') === '1' || params.get('kiosk') === '1')
+        } else {
+            setIsDedicatedKiosk(false)
+        }
+    }, [pathname])
+
+    const isPublicPage = publicRoutes.includes(pathname) || isDedicatedKiosk
 
     // Full-width routes (large tables, schedules, etc.)
-    const fullWidthRoutes = ['/horarios', '/admin/plantillas']
+    const fullWidthRoutes = ['/horarios', '/admin/plantillas', '/order-ready-board']
     const isFullWidth = fullWidthRoutes.some(route => pathname.startsWith(route))
 
     return (

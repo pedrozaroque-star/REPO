@@ -4033,7 +4033,14 @@ export const dictionaries: Record<Language, Dictionary> = {
             speed_warning: "Atención",
             speed_critical: "Lento",
             elapsed: "Transcurrido",
-            prep_duration: "Tiempo de preparación"
+            prep_duration: "Tiempo de preparación",
+            tv_mode: "Modo TV",
+            exit_tv_mode: "Salir TV",
+            tv_mode_tooltip: "Pantalla completa / Modo TV para clientes",
+            exit_tv_mode_tooltip: "Salir de pantalla completa",
+            switch_to_english: "Cambiar idioma de la pantalla a Inglés",
+            switch_to_spanish: "Cambiar idioma de la pantalla a Español",
+            screen_language: "Idioma de Pantalla"
         }
     },
     en: {
@@ -8047,7 +8054,14 @@ export const dictionaries: Record<Language, Dictionary> = {
             speed_warning: "Warning",
             speed_critical: "Slow",
             elapsed: "Elapsed",
-            prep_duration: "Prep time"
+            prep_duration: "Prep time",
+            tv_mode: "TV Mode",
+            exit_tv_mode: "Exit TV",
+            tv_mode_tooltip: "Fullscreen / TV Display Mode for customers",
+            exit_tv_mode_tooltip: "Exit fullscreen",
+            switch_to_english: "Switch screen language to English",
+            switch_to_spanish: "Switch screen language to Spanish",
+            screen_language: "Screen Language"
         }
     }
 };
