@@ -95,7 +95,7 @@ import {
 import { useLanguage } from '@/lib/i18n'
 import { createClient } from '@supabase/supabase-js'
 import ProtectedRoute from '@/components/ProtectedRoute'
-import { AVAILABLE_VOICES, VoiceId, isValidVoice } from '@/lib/order-ready-tts'
+import { AVAILABLE_VOICES, VoiceId, isValidVoice, isForbiddenRaulVoice } from '@/lib/order-ready-tts'
 import { getCaliforniaBusinessDate, getCaliforniaShift } from '@/lib/business-date'
 import { STORE_GUID_BY_CODE } from '@/lib/toast-stores'
 
@@ -609,7 +609,9 @@ function OrderReadyBoardContent() {
       const loadVoices = () => {
         const v = window.speechSynthesis.getVoices()
         if (v && v.length > 0) {
-          setAvailableVoices(v)
+          // FILTRO RAÍZ ABSOLUTO: Descartar inmediatamente a Microsoft Raúl y todas sus variantes
+          const safeVoices = v.filter((voice) => !isForbiddenRaulVoice(voice.name))
+          setAvailableVoices(safeVoices)
         }
       }
       loadVoices()
@@ -731,38 +733,42 @@ function OrderReadyBoardContent() {
   }, [unlockAudio, voiceVolume])
 
   // Helper para seleccionar la mejor voz del navegador según el género configurado (respaldo)
-  // REGLA CRÍTICA TACOS GAVILAN: MICROSOFT RAUL (o cualquier voz con 'raul') ESTÁ 100% PROHIBIDO.
+  // REGLA CRÍTICA TACOS GAVILAN: MICROSOFT RAÚL (o cualquier voz con 'raul'/'raúl') ESTÁ 100% PROHIBIDO.
   const getBestBrowserVoice = useCallback(
     (lang: 'en' | 'es', voices: SpeechSynthesisVoice[], voiceId: VoiceId = selectedVoice): SpeechSynthesisVoice | null => {
       const langPrefix = lang === 'es' ? 'es' : 'en'
-      // 0. Filtro absoluto: descartar cualquier voz que contenga 'raul'
-      const sanitizedVoices = voices.filter(v => !/raul/i.test(v.name))
+      // 0. Filtro absoluto: descartar cualquier voz que contenga 'raul' o 'raúl' normalizado
+      const sanitizedVoices = voices.filter(v => !isForbiddenRaulVoice(v.name))
       const matchingVoices = sanitizedVoices.filter(v => v.lang.toLowerCase().replace('_', '-').startsWith(langPrefix))
       const isMaleTarget = voiceId === 'Puck' || voiceId === 'Orus'
 
-      if (isMaleTarget) {
-        const maleKeywords = ['male', 'hombre', 'david', 'jorge', 'diego', 'pablo', 'guy', 'mark', 'george', 'miguel']
-        const namedMale = matchingVoices.find(v => {
-          const lower = v.name.toLowerCase()
-          return maleKeywords.some(kw => lower.includes(kw))
-        })
-        if (namedMale) return namedMale
-        return matchingVoices[0] || null
-      }
-
-      // 1. Prioridad absoluta: Voces Neuronales/Naturales Femeninas en el idioma solicitado
-      const premiumKeywords = ['natural', 'neural', 'online', 'dalia', 'jenny', 'samantha', 'victoria', 'paulina', 'sabina', 'monica', 'google']
       const isMaleVoice = (name: string) => {
-        const lower = name.toLowerCase()
+        if (isForbiddenRaulVoice(name)) return true
+        const lower = name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
         return lower.includes('male') || lower.includes('david') || lower.includes('george') || 
                lower.includes('jorge') || lower.includes('diego') || lower.includes('pablo') ||
                lower.includes('guy') || lower.includes('mark') || lower.includes('raul') ||
                lower.includes('hombre') || lower.includes('miguel')
       }
 
+      if (isMaleTarget) {
+        const maleKeywords = ['male', 'hombre', 'david', 'jorge', 'diego', 'pablo', 'guy', 'mark', 'george', 'miguel']
+        const namedMale = matchingVoices.find(v => {
+          if (isForbiddenRaulVoice(v.name)) return false
+          const lower = v.name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+          return maleKeywords.some(kw => lower.includes(kw))
+        })
+        if (namedMale) return namedMale
+        const nonRaulMatch = matchingVoices.find(v => !isForbiddenRaulVoice(v.name))
+        if (nonRaulMatch) return nonRaulMatch
+        return sanitizedVoices.find(v => !isForbiddenRaulVoice(v.name)) || null
+      }
+
+      // 1. Prioridad absoluta: Voces Neuronales/Naturales Femeninas en el idioma solicitado
+      const premiumKeywords = ['natural', 'neural', 'online', 'dalia', 'jenny', 'samantha', 'victoria', 'paulina', 'sabina', 'monica', 'google']
       const premiumFemale = matchingVoices.find(v => {
-        if (isMaleVoice(v.name)) return false
-        const lower = v.name.toLowerCase()
+        if (isMaleVoice(v.name) || isForbiddenRaulVoice(v.name)) return false
+        const lower = v.name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
         return premiumKeywords.some(kw => lower.includes(kw))
       })
       if (premiumFemale) return premiumFemale
@@ -775,21 +781,21 @@ function OrderReadyBoardContent() {
         'maria', 'luciana', 'mia', 'ava', 'allison', 'angie', 'serena', 'susan'
       ]
       const namedFemale = matchingVoices.find(v => {
-        if (isMaleVoice(v.name)) return false
-        const lower = v.name.toLowerCase()
+        if (isMaleVoice(v.name) || isForbiddenRaulVoice(v.name)) return false
+        const lower = v.name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
         return femaleKeywords.some(kw => lower.includes(kw))
       })
       if (namedFemale) return namedFemale
 
-      // 3. Cualquier voz en el idioma solicitado que no sea masculina
-      const nonMale = matchingVoices.find(v => !isMaleVoice(v.name))
+      // 3. Cualquier voz en el idioma solicitado que no sea masculina ni Raúl
+      const nonMale = matchingVoices.find(v => !isMaleVoice(v.name) && !isForbiddenRaulVoice(v.name))
       if (nonMale) return nonMale
 
       // 4. Si el objetivo es femenino y NO hay voz femenina en el idioma solicitado (común en Windows stock para español),
       // buscar cualquier voz femenina disponible en el navegador (ej. Microsoft Zira Desktop, Google US English).
       const anyFemale = sanitizedVoices.find(v => {
-        if (isMaleVoice(v.name)) return false
-        const lower = v.name.toLowerCase()
+        if (isMaleVoice(v.name) || isForbiddenRaulVoice(v.name)) return false
+        const lower = v.name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
         return femaleKeywords.some(kw => lower.includes(kw)) || premiumKeywords.some(kw => lower.includes(kw))
       })
       if (anyFemale) return anyFemale
@@ -800,7 +806,7 @@ function OrderReadyBoardContent() {
   )
 
   // RESPALDO: voz del navegador (speechSynthesis). Solo se usa si el TTS neuronal no está disponible.
-  // PROHIBICIÓN ESTRICTA: RAUL NUNCA DEBE HABLAR BAJO NINGUNA CIRCUNSTANCIA.
+  // PROHIBICIÓN ESTRICTA: RAÚL NUNCA DEBE HABLAR BAJO NINGUNA CIRCUNSTANCIA.
   const speakOrderBrowser = useCallback(
     (order: OrderItem, voiceId: VoiceId = selectedVoice): Promise<void> => {
       return new Promise((resolve) => {
@@ -811,35 +817,39 @@ function OrderReadyBoardContent() {
 
         const num = order.order_number
         const allBrowserVoices = availableVoices.length > 0 ? availableVoices : window.speechSynthesis.getVoices()
-        // Filtrar permanentemente cualquier rastro de Raul
-        const voices = allBrowserVoices.filter(v => !/raul/i.test(v.name))
+        // Filtrar permanentemente cualquier rastro de Raúl
+        const voices = allBrowserVoices.filter(v => !isForbiddenRaulVoice(v.name))
         const enVoice = getBestBrowserVoice('en', voices, voiceId)
         const esVoice = getBestBrowserVoice('es', voices, voiceId)
 
         const isFemale = voiceId === 'Kore' || voiceId === 'Aoede' || voiceId === 'Zephyr'
+        const safeEmergencyFemale = voices.find(v => {
+          if (isForbiddenRaulVoice(v.name)) return false
+          const lower = v.name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+          return !/raul|david|male|hombre|jorge|diego|pablo|miguel|guy|mark|george/i.test(lower)
+        }) || null
 
-        // Helper seguro de emisión: Si la voz es Raul o si no hay voz femenina para una meta femenina, NUNCA EMITIR
+        // Helper seguro de emisión: Si la voz es Raúl o no tiene voz asignada explícitamente, NUNCA EMITIR
         const safeSpeak = (utt: SpeechSynthesisUtterance, onEndCallback: () => void) => {
-          const vName = (utt.voice?.name || '').toLowerCase()
-          // 1. Bloqueo incondicional de Raul
-          if (vName.includes('raul')) {
-            console.warn('[order-ready] Bloqueo absoluto anti-Raul: voz descartada.')
+          // 1. REGLA CRÍTICA: Bloquear si no hay voz explícita (para evitar que Windows SAPI use la voz default Raúl)
+          if (!utt.voice) {
+            console.warn('[order-ready] Bloqueo de seguridad: intento de emitir sin voz asignada explícitamente (bloqueado para evitar Raúl).')
             onEndCallback()
             return
           }
-          // 2. Si la voz seleccionada es femenina (Kore, Aoede, Zephyr):
+
+          // 2. Bloqueo 100% incondicional de Raúl
+          if (isForbiddenRaulVoice(utt.voice.name)) {
+            console.warn('[order-ready] Bloqueo absoluto anti-Raúl: voz descartada:', utt.voice.name)
+            onEndCallback()
+            return
+          }
+
+          // 3. Si la voz seleccionada es femenina (Kore, Aoede, Zephyr):
           if (isFemale) {
-            // Si no tiene voz asignada, asignar forzosamente la mejor voz femenina encontrada
-            if (!utt.voice) {
-              const fallbackFemale = voices.find(v => !/raul|david|male|hombre|jorge|diego|pablo|miguel|guy|mark|george/i.test(v.name))
-              if (fallbackFemale) {
-                utt.voice = fallbackFemale
-                utt.lang = fallbackFemale.lang
-              }
-            }
-            // Si aún no hay voz, o si la voz asignada es masculina: ¡PROHIBIDO HABLAR!
-            if (!utt.voice || /raul|david|male|hombre|jorge|diego|pablo|miguel|guy|mark|george/i.test(utt.voice.name)) {
-              console.warn('[order-ready] Bloqueo de seguridad: voz no femenina detectada cuando se configuró voz femenina.')
+            const vNameNorm = utt.voice.name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+            if (/raul|david|male|hombre|jorge|diego|pablo|miguel|guy|mark|george/i.test(vNameNorm)) {
+              console.warn('[order-ready] Bloqueo de seguridad: voz masculina detectada cuando se configuró femenina:', utt.voice.name)
               onEndCallback()
               return
             }
@@ -856,7 +866,20 @@ function OrderReadyBoardContent() {
           }
         }
 
+        const validEnVoice = enVoice && !isForbiddenRaulVoice(enVoice.name) ? enVoice : null
+        const validEsVoice = esVoice && !isForbiddenRaulVoice(esVoice.name) ? esVoice : null
+
         if (voiceLanguage === 'bilingual') {
+          const chosenEn = validEnVoice || safeEmergencyFemale
+          const chosenEs = validEsVoice || chosenEn
+
+          // Si no hay ninguna voz garantizada no-Raúl en todo el sistema: SILENCIO ABSOLUTO (CERO RAÚL)
+          if (!chosenEn || isForbiddenRaulVoice(chosenEn.name)) {
+            console.warn('[order-ready] Bloqueo anti-Raúl: ninguna voz segura disponible en el navegador.')
+            resolve()
+            return
+          }
+
           const displayPhrase = `Order #${num} is ready, orden #${num}, ¡ya está!`
           setActiveSpeech(displayPhrase)
 
@@ -864,26 +887,19 @@ function OrderReadyBoardContent() {
           const uttEn = new SpeechSynthesisUtterance(`Order ${num} is ready,`)
           uttEn.rate = voiceSpeed
           uttEn.volume = isMuted ? 0 : voiceVolume
-          if (enVoice) {
-            uttEn.voice = enVoice
-            uttEn.lang = enVoice.lang || 'en-US'
-          } else {
-            uttEn.lang = 'en-US'
-          }
+          uttEn.voice = chosenEn
+          uttEn.lang = chosenEn.lang || 'en-US'
 
           // Fase 2: Español ("orden 141, ¡ya está!")
           const uttEs = new SpeechSynthesisUtterance(`orden ${num}, ¡ya está!`)
           uttEs.rate = voiceSpeed
           uttEs.volume = isMuted ? 0 : voiceVolume
-          if (esVoice) {
-            uttEs.voice = esVoice
-            // IMPORTANTE: lang DEBE coincidir con esVoice.lang para evitar que Windows SAPI
-            // sobreescriba la voz femenina con la voz por defecto del sistema (Raul)
-            uttEs.lang = esVoice.lang || 'es-MX'
-          } else if (enVoice) {
-            // Si no hay voz española disponible pero sí inglesa femenina (ej. Zira), usarla
-            uttEs.voice = enVoice
-            uttEs.lang = enVoice.lang || 'en-US'
+          if (chosenEs && !isForbiddenRaulVoice(chosenEs.name)) {
+            uttEs.voice = chosenEs
+            uttEs.lang = chosenEs.lang || 'es-MX'
+          } else {
+            uttEs.voice = chosenEn
+            uttEs.lang = chosenEn.lang || 'en-US'
           }
 
           safeSpeak(uttEn, () => {
@@ -895,35 +911,38 @@ function OrderReadyBoardContent() {
             }, 200)
           })
         } else if (voiceLanguage === 'en') {
+          const chosen = validEnVoice || safeEmergencyFemale
+          if (!chosen || isForbiddenRaulVoice(chosen.name)) {
+            console.warn('[order-ready] Bloqueo anti-Raúl: sin voz segura para inglés.')
+            resolve()
+            return
+          }
           const phrase = `Order #${num} is ready.`
           setActiveSpeech(phrase)
           const utt = new SpeechSynthesisUtterance(`Order ${num} is ready.`)
           utt.rate = voiceSpeed
           utt.volume = isMuted ? 0 : voiceVolume
-          if (enVoice) {
-            utt.voice = enVoice
-            utt.lang = enVoice.lang || 'en-US'
-          } else {
-            utt.lang = 'en-US'
-          }
+          utt.voice = chosen
+          utt.lang = chosen.lang || 'en-US'
           safeSpeak(utt, () => {
             setActiveSpeech(null)
             setTimeout(resolve, 500)
           })
         } else {
           // Solo español
+          const chosen = validEsVoice || validEnVoice || safeEmergencyFemale
+          if (!chosen || isForbiddenRaulVoice(chosen.name)) {
+            console.warn('[order-ready] Bloqueo anti-Raúl: sin voz segura para español.')
+            resolve()
+            return
+          }
           const phrase = `Orden #${num}, ¡ya está!`
           setActiveSpeech(phrase)
           const utt = new SpeechSynthesisUtterance(`Orden ${num}, ¡ya está!`)
           utt.rate = voiceSpeed
           utt.volume = isMuted ? 0 : voiceVolume
-          if (esVoice) {
-            utt.voice = esVoice
-            utt.lang = esVoice.lang || 'es-MX'
-          } else if (enVoice) {
-            utt.voice = enVoice
-            utt.lang = enVoice.lang || 'en-US'
-          }
+          utt.voice = chosen
+          utt.lang = chosen.lang || 'es-MX'
           safeSpeak(utt, () => {
             setActiveSpeech(null)
             setTimeout(resolve, 500)
@@ -1213,30 +1232,35 @@ function OrderReadyBoardContent() {
           console.warn('[order-ready] Error al obtener audio neuronal para anuncio, usando fallback:', fetchErr)
         }
 
-        // 3. Fallback seguro a síntesis del navegador con estricto filtro anti-Raul
+        // 3. Fallback seguro a síntesis del navegador con estricto filtro anti-Raúl
         if (!playedOk && typeof window !== 'undefined' && 'speechSynthesis' in window) {
           await new Promise<void>((resolve) => {
-            const voices = availableVoices.length > 0 ? availableVoices : window.speechSynthesis.getVoices()
+            const rawVoices = availableVoices.length > 0 ? availableVoices : window.speechSynthesis.getVoices()
+            const voices = rawVoices.filter((v) => !isForbiddenRaulVoice(v.name))
             const isFemale = selectedVoice === 'Kore' || selectedVoice === 'Aoede' || selectedVoice === 'Zephyr'
             const targetVoice = getBestBrowserVoice(lang, voices, selectedVoice)
+
+            // REGLA CRÍTICA TACOS GAVILAN: Bloquear si no hay voz explícita (para que Windows SAPI no use Raúl)
+            if (!targetVoice || isForbiddenRaulVoice(targetVoice.name)) {
+              console.warn('[order-ready] Bloqueo anti-Raúl en anuncio: sin voz explícita no-Raúl disponible.')
+              resolve()
+              return
+            }
+
+            if (isFemale) {
+              const vNameNorm = targetVoice.name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+              if (/raul|david|male|hombre|jorge|diego|pablo|miguel|guy|mark|george/i.test(vNameNorm)) {
+                console.warn('[order-ready] Bloqueo de seguridad en anuncio: voz masculina descartada para meta femenina.')
+                resolve()
+                return
+              }
+            }
 
             const utt = new SpeechSynthesisUtterance(textToPlay)
             utt.rate = voiceSpeed
             utt.volume = isMuted ? 0 : voiceVolume
-            if (targetVoice) {
-              utt.voice = targetVoice
-              utt.lang = targetVoice.lang || (lang === 'es' ? 'es-MX' : 'en-US')
-            } else {
-              utt.lang = lang === 'es' ? 'es-MX' : 'en-US'
-            }
-
-            // Bloqueo absoluto anti-Raul
-            const vName = (utt.voice?.name || '').toLowerCase()
-            if (vName.includes('raul')) {
-              console.warn('[order-ready] Bloqueo anti-Raul en anuncio')
-              resolve()
-              return
-            }
+            utt.voice = targetVoice
+            utt.lang = targetVoice.lang || (lang === 'es' ? 'es-MX' : 'en-US')
 
             utt.onend = () => resolve()
             utt.onerror = () => resolve()
@@ -1361,8 +1385,9 @@ function OrderReadyBoardContent() {
     // Evita peticiones encimadas si la red/PC va lenta (una a la vez)
     if (fetchingRef.current && !syncToast) return
     fetchingRef.current = true
+    const timeoutMs = syncToast ? 35000 : 20000
     const controller = new AbortController()
-    const abortTimer = setTimeout(() => controller.abort(), 15000)
+    const abortTimer = setTimeout(() => controller.abort(), timeoutMs)
     try {
       if (syncToast) setIsSyncing(true)
       const res = await fetch(`/api/order-ready/orders?storeCode=${selectedStore}&syncToast=${syncToast}&minutes=45`, {
@@ -1419,8 +1444,12 @@ function OrderReadyBoardContent() {
             .forEach(ord => enqueueAnnouncement(ord))
         }
       }
-    } catch (e) {
-      console.error('Error fetching orders:', e)
+    } catch (e: any) {
+      // Ignorar AbortError silenciosamente cuando la petición es cancelada por timeout o refresco
+      if (e?.name === 'AbortError' || controller.signal.aborted) {
+        return
+      }
+      console.warn('Error fetching orders:', e)
     } finally {
       clearTimeout(abortTimer)
       fetchingRef.current = false

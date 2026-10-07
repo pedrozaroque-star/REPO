@@ -108,14 +108,34 @@ export async function GET(request: Request) {
     // Regla de Negocio Tacos Gavilan: Las órdenes listas se retiran tras 20 minutos para mantener limpia la pantalla
     const nowMs = Date.now()
     const MAX_READY_AGE_MS = 20 * 60 * 1000 // 20 minutos
-    const readyOrders = (filteredOrders.filter(o => {
+    const rawReady = (filteredOrders.filter(o => {
       if (o.status !== 'READY') return false
       const readyTime = o.ready_at ? Date.parse(o.ready_at) : Date.parse(o.created_at)
       return (nowMs - readyTime) <= MAX_READY_AGE_MS
     }) || []).sort(
       (a, b) => Date.parse(b.ready_at || b.created_at) - Date.parse(a.ready_at || a.created_at)
     )
-    const inProgressOrders = filteredOrders.filter(o => o.status === 'IN_PROGRESS') || []
+    const rawInProgress = filteredOrders.filter(o => o.status === 'IN_PROGRESS') || []
+
+    // Función de desduplicación por GUID y número de orden
+    const dedupe = (list: any[]) => {
+      const seenGuids = new Set<string>()
+      const seenNums = new Set<string>()
+      const res: any[] = []
+      for (const item of list) {
+        const guidKey = item.order_guid ? String(item.order_guid).trim() : null
+        const numKey = `${item.store_code}_${item.business_date}_${item.order_number}`
+        if (guidKey && seenGuids.has(guidKey)) continue
+        if (seenNums.has(numKey)) continue
+        if (guidKey) seenGuids.add(guidKey)
+        seenNums.add(numKey)
+        res.push(item)
+      }
+      return res
+    }
+
+    const readyOrders = dedupe(rawReady)
+    const inProgressOrders = dedupe(rawInProgress)
 
     return NextResponse.json({
       success: true,
@@ -216,11 +236,11 @@ export async function POST(request: Request) {
       newRecord.ready_at = now
     }
 
-    const { data: inserted, error: insertErr } = await supabaseAdmin
-      .from('order_ready_announcements')
-      .insert(newRecord)
-      .select()
-      .single()
+    const query = newRecord.order_guid
+      ? supabaseAdmin.from('order_ready_announcements').upsert(newRecord, { onConflict: 'order_guid' }).select().single()
+      : supabaseAdmin.from('order_ready_announcements').insert(newRecord).select().single()
+
+    const { data: inserted, error: insertErr } = await query
 
     if (insertErr) {
       return NextResponse.json({ error: insertErr.message }, { status: 500 })

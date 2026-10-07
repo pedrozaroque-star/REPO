@@ -76,10 +76,21 @@ export function isValidAnnouncementRequest(text: string | null | undefined, lang
 }
 
 /**
- * Frase concisa para el mostrador con el slogan institucional de Tacos Gavilan: ¡Ya está!
- * IMPORTANTE: Gemini 3.8 Flash TTS lee el campo 'text' de forma ESTRICTAMENTE LITERAL (verbatim).
- * NO incluir instrucciones descriptivas en este string; la modulación de alegría va en speech_metadata.style.
+ * REGLA ABSOLUTA TACOS GAVILAN: Bloqueo 100% infranqueable de Microsoft Raúl (o cualquier voz con Raúl/Raul).
+ * Normaliza acentos diacríticos (NFD) para que "Raúl", "RAÚL", "Raul", "raùl" se conviertan a "raul"
+ * y sean interceptados sin importar mayúsculas, minúsculas, diacríticos o nombres de proveedor.
  */
+export function isForbiddenRaulVoice(voiceName: string | null | undefined): boolean {
+  if (!voiceName) return false
+  const normalized = voiceName.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+  return (
+    normalized.includes('raul') ||
+    /ra[uú]l/i.test(voiceName) ||
+    /microsoft ra[uú]l/i.test(voiceName) ||
+    /es-mx-ra[uú]l/i.test(voiceName)
+  )
+}
+
 function buildPrompt(n: string, lang: TtsLang): string {
   const spoken = String(parseInt(n, 10))
   if (lang === 'en') {
@@ -154,6 +165,7 @@ async function generateTextWithGemini(
           const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
             method: 'POST',
             headers: { 'x-goog-api-key': key, 'Content-Type': 'application/json' },
+            signal: AbortSignal.timeout(8000),
             body: JSON.stringify({
               contents: [{
                 role: 'user',
@@ -192,18 +204,15 @@ async function generateTextWithGemini(
           } else {
             const errText = await res.text()
             lastErr = `${model} (key ...${key.slice(-4)}): ${res.status} ${errText.slice(0, 160)}`
-            if (res.status === 429) {
+            if (res.status === 429 || /quota|exceeded/i.test(errText)) {
               if (/per_model_per_day|PerProjectPerModel/i.test(errText)) {
                 // Cuota de ESTE modelo agotada: intentar el siguiente modelo en la lista sin descartar la llave
                 break
               }
-              if (/PerDay/i.test(errText)) {
-                // Cuota diaria de la llave: bloquearla temporalmente y pasar a la siguiente llave del pool
-                keyBlockedUntil.set(key, Date.now() + 15 * 60 * 1000)
-                keyExhausted = true
-                break
-              }
-              await new Promise((r) => setTimeout(r, 1200))
+              // Cuota general de la llave agotada (ej. "You exceeded your current quota"): bloquearla 15m y pasar inmediatamente a la siguiente llave
+              keyBlockedUntil.set(key, Date.now() + 15 * 60 * 1000)
+              keyExhausted = true
+              break
             } else {
               break
             }

@@ -356,12 +356,26 @@ export default function PreparadorPage() {
 
             if (!error && data) {
                 const now = Date.now()
-                // Descartar órdenes con más de 30 minutos de listas para mantener la pantalla limpia
-                const recent = data.filter((o: any) => {
+                // Descartar órdenes con más de 30 minutos de listas y desduplicar por GUID y por número
+                const seenGuids = new Set<string>()
+                const seenNumbers = new Set<string>()
+                const uniqueRecent: any[] = []
+
+                for (const o of data) {
                     const t = Date.parse(o.ready_at || o.created_at)
-                    return isNaN(t) || now - t < 30 * 60 * 1000
-                })
-                setReadyOrdersList(recent)
+                    if (!isNaN(t) && now - t >= 30 * 60 * 1000) continue
+
+                    const guidKey = o.order_guid ? String(o.order_guid).trim() : null
+                    const numKey = `${o.store_code || storeCode}_${o.business_date || todayLA}_${o.order_number}`
+
+                    if (guidKey && seenGuids.has(guidKey)) continue
+                    if (seenNumbers.has(numKey)) continue
+
+                    if (guidKey) seenGuids.add(guidKey)
+                    seenNumbers.add(numKey)
+                    uniqueRecent.push(o)
+                }
+                setReadyOrdersList(uniqueRecent)
             }
         } catch (err) {
             console.warn('Error fetching ready orders on preparador tablet:', err)

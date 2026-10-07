@@ -213,21 +213,38 @@ export async function POST(request: Request) {
       finalOrderNumber = String(orderGuid?.slice(-4) || '---')
     }
 
-    // Insertar nuevo registro en Supabase
-    await supabaseAdmin.from('order_ready_announcements').insert({
-      store_code: storeInfo.code,
-      store_id: restaurantId || storeInfo.code,
-      store_name: storeInfo.name,
-      order_number: finalOrderNumber,
-      order_guid: orderGuid || null,
-      dining_option: finalDiningOption,
-      customer_name: customerName,
-      status,
-      business_date: currentBusinessDate,
-      announced: false,
-      ready_at: status === 'READY' ? (evaluation.readyAt || now) : null,
-      created_at: evaluation.sentAt || now
-    })
+    // Insertar o actualizar registro en Supabase (evitar duplicados con onConflict)
+    if (orderGuid) {
+      await supabaseAdmin.from('order_ready_announcements').upsert({
+        store_code: storeInfo.code,
+        store_id: restaurantId || storeInfo.code,
+        store_name: storeInfo.name,
+        order_number: finalOrderNumber,
+        order_guid: orderGuid,
+        dining_option: finalDiningOption,
+        customer_name: customerName,
+        status,
+        business_date: currentBusinessDate,
+        announced: false,
+        ready_at: status === 'READY' ? (evaluation.readyAt || now) : null,
+        created_at: evaluation.sentAt || now
+      }, { onConflict: 'order_guid' })
+    } else {
+      await supabaseAdmin.from('order_ready_announcements').insert({
+        store_code: storeInfo.code,
+        store_id: restaurantId || storeInfo.code,
+        store_name: storeInfo.name,
+        order_number: finalOrderNumber,
+        order_guid: null,
+        dining_option: finalDiningOption,
+        customer_name: customerName,
+        status,
+        business_date: currentBusinessDate,
+        announced: false,
+        ready_at: status === 'READY' ? (evaluation.readyAt || now) : null,
+        created_at: evaluation.sentAt || now
+      })
+    }
 
     return NextResponse.json({ success: true, action: 'created', orderNumber: finalOrderNumber, status })
   } catch (err: any) {

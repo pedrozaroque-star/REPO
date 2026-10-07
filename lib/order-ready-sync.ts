@@ -290,7 +290,7 @@ export async function syncStoreFromToast(storeCode: string, force = false): Prom
         const orderDate = ev.sentAt || ord.createdDate || ord.openedDate || ord.paidDate || new Date().toISOString()
         const bDate = getCaliforniaBusinessDate(orderDate)
 
-        await supabaseAdmin.from('order_ready_announcements').insert({
+        await supabaseAdmin.from('order_ready_announcements').upsert({
           store_code: storeCode,
           store_id: restaurantGuid,
           store_name: storeInfo.name,
@@ -303,7 +303,7 @@ export async function syncStoreFromToast(storeCode: string, force = false): Prom
           announced: ev.status === 'READY' ? isStale : false,
           ready_at: ev.status === 'READY' ? ev.readyAt : null,
           created_at: orderDate
-        })
+        }, { onConflict: 'order_guid' })
       }
     } catch (err) {
       console.warn('[order-ready-sync] error:', err)
