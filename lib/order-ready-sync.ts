@@ -293,7 +293,7 @@ export async function syncStoreFromToast(storeCode: string, force = false): Prom
         await supabaseAdmin.from('order_ready_announcements').upsert({
           store_code: storeCode,
           store_id: restaurantGuid,
-          store_name: storeInfo.name,
+          store_name: storeInfo?.name || storeCode,
           order_number: String(number),
           order_guid: ord.guid,
           dining_option: diningOption,

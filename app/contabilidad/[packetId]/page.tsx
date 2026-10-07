@@ -280,9 +280,7 @@ export default function PacketDetailPage() {
       if (!res.ok) throw new Error(data.error || 'Failed to update cash deposit')
       setPublishMessage({ 
         type: 'success', 
-        text: language === 'en' 
-          ? 'Cash deposit updated and 17-line journal entry re-balanced!' 
-          : '¡Depósito en banco actualizado y póliza de 17 cuentas rebalanceada!' 
+        text: t('accounting.alert_cash_deposit_saved') || '¡Depósito en banco actualizado y póliza de 17 cuentas rebalanceada!'
       })
       await fetchPacket()
     } catch (err: any) {
@@ -303,7 +301,7 @@ export default function PacketDetailPage() {
   if (error || !packet) {
     return (
       <div className="p-8 text-rose-600 dark:text-rose-400 min-h-screen space-y-4">
-        <p className="text-lg font-bold">{error || 'Packet not found'}</p>
+        <p className="text-lg font-bold">{error || t('accounting.packet_not_found') || 'Póliza no encontrada'}</p>
         <Link href="/contabilidad" className="inline-flex items-center text-blue-600 hover:text-blue-500 font-bold">
           <ArrowLeft className="h-4 w-4 mr-2" />
           {t('accounting.back_to_list') || 'Volver a la lista'}
@@ -522,7 +520,7 @@ export default function PacketDetailPage() {
         {packet.status === 'published' && (
           <div className="ml-auto bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800 px-4 py-2 rounded-xl text-sm font-bold flex items-center">
             <CheckCircle2 className="w-4 h-4 mr-2 text-emerald-600 dark:text-emerald-400" />
-            {language === 'en' ? 'Published in QuickBooks' : 'Publicada en QuickBooks Online'}
+            {t('accounting.status_published_qb') || 'Publicada en QuickBooks Online'}
           </div>
         )}
       </div>
@@ -570,37 +568,37 @@ export default function PacketDetailPage() {
             ) : (
               <>
                 <div className="flex justify-between">
-                  <span className="text-slate-500 dark:text-slate-400">Comedor (For Here)</span>
+                  <span className="text-slate-500 dark:text-slate-400">{t('accounting.dining_for_here') || 'Comedor (For Here)'}</span>
                   <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">{formatCurrency(packet.dine_in_sales)}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-slate-500 dark:text-slate-400">Para Llevar (To Go)</span>
+                  <span className="text-slate-500 dark:text-slate-400">{t('accounting.dining_to_go') || 'Para Llevar (To Go)'}</span>
                   <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">{formatCurrency(packet.togo_sales)}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-slate-500 dark:text-slate-400">Uber Eats (Delivery)</span>
+                  <span className="text-slate-500 dark:text-slate-400">{t('accounting.dining_uber_delivery') || 'Uber Eats (Delivery)'}</span>
                   <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">{formatCurrency(packet.uber_delivery_sales)}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-slate-500 dark:text-slate-400">Uber Eats (Takeout)</span>
+                  <span className="text-slate-500 dark:text-slate-400">{t('accounting.dining_uber_takeout') || 'Uber Eats (Takeout)'}</span>
                   <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">{formatCurrency(packet.uber_takeout_sales)}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-slate-500 dark:text-slate-400">DoorDash (Delivery)</span>
+                  <span className="text-slate-500 dark:text-slate-400">{t('accounting.dining_doordash_delivery') || 'DoorDash (Delivery)'}</span>
                   <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">{formatCurrency(packet.doordash_delivery_sales)}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-slate-500 dark:text-slate-400">DoorDash (Takeout)</span>
+                  <span className="text-slate-500 dark:text-slate-400">{t('accounting.dining_doordash_takeout') || 'DoorDash (Takeout)'}</span>
                   <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">{formatCurrency(packet.doordash_takeout_sales)}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-slate-500 dark:text-slate-400">GrubHub</span>
+                  <span className="text-slate-500 dark:text-slate-400">{t('accounting.dining_grubhub') || 'GrubHub'}</span>
                   <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">{formatCurrency(packet.grubhub_sales)}</span>
                 </div>
               </>
             )}
             <div className="flex justify-between font-extrabold pt-2 border-t-2 border-slate-200 dark:border-slate-700 text-blue-600 dark:text-blue-400">
-              <span>Total Ventas Netas</span>
+              <span>{t('accounting.total_net_sales') || 'Total Ventas Netas'}</span>
               <span className="font-mono">{formatCurrency(packet.net_sales)}</span>
             </div>
           </div>
@@ -611,19 +609,19 @@ export default function PacketDetailPage() {
           <h2 className="text-base font-bold text-slate-900 dark:text-white mb-4">{t('accounting.section_taxes') || 'Detalle de Impuestos'}</h2>
           <div className="space-y-2.5 text-sm">
             <div className="flex justify-between">
-              <span className="text-slate-500 dark:text-slate-400">Sales Tax (Local)</span>
+              <span className="text-slate-500 dark:text-slate-400">{t('accounting.tax_sales_tax_local') || 'Sales Tax (Local)'}</span>
               <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">{formatCurrency(packet.sales_tax)}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-slate-500 dark:text-slate-400">Marketplace Facilitator Tax</span>
+              <span className="text-slate-500 dark:text-slate-400">{t('accounting.tax_marketplace_facilitator') || 'Marketplace Facilitator Tax'}</span>
               <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">{formatCurrency(packet.marketplace_facilitator_tax)}</span>
             </div>
             <div className="flex justify-between text-slate-500 dark:text-slate-400">
-              <span>Tax Paid by Facilitator (Uber)</span>
+              <span>{t('accounting.tax_paid_by_uber') || 'Tax Paid by Facilitator (Uber)'}</span>
               <span className="font-mono font-semibold text-slate-700 dark:text-slate-300">{formatCurrency(packet.facilitator_tax_paid)}</span>
             </div>
             <div className="flex justify-between font-extrabold pt-2 border-t-2 border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white text-base">
-              <span>Total Impuestos</span>
+              <span>{t('accounting.total_taxes_liability') || 'Total Impuestos'}</span>
               <span className="font-mono">{formatCurrency(packet.total_taxes)}</span>
             </div>
           </div>
@@ -634,11 +632,11 @@ export default function PacketDetailPage() {
           <h2 className="text-base font-bold text-slate-900 dark:text-white mb-4">{t('accounting.section_credit_cards') || 'Tarjetas de Crédito'}</h2>
           <div className="space-y-2.5 text-sm">
             <div className="flex justify-between">
-              <span className="text-slate-500 dark:text-slate-400">Total Tarjetas Bruto</span>
+              <span className="text-slate-500 dark:text-slate-400">{t('accounting.cc_gross_total') || 'Total Tarjetas Bruto'}</span>
               <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">{formatCurrency(packet.cc_gross)}</span>
             </div>
             <div className="flex justify-between font-bold text-blue-600 dark:text-blue-400">
-              <span>Depósito Neto al Banco</span>
+              <span>{t('accounting.cc_net_deposit') || 'Depósito Neto al Banco'}</span>
               <span className="font-mono">{formatCurrency(packet.cc_deposit)}</span>
             </div>
             <div className="flex justify-between text-slate-500 dark:text-slate-400">
@@ -647,7 +645,7 @@ export default function PacketDetailPage() {
             </div>
             {packet.journal_lines?.some((l: any) => l.memo.includes('Other Deductions')) && (
               <div className="flex justify-between text-amber-600 dark:text-amber-400">
-                <span>Toast Capital / Otras Deducciones</span>
+                <span>{t('accounting.toast_capital_deductions') || 'Toast Capital / Otras Deducciones'}</span>
                 <span className="font-mono font-semibold">
                   -{formatCurrency(packet.journal_lines.find((l: any) => l.memo.includes('Other Deductions'))?.debit || 0)}
                 </span>
@@ -663,10 +661,10 @@ export default function PacketDetailPage() {
             <table className="w-full text-sm divide-y divide-slate-100 dark:divide-slate-800">
               <thead>
                 <tr className="text-left text-slate-500 dark:text-slate-400">
-                  <th className="pb-2.5 font-bold">Canal / Método</th>
-                  <th className="pb-2.5 text-right font-bold">Monto Bruto</th>
-                  <th className="pb-2.5 text-right font-bold">Impuesto Retenido</th>
-                  <th className="pb-2.5 text-right font-bold">Neto A/R</th>
+                  <th className="pb-2.5 font-bold">{t('accounting.col_channel_method') || 'Canal / Método'}</th>
+                  <th className="pb-2.5 text-right font-bold">{t('accounting.col_gross_amount') || 'Monto Bruto'}</th>
+                  <th className="pb-2.5 text-right font-bold">{t('accounting.col_tax_withheld') || 'Impuesto Retenido'}</th>
+                  <th className="pb-2.5 text-right font-bold">{t('accounting.col_net_ar') || 'Neto A/R'}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-mono">
@@ -696,7 +694,7 @@ export default function PacketDetailPage() {
                 </tr>
                 {packet.journal_lines?.some((l: any) => l.memo.includes('Gift Card')) && (
                   <tr>
-                    <td className="py-2.5 font-sans font-bold text-emerald-700 dark:text-emerald-400">Tarjetas de Regalo Canjeadas (Gift Cards)</td>
+                    <td className="py-2.5 font-sans font-bold text-emerald-700 dark:text-emerald-400">{t('accounting.gift_cards_redeemed') || 'Tarjetas de Regalo Canjeadas (Gift Cards)'}</td>
                     <td className="py-2.5 text-right font-semibold text-emerald-700 dark:text-emerald-400">
                       {formatCurrency(packet.journal_lines.find((l: any) => l.memo.includes('Gift Card') && l.debit > 0)?.debit || 0)}
                     </td>
@@ -765,8 +763,8 @@ export default function PacketDetailPage() {
                 <th className="py-3 px-3 font-bold">{t('accounting.col_memo') || 'Memo'}</th>
                 <th className="py-3 px-3 text-right font-bold">{t('accounting.col_debit') || 'Débito'}</th>
                 <th className="py-3 px-3 text-right font-bold">{t('accounting.col_credit') || 'Crédito'}</th>
-                <th className="py-3 px-3 pl-4 font-bold">Source Memo</th>
-                <th className="py-3 px-3 font-bold text-amber-600 dark:text-amber-400">Name (Entity)</th>
+                <th className="py-3 px-3 pl-4 font-bold">{t('accounting.col_source_memo') || 'Source Memo'}</th>
+                <th className="py-3 px-3 font-bold text-amber-600 dark:text-amber-400">{t('accounting.col_entity_name') || 'Name (Entity)'}</th>
                 <th className="py-3 px-3 font-bold">{t('accounting.col_location') || 'Ubicación'}</th>
                 <th className="py-3 px-3 font-bold">{t('accounting.col_class') || 'Clase'}</th>
               </tr>
@@ -791,7 +789,7 @@ export default function PacketDetailPage() {
                 <td className="py-3.5 px-3 text-right text-emerald-600 dark:text-emerald-400">{formatCurrency(packet.journal_total_debits)}</td>
                 <td className="py-3.5 px-3 text-right text-sky-600 dark:text-sky-400">{formatCurrency(packet.journal_total_credits)}</td>
                 <td colSpan={4} className="py-3.5 px-3 text-center text-xs font-sans text-slate-500 dark:text-slate-400">
-                  {isBalanced ? '✓ Cuadre exacto al centavo ($0.00 diferencia)' : '⚠️ Descuadre detectado'}
+                  {isBalanced ? (t('accounting.balanced_perfect') || '✓ Cuadre exacto al centavo ($0.00 diferencia)') : (t('accounting.unbalanced_warning') || '⚠️ Descuadre detectado')}
                 </td>
               </tr>
             </tbody>

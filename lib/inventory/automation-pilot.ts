@@ -14,6 +14,8 @@
  *   [2026-09-26] Un pedido histórico implausible se excluye como recepción inferida; no se compara ese sobrante automático.
  *   [2026-09-28] La comparación aplica la misma fórmula PAR menos sobrante a ambos lados;
  *   ningún colchón adicional altera el pedido oficial o el pedido teórico shadow.
+ *   [2026-10-07] Desbloqueo de Lynwood: se eliminó la restricción exclusiva a Carlos Velázquez;
+ *   ahora el manager/encargado asignado a Lynwood (así como Roque y Carlos) puede cerrar y validar el piloto.
  */
 
 export type PilotComparisonInput = {
@@ -66,19 +68,33 @@ export type PilotCloseAuthorizationInput = {
   assignedStoreIds: Array<string | number>
 }
 
-/** Mantiene a Roque global, Carlos en Lynwood y al manager asignado únicamente en Slauson. */
+/** Mantiene a Roque global y permite al manager/encargado asignado cerrar el piloto en su sucursal (Lynwood y Slauson). */
 export function canCloseInventoryAutomationPilot(input: PilotCloseAuthorizationInput): boolean {
   const normalizedName = input.userName.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
   const normalizedEmail = input.userEmail.trim().toLowerCase()
   const normalizedRole = input.userRole.trim().toLowerCase()
   const assignedStoreIds = new Set(input.assignedStoreIds.map(String))
 
+  // 1. Roque y roles administrativos/supervisores tienen acceso global a cerrar cualquier piloto
   if (normalizedName === 'roque' || normalizedEmail.startsWith('roque@')) return true
-  if (/lynwood/i.test(input.storeName) && normalizedName === 'carlos velazquez') return true
+  if (['admin', 'administrador', 'supervisor'].includes(normalizedRole)) return true
 
-  return /slauson/i.test(input.storeName)
-    && ['manager', 'gerente'].includes(normalizedRole)
-    && assignedStoreIds.has(String(input.targetStoreId))
+  // 2. Carlos Velázquez conserva acceso para supervisión
+  if (normalizedName === 'carlos velazquez' || normalizedEmail.startsWith('carlos@')) return true
+
+  // 3. Tiendas del piloto (Lynwood, Slauson):
+  // Cualquier manager/gerente/asistente asignado a la sucursal puede cerrar y validar el piloto
+  const isPilotStore = isInventoryAutomationPilotStore(input.storeName)
+  if (!isPilotStore) return false
+
+  const matchesAssignedStore = assignedStoreIds.has(String(input.targetStoreId))
+    || Array.from(assignedStoreIds).some(s => {
+      const sNorm = s.trim().toLowerCase()
+      const targetNameNorm = input.storeName.trim().toLowerCase()
+      return sNorm === targetNameNorm || targetNameNorm.includes(sNorm) || sNorm.includes(targetNameNorm)
+    })
+
+  return ['manager', 'gerente', 'asistente'].includes(normalizedRole) && matchesAssignedStore
 }
 
 const ONE_UNIT_PATTERNS = [

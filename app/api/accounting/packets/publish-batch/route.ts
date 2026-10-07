@@ -16,6 +16,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 
+export const maxDuration = 300
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()

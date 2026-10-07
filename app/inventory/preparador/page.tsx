@@ -331,18 +331,20 @@ export default function PreparadorPage() {
     // Ready Orders (Entregador / Pick-up Impulses)
     const [readyOrdersList, setReadyOrdersList] = useState<any[]>([])
     const [loadingReadyOrders, setLoadingReadyOrders] = useState(false)
-    const [callingOrderId, setCallingOrderId] = useState<string | null>(null)
-    const [callSuccessOrderId, setCallSuccessOrderId] = useState<string | null>(null)
+    const callingIdsRef = useRef<Set<string>>(new Set())
+    const [callingOrderIds, setCallingOrderIds] = useState<Set<string>>(new Set())
+    const [callSuccessOrderIds, setCallSuccessOrderIds] = useState<Set<string>>(new Set())
     const realtimeChannelRef = useRef<any>(null)
+    const tabletAudioCtxRef = useRef<AudioContext | null>(null)
 
-    // Consulta de órdenes listas de la sucursal actual
-    const fetchReadyOrders = async () => {
+    // Consulta de órdenes listas de la sucursal actual (polling silencioso)
+    const fetchReadyOrders = async (isManual = false) => {
         if (!storeId || stores.length === 0) return
         const currentStore = stores.find(s => String(s.id) === String(storeId))
         const storeCode = (currentStore?.code || TOAST_STORE_MAP[currentStore?.external_id]?.code || '').toUpperCase()
         if (!storeCode) return
 
-        setLoadingReadyOrders(true)
+        if (isManual) setLoadingReadyOrders(true)
         try {
             const todayLA = getCaliforniaBusinessDate()
             const { data, error } = await supabase
@@ -351,7 +353,7 @@ export default function PreparadorPage() {
                 .eq('store_code', storeCode)
                 .eq('status', 'READY')
                 .eq('business_date', todayLA)
-                .order('ready_at', { ascending: false })
+                .order('ready_at', { ascending: false, nullsFirst: false })
                 .limit(60)
 
             if (!error && data) {
@@ -380,7 +382,7 @@ export default function PreparadorPage() {
         } catch (err) {
             console.warn('Error fetching ready orders on preparador tablet:', err)
         } finally {
-            setLoadingReadyOrders(false)
+            if (isManual) setLoadingReadyOrders(false)
         }
     }
 
@@ -391,7 +393,7 @@ export default function PreparadorPage() {
         const storeCode = (currentStore?.code || TOAST_STORE_MAP[currentStore?.external_id]?.code || '').toUpperCase()
         if (!storeCode) return
 
-        fetchReadyOrders()
+        fetchReadyOrders(true)
 
         const channel = supabase
             .channel('order-ready-realtime')
@@ -405,7 +407,7 @@ export default function PreparadorPage() {
                 (payload: any) => {
                     const row = payload.new || payload.old
                     if (row && String(row.store_code || '').toUpperCase() === storeCode) {
-                        fetchReadyOrders()
+                        fetchReadyOrders(false)
                     }
                 }
             )
@@ -414,7 +416,7 @@ export default function PreparadorPage() {
         realtimeChannelRef.current = channel
 
         const pollTimer = setInterval(() => {
-            fetchReadyOrders()
+            fetchReadyOrders(false)
         }, 5000)
 
         return () => {
@@ -426,16 +428,23 @@ export default function PreparadorPage() {
 
     // Acción de llamado de orden (impulso táctil enviado a la PC del Manager)
     const handleCallOrderImpulse = async (order: any) => {
-        if (!order || callingOrderId) return
+        if (!order || !order.id || callingIdsRef.current.has(order.id)) return
 
-        setCallingOrderId(order.id)
-        setCallSuccessOrderId(order.id)
+        callingIdsRef.current.add(order.id)
+        setCallingOrderIds(prev => new Set(prev).add(order.id))
+        setCallSuccessOrderIds(prev => new Set(prev).add(order.id))
 
-        // Tono auditivo local suave en la tableta (Web Audio API)
+        // Tono auditivo local suave en la tableta (reutilizando AudioContext sin memory leak)
         try {
             const AudioCtx = window.AudioContext || (window as any).webkitAudioContext
             if (AudioCtx) {
-                const ctx = new AudioCtx()
+                if (!tabletAudioCtxRef.current || tabletAudioCtxRef.current.state === 'closed') {
+                    tabletAudioCtxRef.current = new AudioCtx()
+                }
+                const ctx = tabletAudioCtxRef.current
+                if (ctx.state === 'suspended') {
+                    ctx.resume().catch(() => {})
+                }
                 const osc = ctx.createOscillator()
                 const gain = ctx.createGain()
                 osc.connect(gain)
@@ -478,19 +487,29 @@ export default function PreparadorPage() {
                     orderNumber: order.order_number,
                     storeCode: storeCode,
                     diningOption: order.dining_option,
-                    storeName: currentStore?.name || storeCode
+                    storeName: currentStore?.name || storeCode,
+                    fromClientBroadcast: !!realtimeChannelRef.current
                 })
             })
         } catch (err) {
             console.error('Error enviando impulso de orden desde tableta:', err)
         } finally {
-            // Cooldown de 2s para evitar toques accidentales
+            // Cooldown de 2.5s por orden para evitar toques accidentales repetidos
             setTimeout(() => {
-                setCallingOrderId(null)
-            }, 2000)
+                callingIdsRef.current.delete(order.id)
+                setCallingOrderIds(prev => {
+                    const next = new Set(prev)
+                    next.delete(order.id)
+                    return next
+                })
+            }, 2500)
             setTimeout(() => {
-                setCallSuccessOrderId(prev => prev === order.id ? null : prev)
-            }, 3500)
+                setCallSuccessOrderIds(prev => {
+                    const next = new Set(prev)
+                    next.delete(order.id)
+                    return next
+                })
+            }, 4000)
         }
     }
     
@@ -1762,9 +1781,9 @@ export default function PreparadorPage() {
                                     </span>
                                     <button
                                         type="button"
-                                        onClick={fetchReadyOrders}
+                                        onClick={() => fetchReadyOrders(true)}
                                         disabled={loadingReadyOrders}
-                                        title="Refrescar órdenes"
+                                        title={t('prep.refreshOrdersTooltip')}
                                         className="p-2 sm:p-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 active:scale-95 transition cursor-pointer shadow-sm disabled:opacity-50"
                                     >
                                         <RefreshCw size={16} className={loadingReadyOrders ? 'animate-spin text-emerald-600' : ''} />
@@ -1789,8 +1808,8 @@ export default function PreparadorPage() {
                                 ) : (
                                     <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-2.5 sm:gap-3.5">
                                         {readyOrdersList.map((order) => {
-                                            const isCalling = callingOrderId === order.id
-                                            const isSuccess = callSuccessOrderId === order.id
+                                            const isCalling = callingOrderIds.has(order.id)
+                                            const isSuccess = callSuccessOrderIds.has(order.id)
                                             
                                             // Cálculo de tiempo transcurrido
                                             const readyMs = Date.parse(order.ready_at || order.created_at)
@@ -1846,7 +1865,7 @@ export default function PreparadorPage() {
 
                                                     {/* Número de Orden en Gigante */}
                                                     <div className="my-2 sm:my-3 text-center">
-                                                        <span className={`font-mono font-black text-3xl sm:text-4xl md:text-5xl tracking-tight transition-transform ${
+                                                        <span className={`font-mono font-black text-3xl sm:text-4xl lg:text-3xl xl:text-4xl tracking-tight transition-transform ${
                                                             isCalling ? 'scale-110 text-emerald-700 dark:text-emerald-300' : 'text-slate-900 dark:text-white'
                                                         }`}>
                                                             #{order.order_number}

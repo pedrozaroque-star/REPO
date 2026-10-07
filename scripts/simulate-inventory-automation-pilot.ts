@@ -60,13 +60,25 @@ assert.equal(canCloseInventoryAutomationPilot({
   userEmail: 'other@example.com', userRole: 'manager', assignedStoreIds: [14],
 }), false)
 assert.equal(canCloseInventoryAutomationPilot({
+  storeName: 'Tacos Gavilan Lynwood', targetStoreId: 14, userName: 'Victor Muñoz',
+  userEmail: 'victorjr53@gmail.com', userRole: 'manager', assignedStoreIds: [14],
+}), true)
+assert.equal(canCloseInventoryAutomationPilot({
   storeName: 'Tacos Gavilan Lynwood', targetStoreId: 14, userName: 'Carlos Velázquez',
   userEmail: 'carlos@example.com', userRole: 'manager', assignedStoreIds: [14],
+}), true)
+assert.equal(canCloseInventoryAutomationPilot({
+  storeName: 'Tacos Gavilan Lynwood', targetStoreId: 14, userName: 'Roque',
+  userEmail: 'roque@tacosgavilan.com', userRole: 'admin', assignedStoreIds: [],
 }), true)
 assert.equal(canCloseInventoryAutomationPilot({
   storeName: 'Tacos Gavilan Slauson', targetStoreId: 7, userName: 'Roque',
   userEmail: 'admin@example.com', userRole: 'admin', assignedStoreIds: [],
 }), true)
+assert.equal(canCloseInventoryAutomationPilot({
+  storeName: 'Tacos Gavilan Lynwood', targetStoreId: 14, userName: 'Rialto Manager',
+  userEmail: 'julio@example.com', userRole: 'manager', assignedStoreIds: [1],
+}), false)
 
 assert.equal(isImplausibleArrivalQuantity(11211120, 60, 41), true)
 assert.equal(isImplausibleArrivalQuantity(41, 60, 41), false)

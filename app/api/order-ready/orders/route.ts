@@ -82,14 +82,11 @@ export async function GET(request: Request) {
     // Si hay filas recién creadas o por anunciar, se fuerza un sync sin throttle ANTES de entregarlas al cliente,
     // para que el sync borre/corrija las que no son FOR_HERE/TOGO y nunca lleguen a sonar.
     if (!error && orders) {
-      const nowCheck = Date.now()
       const needsVerify = orders.some(
-        (o: any) =>
-          (o.status === 'READY' && !o.announced) ||
-          nowCheck - Date.parse(o.created_at) < 3 * 60 * 1000
+        (o: any) => o.status === 'READY' && !o.announced
       )
       if (needsVerify) {
-        await syncStoreFromToast(storeCode, true)
+        await syncStoreFromToast(storeCode, false)
         const again = await fetchRows()
         orders = again.data
         error = again.error
@@ -135,7 +132,10 @@ export async function GET(request: Request) {
     }
 
     const readyOrders = dedupe(rawReady)
-    const inProgressOrders = dedupe(rawInProgress)
+    const readyNums = new Set(readyOrders.map(o => `${o.store_code}_${o.business_date}_${o.order_number}`))
+    const inProgressOrders = dedupe(rawInProgress).filter(
+      o => !readyNums.has(`${o.store_code}_${o.business_date}_${o.order_number}`)
+    )
 
     return NextResponse.json({
       success: true,
@@ -174,6 +174,14 @@ export async function POST(request: Request) {
     }
     const status = body.status || 'READY'
     const diningOption = (body.diningOption || 'TOGO').toUpperCase()
+    // Regla de Negocio Tacos Gavilan: El Order Ready Board es exclusivo para FOR_HERE y TOGO
+    if (diningOption !== 'FOR_HERE' && diningOption !== 'TOGO') {
+      return NextResponse.json({
+        success: true,
+        action: 'ignored',
+        reason: `Canal excluido del Order Ready Board (${diningOption})`
+      })
+    }
     const currentBusinessDate = getCaliforniaBusinessDate()
 
     // Buscar si ya existe una orden activa en ESTA jornada laboral con este número y tienda

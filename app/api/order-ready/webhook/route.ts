@@ -123,7 +123,8 @@ export async function POST(request: Request) {
       existing = byGuid
     }
 
-    const currentBusinessDate = getCaliforniaBusinessDate()
+    const orderDate = evaluation.sentAt || orderObj.createdDate || orderObj.openedDate || now
+    const currentBusinessDate = getCaliforniaBusinessDate(orderDate)
 
     // 2. Si no se encontró por GUID pero tenemos orderNumber, buscar por store_code + order_number + business_date
     if (!existing && orderNumber) {
@@ -218,7 +219,7 @@ export async function POST(request: Request) {
       await supabaseAdmin.from('order_ready_announcements').upsert({
         store_code: storeInfo.code,
         store_id: restaurantId || storeInfo.code,
-        store_name: storeInfo.name,
+        store_name: storeInfo?.name || storeInfo.code,
         order_number: finalOrderNumber,
         order_guid: orderGuid,
         dining_option: finalDiningOption,
@@ -233,7 +234,7 @@ export async function POST(request: Request) {
       await supabaseAdmin.from('order_ready_announcements').insert({
         store_code: storeInfo.code,
         store_id: restaurantId || storeInfo.code,
-        store_name: storeInfo.name,
+        store_name: storeInfo?.name || storeInfo.code,
         order_number: finalOrderNumber,
         order_guid: null,
         dining_option: finalDiningOption,

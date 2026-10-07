@@ -324,7 +324,7 @@ export default function AccountingConfigPage() {
       if (!res.ok) throw new Error(data.error || 'Sync failed')
       setMessage({
         type: 'success',
-        text: `Sincronización exitosa: ${data.accountsUpserted || 0} cuentas actualizadas desde QuickBooks Online.`,
+        text: (t('accounting.alert_sync_qb_success') || 'Sincronización exitosa: {count} cuentas actualizadas desde QuickBooks Online.').replace('{count}', String(data.accountsUpserted || 0)),
       })
       await loadData()
     } catch (err: any) {
@@ -529,7 +529,7 @@ export default function AccountingConfigPage() {
       {isLoading ? (
         <div className="flex flex-col items-center justify-center py-24 space-y-4">
           <Loader2 className="w-10 h-10 animate-spin text-blue-600" />
-          <p className="text-sm font-bold text-slate-500">Cargando configuración de Cohesion...</p>
+          <p className="text-sm font-bold text-slate-500">{t('accounting.loading_cohesion_settings') || 'Cargando configuración de Cohesion...'}</p>
         </div>
       ) : viewMode === 'stores' ? (
         /* ─── VIEW MODE: ALL STORES TABLE ─── */
@@ -548,13 +548,13 @@ export default function AccountingConfigPage() {
             <table className="w-full text-sm text-left">
               <thead className="bg-slate-50 dark:bg-slate-900/60 border-b border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400">
                 <tr>
-                  <th className="px-6 py-4 font-bold text-slate-900 dark:text-white uppercase text-xs">Sucursal</th>
-                  <th className="px-6 py-4 font-bold text-slate-900 dark:text-white uppercase text-xs">Ubicación QB</th>
-                  <th className="px-6 py-4 font-bold text-slate-900 dark:text-white uppercase text-xs">Clase QB</th>
-                  <th className="px-6 py-4 font-bold text-slate-900 dark:text-white uppercase text-xs">Cuenta Bancaria</th>
-                  <th className="px-6 py-4 font-bold text-slate-900 dark:text-white uppercase text-xs">Cliente (*-COH)</th>
-                  <th className="px-6 py-4 font-bold text-center text-slate-900 dark:text-white uppercase text-xs">Estado</th>
-                  <th className="px-6 py-4 font-bold text-center text-slate-900 dark:text-white uppercase text-xs">Acción</th>
+                  <th className="px-6 py-4 font-bold text-slate-900 dark:text-white uppercase text-xs">{t('accounting.col_store') || 'Sucursal'}</th>
+                  <th className="px-6 py-4 font-bold text-slate-900 dark:text-white uppercase text-xs">{t('accounting.col_location') || 'Ubicación QB'}</th>
+                  <th className="px-6 py-4 font-bold text-slate-900 dark:text-white uppercase text-xs">{t('accounting.col_class') || 'Clase QB'}</th>
+                  <th className="px-6 py-4 font-bold text-slate-900 dark:text-white uppercase text-xs">{t('accounting.label_bank_account') || 'Cuenta Bancaria'}</th>
+                  <th className="px-6 py-4 font-bold text-slate-900 dark:text-white uppercase text-xs">{t('accounting.col_entity_name') || 'Cliente (*-COH)'}</th>
+                  <th className="px-6 py-4 font-bold text-center text-slate-900 dark:text-white uppercase text-xs">{t('accounting.col_status') || 'Estado'}</th>
+                  <th className="px-6 py-4 font-bold text-center text-slate-900 dark:text-white uppercase text-xs">{t('accounting.col_action') || 'Acción'}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -626,11 +626,11 @@ export default function AccountingConfigPage() {
             <table className="w-full text-sm text-left">
               <thead className="bg-slate-50 dark:bg-slate-900/60 border-b border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400">
                 <tr>
-                  <th className="px-6 py-4 font-bold text-slate-900 dark:text-white uppercase text-xs">Número</th>
-                  <th className="px-6 py-4 font-bold text-slate-900 dark:text-white uppercase text-xs">Nombre de Cuenta</th>
-                  <th className="px-6 py-4 font-bold text-slate-900 dark:text-white uppercase text-xs">Tipo Contable</th>
-                  <th className="px-6 py-4 font-bold text-slate-900 dark:text-white uppercase text-xs">ID QuickBooks</th>
-                  <th className="px-6 py-4 font-bold text-center text-slate-900 dark:text-white uppercase text-xs">Estado</th>
+                  <th className="px-6 py-4 font-bold text-slate-900 dark:text-white uppercase text-xs">{t('accounting.th_qb_number') || 'Número'}</th>
+                  <th className="px-6 py-4 font-bold text-slate-900 dark:text-white uppercase text-xs">{t('accounting.th_qb_account_name') || 'Nombre de Cuenta'}</th>
+                  <th className="px-6 py-4 font-bold text-slate-900 dark:text-white uppercase text-xs">{t('accounting.th_qb_account_type') || 'Tipo Contable'}</th>
+                  <th className="px-6 py-4 font-bold text-slate-900 dark:text-white uppercase text-xs">{t('accounting.th_qb_id') || 'ID QuickBooks'}</th>
+                  <th className="px-6 py-4 font-bold text-center text-slate-900 dark:text-white uppercase text-xs">{t('accounting.col_status') || 'Estado'}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-mono">
@@ -904,7 +904,7 @@ export default function AccountingConfigPage() {
                       <option key={loc} value={loc}>{loc}</option>
                     ))}
                   </select>
-                  <span className="text-[11px] text-slate-400 block">DepartmentRef enviado en JournalEntry a QBO.</span>
+                  <span className="text-[11px] text-slate-400 block">{t('accounting.desc_department_ref') || 'DepartmentRef enviado en JournalEntry a QBO.'}</span>
                 </div>
 
                 {/* Class Assignment */}
@@ -922,7 +922,7 @@ export default function AccountingConfigPage() {
                       <option key={cls} value={cls}>{cls}</option>
                     ))}
                   </select>
-                  <span className="text-[11px] text-slate-400 block">ClassRef asignado a cada línea contable.</span>
+                  <span className="text-[11px] text-slate-400 block">{t('accounting.desc_class_ref') || 'ClassRef asignado a cada línea contable.'}</span>
                 </div>
 
                 {/* Customer Assignment (*-COH) */}
@@ -936,7 +936,7 @@ export default function AccountingConfigPage() {
                     readOnly
                     className="w-full bg-slate-100 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-sm font-mono font-bold text-amber-600 dark:text-amber-400 cursor-not-allowed"
                   />
-                  <span className="text-[11px] text-slate-400 block">EntityRef tipo Customer requerido por QuickBooks para 13200 Undeposited Funds.</span>
+                  <span className="text-[11px] text-slate-400 block">{t('accounting.desc_customer_ref') || 'EntityRef tipo Customer requerido por QuickBooks para 13200 Undeposited Funds.'}</span>
                 </div>
 
                 {/* Bank Account */}
@@ -962,7 +962,7 @@ export default function AccountingConfigPage() {
                       </option>
                     ))}
                   </select>
-                  <span className="text-[11px] text-slate-400 block">Cuenta de banco donde se aplican depósitos de tarjetas y EBT.</span>
+                  <span className="text-[11px] text-slate-400 block">{t('accounting.desc_bank_ref') || 'Cuenta de banco donde se aplican depósitos de tarjetas y EBT.'}</span>
                 </div>
 
               </div>
@@ -970,7 +970,7 @@ export default function AccountingConfigPage() {
               {/* Refresh Lists Action */}
               <div className="p-4 bg-slate-50 dark:bg-slate-900/60 rounded-xl border border-slate-200 dark:border-slate-800 flex items-center justify-between">
                 <div className="text-xs text-slate-600 dark:text-slate-400">
-                  <span className="font-bold text-slate-900 dark:text-white block">Sincronización de Catálogos</span>
+                  <span className="font-bold text-slate-900 dark:text-white block">{t('accounting.sync_catalog_title') || 'Sincronización de Catálogos'}</span>
                   ¿Agregaste una nueva clase o ubicación en QuickBooks Online?
                 </div>
                 <button
@@ -1015,7 +1015,7 @@ export default function AccountingConfigPage() {
                   <table className="w-full text-xs text-left">
                     <thead className="bg-slate-50 dark:bg-slate-900/60 border-b border-slate-200 dark:border-slate-800 font-bold text-slate-600 dark:text-slate-400">
                       <tr>
-                        <th className="px-4 py-2.5">Toast Dining Option</th>
+                        <th className="px-4 py-2.5">{t('accounting.th_toast_dining_option') || 'Toast Dining Option'}</th>
                         <th className="px-4 py-2.5">{t('accounting.th_target_account') || 'Cuenta Contable (GL)'}</th>
                         <th className="px-4 py-2.5">{t('accounting.th_class_override') || 'Clase Override'}</th>
                         <th className="px-4 py-2.5">{t('accounting.th_alt_memo') || 'Memo Alternativo'}</th>
@@ -1078,10 +1078,10 @@ export default function AccountingConfigPage() {
                   <table className="w-full text-xs text-left">
                     <thead className="bg-slate-50 dark:bg-slate-900/60 border-b border-slate-200 dark:border-slate-800 font-bold text-slate-600 dark:text-slate-400">
                       <tr>
-                        <th className="px-4 py-2.5">Toast Service Charge</th>
-                        <th className="px-4 py-2.5">Target Account</th>
-                        <th className="px-4 py-2.5">Class Override</th>
-                        <th className="px-4 py-2.5">Alternate Memo</th>
+                        <th className="px-4 py-2.5">{t('accounting.th_toast_service_charge') || 'Toast Service Charge'}</th>
+                        <th className="px-4 py-2.5">{t('accounting.th_target_account') || 'Target Account'}</th>
+                        <th className="px-4 py-2.5">{t('accounting.th_class_override') || 'Class Override'}</th>
+                        <th className="px-4 py-2.5">{t('accounting.th_alt_memo') || 'Alternate Memo'}</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 dark:divide-slate-800">

@@ -210,25 +210,26 @@ export function generateJournalLines(salesData: SalesPacketData, siteMapping: Si
   totalDebits = round(totalDebits);
   totalCredits = round(totalCredits);
 
-  // Penny plug: If there is a 1-cent rounding difference between debits and credits,
-  // balance it via cashOverShortAcct so QuickBooks Online never rejects with "unbalanced journal"
+  // Penny plug: If there is a small rounding difference (up to 5 cents) between debits and credits
+  // caused by sum of individually rounded items, balance it via cashOverShortAcct so QuickBooks Online
+  // never rejects with "unbalanced journal"
   const pennyDiff = round(totalDebits - totalCredits);
-  if (Math.abs(pennyDiff) === 0.01) {
+  if (Math.abs(pennyDiff) > 0 && Math.abs(pennyDiff) <= 0.05) {
     const cashOverShortLine = lines.find(l => l.account === cashOverShortAcct);
     if (cashOverShortLine) {
       if (pennyDiff > 0) {
-        if (cashOverShortLine.credit > 0) cashOverShortLine.credit = round(cashOverShortLine.credit + 0.01);
-        else if (cashOverShortLine.debit > 0) cashOverShortLine.debit = round(cashOverShortLine.debit - 0.01);
+        // Debits exceed credits: add difference to credit
+        cashOverShortLine.credit = round(cashOverShortLine.credit + pennyDiff);
       } else {
-        if (cashOverShortLine.debit > 0) cashOverShortLine.debit = round(cashOverShortLine.debit + 0.01);
-        else if (cashOverShortLine.credit > 0) cashOverShortLine.credit = round(cashOverShortLine.credit - 0.01);
+        // Credits exceed debits: add difference to debit
+        cashOverShortLine.debit = round(cashOverShortLine.debit + Math.abs(pennyDiff));
       }
     } else {
       lines.push({
         account: cashOverShortAcct,
         memo: 'Cash Over/(Short)',
-        debit: pennyDiff < 0 ? 0.01 : 0,
-        credit: pennyDiff > 0 ? 0.01 : 0,
+        debit: pennyDiff < 0 ? Math.abs(pennyDiff) : 0,
+        credit: pennyDiff > 0 ? pennyDiff : 0,
         sourceMemo: 'Penny Rounding Balancing',
         location: siteMapping.location,
         className: siteMapping.className,

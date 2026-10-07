@@ -80,14 +80,16 @@ export function isValidAnnouncementRequest(text: string | null | undefined, lang
  * Normaliza acentos diacríticos (NFD) para que "Raúl", "RAÚL", "Raul", "raùl" se conviertan a "raul"
  * y sean interceptados sin importar mayúsculas, minúsculas, diacríticos o nombres de proveedor.
  */
-export function isForbiddenRaulVoice(voiceName: string | null | undefined): boolean {
-  if (!voiceName) return false
-  const normalized = voiceName.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+export function isForbiddenRaulVoice(voiceName: string | null | undefined, voiceURI?: string | null): boolean {
+  if (!voiceName && !voiceURI) return false
+  const target = `${voiceName || ''} ${voiceURI || ''}`.trim()
+  if (!target) return false
+  const normalized = target.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
   return (
     normalized.includes('raul') ||
-    /ra[uú]l/i.test(voiceName) ||
-    /microsoft ra[uú]l/i.test(voiceName) ||
-    /es-mx-ra[uú]l/i.test(voiceName)
+    /ra[uú]l/i.test(target) ||
+    /microsoft ra[uú]l/i.test(target) ||
+    /es-mx-ra[uú]l/i.test(target)
   )
 }
 

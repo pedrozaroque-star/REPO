@@ -166,7 +166,7 @@ export default function AccountingPage() {
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Failed to generate entries')
-      setSuccessMessage(`${t('accounting.alert_generate_success') || 'Pólizas generadas exitosamente'}: ${data.generated || 0} ${language === 'en' ? `entries processed for week (${startDateStr} to ${endDateStr})` : `pólizas procesadas para la semana (${startDateStr} al ${endDateStr})`}`)
+      setSuccessMessage(`${t('accounting.alert_generate_success') || 'Pólizas generadas exitosamente'}: ${data.generated || 0} ${(t('accounting.entries_processed_week') || 'pólizas procesadas para la semana ({start} al {end})').replace('{start}', startDateStr).replace('{end}', endDateStr)}`)
       await loadData()
     } catch (err: any) {
       console.error(err)
@@ -189,7 +189,7 @@ export default function AccountingPage() {
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Failed to generate entries')
-      setSuccessMessage(`${t('accounting.alert_generate_success') || 'Pólizas generadas exitosamente'}: ${data.generated || 0} ${language === 'en' ? `entries processed for ${dateStr}` : `pólizas procesadas para el ${dateStr}`}`)
+      setSuccessMessage(`${t('accounting.alert_generate_success') || 'Pólizas generadas exitosamente'}: ${data.generated || 0} ${(t('accounting.entries_processed_date') || 'pólizas procesadas para el {date}').replace('{date}', dateStr)}`)
       await loadData()
     } catch (err: any) {
       console.error(err)
@@ -240,7 +240,7 @@ export default function AccountingPage() {
             onClick={handleGenerate}
             disabled={isGenerating || isLoading}
             className="bg-slate-900 hover:bg-slate-800 dark:bg-slate-700 dark:hover:bg-slate-600 text-white rounded-xl px-4 py-2.5 text-sm font-bold transition-all disabled:opacity-50 flex items-center shadow-sm"
-            title={language === 'en' ? `Generate entries for week ${startDateStr} to ${endDateStr}` : `Generar pólizas para la semana del ${startDateStr} al ${endDateStr}`}
+            title={(t('accounting.btn_generate_week_tooltip') || 'Generar pólizas para la semana del {startDate} al {endDate}').replace('{startDate}', startDateStr).replace('{endDate}', endDateStr)}
           >
             {isGenerating ? <Loader2 className="w-4 h-4 mr-2 animate-spin text-blue-400" /> : <Sparkles className="w-4 h-4 mr-2 text-blue-400" />}
             {t('accounting.btn_generate') || 'Generar Pólizas'}
@@ -268,7 +268,7 @@ export default function AccountingPage() {
         {/* Toolbar */}
         <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50/70 dark:bg-slate-900/50">
           <div className="flex items-center gap-3">
-            <button onClick={handlePrevWeek} className="p-2 hover:bg-white dark:hover:bg-slate-800 rounded-xl transition-all border border-slate-200 dark:border-slate-700 shadow-sm" title={language === 'en' ? 'Previous week' : 'Semana anterior'}>
+            <button onClick={handlePrevWeek} className="p-2 hover:bg-white dark:hover:bg-slate-800 rounded-xl transition-all border border-slate-200 dark:border-slate-700 shadow-sm" title={t('accounting.prev_week') || 'Semana anterior'}>
               <ChevronLeft className="w-5 h-5 text-slate-700 dark:text-slate-300" />
             </button>
             <span className="font-bold text-base px-2 text-slate-800 dark:text-slate-200">
@@ -276,7 +276,7 @@ export default function AccountingPage() {
               {' — '}
               {weekDays[6].toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
             </span>
-            <button onClick={handleNextWeek} className="p-2 hover:bg-white dark:hover:bg-slate-800 rounded-xl transition-all border border-slate-200 dark:border-slate-700 shadow-sm" title={language === 'en' ? 'Next week' : 'Semana siguiente'}>
+            <button onClick={handleNextWeek} className="p-2 hover:bg-white dark:hover:bg-slate-800 rounded-xl transition-all border border-slate-200 dark:border-slate-700 shadow-sm" title={t('accounting.next_week') || 'Semana siguiente'}>
               <ChevronRight className="w-5 h-5 text-slate-700 dark:text-slate-300" />
             </button>
           </div>
@@ -346,10 +346,10 @@ export default function AccountingPage() {
                                 <div 
                                   className={`inline-flex flex-col items-center justify-center px-3 py-1.5 text-xs rounded-xl cursor-pointer transition-all hover:scale-105 relative ${STATUS_STYLES[displayStatus] || STATUS_STYLES.pending}`}
                                   title={hasOpenOrders 
-                                    ? `⚠️ ${validation.openOrdersCount} Órdenes Abiertas en Toast POS` 
+                                    ? `⚠️ ${validation.openOrdersCount} ${t('accounting.label_open_orders') || 'Órdenes Abiertas'}` 
                                     : (hasDiscrepancy 
-                                      ? `⚠️ Reembolso tardío detectado en Toast: Dif $${postPublishDiscrepancy.diffNet}`
-                                      : `Venta Neta: ${formatCurrency(packet.net_sales || 0)}`)}
+                                      ? `⚠️ ${t('accounting.late_refund_detected') || 'Reembolso tardío detectado en Toast POS: Dif'} $${postPublishDiscrepancy.diffNet}`
+                                      : `${t('accounting.col_net_sales') || 'Venta Neta'}: ${formatCurrency(packet.net_sales || 0)}`)}
                                 >
                                   <div className="flex items-center space-x-1 font-extrabold tracking-wide">
                                     {displayStatus === 'ready' && <Clock className="w-3.5 h-3.5" />}
@@ -370,7 +370,7 @@ export default function AccountingPage() {
                                   {hasDiscrepancy && (
                                     <span 
                                       className="absolute -top-1.5 -right-1.5 bg-amber-500 text-slate-950 font-black text-[9px] px-1.5 py-0.5 rounded-full shadow-md animate-bounce"
-                                      title={`Toast POS tiene ventas distintas a QuickBooks: Dif $${postPublishDiscrepancy.diffNet}`}
+                                      title={`${t('accounting.toast_diff_desc') || 'Toast POS tiene ventas distintas a QuickBooks: Dif'} $${postPublishDiscrepancy.diffNet}`}
                                     >
                                       ⚠️ Dif ${postPublishDiscrepancy.diffNet}
                                     </span>
@@ -411,7 +411,7 @@ export default function AccountingPage() {
           <div className="flex items-center gap-4 flex-wrap">
             <span className="font-bold text-slate-800 dark:text-slate-200">{t('accounting.legend_title') || 'Estados:'}</span>
             <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-slate-400"></span> {t('accounting.status_pending') || 'Pendiente'}</span>
-            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-blue-500"></span> {t('accounting.status_ready') || 'Listo (Calculado)'}</span>
+            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-blue-500"></span> {t('accounting.status_ready_calculated') || 'Listo (Calculado)'}</span>
             <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-amber-500"></span> {t('accounting.status_open_orders') || 'Órdenes Abiertas'}</span>
             <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-yellow-500"></span> {t('accounting.status_reviewed') || 'Revisado'}</span>
             <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span> {t('accounting.status_published') || 'Publicado'}</span>

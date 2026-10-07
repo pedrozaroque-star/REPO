@@ -269,11 +269,13 @@ export async function fetchToastAccountingData(
         .reduce((sum: number, p: any) => sum + (Number(p.amount) || 0), 0)
       const expectedTotal = Number(check.totalAmount ?? check.amount ?? 0)
       const diff = Math.abs(expectedTotal - paymentsTotal)
-
-      if (diff > 0.05 && check.paymentStatus !== 'CLOSED') {
+      const isCheckOutOfBalance = diff > 0.05 && (check.paymentStatus === 'CLOSED' || paymentsTotal > 0)
+      if (isCheckOutOfBalance) {
+        orderIsOpen = true
         outOfBalanceOrdersCount++
         checkIssues.push(`Desbalanceada: Esperado $${expectedTotal.toFixed(2)}, Pagado $${paymentsTotal.toFixed(2)}`)
       } else if (isCheckOpen) {
+        orderIsOpen = true
         checkIssues.push(`Check sin cerrar (Estado: ${check.paymentStatus || 'OPEN'})`)
       }
     }

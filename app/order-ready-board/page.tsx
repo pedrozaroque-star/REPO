@@ -451,9 +451,24 @@ function OrderReadyBoardContent() {
 
   const handleStoreChange = (storeCode: string) => {
     setSelectedStore(storeCode)
-    // Limpiar cola de audio para que órdenes de la tienda anterior no sigan sonando
+    // Limpiar cola de audio y cancelar cualquier síntesis activa para que órdenes de la tienda anterior no sigan sonando
     audioQueueRef.current = []
     activeStoreRef.current = null
+    currentlyPlayingOrderRef.current = null
+    isPlayingRef.current = false
+    setActiveSpeech(null)
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      try {
+        window.speechSynthesis.cancel()
+      } catch {}
+    }
+    // Cancelar recordatorios pendientes de la tienda previa
+    reminderTimersRef.current.forEach((timer) => clearTimeout(timer))
+    reminderTimersRef.current.clear()
+    remindedOrderIdsRef.current.clear()
+    setReadyOrders([])
+    setInProgressOrders([])
+
     if (typeof window !== 'undefined') {
       localStorage.setItem('teg_order_ready_store', storeCode)
       const url = new URL(window.location.href)
@@ -483,11 +498,11 @@ function OrderReadyBoardContent() {
       })
       const data = await res.json()
       if (!res.ok || !data.success) {
-        throw new Error(data.error || 'Error al guardar la voz global')
+        throw new Error(data.error || t('orderReadyBoard.voice_save_error'))
       }
     } catch (err: any) {
       console.error('Error saving global voice:', err)
-      alert(err.message || 'Error al actualizar la voz global')
+      alert(err.message || t('orderReadyBoard.voice_update_error'))
       fetchGlobalSettings()
     } finally {
       setIsSavingVoice(false)
@@ -590,6 +605,9 @@ function OrderReadyBoardContent() {
   const audioCtxRef = useRef<AudioContext | null>(null)
   const audioQueueRef = useRef<OrderItem[]>([])
   const isPlayingRef = useRef<boolean>(false)
+  const currentlyPlayingOrderRef = useRef<OrderItem | null>(null)
+  const lastImpulseTimeRef = useRef<Map<string, number>>(new Map())
+  const remindedOrderIdsRef = useRef<Set<string>>(new Set())
   // Ids ya encolados/anunciados en este dispositivo (evita repetir el anuncio mientras el PATCH aún no llega)
   const announcedIdsRef = useRef<Set<string>>(new Set())
   const readyIdsRef = useRef<Set<string>>(new Set())
@@ -677,7 +695,7 @@ function OrderReadyBoardContent() {
 
   // Función para sintetizar un Chime de alta fidelidad tipo campanilla ("Ding-Dong")
   const playChime = useCallback((): Promise<void> => {
-    return new Promise((resolve) => {
+    return new Promise(async (resolve) => {
       try {
         if (!audioCtxRef.current) {
           unlockAudio()
@@ -689,11 +707,7 @@ function OrderReadyBoardContent() {
         }
         // Tras horas de inactividad el navegador puede suspender el AudioContext: reintentar reanudarlo
         if (ctx.state === 'suspended') {
-          ctx.resume().catch(() => {})
-          if (ctx.state === 'suspended') {
-            resolve()
-            return
-          }
+          await ctx.resume().catch(() => {})
         }
 
         const now = ctx.currentTime
@@ -809,7 +823,22 @@ function OrderReadyBoardContent() {
   // PROHIBICIÓN ESTRICTA: RAÚL NUNCA DEBE HABLAR BAJO NINGUNA CIRCUNSTANCIA.
   const speakOrderBrowser = useCallback(
     (order: OrderItem, voiceId: VoiceId = selectedVoice): Promise<void> => {
-      return new Promise((resolve) => {
+      return new Promise((originalResolve) => {
+        let settled = false
+        const resolve = () => {
+          if (!settled) {
+            settled = true
+            clearTimeout(watchdogTimer)
+            originalResolve()
+          }
+        }
+        // Watchdog de seguridad de 15 segundos: garantiza que la cola nunca quede congelada si el navegador no dispara onend/onerror
+        const watchdogTimer = setTimeout(() => {
+          console.warn('[order-ready] speakOrderBrowser watchdog timeout alcanzado (15s), liberando cola.')
+          setActiveSpeech(null)
+          resolve()
+        }, 15000)
+
         if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
           resolve()
           return
@@ -963,7 +992,9 @@ function OrderReadyBoardContent() {
 
     const job = (async (): Promise<string | null> => {
       try {
-        const res = await fetch(`/api/order-ready/tts?n=${num}&lang=${lang}&voice=${voice}`)
+        const res = await fetch(`/api/order-ready/tts?n=${num}&lang=${lang}&voice=${voice}`, {
+          signal: AbortSignal.timeout(6000)
+        })
         if (!res.ok) throw new Error('tts ' + res.status)
         return URL.createObjectURL(await res.blob())
       } catch (e) {
@@ -1068,72 +1099,75 @@ function OrderReadyBoardContent() {
     isPlayingRef.current = true
     const nextOrder = audioQueueRef.current.shift()
 
-    if (nextOrder) {
-      if (nextOrder._manualReplay || nextOrder._fromTablet) {
-        setReplayingId(nextOrder.id)
-      }
-
-      try {
-        // Descargar los clips mientras suena la campanilla (si ya están precargados es inmediato)
-        if (/^\d{1,4}$/.test(nextOrder.order_number)) {
-          const num = String(parseInt(nextOrder.order_number, 10))
-          clipLangs().forEach((l) => { void getClipUrl(l, num, selectedVoice) })
+    try {
+      if (nextOrder) {
+        currentlyPlayingOrderRef.current = nextOrder
+        if (nextOrder._manualReplay || nextOrder._fromTablet) {
+          setReplayingId(nextOrder.id)
         }
 
-        // 1. Tocar campanilla Ding-Dong si está habilitada
-        if (enableChime) {
-          await playChime()
-          await new Promise((r) => setTimeout(r, 150))
-        }
-
-        // 2. Anunciar con la voz seleccionada:
-        // Si es recordatorio, manual o desde tableta -> 1 repetición.
-        // Si es anuncio inicial automático -> ANNOUNCE_REPEATS (2 veces).
-        const repeats = nextOrder._repeats || (nextOrder._reminder || nextOrder._manualReplay || nextOrder._fromTablet ? 1 : ANNOUNCE_REPEATS)
-        await speakOrder(nextOrder, repeats, selectedVoice)
-
-        // 3. Marcar como anunciada en backend SOLO para el anuncio automático inicial
-        if (!nextOrder._manualReplay && !nextOrder._fromTablet && !nextOrder._reminder) {
-          try {
-            await fetch('/api/order-ready/orders', {
-              method: 'PATCH',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ id: nextOrder.id, announced: true })
-            })
-          } catch (e) {
-            console.warn('Error marking announced:', e)
+        try {
+          // Descargar los clips mientras suena la campanilla (si ya están precargados es inmediato)
+          if (/^\d{1,4}$/.test(nextOrder.order_number)) {
+            const num = String(parseInt(nextOrder.order_number, 10))
+            clipLangs().forEach((l) => { void getClipUrl(l, num, selectedVoice) })
           }
 
-          // 4. Programar UN solo recordatorio si la orden sigue en "Listo para recoger".
-          const currentDelaySec = reminderSecondsRef.current
-          if (currentDelaySec > 0) {
-            const orderId = nextOrder.id
-            const timer = setTimeout(() => {
-              reminderTimersRef.current.delete(timer)
-              if (!readyIdsRef.current.has(orderId)) return
-              const latest = nextOrder
-              enqueueReminderRef.current?.({ ...latest, _reminder: true, _sortAt: Date.now() })
-            }, currentDelaySec * 1000)
-            reminderTimersRef.current.add(timer)
+          // 1. Tocar campanilla Ding-Dong si está habilitada
+          if (enableChime) {
+            await playChime()
+            await new Promise((r) => setTimeout(r, 150))
           }
+
+          // 2. Anunciar con la voz seleccionada:
+          // Si es recordatorio, manual o desde tableta -> 1 repetición.
+          // Si es anuncio inicial automático -> ANNOUNCE_REPEATS (2 veces).
+          const repeats = nextOrder._repeats || (nextOrder._reminder || nextOrder._manualReplay || nextOrder._fromTablet ? 1 : ANNOUNCE_REPEATS)
+          await speakOrder(nextOrder, repeats, selectedVoice)
+
+          // 3. Marcar como anunciada en backend SOLO para el anuncio automático inicial
+          if (!nextOrder._manualReplay && !nextOrder._fromTablet && !nextOrder._reminder) {
+            try {
+              await fetch('/api/order-ready/orders', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id: nextOrder.id, announced: true })
+              })
+            } catch (e) {
+              console.warn('Error marking announced:', e)
+            }
+
+            // 4. Programar UN solo recordatorio si la orden sigue en "Listo para recoger".
+            const currentDelaySec = reminderSecondsRef.current
+            if (currentDelaySec > 0 && !remindedOrderIdsRef.current.has(nextOrder.id)) {
+              remindedOrderIdsRef.current.add(nextOrder.id)
+              const orderId = nextOrder.id
+              const timer = setTimeout(() => {
+                reminderTimersRef.current.delete(timer)
+                if (reminderSecondsRef.current <= 0) return
+                if (!readyIdsRef.current.has(orderId)) return
+                const latest = nextOrder
+                enqueueReminderRef.current?.({ ...latest, _reminder: true, _sortAt: Date.now() })
+              }, currentDelaySec * 1000)
+              reminderTimersRef.current.add(timer)
+            }
+          }
+        } catch (e) {
+          // Un error de audio NUNCA debe congelar la cola: se registra y se sigue con la siguiente
+          console.warn('Error announcing order:', e)
+          setActiveSpeech(null)
         }
-      } catch (e) {
-        // Un error de audio NUNCA debe congelar la cola: se registra y se sigue con la siguiente
-        console.warn('Error announcing order:', e)
-        setActiveSpeech(null)
-      } finally {
-        setReplayingId(null)
       }
-    }
-
-    // Breve pausa acústica (400ms) entre órdenes para que el comensal distinga un llamado de otro sin encimarse
-    await new Promise((r) => setTimeout(r, 400))
-
-    isPlayingRef.current = false
-
-    // Continuar procesando si hay más órdenes en la cola
-    if (audioQueueRef.current.length > 0) {
-      processAudioQueue()
+    } finally {
+      currentlyPlayingOrderRef.current = null
+      setReplayingId(null)
+      // Breve pausa acústica (400ms) entre órdenes para que el comensal distinga un llamado de otro sin encimarse
+      await new Promise((r) => setTimeout(r, 400))
+      isPlayingRef.current = false
+      // Continuar procesando si hay más órdenes en la cola
+      if (audioQueueRef.current.length > 0) {
+        processAudioQueue()
+      }
     }
   }, [isMuted, enableChime, playChime, speakOrder, clipLangs, getClipUrl, selectedVoice])
 
@@ -1194,9 +1228,7 @@ function OrderReadyBoardContent() {
       // Si una orden se está anunciando en este instante o hay órdenes en cola, reprogramar en 6 segundos
       if (isPlayingRef.current || audioQueueRef.current.length > 0) {
         setTimeout(() => {
-          if (!isPlayingRef.current && audioQueueRef.current.length === 0) {
-            playCustomAnnouncement(textToPlay)
-          }
+          playCustomAnnouncement(textToPlay)
         }, 6000)
         return
       }
@@ -1221,7 +1253,7 @@ function OrderReadyBoardContent() {
 
         let playedOk = false
         try {
-          const res = await fetch(ttsUrl)
+          const res = await fetch(ttsUrl, { signal: AbortSignal.timeout(10000) })
           if (res.ok) {
             const blob = await res.blob()
             const blobUrl = URL.createObjectURL(blob)
@@ -1465,12 +1497,12 @@ function OrderReadyBoardContent() {
 
   // Polling cada 4 segundos + Carga inicial
   useEffect(() => {
-    fetchOrders(false)
+    fetchOrdersRef.current?.(false)
     const interval = setInterval(() => {
-      fetchOrders(false)
+      fetchOrdersRef.current?.(false)
     }, 4000)
     return () => clearInterval(interval)
-  }, [fetchOrders])
+  }, [selectedStore])
 
   // Precargar la voz de las órdenes en preparación (las más antiguas primero) para que el anuncio sea instantáneo
   useEffect(() => {
@@ -1505,7 +1537,7 @@ function OrderReadyBoardContent() {
         (payload) => {
           const row = (payload.new || payload.old) as OrderItem
           if (row && row.store_code === selectedStore) {
-            fetchOrders(false)
+            fetchOrdersRef.current?.(false)
           }
         }
       )
@@ -1541,7 +1573,7 @@ function OrderReadyBoardContent() {
     return () => {
       supabase.removeChannel(channel)
     }
-  }, [selectedStore, fetchOrders])
+  }, [selectedStore])
 
   // Probar campanilla Ding-Dong y voz natural con la voz seleccionada
   const handleTestSound = async (voiceToTest?: VoiceId) => {
@@ -1640,10 +1672,7 @@ function OrderReadyBoardContent() {
           ? {
               ...prev,
               loading: false,
-              error:
-                language === 'es'
-                  ? 'No se encontró el identificador GUID de la orden en Toast'
-                  : 'Order GUID identifier not found in Toast POS'
+              error: t('orderReadyBoard.guid_not_found')
             }
           : null
       )
@@ -1662,7 +1691,7 @@ function OrderReadyBoardContent() {
       .catch(err => {
         setOrderDetailData(prev => (prev ? { ...prev, loading: false, error: err.message } : null))
       })
-  }, [language, selectedStore])
+  }, [t, selectedStore])
 
   // Re-anunciar orden manualmente a solicitud del usuario desde la columna LISTAS PARA RECOGER
   // Regla de Negocio Tacos Gavilan: Encolar de manera unificada para esperar su turno si ya hay otro audio sonando
@@ -1692,9 +1721,25 @@ function OrderReadyBoardContent() {
     (data: { order_id?: string; order_number: string; store_code: string; dining_option?: string; store_name?: string }) => {
       unlockAudio()
 
+      const now = Date.now()
+      const orderNumStr = String(data.order_number)
+
+      // 1. Debounce acústico de 6 segundos por orden para evitar ráfagas dobles de websocket o dobles clics
+      const lastCallTime = lastImpulseTimeRef.current.get(orderNumStr) || 0
+      if (now - lastCallTime < 6000) {
+        console.log(`[OrderReadyBoard] Impulso ignorado por debounce (<6s) para orden #${orderNumStr}`)
+        return
+      }
+
+      // 2. Si la orden está sonando activamente en este instante en el altavoz, evitar duplicar el llamado
+      if (currentlyPlayingOrderRef.current && String(currentlyPlayingOrderRef.current.order_number) === orderNumStr) {
+        console.log(`[OrderReadyBoard] Orden #${orderNumStr} ya está sonando en este instante`)
+        return
+      }
+
       // Buscar la orden en el listado actual en memoria o construir un objeto representativo
       const found = readyOrdersRef.current.find(
-        (o) => (data.order_id && o.id === data.order_id) || String(o.order_number) === String(data.order_number)
+        (o) => (data.order_id && o.id === data.order_id) || String(o.order_number) === orderNumStr
       )
 
       const targetOrder: OrderItem = found || {
@@ -1702,7 +1747,7 @@ function OrderReadyBoardContent() {
         created_at: new Date().toISOString(),
         store_code: data.store_code,
         store_name: data.store_name || data.store_code,
-        order_number: String(data.order_number),
+        order_number: orderNumStr,
         dining_option: (data.dining_option as any) || 'TOGO',
         customer_name: null,
         status: 'READY',
@@ -1718,9 +1763,10 @@ function OrderReadyBoardContent() {
       }, 7000)
 
       const alreadyInQueue = audioQueueRef.current.some(
-        (item) => item.id === targetOrder.id || (item.order_number === targetOrder.order_number && (item._fromTablet || item._manualReplay))
+        (item) => item.id === targetOrder.id || (String(item.order_number) === orderNumStr && (item._fromTablet || item._manualReplay))
       )
       if (!alreadyInQueue) {
+        lastImpulseTimeRef.current.set(orderNumStr, now)
         const impulseItem: OrderItem = {
           ...targetOrder,
           _fromTablet: true,
@@ -1879,7 +1925,7 @@ function OrderReadyBoardContent() {
                   >
                     {AVAILABLE_VOICES.map((v) => (
                       <option key={v.id} value={v.id} className={isDark ? 'bg-slate-900 text-white font-medium' : 'bg-white text-slate-900 font-medium'}>
-                        {v.gender === 'female' ? '👩' : '👨'} {v.name} ({v.gender === 'female' ? (language === 'es' ? 'Femenina' : 'Female') : (language === 'es' ? 'Masculina' : 'Male')})
+                        {v.gender === 'female' ? '👩' : '👨'} {v.name} ({v.gender === 'female' ? t('orderReadyBoard.voice_female_label') : t('orderReadyBoard.voice_male_label')})
                       </option>
                     ))}
                   </select>
@@ -1898,7 +1944,7 @@ function OrderReadyBoardContent() {
                   <span className={`text-[9px] uppercase tracking-wider font-extrabold px-1 py-0.5 rounded ${
                     isDark ? 'text-slate-400 bg-slate-700/50' : 'text-slate-600 bg-slate-200'
                   }`}>
-                    {language === 'es' ? 'Cadena' : 'Global'}
+                    {t('orderReadyBoard.scope_global_badge')}
                   </span>
                 </div>
               )}
@@ -2253,7 +2299,7 @@ function OrderReadyBoardContent() {
                                 ? isDark ? 'bg-purple-500/20 text-purple-300' : 'bg-purple-100 text-purple-800'
                                 : isDark ? 'bg-blue-500/20 text-blue-300' : 'bg-blue-100 text-blue-800'
                         }`}>
-                          {v.gender === 'female' ? 'Fem' : (language === 'es' ? 'Masc' : 'Male')}
+                          {v.gender === 'female' ? t('orderReadyBoard.gender_fem_short') : t('orderReadyBoard.gender_masc_short')}
                         </span>
                       </button>
                     )
@@ -2294,7 +2340,7 @@ function OrderReadyBoardContent() {
                             : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200'
                       }`}
                     >
-                      {langOption === 'es' ? 'ES' : langOption === 'en' ? 'EN' : (language === 'es' ? 'Bilingüe' : 'Bilingual')}
+                      {langOption === 'es' ? 'ES' : langOption === 'en' ? 'EN' : t('orderReadyBoard.voice_bilingual_short')}
                     </button>
                   ))}
                 </div>
@@ -2511,7 +2557,7 @@ function OrderReadyBoardContent() {
                     }`}
                   >
                     <ShoppingBag className="w-3.5 h-3.5" />
-                    + Togo
+                    + {t('orderReadyBoard.to_go')}
                   </button>
                   <button
                     type="button"
@@ -2523,7 +2569,7 @@ function OrderReadyBoardContent() {
                     }`}
                   >
                     <Utensils className="w-3.5 h-3.5" />
-                    + Dine-In
+                    + {t('orderReadyBoard.for_here')}
                   </button>
                 </div>
               </div>
@@ -2776,9 +2822,11 @@ function OrderReadyBoardContent() {
         })
 
         return (
-          <main className="flex-1 p-6 md:p-8 grid grid-cols-1 md:grid-cols-2 gap-8 max-w-7xl mx-auto w-full">
+          <main className={`flex-1 p-6 md:p-8 grid grid-cols-1 md:grid-cols-2 gap-8 w-full min-h-0 ${
+            isFullscreen ? 'max-w-full px-8 xl:px-12' : 'max-w-7xl mx-auto'
+          }`}>
             {/* COLUMNA IZQUIERDA: LISTAS PARA RECOGER (READY) */}
-            <section className={`flex flex-col rounded-3xl p-6 relative overflow-hidden backdrop-blur ${
+            <section className={`flex flex-col rounded-3xl p-6 relative overflow-hidden backdrop-blur min-h-0 ${
               isDark
                 ? 'bg-slate-900/60 border-2 border-emerald-500/50 shadow-2xl'
                 : 'bg-white border-2 border-emerald-500 shadow-xl'
@@ -2810,10 +2858,10 @@ function OrderReadyBoardContent() {
                     <p className={`text-xs font-medium flex items-center gap-1.5 mt-0.5 ${
                       isDark ? 'text-emerald-300/70' : 'text-emerald-700'
                     }`}>
-                      <span>{language === 'es' ? 'Pasa al mostrador con tu ticket' : 'Please proceed to the counter'}</span>
+                      <span>{t('orderReadyBoard.proceed_to_counter')}</span>
                       <span className={isDark ? 'text-slate-600' : 'text-slate-400'}>•</span>
                       <span className={`text-[11px] ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-                        {language === 'es' ? `(Se retiran tras ${readyRetentionMinutes} min)` : `(Clears after ${readyRetentionMinutes} mins)`}
+                        {t('orderReadyBoard.retention_note_dynamic').replace('{mins}', String(readyRetentionMinutes))}
                       </span>
                     </p>
                   </div>
@@ -2822,7 +2870,7 @@ function OrderReadyBoardContent() {
               </div>
 
               {/* Tarjetas de Órdenes Listas */}
-              <div className="flex-1 mt-6 overflow-y-auto space-y-4 pr-1 relative z-10">
+              <div className="flex-1 mt-6 overflow-y-auto space-y-4 pr-1 relative z-10 min-h-0">
                 {displayedReadyOrders.length === 0 ? (
                   <div className={`h-64 flex flex-col items-center justify-center text-center ${
                     isDark ? 'text-slate-500' : 'text-slate-400'
@@ -2830,7 +2878,7 @@ function OrderReadyBoardContent() {
                     <CheckCircle2 className={`w-12 h-12 mb-3 ${isDark ? 'text-slate-700' : 'text-slate-300'}`} />
                     <p className={`text-lg font-semibold ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>{t('orderReadyBoard.no_orders_ready')}</p>
                     <p className="text-xs text-emerald-600 font-medium mt-1">
-                      {STORES_LIST.find(s => s.code === selectedStore)?.name || selectedStore} • {language === 'es' ? 'Al dar doble tap en el KDS aparecerán aquí' : 'Orders bumped on KDS will appear here'}
+                      {STORES_LIST.find(s => s.code === selectedStore)?.name || selectedStore} • {t('orderReadyBoard.kds_bump_notice')}
                     </p>
                   </div>
                 ) : (
@@ -2925,7 +2973,7 @@ function OrderReadyBoardContent() {
                               <p className={`text-[11px] font-medium mt-1 ${
                                 isDark ? 'text-emerald-400/80' : 'text-emerald-700'
                               }`}>
-                                {calculateElapsedTime(order.ready_at, language)}
+                                {calculateElapsedTime(order.ready_at, t)}
                               </p>
                             )}
                           </div>
@@ -2968,7 +3016,7 @@ function OrderReadyBoardContent() {
             </section>
 
             {/* COLUMNA DERECHA: EN PREPARACIÓN (IN PROGRESS) */}
-            <section className={`flex flex-col rounded-3xl p-6 backdrop-blur relative ${
+            <section className={`flex flex-col rounded-3xl p-6 backdrop-blur relative min-h-0 ${
               isDark
                 ? 'bg-slate-900/40 border border-slate-800 shadow-xl'
                 : 'bg-white border border-slate-200 shadow-lg'
@@ -2995,14 +3043,14 @@ function OrderReadyBoardContent() {
                       </span>
                     </h2>
                     <p className={`text-xs font-medium ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-                      {language === 'es' ? 'Preparando con ingredientes frescos' : 'Preparing fresh on the grill'}
+                      {t('orderReadyBoard.preparing_fresh')}
                     </p>
                   </div>
                 </div>
               </div>
 
               {/* Tarjetas de Órdenes en Preparación */}
-              <div className="flex-1 mt-6 overflow-y-auto space-y-3.5 pr-1">
+              <div className="flex-1 mt-6 overflow-y-auto space-y-3.5 pr-1 min-h-0">
                 {displayedInProgressOrders.length === 0 ? (
                   <div className={`h-64 flex flex-col items-center justify-center text-center ${
                     isDark ? 'text-slate-500' : 'text-slate-400'
@@ -3010,7 +3058,7 @@ function OrderReadyBoardContent() {
                     <Clock className={`w-12 h-12 mb-3 ${isDark ? 'text-slate-700' : 'text-slate-300'}`} />
                     <p className={`text-lg font-semibold ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>{t('orderReadyBoard.no_orders_in_progress')}</p>
                     <p className="text-xs text-slate-400 font-medium mt-1">
-                      {STORES_LIST.find(s => s.code === selectedStore)?.name || selectedStore} • {language === 'es' ? 'La cocina está al día' : 'The kitchen is caught up'}
+                      {STORES_LIST.find(s => s.code === selectedStore)?.name || selectedStore} • {t('orderReadyBoard.kitchen_caught_up')}
                     </p>
                   </div>
                 ) : (
@@ -3164,7 +3212,7 @@ function OrderReadyBoardContent() {
                       {t('orderReadyBoard.receipt_store')}{' '}
                       {orderDetailData.storeName || orderDetailData.data.restaurantService?.name || 'TACOS GAVILAN'}
                     </div>
-                    <div>{orderDetailData.data.diningOption?.name || 'Para Llevar / Dine In'}</div>
+                    <div>{orderDetailData.data.diningOption?.name || t('orderReadyBoard.receipt_dining_fallback')}</div>
                     <div>
                       {orderDetailData.data.openedDate
                         ? new Date(orderDetailData.data.openedDate).toLocaleString('en-US', {
@@ -3215,7 +3263,7 @@ function OrderReadyBoardContent() {
                                       key={`expl-${j}`}
                                       className="text-amber-700 text-[10px] ml-4 font-bold border-l-2 border-amber-400 pl-1 mt-0.5"
                                     >
-                                      ↳ DESC: {d.name} (-$
+                                      ↳ {t('orderReadyBoard.receipt_discount_abbr')} {d.name} (-$
                                       {Number(d.discountAmount).toLocaleString('en-US', {
                                         minimumFractionDigits: 2,
                                         maximumFractionDigits: 2
@@ -3225,7 +3273,7 @@ function OrderReadyBoardContent() {
                                   ))}
                                   {validDiscounts.length === 0 && inferredDiscount > 0.009 && (
                                     <div className="text-amber-700 text-[10px] ml-4 font-bold border-l-2 border-amber-400 pl-1 mt-0.5">
-                                      ↳ DESC. (-$
+                                      ↳ {t('orderReadyBoard.receipt_discount_abbr')} (-$
                                       {inferredDiscount.toLocaleString('en-US', {
                                         minimumFractionDigits: 2,
                                         maximumFractionDigits: 2
@@ -3259,7 +3307,7 @@ function OrderReadyBoardContent() {
                               key={`chk-${j}`}
                               className="flex justify-between items-start text-[11px] text-amber-700 font-bold bg-amber-50 p-1 -mx-1 rounded"
                             >
-                              <span>REF TICKET: {d.name}</span>
+                              <span>{t('orderReadyBoard.receipt_discount_ticket')} {d.name}</span>
                               <span>
                                 (-$
                                 {Number(d.discountAmount).toLocaleString('en-US', {
@@ -3357,9 +3405,9 @@ function OrderReadyBoardContent() {
                       {orderDetailData.data.checks?.[0]?.payments.map((p: any, pIdx: number) => (
                         <div key={pIdx} className="flex justify-between text-slate-600">
                           <span>
-                            {p.type || 'Pago'}{' '}
-                            {p.originalPaymentStatus && p.originalPaymentStatus !== 'NONE' ? '(Original)' : ''}{' '}
-                            {p.refundStatus && p.refundStatus !== 'NONE' ? '(Reembolsado)' : ''}
+                            {p.type || t('orderReadyBoard.receipt_payment_fallback')}{' '}
+                            {p.originalPaymentStatus && p.originalPaymentStatus !== 'NONE' ? t('orderReadyBoard.receipt_status_original') : ''}{' '}
+                            {p.refundStatus && p.refundStatus !== 'NONE' ? t('orderReadyBoard.receipt_status_refunded') : ''}
                           </span>
                           <span>
                             $
@@ -3394,13 +3442,13 @@ function OrderReadyBoardContent() {
 }
 
 // Helper para calcular tiempo transcurrido
-function calculateElapsedTime(timestamp: string, language: string): string {
+function calculateElapsedTime(timestamp: string, t: (key: any, params?: any) => string): string {
   try {
     const elapsedMinutes = Math.floor((Date.now() - new Date(timestamp).getTime()) / 60000)
     if (elapsedMinutes <= 0) {
-      return language === 'es' ? 'Justo ahora' : 'Just now'
+      return t('orderReadyBoard.just_now')
     }
-    return language === 'es' ? `Hace ${elapsedMinutes} min` : `${elapsedMinutes} min ago`
+    return t('orderReadyBoard.minute_ago').replace('{minutes}', String(elapsedMinutes))
   } catch (e) {
     return ''
   }

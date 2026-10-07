@@ -182,7 +182,10 @@ export async function POST(
     // Resolve Class and Location with official numeric IDs
     const storeRefs = getQBStoreRefs(storeName)
 
-    const qbLines: QBJournalEntryLine[] = journalLines.map((line) => {
+    // Filter out zero amount lines to prevent QBO rejection
+    const activeJournalLines = journalLines.filter((line) => ((line.debit || 0) > 0 || (line.credit || 0) > 0))
+
+    const qbLines: QBJournalEntryLine[] = activeJournalLines.map((line) => {
       const acct = accountMap.get(line.account)!
       const amount = line.debit > 0 ? line.debit : line.credit
       const postingType: 'Debit' | 'Credit' = line.debit > 0 ? 'Debit' : 'Credit'

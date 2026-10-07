@@ -28,12 +28,13 @@ interface CallOrderPayload {
   storeCode: string
   diningOption?: string
   storeName?: string
+  fromClientBroadcast?: boolean
 }
 
 export async function POST(request: Request) {
   try {
     const body: CallOrderPayload = await request.json()
-    const { orderId, orderNumber, storeCode, diningOption, storeName } = body
+    const { orderId, orderNumber, storeCode, diningOption, storeName, fromClientBroadcast } = body
 
     if (!orderNumber || !storeCode) {
       return NextResponse.json(
@@ -59,28 +60,44 @@ export async function POST(request: Request) {
       }
     }
 
-    // 2. Transmitir el impulso por Supabase Realtime a todas las PCs conectadas
-    try {
-      const channel = supabaseAdmin.channel('order-ready-realtime')
-      await channel.subscribe(async (status) => {
-        if (status === 'SUBSCRIBED') {
-          await channel.send({
-            type: 'broadcast',
-            event: 'call_order',
-            payload: {
-              order_id: orderId,
-              order_number: String(orderNumber),
-              store_code: normalizedStoreCode,
-              dining_option: diningOption || 'TOGO',
-              store_name: storeName || normalizedStoreCode,
-              called_at: nowIso
+    // 2. Si el cliente no transmitió directamente por WebSocket, emitir el broadcast desde el servidor
+    if (!fromClientBroadcast) {
+      try {
+        await new Promise<void>((resolve) => {
+          const channel = supabaseAdmin.channel('order-ready-realtime-srv')
+          const timer = setTimeout(() => {
+            supabaseAdmin.removeChannel(channel).catch(() => {})
+            resolve()
+          }, 2000)
+
+          channel.subscribe(async (status) => {
+            if (status === 'SUBSCRIBED') {
+              try {
+                await channel.send({
+                  type: 'broadcast',
+                  event: 'call_order',
+                  payload: {
+                    order_id: orderId,
+                    order_number: String(orderNumber),
+                    store_code: normalizedStoreCode,
+                    dining_option: diningOption || 'TOGO',
+                    store_name: storeName || normalizedStoreCode,
+                    called_at: nowIso
+                  }
+                })
+              } catch (e) {
+                console.warn('Error sending broadcast:', e)
+              } finally {
+                clearTimeout(timer)
+                await supabaseAdmin.removeChannel(channel).catch(() => {})
+                resolve()
+              }
             }
           })
-          await supabaseAdmin.removeChannel(channel)
-        }
-      })
-    } catch (realtimeErr) {
-      console.warn('Advertencia emitiendo broadcast desde servidor:', realtimeErr)
+        })
+      } catch (realtimeErr) {
+        console.warn('Advertencia emitiendo broadcast desde servidor:', realtimeErr)
+      }
     }
 
     return NextResponse.json({

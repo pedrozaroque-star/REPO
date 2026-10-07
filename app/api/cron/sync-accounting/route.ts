@@ -61,7 +61,7 @@ export async function GET(request: Request) {
     const year = parseInt(partMap.year, 10)
     const month = parseInt(partMap.month, 10) - 1
     const day = parseInt(partMap.day, 10)
-    const laHour = parseInt(partMap.hour, 10)
+    const laHour = parseInt(partMap.hour, 10) % 24
 
     // A business day in Toast runs from 6:00 AM to 5:59 AM next calendar day.
     // At 6:15 AM (laHour >= 6), the business day that closed 16 mins ago at 5:59 AM is calendar yesterday (-1).
@@ -129,8 +129,8 @@ export async function GET(request: Request) {
             .eq('business_date', targetDate)
             .maybeSingle()
 
-          // If date is from days -2 to -7 and already published, run post-publish audit
-          if (!isYesterday && existingPacket && existingPacket.status === 'published') {
+          // If packet was already published, run post-publish audit to detect late refunds/adjustments in Toast
+          if (existingPacket && existingPacket.status === 'published') {
             // Fetch live Toast data to check if refunds or adjustments happened post-publishing
             const liveToast = await fetchToastAccountingData(extId, targetDateYMD)
             const publishedNet = Number(existingPacket.net_sales || 0)
@@ -288,7 +288,7 @@ export async function GET(request: Request) {
             marketplace_facilitator_tax: salesPacketData.marketplace_tax,
             facilitator_tax_paid: salesPacketData.tax_paid_by_uber,
             total_taxes: salesPacketData.total_taxes,
-            total_credit_cards_gross: Math.round((salesPacketData.credit_card_deposit + salesPacketData.credit_card_fees) * 100) / 100,
+            total_credit_cards_gross: Math.round((salesPacketData.credit_card_deposit + salesPacketData.credit_card_fees + (salesPacketData.credit_card_other_deductions || 0)) * 100) / 100,
             credit_card_deposit: salesPacketData.credit_card_deposit,
             credit_card_fees: salesPacketData.credit_card_fees,
             uber_payment: salesPacketData.uber_payment,

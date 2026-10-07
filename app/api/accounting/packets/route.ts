@@ -351,7 +351,7 @@ export async function POST(request: NextRequest) {
           marketplace_facilitator_tax: salesPacketData.marketplace_tax,
           facilitator_tax_paid: salesPacketData.tax_paid_by_uber,
           total_taxes: salesPacketData.total_taxes,
-          total_credit_cards_gross: Math.round((salesPacketData.credit_card_deposit + salesPacketData.credit_card_fees) * 100) / 100,
+          total_credit_cards_gross: Math.round((salesPacketData.credit_card_deposit + salesPacketData.credit_card_fees + (salesPacketData.credit_card_other_deductions || 0)) * 100) / 100,
           credit_card_deposit: salesPacketData.credit_card_deposit,
           credit_card_fees: salesPacketData.credit_card_fees,
           uber_payment: salesPacketData.uber_payment,

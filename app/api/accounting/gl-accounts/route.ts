@@ -136,9 +136,13 @@ export async function POST(request: NextRequest) {
         continue
       }
 
-      // Skip inactive accounts
+      // Mark and skip inactive accounts
       if (!qbAcct.Active) {
         skipped.push(`${qbAcct.AcctNum} - ${qbAcct.Name} (inactive)`)
+        await supabaseAdmin
+          .from('accounting_gl_accounts')
+          .update({ is_active: false })
+          .eq('account_number', qbAcct.AcctNum)
         continue
       }
 
