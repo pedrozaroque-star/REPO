@@ -33,7 +33,20 @@ export async function GET() {
       return NextResponse.json({ error: error.message }, { status: 500 })
     }
 
-    return NextResponse.json({ mappings: data || [] })
+    const formatted = (data || []).map((m: any) => ({
+      ...m,
+      discountAccount: m.discount_account ?? '40010',
+      incCustomerReceivables: m.inc_customer_receivables ?? false,
+      addCustomerNameMemo: m.add_customer_name_memo ?? false,
+      addRevenueCenterMemo: m.add_revenue_center_memo ?? false,
+      ccFeeValidation: m.cc_fee_validation ?? 'Warn',
+      checkOpenOrders: m.check_open_orders ?? true,
+      taxFacilitatorEnabled: m.tax_facilitator_enabled ?? true,
+      altMemos: m.alt_memos ?? {},
+      lineClassOverrides: m.line_class_overrides ?? {},
+    }))
+
+    return NextResponse.json({ mappings: formatted })
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 })
   }
@@ -57,6 +70,11 @@ export async function PUT(request: NextRequest) {
       'cc_fees_account', 'undeposited_funds_account', 'cash_over_short_account',
       'gift_card_account', 'open_orders_account', 'cash_on_hand_account',
       'tips_account', 'cogs_account', 'is_active',
+      'discount_account', 'inc_customer_receivables', 'add_customer_name_memo',
+      'add_revenue_center_memo', 'cc_fee_validation', 'check_open_orders',
+      'tax_facilitator_enabled', 'alt_memos', 'line_class_overrides', 'settings_json',
+      'discountAccount', 'incCustomerReceivables', 'addCustomerNameMemo',
+      'addRevenueCenterMemo', 'ccFeeValidation', 'checkOpenOrders',
     ]
 
     const safeUpdate: Record<string, any> = { updated_at: new Date().toISOString() }
@@ -65,6 +83,22 @@ export async function PUT(request: NextRequest) {
         safeUpdate[key] = updateFields[key]
       }
     }
+
+    // Map camelCase workflow settings to snake_case column names if provided
+    if ('discountAccount' in updateFields) safeUpdate.discount_account = updateFields.discountAccount
+    if ('incCustomerReceivables' in updateFields) safeUpdate.inc_customer_receivables = updateFields.incCustomerReceivables
+    if ('addCustomerNameMemo' in updateFields) safeUpdate.add_customer_name_memo = updateFields.addCustomerNameMemo
+    if ('addRevenueCenterMemo' in updateFields) safeUpdate.add_revenue_center_memo = updateFields.addRevenueCenterMemo
+    if ('ccFeeValidation' in updateFields) safeUpdate.cc_fee_validation = updateFields.ccFeeValidation
+    if ('checkOpenOrders' in updateFields) safeUpdate.check_open_orders = updateFields.checkOpenOrders
+
+    // Remove transient camelCase keys from safeUpdate so Postgres only receives real column names
+    delete safeUpdate.discountAccount
+    delete safeUpdate.incCustomerReceivables
+    delete safeUpdate.addCustomerNameMemo
+    delete safeUpdate.addRevenueCenterMemo
+    delete safeUpdate.ccFeeValidation
+    delete safeUpdate.checkOpenOrders
 
     const { data, error } = await supabaseAdmin
       .from('accounting_site_mappings')
@@ -98,6 +132,10 @@ export async function POST(request: NextRequest) {
       const { getQBStoreRefs } = await import('@/lib/qb-classes-locations')
       const refs = getQBStoreRefs(store.name)
 
+      const isCentralOrBroadway = 
+        store.name.toLowerCase().includes('central') || 
+        store.name.toLowerCase().includes('broadway')
+
       const restoredPayload = {
         qb_location: refs.locationName,
         qb_class: refs.className,
@@ -111,10 +149,25 @@ export async function POST(request: NextRequest) {
         ar_uber_account: '12050',
         ar_doordash_account: '12053',
         ar_grubhub_account: '12054',
-        ar_postmates_account: '12050',
-        cc_fees_account: '51030',
+        ar_postmates_account: '12051',
+        cc_fees_account: isCentralOrBroadway ? '12100' : '51030',
         undeposited_funds_account: '13200',
         cash_over_short_account: '51050',
+        gift_card_account: '20500',
+        open_orders_account: '12049',
+        cash_on_hand_account: '12100',
+        tips_account: '12100',
+        cogs_account: '50006',
+        discount_account: '40010',
+        inc_customer_receivables: false,
+        add_customer_name_memo: false,
+        add_revenue_center_memo: false,
+        cc_fee_validation: 'Warn',
+        check_open_orders: true,
+        tax_facilitator_enabled: true,
+        alt_memos: {},
+        line_class_overrides: {},
+        settings_json: {},
         is_active: true,
         updated_at: new Date().toISOString()
       }

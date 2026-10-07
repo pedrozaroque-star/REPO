@@ -1,0 +1,2653 @@
+{
+  "anonymousReads": [
+    {
+      "table": "accounting_site_mappings",
+      "count": 15,
+      "status": 200
+    },
+    {
+      "table": "accounting_sales_packets",
+      "count": 739,
+      "status": 200
+    }
+  ],
+  "glAccounts": [
+    {
+      "id": "cb30160a-c664-4400-b7f2-e29aefb6b12a",
+      "account_number": "51020",
+      "account_name": "Bad debt",
+      "account_type": "expense",
+      "qb_account_id": "251",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:03.348879+00:00"
+    },
+    {
+      "id": "0c83c54b-ae3e-456e-afc9-8395c7c8e251",
+      "account_number": "51040",
+      "account_name": "Bank Service Charges",
+      "account_type": "expense",
+      "qb_account_id": "10",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:03.658406+00:00"
+    },
+    {
+      "id": "488c8f08-08f8-41f7-bd52-5a5f8d71217b",
+      "account_number": "40000",
+      "account_name": "Billable Expense Income",
+      "account_type": "revenue",
+      "qb_account_id": "43",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:03.857987+00:00"
+    },
+    {
+      "id": "1e5ff173-f5b8-4a05-b343-ec8f5c0ac965",
+      "account_number": "51050",
+      "account_name": "Cash Over/(Short)",
+      "account_type": "expense",
+      "qb_account_id": "69",
+      "is_active": true,
+      "created_at": "2026-09-01T23:23:43.823387+00:00"
+    },
+    {
+      "id": "5afebfac-d1fb-4531-920f-2c648d9f56cb",
+      "account_number": "40005",
+      "account_name": "Catering Sales",
+      "account_type": "revenue",
+      "qb_account_id": "190",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:04.842847+00:00"
+    },
+    {
+      "id": "5af92d56-022b-4fe4-b2c0-f495bfa4f305",
+      "account_number": "10006",
+      "account_name": "Pepes",
+      "account_type": "asset",
+      "qb_account_id": "49",
+      "is_active": true,
+      "created_at": "2026-09-01T23:23:43.823387+00:00"
+    },
+    {
+      "id": "0c3a9149-856c-40a3-89d5-c4900617d4ca",
+      "account_number": "40050",
+      "account_name": "Sales",
+      "account_type": "revenue",
+      "qb_account_id": "1",
+      "is_active": true,
+      "created_at": "2026-09-01T23:23:43.823387+00:00"
+    },
+    {
+      "id": "cb52a061-e597-4736-8854-17991821e80a",
+      "account_number": "10017",
+      "account_name": "Rialto-8205",
+      "account_type": "asset",
+      "qb_account_id": "412",
+      "is_active": true,
+      "created_at": "2026-09-01T23:23:43.823387+00:00"
+    },
+    {
+      "id": "dae5d04a-efe8-4795-baea-2adc7dfe9bd8",
+      "account_number": "12051",
+      "account_name": "Receivables Due from Postmates",
+      "account_type": "asset",
+      "qb_account_id": "357",
+      "is_active": true,
+      "created_at": "2026-09-01T23:23:43.823387+00:00"
+    },
+    {
+      "id": "ad4665a6-f213-4358-b787-9130ea48443d",
+      "account_number": "12050",
+      "account_name": "Receivables Due from Uber Eats",
+      "account_type": "asset",
+      "qb_account_id": "349",
+      "is_active": true,
+      "created_at": "2026-09-01T23:23:43.823387+00:00"
+    },
+    {
+      "id": "18edbc89-f6a5-4bd5-9f29-51a85783ca41",
+      "account_number": "10003",
+      "account_name": "Hollywood",
+      "account_type": "asset",
+      "qb_account_id": "212",
+      "is_active": true,
+      "created_at": "2026-09-01T23:23:43.823387+00:00"
+    },
+    {
+      "id": "302065dc-9fcc-4e63-9f86-03fa3d01dc99",
+      "account_number": "51060",
+      "account_name": "Charitable Donations",
+      "account_type": "expense",
+      "qb_account_id": "99",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:05.156275+00:00"
+    },
+    {
+      "id": "1b0f0cd4-7597-41fd-85bf-2994c42b474c",
+      "account_number": "10013",
+      "account_name": "La Puente",
+      "account_type": "asset",
+      "qb_account_id": "334",
+      "is_active": true,
+      "created_at": "2026-09-01T23:23:43.823387+00:00"
+    },
+    {
+      "id": "779c3995-5c3e-4ba5-872b-d67c40d25b5e",
+      "account_number": "50007",
+      "account_name": "Meat",
+      "account_type": "cogs",
+      "qb_account_id": "62",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:05.953277+00:00"
+    },
+    {
+      "id": "fe2e855d-2b6b-4e8d-9ce7-0f338000deb2",
+      "account_number": "40063",
+      "account_name": "Sales - Grubhub",
+      "account_type": "revenue",
+      "qb_account_id": "371",
+      "is_active": true,
+      "created_at": "2026-09-01T23:23:43.823387+00:00"
+    },
+    {
+      "id": "dcc8e960-a2c7-41f1-a43d-6871c326b89f",
+      "account_number": "10004",
+      "account_name": "Lynwood",
+      "account_type": "asset",
+      "qb_account_id": "258",
+      "is_active": true,
+      "created_at": "2026-09-01T23:23:43.823387+00:00"
+    },
+    {
+      "id": "a23154de-16d0-4dba-8bd0-b8e9e89c30b9",
+      "account_number": "10014",
+      "account_name": "Norwalk",
+      "account_type": "asset",
+      "qb_account_id": "378",
+      "is_active": true,
+      "created_at": "2026-09-01T23:23:43.823387+00:00"
+    },
+    {
+      "id": "23af5235-0931-4bdb-9da6-be08a0f4906b",
+      "account_number": "12049",
+      "account_name": "Open Orders Receivables",
+      "account_type": "asset",
+      "qb_account_id": "386",
+      "is_active": true,
+      "created_at": "2026-09-01T23:23:43.823387+00:00"
+    },
+    {
+      "id": "360fd16b-a383-4fa0-92cc-a046f5d59f39",
+      "account_number": "10005",
+      "account_name": "Paramount",
+      "account_type": "asset",
+      "qb_account_id": "48",
+      "is_active": true,
+      "created_at": "2026-09-01T23:23:43.823387+00:00"
+    },
+    {
+      "id": "20684de6-4d34-4fb5-8d14-e12a72788b82",
+      "account_number": "12053",
+      "account_name": "Receivables Due from Doordash",
+      "account_type": "asset",
+      "qb_account_id": "372",
+      "is_active": true,
+      "created_at": "2026-09-01T23:23:43.823387+00:00"
+    },
+    {
+      "id": "0c0d1795-a568-4cf9-9e32-acd760916550",
+      "account_number": "12054",
+      "account_name": "Receivables Due from Grubhub",
+      "account_type": "asset",
+      "qb_account_id": "373",
+      "is_active": true,
+      "created_at": "2026-09-01T23:23:43.823387+00:00"
+    },
+    {
+      "id": "64d0f2b6-d3fd-40b5-93e6-9ecf3bdc3cdd",
+      "account_number": "40062",
+      "account_name": "Sales - Doordash",
+      "account_type": "revenue",
+      "qb_account_id": "370",
+      "is_active": true,
+      "created_at": "2026-09-01T23:23:43.823387+00:00"
+    },
+    {
+      "id": "a1bdd5c4-0fbb-4dbd-afb8-b1f1f47865b6",
+      "account_number": "24001",
+      "account_name": "Sales tax payable",
+      "account_type": "liability",
+      "qb_account_id": "40",
+      "is_active": true,
+      "created_at": "2026-09-01T23:23:43.823387+00:00"
+    },
+    {
+      "id": "f5c80b8f-757c-473b-8468-14431f72ac21",
+      "account_number": "40060",
+      "account_name": "Sales-Uber Eats",
+      "account_type": "revenue",
+      "qb_account_id": "277",
+      "is_active": true,
+      "created_at": "2026-09-01T23:23:43.823387+00:00"
+    },
+    {
+      "id": "4f8bd27b-2ec6-4039-b025-261eec3ad188",
+      "account_number": "10007",
+      "account_name": "Santa ana",
+      "account_type": "asset",
+      "qb_account_id": "272",
+      "is_active": true,
+      "created_at": "2026-09-01T23:23:43.823387+00:00"
+    },
+    {
+      "id": "e48a3532-af1d-4ada-b9f1-c686a9d180b8",
+      "account_number": "10015",
+      "account_name": "Slauson",
+      "account_type": "asset",
+      "qb_account_id": "379",
+      "is_active": true,
+      "created_at": "2026-09-01T23:23:43.823387+00:00"
+    },
+    {
+      "id": "9eaa6210-9f37-4074-a3c4-bacbf2c392d9",
+      "account_number": "10009",
+      "account_name": "South Gate",
+      "account_type": "asset",
+      "qb_account_id": "211",
+      "is_active": true,
+      "created_at": "2026-09-01T23:23:43.823387+00:00"
+    },
+    {
+      "id": "46b594ce-edda-4165-8db6-8d0702a41dcb",
+      "account_number": "13200",
+      "account_name": "Undeposited Funds",
+      "account_type": "asset",
+      "qb_account_id": "4",
+      "is_active": true,
+      "created_at": "2026-09-01T23:23:43.823387+00:00"
+    },
+    {
+      "id": "ce883f68-0082-41cc-9d29-f69cf9d4c3cc",
+      "account_number": "10012",
+      "account_name": "West covina",
+      "account_type": "asset",
+      "qb_account_id": "282",
+      "is_active": true,
+      "created_at": "2026-09-01T23:23:43.823387+00:00"
+    },
+    {
+      "id": "8f2006c4-0709-4c93-b897-b55f6b4cb335",
+      "account_number": "20000",
+      "account_name": "Accounts Payable",
+      "account_type": "liability",
+      "qb_account_id": "54",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:02.069658+00:00"
+    },
+    {
+      "id": "fd3b5e70-c150-4633-9a4c-70b0fb5cbbd4",
+      "account_number": "12000",
+      "account_name": "Accounts Receivable (A/R)",
+      "account_type": "asset",
+      "qb_account_id": "184",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:02.185632+00:00"
+    },
+    {
+      "id": "cd8486c0-2e38-4a99-bc5f-41c729d86011",
+      "account_number": "22000",
+      "account_name": "Accrued Expenses",
+      "account_type": "liability",
+      "qb_account_id": "328",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:02.28805+00:00"
+    },
+    {
+      "id": "4c5e56e4-e756-4778-9b7c-c3f172431ddd",
+      "account_number": "16000",
+      "account_name": "Accrued Int From S/H",
+      "account_type": "asset",
+      "qb_account_id": "181",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:02.378933+00:00"
+    },
+    {
+      "id": "04de975a-191d-4f05-87a8-ea8b620d6c73",
+      "account_number": "16010",
+      "account_name": "Accrued Interest",
+      "account_type": "asset",
+      "qb_account_id": "406",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:02.471705+00:00"
+    },
+    {
+      "id": "0528752b-b368-4fa0-b8a5-4f177fbdee78",
+      "account_number": "14910",
+      "account_name": "Accumulated Amortization",
+      "account_type": "asset",
+      "qb_account_id": "1150040008",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:02.590087+00:00"
+    },
+    {
+      "id": "bcbeb9d0-7a26-4740-8de0-49db1db1d5c9",
+      "account_number": "30100",
+      "account_name": "Accumulated other comprehensive income (loss)",
+      "account_type": "equity",
+      "qb_account_id": "407",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:02.680332+00:00"
+    },
+    {
+      "id": "6654e541-bb0b-4b68-b03b-21e9386dffce",
+      "account_number": "51000",
+      "account_name": "Advertising and Promotion",
+      "account_type": "expense",
+      "qb_account_id": "9",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:02.77309+00:00"
+    },
+    {
+      "id": "91af4615-f014-4efa-8974-7c2b887d68fe",
+      "account_number": "51010",
+      "account_name": "Alarms and Security",
+      "account_type": "expense",
+      "qb_account_id": "80",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:02.861517+00:00"
+    },
+    {
+      "id": "0f50a1b7-93b7-422f-8c8b-70f5a4d3ee25",
+      "account_number": "70011",
+      "account_name": "Amortization",
+      "account_type": "expense",
+      "qb_account_id": "1150040007",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:02.94868+00:00"
+    },
+    {
+      "id": "b0b1a5db-3072-4e46-b295-41401644259e",
+      "account_number": "14000",
+      "account_name": "Autos and Trucks",
+      "account_type": "asset",
+      "qb_account_id": "143",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:03.172389+00:00"
+    },
+    {
+      "id": "93cfa8b8-98b0-4410-9381-432cf338e003",
+      "account_number": "10000",
+      "account_name": "Azusa",
+      "account_type": "asset",
+      "qb_account_id": "213",
+      "is_active": true,
+      "created_at": "2026-09-01T23:23:43.823387+00:00"
+    },
+    {
+      "id": "d630e71c-8c67-4020-ba96-7133fe71e918",
+      "account_number": "51030",
+      "account_name": "Bank Merchant Fees",
+      "account_type": "expense",
+      "qb_account_id": "82",
+      "is_active": true,
+      "created_at": "2026-09-01T23:23:43.823387+00:00"
+    },
+    {
+      "id": "126aa804-504d-43f8-8a02-ad86f72aa223",
+      "account_number": "10001",
+      "account_name": "Bell",
+      "account_type": "asset",
+      "qb_account_id": "189",
+      "is_active": true,
+      "created_at": "2026-09-01T23:23:43.823387+00:00"
+    },
+    {
+      "id": "30aaf7d3-6220-4ef2-9da8-2c20b6af0632",
+      "account_number": "21002",
+      "account_name": "BofA Business Card- 5507",
+      "account_type": "liability",
+      "qb_account_id": "1150040012",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:03.944466+00:00"
+    },
+    {
+      "id": "1580256d-60df-4c44-905e-c581dcf020a7",
+      "account_number": "21000",
+      "account_name": "BofA Business Card- 5541",
+      "account_type": "liability",
+      "qb_account_id": "259",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:04.042478+00:00"
+    },
+    {
+      "id": "c007c6a1-3d15-4c06-9b3b-16ab6763ac14",
+      "account_number": "10018",
+      "account_name": "Bofa Private TEG LLC",
+      "account_type": "asset",
+      "qb_account_id": "1150040000",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:04.131651+00:00"
+    },
+    {
+      "id": "414e83d2-3067-470b-b3a4-f809a4533061",
+      "account_number": "10016",
+      "account_name": "Bofa Trust account",
+      "account_type": "asset",
+      "qb_account_id": "402",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:04.354148+00:00"
+    },
+    {
+      "id": "0dfbd084-84f5-4310-8e75-c4b4af8eed0d",
+      "account_number": "14100",
+      "account_name": "Buildings",
+      "account_type": "asset",
+      "qb_account_id": "217",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:04.438239+00:00"
+    },
+    {
+      "id": "4001c353-12c5-4ca3-be00-bc94af63aab2",
+      "account_number": "30000",
+      "account_name": "Capital Stock",
+      "account_type": "equity",
+      "qb_account_id": "183",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:04.535883+00:00"
+    },
+    {
+      "id": "2fccf4dc-585f-4773-bc5b-1d493c547cf6",
+      "account_number": "12100",
+      "account_name": "Cash on Hand",
+      "account_type": "asset",
+      "qb_account_id": "173",
+      "is_active": true,
+      "created_at": "2026-09-01T23:23:43.823387+00:00"
+    },
+    {
+      "id": "24cf05a8-6ef1-4130-9152-7a92781abab5",
+      "account_number": "10002",
+      "account_name": "Central",
+      "account_type": "asset",
+      "qb_account_id": "45",
+      "is_active": true,
+      "created_at": "2026-09-01T23:23:43.823387+00:00"
+    },
+    {
+      "id": "e65c8a4b-cce9-4ba2-adee-8807a86078b7",
+      "account_number": "50000",
+      "account_name": "COGS Purchases",
+      "account_type": "cogs",
+      "qb_account_id": "57",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:05.25038+00:00"
+    },
+    {
+      "id": "8f21ff7a-8870-4dde-942b-084b3b422ec3",
+      "account_number": "50001",
+      "account_name": "Beverages",
+      "account_type": "cogs",
+      "qb_account_id": "103",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:05.338933+00:00"
+    },
+    {
+      "id": "ba100bf0-23b2-46cd-b37b-e9fdbd1cf2f5",
+      "account_number": "50013",
+      "account_name": "Cost of Goods Sold",
+      "account_type": "cogs",
+      "qb_account_id": "312",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:05.425133+00:00"
+    },
+    {
+      "id": "72c21c37-275d-4e3a-b68e-252b1175acf7",
+      "account_number": "50002",
+      "account_name": "Dairy",
+      "account_type": "cogs",
+      "qb_account_id": "65",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:05.509353+00:00"
+    },
+    {
+      "id": "e64d405c-4a41-480c-a92f-61811393c45d",
+      "account_number": "50003",
+      "account_name": "Dessert",
+      "account_type": "cogs",
+      "qb_account_id": "243",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:05.604611+00:00"
+    },
+    {
+      "id": "9b8b57d7-007d-4bab-bc34-f486a8f8f888",
+      "account_number": "50004",
+      "account_name": "Dry Good",
+      "account_type": "cogs",
+      "qb_account_id": "61",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:05.691538+00:00"
+    },
+    {
+      "id": "72caf82a-5800-44bb-96bb-95be11374408",
+      "account_number": "50005",
+      "account_name": "Fish",
+      "account_type": "cogs",
+      "qb_account_id": "66",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:05.777984+00:00"
+    },
+    {
+      "id": "19e6747e-cbd6-48ba-b0e3-ebfe3e3afe32",
+      "account_number": "50006",
+      "account_name": "Materials and Supplies",
+      "account_type": "cogs",
+      "qb_account_id": "67",
+      "is_active": true,
+      "created_at": "2026-09-01T23:23:43.823387+00:00"
+    },
+    {
+      "id": "696e9630-78e4-4cb3-85b5-82e8d7bd3ce3",
+      "account_number": "50008",
+      "account_name": "Other Cost",
+      "account_type": "cogs",
+      "qb_account_id": "95",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:06.043734+00:00"
+    },
+    {
+      "id": "a3e2a394-0045-4c55-91d4-c94367b304b0",
+      "account_number": "50009",
+      "account_name": "Poultry",
+      "account_type": "cogs",
+      "qb_account_id": "63",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:06.129748+00:00"
+    },
+    {
+      "id": "ebb84cf1-fcc6-4b0e-bbe7-3122ef003d94",
+      "account_number": "50010",
+      "account_name": "Prep Foods",
+      "account_type": "cogs",
+      "qb_account_id": "71",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:06.226625+00:00"
+    },
+    {
+      "id": "b3667169-d620-401b-befb-9572ebca0e6d",
+      "account_number": "50011",
+      "account_name": "Produce",
+      "account_type": "cogs",
+      "qb_account_id": "64",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:06.315404+00:00"
+    },
+    {
+      "id": "78141a1e-4cef-4034-ad88-1f46eca49b3e",
+      "account_number": "50012",
+      "account_name": "Purchases on Hand",
+      "account_type": "cogs",
+      "qb_account_id": "267",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:06.410438+00:00"
+    },
+    {
+      "id": "c3b0b6ea-f4fe-4a99-b873-1eaa73ad5a62",
+      "account_number": "50030",
+      "account_name": "Total Tax",
+      "account_type": "cogs",
+      "qb_account_id": "73",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:06.501203+00:00"
+    },
+    {
+      "id": "d771286d-19ef-4187-b44f-5cd846e74cf5",
+      "account_number": "50040",
+      "account_name": "Warehouse I/C Transfers",
+      "account_type": "cogs",
+      "qb_account_id": "125",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:06.590797+00:00"
+    },
+    {
+      "id": "31e62a7b-a43a-406c-b94e-8439e1f15ef7",
+      "account_number": "51070",
+      "account_name": "Compensation-Roberto Velasquez",
+      "account_type": "expense",
+      "qb_account_id": "139",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:06.68006+00:00"
+    },
+    {
+      "id": "6040ef6e-c624-4de4-a1d5-2468d7f6bb06",
+      "account_number": "51080",
+      "account_name": "Computer",
+      "account_type": "expense",
+      "qb_account_id": "100",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:06.766412+00:00"
+    },
+    {
+      "id": "ca061869-6ed4-4a0a-83a0-e02bc446dba2",
+      "account_number": "51081",
+      "account_name": "Hardware",
+      "account_type": "expense",
+      "qb_account_id": "101",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:06.862516+00:00"
+    },
+    {
+      "id": "bec7716b-8e95-4e41-a4b9-56e0f4097e2e",
+      "account_number": "51082",
+      "account_name": "Software",
+      "account_type": "expense",
+      "qb_account_id": "102",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:06.952322+00:00"
+    },
+    {
+      "id": "014216a6-a879-4ae9-9646-1f7986224141",
+      "account_number": "14200",
+      "account_name": "Computer Equipment",
+      "account_type": "asset",
+      "qb_account_id": "250",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:07.045266+00:00"
+    },
+    {
+      "id": "2e8d23ae-8587-427e-8982-a6c278cdadfa",
+      "account_number": "14211",
+      "account_name": "Azusa",
+      "account_type": "asset",
+      "qb_account_id": "384",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:07.133713+00:00"
+    },
+    {
+      "id": "bc020fa8-f960-4ac6-be70-778640849ba5",
+      "account_number": "14207",
+      "account_name": "Bell",
+      "account_type": "asset",
+      "qb_account_id": "341",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:07.223674+00:00"
+    },
+    {
+      "id": "08bb048e-a72b-440c-a151-b4a9b855de7c",
+      "account_number": "14209",
+      "account_name": "Broadway",
+      "account_type": "asset",
+      "qb_account_id": "382",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:07.311327+00:00"
+    },
+    {
+      "id": "3d901ca1-bf63-4615-adbe-cb3a427a4547",
+      "account_number": "14204",
+      "account_name": "Central",
+      "account_type": "asset",
+      "qb_account_id": "308",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:07.397119+00:00"
+    },
+    {
+      "id": "18bb13e3-bef7-444b-aefe-aa8607951571",
+      "account_number": "14210",
+      "account_name": "Huntington Park",
+      "account_type": "asset",
+      "qb_account_id": "383",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:07.482535+00:00"
+    },
+    {
+      "id": "75932175-542b-4be5-a810-a7277cfce7d0",
+      "account_number": "14206",
+      "account_name": "La Puente",
+      "account_type": "asset",
+      "qb_account_id": "333",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:07.571184+00:00"
+    },
+    {
+      "id": "a1cac7b5-763d-490e-9fe7-ffc705efa0de",
+      "account_number": "14201",
+      "account_name": "Lynwood",
+      "account_type": "asset",
+      "qb_account_id": "268",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:07.659475+00:00"
+    },
+    {
+      "id": "a74acde3-a1c8-4b60-8989-720ae6657083",
+      "account_number": "14208",
+      "account_name": "Norwalk",
+      "account_type": "asset",
+      "qb_account_id": "380",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:07.760814+00:00"
+    },
+    {
+      "id": "0593232d-0105-427e-bd32-8b5bfb3f14df",
+      "account_number": "14203",
+      "account_name": "Santa Ana",
+      "account_type": "asset",
+      "qb_account_id": "291",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:07.846027+00:00"
+    },
+    {
+      "id": "a0af4616-dd4b-4bb0-875c-06f66243262d",
+      "account_number": "14213",
+      "account_name": "Slauson",
+      "account_type": "asset",
+      "qb_account_id": "387",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:07.944323+00:00"
+    },
+    {
+      "id": "6a9becb6-6aeb-4bfb-b379-ef9bfa970b55",
+      "account_number": "14202",
+      "account_name": "South Gate",
+      "account_type": "asset",
+      "qb_account_id": "269",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:08.061745+00:00"
+    },
+    {
+      "id": "21253746-25be-427f-9893-7c89426f271b",
+      "account_number": "20500",
+      "account_name": "Gift Cards Payable",
+      "account_type": "liability",
+      "qb_account_id": "352",
+      "is_active": true,
+      "created_at": "2026-09-01T23:23:43.823387+00:00"
+    },
+    {
+      "id": "65826136-0243-4dd5-8a52-7c9ec1f67f4b",
+      "account_number": "14205",
+      "account_name": "West Covina",
+      "account_type": "asset",
+      "qb_account_id": "309",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:08.245525+00:00"
+    },
+    {
+      "id": "6cd6d499-0cc2-4b30-bf55-200a71a85f14",
+      "account_number": "14302",
+      "account_name": "CIP Downey",
+      "account_type": "asset",
+      "qb_account_id": "236",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:08.777905+00:00"
+    },
+    {
+      "id": "1d597b63-d72e-4a20-ac80-7735b480da78",
+      "account_number": "14310",
+      "account_name": "CIP Santa Fe Springs",
+      "account_type": "asset",
+      "qb_account_id": "392",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:09.131635+00:00"
+    },
+    {
+      "id": "93fa5373-8acd-4b57-9612-9c335579c171",
+      "account_number": "51100",
+      "account_name": "Deposit Shortage",
+      "account_type": "expense",
+      "qb_account_id": "169",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:09.47808+00:00"
+    },
+    {
+      "id": "0a71de44-6d96-4f00-a8c3-d54f2f98503d",
+      "account_number": "70030",
+      "account_name": "Employment Credits",
+      "account_type": "expense",
+      "qb_account_id": "172",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:10.021604+00:00"
+    },
+    {
+      "id": "53dea585-018b-4606-9c92-5ffc9eb39bd8",
+      "account_number": "25003",
+      "account_name": "Loan-TF HINO #56978",
+      "account_type": "liability",
+      "qb_account_id": "283",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:10.706682+00:00"
+    },
+    {
+      "id": "c4e164b3-ed7b-422a-8f42-ad38db4a1116",
+      "account_number": "50037",
+      "account_name": "Grubhub Fees",
+      "account_type": "cogs",
+      "qb_account_id": "374",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:11.230166+00:00"
+    },
+    {
+      "id": "97f3d13f-db18-498e-bb0a-e985b83d68bc",
+      "account_number": "60010",
+      "account_name": "Interest Earned",
+      "account_type": "revenue",
+      "qb_account_id": "27",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:11.762506+00:00"
+    },
+    {
+      "id": "8ae22de0-5ed9-4f18-93ee-41734ebd2ce0",
+      "account_number": "12032",
+      "account_name": "Investment in Marketable Securities",
+      "account_type": "asset",
+      "qb_account_id": "1150040001",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:12.30742+00:00"
+    },
+    {
+      "id": "f8a48c15-fc85-4af0-940a-0dcdf5ba5b64",
+      "account_number": "14401",
+      "account_name": "Azusa",
+      "account_type": "asset",
+      "qb_account_id": "200",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:12.764765+00:00"
+    },
+    {
+      "id": "9d4017f2-8211-43ff-b0ad-6bf8029d3105",
+      "account_number": "14405",
+      "account_name": "Downey",
+      "account_type": "asset",
+      "qb_account_id": "177",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:13.312033+00:00"
+    },
+    {
+      "id": "f4480a34-0772-466b-8dfb-253baff4b4f6",
+      "account_number": "14409",
+      "account_name": "Rialto",
+      "account_type": "asset",
+      "qb_account_id": "194",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:14.148361+00:00"
+    },
+    {
+      "id": "5124a725-bcf9-403b-a10f-e9b216fc57be",
+      "account_number": "51190",
+      "account_name": "Licenses and Permits",
+      "account_type": "expense",
+      "qb_account_id": "90",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:14.68851+00:00"
+    },
+    {
+      "id": "479622c0-8a79-42d2-bdc9-fb7929612d40",
+      "account_number": "14505",
+      "account_name": "M&E South Gate",
+      "account_type": "asset",
+      "qb_account_id": "248",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:15.749515+00:00"
+    },
+    {
+      "id": "2a04421e-1180-426a-b2df-d3c748373823",
+      "account_number": "14513",
+      "account_name": "M&E-La Puente",
+      "account_type": "asset",
+      "qb_account_id": "356",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:16.198417+00:00"
+    },
+    {
+      "id": "8e385406-f8c8-48a0-9b6b-ab583dd24872",
+      "account_number": "14511",
+      "account_name": "M&E-West Covina",
+      "account_type": "asset",
+      "qb_account_id": "270",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:16.754158+00:00"
+    },
+    {
+      "id": "16bf3f2f-e424-49e0-8a27-85256322bd4d",
+      "account_number": "32111",
+      "account_name": "Taxes-TEG Holdings Inc",
+      "account_type": "equity",
+      "qb_account_id": "417",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:17.27501+00:00"
+    },
+    {
+      "id": "58bed055-2d1b-4745-a20a-5417e49d19a3",
+      "account_number": "51210",
+      "account_name": "Misc Deductions",
+      "account_type": "expense",
+      "qb_account_id": "126",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:17.82152+00:00"
+    },
+    {
+      "id": "82a0abf4-1d90-45fc-bc3f-f37e6977010e",
+      "account_number": "16113",
+      "account_name": "Loan to 7947 Downey Plaza 21.03-DP",
+      "account_type": "asset",
+      "qb_account_id": "389",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:18.279468+00:00"
+    },
+    {
+      "id": "9612a03c-ca86-4a7c-a103-8bc8d1c209db",
+      "account_number": "16114",
+      "account_name": "Loan to Gutierrez  21.05 Bell",
+      "account_type": "asset",
+      "qb_account_id": "391",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:18.815304+00:00"
+    },
+    {
+      "id": "823e4967-ee14-4c8c-898f-7f0b0e6020dd",
+      "account_number": "16108",
+      "account_name": "Loan To Roberto -19.07-WH",
+      "account_type": "asset",
+      "qb_account_id": "361",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:19.336763+00:00"
+    },
+    {
+      "id": "2a26fcc8-695f-4457-a15e-1fedaa2c74af",
+      "account_number": "51220",
+      "account_name": "Office Expense",
+      "account_type": "expense",
+      "qb_account_id": "171",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:19.861121+00:00"
+    },
+    {
+      "id": "d08bd60e-eefe-46de-a4c0-0bd5dda32c9b",
+      "account_number": "16200",
+      "account_name": "Other Long-term Assets",
+      "account_type": "asset",
+      "qb_account_id": "204",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:20.378395+00:00"
+    },
+    {
+      "id": "1d637928-4a88-4a9a-8934-08c997a21d81",
+      "account_number": "52002",
+      "account_name": "Cooks",
+      "account_type": "expense",
+      "qb_account_id": "113",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:20.90498+00:00"
+    },
+    {
+      "id": "318425a1-78d8-4198-bcda-925e115d577d",
+      "account_number": "52007",
+      "account_name": "ER PR FUTA",
+      "account_type": "expense",
+      "qb_account_id": "117",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:21.437164+00:00"
+    },
+    {
+      "id": "fe578f0c-4d5e-4e88-b838-fec6d8c62eec",
+      "account_number": "52200",
+      "account_name": "Payroll WC Insurance",
+      "account_type": "expense",
+      "qb_account_id": "140",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:21.966849+00:00"
+    },
+    {
+      "id": "f92927b9-ee66-49c9-9246-e67574f5b4b7",
+      "account_number": "12500",
+      "account_name": "Petty Cash",
+      "account_type": "asset",
+      "qb_account_id": "68",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:22.263259+00:00"
+    },
+    {
+      "id": "dae94dba-5fe7-4413-90f8-2bbd1d73f47f",
+      "account_number": "53000",
+      "account_name": "Printing & Graphics",
+      "account_type": "expense",
+      "qb_account_id": "21",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:22.794121+00:00"
+    },
+    {
+      "id": "c02c3505-c2c4-4ce9-91aa-1c1ff7ae3148",
+      "account_number": "40040",
+      "account_name": "Refunds-Allowances",
+      "account_type": "revenue",
+      "qb_account_id": "8",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:23.677368+00:00"
+    },
+    {
+      "id": "fc2b7897-effc-4059-97b6-c127d274c43c",
+      "account_number": "53051",
+      "account_name": "Kitchenware",
+      "account_type": "expense",
+      "qb_account_id": "240",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:24.192087+00:00"
+    },
+    {
+      "id": "5ef95789-b5aa-40a0-bc74-667974f2cae3",
+      "account_number": "40070",
+      "account_name": "Shipping Income",
+      "account_type": "revenue",
+      "qb_account_id": "105",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:25.587167+00:00"
+    },
+    {
+      "id": "e8af1a4b-2b9e-48e6-b67d-e04a6407415a",
+      "account_number": "16304",
+      "account_name": "Slauson",
+      "account_type": "asset",
+      "qb_account_id": "242",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:26.39336+00:00"
+    },
+    {
+      "id": "90740d84-73ff-4751-8ed4-cbe688a9f88e",
+      "account_number": "53071",
+      "account_name": "Taxes-Other",
+      "account_type": "expense",
+      "qb_account_id": "329",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:26.91789+00:00"
+    },
+    {
+      "id": "6c5a3b83-67a0-48b6-86e5-5fad61c70546",
+      "account_number": "53201",
+      "account_name": "Fuel",
+      "account_type": "expense",
+      "qb_account_id": "94",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:27.473816+00:00"
+    },
+    {
+      "id": "742fdf6d-8f49-4634-a770-3a0b18be314d",
+      "account_number": "53220",
+      "account_name": "Unapplied Cash Bill Payment Expense",
+      "account_type": "expense",
+      "qb_account_id": "193",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:27.948471+00:00"
+    },
+    {
+      "id": "73fdbbe3-9405-422e-8df0-b5b908f60556",
+      "account_number": "53252",
+      "account_name": "Trash",
+      "account_type": "expense",
+      "qb_account_id": "72",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:28.946221+00:00"
+    },
+    {
+      "id": "eedf808b-1242-4c74-891f-cccf68f8e10b",
+      "account_number": "40100",
+      "account_name": "Wholesale Sales",
+      "account_type": "revenue",
+      "qb_account_id": "223",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:29.48215+00:00"
+    },
+    {
+      "id": "330319e7-bb23-496b-952f-28f00e02684b",
+      "account_number": "14300",
+      "account_name": "Construction in Progress",
+      "account_type": "asset",
+      "qb_account_id": "161",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:08.331686+00:00"
+    },
+    {
+      "id": "34fee88a-9223-4c2a-921f-3ef14c731d27",
+      "account_number": "14305",
+      "account_name": "CIP La Puente",
+      "account_type": "asset",
+      "qb_account_id": "343",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:08.864179+00:00"
+    },
+    {
+      "id": "75f4d89a-bbcb-4318-be32-ab81594e6125",
+      "account_number": "14303",
+      "account_name": "CIP Slauson",
+      "account_type": "asset",
+      "qb_account_id": "275",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:09.218817+00:00"
+    },
+    {
+      "id": "804b5b02-d45a-4537-b412-d61e71db81c9",
+      "account_number": "70010",
+      "account_name": "Depreciation Expense",
+      "account_type": "expense",
+      "qb_account_id": "77",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:09.572623+00:00"
+    },
+    {
+      "id": "d6c83d3f-a590-4c7e-a1f7-2ccfec89d960",
+      "account_number": "25000",
+      "account_name": "Equipment Financing",
+      "account_type": "liability",
+      "qb_account_id": "146",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:10.255889+00:00"
+    },
+    {
+      "id": "2fe6382e-ffe2-4d93-90b0-32617ca267c6",
+      "account_number": "51130",
+      "account_name": "Equipment Rental",
+      "account_type": "expense",
+      "qb_account_id": "238",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:10.793195+00:00"
+    },
+    {
+      "id": "81dd3eb1-3c36-48f5-9948-0f3411655ffa",
+      "account_number": "60011",
+      "account_name": "Interest from S/H",
+      "account_type": "revenue",
+      "qb_account_id": "206",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:11.851467+00:00"
+    },
+    {
+      "id": "46a09b00-be16-4ee7-916c-ad9b037418d9",
+      "account_number": "14406",
+      "account_name": "Hollywood",
+      "account_type": "asset",
+      "qb_account_id": "214",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:13.434668+00:00"
+    },
+    {
+      "id": "debd2d34-c64d-4765-99af-440ce7f4d2d5",
+      "account_number": "14413",
+      "account_name": "Santa Ana",
+      "account_type": "asset",
+      "qb_account_id": "342",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:14.236622+00:00"
+    },
+    {
+      "id": "10bf3cbe-3357-4efe-8525-c7e19770517b",
+      "account_number": "12400",
+      "account_name": "Loans to Others",
+      "account_type": "asset",
+      "qb_account_id": "262",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:14.776937+00:00"
+    },
+    {
+      "id": "a8da5931-b798-4188-b13f-8bba2e19c5e4",
+      "account_number": "14500",
+      "account_name": "Machinery & Equipment",
+      "account_type": "asset",
+      "qb_account_id": "92",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:15.30628+00:00"
+    },
+    {
+      "id": "ca3ad466-99b7-42e1-b970-f024a9ff7111",
+      "account_number": "14514",
+      "account_name": "M&E-Bell",
+      "account_type": "asset",
+      "qb_account_id": "367",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:15.836892+00:00"
+    },
+    {
+      "id": "d9b3dde4-f085-4cc8-9fcf-b29a8811c4c5",
+      "account_number": "14509",
+      "account_name": "M&E-Lynwood",
+      "account_type": "asset",
+      "qb_account_id": "266",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:16.283052+00:00"
+    },
+    {
+      "id": "ad0263b5-670d-44a5-a504-657afa2c66ac",
+      "account_number": "40030",
+      "account_name": "Markup",
+      "account_type": "revenue",
+      "qb_account_id": "42",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:16.840354+00:00"
+    },
+    {
+      "id": "e60f6bf1-947d-445e-958a-d7285f56504c",
+      "account_number": "32120",
+      "account_name": "Income-TEG Holdings Inc",
+      "account_type": "equity",
+      "qb_account_id": "418",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:17.364101+00:00"
+    },
+    {
+      "id": "6ceac8d2-4662-4f33-9647-cce886216888",
+      "account_number": "16101",
+      "account_name": "Loan to 7947 Downey Plaza LLC",
+      "account_type": "asset",
+      "qb_account_id": "226",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:18.371285+00:00"
+    },
+    {
+      "id": "04904dde-bc4e-4937-899c-3a1630239ea3",
+      "account_number": "16110",
+      "account_name": "Loan To Gutierrez -20.01-BR",
+      "account_type": "asset",
+      "qb_account_id": "369",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:18.904121+00:00"
+    },
+    {
+      "id": "83d1393e-8f16-49ca-90a6-5a5d3278defc",
+      "account_number": "16109",
+      "account_name": "Loan To Roberto 19-11-STAMPS",
+      "account_type": "asset",
+      "qb_account_id": "365",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:19.424199+00:00"
+    },
+    {
+      "id": "ebdfcafc-1bcc-4bdc-8fd5-c33b8719a8f0",
+      "account_number": "51230",
+      "account_name": "Office Supplies",
+      "account_type": "expense",
+      "qb_account_id": "17",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:19.944732+00:00"
+    },
+    {
+      "id": "71009fa1-d749-4bbd-bacf-56e4d921b27c",
+      "account_number": "51240",
+      "account_name": "Outside Services",
+      "account_type": "expense",
+      "qb_account_id": "141",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:20.463527+00:00"
+    },
+    {
+      "id": "b11f8b4d-a202-4357-a270-1142cf5c1b7e",
+      "account_number": "52003",
+      "account_name": "Drivers",
+      "account_type": "expense",
+      "qb_account_id": "115",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:20.992013+00:00"
+    },
+    {
+      "id": "e38d0941-ab5c-4a82-82bd-94aa54572209",
+      "account_number": "52008",
+      "account_name": "ER PR SUTA",
+      "account_type": "expense",
+      "qb_account_id": "118",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:21.524095+00:00"
+    },
+    {
+      "id": "28dc1e66-bf85-4768-8f7c-c1e18bcd73c8",
+      "account_number": "70040",
+      "account_name": "Penalties & Settlements",
+      "account_type": "expense",
+      "qb_account_id": "29",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:22.053739+00:00"
+    },
+    {
+      "id": "b5843b95-ecc0-4841-bef6-994f5446b9ad",
+      "account_number": "50038",
+      "account_name": "Postmates Fees",
+      "account_type": "cogs",
+      "qb_account_id": "358",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:22.354304+00:00"
+    },
+    {
+      "id": "31a4c6e4-91ae-4f1c-bd31-4934867a5edb",
+      "account_number": "53010",
+      "account_name": "Professional Fees",
+      "account_type": "expense",
+      "qb_account_id": "14",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:22.880926+00:00"
+    },
+    {
+      "id": "a8e6ce33-033b-453d-bf4e-d09b304ed2a9",
+      "account_number": "53030",
+      "account_name": "Rent",
+      "account_type": "expense",
+      "qb_account_id": "19",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:23.760363+00:00"
+    },
+    {
+      "id": "71fdc1c6-9e68-4067-b146-828f752e8b25",
+      "account_number": "53052",
+      "account_name": "Small Appliances and Equipment",
+      "account_type": "expense",
+      "qb_account_id": "241",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:24.28009+00:00"
+    },
+    {
+      "id": "b1e9f4ec-00c1-44cd-939b-5fe94aab356a",
+      "account_number": "40061",
+      "account_name": "Sales-Postmates",
+      "account_type": "revenue",
+      "qb_account_id": "360",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:25.149622+00:00"
+    },
+    {
+      "id": "66fe533a-3dae-4e0e-97ab-3cf81d4f69ce",
+      "account_number": "12030",
+      "account_name": "Short Term Investments",
+      "account_type": "asset",
+      "qb_account_id": "404",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:25.676445+00:00"
+    },
+    {
+      "id": "04bd37e1-8f35-45dc-8746-2c90055d2b0d",
+      "account_number": "16305",
+      "account_name": "South Gate",
+      "account_type": "asset",
+      "qb_account_id": "233",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:26.480238+00:00"
+    },
+    {
+      "id": "91517f42-653c-4e48-9524-b7e405fbaa9c",
+      "account_number": "53070",
+      "account_name": "Taxes-Property",
+      "account_type": "expense",
+      "qb_account_id": "91",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:27.015638+00:00"
+    },
+    {
+      "id": "f7212adc-3002-4951-ae09-2313da24f19b",
+      "account_number": "53202",
+      "account_name": "Lease Payment",
+      "account_type": "expense",
+      "qb_account_id": "96",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:27.559615+00:00"
+    },
+    {
+      "id": "0a506b52-6a3f-457f-b761-bf8df7bb7133",
+      "account_number": "53240",
+      "account_name": "Uniforms",
+      "account_type": "expense",
+      "qb_account_id": "81",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:28.513878+00:00"
+    },
+    {
+      "id": "2d678dfd-2778-41c4-a4db-067567224f91",
+      "account_number": "53253",
+      "account_name": "Water & Power",
+      "account_type": "expense",
+      "qb_account_id": "87",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:29.031698+00:00"
+    },
+    {
+      "id": "f5373036-b996-41c8-a26f-6185adb41695",
+      "account_number": "15000",
+      "account_name": "z-Accumulated Depreciation",
+      "account_type": "asset",
+      "qb_account_id": "180",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:29.568952+00:00"
+    },
+    {
+      "id": "4a9e5b02-7c39-4ab6-b315-71d97897cce4",
+      "account_number": "14311",
+      "account_name": "CIP Azusa",
+      "account_type": "asset",
+      "qb_account_id": "411",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:08.425745+00:00"
+    },
+    {
+      "id": "2d794381-3a65-48c7-9a8e-3f6d27078a4f",
+      "account_number": "14304",
+      "account_name": "CIP Warehouse",
+      "account_type": "asset",
+      "qb_account_id": "164",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:09.303238+00:00"
+    },
+    {
+      "id": "fb1b37ef-c95f-4e88-ab1f-9946d6ff557f",
+      "account_number": "40010",
+      "account_name": "Discounts",
+      "account_type": "revenue",
+      "qb_account_id": "6",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:09.661422+00:00"
+    },
+    {
+      "id": "1e6cbf55-21bc-46d9-833f-fb5310a9a83f",
+      "account_number": "25004",
+      "account_name": "Loan-APC_Treif lease#TC 2488",
+      "account_type": "liability",
+      "qb_account_id": "330",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:10.343431+00:00"
+    },
+    {
+      "id": "15b59a3d-b56b-48ea-a5c4-de9b89fb5147",
+      "account_number": "70101",
+      "account_name": "Fed Income Tax Penalties",
+      "account_type": "expense",
+      "qb_account_id": "346",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:10.879088+00:00"
+    },
+    {
+      "id": "4743997f-643a-4eb8-92ea-15a6ec2e2083",
+      "account_number": "70100",
+      "account_name": "Income Tax - Federal",
+      "account_type": "expense",
+      "qb_account_id": "23",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:11.420814+00:00"
+    },
+    {
+      "id": "096d938c-cef8-438b-9e14-5784c82529a4",
+      "account_number": "51160",
+      "account_name": "Interest Paid",
+      "account_type": "expense",
+      "qb_account_id": "256",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:11.946611+00:00"
+    },
+    {
+      "id": "eba3875e-4a1f-4cdd-8455-35dd3ebd31b4",
+      "account_number": "51170",
+      "account_name": "Janitorial Supplies",
+      "account_type": "expense",
+      "qb_account_id": "79",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:12.404383+00:00"
+    },
+    {
+      "id": "cba63d08-37b9-4b3f-bdc3-8fc244f1c70f",
+      "account_number": "14402",
+      "account_name": "Bell",
+      "account_type": "asset",
+      "qb_account_id": "152",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:12.890602+00:00"
+    },
+    {
+      "id": "64ec4945-010d-4f4d-9d6e-ad5e3d06eb49",
+      "account_number": "14414",
+      "account_name": "La Puente",
+      "account_type": "asset",
+      "qb_account_id": "351",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:13.521851+00:00"
+    },
+    {
+      "id": "73a28f64-333b-44eb-846c-5b380aa843fe",
+      "account_number": "14416",
+      "account_name": "Slauson",
+      "account_type": "asset",
+      "qb_account_id": "399",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:14.328024+00:00"
+    },
+    {
+      "id": "c55cd95e-d668-427c-9e32-9653b2cd7b19",
+      "account_number": "12402",
+      "account_name": "Martinez  Loan",
+      "account_type": "asset",
+      "qb_account_id": "359",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:14.872643+00:00"
+    },
+    {
+      "id": "80eff6c1-2916-4374-a469-3e56163fb8fd",
+      "account_number": "14501",
+      "account_name": "M&E Azusa",
+      "account_type": "asset",
+      "qb_account_id": "246",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:15.396744+00:00"
+    },
+    {
+      "id": "d8aeac12-4c19-4b49-8da6-55b78b3fa1e4",
+      "account_number": "14515",
+      "account_name": "M&E-Norwalk",
+      "account_type": "asset",
+      "qb_account_id": "398",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:16.374464+00:00"
+    },
+    {
+      "id": "f23c2d20-26f6-438f-8861-9f0d3f301acb",
+      "account_number": "51200",
+      "account_name": "Meals",
+      "account_type": "expense",
+      "qb_account_id": "15",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:16.924008+00:00"
+    },
+    {
+      "id": "acf05931-af8f-489c-88a2-f0371eebcf93",
+      "account_number": "32200",
+      "account_name": "Member's Captial-Gonzalo V.",
+      "account_type": "equity",
+      "qb_account_id": "415",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:17.458551+00:00"
+    },
+    {
+      "id": "ac5374fc-6a3a-44f0-ae25-7098a6a86ba4",
+      "account_number": "26000",
+      "account_name": "Notes Payable",
+      "account_type": "liability",
+      "qb_account_id": "344",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:17.998926+00:00"
+    },
+    {
+      "id": "3da0c94d-4173-4b28-9f33-1370c47e6729",
+      "account_number": "16107",
+      "account_name": "Loan to Canasty Financial LLC",
+      "account_type": "asset",
+      "qb_account_id": "354",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:18.461327+00:00"
+    },
+    {
+      "id": "8dd7bcea-6249-4da4-b85f-8bd577874935",
+      "account_number": "16112",
+      "account_name": "Loan to Gutierrez 20.11 Central",
+      "account_type": "asset",
+      "qb_account_id": "388",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:18.991016+00:00"
+    },
+    {
+      "id": "300e061b-5745-44d9-8ce8-aee5a237e584",
+      "account_number": "16111",
+      "account_name": "Loan to Roberto 20.09-Raviller",
+      "account_type": "asset",
+      "qb_account_id": "377",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:19.512048+00:00"
+    },
+    {
+      "id": "df6b5d31-7ba1-49ab-8fa9-15606199442e",
+      "account_number": "50020",
+      "account_name": "Outsourced Labor",
+      "account_type": "cogs",
+      "qb_account_id": "235",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:20.553621+00:00"
+    },
+    {
+      "id": "b1954de3-ffcd-40a6-9235-76a285d5c542",
+      "account_number": "52004",
+      "account_name": "EE PR Tax Offset",
+      "account_type": "expense",
+      "qb_account_id": "124",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:21.083391+00:00"
+    },
+    {
+      "id": "2684e4e6-db9d-43e8-aec1-4c70da4faf92",
+      "account_number": "52009",
+      "account_name": "Managers",
+      "account_type": "expense",
+      "qb_account_id": "114",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:21.608308+00:00"
+    },
+    {
+      "id": "f4e33bc1-a07a-47f3-b973-f64d37fb020f",
+      "account_number": "13000",
+      "account_name": "Prepaid Expenses",
+      "account_type": "asset",
+      "qb_account_id": "3",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:22.442442+00:00"
+    },
+    {
+      "id": "ed05dc7c-e24a-46e0-bf01-874a15ca48da",
+      "account_number": "53011",
+      "account_name": "Legal Fees",
+      "account_type": "expense",
+      "qb_account_id": "332",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:22.967645+00:00"
+    },
+    {
+      "id": "53c5a9d7-ebcc-4fb5-9840-902b06defa13",
+      "account_number": "53031",
+      "account_name": "Rent-Gutierrez Financial",
+      "account_type": "expense",
+      "qb_account_id": "110",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:23.849369+00:00"
+    },
+    {
+      "id": "552c3342-4ce9-4bd1-a7ca-8a1406ae56ac",
+      "account_number": "33000",
+      "account_name": "Retained Earnings",
+      "account_type": "equity",
+      "qb_account_id": "2",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:24.368281+00:00"
+    },
+    {
+      "id": "6b5e6e63-f7c9-49de-807f-1a10a7471482",
+      "account_number": "40051",
+      "account_name": "Sales - EBT Non Taxbl",
+      "account_type": "revenue",
+      "qb_account_id": "408",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:24.796248+00:00"
+    },
+    {
+      "id": "1c42dd10-6251-450a-a25f-3b00247843fb",
+      "account_number": "12031",
+      "account_name": "Investment in TBills",
+      "account_type": "asset",
+      "qb_account_id": "405",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:25.764058+00:00"
+    },
+    {
+      "id": "61d83c6b-6365-4ffa-825c-9ca318be3447",
+      "account_number": "16300",
+      "account_name": "Start Up Costs",
+      "account_type": "asset",
+      "qb_account_id": "229",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:26.027137+00:00"
+    },
+    {
+      "id": "8d7345bc-7fe9-4934-8dd8-c1562f10739e",
+      "account_number": "16306",
+      "account_name": "West Covina",
+      "account_type": "asset",
+      "qb_account_id": "234",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:26.566537+00:00"
+    },
+    {
+      "id": "f7e28063-f284-4053-a579-c69bdc9a8945",
+      "account_number": "53080",
+      "account_name": "Telephone",
+      "account_type": "expense",
+      "qb_account_id": "107",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:27.107699+00:00"
+    },
+    {
+      "id": "f395994b-abe5-4713-9993-349afa17aff2",
+      "account_number": "53203",
+      "account_name": "Registration",
+      "account_type": "expense",
+      "qb_account_id": "148",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:27.656254+00:00"
+    },
+    {
+      "id": "25a4acc4-16ba-4bb6-bd47-1938c2c1980b",
+      "account_number": "40080",
+      "account_name": "Unapplied Cash Payment Income",
+      "account_type": "revenue",
+      "qb_account_id": "224",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:28.071457+00:00"
+    },
+    {
+      "id": "5a4bc013-dfb8-40a3-9849-7c6f1599aed9",
+      "account_number": "60015",
+      "account_name": "Unrealized Gain/Loss on Securities",
+      "account_type": "revenue",
+      "qb_account_id": "1150040011",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:28.601308+00:00"
+    },
+    {
+      "id": "35c29e6c-ab77-4620-83ba-5fc06314830c",
+      "account_number": "13300",
+      "account_name": "Vendor Deposits",
+      "account_type": "asset",
+      "qb_account_id": "249",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:29.135356+00:00"
+    },
+    {
+      "id": "a0ac1c9c-6a02-4973-9360-d79abea2e088",
+      "account_number": "14308",
+      "account_name": "CIP Bristol",
+      "account_type": "asset",
+      "qb_account_id": "366",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:08.51312+00:00"
+    },
+    {
+      "id": "da113a98-d4b8-41a1-b796-9024e0796107",
+      "account_number": "14306",
+      "account_name": "CIP Norwalk",
+      "account_type": "asset",
+      "qb_account_id": "355",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:08.947925+00:00"
+    },
+    {
+      "id": "94cbc336-bac8-4804-912e-eba6dbee2358",
+      "account_number": "24500",
+      "account_name": "Distribution Payable",
+      "account_type": "liability",
+      "qb_account_id": "1150040006",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:09.757319+00:00"
+    },
+    {
+      "id": "9e259c3b-8fa2-4f27-8a46-35f0bbd0dc2c",
+      "account_number": "25005",
+      "account_name": "Loan-APC_Tucs lease#TC 2456",
+      "account_type": "liability",
+      "qb_account_id": "331",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:10.435867+00:00"
+    },
+    {
+      "id": "4995b74a-a35f-45e2-8f38-4f821a64c5a4",
+      "account_number": "70110",
+      "account_name": "Income Tax - State",
+      "account_type": "expense",
+      "qb_account_id": "170",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:11.506486+00:00"
+    },
+    {
+      "id": "b0c92320-f334-4d76-85bb-cbcfe0bf2f5c",
+      "account_number": "12305",
+      "account_name": "Inventory Kitchen",
+      "account_type": "asset",
+      "qb_account_id": "368",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:12.035054+00:00"
+    },
+    {
+      "id": "760d63e0-605c-4376-b1b4-e3b242ec16e2",
+      "account_number": "14403",
+      "account_name": "Broadway",
+      "account_type": "asset",
+      "qb_account_id": "174",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:12.98536+00:00"
+    },
+    {
+      "id": "49541202-2bf7-4238-b76c-b73b8a913cb1",
+      "account_number": "14407",
+      "account_name": "Lynwood",
+      "account_type": "asset",
+      "qb_account_id": "197",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:13.612087+00:00"
+    },
+    {
+      "id": "44cbd2b1-b758-4039-9e5b-9c1ebbf9a250",
+      "account_number": "14410",
+      "account_name": "South Gate",
+      "account_type": "asset",
+      "qb_account_id": "228",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:14.418165+00:00"
+    },
+    {
+      "id": "1946e640-de52-4845-83bc-89ecc9e39504",
+      "account_number": "12401",
+      "account_name": "Rodriguez Loan",
+      "account_type": "asset",
+      "qb_account_id": "263",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:14.957883+00:00"
+    },
+    {
+      "id": "be441c89-6eba-4686-b681-0bd19286579e",
+      "account_number": "14502",
+      "account_name": "M&E Central",
+      "account_type": "asset",
+      "qb_account_id": "274",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:15.479461+00:00"
+    },
+    {
+      "id": "39c06fa8-4d5f-4f48-9e81-97ad46cccc38",
+      "account_number": "14506",
+      "account_name": "M&E-Broadway",
+      "account_type": "asset",
+      "qb_account_id": "221",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:15.928903+00:00"
+    },
+    {
+      "id": "6065bafe-6de6-4441-b488-96b7d1951416",
+      "account_number": "14512",
+      "account_name": "M&E-Santa Ana",
+      "account_type": "asset",
+      "qb_account_id": "284",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:16.485833+00:00"
+    },
+    {
+      "id": "8c16eb6c-178f-4826-85ae-15d1c18d965f",
+      "account_number": "32000",
+      "account_name": "Member's Capital",
+      "account_type": "equity",
+      "qb_account_id": "207",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:17.01291+00:00"
+    },
+    {
+      "id": "d3059c48-cf67-4d62-9a3c-a23fb6ff74fb",
+      "account_number": "32210",
+      "account_name": "Distributions-Gonzalo V.",
+      "account_type": "equity",
+      "qb_account_id": "416",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:17.546692+00:00"
+    },
+    {
+      "id": "54556014-51bf-4823-bfe5-5933e09b571b",
+      "account_number": "16118",
+      "account_name": "Loan to Dolanatto LLC",
+      "account_type": "asset",
+      "qb_account_id": "1150040003",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:18.551596+00:00"
+    },
+    {
+      "id": "8781cf1c-b8ac-43e4-b367-caba64721a10",
+      "account_number": "16115",
+      "account_name": "Loan to Gutierrez 22.01 HP",
+      "account_type": "asset",
+      "qb_account_id": "397",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:19.079707+00:00"
+    },
+    {
+      "id": "0c41c70d-31e1-4871-bb20-8d3de9236d0b",
+      "account_number": "16117",
+      "account_name": "Loan to Roberto 23.09 Lubec",
+      "account_type": "asset",
+      "qb_account_id": "410",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:19.598497+00:00"
+    },
+    {
+      "id": "71503acd-756a-4fa2-8777-94765f8d46d8",
+      "account_number": "31000",
+      "account_name": "Opening Balance Equity",
+      "account_type": "equity",
+      "qb_account_id": "53",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:20.120047+00:00"
+    },
+    {
+      "id": "66b4230f-5ada-447c-bd74-eedc2aa0f858",
+      "account_number": "52005",
+      "account_name": "EE PR Taxes",
+      "account_type": "expense",
+      "qb_account_id": "121",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:21.170802+00:00"
+    },
+    {
+      "id": "717917c8-9f6f-43e5-9082-ad7ace1d966a",
+      "account_number": "52010",
+      "account_name": "Office Administration",
+      "account_type": "expense",
+      "qb_account_id": "116",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:21.697688+00:00"
+    },
+    {
+      "id": "13cd5fc6-c14f-4670-aa7a-572fadb3e482",
+      "account_number": "13010",
+      "account_name": "Prepaid Tax - Federal",
+      "account_type": "asset",
+      "qb_account_id": "310",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:22.530189+00:00"
+    },
+    {
+      "id": "5e91ac8d-84f9-4eb8-bc4a-cc5d5af78c2a",
+      "account_number": "53020",
+      "account_name": "Purchases",
+      "account_type": "expense",
+      "qb_account_id": "276",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:23.061025+00:00"
+    },
+    {
+      "id": "32ca8e99-c39d-4f91-83a0-796825682596",
+      "account_number": "53032",
+      "account_name": "Rent-Roberto Velasquez",
+      "account_type": "expense",
+      "qb_account_id": "104",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:23.934411+00:00"
+    },
+    {
+      "id": "bb557d56-d519-428d-8faa-45fe638265eb",
+      "account_number": "33001",
+      "account_name": "Retained Earnings-Appropriated",
+      "account_type": "equity",
+      "qb_account_id": "208",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:24.452378+00:00"
+    },
+    {
+      "id": "1b32cedc-c5b4-4cea-9d4e-6be085f6c207",
+      "account_number": "16301",
+      "account_name": "La Puente",
+      "account_type": "asset",
+      "qb_account_id": "231",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:26.130355+00:00"
+    },
+    {
+      "id": "eedbb070-ab45-4b09-a615-4c8d4a1900a2",
+      "account_number": "70111",
+      "account_name": "State Income Tax Penalties",
+      "account_type": "expense",
+      "qb_account_id": "347",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:26.654316+00:00"
+    },
+    {
+      "id": "839b05c1-17e2-4b76-95d5-074d75b09796",
+      "account_number": "53100",
+      "account_name": "Travel",
+      "account_type": "expense",
+      "qb_account_id": "24",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:27.198615+00:00"
+    },
+    {
+      "id": "b43c08db-0e64-4420-b159-a35d24014189",
+      "account_number": "53204",
+      "account_name": "Repairs & Labor",
+      "account_type": "expense",
+      "qb_account_id": "97",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:27.775731+00:00"
+    },
+    {
+      "id": "0086a518-184f-4764-8b90-e1131926868e",
+      "account_number": "13100",
+      "account_name": "Uncategorized Asset",
+      "account_type": "asset",
+      "qb_account_id": "52",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:28.166034+00:00"
+    },
+    {
+      "id": "9db9829f-461b-471e-87ef-6d24f5b5b0fe",
+      "account_number": "21001",
+      "account_name": "US BANK CREDIT CARD",
+      "account_type": "liability",
+      "qb_account_id": "394",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:28.685614+00:00"
+    },
+    {
+      "id": "99c92e8c-ed32-4540-8ed8-ec9afccff7cc",
+      "account_number": "10010",
+      "account_name": "Vernon",
+      "account_type": "asset",
+      "qb_account_id": "46",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:29.219728+00:00"
+    },
+    {
+      "id": "8e81beb6-3100-4ffc-ba7b-298e816e1830",
+      "account_number": "14307",
+      "account_name": "CIP Broadway",
+      "account_type": "asset",
+      "qb_account_id": "364",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:08.604426+00:00"
+    },
+    {
+      "id": "f66c5254-091b-4a7f-8bbe-2a0405ffba89",
+      "account_number": "14309",
+      "account_name": "CIP Ontario",
+      "account_type": "asset",
+      "qb_account_id": "390",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:09.038502+00:00"
+    },
+    {
+      "id": "fa7ff70a-ebac-47d6-a8f6-842f2a6a3b6b",
+      "account_number": "51090",
+      "account_name": "Damages",
+      "account_type": "expense",
+      "qb_account_id": "167",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:09.390938+00:00"
+    },
+    {
+      "id": "58594c1e-38d3-412b-a31d-e54ff31ceb9f",
+      "account_number": "50036",
+      "account_name": "Doordash Fees",
+      "account_type": "cogs",
+      "qb_account_id": "375",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:09.848847+00:00"
+    },
+    {
+      "id": "04ed7e90-c366-4dd8-ba6d-daa9cc5e81da",
+      "account_number": "25001",
+      "account_name": "Loan-TF HINO #54795",
+      "account_type": "liability",
+      "qb_account_id": "255",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:10.521203+00:00"
+    },
+    {
+      "id": "fd845ed3-f35e-43df-8756-331b0aca50f1",
+      "account_number": "51140",
+      "account_name": "Gifts",
+      "account_type": "expense",
+      "qb_account_id": "98",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:11.057486+00:00"
+    },
+    {
+      "id": "0276a17c-6325-4258-b44f-413a9bd906e6",
+      "account_number": "51150",
+      "account_name": "Insurance",
+      "account_type": "expense",
+      "qb_account_id": "13",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:11.592219+00:00"
+    },
+    {
+      "id": "9f1b68f2-7fd5-4e9f-ad91-1aab7947c579",
+      "account_number": "12300",
+      "account_name": "Inventory Locations",
+      "account_type": "asset",
+      "qb_account_id": "5",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:12.121628+00:00"
+    },
+    {
+      "id": "5c8ca446-8d22-4f0a-9b20-fa2b9be23716",
+      "account_number": "51180",
+      "account_name": "Last Year Expense",
+      "account_type": "expense",
+      "qb_account_id": "142",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:12.586339+00:00"
+    },
+    {
+      "id": "a99d6d23-854f-41ed-9f4d-e7b78ce67f94",
+      "account_number": "14415",
+      "account_name": "Norwalk",
+      "account_type": "asset",
+      "qb_account_id": "381",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:13.832312+00:00"
+    },
+    {
+      "id": "f183c30a-5e69-4c8f-a228-240625795a07",
+      "account_number": "14411",
+      "account_name": "Warehouse",
+      "account_type": "asset",
+      "qb_account_id": "132",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:14.509369+00:00"
+    },
+    {
+      "id": "f3dcfea3-ebb2-43a7-9868-f32be7071d6d",
+      "account_number": "12403",
+      "account_name": "ST Loan Gabriel Garcia",
+      "account_type": "asset",
+      "qb_account_id": "409",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:15.049419+00:00"
+    },
+    {
+      "id": "3dccdd58-21d6-4be4-a72d-7a801d13e823",
+      "account_number": "14503",
+      "account_name": "M&E Hollywood",
+      "account_type": "asset",
+      "qb_account_id": "245",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:15.578886+00:00"
+    },
+    {
+      "id": "b3333a3e-9e30-42a8-9819-13047fb4ca6f",
+      "account_number": "14507",
+      "account_name": "M&E-Downey",
+      "account_type": "asset",
+      "qb_account_id": "253",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:16.016361+00:00"
+    },
+    {
+      "id": "6e411be8-4ba6-408b-8ae0-6a38c57d1609",
+      "account_number": "14516",
+      "account_name": "M&E-Slauson",
+      "account_type": "asset",
+      "qb_account_id": "400",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:16.570349+00:00"
+    },
+    {
+      "id": "c5b0a1fd-08fd-4a90-90ba-84444db42756",
+      "account_number": "32100",
+      "account_name": "Member's Capital-TEG Holdings Inc",
+      "account_type": "equity",
+      "qb_account_id": "413",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:17.103178+00:00"
+    },
+    {
+      "id": "e61dc248-03e3-41dc-a436-46d10b1ce5c1",
+      "account_number": "32211",
+      "account_name": "Taxes-Gonzalo V.",
+      "account_type": "equity",
+      "qb_account_id": "419",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:17.632351+00:00"
+    },
+    {
+      "id": "7ca9677b-5994-48fd-9804-ad2a1f87518f",
+      "account_number": "26001",
+      "account_name": "Loan From Roberto Velasquez",
+      "account_type": "liability",
+      "qb_account_id": "345",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:18.101618+00:00"
+    },
+    {
+      "id": "8ec82a2a-99a6-45b3-a082-d6c5bd26fe20",
+      "account_number": "16116",
+      "account_name": "Loan to Elveze LLC",
+      "account_type": "asset",
+      "qb_account_id": "401",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:18.63517+00:00"
+    },
+    {
+      "id": "564995ac-6a50-422a-841d-6cf14e4e137b",
+      "account_number": "16103",
+      "account_name": "Loan to Gutierrez Financial",
+      "account_type": "asset",
+      "qb_account_id": "138",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:19.163289+00:00"
+    },
+    {
+      "id": "fbba21f2-ee87-4157-8afd-a44950e723aa",
+      "account_number": "16105",
+      "account_name": "Loan to Roberto Velasquez",
+      "account_type": "asset",
+      "qb_account_id": "182",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:19.69215+00:00"
+    },
+    {
+      "id": "437ea8d9-38f1-4aec-b736-ba1d1a10cda8",
+      "account_number": "60014",
+      "account_name": "other",
+      "account_type": "revenue",
+      "qb_account_id": "1150040009",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:20.209759+00:00"
+    },
+    {
+      "id": "1771187a-c340-48ba-a3c9-37d30ae8f9d8",
+      "account_number": "52000",
+      "account_name": "Payroll",
+      "account_type": "expense",
+      "qb_account_id": "111",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:20.734451+00:00"
+    },
+    {
+      "id": "e0996eba-def0-44a2-a7b7-2b55ff50e100",
+      "account_number": "52011",
+      "account_name": "ER 401K Match",
+      "account_type": "expense",
+      "qb_account_id": "1150040010",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:21.256909+00:00"
+    },
+    {
+      "id": "449076d1-b583-440d-8fba-33af2ab4f298",
+      "account_number": "23000",
+      "account_name": "Payroll Clearing",
+      "account_type": "liability",
+      "qb_account_id": "109",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:21.791619+00:00"
+    },
+    {
+      "id": "02077cde-4ec6-479b-9321-7355c0a89c55",
+      "account_number": "13012",
+      "account_name": "Prepaid Tax - Property Taxes",
+      "account_type": "asset",
+      "qb_account_id": "393",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:22.615336+00:00"
+    },
+    {
+      "id": "2c380d75-9b38-4d12-a65d-2b1784f9edc7",
+      "account_number": "12052",
+      "account_name": "Receivable due from Ruffin Tech Ltd.",
+      "account_type": "asset",
+      "qb_account_id": "363",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:23.150629+00:00"
+    },
+    {
+      "id": "9dc6b48d-3261-4685-a140-54c622f4ffc3",
+      "account_number": "53040",
+      "account_name": "Repairs and Maintenance",
+      "account_type": "expense",
+      "qb_account_id": "20",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:24.019677+00:00"
+    },
+    {
+      "id": "00a9ed1c-1d1b-4988-aac0-7369243eacb9",
+      "account_number": "10008",
+      "account_name": "Santa fe",
+      "account_type": "asset",
+      "qb_account_id": "37",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:25.411539+00:00"
+    },
+    {
+      "id": "732a6a85-6269-436e-a68e-0ca9b3922823",
+      "account_number": "16302",
+      "account_name": "Lynwood",
+      "account_type": "asset",
+      "qb_account_id": "230",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:26.219262+00:00"
+    },
+    {
+      "id": "73d6be0c-14fe-43dd-b34a-a970141cd6ff",
+      "account_number": "60012",
+      "account_name": "Tax Exempt Interest & Dividend Income",
+      "account_type": "revenue",
+      "qb_account_id": "403",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:26.73643+00:00"
+    },
+    {
+      "id": "ceda7bab-6b65-42be-beea-c0f25bc7b226",
+      "account_number": "53101",
+      "account_name": "Travel Meals",
+      "account_type": "expense",
+      "qb_account_id": "25",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:27.284997+00:00"
+    },
+    {
+      "id": "0ec0a702-73c7-4032-92b8-cfbfbde7a9ed",
+      "account_number": "50039",
+      "account_name": "Uber Eats Fee",
+      "account_type": "cogs",
+      "qb_account_id": "353",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:27.861466+00:00"
+    },
+    {
+      "id": "563bb055-72ff-4270-88de-c0b88831b614",
+      "account_number": "53230",
+      "account_name": "Uncategorized Expense",
+      "account_type": "expense",
+      "qb_account_id": "51",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:28.251723+00:00"
+    },
+    {
+      "id": "5c7adf9c-eff8-4207-afb3-a99bae58b0bc",
+      "account_number": "53250",
+      "account_name": "Utilities",
+      "account_type": "expense",
+      "qb_account_id": "26",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:28.771021+00:00"
+    },
+    {
+      "id": "b859fbd3-9995-4d51-8cc2-a610ee32b39c",
+      "account_number": "10011",
+      "account_name": "Warehouse",
+      "account_type": "asset",
+      "qb_account_id": "38",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:29.307084+00:00"
+    },
+    {
+      "id": "2a58d062-3a80-4de2-8b25-4bb66954fbc7",
+      "account_number": "14301",
+      "account_name": "CIP Central",
+      "account_type": "asset",
+      "qb_account_id": "237",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:08.690893+00:00"
+    },
+    {
+      "id": "368d8f33-127f-4cc1-b8e9-fe288db5e54b",
+      "account_number": "51120",
+      "account_name": "Dues & Subscriptions",
+      "account_type": "expense",
+      "qb_account_id": "12",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:09.933457+00:00"
+    },
+    {
+      "id": "02c51299-8bd9-4ee0-b916-012c6438bc5d",
+      "account_number": "25002",
+      "account_name": "Loan-TF HINO #56885",
+      "account_type": "liability",
+      "qb_account_id": "147",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:10.610746+00:00"
+    },
+    {
+      "id": "592e767f-7bfa-4346-a53f-5f85cc9ffdfb",
+      "account_number": "14900",
+      "account_name": "Goodwill",
+      "account_type": "asset",
+      "qb_account_id": "1150040004",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:11.143133+00:00"
+    },
+    {
+      "id": "1969b833-3051-484e-a86e-b0d4f3e9b423",
+      "account_number": "12200",
+      "account_name": "Intercompany Clearing",
+      "account_type": "asset",
+      "qb_account_id": "108",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:11.676659+00:00"
+    },
+    {
+      "id": "21250367-f250-4043-a078-7c7fabe43424",
+      "account_number": "12310",
+      "account_name": "Inventory Warehouse",
+      "account_type": "asset",
+      "qb_account_id": "279",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:12.221933+00:00"
+    },
+    {
+      "id": "c999c7f9-1216-4a44-987f-5c55b430b3e2",
+      "account_number": "14400",
+      "account_name": "Leasehold Improvements",
+      "account_type": "asset",
+      "qb_account_id": "129",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:12.672949+00:00"
+    },
+    {
+      "id": "8ca3ccf6-3af6-4a60-9219-1c9b4c94eea8",
+      "account_number": "14404",
+      "account_name": "Central",
+      "account_type": "asset",
+      "qb_account_id": "135",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:13.093695+00:00"
+    },
+    {
+      "id": "f2c0fda3-463b-40c1-bb3c-68164761626e",
+      "account_number": "14408",
+      "account_name": "Pepes",
+      "account_type": "asset",
+      "qb_account_id": "222",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:13.922955+00:00"
+    },
+    {
+      "id": "1917a31e-1171-4815-9820-d912164202df",
+      "account_number": "14412",
+      "account_name": "West Covina",
+      "account_type": "asset",
+      "qb_account_id": "271",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:14.597606+00:00"
+    },
+    {
+      "id": "b53de337-8a3f-447c-a5a2-9f4226968a92",
+      "account_number": "70020",
+      "account_name": "Loss on Disposal of Asset",
+      "account_type": "expense",
+      "qb_account_id": "244",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:15.137598+00:00"
+    },
+    {
+      "id": "2f2411be-2cb6-4e83-9df2-f093664545e7",
+      "account_number": "14504",
+      "account_name": "M&E Rialto",
+      "account_type": "asset",
+      "qb_account_id": "247",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:15.663105+00:00"
+    },
+    {
+      "id": "44c766f3-3d30-481e-8d4f-1419d52d6c47",
+      "account_number": "14508",
+      "account_name": "M&E-Huntington Park",
+      "account_type": "asset",
+      "qb_account_id": "254",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:16.111006+00:00"
+    },
+    {
+      "id": "be6ccfbb-3171-4898-900e-4be4230b115d",
+      "account_number": "14510",
+      "account_name": "M&E-Warehouse",
+      "account_type": "asset",
+      "qb_account_id": "252",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:16.663096+00:00"
+    },
+    {
+      "id": "38f7462c-9002-40f7-b74e-b6d89f67c35e",
+      "account_number": "32110",
+      "account_name": "Distributions-TEG Holdings Inc",
+      "account_type": "equity",
+      "qb_account_id": "414",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:17.18731+00:00"
+    },
+    {
+      "id": "81d1e8c1-9945-431c-9bad-cbaac63150dc",
+      "account_number": "32220",
+      "account_name": "Income-Gonzalo V.",
+      "account_type": "equity",
+      "qb_account_id": "420",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:17.726588+00:00"
+    },
+    {
+      "id": "56b92f58-ecf6-4e24-986e-5352d3811611",
+      "account_number": "16100",
+      "account_name": "Notes Receivable",
+      "account_type": "asset",
+      "qb_account_id": "257",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:18.187071+00:00"
+    },
+    {
+      "id": "586cb27e-a7d8-430b-8317-8ece9c44f43b",
+      "account_number": "16102",
+      "account_name": "Loan to Gonazalo Velasquez",
+      "account_type": "asset",
+      "qb_account_id": "205",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:18.727516+00:00"
+    },
+    {
+      "id": "0ebd2589-d2c4-4653-a7f2-aaefc9ef5f80",
+      "account_number": "16104",
+      "account_name": "Loan to Raquel Velasquez",
+      "account_type": "asset",
+      "qb_account_id": "187",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:19.248524+00:00"
+    },
+    {
+      "id": "df6ad3a6-dc25-4aeb-8115-852eaaf10464",
+      "account_number": "16106",
+      "account_name": "LT Loan R Velasques",
+      "account_type": "asset",
+      "qb_account_id": "210",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:19.775645+00:00"
+    },
+    {
+      "id": "ebd939a0-1021-401b-b809-cdd07ec8a5a2",
+      "account_number": "60000",
+      "account_name": "Other Income",
+      "account_type": "revenue",
+      "qb_account_id": "28",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:20.294261+00:00"
+    },
+    {
+      "id": "e15a0323-8ba9-43dc-8198-94d1d29be54a",
+      "account_number": "52001",
+      "account_name": "Cashiers",
+      "account_type": "expense",
+      "qb_account_id": "112",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:20.818853+00:00"
+    },
+    {
+      "id": "ea626d33-2915-41d8-9605-f179abb17400",
+      "account_number": "52006",
+      "account_name": "ER PR FICA",
+      "account_type": "expense",
+      "qb_account_id": "122",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:21.349747+00:00"
+    },
+    {
+      "id": "1927adc3-c7e7-4048-bbfe-5f5e504a691d",
+      "account_number": "52100",
+      "account_name": "Payroll Service Expense",
+      "account_type": "expense",
+      "qb_account_id": "83",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:21.877926+00:00"
+    },
+    {
+      "id": "9e678bc3-bfe7-4dfb-b163-c2e88fc6d9ac",
+      "account_number": "13011",
+      "account_name": "Prepaid Tax - State",
+      "account_type": "asset",
+      "qb_account_id": "311",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:22.702165+00:00"
+    },
+    {
+      "id": "da7eda06-7487-469a-a0d4-46177c36ba9a",
+      "account_number": "70050",
+      "account_name": "Reconciliation Discrepancies",
+      "account_type": "expense",
+      "qb_account_id": "273",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:23.590338+00:00"
+    },
+    {
+      "id": "3f47153d-e4f6-4954-af1c-aeb4d4436b60",
+      "account_number": "53050",
+      "account_name": "Restaurant Supplies",
+      "account_type": "expense",
+      "qb_account_id": "22",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:24.106597+00:00"
+    },
+    {
+      "id": "1c161e02-d19d-431f-8c72-5f37e9a1d8f5",
+      "account_number": "24000",
+      "account_name": "Sales Tax Agency Payable",
+      "account_type": "liability",
+      "qb_account_id": "188",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:24.978602+00:00"
+    },
+    {
+      "id": "677cda15-0267-41de-aab9-abddb2531f24",
+      "account_number": "53060",
+      "account_name": "Shipping & handling",
+      "account_type": "expense",
+      "qb_account_id": "227",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:25.496941+00:00"
+    },
+    {
+      "id": "d7a9fad3-c0cb-4d96-a0ba-0f3c35251fff",
+      "account_number": "16303",
+      "account_name": "Santa Ana",
+      "account_type": "asset",
+      "qb_account_id": "232",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:26.306822+00:00"
+    },
+    {
+      "id": "cd374b7b-c98c-4f7d-8f64-e7b3695c5b62",
+      "account_number": "60013",
+      "account_name": "Taxable Interest & Dividend Income",
+      "account_type": "revenue",
+      "qb_account_id": "1150040002",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:26.827611+00:00"
+    },
+    {
+      "id": "b556c3b5-0769-4242-8ac0-33996e0fd017",
+      "account_number": "53200",
+      "account_name": "Trucks",
+      "account_type": "expense",
+      "qb_account_id": "93",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:27.382553+00:00"
+    },
+    {
+      "id": "666a0119-b4a8-4053-b19c-1f5e59bea24e",
+      "account_number": "40090",
+      "account_name": "Uncategorized Income",
+      "account_type": "revenue",
+      "qb_account_id": "50",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:28.339327+00:00"
+    },
+    {
+      "id": "34d0a83d-0682-462c-a486-2493acf1fe61",
+      "account_number": "53251",
+      "account_name": "Gas",
+      "account_type": "expense",
+      "qb_account_id": "88",
+      "is_active": true,
+      "created_at": "2026-09-02T02:22:28.858292+00:00"
+    }
+  ]
+}

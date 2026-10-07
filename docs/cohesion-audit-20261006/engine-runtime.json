@@ -1,0 +1,1005 @@
+{
+  "capturedAt": "2026-10-07T13:56:22.753Z",
+  "hashes": {
+    "lib/accounting-journal.ts": "db8ab2bafee3e553f954cb49d2cfa19c4bc361cc340193060d8c275217c5f7eb",
+    "lib/toast-accounting.ts": "d1f1b196f7a01fcb6322888ef2f1f10538468247fe2b6b1244449d72226f2090"
+  },
+  "realPackets": 105,
+  "balanced": 105,
+  "changedTotals": 5,
+  "results": [
+    {
+      "id": "c06263fa-6b58-4de9-88f2-28eaaf2ea9d4",
+      "store": "Azusa",
+      "date": "2026-09-21",
+      "balanced": true,
+      "expectedCash": 1473.5,
+      "storedExpectedCash": 1535.64,
+      "delta": 0
+    },
+    {
+      "id": "21f47e3b-8f12-4bd8-9643-3dab1bdef271",
+      "store": "Rialto",
+      "date": "2026-09-21",
+      "balanced": true,
+      "expectedCash": 2180.04,
+      "storedExpectedCash": 2225.35,
+      "delta": 0
+    },
+    {
+      "id": "5336da51-68af-4faa-927c-1f496d1b8980",
+      "store": "Lynwood",
+      "date": "2026-09-21",
+      "balanced": true,
+      "expectedCash": -1514.26,
+      "storedExpectedCash": 4044.25,
+      "delta": 0
+    },
+    {
+      "id": "09d48fc0-f949-4b22-ab6c-208dabe85635",
+      "store": "Hollywood",
+      "date": "2026-09-21",
+      "balanced": true,
+      "expectedCash": 2373.13,
+      "storedExpectedCash": 2418.47,
+      "delta": 0
+    },
+    {
+      "id": "9311c6c3-e8bf-4ddf-b684-4f833e8150b7",
+      "store": "Slauson",
+      "date": "2026-09-21",
+      "balanced": true,
+      "expectedCash": 3959.27,
+      "storedExpectedCash": 3959.27,
+      "delta": 0
+    },
+    {
+      "id": "c9bd0179-351d-4ecd-8efa-11a3dc9c98bf",
+      "store": "West Covina",
+      "date": "2026-09-21",
+      "balanced": true,
+      "expectedCash": -3331.75,
+      "storedExpectedCash": 2582.08,
+      "delta": 0
+    },
+    {
+      "id": "b79033f6-31d8-4156-aa95-e5d10be36584",
+      "store": "Huntington Park",
+      "date": "2026-09-21",
+      "balanced": true,
+      "expectedCash": 3735.16,
+      "storedExpectedCash": 3735.16,
+      "delta": 0
+    },
+    {
+      "id": "c34dd602-1b90-4b88-9604-98a0e653e842",
+      "store": "LA Broadway",
+      "date": "2026-09-21",
+      "balanced": true,
+      "expectedCash": 4776.51,
+      "storedExpectedCash": 4776.51,
+      "delta": 0
+    },
+    {
+      "id": "6200feb9-886a-4a89-8832-efb0c47c9447",
+      "store": "La Puente",
+      "date": "2026-09-21",
+      "balanced": true,
+      "expectedCash": -1453.77,
+      "storedExpectedCash": 1988.54,
+      "delta": 0
+    },
+    {
+      "id": "30952487-8b71-47e3-856d-20b99028a3f7",
+      "store": "Downey",
+      "date": "2026-09-21",
+      "balanced": true,
+      "expectedCash": 2896.74,
+      "storedExpectedCash": 2918.71,
+      "delta": 0
+    },
+    {
+      "id": "acdb7e3c-02ad-4979-96fb-93535180f8d9",
+      "store": "LA Central",
+      "date": "2026-09-21",
+      "balanced": true,
+      "expectedCash": -1617.85,
+      "storedExpectedCash": 6618.46,
+      "delta": 0
+    },
+    {
+      "id": "fac2fea1-201f-4ddc-8155-63509b63e4a5",
+      "store": "Bell",
+      "date": "2026-09-21",
+      "balanced": true,
+      "expectedCash": 1655.76,
+      "storedExpectedCash": 1665.45,
+      "delta": 0
+    },
+    {
+      "id": "c30aba1c-f220-4444-b88c-f9cfad3273ca",
+      "store": "South Gate",
+      "date": "2026-09-21",
+      "balanced": true,
+      "expectedCash": -2308.15,
+      "storedExpectedCash": 3437.87,
+      "delta": 0
+    },
+    {
+      "id": "2b416863-77db-4fd3-a56f-9bbdc8eadb90",
+      "store": "Norwalk",
+      "date": "2026-09-21",
+      "balanced": true,
+      "expectedCash": -3917.26,
+      "storedExpectedCash": 2375.12,
+      "delta": 0
+    },
+    {
+      "id": "146c805b-8e5f-42be-9976-3dc3b88d5360",
+      "store": "Santa Ana",
+      "date": "2026-09-21",
+      "balanced": true,
+      "expectedCash": 2469.05,
+      "storedExpectedCash": 2478.24,
+      "delta": 0
+    },
+    {
+      "id": "18ddb0f2-3923-4192-ae05-8f8f9e6138c2",
+      "store": "Santa Ana",
+      "date": "2026-09-22",
+      "balanced": true,
+      "expectedCash": 2421.23,
+      "storedExpectedCash": 2409.23,
+      "delta": -4.58
+    },
+    {
+      "id": "9e87ac08-8754-4191-b672-89a9867331e0",
+      "store": "South Gate",
+      "date": "2026-09-22",
+      "balanced": true,
+      "expectedCash": -2829.97,
+      "storedExpectedCash": 2674.02,
+      "delta": 0
+    },
+    {
+      "id": "a5863499-8436-4f8b-9ffb-b67c88001182",
+      "store": "Rialto",
+      "date": "2026-09-22",
+      "balanced": true,
+      "expectedCash": 2623.17,
+      "storedExpectedCash": 2623.17,
+      "delta": 0
+    },
+    {
+      "id": "23640022-6505-40bb-9d6f-9c3bf8d5c859",
+      "store": "Huntington Park",
+      "date": "2026-09-22",
+      "balanced": true,
+      "expectedCash": 3258.36,
+      "storedExpectedCash": 3312.34,
+      "delta": 0
+    },
+    {
+      "id": "b61e4713-761c-4f18-a6dd-04f45432df56",
+      "store": "Hollywood",
+      "date": "2026-09-22",
+      "balanced": true,
+      "expectedCash": 2583.73,
+      "storedExpectedCash": 2990.75,
+      "delta": 0
+    },
+    {
+      "id": "61d2fd3a-4b58-468e-b365-3636a75d7bfb",
+      "store": "Azusa",
+      "date": "2026-09-22",
+      "balanced": true,
+      "expectedCash": 1334.01,
+      "storedExpectedCash": 1364.55,
+      "delta": 0
+    },
+    {
+      "id": "831e59d1-4f3f-407a-8274-69de5533a0e3",
+      "store": "Bell",
+      "date": "2026-09-22",
+      "balanced": true,
+      "expectedCash": 1707.15,
+      "storedExpectedCash": 1718.84,
+      "delta": 0
+    },
+    {
+      "id": "6e8d11ec-31be-4f58-a9b1-12d98020bb7d",
+      "store": "Lynwood",
+      "date": "2026-09-22",
+      "balanced": true,
+      "expectedCash": -1988.22,
+      "storedExpectedCash": 4106.01,
+      "delta": 0
+    },
+    {
+      "id": "e7a361ef-de6b-4aa1-8712-aa1424f3b777",
+      "store": "La Puente",
+      "date": "2026-09-22",
+      "balanced": true,
+      "expectedCash": -1611.42,
+      "storedExpectedCash": 1724.9,
+      "delta": 0
+    },
+    {
+      "id": "c57b8360-1532-46be-9b9b-655b05197c81",
+      "store": "Norwalk",
+      "date": "2026-09-22",
+      "balanced": true,
+      "expectedCash": -3603.68,
+      "storedExpectedCash": 3048.81,
+      "delta": 0
+    },
+    {
+      "id": "e09f1995-ec89-48a7-8873-8b3b5d08e13f",
+      "store": "LA Broadway",
+      "date": "2026-09-22",
+      "balanced": true,
+      "expectedCash": 4882.9,
+      "storedExpectedCash": 4882.9,
+      "delta": 0
+    },
+    {
+      "id": "a238cf9f-5b41-4f12-a843-b513862232aa",
+      "store": "West Covina",
+      "date": "2026-09-22",
+      "balanced": true,
+      "expectedCash": -2934.4,
+      "storedExpectedCash": 2915.17,
+      "delta": 0
+    },
+    {
+      "id": "09b0ec07-7d2e-44ba-a0e0-698a80906649",
+      "store": "LA Central",
+      "date": "2026-09-22",
+      "balanced": true,
+      "expectedCash": -2729.48,
+      "storedExpectedCash": 5335.2,
+      "delta": 0
+    },
+    {
+      "id": "d06b45e7-e3e8-456a-affa-3734c9acb8e3",
+      "store": "Slauson",
+      "date": "2026-09-22",
+      "balanced": true,
+      "expectedCash": 3750.95,
+      "storedExpectedCash": 3750.95,
+      "delta": 0
+    },
+    {
+      "id": "e22fc6ee-589b-4368-b8fa-d0266e3ef5a9",
+      "store": "Downey",
+      "date": "2026-09-22",
+      "balanced": true,
+      "expectedCash": 3150.88,
+      "storedExpectedCash": 3187.78,
+      "delta": 0
+    },
+    {
+      "id": "07777b06-aaf1-4904-b95d-4f9d67c556b8",
+      "store": "Azusa",
+      "date": "2026-09-23",
+      "balanced": true,
+      "expectedCash": 1243.63,
+      "storedExpectedCash": 1273.1,
+      "delta": 0
+    },
+    {
+      "id": "7a5f9e0f-0e05-4859-8791-1d9761e061a6",
+      "store": "South Gate",
+      "date": "2026-09-23",
+      "balanced": true,
+      "expectedCash": -2881.41,
+      "storedExpectedCash": 2681.89,
+      "delta": 0
+    },
+    {
+      "id": "ea97e94f-6f64-4ded-8bd0-cb6c230a83db",
+      "store": "LA Broadway",
+      "date": "2026-09-23",
+      "balanced": true,
+      "expectedCash": 4786.22,
+      "storedExpectedCash": 4786.22,
+      "delta": 0
+    },
+    {
+      "id": "d0e0d7c3-231d-4d49-8559-44c2b8bb32f2",
+      "store": "Rialto",
+      "date": "2026-09-23",
+      "balanced": true,
+      "expectedCash": 2243.51,
+      "storedExpectedCash": 2287.63,
+      "delta": 0
+    },
+    {
+      "id": "995b6e4c-6e26-4079-9b57-6c4db9fefa20",
+      "store": "Bell",
+      "date": "2026-09-23",
+      "balanced": true,
+      "expectedCash": 1302.47,
+      "storedExpectedCash": 1327.34,
+      "delta": 0
+    },
+    {
+      "id": "1ca97752-3aad-4fbb-935f-be1d03295ada",
+      "store": "La Puente",
+      "date": "2026-09-23",
+      "balanced": true,
+      "expectedCash": -1326.83,
+      "storedExpectedCash": 2089.38,
+      "delta": 0
+    },
+    {
+      "id": "fa5f7270-561e-48ae-8d8f-248374716f15",
+      "store": "Downey",
+      "date": "2026-09-23",
+      "balanced": true,
+      "expectedCash": 2588.7,
+      "storedExpectedCash": 2697.39,
+      "delta": 0
+    },
+    {
+      "id": "8e654984-ef44-44ab-a0a7-60dc8e7f7a9c",
+      "store": "Slauson",
+      "date": "2026-09-23",
+      "balanced": true,
+      "expectedCash": 3002.03,
+      "storedExpectedCash": 3015.31,
+      "delta": 0
+    },
+    {
+      "id": "7408bc7d-1114-402e-8b1e-6d58269afba4",
+      "store": "Santa Ana",
+      "date": "2026-09-23",
+      "balanced": true,
+      "expectedCash": 2347.03,
+      "storedExpectedCash": 2379.12,
+      "delta": 0
+    },
+    {
+      "id": "a2dfc0b2-d6e3-49b1-a936-3c012349bf2c",
+      "store": "West Covina",
+      "date": "2026-09-23",
+      "balanced": true,
+      "expectedCash": -3915.64,
+      "storedExpectedCash": 2200.66,
+      "delta": 0
+    },
+    {
+      "id": "717ff1ca-0589-4d18-b8a9-43ed56e3de05",
+      "store": "Norwalk",
+      "date": "2026-09-23",
+      "balanced": true,
+      "expectedCash": -3738.32,
+      "storedExpectedCash": 2529.38,
+      "delta": 0
+    },
+    {
+      "id": "322f061b-fc40-487c-b00c-19a2ec4a3095",
+      "store": "Huntington Park",
+      "date": "2026-09-23",
+      "balanced": true,
+      "expectedCash": 3561.43,
+      "storedExpectedCash": 3575.61,
+      "delta": 0
+    },
+    {
+      "id": "7723fce3-a7c8-417f-b787-f2c03c756e3a",
+      "store": "LA Central",
+      "date": "2026-09-23",
+      "balanced": true,
+      "expectedCash": -2239.7,
+      "storedExpectedCash": 6163.72,
+      "delta": 0
+    },
+    {
+      "id": "051bfdea-052c-45fc-81dc-ebbbf9cc0224",
+      "store": "Lynwood",
+      "date": "2026-09-23",
+      "balanced": true,
+      "expectedCash": -2800.21,
+      "storedExpectedCash": 3750.29,
+      "delta": 0
+    },
+    {
+      "id": "08dda32f-4b5a-49bf-9441-57d717121f3c",
+      "store": "Hollywood",
+      "date": "2026-09-23",
+      "balanced": true,
+      "expectedCash": 2095.35,
+      "storedExpectedCash": 2504.96,
+      "delta": 0
+    },
+    {
+      "id": "01602cae-47a1-417f-b797-288341510d1b",
+      "store": "Downey",
+      "date": "2026-09-24",
+      "balanced": true,
+      "expectedCash": 2673.99,
+      "storedExpectedCash": 2724.98,
+      "delta": 0
+    },
+    {
+      "id": "4cec2a27-153a-402c-99f3-46f873b35b54",
+      "store": "Azusa",
+      "date": "2026-09-24",
+      "balanced": true,
+      "expectedCash": 1522.4,
+      "storedExpectedCash": 1572.24,
+      "delta": 0
+    },
+    {
+      "id": "fa74f55d-9a1e-48e4-81b0-9c0cf0df4b8d",
+      "store": "West Covina",
+      "date": "2026-09-24",
+      "balanced": true,
+      "expectedCash": -4242.45,
+      "storedExpectedCash": 2633.37,
+      "delta": 0
+    },
+    {
+      "id": "5ee65eb0-267d-48b7-be6b-c13fc2cbd61a",
+      "store": "Norwalk",
+      "date": "2026-09-24",
+      "balanced": true,
+      "expectedCash": -5045.21,
+      "storedExpectedCash": 2925.33,
+      "delta": 0
+    },
+    {
+      "id": "8c1c171e-9ad7-44ec-8601-138422b90fdc",
+      "store": "Lynwood",
+      "date": "2026-09-24",
+      "balanced": true,
+      "expectedCash": -3808.43,
+      "storedExpectedCash": 4161.97,
+      "delta": 0
+    },
+    {
+      "id": "45843844-9225-40d3-b318-47f62e662176",
+      "store": "Bell",
+      "date": "2026-09-24",
+      "balanced": true,
+      "expectedCash": 1546.28,
+      "storedExpectedCash": 1561.96,
+      "delta": 0
+    },
+    {
+      "id": "e76572fc-f85b-4dcf-b38e-6f0acdb23a6d",
+      "store": "LA Central",
+      "date": "2026-09-24",
+      "balanced": true,
+      "expectedCash": -3270.07,
+      "storedExpectedCash": 6205.48,
+      "delta": 0
+    },
+    {
+      "id": "62c1aa77-8779-4764-a527-ab752896058c",
+      "store": "Huntington Park",
+      "date": "2026-09-24",
+      "balanced": true,
+      "expectedCash": 3528.05,
+      "storedExpectedCash": 3550.67,
+      "delta": 0
+    },
+    {
+      "id": "7d193597-b773-4e1e-b3ad-8834c235669d",
+      "store": "La Puente",
+      "date": "2026-09-24",
+      "balanced": true,
+      "expectedCash": -1492.32,
+      "storedExpectedCash": 1683.56,
+      "delta": 0
+    },
+    {
+      "id": "4243154e-ca0d-4b69-a789-1ce1b65a8628",
+      "store": "Hollywood",
+      "date": "2026-09-24",
+      "balanced": true,
+      "expectedCash": 1940.94,
+      "storedExpectedCash": 2686.92,
+      "delta": 0
+    },
+    {
+      "id": "b3a06b56-8352-4086-b72b-70b02c1a14d9",
+      "store": "LA Broadway",
+      "date": "2026-09-24",
+      "balanced": true,
+      "expectedCash": 4173.11,
+      "storedExpectedCash": 4173.11,
+      "delta": 0
+    },
+    {
+      "id": "c062473d-9857-4ee1-81a7-56ea5c587b5e",
+      "store": "Santa Ana",
+      "date": "2026-09-24",
+      "balanced": true,
+      "expectedCash": 2084.94,
+      "storedExpectedCash": 2290.92,
+      "delta": 0
+    },
+    {
+      "id": "dc01e170-68bf-4c4a-b63b-486c91b90da7",
+      "store": "South Gate",
+      "date": "2026-09-24",
+      "balanced": true,
+      "expectedCash": -3271.33,
+      "storedExpectedCash": 2871.65,
+      "delta": 0
+    },
+    {
+      "id": "9d3cd94e-e7e1-46a6-907f-0c01f87c5525",
+      "store": "Slauson",
+      "date": "2026-09-24",
+      "balanced": true,
+      "expectedCash": 3974.79,
+      "storedExpectedCash": 3981.37,
+      "delta": 0
+    },
+    {
+      "id": "c2f0c8a7-6771-4e89-924d-df3255bb8e4b",
+      "store": "Rialto",
+      "date": "2026-09-24",
+      "balanced": true,
+      "expectedCash": 2705.45,
+      "storedExpectedCash": 2872.39,
+      "delta": 0
+    },
+    {
+      "id": "1818f760-cd07-4d5d-8bc9-8f76d823dad7",
+      "store": "Slauson",
+      "date": "2026-09-25",
+      "balanced": true,
+      "expectedCash": 5268.72,
+      "storedExpectedCash": 5268.72,
+      "delta": 0
+    },
+    {
+      "id": "a48e87b2-2ab5-4205-9b73-cc4f81cf9f0f",
+      "store": "Hollywood",
+      "date": "2026-09-25",
+      "balanced": true,
+      "expectedCash": 2942.85,
+      "storedExpectedCash": 3012.11,
+      "delta": 0
+    },
+    {
+      "id": "a66ae9e3-698a-4fe1-9bdb-2b05163d47aa",
+      "store": "Lynwood",
+      "date": "2026-09-25",
+      "balanced": true,
+      "expectedCash": -3931.79,
+      "storedExpectedCash": 5178.92,
+      "delta": 0
+    },
+    {
+      "id": "2fdd4675-c0a6-4f88-ad89-78388fcb4a89",
+      "store": "West Covina",
+      "date": "2026-09-25",
+      "balanced": true,
+      "expectedCash": -5303.19,
+      "storedExpectedCash": 3466.92,
+      "delta": 0
+    },
+    {
+      "id": "4ace2ca9-e798-45db-bbd3-c4eeeb6fb6b6",
+      "store": "Bell",
+      "date": "2026-09-25",
+      "balanced": true,
+      "expectedCash": 2580.2,
+      "storedExpectedCash": 2580.2,
+      "delta": 0
+    },
+    {
+      "id": "6b9538e8-06b9-4ce3-915b-e71d8809019c",
+      "store": "Rialto",
+      "date": "2026-09-25",
+      "balanced": true,
+      "expectedCash": 3791.53,
+      "storedExpectedCash": 3909.73,
+      "delta": 0
+    },
+    {
+      "id": "70482430-8c6e-4cb4-9357-98e98002ae0c",
+      "store": "Huntington Park",
+      "date": "2026-09-25",
+      "balanced": true,
+      "expectedCash": 4584.39,
+      "storedExpectedCash": 4632.58,
+      "delta": 0
+    },
+    {
+      "id": "f9aa35f5-d3f7-40db-a99a-01422988e5a8",
+      "store": "LA Central",
+      "date": "2026-09-25",
+      "balanced": true,
+      "expectedCash": -5072.05,
+      "storedExpectedCash": 7925.77,
+      "delta": 0
+    },
+    {
+      "id": "52ef033a-61a9-4547-b3a1-51d8eb40b836",
+      "store": "Santa Ana",
+      "date": "2026-09-25",
+      "balanced": true,
+      "expectedCash": 2906.87,
+      "storedExpectedCash": 2956.02,
+      "delta": 0
+    },
+    {
+      "id": "c3e821ec-601e-40ca-8436-424f115099cf",
+      "store": "La Puente",
+      "date": "2026-09-25",
+      "balanced": true,
+      "expectedCash": -2602.83,
+      "storedExpectedCash": 2333.72,
+      "delta": 0
+    },
+    {
+      "id": "ac0dec02-d729-4687-88d4-59c4b199b36f",
+      "store": "Norwalk",
+      "date": "2026-09-25",
+      "balanced": true,
+      "expectedCash": -5703.02,
+      "storedExpectedCash": 3444.25,
+      "delta": 0
+    },
+    {
+      "id": "fd063a3f-4912-416b-b8dc-26f39ba5fe11",
+      "store": "South Gate",
+      "date": "2026-09-25",
+      "balanced": true,
+      "expectedCash": -5106.33,
+      "storedExpectedCash": 3753.59,
+      "delta": 0
+    },
+    {
+      "id": "d4d069fc-d9e2-4f1b-a3c2-77dc52131742",
+      "store": "LA Broadway",
+      "date": "2026-09-25",
+      "balanced": true,
+      "expectedCash": 6726.96,
+      "storedExpectedCash": 6802.13,
+      "delta": 0
+    },
+    {
+      "id": "468ac936-d2a2-43ae-9cab-3b5b47449b5d",
+      "store": "Downey",
+      "date": "2026-09-25",
+      "balanced": true,
+      "expectedCash": 3896.57,
+      "storedExpectedCash": 3908.74,
+      "delta": 0
+    },
+    {
+      "id": "05b6832c-8dd7-478c-8c1c-63d0ef583166",
+      "store": "Azusa",
+      "date": "2026-09-25",
+      "balanced": true,
+      "expectedCash": 1942.97,
+      "storedExpectedCash": 1957.73,
+      "delta": 0
+    },
+    {
+      "id": "5c55fb73-f0ff-42c2-94ea-b7d58d25525c",
+      "store": "LA Broadway",
+      "date": "2026-09-26",
+      "balanced": true,
+      "expectedCash": 7387.34,
+      "storedExpectedCash": 7448.23,
+      "delta": 0
+    },
+    {
+      "id": "937dc8c3-b5b7-4105-98ed-fd7377a0a98d",
+      "store": "Santa Ana",
+      "date": "2026-09-26",
+      "balanced": true,
+      "expectedCash": 3576.34,
+      "storedExpectedCash": 3794.9,
+      "delta": 0
+    },
+    {
+      "id": "7dcfbb31-254b-4439-8051-7ef01abf1902",
+      "store": "Huntington Park",
+      "date": "2026-09-26",
+      "balanced": true,
+      "expectedCash": 4915.45,
+      "storedExpectedCash": 5017.31,
+      "delta": 0
+    },
+    {
+      "id": "ba6607ea-50fa-4e98-a7c5-c24e884ea12a",
+      "store": "Slauson",
+      "date": "2026-09-26",
+      "balanced": true,
+      "expectedCash": 7108.02,
+      "storedExpectedCash": 7131.89,
+      "delta": 0
+    },
+    {
+      "id": "dfc511fd-e76a-4501-a0ad-fde4965e8939",
+      "store": "LA Central",
+      "date": "2026-09-26",
+      "balanced": true,
+      "expectedCash": -5299.09,
+      "storedExpectedCash": 9168.43,
+      "delta": -18.73
+    },
+    {
+      "id": "20833a75-5cbe-4496-8e96-ddae2952fa99",
+      "store": "Azusa",
+      "date": "2026-09-26",
+      "balanced": true,
+      "expectedCash": 1776.77,
+      "storedExpectedCash": 1821.29,
+      "delta": -10
+    },
+    {
+      "id": "89664330-2faf-44cf-8ef7-5bcc3358016c",
+      "store": "Bell",
+      "date": "2026-09-26",
+      "balanced": true,
+      "expectedCash": 2493.45,
+      "storedExpectedCash": 2530.6,
+      "delta": 0
+    },
+    {
+      "id": "915a0113-6b00-48ac-84a5-396626186ecd",
+      "store": "Rialto",
+      "date": "2026-09-26",
+      "balanced": true,
+      "expectedCash": 3826.75,
+      "storedExpectedCash": 4147.77,
+      "delta": 0
+    },
+    {
+      "id": "e616a0df-a003-48de-a50b-6dcf3046cdb5",
+      "store": "Norwalk",
+      "date": "2026-09-26",
+      "balanced": true,
+      "expectedCash": -4601.85,
+      "storedExpectedCash": 4550.47,
+      "delta": 0
+    },
+    {
+      "id": "d3628650-274e-40a0-a255-d536de2c6456",
+      "store": "Downey",
+      "date": "2026-09-26",
+      "balanced": true,
+      "expectedCash": 4645.92,
+      "storedExpectedCash": 4951.6,
+      "delta": 0
+    },
+    {
+      "id": "b1e86c13-158c-4805-9718-f5fdeba67465",
+      "store": "La Puente",
+      "date": "2026-09-26",
+      "balanced": true,
+      "expectedCash": -2738.35,
+      "storedExpectedCash": 2579.46,
+      "delta": -29.79
+    },
+    {
+      "id": "e138477c-f801-49da-8ab5-0fd433b0a1dc",
+      "store": "Hollywood",
+      "date": "2026-09-26",
+      "balanced": true,
+      "expectedCash": 2719.65,
+      "storedExpectedCash": 2835.78,
+      "delta": 0
+    },
+    {
+      "id": "e421c642-51bb-48f1-8e36-e56855e042cf",
+      "store": "South Gate",
+      "date": "2026-09-26",
+      "balanced": true,
+      "expectedCash": -5401.58,
+      "storedExpectedCash": 3894.9,
+      "delta": 0
+    },
+    {
+      "id": "4e5ed76e-1911-4e82-ac1b-5bdfd8117e00",
+      "store": "West Covina",
+      "date": "2026-09-26",
+      "balanced": true,
+      "expectedCash": -4488.85,
+      "storedExpectedCash": 3836.45,
+      "delta": 0
+    },
+    {
+      "id": "2c10a52a-c4bb-4220-b1f0-914d01cda39c",
+      "store": "Lynwood",
+      "date": "2026-09-26",
+      "balanced": true,
+      "expectedCash": -3518.48,
+      "storedExpectedCash": 6218.89,
+      "delta": 0
+    },
+    {
+      "id": "997b8642-d483-4e72-b45b-eac58b3c4df9",
+      "store": "Rialto",
+      "date": "2026-09-27",
+      "balanced": true,
+      "expectedCash": 4357.77,
+      "storedExpectedCash": 4413.4,
+      "delta": 0
+    },
+    {
+      "id": "0a6de595-e884-4002-830e-5923ef108e12",
+      "store": "Huntington Park",
+      "date": "2026-09-27",
+      "balanced": true,
+      "expectedCash": 4642.47,
+      "storedExpectedCash": 4642.47,
+      "delta": 0
+    },
+    {
+      "id": "40cbd7f7-0de2-4414-9577-e952a2a75898",
+      "store": "Santa Ana",
+      "date": "2026-09-27",
+      "balanced": true,
+      "expectedCash": 3538.16,
+      "storedExpectedCash": 3619.56,
+      "delta": 0
+    },
+    {
+      "id": "9a3fc137-85f1-4647-9a23-79c9e48adf95",
+      "store": "Azusa",
+      "date": "2026-09-27",
+      "balanced": true,
+      "expectedCash": 2311.12,
+      "storedExpectedCash": 2321.71,
+      "delta": 0
+    },
+    {
+      "id": "d515097b-819f-45e8-9d04-ce99d7abb488",
+      "store": "Bell",
+      "date": "2026-09-27",
+      "balanced": true,
+      "expectedCash": 2462.28,
+      "storedExpectedCash": 2462.28,
+      "delta": 0
+    },
+    {
+      "id": "2a0768d4-4721-47e9-9835-9e6dbc478b77",
+      "store": "Norwalk",
+      "date": "2026-09-27",
+      "balanced": true,
+      "expectedCash": -4341.67,
+      "storedExpectedCash": 3608.9,
+      "delta": 0
+    },
+    {
+      "id": "da1d6421-cd4b-4f83-88d4-57c7200b6aac",
+      "store": "Slauson",
+      "date": "2026-09-27",
+      "balanced": true,
+      "expectedCash": 5276.98,
+      "storedExpectedCash": 5286.17,
+      "delta": 0
+    },
+    {
+      "id": "e4d8e02f-fbc5-4ec0-9de2-7a301195d281",
+      "store": "Downey",
+      "date": "2026-09-27",
+      "balanced": true,
+      "expectedCash": 3701.3,
+      "storedExpectedCash": 3718.07,
+      "delta": 0
+    },
+    {
+      "id": "b6d1406a-674c-4f6c-84a6-4efaa3e22cbb",
+      "store": "La Puente",
+      "date": "2026-09-27",
+      "balanced": true,
+      "expectedCash": -1582.97,
+      "storedExpectedCash": 1864.29,
+      "delta": -37.12
+    },
+    {
+      "id": "b584dafb-d521-4d31-b35e-e590b9b89149",
+      "store": "LA Broadway",
+      "date": "2026-09-27",
+      "balanced": true,
+      "expectedCash": 6357.42,
+      "storedExpectedCash": 6433.04,
+      "delta": 0
+    },
+    {
+      "id": "2859201c-b9c2-4c89-b961-06d6c7a72f44",
+      "store": "West Covina",
+      "date": "2026-09-27",
+      "balanced": true,
+      "expectedCash": -4142.37,
+      "storedExpectedCash": 3055.82,
+      "delta": 0
+    },
+    {
+      "id": "c32e5b68-f74b-4431-ab1a-3cd1fa53c1f1",
+      "store": "Hollywood",
+      "date": "2026-09-27",
+      "balanced": true,
+      "expectedCash": 2079.44,
+      "storedExpectedCash": 2150.56,
+      "delta": 0
+    },
+    {
+      "id": "8f69dfdf-6f8f-4da0-940c-a900f551017d",
+      "store": "South Gate",
+      "date": "2026-09-27",
+      "balanced": true,
+      "expectedCash": -2671.1,
+      "storedExpectedCash": 4252.04,
+      "delta": 0
+    },
+    {
+      "id": "2f434d9c-579f-4f20-8d1e-62c4a75ecfa1",
+      "store": "Lynwood",
+      "date": "2026-09-27",
+      "balanced": true,
+      "expectedCash": -3573.73,
+      "storedExpectedCash": 5371.45,
+      "delta": 0
+    },
+    {
+      "id": "a4a19db6-2a42-4167-b947-2eaf22fd42cb",
+      "store": "LA Central",
+      "date": "2026-09-27",
+      "balanced": true,
+      "expectedCash": -3345.46,
+      "storedExpectedCash": 6772.22,
+      "delta": 0
+    }
+  ],
+  "live": {
+    "store": "Azusa",
+    "date": "2026-09-21",
+    "data": {
+      "netSales": 4629.57,
+      "grossSales": 5111.01,
+      "totalTaxes": 481.44,
+      "forHereSales": 1729.71,
+      "toGoSales": 2283.39,
+      "driveThruSales": 0,
+      "toastOnlineSales": 62.14,
+      "toastDeliverySales": 0,
+      "tipsPayable": 0,
+      "depositsCollected": 0,
+      "paidIn": 0,
+      "uberDeliverySales": 225.07,
+      "uberTakeoutSales": 0,
+      "doordashDeliverySales": 253.51,
+      "doordashTakeoutSales": 35.85,
+      "grubhubDeliverySales": 39.9,
+      "grubhubTakeoutSales": 0,
+      "salesTax": 424.5,
+      "marketplaceTax": 33.94,
+      "taxPaidByUber": 23,
+      "deferredSalesGiftCards": 0,
+      "giftCardRedemption": 0,
+      "deliveryServiceCharges": 0,
+      "creditCardGross": 2833.13,
+      "creditCardFees": 58.43,
+      "creditCardOtherDeductions": 0,
+      "creditCardDeposit": 2774.7,
+      "ebtAmount": 130.97,
+      "uberPayment": 248.07,
+      "doordashPayment": 319.01,
+      "grubhubPayment": 44.19,
+      "cashDeposit": 1535.64,
+      "openOrdersCount": 0,
+      "outOfBalanceOrdersCount": 0,
+      "openOrdersList": [],
+      "hasOpenOrders": false,
+      "validationPassed": true
+    }
+  },
+  "limitations": [
+    "Snapshot no conserva todas las dimensiones opcionales de journal; no equivale a comparación QBO",
+    "Bordes de hora/DST no ejercitados: extractor recibe businessDate y no convierte timestamps",
+    "No se inyectaron fixtures ni mocks"
+  ]
+}

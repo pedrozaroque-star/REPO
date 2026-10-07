@@ -79,13 +79,21 @@ interface Packet {
   
   // Summary
   gross_sales: number
-  discounts: number
+  total_discounts?: number
+  discounts?: number
   net_sales: number
   total_taxes: number
+  paid_in?: number
   
   // Dining options
   dine_in_sales: number
   togo_sales: number
+  drive_thru_sales?: number
+  kiosk_dine_in_sales?: number
+  kiosk_takeout_sales?: number
+  delivery_service?: number
+  toast_delivery_sales?: number
+  toast_online_sales?: number
   uber_delivery_sales: number
   uber_takeout_sales: number
   doordash_delivery_sales: number
@@ -98,9 +106,12 @@ interface Packet {
   facilitator_tax_paid: number
   
   // Payments
-  cc_gross: number
-  cc_deposit: number
-  cc_fees: number
+  total_credit_cards_gross?: number
+  credit_card_deposit?: number
+  credit_card_fees?: number
+  cc_gross?: number
+  cc_deposit?: number
+  cc_fees?: number
   uber_payment: number
   doordash_payment: number
   grubhub_payment: number
@@ -537,7 +548,7 @@ export default function PacketDetailPage() {
             </div>
             <div className="flex justify-between text-rose-600 dark:text-rose-400">
               <span>{t('accounting.section_discounts') || 'Descuentos'}</span>
-              <span className="font-mono font-semibold">-{formatCurrency(packet.discounts)}</span>
+              <span className="font-mono font-semibold">-{formatCurrency(packet.total_discounts ?? packet.discounts ?? 0)}</span>
             </div>
             <div className="flex justify-between font-bold pt-2 border-t border-slate-100 dark:border-slate-800 text-slate-900 dark:text-white">
               <span>{t('accounting.col_net_sales') || 'Ventas Netas'}</span>
@@ -547,9 +558,17 @@ export default function PacketDetailPage() {
               <span className="text-slate-500 dark:text-slate-400">{t('accounting.col_taxes') || 'Impuestos'}</span>
               <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">{formatCurrency(packet.total_taxes)}</span>
             </div>
+            {Boolean((packet.paid_in || 0) > 0 || packet.journal_lines?.some((l: any) => l.account === '12049')) && (
+              <div className="flex justify-between text-emerald-600 dark:text-emerald-400">
+                <span>{t('accounting.label_paid_in') || 'Paid In Total (Deposits Received)'}</span>
+                <span className="font-mono font-semibold">
+                  {formatCurrency(packet.paid_in || packet.journal_lines?.find((l: any) => l.account === '12049')?.credit || 0)}
+                </span>
+              </div>
+            )}
             <div className="flex justify-between font-extrabold pt-2 border-t-2 border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white text-base">
-              <span>{t('accounting.col_total') || 'Total Bruto'}</span>
-              <span className="font-mono">{formatCurrency(packet.net_sales + packet.total_taxes)}</span>
+              <span>{t('accounting.col_total_gross_receipts') || 'Total Gross Receipts'}</span>
+              <span className="font-mono">{formatCurrency(packet.net_sales + packet.total_taxes + (packet.paid_in || packet.journal_lines?.find((l: any) => l.account === '12049')?.credit || 0))}</span>
             </div>
           </div>
         </Card>
@@ -558,8 +577,8 @@ export default function PacketDetailPage() {
         <Card>
           <h2 className="text-base font-bold text-slate-900 dark:text-white mb-4">{t('accounting.section_sales') || 'Detalle por Canal'}</h2>
           <div className="space-y-2 text-sm">
-            {packet.journal_lines && packet.journal_lines.filter((l: any) => l.credit > 0 && l.account.startsWith('400')).length > 0 ? (
-              packet.journal_lines.filter((l: any) => l.credit > 0 && l.account.startsWith('400')).map((line: any, idx: number) => (
+            {packet.journal_lines && packet.journal_lines.filter((l: any) => l.credit > 0 && (l.account.startsWith('400') || l.memo === 'Delivery Service')).length > 0 ? (
+              packet.journal_lines.filter((l: any) => l.credit > 0 && (l.account.startsWith('400') || l.memo === 'Delivery Service')).map((line: any, idx: number) => (
                 <div key={idx} className="flex justify-between">
                   <span className="text-slate-500 dark:text-slate-400">{line.memo}</span>
                   <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">{formatCurrency(line.credit)}</span>
@@ -575,21 +594,31 @@ export default function PacketDetailPage() {
                   <span className="text-slate-500 dark:text-slate-400">{t('accounting.dining_to_go') || 'Para Llevar (To Go)'}</span>
                   <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">{formatCurrency(packet.togo_sales)}</span>
                 </div>
+                {Boolean((packet.drive_thru_sales || 0) > 0) && (
+                  <div className="flex justify-between">
+                    <span className="text-slate-500 dark:text-slate-400">Drive Thru</span>
+                    <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">{formatCurrency(packet.drive_thru_sales)}</span>
+                  </div>
+                )}
+                {Boolean((packet.kiosk_takeout_sales || 0) > 0) && (
+                  <div className="flex justify-between">
+                    <span className="text-slate-500 dark:text-slate-400">Kiosk Take Out</span>
+                    <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">{formatCurrency(packet.kiosk_takeout_sales)}</span>
+                  </div>
+                )}
+                {Boolean((packet.kiosk_dine_in_sales || 0) > 0) && (
+                  <div className="flex justify-between">
+                    <span className="text-slate-500 dark:text-slate-400">Kiosk Dine In</span>
+                    <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">{formatCurrency(packet.kiosk_dine_in_sales)}</span>
+                  </div>
+                )}
                 <div className="flex justify-between">
                   <span className="text-slate-500 dark:text-slate-400">{t('accounting.dining_uber_delivery') || 'Uber Eats (Delivery)'}</span>
                   <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">{formatCurrency(packet.uber_delivery_sales)}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-slate-500 dark:text-slate-400">{t('accounting.dining_uber_takeout') || 'Uber Eats (Takeout)'}</span>
-                  <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">{formatCurrency(packet.uber_takeout_sales)}</span>
-                </div>
-                <div className="flex justify-between">
                   <span className="text-slate-500 dark:text-slate-400">{t('accounting.dining_doordash_delivery') || 'DoorDash (Delivery)'}</span>
                   <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">{formatCurrency(packet.doordash_delivery_sales)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-500 dark:text-slate-400">{t('accounting.dining_doordash_takeout') || 'DoorDash (Takeout)'}</span>
-                  <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">{formatCurrency(packet.doordash_takeout_sales)}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-500 dark:text-slate-400">{t('accounting.dining_grubhub') || 'GrubHub'}</span>
@@ -633,15 +662,15 @@ export default function PacketDetailPage() {
           <div className="space-y-2.5 text-sm">
             <div className="flex justify-between">
               <span className="text-slate-500 dark:text-slate-400">{t('accounting.cc_gross_total') || 'Total Tarjetas Bruto'}</span>
-              <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">{formatCurrency(packet.cc_gross)}</span>
+              <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">{formatCurrency(packet.total_credit_cards_gross ?? packet.cc_gross)}</span>
             </div>
             <div className="flex justify-between font-bold text-blue-600 dark:text-blue-400">
               <span>{t('accounting.cc_net_deposit') || 'Depósito Neto al Banco'}</span>
-              <span className="font-mono">{formatCurrency(packet.cc_deposit)}</span>
+              <span className="font-mono">{formatCurrency(packet.credit_card_deposit ?? packet.cc_deposit)}</span>
             </div>
             <div className="flex justify-between text-slate-500 dark:text-slate-400">
               <span>{t('accounting.label_fees') || 'Comisiones Bancarias'}</span>
-              <span className="font-mono font-semibold text-rose-600 dark:text-rose-400">-{formatCurrency(packet.cc_fees)}</span>
+              <span className="font-mono font-semibold text-rose-600 dark:text-rose-400">-{formatCurrency(packet.credit_card_fees ?? packet.cc_fees)}</span>
             </div>
             {packet.journal_lines?.some((l: any) => l.memo.includes('Other Deductions')) && (
               <div className="flex justify-between text-amber-600 dark:text-amber-400">

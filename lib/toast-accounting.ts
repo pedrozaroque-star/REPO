@@ -64,6 +64,8 @@ export interface ToastAccountingData {
   forHereSales: number
   toGoSales: number
   driveThruSales: number
+  kioskDineInSales: number
+  kioskTakeOutSales: number
   toastOnlineSales: number
   toastDeliverySales: number
   tipsPayable: number
@@ -81,6 +83,7 @@ export interface ToastAccountingData {
   deferredSalesGiftCards: number
   giftCardRedemption: number
   deliveryServiceCharges: number
+  discountsTotal: number
   creditCardGross: number
   creditCardFees: number
   creditCardOtherDeductions: number
@@ -214,6 +217,8 @@ export async function fetchToastAccountingData(
   let forHere = 0
   let toGo = 0
   let driveThru = 0
+  let kioskDineIn = 0
+  let kioskTakeOut = 0
   let toastOnline = 0
   // Cohesion cambio su mapeo ~2026-10-03: antes el Toast Delivery iba en 40050 y las Other Deductions dentro de Merchant Fees (51030)
   const legacyCohesionRules = businessDate < '20261003'
@@ -234,6 +239,7 @@ export async function fetchToastAccountingData(
   let deferredSalesGiftCards = 0
   let giftCardRedemption = 0
   let deliveryServiceCharges = 0
+  let discountsTotal = 0
 
   let creditCardGross = 0
   let creditCardActualFees = 0
@@ -255,32 +261,44 @@ export async function fetchToastAccountingData(
     if (order.voided || order.deleted) continue
 
     // --- REVISIÓN DE ORDEN ABIERTA / DESBALANCEADA (Step 11 Cohesion) ---
-    let orderIsOpen = !order.closedDate
     const checkIssues: string[] = []
+    let orderHasIssue = false
 
     for (const check of order.checks || []) {
       if (check.voided || check.deleted) continue
 
-      const isCheckOpen = !check.closedDate || check.paymentStatus !== 'CLOSED'
-      if (isCheckOpen) orderIsOpen = true
+      const isCheckClosed = Boolean(check.closedDate || check.paymentStatus === 'CLOSED')
+      const isCheckOpen = !isCheckClosed
 
+      // Filtrar estrictamente pagos válidos (descartar DENIED, FAILED, VOIDED, OPEN, CANCELLED, etc.)
       const paymentsTotal = (check.payments || [])
-        .filter((p: any) => !p.voided)
+        .filter((p: any) => !p.voided && !INVALID_PAYMENT_STATUSES.has(String(p.paymentStatus || '').toUpperCase()))
         .reduce((sum: number, p: any) => sum + (Number(p.amount) || 0), 0)
       const expectedTotal = Number(check.totalAmount ?? check.amount ?? 0)
       const diff = Math.abs(expectedTotal - paymentsTotal)
-      const isCheckOutOfBalance = diff > 0.05 && (check.paymentStatus === 'CLOSED' || paymentsTotal > 0)
+      const isCheckOutOfBalance = diff > 0.05 && (isCheckClosed || paymentsTotal > 0)
       if (isCheckOutOfBalance) {
-        orderIsOpen = true
+        orderHasIssue = true
         outOfBalanceOrdersCount++
         checkIssues.push(`Desbalanceada: Esperado $${expectedTotal.toFixed(2)}, Pagado $${paymentsTotal.toFixed(2)}`)
       } else if (isCheckOpen) {
-        orderIsOpen = true
-        checkIssues.push(`Check sin cerrar (Estado: ${check.paymentStatus || 'OPEN'})`)
+        // Solo marcar check sin cerrar si realmente quedó abierto con balance pendiente por cobrar
+        if (expectedTotal > 0 && paymentsTotal < expectedTotal) {
+          orderHasIssue = true
+          checkIssues.push(`Check sin cerrar (Estado: ${check.paymentStatus || 'OPEN'})`)
+        }
       }
     }
 
-    if (orderIsOpen) {
+    if (!order.closedDate && (order.checks || []).length === 0) {
+      const rawOrderAmount = Number((order as any).totalAmount ?? (order as any).amount ?? 0)
+      if (rawOrderAmount > 0) {
+        orderHasIssue = true
+        checkIssues.push('Orden sin checks pero con saldo pendiente en Toast POS')
+      }
+    }
+
+    if (orderHasIssue) {
       const orderTotal = (order.checks || [])
         .filter((c: any) => !c.voided && !c.deleted)
         .reduce((sum: number, c: any) => sum + Number(c.totalAmount ?? c.amount ?? 0), 0)
@@ -334,10 +352,17 @@ export async function fetchToastAccountingData(
       // Calcular Net Sales del check: Sum(Item.Price) - Sum(Discounts) - Sum(Item.Refunds) - UnlinkedRefunds
       let checkNet = 0
       let selRefunds = 0
+      let checkItemNetSum = 0
+      let checkItemGrossSum = 0
+
       for (const sel of check.selections || []) {
         if (sel.voided) continue
         let p = Number(sel.price || 0)
-        if (sel.taxInclusion === 'INCLUDED') p -= Number(sel.tax || 0)
+        let pre = Number(sel.preDiscountPrice || sel.price || 0)
+        if (sel.taxInclusion === 'INCLUDED') {
+          p -= Number(sel.tax || 0)
+          pre -= Number(sel.tax || 0)
+        }
         if (sel.refundDetails?.refundAmount) {
           const rAmt = Number(sel.refundDetails.refundAmount)
           p -= rAmt
@@ -350,14 +375,21 @@ export async function fetchToastAccountingData(
           deferredSalesGiftCards += p
         } else {
           checkNet += p
+          checkItemNetSum += p
+          checkItemGrossSum += pre
         }
       }
 
+      const itemLevelDiscounts = Math.max(0, checkItemGrossSum - checkItemNetSum)
+      let checkLevelDiscounts = 0
       if (check.appliedDiscounts) {
         for (const d of check.appliedDiscounts) {
-          checkNet -= Number(d.amount || 0)
+          const dAmt = Number(d.amount || 0)
+          checkNet -= dAmt
+          checkLevelDiscounts += dAmt
         }
       }
+      discountsTotal += itemLevelDiscounts + checkLevelDiscounts
 
       // Reembolsos no vinculados a nivel de pagos (Unlinked Refunds)
       let paymentRefunds = 0
@@ -368,6 +400,8 @@ export async function fetchToastAccountingData(
       checkNet -= unlinkedRefunds
 
       checkNet = Math.round(checkNet * 100) / 100
+
+      const dOptLower = (dOptionRaw || '').toLowerCase().trim()
 
       // Clasificar por Dining Option
       if (optName.includes('uber') && (optName.includes('takeout') || optName.includes('take out'))) {
@@ -388,14 +422,22 @@ export async function fetchToastAccountingData(
       } else if (optName.includes('grub')) {
         ghDel += checkNet
         marketplaceTax += checkTax
-      } else if (dOptionRaw.toLowerCase().includes('toast delivery') && !legacyCohesionRules) {
+      } else if (dOptLower.includes('toast delivery') && !legacyCohesionRules) {
         // Dining Option "Toast Delivery Services" -> línea propia 53060 en Cohesion
         toastDelivery += checkNet
       } else if (optName.includes('online')) {
         toastOnline += checkNet
-      } else if (dOptionRaw.toLowerCase().includes('drive') || optName.includes('drive')) {
+      } else if (dOptLower.includes('drive') || optName.includes('drive')) {
         driveThru += checkNet
-      } else if (optName.includes('to go') || optName.includes('kiosk') || optName.includes('curbside') || optName.includes('phone')) {
+      } else if (dOptLower.includes('kiosk dine in')) {
+        kioskDineIn += checkNet
+      } else if (dOptLower.includes('kiosk take out') || dOptLower === 'kiosk' || (dOptLower.includes('kiosk') && !dOptLower.includes('dine in') && !dOptLower.includes('for here'))) {
+        kioskTakeOut += checkNet
+      } else if (dOptLower.includes('for here') || dOptLower.includes('dine in') || dOptLower.includes('comedor')) {
+        forHere += checkNet
+      } else if (dOptLower.includes('to go') || dOptLower.includes('take out') || dOptLower.includes('llevar')) {
+        toGo += checkNet
+      } else if (optName.includes('to go') || optName.includes('curbside') || optName.includes('phone')) {
         toGo += checkNet
       } else {
         forHere += checkNet
@@ -493,6 +535,9 @@ export async function fetchToastAccountingData(
                 const pT = String(pp.type || '').toUpperCase()
                 const fee = Number(pp.originalProcessingFee || 0)
 
+                const altName = pp.otherPayment?.guid ? (altMap[pp.otherPayment.guid] || '') : (pp.otherPayment?.name || '')
+                const pName = (altName || pp.displayName || pp.paymentInstrument?.displayName || '').toLowerCase()
+
                 if (pT === 'CREDIT') {
                   creditCardGross += pAmt + pTip
                   tipsPayable += pTip
@@ -500,6 +545,18 @@ export async function fetchToastAccountingData(
                   paidIn += pAmt
                 } else if (pT === 'CASH') {
                   cashDeposit += pAmt
+                  paidIn += pAmt
+                } else if (pName.includes('uber') || pName.includes('postmates')) {
+                  uberPayment += pAmt
+                  paidIn += pAmt
+                } else if (pName.includes('doordash') || pName.includes('dash')) {
+                  doordashPayment += pAmt
+                  paidIn += pAmt
+                } else if (pName.includes('grub')) {
+                  grubhubPayment += pAmt
+                  paidIn += pAmt
+                } else if (pName.includes('ebt')) {
+                  ebtAmount += pAmt
                   paidIn += pAmt
                 } else {
                   paidIn += pAmt
@@ -521,6 +578,8 @@ export async function fetchToastAccountingData(
   forHere = r(forHere)
   toGo = r(toGo)
   driveThru = r(driveThru)
+  kioskDineIn = r(kioskDineIn)
+  kioskTakeOut = r(kioskTakeOut)
   toastOnline = r(toastOnline)
   uberDel = r(uberDel)
   uberTake = r(uberTake)
@@ -534,7 +593,7 @@ export async function fetchToastAccountingData(
   depositsCollected = r(depositsCollected)
   paidIn = r(paidIn)
 
-  const netSales = r(forHere + toGo + driveThru + toastOnline + toastDelivery + uberDel + uberTake + ddDel + ddTake + ghDel + ghTake)
+  const netSales = r(forHere + toGo + driveThru + kioskDineIn + kioskTakeOut + toastOnline + toastDelivery + uberDel + uberTake + ddDel + ddTake + ghDel + ghTake)
   totalTax = r(totalTax)
   marketplaceTax = r(marketplaceTax)
   taxPaidByUber = r(taxPaidByUber)
@@ -612,6 +671,8 @@ export async function fetchToastAccountingData(
     forHereSales: forHere,
     toGoSales: toGo,
     driveThruSales: driveThru,
+    kioskDineInSales: kioskDineIn,
+    kioskTakeOutSales: kioskTakeOut,
     toastOnlineSales: toastOnline,
     toastDeliverySales: toastDelivery,
     tipsPayable,
@@ -629,6 +690,7 @@ export async function fetchToastAccountingData(
     deferredSalesGiftCards,
     giftCardRedemption,
     deliveryServiceCharges,
+    discountsTotal: r(discountsTotal),
     creditCardGross,
     creditCardFees: ccFees,
     creditCardOtherDeductions,

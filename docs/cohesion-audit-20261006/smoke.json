@@ -1,0 +1,6 @@
+{
+  "passed": true,
+  "insertedAndDeleted": "662f4d8b-011d-4137-a8a2-c861e83a5268",
+  "table": "accounting_sync_logs",
+  "limitation": "Does not validate packet or mapping mutations"
+}

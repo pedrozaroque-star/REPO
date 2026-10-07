@@ -1,0 +1,362 @@
+{
+  "capturedAt": "2026-10-07T19:46:17.598Z",
+  "hostTimezone": "America/Los_Angeles",
+  "hashes": {
+    "lib/business-date.ts": "8394600a1b82f510959a5924cdf063437028a01ba36f5491622dd5f6eba64fed",
+    "lib/accounting-journal.ts": "433252da93b7c5845892d5029945748e72ce14e4fabb1767ece9076c3d4f4741",
+    "lib/qb-classes-locations.ts": "f59ac584e7e7d92ae40b02cd2b39091309af37bceebded26a712fd2bfd9b2b8a"
+  },
+  "boundaries": [
+    {
+      "input": "2026-10-03T05:59:59-07:00",
+      "date": "2026-10-02",
+      "shift": "PM",
+      "start": "2026-10-02T13:00:00.000Z",
+      "passed": true
+    },
+    {
+      "input": "2026-10-03T06:00:00-07:00",
+      "date": "2026-10-03",
+      "shift": "AM",
+      "start": "2026-10-03T13:00:00.000Z",
+      "passed": true
+    },
+    {
+      "input": "2026-10-03T16:59:59-07:00",
+      "date": "2026-10-03",
+      "shift": "AM",
+      "start": "2026-10-03T13:00:00.000Z",
+      "passed": true
+    },
+    {
+      "input": "2026-10-03T17:00:00-07:00",
+      "date": "2026-10-03",
+      "shift": "PM",
+      "start": "2026-10-03T13:00:00.000Z",
+      "passed": true
+    },
+    {
+      "input": "2026-10-04T00:00:00-07:00",
+      "date": "2026-10-03",
+      "shift": "PM",
+      "start": "2026-10-03T13:00:00.000Z",
+      "passed": true
+    },
+    {
+      "input": "2026-03-08T05:59:59-07:00",
+      "date": "2026-03-07",
+      "shift": "PM",
+      "start": "2026-03-07T14:00:00.000Z",
+      "passed": true
+    },
+    {
+      "input": "2026-03-08T06:00:00-07:00",
+      "date": "2026-03-08",
+      "shift": "AM",
+      "start": "2026-03-08T13:00:00.000Z",
+      "passed": true
+    },
+    {
+      "input": "2026-11-01T01:30:00-07:00",
+      "date": "2026-10-31",
+      "shift": "PM",
+      "start": "2026-10-31T13:00:00.000Z",
+      "passed": true
+    },
+    {
+      "input": "2026-11-01T01:30:00-08:00",
+      "date": "2026-10-31",
+      "shift": "PM",
+      "start": "2026-10-31T13:00:00.000Z",
+      "passed": true
+    },
+    {
+      "input": "2026-11-01T05:59:59-08:00",
+      "date": "2026-10-31",
+      "shift": "PM",
+      "start": "2026-10-31T13:00:00.000Z",
+      "passed": true
+    },
+    {
+      "input": "2026-11-01T06:00:00-08:00",
+      "date": "2026-11-01",
+      "shift": "AM",
+      "start": "2026-11-01T14:00:00.000Z",
+      "passed": true
+    }
+  ],
+  "invalidNumbers": [
+    {
+      "input": "NaN",
+      "rejected": false,
+      "emitsNonFinite": true
+    },
+    {
+      "input": "Infinity",
+      "rejected": false,
+      "emitsNonFinite": true
+    },
+    {
+      "input": "-Infinity",
+      "rejected": false,
+      "emitsNonFinite": true
+    }
+  ],
+  "storeReferences": [
+    {
+      "store": "Bell",
+      "refs": {
+        "classId": "2700000000000006003",
+        "className": "Bell",
+        "locationId": "10",
+        "locationName": "Bell",
+        "cohCustomerId": "1235",
+        "cohCustomerName": "BELL- COH",
+        "bankAccount": "10001",
+        "bankAccountQbId": "189",
+        "bankAccountName": "10001 - Bell"
+      }
+    },
+    {
+      "store": "Azusa",
+      "refs": {
+        "classId": "2200000000000075341",
+        "className": "Azusa",
+        "locationId": "12",
+        "locationName": "Azusa",
+        "cohCustomerId": "1227",
+        "cohCustomerName": "AZUSA-COH",
+        "bankAccount": "10000",
+        "bankAccountQbId": "213",
+        "bankAccountName": "10000 - Azusa"
+      }
+    },
+    {
+      "store": "LA Central",
+      "refs": {
+        "classId": "3",
+        "className": "Central LA",
+        "locationId": "4",
+        "locationName": "Central LA",
+        "cohCustomerId": "1226",
+        "cohCustomerName": "CENTRAL-COH",
+        "bankAccount": "10002",
+        "bankAccountQbId": "45",
+        "bankAccountName": "10002 - Central"
+      }
+    },
+    {
+      "store": "Huntington Park",
+      "refs": {
+        "classId": "1",
+        "className": "Huntington Park",
+        "locationId": "2",
+        "locationName": "Huntington Park",
+        "cohCustomerId": "1238",
+        "cohCustomerName": "HUNTINGTON PARK- COH",
+        "bankAccount": "10008",
+        "bankAccountQbId": "37",
+        "bankAccountName": "10008 - Santa fe"
+      }
+    },
+    {
+      "store": "South Gate",
+      "refs": {
+        "classId": "2200000000000140757",
+        "className": "Souht Gate",
+        "locationId": "16",
+        "locationName": "South Gate",
+        "cohCustomerId": "1240",
+        "cohCustomerName": "SOUTH GATE- COH",
+        "bankAccount": "10009",
+        "bankAccountQbId": "211",
+        "bankAccountName": "10009 - South Gate"
+      }
+    },
+    {
+      "store": "Slauson",
+      "refs": {
+        "classId": "2200000000000164243",
+        "className": "Slauson",
+        "locationId": "20",
+        "locationName": "Slauson",
+        "cohCustomerId": "1363",
+        "cohCustomerName": "SLAUSON-COH",
+        "bankAccount": "10015",
+        "bankAccountQbId": "379",
+        "bankAccountName": "10015 - Slauson"
+      }
+    },
+    {
+      "store": "West Covina",
+      "refs": {
+        "classId": "2200000000000134063",
+        "className": "West Covina",
+        "locationId": "17",
+        "locationName": "West Covina",
+        "cohCustomerId": "1228",
+        "cohCustomerName": "WEST COVINA-COH",
+        "bankAccount": "10012",
+        "bankAccountQbId": "282",
+        "bankAccountName": "10012 - West covina"
+      }
+    },
+    {
+      "store": "Lynwood",
+      "refs": {
+        "classId": "2200000000000075312",
+        "className": "Lynwood",
+        "locationId": "13",
+        "locationName": "Lynwood",
+        "cohCustomerId": "1237",
+        "cohCustomerName": "LYNWOOD-COH",
+        "bankAccount": "10004",
+        "bankAccountQbId": "258",
+        "bankAccountName": "10004 - Lynwood"
+      }
+    },
+    {
+      "store": "Santa Ana",
+      "refs": {
+        "classId": "2200000000000136142",
+        "className": "Santa Ana",
+        "locationId": "18",
+        "locationName": "Santa Ana",
+        "cohCustomerId": "1230",
+        "cohCustomerName": "SANTA ANA -COH",
+        "bankAccount": "10007",
+        "bankAccountQbId": "272",
+        "bankAccountName": "10007 - Santa ana"
+      }
+    },
+    {
+      "store": "La Puente",
+      "refs": {
+        "classId": "2200000000000140845",
+        "className": "La Puente",
+        "locationId": "19",
+        "locationName": "La Puente",
+        "cohCustomerId": "1231",
+        "cohCustomerName": "LA PUENTE -COH",
+        "bankAccount": "10013",
+        "bankAccountQbId": "334",
+        "bankAccountName": "10013 - La Puente"
+      }
+    },
+    {
+      "store": "Norwalk",
+      "refs": {
+        "classId": "2200000000000222249",
+        "className": "Norwalk",
+        "locationId": "24",
+        "locationName": "Norwalk",
+        "cohCustomerId": "1225",
+        "cohCustomerName": "NORWALK -COH",
+        "bankAccount": "10014",
+        "bankAccountQbId": "378",
+        "bankAccountName": "10014 - Norwalk"
+      }
+    },
+    {
+      "store": "Downey",
+      "refs": {
+        "classId": "5",
+        "className": "Downey",
+        "locationId": "5",
+        "locationName": "Downey",
+        "cohCustomerId": "1217",
+        "cohCustomerName": "DOWNEY-COH",
+        "bankAccount": "10005",
+        "bankAccountQbId": "48",
+        "bankAccountName": "10005 - Paramount"
+      }
+    },
+    {
+      "store": "Rialto",
+      "refs": {
+        "classId": "2200000000000057575",
+        "className": "Rialto",
+        "locationId": "11",
+        "locationName": "Rialto",
+        "cohCustomerId": "1430",
+        "cohCustomerName": "RIALTO-COH",
+        "bankAccount": "10017",
+        "bankAccountQbId": "412",
+        "bankAccountName": "10017 - Rialto-8205"
+      }
+    },
+    {
+      "store": "LA Broadway",
+      "refs": {
+        "classId": "4",
+        "className": "Broadway LA",
+        "locationId": "3",
+        "locationName": "Broadway LA",
+        "cohCustomerId": "1224",
+        "cohCustomerName": "BROADWAY-COH",
+        "bankAccount": "10010",
+        "bankAccountQbId": "46",
+        "bankAccountName": "10010 - Vernon"
+      }
+    },
+    {
+      "store": "Hollywood",
+      "refs": {
+        "classId": "2200000000000083328",
+        "className": "Hollywood",
+        "locationId": "14",
+        "locationName": "Hollywood",
+        "cohCustomerId": "1239",
+        "cohCustomerName": "HOLLYWOOD- COH",
+        "bankAccount": "10003",
+        "bankAccountQbId": "212",
+        "bankAccountName": "10003 - Hollywood"
+      }
+    }
+  ],
+  "unknownReference": {
+    "classId": "2",
+    "className": "Warehouse",
+    "locationId": "1",
+    "locationName": "Warehouse",
+    "cohCustomerId": "1227",
+    "cohCustomerName": "AZUSA-COH",
+    "bankAccount": "10000",
+    "bankAccountQbId": "213",
+    "bankAccountName": "10000 - Azusa"
+  },
+  "blankReference": {
+    "classId": "2200000000000075341",
+    "className": "Azusa",
+    "locationId": "12",
+    "locationName": "Azusa",
+    "cohCustomerId": "1227",
+    "cohCustomerName": "AZUSA-COH",
+    "bankAccount": "10000",
+    "bankAccountQbId": "213",
+    "bankAccountName": "10000 - Azusa"
+  },
+  "accentVariants": [
+    {
+      "name": "Miércoles",
+      "doc": "MIRCOLES-20260921"
+    },
+    {
+      "name": "Miercoles",
+      "doc": "MIERCOLES-20260921"
+    },
+    {
+      "name": "Sábado",
+      "doc": "SBADO-20260921"
+    },
+    {
+      "name": "Sabado",
+      "doc": "SABADO-20260921"
+    }
+  ],
+  "limitations": [
+    "Calendar helper verification does not prove upstream Toast paidBusinessDate handling",
+    "Invalid-number tests perturb one field of an actual packet; no database mutation",
+    "Unknown names are rejected nowhere in getQBStoreRefs and resolve to real company references"
+  ]
+}

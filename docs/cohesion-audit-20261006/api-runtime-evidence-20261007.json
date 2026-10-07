@@ -1,0 +1,156 @@
+{
+  "capturedAt": "2026-10-07T19:45:23.675Z",
+  "scope": "No network mutations; two real handlers with empty bodies; real DB snapshot; source-extracted pure logic.",
+  "hashes": [
+    {
+      "path": "app/api/accounting/packets/route.ts",
+      "sha256": "41c73abc2002a4f13a0ba8c3b48120d2a4c631d07f9a15ab482a5b24827311e3",
+      "lines": 428
+    },
+    {
+      "path": "app/api/accounting/packets/[id]/route.ts",
+      "sha256": "7f0b584c885e866a48bc43b098b96e26424f70513df69fbdb8610373522faba8",
+      "lines": 296
+    },
+    {
+      "path": "app/api/accounting/packets/[id]/publish/route.ts",
+      "sha256": "db16db1dc3637953b2e02f1dcbe86a56f377a7c099de50656726b1496314cd78",
+      "lines": 385
+    },
+    {
+      "path": "app/api/accounting/packets/publish-batch/route.ts",
+      "sha256": "55f8736e1d58069cc8dc35a80550c7dffd8e486e4acb64e54ae2c8990ecef424",
+      "lines": 98
+    },
+    {
+      "path": "app/api/cron/sync-accounting/route.ts",
+      "sha256": "c63c83a1cc80aa00553d32541fe4f4c10eebcbd3e5b7960526d6f0867d712d7d",
+      "lines": 367
+    },
+    {
+      "path": "app/contabilidad/page.tsx",
+      "sha256": "0d4fc553ace5c39a44697bda344ed0f7a9d44d2a78ed1e236f1b7366a61c0067",
+      "lines": 468
+    },
+    {
+      "path": "app/contabilidad/[packetId]/page.tsx",
+      "sha256": "8d74a64c94128b7d9dcf3276aa754429e6e541b83797f61e0de7d8678b0804d0",
+      "lines": 832
+    },
+    {
+      "path": "app/contabilidad/layout.tsx",
+      "sha256": "2a3f7c1bdf5a5fca52c31f9e0f4be5c2ffc039488161e6859b5b3fe2dbc710df",
+      "lines": 24
+    },
+    {
+      "path": "middleware.ts",
+      "sha256": "248da4a210220a5348d1598087ebd2ef6c784008c2982ef7ac5e4709edb5c5c7",
+      "lines": 89
+    }
+  ],
+  "checks": [
+    {
+      "name": "Unauthenticated request reaches business validation: generate",
+      "reproduced": true,
+      "details": {
+        "status": 400,
+        "body": {
+          "error": "startDate and endDate are required"
+        }
+      }
+    },
+    {
+      "name": "Unauthenticated request reaches business validation: batch",
+      "reproduced": true,
+      "details": {
+        "status": 400,
+        "body": {
+          "error": "businessDate is required"
+        }
+      }
+    },
+    {
+      "name": "FIX VERIFIED UI reads real DB credit card fields",
+      "reproduced": true,
+      "details": {
+        "checkedPackets": 105,
+        "sampleId": "c06263fa-6b58-4de9-88f2-28eaaf2ea9d4",
+        "actualDeposit": 2774.7,
+        "displayed": "$2,774.70"
+      }
+    },
+    {
+      "name": "FIX VERIFIED recalculation preserves existing deposit including zero",
+      "reproduced": true,
+      "details": {
+        "handlers": 2,
+        "cases": 4
+      }
+    },
+    {
+      "name": "Actual fallback computes NaN at zero net sales with channel sales",
+      "reproduced": true,
+      "details": {
+        "doordashPayment": "NaN"
+      }
+    },
+    {
+      "name": "Fallback replaces actual card deposits with estimated percentages",
+      "reproduced": true,
+      "details": {
+        "sampleId": "c06263fa-6b58-4de9-88f2-28eaaf2ea9d4",
+        "actual": 2774.7,
+        "estimated": 3134.41
+      }
+    },
+    {
+      "name": "Cron date 2026-10-07T00:00:00-07:00",
+      "reproduced": true,
+      "details": {
+        "expected": "2026-10-05"
+      }
+    },
+    {
+      "name": "Cron date 2026-10-07T05:59:00-07:00",
+      "reproduced": true,
+      "details": {
+        "expected": "2026-10-05"
+      }
+    },
+    {
+      "name": "Cron date 2026-10-07T06:00:00-07:00",
+      "reproduced": true,
+      "details": {
+        "expected": "2026-10-06"
+      }
+    },
+    {
+      "name": "Cron date 2026-10-07T16:59:00-07:00",
+      "reproduced": true,
+      "details": {
+        "expected": "2026-10-06"
+      }
+    },
+    {
+      "name": "Cron date 2026-10-07T17:00:00-07:00",
+      "reproduced": true,
+      "details": {
+        "expected": "2026-10-06"
+      }
+    },
+    {
+      "name": "Cron date 2026-11-01T05:59:00-08:00",
+      "reproduced": true,
+      "details": {
+        "expected": "2026-10-30"
+      }
+    },
+    {
+      "name": "Cron date 2026-11-01T06:00:00-08:00",
+      "reproduced": true,
+      "details": {
+        "expected": "2026-10-31"
+      }
+    }
+  ]
+}

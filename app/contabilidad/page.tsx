@@ -23,7 +23,7 @@
 import React, { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ChevronLeft, ChevronRight, CheckCircle2, CheckCircle, Circle, AlertCircle, PlayCircle, Loader2, Settings, Sparkles, AlertTriangle, Clock, XCircle } from 'lucide-react'
+import { ChevronLeft, ChevronRight, CheckCircle2, CheckCircle, Circle, AlertCircle, PlayCircle, Loader2, Settings, Sparkles, AlertTriangle, Clock, XCircle, Send } from 'lucide-react'
 import { useLanguage } from '@/lib/i18n'
 import { createClient } from '@/lib/supabase-client'
 
@@ -199,6 +199,34 @@ export default function AccountingPage() {
     }
   }
 
+  const [isPublishingDay, setIsPublishingDay] = useState(false)
+
+  const handlePublishDay = async (dateStr: string) => {
+    setIsPublishingDay(true)
+    setError(null)
+    setSuccessMessage(null)
+    try {
+      const res = await fetch('/api/accounting/packets/publish-batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ businessDate: dateStr })
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Failed to publish batch')
+      setSuccessMessage(
+        language === 'en'
+          ? `Batch publishing completed for ${dateStr}: ${data.published || 0} published, ${data.failed || 0} failed.`
+          : `Publicación masiva completada para el ${dateStr}: ${data.published || 0} publicadas, ${data.failed || 0} fallidas.`
+      )
+      await loadData()
+    } catch (err: any) {
+      console.error(err)
+      setError(err.message || 'Error publishing batch')
+    } finally {
+      setIsPublishingDay(false)
+    }
+  }
+
   const formatCurrency = (val: number) => {
     return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(val)
   }
@@ -299,16 +327,28 @@ export default function AccountingPage() {
                         <span className="text-xs font-semibold text-slate-600 dark:text-slate-400 mt-0.5">
                           {d.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' })}
                         </span>
-                        <button
-                          type="button"
-                          onClick={() => handleGenerateDay(dateStr)}
-                          disabled={isGenerating || isLoading}
-                          title={`${t('accounting.btn_generate') || 'Generar'}: ${dateStr}`}
-                          className="mt-1.5 inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-bold text-slate-500 hover:text-blue-600 dark:text-slate-400 dark:hover:text-blue-400 bg-white/60 dark:bg-slate-800/60 hover:bg-blue-50 dark:hover:bg-blue-900/40 rounded-lg border border-slate-200 dark:border-slate-700/60 transition-colors disabled:opacity-40"
-                        >
-                          <Sparkles className="w-2.5 h-2.5 text-blue-500" />
-                          <span>{t('accounting.btn_recalculate') || 'Recalcular'}</span>
-                        </button>
+                        <div className="mt-1.5 flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => handleGenerateDay(dateStr)}
+                            disabled={isGenerating || isLoading}
+                            title={`${t('accounting.btn_generate') || 'Generar'}: ${dateStr}`}
+                            className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-bold text-slate-500 hover:text-blue-600 dark:text-slate-400 dark:hover:text-blue-400 bg-white/60 dark:bg-slate-800/60 hover:bg-blue-50 dark:hover:bg-blue-900/40 rounded-lg border border-slate-200 dark:border-slate-700/60 transition-colors disabled:opacity-40"
+                          >
+                            <Sparkles className="w-2.5 h-2.5 text-blue-500" />
+                            <span>{t('accounting.btn_recalculate') || 'Recalc'}</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handlePublishDay(dateStr)}
+                            disabled={isPublishingDay || isLoading}
+                            title={`${t('accounting.btn_publish_day') || 'Publicar Día'}: ${dateStr}`}
+                            className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-bold text-slate-500 hover:text-emerald-600 dark:text-slate-400 dark:hover:text-emerald-400 bg-white/60 dark:bg-slate-800/60 hover:bg-emerald-50 dark:hover:bg-emerald-900/40 rounded-lg border border-slate-200 dark:border-slate-700/60 transition-colors disabled:opacity-40"
+                          >
+                            <Send className="w-2.5 h-2.5 text-emerald-500" />
+                            <span>{t('accounting.btn_publish_day') || 'Publicar'}</span>
+                          </button>
+                        </div>
                       </div>
                     </th>
                   )

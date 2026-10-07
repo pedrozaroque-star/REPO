@@ -180,6 +180,8 @@ export async function POST(request: NextRequest) {
               for_here_sales: toastData.forHereSales,
               to_go_sales: toastData.toGoSales,
               drive_thru_sales: toastData.driveThruSales,
+              kiosk_dine_in_sales: toastData.kioskDineInSales,
+              kiosk_takeout_sales: toastData.kioskTakeOutSales,
               toast_online_sales: toastData.toastOnlineSales,
               toast_delivery_sales: toastData.toastDeliverySales,
               tips_payable: toastData.tipsPayable,
@@ -287,10 +289,27 @@ export async function POST(request: NextRequest) {
           cogs_account: mapping.cogs_account,
         }
 
-        // Cohesion parity: "Deposit To Bank" defaults to Expected Cash (Over/Short = 0).
-        // Real deposit is only entered manually (PATCH cash_deposit) — verified vs QBO week 9/28-10/4.
+        // Check if an existing packet is already published to protect QuickBooks integrity
+        const { data: existingPacket } = await supabaseAdmin
+          .from('accounting_sales_packets')
+          .select('id, status, cash_deposit, qb_journal_entry_id, qb_doc_number, published_at')
+          .eq('store_id', mapping.store_id)
+          .eq('business_date', sale.business_date)
+          .maybeSingle()
+
+        if (existingPacket && existingPacket.status === 'published') {
+          // Do NOT overwrite already-published packets
+          generated.push(existingPacket as any)
+          continue
+        }
+
+        // Cohesion parity: "Deposit To Bank" starts at 0.00 until manager enters real deposit slip.
+        // If a deposit was already entered previously in this packet, preserve it.
         const expectedCash = calculateExpectedCash(salesPacketData)
-        salesPacketData.cash_deposits = expectedCash
+        const previousDeposit = existingPacket?.cash_deposit !== undefined && existingPacket?.cash_deposit !== null
+          ? Number(existingPacket.cash_deposit)
+          : 0
+        salesPacketData.cash_deposits = previousDeposit
 
         // Generate journal lines
         const journal = generateJournalLines(salesPacketData, siteConfig)
@@ -318,21 +337,16 @@ export async function POST(request: NextRequest) {
             : '✓ Validación superada: 0 órdenes abiertas en Toast POS. Póliza balanceada lista para revisión.'
         }
 
-        // Check if an existing packet is already published to protect QuickBooks integrity
-        const { data: existingPacket } = await supabaseAdmin
-          .from('accounting_sales_packets')
-          .select('id, status, qb_journal_entry_id, qb_doc_number, published_at')
-          .eq('store_id', mapping.store_id)
-          .eq('business_date', sale.business_date)
-          .maybeSingle()
-
-        if (existingPacket && existingPacket.status === 'published') {
-          // Do NOT overwrite already-published packets
-          generated.push(existingPacket as any)
-          continue
-        }
-
         // Upsert the packet
+        const totalGrossReceipts = Math.round((
+          (salesPacketData.net_sales || 0) +
+          (salesPacketData.total_taxes || 0) +
+          (salesPacketData.paid_in || 0) +
+          (salesPacketData.delivery_service_charges || 0) +
+          (salesPacketData.deferred_gift_cards || 0) +
+          (salesPacketData.tips_payable || 0) +
+          (salesPacketData.deposits_collected || 0)
+        ) * 100) / 100
         const packetData = {
           store_id: mapping.store_id,
           business_date: sale.business_date,
@@ -344,9 +358,9 @@ export async function POST(request: NextRequest) {
           doordash_delivery_sales: salesPacketData.doordash_delivery_sales,
           doordash_takeout_sales: salesPacketData.doordash_takeout_sales,
           grubhub_sales: Math.round(((salesPacketData.grubhub_delivery_sales || 0) + (salesPacketData.grubhub_takeout_sales || 0)) * 100) / 100,
-          gross_sales: Math.round((salesPacketData.net_sales + salesPacketData.total_taxes) * 100) / 100,
+          gross_sales: totalGrossReceipts,
           net_sales: salesPacketData.net_sales,
-          total_discounts: sale.discounts || 0,
+          total_discounts: toastAccountingResult?.discountsTotal ?? sale.discounts ?? 0,
           sales_tax: salesPacketData.sales_tax,
           marketplace_facilitator_tax: salesPacketData.marketplace_tax,
           facilitator_tax_paid: salesPacketData.tax_paid_by_uber,

@@ -64,6 +64,24 @@ interface SiteMapping {
   cash_on_hand_account?: string
   tips_account?: string
   cogs_account?: string
+  discount_account?: string
+  discountAccount?: string
+  inc_customer_receivables?: boolean
+  incCustomerReceivables?: boolean
+  add_customer_name_memo?: boolean
+  addCustomerNameMemo?: boolean
+  add_revenue_center_memo?: boolean
+  addRevenueCenterMemo?: boolean
+  cc_fee_validation?: 'Warn' | 'None' | 'Block'
+  ccFeeValidation?: 'Warn' | 'None' | 'Block'
+  check_open_orders?: boolean
+  checkOpenOrders?: boolean
+  tax_facilitator_enabled?: boolean
+  taxFacilitatorEnabled?: boolean
+  alt_memos?: Record<string, string>
+  altMemos?: Record<string, string>
+  line_class_overrides?: Record<string, string>
+  lineClassOverrides?: Record<string, string>
   is_active: boolean
   stores: { id: number; name: string }
 }
@@ -150,6 +168,17 @@ export default function AccountingConfigPage() {
   const [addRevenueCenterMemo, setAddRevenueCenterMemo] = useState<boolean>(false)
   const [ccFeeValidation, setCcFeeValidation] = useState<'Warn' | 'None' | 'Block'>('Warn')
   const [checkOpenOrders, setCheckOpenOrders] = useState<boolean>(true)
+  const [taxFacilitatorEnabled, setTaxFacilitatorEnabled] = useState<boolean>(true)
+  const [altMemos, setAltMemos] = useState<Record<string, string>>({})
+  const [lineClassOverrides, setLineClassOverrides] = useState<Record<string, string>>({})
+
+  const handleAltMemoChange = (key: string, val: string) => {
+    setAltMemos(prev => ({ ...prev, [key]: val }))
+  }
+
+  const handleLineClassChange = (key: string, val: string) => {
+    setLineClassOverrides(prev => ({ ...prev, [key]: val }))
+  }
 
   // Fetch initial data
   const loadData = async () => {
@@ -208,6 +237,16 @@ export default function AccountingConfigPage() {
       tips_account: mapping.tips_account || '12100',
       cogs_account: mapping.cogs_account || '50006',
     })
+
+    setDiscountAccount(mapping.discount_account || mapping.discountAccount || '40010')
+    setIncCustomerReceivables(mapping.inc_customer_receivables ?? mapping.incCustomerReceivables ?? false)
+    setAddCustomerNameMemo(mapping.add_customer_name_memo ?? mapping.addCustomerNameMemo ?? false)
+    setAddRevenueCenterMemo(mapping.add_revenue_center_memo ?? mapping.addRevenueCenterMemo ?? false)
+    setCcFeeValidation(mapping.cc_fee_validation || mapping.ccFeeValidation || 'Warn')
+    setCheckOpenOrders(mapping.check_open_orders ?? mapping.checkOpenOrders ?? true)
+    setTaxFacilitatorEnabled(mapping.tax_facilitator_enabled ?? mapping.taxFacilitatorEnabled ?? true)
+    setAltMemos(mapping.alt_memos || mapping.altMemos || {})
+    setLineClassOverrides(mapping.line_class_overrides || mapping.lineClassOverrides || {})
   }
 
   useEffect(() => {
@@ -273,6 +312,16 @@ export default function AccountingConfigPage() {
       is_active: true,
     }))
 
+    setDiscountAccount('40010')
+    setIncCustomerReceivables(false)
+    setAddCustomerNameMemo(false)
+    setAddRevenueCenterMemo(false)
+    setCcFeeValidation('Warn')
+    setCheckOpenOrders(true)
+    setTaxFacilitatorEnabled(true)
+    setAltMemos({})
+    setLineClassOverrides({})
+
     setMessage({
       type: 'success',
       text: `${t('accounting.btn_restore_canonical')}: ${formatStoreName(activeMapping.stores?.name || '')}`,
@@ -292,6 +341,24 @@ export default function AccountingConfigPage() {
         body: JSON.stringify({
           ...formData,
           store_id: selectedStoreId,
+          discount_account: discountAccount,
+          discountAccount,
+          inc_customer_receivables: incCustomerReceivables,
+          incCustomerReceivables,
+          add_customer_name_memo: addCustomerNameMemo,
+          addCustomerNameMemo,
+          add_revenue_center_memo: addRevenueCenterMemo,
+          addRevenueCenterMemo,
+          cc_fee_validation: ccFeeValidation,
+          ccFeeValidation,
+          check_open_orders: checkOpenOrders,
+          checkOpenOrders,
+          tax_facilitator_enabled: taxFacilitatorEnabled,
+          taxFacilitatorEnabled,
+          alt_memos: altMemos,
+          altMemos,
+          line_class_overrides: lineClassOverrides,
+          lineClassOverrides,
         }),
       })
 
@@ -1051,14 +1118,15 @@ export default function AccountingConfigPage() {
                           </td>
                           <td className="px-4 py-2">
                             <ClassSelect
-                              value={formData.qb_class}
-                              onChange={(v) => setFormData({ ...formData, qb_class: v })}
+                              value={lineClassOverrides[row.memo] || formData.qb_class || storeRefs.className}
+                              onChange={(v) => handleLineClassChange(row.memo, v)}
                             />
                           </td>
                           <td className="px-4 py-2">
                             <input
                               type="text"
-                              defaultValue={row.memo}
+                              value={altMemos[row.memo] ?? row.memo}
+                              onChange={(e) => handleAltMemoChange(row.memo, e.target.value)}
                               className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1 text-xs text-slate-700 dark:text-slate-300 w-44"
                             />
                           </td>
@@ -1088,14 +1156,14 @@ export default function AccountingConfigPage() {
                       <tr className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
                         <td className="px-4 py-2 font-semibold">Delivery Fee &gt; 6 Miles</td>
                         <td className="px-4 py-2"><AccountSelect value={formData.cc_fees_account || '51030'} onChange={(v) => setFormData({ ...formData, cc_fees_account: v })} defaultCode="51030" /></td>
-                        <td className="px-4 py-2"><ClassSelect value={formData.qb_class} onChange={(v) => setFormData({ ...formData, qb_class: v })} /></td>
-                        <td className="px-4 py-2"><input type="text" defaultValue="Delivery Fee > 6 Miles" className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-xs w-44" /></td>
+                        <td className="px-4 py-2"><ClassSelect value={lineClassOverrides['delivery_fee'] || formData.qb_class || storeRefs.className} onChange={(v) => handleLineClassChange('delivery_fee', v)} /></td>
+                        <td className="px-4 py-2"><input type="text" value={altMemos['delivery_fee'] ?? 'Delivery Fee > 6 Miles'} onChange={(e) => handleAltMemoChange('delivery_fee', e.target.value)} className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-xs w-44" /></td>
                       </tr>
                       <tr className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
                         <td className="px-4 py-2 font-semibold">Delivery Service</td>
                         <td className="px-4 py-2"><AccountSelect value={formData.cc_fees_account || '51030'} onChange={(v) => setFormData({ ...formData, cc_fees_account: v })} defaultCode="51030" /></td>
-                        <td className="px-4 py-2"><ClassSelect value={formData.qb_class} onChange={(v) => setFormData({ ...formData, qb_class: v })} /></td>
-                        <td className="px-4 py-2"><input type="text" defaultValue="Delivery Service" className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-xs w-44" /></td>
+                        <td className="px-4 py-2"><ClassSelect value={lineClassOverrides['delivery_service'] || formData.qb_class || storeRefs.className} onChange={(v) => handleLineClassChange('delivery_service', v)} /></td>
+                        <td className="px-4 py-2"><input type="text" value={altMemos['delivery_service'] ?? 'Delivery Service'} onChange={(e) => handleAltMemoChange('delivery_service', e.target.value)} className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-xs w-44" /></td>
                       </tr>
                     </tbody>
                   </table>
@@ -1203,7 +1271,7 @@ export default function AccountingConfigPage() {
                         <tr key={idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
                           <td className="px-4 py-2 font-semibold text-slate-800 dark:text-slate-200">{item}</td>
                           <td className="px-4 py-2"><AccountSelect value={discountAccount} defaultCode="40010" onChange={(v) => setDiscountAccount(v)} /></td>
-                          <td className="px-4 py-2"><ClassSelect value={formData.qb_class} onChange={(v) => setFormData({ ...formData, qb_class: v })} /></td>
+                          <td className="px-4 py-2"><ClassSelect value={lineClassOverrides[`discount_${idx}`] || formData.qb_class || storeRefs.className} onChange={(v) => handleLineClassChange(`discount_${idx}`, v)} /></td>
                           <td className="px-4 py-2"><span className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400">Net Deducted</span></td>
                         </tr>
                       ))}
@@ -1275,7 +1343,8 @@ export default function AccountingConfigPage() {
                   <input
                     type="checkbox"
                     id="facilitator_tax_chk"
-                    defaultChecked
+                    checked={taxFacilitatorEnabled}
+                    onChange={(e) => setTaxFacilitatorEnabled(e.target.checked)}
                     className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 border-emerald-300"
                   />
                   <label htmlFor="facilitator_tax_chk" className="text-xs font-bold text-emerald-950 dark:text-emerald-200 cursor-pointer">
@@ -1314,8 +1383,8 @@ export default function AccountingConfigPage() {
                             defaultCode="24001"
                           />
                         </td>
-                        <td className="px-4 py-2"><ClassSelect value={formData.qb_class} onChange={(v) => setFormData({ ...formData, qb_class: v })} /></td>
-                        <td className="px-4 py-2"><input type="text" defaultValue="Sales Tax" className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-xs w-44" /></td>
+                        <td className="px-4 py-2"><ClassSelect value={lineClassOverrides['sales_tax'] || formData.qb_class || storeRefs.className} onChange={(v) => handleLineClassChange('sales_tax', v)} /></td>
+                        <td className="px-4 py-2"><input type="text" value={altMemos['sales_tax'] ?? 'Sales Tax'} onChange={(e) => handleAltMemoChange('sales_tax', e.target.value)} className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-xs w-44" /></td>
                       </tr>
                       <tr className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
                         <td className="px-4 py-2 font-semibold">
@@ -1328,8 +1397,8 @@ export default function AccountingConfigPage() {
                             defaultCode="24001"
                           />
                         </td>
-                        <td className="px-4 py-2"><ClassSelect value={formData.qb_class} onChange={(v) => setFormData({ ...formData, qb_class: v })} /></td>
-                        <td className="px-4 py-2"><input type="text" defaultValue="Marketplace Facilitator Taxes" className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-xs w-44" /></td>
+                        <td className="px-4 py-2"><ClassSelect value={lineClassOverrides['marketplace_facilitator_tax'] || formData.qb_class || storeRefs.className} onChange={(v) => handleLineClassChange('marketplace_facilitator_tax', v)} /></td>
+                        <td className="px-4 py-2"><input type="text" value={altMemos['marketplace_facilitator_tax'] ?? 'Marketplace Facilitator Taxes'} onChange={(e) => handleAltMemoChange('marketplace_facilitator_tax', e.target.value)} className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-xs w-44" /></td>
                       </tr>
                     </tbody>
                   </table>
@@ -1381,8 +1450,8 @@ export default function AccountingConfigPage() {
                             defaultCode="12100"
                           />
                         </td>
-                        <td className="px-4 py-2"><ClassSelect value={formData.qb_class} onChange={(v) => setFormData({ ...formData, qb_class: v })} /></td>
-                        <td className="px-4 py-2"><input type="text" defaultValue="Tips/Grat Payable" className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-xs w-44" /></td>
+                        <td className="px-4 py-2"><ClassSelect value={lineClassOverrides['tips_payable'] || formData.qb_class || storeRefs.className} onChange={(v) => handleLineClassChange('tips_payable', v)} /></td>
+                        <td className="px-4 py-2"><input type="text" value={altMemos['tips_payable'] ?? 'Tips/Grat Payable'} onChange={(e) => handleAltMemoChange('tips_payable', e.target.value)} className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-xs w-44" /></td>
                       </tr>
                       <tr className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
                         <td className="px-4 py-2 font-semibold">Tips/Grat Out</td>
@@ -1393,8 +1462,8 @@ export default function AccountingConfigPage() {
                             defaultCode="12100"
                           />
                         </td>
-                        <td className="px-4 py-2"><ClassSelect value={formData.qb_class} onChange={(v) => setFormData({ ...formData, qb_class: v })} /></td>
-                        <td className="px-4 py-2"><input type="text" defaultValue="Tips/Grat Out" className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-xs w-44" /></td>
+                        <td className="px-4 py-2"><ClassSelect value={lineClassOverrides['tips_out'] || formData.qb_class || storeRefs.className} onChange={(v) => handleLineClassChange('tips_out', v)} /></td>
+                        <td className="px-4 py-2"><input type="text" value={altMemos['tips_out'] ?? 'Tips/Grat Out'} onChange={(e) => handleAltMemoChange('tips_out', e.target.value)} className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-xs w-44" /></td>
                       </tr>
                     </tbody>
                   </table>
@@ -1436,22 +1505,22 @@ export default function AccountingConfigPage() {
                         <td className="px-4 py-2 font-mono font-bold text-blue-600 dark:text-blue-400">
                           {storeRefs.bankAccountName || formData.bank_account_number}
                         </td>
-                        <td className="px-4 py-2"><ClassSelect value={formData.qb_class} onChange={(v) => setFormData({ ...formData, qb_class: v })} /></td>
-                        <td className="px-4 py-2"><input type="text" defaultValue="Credit Card Deposit" className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-xs w-44" /></td>
+                        <td className="px-4 py-2"><ClassSelect value={lineClassOverrides['credit_card_deposit'] || formData.qb_class || storeRefs.className} onChange={(v) => handleLineClassChange('credit_card_deposit', v)} /></td>
+                        <td className="px-4 py-2"><input type="text" value={altMemos['credit_card_deposit'] ?? 'Credit Card Deposit'} onChange={(e) => handleAltMemoChange('credit_card_deposit', e.target.value)} className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-xs w-44" /></td>
                       </tr>
                       <tr className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
                         <td className="px-4 py-2 font-semibold">Credit Card Deposit #2</td>
                         <td className="px-4 py-2 font-mono font-bold text-blue-600 dark:text-blue-400">
                           {storeRefs.bankAccountName || formData.bank_account_number}
                         </td>
-                        <td className="px-4 py-2"><ClassSelect value={formData.qb_class} onChange={(v) => setFormData({ ...formData, qb_class: v })} /></td>
-                        <td className="px-4 py-2"><input type="text" defaultValue="EBT Deposit" className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-xs w-44" /></td>
+                        <td className="px-4 py-2"><ClassSelect value={lineClassOverrides['ebt_deposit'] || formData.qb_class || storeRefs.className} onChange={(v) => handleLineClassChange('ebt_deposit', v)} /></td>
+                        <td className="px-4 py-2"><input type="text" value={altMemos['ebt_deposit'] ?? 'EBT Deposit'} onChange={(e) => handleAltMemoChange('ebt_deposit', e.target.value)} className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-xs w-44" /></td>
                       </tr>
                       <tr className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
                         <td className="px-4 py-2 font-semibold text-slate-400">Credit Card Deposit #3</td>
                         <td className="px-4 py-2 text-slate-400 italic">Please Select an Account</td>
-                        <td className="px-4 py-2"><ClassSelect value={formData.qb_class || ''} onChange={(v) => setFormData({ ...formData, qb_class: v })} /></td>
-                        <td className="px-4 py-2"><input type="text" placeholder="" className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-xs w-44" /></td>
+                        <td className="px-4 py-2"><ClassSelect value={lineClassOverrides['cc_deposit_3'] || ''} onChange={(v) => handleLineClassChange('cc_deposit_3', v)} /></td>
+                        <td className="px-4 py-2"><input type="text" value={altMemos['cc_deposit_3'] ?? ''} onChange={(e) => handleAltMemoChange('cc_deposit_3', e.target.value)} placeholder="" className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-xs w-44" /></td>
                       </tr>
                     </tbody>
                   </table>
@@ -1564,7 +1633,7 @@ export default function AccountingConfigPage() {
                             <span className="inline-flex items-center text-emerald-600 font-bold">✓</span>
                           </td>
                           <td className="px-4 py-2">
-                            <ClassSelect value={formData.qb_class} onChange={(v) => setFormData({ ...formData, qb_class: v })} />
+                            <ClassSelect value={lineClassOverrides[`payment_${idx}`] || formData.qb_class || storeRefs.className} onChange={(v) => handleLineClassChange(`payment_${idx}`, v)} />
                           </td>
                         </tr>
                       ))}
@@ -1606,20 +1675,20 @@ export default function AccountingConfigPage() {
                       <tr className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
                         <td className="px-4 py-2 font-semibold">Cash In</td>
                         <td className="px-4 py-2"><AccountSelect value={formData.cash_on_hand_account || '12100'} onChange={(v) => setFormData({ ...formData, cash_on_hand_account: v })} defaultCode="12100" /></td>
-                        <td className="px-4 py-2"><ClassSelect value={formData.qb_class} onChange={(v) => setFormData({ ...formData, qb_class: v })} /></td>
-                        <td className="px-4 py-2"><input type="text" defaultValue="Cash In" className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-xs w-44" /></td>
+                        <td className="px-4 py-2"><ClassSelect value={lineClassOverrides['cash_in'] || formData.qb_class || storeRefs.className} onChange={(v) => handleLineClassChange('cash_in', v)} /></td>
+                        <td className="px-4 py-2"><input type="text" value={altMemos['cash_in'] ?? 'Cash In'} onChange={(e) => handleAltMemoChange('cash_in', e.target.value)} className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-xs w-44" /></td>
                       </tr>
                       <tr className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
                         <td className="px-4 py-2 font-semibold">Deposit To Bank</td>
                         <td className="px-4 py-2"><AccountSelect value={formData.undeposited_funds_account || '13200'} onChange={(v) => setFormData({ ...formData, undeposited_funds_account: v })} defaultCode="13200" /></td>
-                        <td className="px-4 py-2"><ClassSelect value={formData.qb_class} onChange={(v) => setFormData({ ...formData, qb_class: v })} /></td>
-                        <td className="px-4 py-2"><input type="text" defaultValue="Deposit To Bank" className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-xs w-44" /></td>
+                        <td className="px-4 py-2"><ClassSelect value={lineClassOverrides['deposit_to_bank'] || formData.qb_class || storeRefs.className} onChange={(v) => handleLineClassChange('deposit_to_bank', v)} /></td>
+                        <td className="px-4 py-2"><input type="text" value={altMemos['deposit_to_bank'] ?? 'Deposit To Bank'} onChange={(e) => handleAltMemoChange('deposit_to_bank', e.target.value)} className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-xs w-44" /></td>
                       </tr>
                       <tr className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
                         <td className="px-4 py-2 font-semibold">Over/Short</td>
                         <td className="px-4 py-2"><AccountSelect value={formData.cash_over_short_account || '51050'} onChange={(v) => setFormData({ ...formData, cash_over_short_account: v })} defaultCode="51050" /></td>
-                        <td className="px-4 py-2"><ClassSelect value={formData.qb_class} onChange={(v) => setFormData({ ...formData, qb_class: v })} /></td>
-                        <td className="px-4 py-2"><input type="text" defaultValue="Over/Short" className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-xs w-44" /></td>
+                        <td className="px-4 py-2"><ClassSelect value={lineClassOverrides['over_short'] || formData.qb_class || storeRefs.className} onChange={(v) => handleLineClassChange('over_short', v)} /></td>
+                        <td className="px-4 py-2"><input type="text" value={altMemos['over_short'] ?? 'Over/Short'} onChange={(e) => handleAltMemoChange('over_short', e.target.value)} className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-xs w-44" /></td>
                       </tr>
                     </tbody>
                   </table>
@@ -1637,12 +1706,12 @@ export default function AccountingConfigPage() {
                       <tr>
                         <td className="px-4 py-2.5 font-semibold">COGS-Materials and Supplies</td>
                         <td className="px-4 py-2.5"><AccountSelect value={formData.cogs_account || '50006'} onChange={(v) => setFormData({ ...formData, cogs_account: v })} defaultCode="50006" /></td>
-                        <td className="px-4 py-2.5"><ClassSelect value={formData.qb_class} onChange={(v) => setFormData({ ...formData, qb_class: v })} /></td>
+                        <td className="px-4 py-2.5"><ClassSelect value={lineClassOverrides['cogs'] || formData.qb_class || storeRefs.className} onChange={(v) => handleLineClassChange('cogs', v)} /></td>
                       </tr>
                       <tr>
                         <td className="px-4 py-2.5 font-semibold text-slate-400">Not Assigned</td>
                         <td className="px-4 py-2.5 text-slate-400 italic">Please Select an Account</td>
-                        <td className="px-4 py-2.5"><ClassSelect value={formData.qb_class || ''} onChange={(v) => setFormData({ ...formData, qb_class: v })} /></td>
+                        <td className="px-4 py-2.5"><ClassSelect value={lineClassOverrides['not_assigned'] || formData.qb_class || ''} onChange={(v) => handleLineClassChange('not_assigned', v)} /></td>
                       </tr>
                     </tbody>
                   </table>

@@ -28,6 +28,8 @@ export interface SalesPacketData {
   for_here_sales: number;
   to_go_sales: number;
   drive_thru_sales?: number;
+  kiosk_dine_in_sales?: number;
+  kiosk_takeout_sales?: number;
   toast_online_sales?: number;
   toast_delivery_sales?: number;
   tips_payable?: number;
@@ -128,12 +130,21 @@ export function generateJournalLines(salesData: SalesPacketData, siteMapping: Si
 
   // --- CREDITS ---
   addLine(dineInAcct, 'For Here', 0, salesData.for_here_sales, 'Dining Option: For Here');
-  if (salesData.toast_online_sales) {
-    addLine(dineInAcct, 'Toast Online', 0, salesData.toast_online_sales, 'Dining Option: Toast Online');
+  if (salesData.toast_delivery_sales) {
+    addLine(dineInAcct, 'Toast Delivery Services', 0, salesData.toast_delivery_sales, 'Dining Option: Toast Delivery Services');
   }
   addLine(dineInAcct, 'To Go', 0, salesData.to_go_sales, 'Dining Option: To Go');
   if (salesData.drive_thru_sales) {
     addLine(dineInAcct, 'Drive Thru', 0, salesData.drive_thru_sales, 'Dining Option: Drive Thru');
+  }
+  if (salesData.kiosk_takeout_sales) {
+    addLine(dineInAcct, 'Kiosk Take Out', 0, salesData.kiosk_takeout_sales, 'Dining Option: Kiosk Take Out');
+  }
+  if (salesData.kiosk_dine_in_sales) {
+    addLine(dineInAcct, 'Kiosk Dine In', 0, salesData.kiosk_dine_in_sales, 'Dining Option: Kiosk Dine In');
+  }
+  if (salesData.toast_online_sales) {
+    addLine(dineInAcct, 'Toast Online', 0, salesData.toast_online_sales, 'Dining Option: Toast Online');
   }
   addLine(uberSalesAcct, 'Uber Eats - Delivery', 0, salesData.uber_delivery_sales, 'Dining Option: Uber Eats - Delivery');
   addLine(uberSalesAcct, 'Uber Eats Takeout', 0, salesData.uber_takeout_sales, 'Dining Option: Uber Eats Takeout');
@@ -146,10 +157,6 @@ export function generateJournalLines(salesData: SalesPacketData, siteMapping: Si
   
   if (salesData.delivery_service_charges) {
     addLine(ccFeesAcct, 'Delivery Service', 0, salesData.delivery_service_charges, 'Service Charge: Delivery Service');
-  }
-  if (salesData.toast_delivery_sales) {
-    // Cohesion (verificado 10/3 en pantalla): Toast Delivery Services va a la cuenta dineInAcct con su propio memo
-    addLine(dineInAcct, 'Toast Delivery Services', 0, salesData.toast_delivery_sales, 'Dining Option: Toast Delivery Services');
   }
   if (salesData.deferred_gift_cards) {
     addLine(giftCardAcct, 'Deferred Sales - Gift Cards', 0, salesData.deferred_gift_cards, 'Deferred Sales: Gift Cards');
@@ -195,8 +202,8 @@ export function generateJournalLines(salesData: SalesPacketData, siteMapping: Si
     // Sobrante (Over): Credit
     addLine(cashOverShortAcct, 'Cash Over/(Short)', 0, cashDiff, 'Cash Overage');
   } else if (cashDiff < 0) {
-    // Faltante (Short): Debit
-    addLine(cashOverShortAcct, 'Cash Over/(Short)', Math.abs(cashDiff), 0, 'Cash Shortage');
+    // Faltante (Short): Debit (Cohesion usa memo: 'Over/(Short)' y source memo: 'Calculated')
+    addLine(cashOverShortAcct, 'Over/(Short)', Math.abs(cashDiff), 0, 'Calculated');
   }
 
   let totalDebits = 0;
@@ -288,6 +295,8 @@ export function calculateExpectedCash(salesData: SalesPacketData): number {
     (salesData.for_here_sales || 0) +
     (salesData.to_go_sales || 0) +
     (salesData.drive_thru_sales || 0) +
+    (salesData.kiosk_dine_in_sales || 0) +
+    (salesData.kiosk_takeout_sales || 0) +
     (salesData.toast_online_sales || 0) +
     (salesData.toast_delivery_sales || 0) +
     (salesData.uber_delivery_sales || 0) +
