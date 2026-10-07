@@ -525,6 +525,18 @@ export const TOOL_DECLARATIONS = [
     }
   },
   {
+    name: 'query_quickbooks_bills',
+    description: 'Consultar facturas (Invoices) de La Bodega Central a las tiendas y su estado de Bills en QuickBooks Online (/admin/crear-bills). Muestra facturas pendientes de bill o ya registradas, montos, sucursales y números de bill creados.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        store_name: { type: 'STRING', description: 'Nombre opcional de la sucursal (ej: "Azusa", "Lynwood", "South Gate")' },
+        status: { type: 'STRING', description: 'Filtro de estado: "pending" (pendientes de bill), "created" (con bill ya creado), o "all" (todas)' },
+        limit: { type: 'NUMBER', description: 'Límite de resultados a consultar (por defecto 30)' }
+      }
+    }
+  },
+  {
     name: 'query_order_ready_board',
     description: 'Consulta el estado en vivo del Order Ready Board (tablero de órdenes listas y en preparación, canales Drive-Thru, ToGo, For Here, y órdenes anunciadas por voz) para una o todas las sucursales.',
     parameters: {
@@ -580,6 +592,7 @@ export async function executeTool(name: string, args: any): Promise<string> {
       case 'query_viele_procurement': return await queryVieleProcurement(args)
       case 'query_grubhub_audit': return await queryGrubhubAudit(args)
       case 'query_order_ready_board': return await queryOrderReadyBoardTool(args)
+      case 'query_quickbooks_bills': return await queryQuickbooksBillsTool(args)
       default: return `Tool "${name}" not found.`
     }
   } catch (e: any) {
@@ -2874,4 +2887,64 @@ async function queryOrderReadyBoardTool(args: { store_code?: string; minutes?: n
 • **Total órdenes activas**: ${orders.length}
 • **Listas para Recoger (READY)**: ${ready.length} (${ready.map(r => `#${r.order_number} [${r.dining_option}]`).join(', ') || 'Ninguna'})
 • **En Preparación (IN_PROGRESS)**: ${inProgress.length} (${inProgress.slice(0, 10).map(p => `#${p.order_number} [${p.dining_option}]`).join(', ') || 'Ninguna'}${inProgress.length > 10 ? ` ...y ${inProgress.length - 10} más` : ''})`
+}
+
+// ── 37. Query QuickBooks Bills ──
+async function queryQuickbooksBillsTool(args: { store_name?: string; status?: string; limit?: number }): Promise<string> {
+  try {
+    const { getWarehouseInvoicesWithBills, STORE_QB_MAPPINGS } = await import('@/lib/quickbooks-bills');
+    
+    let targetStoreId: string | undefined = undefined;
+    if (args.store_name) {
+      const q = args.store_name.toLowerCase().trim();
+      for (const m of Object.values(STORE_QB_MAPPINGS)) {
+        if (m.storeName.toLowerCase().includes(q) || m.qbCustomerName.toLowerCase().includes(q)) {
+          targetStoreId = m.storeId;
+          break;
+        }
+      }
+    }
+
+    const records = await getWarehouseInvoicesWithBills({
+      storeId: targetStoreId,
+      limit: args.limit || 30
+    });
+
+    if (!records || records.length === 0) {
+      return `No se encontraron facturas de Bodega en QuickBooks${args.store_name ? ` para ${args.store_name}` : ''}.`;
+    }
+
+    let filtered = records;
+    if (args.status === 'pending') {
+      filtered = records.filter(r => !r.hasBill);
+    } else if (args.status === 'created') {
+      filtered = records.filter(r => r.hasBill);
+    }
+
+    const pendingCount = records.filter(r => !r.hasBill).length;
+    const createdCount = records.filter(r => r.hasBill).length;
+    const totalPendingAmt = records.filter(r => !r.hasBill).reduce((acc, r) => acc + r.totalAmount, 0);
+
+    let out = `🧾 **QuickBooks Bills - Facturas de Bodega a Tiendas**\n`;
+    out += `• **Total Facturas auditadas**: ${records.length}\n`;
+    out += `• **Pendientes de Bill**: ${pendingCount} ($${totalPendingAmt.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})\n`;
+    out += `• **Bills Creados en QBO**: ${createdCount}\n\n`;
+
+    out += `| Factura # | Fecha | Sucursal | Monto | Estado | Bill QBO |\n`;
+    out += `|-----------|-------|----------|-------|--------|----------|\n`;
+
+    filtered.slice(0, 20).forEach(r => {
+      const st = r.hasBill ? '🟢 CREADO' : '🟡 PENDIENTE';
+      const billInfo = r.bill ? `#${r.bill.docNumber} (ID: ${r.bill.billId})` : '—';
+      out += `| #${r.docNumber} | ${r.txnDate} | ${r.storeName} | $${r.totalAmount.toFixed(2)} | ${st} | ${billInfo} |\n`;
+    });
+
+    if (filtered.length > 20) {
+      out += "\n*...mostrando 20 de " + filtered.length + " facturas. Accede a /admin/crear-bills para ver todas y crear bills en lote.*\n";
+    }
+
+    return out;
+  } catch (e: any) {
+    return `Error consultando bills de QuickBooks: ${e.message}`;
+  }
 }

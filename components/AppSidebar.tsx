@@ -13,7 +13,7 @@ import {
     DollarSign, TrendingUp, Calendar, MessageSquare, CalendarCheck, UserCog,
     Monitor, ChefHat, Zap, X, PanelLeftClose, PanelLeft, RefreshCw,
     Settings, Keyboard, HelpCircle, ExternalLink, Moon, Sun, Globe, Shield,
-    CalendarDays, Sparkles, Info, UserCircle, Menu, Folder, Truck, Timer, Shirt, Car, Calculator, Package, BarChart3, UserCheck, Bell
+    CalendarDays, Sparkles, Info, UserCircle, Menu, Folder, Truck, Timer, Shirt, Car, Calculator, Package, BarChart3, UserCheck, Bell, Receipt
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useLanguage } from '@/lib/i18n'
@@ -238,6 +238,16 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                     tooltip: language === 'en'
                         ? 'Daily sales journal entries for QuickBooks — replaces Cohesion (Pólizas de ventas diarias)'
                         : 'Pólizas de ventas diarias para QuickBooks — reemplaza Cohesion ($450/mes)'
+                },
+                {
+                    name: t('items.create_bills') || 'Crear Bills',
+                    plainName: 'Crear Bills',
+                    path: '/admin/crear-bills',
+                    icon: <Receipt size={20} />,
+                    roles: ['admin'],
+                    tooltip: language === 'en'
+                        ? 'Automatic synchronization and Bill creation from Warehouse Invoices in QuickBooks Online'
+                        : 'Sincronización y creación automática de Bills desde Invoices de Bodega en QuickBooks'
                 },
                 {
                     name: 'RONOS',
