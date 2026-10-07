@@ -32,17 +32,26 @@
  *   - Al abrir el módulo, recargar la página o cambiar de sucursal, todas las órdenes preexistentes en "Listo para recoger" se renderizan en pantalla en SILENCIO total. Solo se activan el Ding-Dong y la voz para órdenes recién completadas capturadas en vivo mientras el módulo está abierto (o al pulsar "Llamar" manualmente).
  *   - Cuando los cocineros hacen "Recall" en el KDS Expediter para revisar órdenes ya despachadas y luego hacen doble tap para cerrarlas nuevamente, el sistema no vuelve a reproducir la campanilla ni la voz gracias a la cuádruple barrera de idempotencia (Set de IDs en memoria, supresión de backlog inicial por tienda, persistencia `announced: true` en Supabase y aislamiento por `business_date`).
  * - **Gestión de Vida Útil**: Las órdenes en 'READY' se retiran visualmente tras 20 minutos (limpieza automática de pantalla para mantener el tablero ordenado y legible, configurable en 15, 20 o 30 min, 20 min por defecto).
+ * - **Anuncios Personalizados al Comedor y Reproducción Periódica**:
+ *   - Caja de texto para redactar anuncios libres a comensales (hasta 500 caracteres) con contador de caracteres y botón de limpieza.
+ *   - Plantillas rápidas oficiales de Tacos Gavilan: Ticket en mano, Barra de salsas, Aguas frescas y Bienvenida.
+ *   - Reproducción inmediata ("Reproducir Ahora") o automática periódica (intervalos de 3, 5, 10, 15, 20, 30, 60 min o campo numérico libre).
+ *   - Audio neuronal Gemini TTS vía `/api/order-ready/announcement-tts` con caché permanente en Supabase Storage y fallback seguro al sintetizador del navegador con bloqueo absoluto anti-Raul.
+ *   - Prioridad de órdenes: los llamados de pedidos listos tienen prioridad absoluta; el anuncio espera a que concluyan para no interrumpir el flujo.
+ * - **Impulso de Llamada desde Tableta de Preparador (Entregador de Cocina)**:
+ *   - La tableta de preparación (`/inventory/preparador`) en la pestaña "ÓRDENES" permite al entregador tocar una orden lista con el dedo.
+ *   - El tablero del Manager recibe el impulso instantáneo vía Supabase Realtime (evento `call_order`) y reproduce la campanilla Ding-Dong + locutor natural, destacando la tarjeta en la pantalla con un badge ámbar pulsante ("Llamada desde Preparador").
  * - **Resiliencia de Red (Offline Mode)**: Detección proactiva de conectividad de red con aviso visual y caída suave a audio en caché/síntesis local si se corta la conexión a internet.
  * 
  * @dataFlow
- * - Supabase Realtime channel (`order_ready_announcements`) + Polling cada 4s (cada GET sincroniza con Toast, porque Toast no manda webhook en el doble tap) -> Actualiza estado React -> Chime + clips de voz natural (/api/order-ready/tts) -> PATCH /api/order-ready/orders (announced: true).
+ * - Supabase Realtime channel (`order-ready-realtime`, broadcast `call_order` + postgres_changes `order_ready_announcements`) + Polling cada 4s (cada GET sincroniza con Toast) -> Actualiza estado React -> Chime + clips de voz natural (/api/order-ready/tts y /api/order-ready/announcement-tts) -> PATCH /api/order-ready/orders (announced: true).
  * 
  * @notes
  * - Modo Normal (Claro) por defecto integrado con la estética limpia de SM TEG (fondos blancos/slate-50, bordes nítidos y alto contraste), con selector dinámico a Modo Oscuro para pantallas nocturnas (persistente en `localStorage` vía `teg_order_ready_theme`).
  * - Soporta integración en el panel administrativo del sistema (sidebar visible) y botón nativo para Modo TV / Pantalla Completa.
  * - Incluye selector de idioma en cabecera (ES / EN) para alternar la pantalla en inglés o español al instante.
  * - Los navegadores web requieren un primer toque o clic para desbloquear el AudioContext y SpeechSynthesis (política de autoplay de navegadores). Se incluye un banner sutil de desbloqueo.
- * - Preferencias de canales, voz, visibilidad de controles y tema visual persisten en `localStorage` del dispositivo.
+ * - Preferencias de canales, voz, visibilidad de controles, texto de anuncios, periodicidad y tema visual persisten en `localStorage` del dispositivo.
  * - ACCESO POR TIENDA: el selector solo lista las tiendas permitidas (GET /api/order-ready/my-stores): admin = todas,
  *   supervisor = su alcance, manager/asistente = solo la suya (selector bloqueado). Una tienda guardada/URL no permitida se
  *   reemplaza por la primera permitida y el servidor responde 403 si se intenta consultar otra.
@@ -79,7 +88,9 @@ import {
   Globe,
   Maximize,
   Minimize,
-  X
+  X,
+  Megaphone,
+  Trash2
 } from 'lucide-react'
 import { useLanguage } from '@/lib/i18n'
 import { createClient } from '@supabase/supabase-js'
@@ -111,6 +122,12 @@ interface OrderItem {
   _reminder?: boolean
   /** Solo cliente: clave de orden en la cola de audio (ms epoch) */
   _sortAt?: number
+  /** Solo cliente: llamado desde la tableta del preparador */
+  _fromTablet?: boolean
+  /** Solo cliente: re-llamado manual desde el botón del tablero */
+  _manualReplay?: boolean
+  /** Solo cliente: repeticiones de locución (1 o 2) */
+  _repeats?: number
 }
 
 /** Umbrales Speed of Service (SOS) en segundos: 🟢 ≤210s (3:30) | 🟡 211–300s (5:00) | 🔴 >300s */
@@ -220,6 +237,9 @@ function OrderReadyBoardContent() {
   const [businessDate, setBusinessDate] = useState<string>(() => getCaliforniaBusinessDate())
   const [shift, setShift] = useState<'AM' | 'PM'>(() => getCaliforniaShift())
   const [replayingId, setReplayingId] = useState<string | null>(null)
+  const [tabletCalledOrderId, setTabletCalledOrderId] = useState<string | null>(null)
+  const readyOrdersRef = useRef<OrderItem[]>([])
+  const handleImpulseRef = useRef<((data: any) => void | Promise<void>) | null>(null)
   const [orderDetailData, setOrderDetailData] = useState<{
     loading: boolean
     checkId: string
@@ -288,6 +308,77 @@ function OrderReadyBoardContent() {
     reminderSecondsRef.current = clamped
     if (typeof window !== 'undefined') {
       localStorage.setItem('teg_order_ready_reminder_sec', String(clamped))
+    }
+  }
+
+  // Regla de Negocio Tacos Gavilan: Anuncios personalizados para el comedor con reproducción periódica automática
+  const [announcementText, setAnnouncementText] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('teg_order_ready_announcement_text')
+      if (saved) return saved
+    }
+    return 'Favor de tener su ticket a la mano para recoger su orden en el mostrador. ¡Muchas gracias por su visita a Tacos Gavilan!'
+  })
+
+  const [announcementEnabled, setAnnouncementEnabled] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('teg_order_ready_announcement_enabled') === 'true'
+    }
+    return false
+  })
+
+  const [announcementIntervalMin, setAnnouncementIntervalMin] = useState<number>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('teg_order_ready_announcement_interval_min')
+      if (saved) {
+        const val = parseInt(saved, 10)
+        if (!isNaN(val) && val >= 1) return val
+      }
+    }
+    return 15
+  })
+
+  const [isPlayingAnnouncement, setIsPlayingAnnouncement] = useState<boolean>(false)
+  const [nextAnnouncementSec, setNextAnnouncementSec] = useState<number | null>(null)
+
+  const announcementTextRef = useRef<string>(announcementText)
+  useEffect(() => {
+    announcementTextRef.current = announcementText
+  }, [announcementText])
+
+  const announcementEnabledRef = useRef<boolean>(announcementEnabled)
+  useEffect(() => {
+    announcementEnabledRef.current = announcementEnabled
+  }, [announcementEnabled])
+
+  const announcementIntervalMinRef = useRef<number>(announcementIntervalMin)
+  useEffect(() => {
+    announcementIntervalMinRef.current = announcementIntervalMin
+  }, [announcementIntervalMin])
+
+  const updateAnnouncementText = (text: string) => {
+    const clamped = text.slice(0, 500)
+    setAnnouncementText(clamped)
+    announcementTextRef.current = clamped
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('teg_order_ready_announcement_text', clamped)
+    }
+  }
+
+  const toggleAnnouncementEnabled = (enabled: boolean) => {
+    setAnnouncementEnabled(enabled)
+    announcementEnabledRef.current = enabled
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('teg_order_ready_announcement_enabled', String(enabled))
+    }
+  }
+
+  const updateAnnouncementIntervalMin = (mins: number) => {
+    const clamped = Math.max(1, Math.min(120, mins))
+    setAnnouncementIntervalMin(clamped)
+    announcementIntervalMinRef.current = clamped
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('teg_order_ready_announcement_interval_min', String(clamped))
     }
   }
 
@@ -959,54 +1050,65 @@ function OrderReadyBoardContent() {
     const nextOrder = audioQueueRef.current.shift()
 
     if (nextOrder) {
+      if (nextOrder._manualReplay || nextOrder._fromTablet) {
+        setReplayingId(nextOrder.id)
+      }
+
       try {
-      // Descargar los clips mientras suena la campanilla (si ya están precargados es inmediato)
-      if (/^\d{1,4}$/.test(nextOrder.order_number)) {
-        const num = String(parseInt(nextOrder.order_number, 10))
-        clipLangs().forEach((l) => { void getClipUrl(l, num, selectedVoice) })
-      }
-
-      // 1. Tocar campanilla Ding-Dong si está habilitada
-      if (enableChime) {
-        await playChime()
-      }
-
-      // 2. Anunciar con la voz seleccionada: 2 veces al cerrar la orden, 1 vez en el recordatorio
-      const isReminder = !!nextOrder._reminder
-      await speakOrder(nextOrder, isReminder ? 1 : ANNOUNCE_REPEATS, selectedVoice)
-
-      if (!isReminder) {
-        // 3. Marcar como anunciada en backend
-        try {
-          await fetch('/api/order-ready/orders', {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ id: nextOrder.id, announced: true })
-          })
-        } catch (e) {
-          console.warn('Error marking announced:', e)
+        // Descargar los clips mientras suena la campanilla (si ya están precargados es inmediato)
+        if (/^\d{1,4}$/.test(nextOrder.order_number)) {
+          const num = String(parseInt(nextOrder.order_number, 10))
+          clipLangs().forEach((l) => { void getClipUrl(l, num, selectedVoice) })
         }
 
-      // 4. Programar UN solo recordatorio si la orden sigue en "Listo para recoger".
-        // (Toast no informa cuando el cliente la recoge: es solo una regla de tiempo configurable en controles.)
-        const currentDelaySec = reminderSecondsRef.current
-        if (currentDelaySec > 0) {
-          const orderId = nextOrder.id
-          const timer = setTimeout(() => {
-            reminderTimersRef.current.delete(timer)
-            if (!readyIdsRef.current.has(orderId)) return
-            const latest = nextOrder
-            enqueueReminderRef.current?.({ ...latest, _reminder: true, _sortAt: Date.now() })
-          }, currentDelaySec * 1000)
-          reminderTimersRef.current.add(timer)
+        // 1. Tocar campanilla Ding-Dong si está habilitada
+        if (enableChime) {
+          await playChime()
+          await new Promise((r) => setTimeout(r, 150))
         }
-      }
+
+        // 2. Anunciar con la voz seleccionada:
+        // Si es recordatorio, manual o desde tableta -> 1 repetición.
+        // Si es anuncio inicial automático -> ANNOUNCE_REPEATS (2 veces).
+        const repeats = nextOrder._repeats || (nextOrder._reminder || nextOrder._manualReplay || nextOrder._fromTablet ? 1 : ANNOUNCE_REPEATS)
+        await speakOrder(nextOrder, repeats, selectedVoice)
+
+        // 3. Marcar como anunciada en backend SOLO para el anuncio automático inicial
+        if (!nextOrder._manualReplay && !nextOrder._fromTablet && !nextOrder._reminder) {
+          try {
+            await fetch('/api/order-ready/orders', {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ id: nextOrder.id, announced: true })
+            })
+          } catch (e) {
+            console.warn('Error marking announced:', e)
+          }
+
+          // 4. Programar UN solo recordatorio si la orden sigue en "Listo para recoger".
+          const currentDelaySec = reminderSecondsRef.current
+          if (currentDelaySec > 0) {
+            const orderId = nextOrder.id
+            const timer = setTimeout(() => {
+              reminderTimersRef.current.delete(timer)
+              if (!readyIdsRef.current.has(orderId)) return
+              const latest = nextOrder
+              enqueueReminderRef.current?.({ ...latest, _reminder: true, _sortAt: Date.now() })
+            }, currentDelaySec * 1000)
+            reminderTimersRef.current.add(timer)
+          }
+        }
       } catch (e) {
         // Un error de audio NUNCA debe congelar la cola: se registra y se sigue con la siguiente
         console.warn('Error announcing order:', e)
         setActiveSpeech(null)
+      } finally {
+        setReplayingId(null)
       }
     }
+
+    // Breve pausa acústica (400ms) entre órdenes para que el comensal distinga un llamado de otro sin encimarse
+    await new Promise((r) => setTimeout(r, 400))
 
     isPlayingRef.current = false
 
@@ -1014,7 +1116,7 @@ function OrderReadyBoardContent() {
     if (audioQueueRef.current.length > 0) {
       processAudioQueue()
     }
-  }, [isMuted, enableChime, playChime, speakOrder, clipLangs, getClipUrl])
+  }, [isMuted, enableChime, playChime, speakOrder, clipLangs, getClipUrl, selectedVoice])
 
   // Encolar una orden lista. La cola se mantiene ORDENADA por hora real de cierre (ready_at ascendente)
   const enqueueAnnouncement = useCallback(
@@ -1062,6 +1164,148 @@ function OrderReadyBoardContent() {
   useEffect(() => {
     enqueueReminderRef.current = enqueueReminder
   }, [enqueueReminder])
+
+  // Regla de Negocio Tacos Gavilan: Reproducción de anuncios personalizados (manual o periódica)
+  const playCustomAnnouncement = useCallback(
+    async (textOverride?: string) => {
+      const textToPlay = (textOverride || announcementTextRef.current || '').trim()
+      if (!textToPlay) return
+      if (isMuted) return
+
+      // Si una orden se está anunciando en este instante o hay órdenes en cola, reprogramar en 6 segundos
+      if (isPlayingRef.current || audioQueueRef.current.length > 0) {
+        setTimeout(() => {
+          if (!isPlayingRef.current && audioQueueRef.current.length === 0) {
+            playCustomAnnouncement(textToPlay)
+          }
+        }, 6000)
+        return
+      }
+
+      unlockAudio()
+      isPlayingRef.current = true
+      setIsPlayingAnnouncement(true)
+
+      const displayBanner = `${t('orderReadyBoard.announcement_banner_prefix')}: "${textToPlay.length > 55 ? textToPlay.slice(0, 52) + '...' : textToPlay}"`
+      setActiveSpeech(displayBanner)
+
+      try {
+        // 1. Tocar campanilla Ding-Dong si está habilitada
+        if (enableChime) {
+          await playChime()
+          await new Promise((r) => setTimeout(r, 250))
+        }
+
+        // 2. Intentar reproducir con Gemini Neural TTS (/api/order-ready/announcement-tts)
+        const lang = voiceLanguage === 'en' ? 'en' : 'es'
+        const ttsUrl = `/api/order-ready/announcement-tts?text=${encodeURIComponent(textToPlay)}&lang=${lang}&voice=${selectedVoice}`
+
+        let playedOk = false
+        try {
+          const res = await fetch(ttsUrl)
+          if (res.ok) {
+            const blob = await res.blob()
+            const blobUrl = URL.createObjectURL(blob)
+            playedOk = await playClip(blobUrl)
+            URL.revokeObjectURL(blobUrl)
+          }
+        } catch (fetchErr) {
+          console.warn('[order-ready] Error al obtener audio neuronal para anuncio, usando fallback:', fetchErr)
+        }
+
+        // 3. Fallback seguro a síntesis del navegador con estricto filtro anti-Raul
+        if (!playedOk && typeof window !== 'undefined' && 'speechSynthesis' in window) {
+          await new Promise<void>((resolve) => {
+            const voices = availableVoices.length > 0 ? availableVoices : window.speechSynthesis.getVoices()
+            const isFemale = selectedVoice === 'Kore' || selectedVoice === 'Aoede' || selectedVoice === 'Zephyr'
+            const targetVoice = getBestBrowserVoice(lang, voices, selectedVoice)
+
+            const utt = new SpeechSynthesisUtterance(textToPlay)
+            utt.rate = voiceSpeed
+            utt.volume = isMuted ? 0 : voiceVolume
+            if (targetVoice) {
+              utt.voice = targetVoice
+              utt.lang = targetVoice.lang || (lang === 'es' ? 'es-MX' : 'en-US')
+            } else {
+              utt.lang = lang === 'es' ? 'es-MX' : 'en-US'
+            }
+
+            // Bloqueo absoluto anti-Raul
+            const vName = (utt.voice?.name || '').toLowerCase()
+            if (vName.includes('raul')) {
+              console.warn('[order-ready] Bloqueo anti-Raul en anuncio')
+              resolve()
+              return
+            }
+
+            utt.onend = () => resolve()
+            utt.onerror = () => resolve()
+            try {
+              window.speechSynthesis.speak(utt)
+            } catch {
+              resolve()
+            }
+            setTimeout(resolve, 20000)
+          })
+        }
+      } catch (err) {
+        console.error('[order-ready] Error en anuncio:', err)
+      } finally {
+        // Pausa acústica para evitar encimamiento con el siguiente llamado
+        await new Promise((r) => setTimeout(r, 400))
+        setActiveSpeech(null)
+        setIsPlayingAnnouncement(false)
+        isPlayingRef.current = false
+
+        // Si llegaron órdenes a la cola durante el anuncio, anunciarlas respetando el orden
+        if (audioQueueRef.current.length > 0) {
+          processAudioQueue()
+        }
+      }
+    },
+    [
+      isMuted,
+      enableChime,
+      playChime,
+      voiceLanguage,
+      selectedVoice,
+      playClip,
+      availableVoices,
+      getBestBrowserVoice,
+      voiceSpeed,
+      voiceVolume,
+      processAudioQueue,
+      t
+    ]
+  )
+
+  // Temporizador para la reproducción periódica del anuncio
+  useEffect(() => {
+    if (!announcementEnabled || announcementIntervalMin <= 0) {
+      setNextAnnouncementSec(null)
+      return
+    }
+
+    const intervalMs = announcementIntervalMin * 60 * 1000
+    let targetTime = Date.now() + intervalMs
+
+    const timer = setInterval(() => {
+      const now = Date.now()
+      const remaining = Math.max(0, Math.ceil((targetTime - now) / 1000))
+      setNextAnnouncementSec(remaining)
+
+      if (remaining <= 0) {
+        targetTime = Date.now() + intervalMs
+        if (!isMuted && announcementTextRef.current.trim().length > 0) {
+          playCustomAnnouncement()
+        }
+      }
+    }, 1000)
+
+    return () => {
+      clearInterval(timer)
+    }
+  }, [announcementEnabled, announcementIntervalMin, isMuted, playCustomAnnouncement])
 
   // Mantener la pantalla encendida (evita que la PC/tablet se duerma durante el turno)
   useEffect(() => {
@@ -1140,6 +1384,7 @@ function OrderReadyBoardContent() {
         const inProgress: OrderItem[] = data.inProgressOrders || []
 
         setReadyOrders(ready)
+        readyOrdersRef.current = ready
         setInProgressOrders(inProgress)
         readyIdsRef.current = new Set(ready.map(o => o.id))
 
@@ -1252,6 +1497,16 @@ function OrderReadyBoardContent() {
           }
         }
       )
+      .on(
+        'broadcast',
+        { event: 'call_order' },
+        (payload) => {
+          const data = payload?.payload
+          if (!data) return
+          if (String(data.store_code || '').toUpperCase() !== String(selectedStore || '').toUpperCase()) return
+          handleImpulseRef.current?.(data)
+        }
+      )
       .subscribe()
 
     return () => {
@@ -1261,12 +1516,18 @@ function OrderReadyBoardContent() {
 
   // Probar campanilla Ding-Dong y voz natural con la voz seleccionada
   const handleTestSound = async (voiceToTest?: VoiceId) => {
+    // Si ya hay un audio sonando o en cola, no encimar la prueba de audio
+    if (isPlayingRef.current || audioQueueRef.current.length > 0) {
+      return
+    }
     unlockAudio()
     const voice = voiceToTest || selectedVoice
     setIsTestingVoice(true)
+    isPlayingRef.current = true
     try {
       if (enableChime) {
         await playChime()
+        await new Promise((r) => setTimeout(r, 150))
       }
       const testOrder: OrderItem = {
         id: 'test-' + Date.now(),
@@ -1283,7 +1544,12 @@ function OrderReadyBoardContent() {
       }
       await speakOrder(testOrder, 1, voice)
     } finally {
+      await new Promise((r) => setTimeout(r, 400))
+      isPlayingRef.current = false
       setIsTestingVoice(false)
+      if (audioQueueRef.current.length > 0) {
+        processAudioQueue()
+      }
     }
   }
 
@@ -1370,20 +1636,80 @@ function OrderReadyBoardContent() {
   }, [language, selectedStore])
 
   // Re-anunciar orden manualmente a solicitud del usuario desde la columna LISTAS PARA RECOGER
-  const handleReplayVoice = async (order: OrderItem) => {
-    unlockAudio()
-    setReplayingId(order.id)
-    try {
-      if (enableChime) {
-        await playChime()
+  // Regla de Negocio Tacos Gavilan: Encolar de manera unificada para esperar su turno si ya hay otro audio sonando
+  const handleReplayVoice = useCallback(
+    (order: OrderItem) => {
+      unlockAudio()
+      const alreadyInQueue = audioQueueRef.current.some((item) => item.id === order.id)
+      if (!alreadyInQueue) {
+        const replayItem: OrderItem = {
+          ...order,
+          _manualReplay: true,
+          _repeats: 1,
+          _sortAt: Date.now()
+        }
+        audioQueueRef.current.push(replayItem)
+        if (!isPlayingRef.current) {
+          processAudioQueue()
+        }
       }
-      await speakOrder(order, 1, selectedVoice)
-    } catch (err) {
-      console.warn('Error replaying voice announcement:', err)
-    } finally {
-      setReplayingId(null)
-    }
-  }
+    },
+    [unlockAudio, processAudioQueue]
+  )
+
+  // Impulso recibido en tiempo real desde la tableta del preparador (entregador de cocina)
+  // Regla de Negocio Tacos Gavilan: Encolar de manera unificada para esperar su turno si ya hay otro audio sonando
+  const handleImpulseCallFromTablet = useCallback(
+    (data: { order_id?: string; order_number: string; store_code: string; dining_option?: string; store_name?: string }) => {
+      unlockAudio()
+
+      // Buscar la orden en el listado actual en memoria o construir un objeto representativo
+      const found = readyOrdersRef.current.find(
+        (o) => (data.order_id && o.id === data.order_id) || String(o.order_number) === String(data.order_number)
+      )
+
+      const targetOrder: OrderItem = found || {
+        id: data.order_id || `tablet-${data.order_number}-${Date.now()}`,
+        created_at: new Date().toISOString(),
+        store_code: data.store_code,
+        store_name: data.store_name || data.store_code,
+        order_number: String(data.order_number),
+        dining_option: (data.dining_option as any) || 'TOGO',
+        customer_name: null,
+        status: 'READY',
+        ready_at: new Date().toISOString(),
+        announced: true,
+        items_summary: null
+      }
+
+      // Destacar visualmente la orden en el tablero del manager (borde ámbar y badge pulsante)
+      setTabletCalledOrderId(targetOrder.id)
+      setTimeout(() => {
+        setTabletCalledOrderId((prev) => (prev === targetOrder.id ? null : prev))
+      }, 7000)
+
+      const alreadyInQueue = audioQueueRef.current.some(
+        (item) => item.id === targetOrder.id || (item.order_number === targetOrder.order_number && (item._fromTablet || item._manualReplay))
+      )
+      if (!alreadyInQueue) {
+        const impulseItem: OrderItem = {
+          ...targetOrder,
+          _fromTablet: true,
+          _repeats: 1,
+          _sortAt: Date.now()
+        }
+        audioQueueRef.current.push(impulseItem)
+        if (!isPlayingRef.current) {
+          processAudioQueue()
+        }
+      }
+    },
+    [unlockAudio, processAudioQueue]
+  )
+
+  useEffect(() => {
+    handleImpulseRef.current = handleImpulseCallFromTablet
+  }, [handleImpulseCallFromTablet])
 
   // Helper para el badge de Dining Option con ícono y traducción
   const renderDiningBadge = (dining: string) => {
@@ -1672,6 +1998,28 @@ function OrderReadyBoardContent() {
               {isMuted ? t('orderReadyBoard.audio_muted') : t('orderReadyBoard.audio_enabled')}
             </span>
           </button>
+
+          {/* Indicador de Anuncios Periódicos en Cabecera */}
+          {announcementEnabled && (
+            <div
+              className={`hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all ${
+                isPlayingAnnouncement
+                  ? 'bg-amber-500 text-white border-amber-400 shadow animate-pulse'
+                  : isDark
+                    ? 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+                    : 'bg-amber-50 text-amber-800 border-amber-300'
+              }`}
+              title={`${t('orderReadyBoard.announcement_active_pill_tooltip')} ${announcementIntervalMin} min`}
+            >
+              <Megaphone className="w-3.5 h-3.5" />
+              <span>{announcementIntervalMin}m</span>
+              {nextAnnouncementSec !== null && !isPlayingAnnouncement && (
+                <span className="text-[10px] opacity-75 font-mono">
+                  ({Math.floor(nextAnnouncementSec / 60)}:{String(nextAnnouncementSec % 60).padStart(2, '0')})
+                </span>
+              )}
+            </div>
+          )}
 
           {/* Botón de Ajustes / Drawer de Controles */}
           <button
@@ -2152,6 +2500,229 @@ function OrderReadyBoardContent() {
               </div>
             </div>
           </div>
+
+          {/* Sección Destacada: ANUNCIOS AL COMEDOR Y REPRODUCCIÓN PERIÓDICA */}
+          <div className={`mt-4 max-w-7xl mx-auto rounded-2xl p-4 md:p-5 shadow-sm border transition-colors ${
+            isDark ? 'bg-slate-950/70 border-slate-800/80' : 'bg-white border-slate-200'
+          }`}>
+            {/* Header de la sección de anuncios */}
+            <div className={`flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3.5 pb-3 border-b border-dashed ${
+              isDark ? 'border-slate-800' : 'border-slate-200'
+            }`}>
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-amber-500 to-amber-600 flex items-center justify-center text-white shadow-sm">
+                  <Megaphone className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className={`text-xs font-black uppercase tracking-wider ${isDark ? 'text-slate-200' : 'text-slate-800'}`}>
+                    {t('orderReadyBoard.announcements_card_title')}
+                  </h3>
+                  <p className={`text-[11px] ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                    {t('orderReadyBoard.announcements_card_subtitle')}
+                  </p>
+                </div>
+              </div>
+
+              {/* Badge de estado periódico y temporizador regresivo */}
+              <div className="flex items-center gap-2">
+                {announcementEnabled ? (
+                  <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-500 text-xs font-bold">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
+                    <span>{t('orderReadyBoard.announcement_active_badge')} ({announcementIntervalMin} min)</span>
+                    {nextAnnouncementSec !== null && (
+                      <span className="text-slate-400 font-mono text-[11px]">
+                        • {t('orderReadyBoard.announcement_next_in')} {Math.floor(nextAnnouncementSec / 60)}:{String(nextAnnouncementSec % 60).padStart(2, '0')}
+                      </span>
+                    )}
+                  </div>
+                ) : (
+                  <div className={`px-3 py-1 rounded-full text-xs font-semibold border ${
+                    isDark ? 'bg-slate-900 border-slate-800 text-slate-500' : 'bg-slate-100 border-slate-200 text-slate-500'
+                  }`}>
+                    {t('orderReadyBoard.announcement_disabled_badge')}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Plantillas Rápidas Sugeridas (1 clic para cargar mensaje oficial de Tacos Gavilan) */}
+            <div className="mb-3">
+              <span className={`text-[10px] font-bold uppercase tracking-wider block mb-1.5 ${
+                isDark ? 'text-slate-400' : 'text-slate-500'
+              }`}>
+                {t('orderReadyBoard.announcement_presets_title')}
+              </span>
+              <div className="flex flex-wrap gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => updateAnnouncementText(t('orderReadyBoard.announcement_preset_ticket_text'))}
+                  className={`text-xs px-2.5 py-1 rounded-lg font-semibold transition border ${
+                    announcementText === t('orderReadyBoard.announcement_preset_ticket_text')
+                      ? 'bg-amber-500 text-white border-amber-600 shadow-sm'
+                      : isDark
+                        ? 'bg-slate-900 hover:bg-slate-800 text-slate-300 border-slate-800'
+                        : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
+                  }`}
+                >
+                  🎫 {t('orderReadyBoard.announcement_preset_ticket')}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => updateAnnouncementText(t('orderReadyBoard.announcement_preset_salsas_text'))}
+                  className={`text-xs px-2.5 py-1 rounded-lg font-semibold transition border ${
+                    announcementText === t('orderReadyBoard.announcement_preset_salsas_text')
+                      ? 'bg-amber-500 text-white border-amber-600 shadow-sm'
+                      : isDark
+                        ? 'bg-slate-900 hover:bg-slate-800 text-slate-300 border-slate-800'
+                        : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
+                  }`}
+                >
+                  🍋 {t('orderReadyBoard.announcement_preset_salsas')}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => updateAnnouncementText(t('orderReadyBoard.announcement_preset_aguas_text'))}
+                  className={`text-xs px-2.5 py-1 rounded-lg font-semibold transition border ${
+                    announcementText === t('orderReadyBoard.announcement_preset_aguas_text')
+                      ? 'bg-amber-500 text-white border-amber-600 shadow-sm'
+                      : isDark
+                        ? 'bg-slate-900 hover:bg-slate-800 text-slate-300 border-slate-800'
+                        : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
+                  }`}
+                >
+                  🥤 {t('orderReadyBoard.announcement_preset_aguas')}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => updateAnnouncementText(t('orderReadyBoard.announcement_preset_welcome_text'))}
+                  className={`text-xs px-2.5 py-1 rounded-lg font-semibold transition border ${
+                    announcementText === t('orderReadyBoard.announcement_preset_welcome_text')
+                      ? 'bg-amber-500 text-white border-amber-600 shadow-sm'
+                      : isDark
+                        ? 'bg-slate-900 hover:bg-slate-800 text-slate-300 border-slate-800'
+                        : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
+                  }`}
+                >
+                  🌮 {t('orderReadyBoard.announcement_preset_welcome')}
+                </button>
+              </div>
+            </div>
+
+            {/* Caja de Texto del Anuncio + Botón de Reproducción Inmediata */}
+            <div className="grid grid-cols-1 lg:grid-cols-4 gap-3 mb-3.5">
+              <div className="lg:col-span-3 relative">
+                <textarea
+                  rows={3}
+                  maxLength={500}
+                  value={announcementText}
+                  onChange={(e) => updateAnnouncementText(e.target.value)}
+                  placeholder={t('orderReadyBoard.announcement_placeholder')}
+                  className={`w-full rounded-xl p-3 text-xs focus:outline-none focus:ring-2 focus:ring-amber-500/50 resize-y transition border ${
+                    isDark
+                      ? 'bg-slate-900/90 border-slate-700 text-slate-100 placeholder-slate-500'
+                      : 'bg-slate-50 border-slate-300 text-slate-900 placeholder-slate-400'
+                  }`}
+                />
+                <div className="flex items-center justify-between mt-1 px-1">
+                  <span className={`text-[10px] ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
+                    {announcementText.length}/500 {t('orderReadyBoard.announcement_chars_limit')}
+                  </span>
+                  {announcementText.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => updateAnnouncementText('')}
+                      className={`text-[10px] flex items-center gap-1 font-semibold hover:underline ${
+                        isDark ? 'text-slate-400 hover:text-slate-200' : 'text-slate-500 hover:text-slate-700'
+                      }`}
+                    >
+                      <Trash2 className="w-3 h-3" />
+                      <span>{t('orderReadyBoard.announcement_clear_btn')}</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Botón Principal: Reproducir Ahora */}
+              <div className="flex flex-col justify-between gap-2">
+                <button
+                  type="button"
+                  onClick={() => playCustomAnnouncement()}
+                  disabled={isPlayingAnnouncement || !announcementText.trim()}
+                  className="w-full h-full min-h-[50px] flex flex-col items-center justify-center gap-1.5 bg-gradient-to-br from-amber-500 via-amber-600 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-white font-extrabold text-xs py-2 px-3 rounded-xl shadow-md transition disabled:opacity-50 cursor-pointer"
+                >
+                  <div className="flex items-center gap-2">
+                    <Play className={`w-4 h-4 fill-current ${isPlayingAnnouncement ? 'animate-spin' : ''}`} />
+                    <span>{isPlayingAnnouncement ? t('orderReadyBoard.announcement_playing') : t('orderReadyBoard.announcement_play_now')}</span>
+                  </div>
+                  <span className="text-[10px] font-normal opacity-90">
+                    ({selectedVoice} • {voiceLanguage === 'en' ? 'EN' : 'ES'})
+                  </span>
+                </button>
+              </div>
+            </div>
+
+            {/* Controles de Reproducción Automática y Frecuencia */}
+            <div className={`pt-3 border-t flex flex-col md:flex-row md:items-center justify-between gap-3 ${
+              isDark ? 'border-slate-800' : 'border-slate-200'
+            }`}>
+              {/* Switch de Reproducción Automática */}
+              <label className="flex items-center gap-2.5 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={announcementEnabled}
+                  onChange={(e) => toggleAnnouncementEnabled(e.target.checked)}
+                  className="accent-amber-500 rounded w-4 h-4 cursor-pointer"
+                />
+                <span className={`text-xs font-bold ${isDark ? 'text-slate-200' : 'text-slate-800'}`}>
+                  {t('orderReadyBoard.announcement_auto_repeat')}
+                </span>
+              </label>
+
+              {/* Selector de Intervalo (Presets y Campo Numérico) */}
+              <div className="flex flex-wrap items-center gap-2">
+                <span className={`text-xs font-semibold ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
+                  {t('orderReadyBoard.announcement_interval_label')}
+                </span>
+
+                {/* Presets Rápidos: 3m, 5m, 10m, 15m (★), 20m, 30m, 60m */}
+                <div className="flex items-center gap-1">
+                  {[3, 5, 10, 15, 20, 30, 60].map((mins) => (
+                    <button
+                      key={mins}
+                      type="button"
+                      onClick={() => updateAnnouncementIntervalMin(mins)}
+                      className={`px-2 py-0.5 rounded-lg text-[11px] font-bold transition border ${
+                        announcementIntervalMin === mins
+                          ? 'bg-amber-600 text-white border-amber-400 shadow-sm'
+                          : isDark
+                            ? 'bg-slate-900 text-slate-400 border-slate-800 hover:bg-slate-800'
+                            : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200'
+                      }`}
+                    >
+                      {mins}m {mins === 15 ? '★' : ''}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Campo numérico para minutos exactos */}
+                <div className="flex items-center gap-1 ml-1">
+                  <input
+                    type="number"
+                    min="1"
+                    max="120"
+                    value={announcementIntervalMin}
+                    onChange={(e) => updateAnnouncementIntervalMin(parseInt(e.target.value, 10) || 1)}
+                    className={`w-12 text-center font-bold text-xs py-0.5 rounded-md border focus:outline-none focus:border-amber-500 ${
+                      isDark ? 'bg-slate-900 border-slate-700 text-slate-200' : 'bg-white border-slate-300 text-slate-800'
+                    }`}
+                  />
+                  <span className={`text-[10px] font-bold ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
+                    {t('orderReadyBoard.announcement_minutes_abbr')}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
@@ -2245,7 +2816,11 @@ function OrderReadyBoardContent() {
                     return (
                       <div
                         key={order.id}
-                        className={`rounded-2xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 transform hover:scale-[1.01] transition-all animate-in fade-in zoom-in-95 duration-300 ${
+                        className={`rounded-2xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 transform hover:scale-[1.01] transition-all animate-in fade-in zoom-in-95 duration-300 relative ${
+                          tabletCalledOrderId === order.id
+                            ? 'ring-4 ring-amber-400 dark:ring-amber-500 scale-[1.02] shadow-2xl shadow-amber-500/40 border-amber-400'
+                            : ''
+                        } ${
                           isDark
                             ? 'bg-gradient-to-r from-emerald-950/80 via-slate-900 to-emerald-950/80 border-2 border-emerald-500/60 shadow-xl shadow-emerald-950/40 text-white'
                             : 'bg-gradient-to-r from-emerald-50/70 via-white to-emerald-50/70 border-2 border-emerald-500/70 shadow-md shadow-emerald-100/60 text-slate-900 hover:border-emerald-500'
@@ -2296,7 +2871,13 @@ function OrderReadyBoardContent() {
                           isDark ? 'border-emerald-500/20' : 'border-emerald-200'
                         }`}>
                           <div className="text-left sm:text-right">
-                            <div className="flex items-center sm:justify-end gap-2">
+                            <div className="flex items-center sm:justify-end gap-2 flex-wrap">
+                              {tabletCalledOrderId === order.id && (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-black uppercase tracking-wider bg-amber-500 text-slate-950 animate-pulse shadow-md">
+                                  <Megaphone className="w-3 h-3 animate-bounce" />
+                                  {t('orderReadyBoard.called_from_prep')}
+                                </span>
+                              )}
                               <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black uppercase tracking-wider bg-emerald-600 text-white shadow-sm">
                                 <CheckCircle2 className="w-3.5 h-3.5" />
                                 {t('orderReadyBoard.ready_badge')}

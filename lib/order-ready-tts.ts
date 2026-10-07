@@ -19,6 +19,7 @@
  * - Si Gemini falla, el cliente cae a la voz del navegador (speechSynthesis) como respaldo.
  */
 
+import { createHash } from 'node:crypto'
 import { supabaseAdmin } from '@/lib/supabase'
 
 export const AVAILABLE_VOICES = [
@@ -63,6 +64,15 @@ export function isValidTtsRequest(n: string | null, lang: string | null, voice?:
   const langOk = lang === 'en' || lang === 'es'
   const voiceOk = !voice || isValidVoice(voice)
   return numOk && langOk && voiceOk
+}
+
+export function isValidAnnouncementRequest(text: string | null | undefined, lang: string | null | undefined, voice?: string | null | undefined): boolean {
+  if (!text || typeof text !== 'string') return false
+  const trimmed = text.trim()
+  if (trimmed.length === 0 || trimmed.length > 500) return false
+  const langOk = !lang || lang === 'en' || lang === 'es'
+  const voiceOk = !voice || isValidVoice(voice)
+  return langOk && voiceOk
 }
 
 /**
@@ -112,11 +122,14 @@ async function ensureBucket() {
   if (!error || /already exists|duplicate/i.test(error.message)) bucketReady = true
 }
 
-async function generateWithGemini(n: string, lang: TtsLang, voice: VoiceId): Promise<Buffer> {
+async function generateTextWithGemini(
+  textToSpeak: string,
+  lang: TtsLang,
+  voice: VoiceId,
+  stylePrompt?: string
+): Promise<Buffer> {
   const allKeys = getGeminiKeyPool()
   if (allKeys.length === 0) throw new Error('No hay ninguna GEMINI_API_KEY configurada')
-
-  const textToSpeak = buildPrompt(n, lang)
 
   // Priorizar llaves que no estén temporalmente bloqueadas por 429
   const now = Date.now()
@@ -146,13 +159,10 @@ async function generateWithGemini(n: string, lang: TtsLang, voice: VoiceId): Pro
                 role: 'user',
                 parts: [{
                   text: textToSpeak,
-                  ...(model.includes('3.8')
+                  ...(model.includes('3.8') && stylePrompt
                     ? {
                         speech_metadata: {
-                          style:
-                            lang === 'es'
-                              ? 'cheerful, energetic and enthusiastic counter announcement, saying the company slogan "¡ya está!" with joyful energy'
-                              : 'cheerful, upbeat and friendly counter announcement'
+                          style: stylePrompt
                         }
                       }
                     : {})
@@ -209,6 +219,15 @@ async function generateWithGemini(n: string, lang: TtsLang, voice: VoiceId): Pro
   throw new Error(`Gemini TTS falló (${lastErr})`)
 }
 
+async function generateWithGemini(n: string, lang: TtsLang, voice: VoiceId): Promise<Buffer> {
+  const textToSpeak = buildPrompt(n, lang)
+  const stylePrompt =
+    lang === 'es'
+      ? 'cheerful, energetic and enthusiastic counter announcement, saying the company slogan "¡ya está!" with joyful energy'
+      : 'cheerful, upbeat and friendly counter announcement'
+  return generateTextWithGemini(textToSpeak, lang, voice, stylePrompt)
+}
+
 export async function getOrderReadySpeech(n: string, lang: TtsLang, voice: VoiceId = DEFAULT_VOICE): Promise<Buffer> {
   const num = String(parseInt(n, 10))
   const selectedVoice = isValidVoice(voice) ? voice : DEFAULT_VOICE
@@ -228,6 +247,47 @@ export async function getOrderReadySpeech(n: string, lang: TtsLang, voice: Voice
       await supabaseAdmin.storage.from(BUCKET).upload(path, wav, { contentType: 'audio/wav', upsert: true })
     } catch (e) {
       console.warn('[order-ready-tts] no se pudo cachear en Storage:', e)
+    }
+    return wav
+  })()
+
+  inflight.set(path, job)
+  try {
+    return await job
+  } finally {
+    inflight.delete(path)
+  }
+}
+
+/**
+ * Genera o recupera desde caché de Storage el audio de un anuncio personalizado para el comedor de Tacos Gavilan.
+ */
+export async function getAnnouncementSpeech(text: string, lang: TtsLang, voice: VoiceId = DEFAULT_VOICE): Promise<Buffer> {
+  const clean = text.trim().slice(0, 500)
+  if (!clean) throw new Error('Texto de anuncio vacío')
+
+  const selectedVoice = isValidVoice(voice) ? voice : DEFAULT_VOICE
+  const hash = createHash('md5').update(`${selectedVoice}:${lang}:${clean.toLowerCase()}`).digest('hex')
+  const path = `announcements/${selectedVoice}/${lang}/${hash}.wav`
+
+  // 1. Intentar caché en Storage
+  const hit = await supabaseAdmin.storage.from(BUCKET).download(path)
+  if (hit.data) return Buffer.from(await hit.data.arrayBuffer())
+
+  const existing = inflight.get(path)
+  if (existing) return existing
+
+  const job = (async () => {
+    const stylePrompt =
+      lang === 'es'
+        ? 'clear, polite, professional, warm and pleasant dining room public announcement for restaurant customers'
+        : 'clear, polite, professional, warm and pleasant dining room public announcement for restaurant customers'
+    const wav = await generateTextWithGemini(clean, lang, selectedVoice, stylePrompt)
+    try {
+      await ensureBucket()
+      await supabaseAdmin.storage.from(BUCKET).upload(path, wav, { contentType: 'audio/wav', upsert: true })
+    } catch (e) {
+      console.warn('[order-ready-tts] no se pudo cachear anuncio en Storage:', e)
     }
     return wav
   })()

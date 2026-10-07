@@ -10,16 +10,28 @@
  *   - Buche, Chorizo y Carnitas se cocinan al momento bajo demanda (no requieren pace en parrilla).
  *   - Las capturas manuales de los gerentes se persisten en prep_manual_schedule por día de la semana (1=Lunes ... 7=Domingo).
  *   - Timer de inactividad de 15 segundos regresa al carrusel al bloque de tiempo actual.
- * @dataFlow meat_consumption_history -> /api/inventory/preparador-history -> Carousel 3D + Intraday Accelerator.
+ *   - **Pestaña ÓRDENES (Entregador / Expediter)**: Muestra en vivo las órdenes listas para recoger ('READY') de la sucursal activa.
+ *     Permite al entregador tocar una orden con el dedo para enviar un impulso instantáneo a la PC del Manager (`/order-ready-board`)
+ *     para reproducir campanilla Ding-Dong y voz natural bilingüe sin abandonar la línea de servicio.
+ * @dataFlow 
+ *   - meat_consumption_history -> /api/inventory/preparador-history -> Carousel 3D + Intraday Accelerator.
+ *   - order_ready_announcements + Realtime channel ('order-ready-realtime') -> Grid de Órdenes Listas -> POST /api/order-ready/call -> PC Manager.
  */
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
 import { useLanguage } from '@/lib/i18n'
-import { BellRing, ChefHat, Clock, AlertTriangle, Send, UtensilsCrossed, PackageOpen, X, Loader2, Play, Maximize, Minimize, HelpCircle, CheckCircle2, TrendingDown, Calendar, FileText, BookOpen, Sun, ChevronLeft, ChevronRight, Store, Flame, BarChart3, SlidersHorizontal } from 'lucide-react'
+import { 
+    BellRing, ChefHat, Clock, AlertTriangle, Send, UtensilsCrossed, PackageOpen, 
+    X, Loader2, Play, Maximize, Minimize, HelpCircle, CheckCircle2, TrendingDown, 
+    Calendar, FileText, BookOpen, Sun, ChevronLeft, ChevronRight, Store, Flame, 
+    BarChart3, SlidersHorizontal, ShoppingBag, Utensils, Volume2, RefreshCw, Megaphone 
+} from 'lucide-react'
 import { useAuth } from '@/components/ProtectedRoute'
 import { createClient } from '@/lib/supabase-client'
 import { motion, AnimatePresence } from 'framer-motion'
+import { TOAST_STORE_MAP } from '@/lib/toast-stores'
+import { getCaliforniaBusinessDate } from '@/lib/business-date'
         
 
 interface MeatData {
@@ -310,11 +322,163 @@ export default function PreparadorPage() {
         return () => clearTimeout(timer)
     }, [activeIndex, currentBucketIndex])
 
-    // Request Cart
-    const [activeTab, setActiveTab] = useState<'alimentos'|'desechables'>('alimentos')
+    // Request Cart & Ready Orders Tab State
+    const [activeTab, setActiveTab] = useState<'alimentos' | 'ordenes'>('alimentos')
     const [cart, setCart] = useState<{name: string, qty: number}[]>([])
     const [sending, setSending] = useState(false)
     const [showDayModal, setShowDayModal] = useState(false)
+
+    // Ready Orders (Entregador / Pick-up Impulses)
+    const [readyOrdersList, setReadyOrdersList] = useState<any[]>([])
+    const [loadingReadyOrders, setLoadingReadyOrders] = useState(false)
+    const [callingOrderId, setCallingOrderId] = useState<string | null>(null)
+    const [callSuccessOrderId, setCallSuccessOrderId] = useState<string | null>(null)
+    const realtimeChannelRef = useRef<any>(null)
+
+    // Consulta de órdenes listas de la sucursal actual
+    const fetchReadyOrders = async () => {
+        if (!storeId || stores.length === 0) return
+        const currentStore = stores.find(s => String(s.id) === String(storeId))
+        const storeCode = (currentStore?.code || TOAST_STORE_MAP[currentStore?.external_id]?.code || '').toUpperCase()
+        if (!storeCode) return
+
+        setLoadingReadyOrders(true)
+        try {
+            const todayLA = getCaliforniaBusinessDate()
+            const { data, error } = await supabase
+                .from('order_ready_announcements')
+                .select('*')
+                .eq('store_code', storeCode)
+                .eq('status', 'READY')
+                .eq('business_date', todayLA)
+                .order('ready_at', { ascending: false })
+                .limit(60)
+
+            if (!error && data) {
+                const now = Date.now()
+                // Descartar órdenes con más de 30 minutos de listas para mantener la pantalla limpia
+                const recent = data.filter((o: any) => {
+                    const t = Date.parse(o.ready_at || o.created_at)
+                    return isNaN(t) || now - t < 30 * 60 * 1000
+                })
+                setReadyOrdersList(recent)
+            }
+        } catch (err) {
+            console.warn('Error fetching ready orders on preparador tablet:', err)
+        } finally {
+            setLoadingReadyOrders(false)
+        }
+    }
+
+    // Suscripción Realtime y Polling para la tableta de órdenes
+    useEffect(() => {
+        if (!storeId || stores.length === 0) return
+        const currentStore = stores.find(s => String(s.id) === String(storeId))
+        const storeCode = (currentStore?.code || TOAST_STORE_MAP[currentStore?.external_id]?.code || '').toUpperCase()
+        if (!storeCode) return
+
+        fetchReadyOrders()
+
+        const channel = supabase
+            .channel('order-ready-realtime')
+            .on(
+                'postgres_changes',
+                {
+                    event: '*',
+                    schema: 'public',
+                    table: 'order_ready_announcements'
+                },
+                (payload: any) => {
+                    const row = payload.new || payload.old
+                    if (row && String(row.store_code || '').toUpperCase() === storeCode) {
+                        fetchReadyOrders()
+                    }
+                }
+            )
+            .subscribe()
+
+        realtimeChannelRef.current = channel
+
+        const pollTimer = setInterval(() => {
+            fetchReadyOrders()
+        }, 5000)
+
+        return () => {
+            clearInterval(pollTimer)
+            supabase.removeChannel(channel)
+            realtimeChannelRef.current = null
+        }
+    }, [storeId, stores, supabase])
+
+    // Acción de llamado de orden (impulso táctil enviado a la PC del Manager)
+    const handleCallOrderImpulse = async (order: any) => {
+        if (!order || callingOrderId) return
+
+        setCallingOrderId(order.id)
+        setCallSuccessOrderId(order.id)
+
+        // Tono auditivo local suave en la tableta (Web Audio API)
+        try {
+            const AudioCtx = window.AudioContext || (window as any).webkitAudioContext
+            if (AudioCtx) {
+                const ctx = new AudioCtx()
+                const osc = ctx.createOscillator()
+                const gain = ctx.createGain()
+                osc.connect(gain)
+                gain.connect(ctx.destination)
+                osc.type = 'sine'
+                osc.frequency.setValueAtTime(880, ctx.currentTime)
+                osc.frequency.exponentialRampToValueAtTime(1320, ctx.currentTime + 0.12)
+                gain.gain.setValueAtTime(0.2, ctx.currentTime)
+                gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15)
+                osc.start()
+                osc.stop(ctx.currentTime + 0.16)
+            }
+        } catch (e) {}
+
+        const currentStore = stores.find(s => String(s.id) === String(storeId))
+        const storeCode = (currentStore?.code || TOAST_STORE_MAP[currentStore?.external_id]?.code || '').toUpperCase()
+
+        try {
+            // 1. Enviar impulso por WebSocket broadcast si el canal está activo
+            if (realtimeChannelRef.current) {
+                await realtimeChannelRef.current.send({
+                    type: 'broadcast',
+                    event: 'call_order',
+                    payload: {
+                        order_id: order.id,
+                        order_number: order.order_number,
+                        store_code: storeCode,
+                        dining_option: order.dining_option,
+                        store_name: currentStore?.name || storeCode
+                    }
+                })
+            }
+
+            // 2. Invocar endpoint REST para persistencia en DB y redundancia de broadcast
+            await fetch('/api/order-ready/call', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    orderId: order.id,
+                    orderNumber: order.order_number,
+                    storeCode: storeCode,
+                    diningOption: order.dining_option,
+                    storeName: currentStore?.name || storeCode
+                })
+            })
+        } catch (err) {
+            console.error('Error enviando impulso de orden desde tableta:', err)
+        } finally {
+            // Cooldown de 2s para evitar toques accidentales
+            setTimeout(() => {
+                setCallingOrderId(null)
+            }, 2000)
+            setTimeout(() => {
+                setCallSuccessOrderId(prev => prev === order.id ? null : prev)
+            }, 3500)
+        }
+    }
     
     // Waste Dashboard Modal
     const [showWasteModal, setShowWasteModal] = useState(false)
@@ -583,7 +747,7 @@ export default function PreparadorPage() {
     // Load Stores
     useEffect(() => {
         const fetchStores = async () => {
-            const { data } = await supabase.from('stores').select('id, name, external_id, opening_time, closing_time').eq('is_active', true).order('name')
+            const { data } = await supabase.from('stores').select('id, name, code, external_id, opening_time, closing_time').eq('is_active', true).order('name')
             if (data) {
                 setStores(data)
                 
@@ -1504,7 +1668,7 @@ export default function PreparadorPage() {
                 {/* 2. PANEL PEDIR INSUMOS (ALIMENTOS / DESECHABLES) (Visible en móvil si mobileTab === 'insumos', siempre en desktop) */}
                 <div className={`w-full lg:flex-1 flex-col bg-slate-100 dark:bg-slate-950 shrink-0 lg:shrink min-h-0 overflow-hidden ${mobileTab === 'insumos' ? 'flex flex-1' : 'hidden lg:flex'}`}>
                     
-                    {/* TABS DE INSUMOS */}
+                    {/* TABS DE INSUMOS Y ÓRDENES LISTAS */}
                     <div className="flex p-2 sm:p-4 gap-2 sm:gap-4 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 shadow-sm shrink-0">
                         <button 
                             onClick={() => setActiveTab('alimentos')}
@@ -1514,46 +1678,208 @@ export default function PreparadorPage() {
                             <UtensilsCrossed size={16} /> {t('prep.foodItems')}
                         </button>
                         <button 
-                            onClick={() => setActiveTab('desechables')}
+                            onClick={() => setActiveTab('ordenes')}
                             className={`flex-1 py-2.5 sm:py-4 font-black flex items-center justify-center gap-1.5 sm:gap-2 rounded-xl transition-all shadow-sm text-xs sm:text-base cursor-pointer
-                                ${activeTab === 'desechables' ? 'bg-blue-100 text-blue-700 border-2 border-blue-500 dark:bg-blue-900/30 dark:text-blue-300' : 'bg-slate-50 text-slate-500 hover:bg-slate-200 border-2 border-transparent dark:bg-slate-800'}`}
+                                ${activeTab === 'ordenes' ? 'bg-emerald-100 text-emerald-800 border-2 border-emerald-500 dark:bg-emerald-950/50 dark:text-emerald-300' : 'bg-slate-50 text-slate-500 hover:bg-slate-200 border-2 border-transparent dark:bg-slate-800'}`}
                         >
-                            <PackageOpen size={16} /> {t('prep.disposables')}
+                            <BellRing size={18} className={readyOrdersList.length > 0 ? "text-emerald-600 dark:text-emerald-400 animate-pulse" : ""} />
+                            <span>{t('prep.ordersTab')}</span>
+                            {readyOrdersList.length > 0 && (
+                                <span className="ml-1 px-2 py-0.5 rounded-full text-xs font-black bg-emerald-600 text-white shadow-sm">
+                                    {readyOrdersList.length}
+                                </span>
+                            )}
                         </button>
                     </div>
 
-                    {/* GRID DE BOTONES */}
-                    <div className="flex-1 overflow-y-auto p-2 sm:p-4 pb-24 lg:pb-4">
-                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-4 gap-2 sm:gap-3">
-                            {(activeTab === 'alimentos' ? ALIMENTOS : DESECHABLES).map(itemObj => {
-                                const cartItem = cart.find(c => c.name === itemObj.name)
-                                const isSelected = !!cartItem
-                                
-                                const baseStyle = isSelected 
-                                    ? `ring-[3px] ring-offset-2 ring-slate-800 dark:ring-white dark:ring-offset-slate-900 scale-[0.97] opacity-100 shadow-[inset_0_8px_15px_rgba(0,0,0,0.2)] dark:shadow-[inset_0_8px_15px_rgba(0,0,0,0.6)] brightness-95 saturate-150 blur-[0.2px] ${itemObj.color}` 
-                                    : `border border-black/5 dark:border-white/5 hover:scale-[1.02] shadow-sm ${itemObj.color}`
-                                
-                                return (
-                                <button
-                                    key={itemObj.name}
-                                    onClick={() => addToCart(itemObj.name)}
-                                    className={`relative h-14 sm:h-16 md:h-20 lg:h-[84px] rounded-xl sm:rounded-2xl flex flex-col items-center justify-center p-1.5 sm:p-2 active:scale-95 transition-all outline-none ${baseStyle} overflow-hidden cursor-pointer`}
-                                >
-                                    <span className={`relative w-full px-1 text-center text-xs sm:text-sm md:text-lg lg:text-2xl leading-tight md:leading-snug font-sans tracking-tight z-10 ${isSelected ? 'font-black scale-105 drop-shadow-sm' : 'font-bold'}`}>
-                                        {itemObj.name}
-                                    </span>
-                                    {cartItem && cartItem.qty >= 1 && (
-                                        <div className="absolute top-1.5 right-1.5 sm:top-2 sm:right-2 bg-slate-900 text-white text-[10px] sm:text-xs w-5 h-5 sm:w-6 sm:h-6 md:w-7 md:h-7 flex items-center justify-center rounded-full font-black shadow-xl animate-in zoom-in duration-200 ring-2 ring-white/50 dark:ring-black/50 z-20">
-                                            {cartItem.qty}
-                                        </div>
-                                    )}
-                                </button>
-                            )})}
+                    {/* CONTENIDO DEL PANEL (ALIMENTOS O LISTA DE ÓRDENES LISTAS) */}
+                    {activeTab === 'alimentos' ? (
+                        <div className="flex-1 overflow-y-auto p-2 sm:p-4 pb-24 lg:pb-4">
+                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-4 gap-2 sm:gap-3">
+                                {ALIMENTOS.map(itemObj => {
+                                    const cartItem = cart.find(c => c.name === itemObj.name)
+                                    const isSelected = !!cartItem
+                                    
+                                    const baseStyle = isSelected 
+                                        ? `ring-[3px] ring-offset-2 ring-slate-800 dark:ring-white dark:ring-offset-slate-900 scale-[0.97] opacity-100 shadow-[inset_0_8px_15px_rgba(0,0,0,0.2)] dark:shadow-[inset_0_8px_15px_rgba(0,0,0,0.6)] brightness-95 saturate-150 blur-[0.2px] ${itemObj.color}` 
+                                        : `border border-black/5 dark:border-white/5 hover:scale-[1.02] shadow-sm ${itemObj.color}`
+                                    
+                                    return (
+                                    <button
+                                        key={itemObj.name}
+                                        onClick={() => addToCart(itemObj.name)}
+                                        className={`relative h-14 sm:h-16 md:h-20 lg:h-[84px] rounded-xl sm:rounded-2xl flex flex-col items-center justify-center p-1.5 sm:p-2 active:scale-95 transition-all outline-none ${baseStyle} overflow-hidden cursor-pointer`}
+                                    >
+                                        <span className={`relative w-full px-1 text-center text-xs sm:text-sm md:text-lg lg:text-2xl leading-tight md:leading-snug font-sans tracking-tight z-10 ${isSelected ? 'font-black scale-105 drop-shadow-sm' : 'font-bold'}`}>
+                                            {itemObj.name}
+                                        </span>
+                                        {cartItem && cartItem.qty >= 1 && (
+                                            <div className="absolute top-1.5 right-1.5 sm:top-2 sm:right-2 bg-slate-900 text-white text-[10px] sm:text-xs w-5 h-5 sm:w-6 sm:h-6 md:w-7 md:h-7 flex items-center justify-center rounded-full font-black shadow-xl animate-in zoom-in duration-200 ring-2 ring-white/50 dark:ring-black/50 z-20">
+                                                {cartItem.qty}
+                                            </div>
+                                        )}
+                                    </button>
+                                )})}
+                            </div>
                         </div>
-                    </div>
+                    ) : (
+                        /* VISTA DE ÓRDENES LISTAS PARA RECOGER (ENTREGADOR) */
+                        <div className="flex-1 flex flex-col overflow-hidden p-2 sm:p-4">
+                            {/* Cabecera del Panel de Órdenes */}
+                            <div className="flex items-center justify-between gap-2 pb-3 mb-3 border-b border-slate-200 dark:border-slate-800 shrink-0">
+                                <div>
+                                    <div className="flex items-center gap-2">
+                                        <h3 className="text-sm sm:text-lg font-black text-slate-800 dark:text-white uppercase tracking-tight">
+                                            {t('prep.readyOrdersTitle')}
+                                        </h3>
+                                        <span className="bg-emerald-600 text-white text-xs font-black px-2 py-0.5 rounded-full shadow-sm">
+                                            {readyOrdersList.length}
+                                        </span>
+                                    </div>
+                                    <p className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                                        {t('prep.readyOrdersSubtitle')}
+                                    </p>
+                                </div>
 
-                    {/* BARRA INFERIOR (CARRITO Y BOTÓN ENVIAR) */}
-                    {cart.length > 0 && (
+                                <div className="flex items-center gap-2">
+                                    <span className="hidden sm:inline-flex items-center gap-1.5 text-[11px] font-black text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 px-2.5 py-1 rounded-full border border-emerald-300 dark:border-emerald-800">
+                                        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
+                                        {t('prep.liveIndicator')}
+                                    </span>
+                                    <button
+                                        type="button"
+                                        onClick={fetchReadyOrders}
+                                        disabled={loadingReadyOrders}
+                                        title="Refrescar órdenes"
+                                        className="p-2 sm:p-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 active:scale-95 transition cursor-pointer shadow-sm disabled:opacity-50"
+                                    >
+                                        <RefreshCw size={16} className={loadingReadyOrders ? 'animate-spin text-emerald-600' : ''} />
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Contenedor con scroll para las tarjetas de órdenes */}
+                            <div className="flex-1 overflow-y-auto pb-24 lg:pb-6">
+                                {readyOrdersList.length === 0 ? (
+                                    <div className="h-64 sm:h-80 flex flex-col items-center justify-center text-center p-6 bg-white dark:bg-slate-900 rounded-2xl border-2 border-dashed border-slate-200 dark:border-slate-800">
+                                        <div className="w-14 h-14 rounded-full bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800 flex items-center justify-center mb-3 text-emerald-600">
+                                            <CheckCircle2 size={32} />
+                                        </div>
+                                        <h4 className="text-base sm:text-lg font-black text-slate-700 dark:text-slate-200 mb-1">
+                                            {t('prep.readyOrdersEmpty')}
+                                        </h4>
+                                        <p className="text-xs sm:text-sm text-slate-400 max-w-md">
+                                            {t('prep.readyOrdersEmptySub')}
+                                        </p>
+                                    </div>
+                                ) : (
+                                    <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-2.5 sm:gap-3.5">
+                                        {readyOrdersList.map((order) => {
+                                            const isCalling = callingOrderId === order.id
+                                            const isSuccess = callSuccessOrderId === order.id
+                                            
+                                            // Cálculo de tiempo transcurrido
+                                            const readyMs = Date.parse(order.ready_at || order.created_at)
+                                            const elapsedMin = !isNaN(readyMs) ? Math.max(0, Math.floor((Date.now() - readyMs) / 60000)) : 0
+                                            const isWaitingLong = elapsedMin >= 5
+                                            const elapsedText = elapsedMin === 0
+                                                ? t('prep.justNow')
+                                                : t('prep.agoMinutes').replace('{m}', String(elapsedMin))
+
+                                            return (
+                                                <button
+                                                    key={order.id}
+                                                    type="button"
+                                                    onClick={() => handleCallOrderImpulse(order)}
+                                                    disabled={isCalling}
+                                                    className={`group relative rounded-2xl p-3 sm:p-4 text-left transition-all active:scale-[0.97] cursor-pointer flex flex-col justify-between select-none shadow-sm hover:shadow-md border-2 ${
+                                                        isCalling
+                                                            ? 'ring-4 ring-emerald-500 scale-[0.98] border-emerald-500 bg-emerald-50 dark:bg-emerald-950/80 shadow-lg'
+                                                            : isSuccess
+                                                            ? 'border-emerald-500 bg-emerald-50/60 dark:bg-emerald-950/40 shadow-emerald-500/20'
+                                                            : isWaitingLong
+                                                            ? 'border-amber-300 dark:border-amber-600/70 bg-white dark:bg-slate-900 hover:border-amber-400'
+                                                            : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-emerald-400'
+                                                    }`}
+                                                >
+                                                    {/* Header de la tarjeta: Badge canal + Tiempo */}
+                                                    <div className="flex items-center justify-between gap-1 w-full mb-1">
+                                                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-black uppercase tracking-wider ${
+                                                            order.dining_option === 'FOR_HERE'
+                                                                ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-200'
+                                                                : 'bg-blue-100 text-blue-800 dark:bg-blue-900/60 dark:text-blue-200'
+                                                        }`}>
+                                                            {order.dining_option === 'FOR_HERE' ? (
+                                                                <>
+                                                                    <Utensils size={11} />
+                                                                    <span>{t('orderReadyBoard.for_here_badge')}</span>
+                                                                </>
+                                                            ) : (
+                                                                <>
+                                                                    <ShoppingBag size={11} />
+                                                                    <span>{t('orderReadyBoard.to_go_badge')}</span>
+                                                                </>
+                                                            )}
+                                                        </span>
+
+                                                        <span className={`inline-flex items-center gap-1 text-[10px] sm:text-xs font-bold ${
+                                                            isWaitingLong ? 'text-amber-600 dark:text-amber-400 font-black' : 'text-slate-400'
+                                                        }`}>
+                                                            <Clock size={11} />
+                                                            <span>{elapsedText}</span>
+                                                        </span>
+                                                    </div>
+
+                                                    {/* Número de Orden en Gigante */}
+                                                    <div className="my-2 sm:my-3 text-center">
+                                                        <span className={`font-mono font-black text-3xl sm:text-4xl md:text-5xl tracking-tight transition-transform ${
+                                                            isCalling ? 'scale-110 text-emerald-700 dark:text-emerald-300' : 'text-slate-900 dark:text-white'
+                                                        }`}>
+                                                            #{order.order_number}
+                                                        </span>
+                                                        {order.customer_name && (
+                                                            <p className="text-xs font-bold text-slate-500 dark:text-slate-400 truncate max-w-[140px] mx-auto mt-0.5">
+                                                                {order.customer_name}
+                                                            </p>
+                                                        )}
+                                                    </div>
+
+                                                    {/* Botón de Acción Táctil Inferior */}
+                                                    <div className={`w-full py-2 px-3 rounded-xl flex items-center justify-center gap-1.5 font-black text-xs sm:text-sm tracking-tight transition-all shadow-sm ${
+                                                        isCalling
+                                                            ? 'bg-emerald-600 text-white animate-pulse shadow-md'
+                                                            : isSuccess
+                                                            ? 'bg-emerald-700 text-white'
+                                                            : 'bg-emerald-500 group-hover:bg-emerald-600 text-white'
+                                                    }`}>
+                                                        {isCalling ? (
+                                                            <>
+                                                                <Megaphone size={15} className="animate-bounce" />
+                                                                <span>{t('prep.callingOrder')}</span>
+                                                            </>
+                                                        ) : isSuccess ? (
+                                                            <>
+                                                                <CheckCircle2 size={15} />
+                                                                <span>{t('prep.orderCallSent')}</span>
+                                                            </>
+                                                        ) : (
+                                                            <>
+                                                                <Volume2 size={15} />
+                                                                <span>{t('prep.callOrder')}</span>
+                                                            </>
+                                                        )}
+                                                    </div>
+                                                </button>
+                                            )
+                                        })}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* BARRA INFERIOR (CARRITO Y BOTÓN ENVIAR - SOLO EN ALIMENTOS) */}
+                    {cart.length > 0 && activeTab === 'alimentos' && (
                         <div className="fixed lg:static bottom-14 lg:bottom-0 left-0 right-0 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200 dark:border-slate-800 p-2 sm:p-4 shrink-0 shadow-[0_-10px_40px_rgba(0,0,0,0.15)] animate-in slide-in-from-bottom-5 z-40">
                             <div className="flex flex-col md:flex-row gap-2 sm:gap-4 max-w-[1400px] mx-auto">
                                 {/* ARTÍCULOS EN CARRITO */}
