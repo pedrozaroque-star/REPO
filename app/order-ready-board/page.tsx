@@ -143,8 +143,8 @@ function formatTimeOnly(timestamp: string | null | undefined): string {
 
 /** Veces que se anuncia una orden al cerrarse con doble tap en el expediter */
 const ANNOUNCE_REPEATS = 2
-/** Recordatorio único (1 vez) si la orden sigue en "Listo para recoger" tras este tiempo */
-const REMINDER_DELAY_MS = 90_000
+/** Recordatorio único (1 vez) si la orden sigue en "Listo para recoger" tras este tiempo (por defecto 90s) */
+const DEFAULT_REMINDER_DELAY_MS = 90_000
 
 const STORES_LIST = [
   { code: 'LYNWOOD', name: 'Lynwood (#14)' },
@@ -262,6 +262,32 @@ function OrderReadyBoardContent() {
     setReadyRetentionMinutes(val)
     if (typeof window !== 'undefined') {
       localStorage.setItem('teg_order_ready_retention', String(val))
+    }
+  }
+
+  // Regla de Negocio Tacos Gavilan: Tiempo de recordatorio para órdenes en "Listo para recoger" (por defecto 90s, ajustable en controles)
+  const [reminderSeconds, setReminderSeconds] = useState<number>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('teg_order_ready_reminder_sec')
+      if (saved !== null) {
+        const val = parseInt(saved, 10)
+        if (!isNaN(val) && val >= 0) return val
+      }
+    }
+    return 90
+  })
+
+  const reminderSecondsRef = useRef<number>(reminderSeconds)
+  useEffect(() => {
+    reminderSecondsRef.current = reminderSeconds
+  }, [reminderSeconds])
+
+  const updateReminderSeconds = (val: number) => {
+    const clamped = Math.max(0, Math.min(600, val))
+    setReminderSeconds(clamped)
+    reminderSecondsRef.current = clamped
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('teg_order_ready_reminder_sec', String(clamped))
     }
   }
 
@@ -962,15 +988,18 @@ function OrderReadyBoardContent() {
         }
 
       // 4. Programar UN solo recordatorio si la orden sigue en "Listo para recoger".
-        // (Toast no informa cuando el cliente la recoge: es solo una regla de tiempo.)
-        const orderId = nextOrder.id
-        const timer = setTimeout(() => {
-          reminderTimersRef.current.delete(timer)
-          if (!readyIdsRef.current.has(orderId)) return
-          const latest = nextOrder
-          enqueueReminderRef.current?.({ ...latest, _reminder: true, _sortAt: Date.now() })
-        }, REMINDER_DELAY_MS)
-        reminderTimersRef.current.add(timer)
+        // (Toast no informa cuando el cliente la recoge: es solo una regla de tiempo configurable en controles.)
+        const currentDelaySec = reminderSecondsRef.current
+        if (currentDelaySec > 0) {
+          const orderId = nextOrder.id
+          const timer = setTimeout(() => {
+            reminderTimersRef.current.delete(timer)
+            if (!readyIdsRef.current.has(orderId)) return
+            const latest = nextOrder
+            enqueueReminderRef.current?.({ ...latest, _reminder: true, _sortAt: Date.now() })
+          }, currentDelaySec * 1000)
+          reminderTimersRef.current.add(timer)
+        }
       }
       } catch (e) {
         // Un error de audio NUNCA debe congelar la cola: se registra y se sigue con la siguiente
@@ -1942,6 +1971,76 @@ function OrderReadyBoardContent() {
                       className="accent-emerald-500 rounded w-4 h-4 cursor-pointer"
                     />
                   </label>
+                </div>
+
+                {/* Configuración de Tiempo de Recordatorio de Orden */}
+                <div className={`pt-2.5 border-t ${isDark ? 'border-slate-800/80' : 'border-slate-200'}`}>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className={`flex items-center gap-1.5 text-xs font-semibold ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
+                      <Clock className="w-3.5 h-3.5 text-cyan-500" />
+                      <span>{t('orderReadyBoard.reminder_title')}</span>
+                    </span>
+                    <span className="text-xs font-black text-emerald-500">
+                      {reminderSeconds === 0
+                        ? t('orderReadyBoard.reminder_disabled')
+                        : `${reminderSeconds} ${t('orderReadyBoard.seconds_abbr')}`}
+                    </span>
+                  </div>
+
+                  {/* Presets Rápidos: 30s, 45s, 60s, 90s (★), 120s */}
+                  <div className="grid grid-cols-5 gap-1 mb-1.5">
+                    {[30, 45, 60, 90, 120].map((sec) => (
+                      <button
+                        key={sec}
+                        type="button"
+                        onClick={() => updateReminderSeconds(sec)}
+                        className={`py-1 rounded-lg text-[11px] font-bold transition border ${
+                          reminderSeconds === sec
+                            ? 'bg-emerald-600 text-white border-emerald-400 shadow-sm'
+                            : isDark
+                              ? 'bg-slate-900 text-slate-400 border-slate-800 hover:bg-slate-800'
+                              : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200'
+                        }`}
+                      >
+                        {sec}s {sec === 90 ? '★' : ''}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Slider y campo numérico para ajuste fino de segundos */}
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="range"
+                      min="0"
+                      max="300"
+                      step="5"
+                      value={reminderSeconds}
+                      onChange={(e) => updateReminderSeconds(parseInt(e.target.value, 10))}
+                      className={`flex-1 accent-emerald-500 h-1.5 rounded-lg cursor-pointer ${
+                        isDark ? 'bg-slate-800' : 'bg-slate-200'
+                      }`}
+                    />
+                    <div className="flex items-center gap-1 shrink-0">
+                      <input
+                        type="number"
+                        min="0"
+                        max="600"
+                        value={reminderSeconds}
+                        onChange={(e) => updateReminderSeconds(parseInt(e.target.value, 10) || 0)}
+                        className={`w-14 text-center font-bold text-xs py-0.5 rounded-md border focus:outline-none focus:border-emerald-500 ${
+                          isDark
+                            ? 'bg-slate-900 border-slate-700 text-slate-200'
+                            : 'bg-white border-slate-300 text-slate-800'
+                        }`}
+                      />
+                      <span className={`text-[10px] font-bold ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
+                        {t('orderReadyBoard.seconds_abbr')}
+                      </span>
+                    </div>
+                  </div>
+                  <p className={`text-[10px] mt-1 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
+                    {t('orderReadyBoard.reminder_note')}
+                  </p>
                 </div>
               </div>
 

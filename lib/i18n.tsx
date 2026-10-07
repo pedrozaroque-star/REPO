@@ -4122,7 +4122,12 @@ export const dictionaries: Record<Language, Dictionary> = {
             theme_normal: "Normal",
             theme_dark: "Oscuro",
             theme_toggle_to_dark: "Cambiar a modo oscuro",
-            theme_toggle_to_light: "Cambiar a modo normal (claro)"
+            theme_toggle_to_light: "Cambiar a modo normal (claro)",
+            reminder_title: "Recordatorio de Orden",
+            reminder_seconds_label: "Repetir tras:",
+            reminder_note: "Se repite 1 vez si la orden sigue en 'Listas para recoger'",
+            reminder_disabled: "Desactivado",
+            seconds_abbr: "seg"
         }
     },
     en: {
@@ -8225,7 +8230,12 @@ export const dictionaries: Record<Language, Dictionary> = {
             theme_normal: "Normal",
             theme_dark: "Dark",
             theme_toggle_to_dark: "Switch to dark mode",
-            theme_toggle_to_light: "Switch to normal mode (light)"
+            theme_toggle_to_light: "Switch to normal mode (light)",
+            reminder_title: "Order Reminder",
+            reminder_seconds_label: "Repeat after:",
+            reminder_note: "Repeated 1 time if order is still in 'Ready for pickup'",
+            reminder_disabled: "Disabled",
+            seconds_abbr: "sec"
         }
     }
 };
