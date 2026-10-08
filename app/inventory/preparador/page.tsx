@@ -10,9 +10,10 @@
  *   - Buche, Chorizo y Carnitas se cocinan al momento bajo demanda (no requieren pace en parrilla).
  *   - Las capturas manuales de los gerentes se persisten en prep_manual_schedule por día de la semana (1=Lunes ... 7=Domingo).
  *   - Timer de inactividad de 15 segundos regresa al carrusel al bloque de tiempo actual.
- *   - **Pestaña ÓRDENES (Entregador / Expediter)**: Muestra en vivo las órdenes listas para recoger ('READY') de la sucursal activa.
- *     Permite al entregador tocar una orden con el dedo para enviar un impulso instantáneo a la PC del Manager (`/order-ready-board`)
- *     para reproducir campanilla Ding-Dong y voz natural bilingüe sin abandonar la línea de servicio.
+ *   - **Pestaña ÓRDENES (Entregador / Expediter / KDS View)**: Muestra en vivo las órdenes listas para recoger ('READY') de la sucursal activa.
+ *     Presenta cada comanda como tarjeta de KDS profesional con desglose de platillos (`items_summary`), cantidades y modificadores.
+ *     Permite al entregador o taquero tocar la comanda con el dedo para enviar un impulso instantáneo a la PC del Manager (`/order-ready-board`)
+ *     para reproducir campanilla Ding-Dong y voz natural bilingüe (Kore / "¡ya está!") sin abandonar la línea de servicio.
  * @dataFlow 
  *   - meat_consumption_history -> /api/inventory/preparador-history -> Carousel 3D + Intraday Accelerator.
  *   - order_ready_announcements + Realtime channel ('order-ready-realtime') -> Grid de Órdenes Listas -> POST /api/order-ready/call -> PC Manager.
@@ -60,6 +61,38 @@ const DESECHABLES = [
     'Cover tacos', 'Papel tortas', 'Platos blancos', 'Platos nachos', 'Platos (3)', 
     'Platos sopes', 'Charolas rojas', 'Vasos 4oz', 'Vasos 8oz'
 ].map(n => ({ name: n, color: 'bg-slate-700 hover:bg-slate-800 text-white dark:bg-slate-800 dark:hover:bg-slate-700' }))
+
+interface ParsedOrderItem {
+    quantity: number
+    name: string
+    modifiers: string[]
+}
+
+function parseOrderItemsSummary(raw: string | null | undefined): ParsedOrderItem[] {
+    if (!raw) return []
+    try {
+        const parsed = JSON.parse(raw)
+        if (Array.isArray(parsed)) {
+            return parsed.map((item: any) => ({
+                quantity: Math.max(1, Number(item.quantity) || 1),
+                name: String(item.name || item.displayName || '').trim(),
+                modifiers: Array.isArray(item.modifiers)
+                    ? item.modifiers.map((m: any) => String(m.displayName || m.name || m || '').trim()).filter(Boolean)
+                    : []
+            })).filter(item => Boolean(item.name))
+        }
+    } catch {
+        const lines = String(raw).split(/[\n,]+/).map(s => s.trim()).filter(Boolean)
+        return lines.map(line => {
+            const match = line.match(/^(\d+)x?\s*(.+)$/i)
+            if (match) {
+                return { quantity: parseInt(match[1], 10), name: match[2].trim(), modifiers: [] }
+            }
+            return { quantity: 1, name: line, modifiers: [] }
+        })
+    }
+    return []
+}
 
 export default function PreparadorPage() {
     const { user, loading: authLoading } = useAuth()
@@ -344,7 +377,10 @@ export default function PreparadorPage() {
         const storeCode = (currentStore?.code || TOAST_STORE_MAP[currentStore?.external_id]?.code || '').toUpperCase()
         if (!storeCode) return
 
-        if (isManual) setLoadingReadyOrders(true)
+        if (isManual) {
+            setLoadingReadyOrders(true)
+            fetch(`/api/order-ready/orders?storeCode=${storeCode}&syncToast=true`).catch(() => {})
+        }
         try {
             const todayLA = getCaliforniaBusinessDate()
             const { data, error } = await supabase
@@ -1806,7 +1842,7 @@ export default function PreparadorPage() {
                                         </p>
                                     </div>
                                 ) : (
-                                    <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-2.5 sm:gap-3.5">
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
                                         {readyOrdersList.map((order) => {
                                             const isCalling = callingOrderIds.has(order.id)
                                             const isSuccess = callSuccessOrderIds.has(order.id)
@@ -1814,95 +1850,165 @@ export default function PreparadorPage() {
                                             // Cálculo de tiempo transcurrido
                                             const readyMs = Date.parse(order.ready_at || order.created_at)
                                             const elapsedMin = !isNaN(readyMs) ? Math.max(0, Math.floor((Date.now() - readyMs) / 60000)) : 0
-                                            const isWaitingLong = elapsedMin >= 5
+                                            const isWaitingLong = elapsedMin >= 5 && elapsedMin < 10
+                                            const isUrgent = elapsedMin >= 10
                                             const elapsedText = elapsedMin === 0
                                                 ? t('prep.justNow')
                                                 : t('prep.agoMinutes').replace('{m}', String(elapsedMin))
 
+                                            // Parsear los platillos y modificadores de la orden (estilo KDS)
+                                            const items = parseOrderItemsSummary(order.items_summary)
+                                            const totalItemsCount = items.reduce((sum, it) => sum + it.quantity, 0)
+
                                             return (
-                                                <button
+                                                <div
                                                     key={order.id}
-                                                    type="button"
+                                                    role="button"
+                                                    tabIndex={0}
                                                     onClick={() => handleCallOrderImpulse(order)}
-                                                    disabled={isCalling}
-                                                    className={`group relative rounded-2xl p-3 sm:p-4 text-left transition-all active:scale-[0.97] cursor-pointer flex flex-col justify-between select-none shadow-sm hover:shadow-md border-2 ${
+                                                    onKeyDown={(e) => {
+                                                        if (e.key === 'Enter' || e.key === ' ') {
+                                                            e.preventDefault()
+                                                            handleCallOrderImpulse(order)
+                                                        }
+                                                    }}
+                                                    className={`group relative rounded-2xl p-4 sm:p-5 text-left transition-all active:scale-[0.99] cursor-pointer flex flex-col justify-between select-none shadow-sm hover:shadow-md border min-h-[220px] ${
                                                         isCalling
-                                                            ? 'ring-4 ring-emerald-500 scale-[0.98] border-emerald-500 bg-emerald-50 dark:bg-emerald-950/80 shadow-lg'
+                                                            ? 'ring-4 ring-emerald-500 scale-[0.99] border-emerald-500 bg-emerald-50 dark:bg-emerald-950/80 shadow-lg'
                                                             : isSuccess
                                                             ? 'border-emerald-500 bg-emerald-50/60 dark:bg-emerald-950/40 shadow-emerald-500/20'
+                                                            : isUrgent
+                                                            ? 'border-rose-400 dark:border-rose-700 bg-rose-50/25 dark:bg-rose-950/25 hover:border-rose-500'
                                                             : isWaitingLong
-                                                            ? 'border-amber-300 dark:border-amber-600/70 bg-white dark:bg-slate-900 hover:border-amber-400'
+                                                            ? 'border-amber-300 dark:border-amber-600/70 bg-amber-50/20 dark:bg-amber-950/20 hover:border-amber-400'
                                                             : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-emerald-400'
                                                     }`}
                                                 >
-                                                    {/* Header de la tarjeta: Badge canal + Tiempo */}
-                                                    <div className="flex items-center justify-between gap-1 w-full mb-1">
-                                                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-black uppercase tracking-wider ${
-                                                            order.dining_option === 'FOR_HERE'
-                                                                ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-200'
-                                                                : 'bg-blue-100 text-blue-800 dark:bg-blue-900/60 dark:text-blue-200'
+                                                    {/* Header de la tarjeta KDS */}
+                                                    <div className="shrink-0">
+                                                        <div className="flex items-center justify-between gap-1 w-full mb-2">
+                                                            {/* Badge canal de venta */}
+                                                            <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${
+                                                                order.dining_option === 'FOR_HERE'
+                                                                    ? 'bg-emerald-50 text-emerald-800 border border-emerald-200 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800'
+                                                                    : 'bg-blue-50 text-blue-800 border border-blue-200 dark:bg-blue-950/60 dark:text-blue-300 dark:border-blue-800'
+                                                            }`}>
+                                                                {order.dining_option === 'FOR_HERE' ? (
+                                                                    <>
+                                                                        <Utensils size={13} />
+                                                                        <span>{t('orderReadyBoard.for_here_badge')}</span>
+                                                                    </>
+                                                                ) : (
+                                                                    <>
+                                                                        <ShoppingBag size={13} />
+                                                                        <span>{t('orderReadyBoard.to_go_badge')}</span>
+                                                                    </>
+                                                                )}
+                                                            </span>
+
+                                                            {/* Badge tiempo transcurrido */}
+                                                            <span className={`inline-flex items-center gap-1 text-xs px-3 py-1 rounded-full ${
+                                                                isUrgent
+                                                                    ? 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300 animate-pulse font-semibold'
+                                                                    : isWaitingLong
+                                                                    ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 font-semibold'
+                                                                    : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400 font-medium'
+                                                            }`}>
+                                                                <Clock size={13} />
+                                                                <span>{elapsedText}</span>
+                                                            </span>
+                                                        </div>
+
+                                                        {/* Número de orden y conteo de platillos */}
+                                                        <div className="flex items-baseline justify-between gap-2 mt-1 mb-1">
+                                                            <div className="flex items-baseline gap-2.5">
+                                                                <span className={`font-mono font-black text-3xl sm:text-4xl lg:text-[42px] tracking-tight leading-none transition-transform ${
+                                                                    isCalling ? 'scale-105 text-emerald-700 dark:text-emerald-300' : 'text-slate-950 dark:text-white'
+                                                                }`}>
+                                                                    #{order.order_number}
+                                                                </span>
+                                                                {order.customer_name && (
+                                                                    <span className="text-base font-semibold text-slate-500 dark:text-slate-400 truncate max-w-[160px]">
+                                                                        • {order.customer_name}
+                                                                    </span>
+                                                                )}
+                                                            </div>
+
+                                                            {totalItemsCount > 0 && (
+                                                                <span className="text-xs sm:text-sm font-semibold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700/60 px-2.5 py-1 rounded-lg shrink-0">
+                                                                    {totalItemsCount === 1 ? t('prep.itemCountSingle') : t('prep.itemsCount').replace('{n}', String(totalItemsCount))}
+                                                                </span>
+                                                            )}
+                                                        </div>
+
+                                                        {/* Línea divisoria estilo ticket comanda */}
+                                                        <div className="border-b border-dashed border-slate-200 dark:border-slate-800 my-2.5" />
+                                                    </div>
+
+                                                    {/* Contenido de la orden (Lista Completa de Platillos SIN scroll interno) */}
+                                                    <div className="flex-1 my-2 space-y-2">
+                                                        {items.length > 0 ? (
+                                                            items.map((it, itIdx) => (
+                                                                <div key={itIdx} className="text-left py-1.5 border-b border-slate-100 dark:border-slate-800/60 last:border-0">
+                                                                    <div className="flex items-start gap-2.5">
+                                                                        <span className="font-mono font-bold text-sm sm:text-base px-2.5 py-0.5 rounded-md bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-slate-100 border border-slate-300 dark:border-slate-700 shrink-0 min-w-[34px] text-center shadow-xs">
+                                                                            {it.quantity}x
+                                                                        </span>
+                                                                        <span className="font-semibold text-base sm:text-lg text-slate-900 dark:text-white leading-snug">
+                                                                            {it.name}
+                                                                        </span>
+                                                                    </div>
+                                                                    {it.modifiers && it.modifiers.length > 0 && (
+                                                                        <div className="pl-9 pt-1 space-y-0.5">
+                                                                            {it.modifiers.map((mod, modIdx) => (
+                                                                                <p key={modIdx} className="text-sm font-medium text-amber-800 dark:text-amber-300 leading-snug flex items-center gap-1.5">
+                                                                                    <span className="text-slate-400 dark:text-slate-500">↳</span>
+                                                                                    <span>{mod}</span>
+                                                                                </p>
+                                                                            ))}
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            ))
+                                                        ) : (
+                                                            <div className="h-full min-h-[90px] flex flex-col items-center justify-center text-center p-3 text-slate-400">
+                                                                <UtensilsCrossed size={20} className="mb-1 opacity-50" />
+                                                                <span className="text-sm font-normal">{t('prep.noItemsDetail')}</span>
+                                                            </div>
+                                                        )}
+                                                    </div>
+
+                                                    {/* Botón de Acción Táctil Inferior (Llamar Orden) */}
+                                                    <div className="pt-3 mt-auto border-t border-slate-100 dark:border-slate-800/80 shrink-0">
+                                                        <div className={`w-full py-3 px-4 rounded-xl flex items-center justify-center gap-2 font-bold text-sm sm:text-base tracking-wide transition-all shadow-sm ${
+                                                            isCalling
+                                                                ? 'bg-emerald-600 text-white animate-pulse shadow-md'
+                                                                : isSuccess
+                                                                ? 'bg-emerald-700 text-white'
+                                                                : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-600/20'
                                                         }`}>
-                                                            {order.dining_option === 'FOR_HERE' ? (
+                                                            {isCalling ? (
                                                                 <>
-                                                                    <Utensils size={11} />
-                                                                    <span>{t('orderReadyBoard.for_here_badge')}</span>
+                                                                    <Megaphone size={18} className="animate-bounce" />
+                                                                    <span>{t('prep.callingOrder')}</span>
+                                                                </>
+                                                            ) : isSuccess ? (
+                                                                <>
+                                                                    <CheckCircle2 size={18} />
+                                                                    <span>{t('prep.orderCallSent')}</span>
                                                                 </>
                                                             ) : (
                                                                 <>
-                                                                    <ShoppingBag size={11} />
-                                                                    <span>{t('orderReadyBoard.to_go_badge')}</span>
+                                                                    <Volume2 size={18} />
+                                                                    <span>{t('prep.callOrder')}</span>
                                                                 </>
                                                             )}
-                                                        </span>
-
-                                                        <span className={`inline-flex items-center gap-1 text-[10px] sm:text-xs font-bold ${
-                                                            isWaitingLong ? 'text-amber-600 dark:text-amber-400 font-black' : 'text-slate-400'
-                                                        }`}>
-                                                            <Clock size={11} />
-                                                            <span>{elapsedText}</span>
-                                                        </span>
+                                                        </div>
+                                                        <p className="text-xs text-center text-slate-400 dark:text-slate-500 mt-1.5 font-normal">
+                                                            {t('prep.tapCardToCall')}
+                                                        </p>
                                                     </div>
-
-                                                    {/* Número de Orden en Gigante */}
-                                                    <div className="my-2 sm:my-3 text-center">
-                                                        <span className={`font-mono font-black text-3xl sm:text-4xl lg:text-3xl xl:text-4xl tracking-tight transition-transform ${
-                                                            isCalling ? 'scale-110 text-emerald-700 dark:text-emerald-300' : 'text-slate-900 dark:text-white'
-                                                        }`}>
-                                                            #{order.order_number}
-                                                        </span>
-                                                        {order.customer_name && (
-                                                            <p className="text-xs font-bold text-slate-500 dark:text-slate-400 truncate max-w-[140px] mx-auto mt-0.5">
-                                                                {order.customer_name}
-                                                            </p>
-                                                        )}
-                                                    </div>
-
-                                                    {/* Botón de Acción Táctil Inferior */}
-                                                    <div className={`w-full py-2 px-3 rounded-xl flex items-center justify-center gap-1.5 font-black text-xs sm:text-sm tracking-tight transition-all shadow-sm ${
-                                                        isCalling
-                                                            ? 'bg-emerald-600 text-white animate-pulse shadow-md'
-                                                            : isSuccess
-                                                            ? 'bg-emerald-700 text-white'
-                                                            : 'bg-emerald-500 group-hover:bg-emerald-600 text-white'
-                                                    }`}>
-                                                        {isCalling ? (
-                                                            <>
-                                                                <Megaphone size={15} className="animate-bounce" />
-                                                                <span>{t('prep.callingOrder')}</span>
-                                                            </>
-                                                        ) : isSuccess ? (
-                                                            <>
-                                                                <CheckCircle2 size={15} />
-                                                                <span>{t('prep.orderCallSent')}</span>
-                                                            </>
-                                                        ) : (
-                                                            <>
-                                                                <Volume2 size={15} />
-                                                                <span>{t('prep.callOrder')}</span>
-                                                            </>
-                                                        )}
-                                                    </div>
-                                                </button>
+                                                </div>
                                             )
                                         })}
                                     </div>

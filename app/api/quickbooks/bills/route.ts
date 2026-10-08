@@ -28,7 +28,8 @@ export async function GET(request: NextRequest) {
         const startDate = searchParams.get('startDate') || undefined;
         const endDate = searchParams.get('endDate') || undefined;
         const limitStr = searchParams.get('limit');
-        const limit = limitStr ? parseInt(limitStr, 10) : 100;
+        const parsedLimit = limitStr ? parseInt(limitStr, 10) : 100;
+        const limit = (!isNaN(parsedLimit) && parsedLimit > 0) ? Math.min(parsedLimit, 500) : 100;
 
         const records = await getWarehouseInvoicesWithBills({
             storeId,
@@ -84,9 +85,13 @@ export async function POST(request: NextRequest) {
         const body = await request.json();
         const { invoiceDocNumbers, customOptions } = body;
 
-        if (!invoiceDocNumbers || !Array.isArray(invoiceDocNumbers) || invoiceDocNumbers.length === 0) {
+        const validDocNumbers = Array.isArray(invoiceDocNumbers)
+            ? invoiceDocNumbers.map((d: any) => String(d || '').trim()).filter((d: string) => d.length > 0)
+            : [];
+
+        if (validDocNumbers.length === 0) {
             return NextResponse.json(
-                { success: false, error: 'Debe especificar al menos un número de factura (invoiceDocNumbers)' },
+                { success: false, error: 'Debe especificar al menos un número de factura válido (invoiceDocNumbers)' },
                 { status: 400 }
             );
         }
@@ -98,9 +103,9 @@ export async function POST(request: NextRequest) {
             error?: string;
         }> = [];
 
-        for (const docNumber of invoiceDocNumbers) {
+        for (const docNumber of validDocNumbers) {
             try {
-                const res = await createQuickBooksBillForInvoice(String(docNumber), customOptions);
+                const res = await createQuickBooksBillForInvoice(docNumber, customOptions);
                 results.push({
                     docNumber: String(docNumber),
                     success: res.success,

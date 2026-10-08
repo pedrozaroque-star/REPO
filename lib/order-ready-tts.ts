@@ -34,7 +34,7 @@ export type VoiceId = (typeof AVAILABLE_VOICES)[number]['id']
 
 const BUCKET = 'order-ready-tts'
 const DEFAULT_VOICE: VoiceId = 'Kore'
-const MODELS = ['gemini-3.8-flash-lite-tts', 'gemini-3.8-flash-tts', 'gemini-2.5-pro-preview-tts']
+const MODELS = ['gemini-3.8-flash-lite-tts', 'gemini-3.8-flash-tts', 'gemini-2.5-flash-preview-tts', 'gemini-2.5-pro-preview-tts']
 const CACHE_VERSION = 'v4'
 
 export type TtsLang = 'en' | 'es'
@@ -46,6 +46,8 @@ const keyBlockedUntil = new Map<string, number>()
 
 export function getGeminiKeyPool(): string[] {
   const raw = [
+    process.env.GEMINI_API_KEY_5,
+    process.env.GEMINI_API_KEY_4,
     process.env.GEMINI_API_KEY,
     process.env.GEMINI_API_KEY_2,
     process.env.GEMINI_API_KEY_3,
@@ -96,7 +98,7 @@ export function isForbiddenRaulVoice(voiceName: string | null | undefined, voice
 function buildPrompt(n: string, lang: TtsLang): string {
   const spoken = String(parseInt(n, 10))
   if (lang === 'en') {
-    return `Order ${spoken} is ready.`
+    return `Order ${spoken}, is ready!`
   } else {
     return `Orden ${spoken}, ¡ya está!`
   }
@@ -159,9 +161,9 @@ async function generateTextWithGemini(
   let lastErr = ''
 
   for (const key of rotatedKeys) {
-    let keyExhausted = false
+    let allModels429 = true
+
     for (const model of MODELS) {
-      if (keyExhausted) break
       for (let attempt = 0; attempt < 2; attempt++) {
         try {
           const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
@@ -202,28 +204,36 @@ async function generateTextWithGemini(
               const raw = Buffer.from(part.inlineData.data, 'base64')
               return ensureWav(raw)
             }
-            lastErr = `${model}: respuesta sin audio`
+            lastErr = `${model}: respuesta sin audio (${json.candidates?.[0]?.finishReason || 'no part'})`
+            allModels429 = false
+            break
           } else {
             const errText = await res.text()
             lastErr = `${model} (key ...${key.slice(-4)}): ${res.status} ${errText.slice(0, 160)}`
             if (res.status === 429 || /quota|exceeded/i.test(errText)) {
-              if (/per_model_per_day|PerProjectPerModel/i.test(errText)) {
-                // Cuota de ESTE modelo agotada: intentar el siguiente modelo en la lista sin descartar la llave
-                break
-              }
-              // Cuota general de la llave agotada (ej. "You exceeded your current quota"): bloquearla 15m y pasar inmediatamente a la siguiente llave
-              keyBlockedUntil.set(key, Date.now() + 15 * 60 * 1000)
-              keyExhausted = true
+              // Cuota de este modelo agotada: intentar el siguiente modelo en la lista sin descartar la llave
               break
             } else {
+              allModels429 = false
               break
             }
           }
         } catch (fetchErr: any) {
           lastErr = `${model}: ${fetchErr.message}`
+          if (attempt === 0) {
+            // Reintentar intento 2 tras 600ms si hubo caída de socket (ECONNRESET) o timeout
+            await new Promise((r) => setTimeout(r, 600))
+            continue
+          }
+          allModels429 = false
           break
         }
       }
+    }
+
+    if (allModels429) {
+      // Si todos los modelos de esta llave arrojaron 429, enfriar la llave 45s para resetear el RPM
+      keyBlockedUntil.set(key, Date.now() + 45 * 1000)
     }
   }
 

@@ -18,10 +18,14 @@
  *   - Al inicio del nuevo día laboral (6:00 AM), el inicio de ventana de sincronización nunca retrocede antes de las 6:00 AM de hoy,
  *     asegurando que el restaurante amanezca con el tablero 100% limpio y sin residuos del turno nocturno anterior.
  *
+ * - **Persistencia KDS / Contenido de Comanda (items_summary)**:
+ *   - Extrae los platillos no anulados (`selections`) y sus modificadores de Toast, consolidando platillos idénticos (ej. 9x Taco Asada).
+ *   - Persiste en `order_ready_announcements.items_summary` como JSON estructurado para el KDS y la tableta del preparador.
+ *
  * @dataFlow
  * - Board (poll cada 4 s) -> GET /api/order-ready/orders -> syncStoreFromToast() (throttle 5 s por tienda)
- *   -> Toast ordersBulk -> upsert en order_ready_announcements -> Board.
- * - Webhook `order_updated` reutiliza `evaluateToastOrder()` para clasificar con la misma lógica.
+ *   -> Toast ordersBulk -> upsert en order_ready_announcements (con items_summary) -> Board / Preparador Tablet.
+ * - Webhook `order_updated` reutiliza `evaluateToastOrder()` y `extractOrderItemsSummary()` para clasificar y guardar platillos.
  *
  * @notes
  * - Mapa de tiendas Toast GUID <-> código vive aquí (única fuente) y lo importa el webhook.
@@ -37,6 +41,56 @@ import { TOAST_STORE_MAP, STORE_GUID_BY_CODE } from '@/lib/toast-stores'
 export { TOAST_STORE_MAP, STORE_GUID_BY_CODE }
 
 export type OrderReadyStatus = 'IN_PROGRESS' | 'READY' | 'COMPLETED'
+
+export interface OrderItemSummary {
+  quantity: number
+  name: string
+  modifiers: string[]
+}
+
+/**
+ * Extrae y consolida los platillos y modificadores de una orden de Toast en formato JSON para el KDS y la tableta del preparador.
+ */
+export function extractOrderItemsSummary(order: any): string | null {
+  if (!order) return null
+  const checks = order.checks || (order.selections ? [{ selections: order.selections }] : [])
+  if (!Array.isArray(checks) || checks.length === 0) return null
+
+  // Consolidar platillos con el mismo nombre y mismos modificadores
+  const map = new Map<string, OrderItemSummary>()
+
+  for (const chk of checks) {
+    if (chk?.voided || chk?.deleted) continue
+    for (const sel of chk.selections || []) {
+      if (!sel || sel.voided || sel.deleted) continue
+      const name = String(sel.displayName || sel.name || '').trim()
+      if (!name || name.includes('---')) continue
+
+      const mods: string[] = []
+      if (Array.isArray(sel.modifiers)) {
+        for (const m of sel.modifiers) {
+          if (m?.voided || m?.deleted) continue
+          const mName = String(m.displayName || m.name || '').trim()
+          if (mName && !mName.includes('---')) {
+            mods.push(mName)
+          }
+        }
+      }
+
+      const q = Math.max(1, Number(sel.quantity) || 1)
+      const key = `${name}:::${[...mods].sort().join('|')}`
+
+      if (map.has(key)) {
+        map.get(key)!.quantity += q
+      } else {
+        map.set(key, { quantity: q, name, modifiers: mods })
+      }
+    }
+  }
+
+  const items = Array.from(map.values())
+  return items.length > 0 ? JSON.stringify(items) : null
+}
 
 export interface ToastOrderEvaluation {
   status: OrderReadyStatus
@@ -224,7 +278,7 @@ export async function syncStoreFromToast(storeCode: string, force = false): Prom
       const guids = orders.map(o => o.guid).filter(Boolean)
       const { data: existingRows } = await supabaseAdmin
         .from('order_ready_announcements')
-        .select('id, status, order_guid, order_number, dining_option')
+        .select('id, status, order_guid, order_number, dining_option, items_summary')
         .eq('store_code', storeCode)
         .in('order_guid', guids)
 
@@ -241,6 +295,7 @@ export async function syncStoreFromToast(storeCode: string, force = false): Prom
         const diningGuid = ord.diningOption?.guid || ord.checks?.[0]?.diningOption?.guid
         const diningName = diningMap[diningGuid] || ord.diningOption?.name || ''
         const diningOption = classifyDiningName(diningName)
+        const itemsSummary = extractOrderItemsSummary(ord)
 
         const row = byGuid.get(ord.guid)
 
@@ -264,6 +319,9 @@ export async function syncStoreFromToast(storeCode: string, force = false): Prom
           const updatePayload: any = {}
           if (row.dining_option !== diningOption) {
             updatePayload.dining_option = diningOption
+          }
+          if (itemsSummary && (!row.items_summary || row.items_summary !== itemsSummary)) {
+            updatePayload.items_summary = itemsSummary
           }
           if (ev.status === 'READY' && row.status === 'IN_PROGRESS') {
             updatePayload.status = 'READY'
@@ -302,6 +360,7 @@ export async function syncStoreFromToast(storeCode: string, force = false): Prom
           business_date: bDate,
           announced: ev.status === 'READY' ? isStale : false,
           ready_at: ev.status === 'READY' ? ev.readyAt : null,
+          items_summary: itemsSummary,
           created_at: orderDate
         }, { onConflict: 'order_guid' })
       }

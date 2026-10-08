@@ -60,10 +60,19 @@ export {
 /**
  * Calculates due date adding specified number of days to a YYYY-MM-DD date string.
  */
-export function addDaysToDateString(dateStr: string, days: number = 30): string {
-    const parts = dateStr.split('-');
-    if (parts.length === 3) {
-        const d = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+export function addDaysToDateString(dateStr?: string | null, days: number = 30): string {
+    if (!dateStr || typeof dateStr !== 'string') {
+        const now = new Date();
+        now.setDate(now.getDate() + days);
+        const yyyy = now.getFullYear();
+        const mm = String(now.getMonth() + 1).padStart(2, '0');
+        const dd = String(now.getDate()).padStart(2, '0');
+        return `${yyyy}-${mm}-${dd}`;
+    }
+    const cleanDate = dateStr.split('T')[0].trim();
+    const parts = cleanDate.split('-');
+    if (parts.length === 3 && parts[0].length === 4) {
+        const d = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
         d.setDate(d.getDate() + days);
         const yyyy = d.getFullYear();
         const mm = String(d.getMonth() + 1).padStart(2, '0');
@@ -71,8 +80,16 @@ export function addDaysToDateString(dateStr: string, days: number = 30): string 
         return `${yyyy}-${mm}-${dd}`;
     }
     const d = new Date(dateStr);
+    if (isNaN(d.getTime())) {
+        const fallback = new Date();
+        fallback.setDate(fallback.getDate() + days);
+        return fallback.toISOString().slice(0, 10);
+    }
     d.setDate(d.getDate() + days);
-    return d.toISOString().split('T')[0];
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
 }
 
 /**
@@ -131,8 +148,13 @@ export async function getWarehouseInvoicesWithBills(options?: {
     });
 
     // 2. Fetch existing Bills for Warehouse Vendor (116)
+    const billFilters = [`VendorRef = '${WAREHOUSE_VENDOR_ID}'`];
+    if (options?.startDate) billFilters.push(`TxnDate >= '${options.startDate}'`);
+    if (options?.endDate) billFilters.push(`TxnDate <= '${options.endDate}'`);
+    const billQuery = `WHERE ${billFilters.join(' AND ')} ORDERBY TxnDate DESC MAXRESULTS 1000`;
+
     const billsData: any = await new Promise((resolve, reject) => {
-        qbo.findBills(`WHERE VendorRef = '${WAREHOUSE_VENDOR_ID}' ORDERBY TxnDate DESC MAXRESULTS 200`, (err: any, data: any) => {
+        qbo.findBills(billQuery, (err: any, data: any) => {
             if (err) reject(err);
             else resolve(data);
         });
@@ -203,11 +225,13 @@ export async function createQuickBooksBillForInvoice(
 ): Promise<{ success: boolean; bill?: any; error?: string }> {
     const qbo = await getQuickBooksClient();
     const cleanDoc = invoiceDocNumber.trim();
+    const safeDoc = cleanDoc.replace(/'/g, "\\'");
 
     // 1. Check if bill already exists for this DocNumber and Vendor 116
-    const existingBills: any = await new Promise((resolve) => {
-        qbo.findBills(`WHERE VendorRef = '${WAREHOUSE_VENDOR_ID}' AND DocNumber = '${cleanDoc}'`, (err: any, data: any) => {
-            resolve(data?.QueryResponse?.Bill || []);
+    const existingBills: any = await new Promise((resolve, reject) => {
+        qbo.findBills(`WHERE VendorRef = '${WAREHOUSE_VENDOR_ID}' AND DocNumber = '${safeDoc}'`, (err: any, data: any) => {
+            if (err) reject(err);
+            else resolve(data?.QueryResponse?.Bill || []);
         });
     });
 

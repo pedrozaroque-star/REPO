@@ -185,15 +185,22 @@ export const STORE_QB_MAPPINGS_BY_STORE_ID: Record<string, StoreQBMappings> = Ob
     {} as Record<string, StoreQBMappings>
 );
 
-// Helper lookup by customerName lowercase
+// Helper lookup by customerId or customerName (bidirectional, case-insensitive)
 export function findMappingByCustomer(customerRefId?: string, customerRefName?: string): StoreQBMappings | null {
     if (customerRefId && STORE_QB_MAPPINGS[customerRefId]) {
         return STORE_QB_MAPPINGS[customerRefId];
     }
-    if (customerRefName) {
+    if (customerRefName && typeof customerRefName === 'string') {
         const nameLower = customerRefName.toLowerCase().trim();
         for (const mapping of Object.values(STORE_QB_MAPPINGS)) {
-            if (nameLower.includes(mapping.storeName.toLowerCase()) || nameLower === mapping.qbCustomerName.toLowerCase()) {
+            const storeLower = mapping.storeName.toLowerCase();
+            const qbCustLower = mapping.qbCustomerName.toLowerCase();
+            if (
+                nameLower === qbCustLower ||
+                nameLower.includes(storeLower) ||
+                storeLower.includes(nameLower) ||
+                nameLower.replace(/[-_ ]teg$/i, '') === storeLower
+            ) {
                 return mapping;
             }
         }

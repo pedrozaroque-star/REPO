@@ -21,7 +21,7 @@
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { getAuthToken } from '@/lib/toast-api'
-import { TOAST_STORE_MAP, STORE_GUID_BY_CODE, evaluateToastOrder, classifyDiningName, getDiningMap } from '@/lib/order-ready-sync'
+import { TOAST_STORE_MAP, STORE_GUID_BY_CODE, evaluateToastOrder, classifyDiningName, getDiningMap, extractOrderItemsSummary } from '@/lib/order-ready-sync'
 import { getCaliforniaBusinessDate } from '@/lib/business-date'
 
 const TOAST_API_HOST = process.env.TOAST_API_HOST || 'https://ws-api.toasttab.com'
@@ -142,9 +142,13 @@ export async function POST(request: Request) {
 
     // Si ya existe la orden, actualizarla
     if (existing) {
+      const itemsSummary = extractOrderItemsSummary(orderObj)
       const updateData: any = {
         status: existing.status === 'READY' && status === 'IN_PROGRESS' ? 'READY' : status,
         dining_option: diningOption
+      }
+      if (itemsSummary) {
+        updateData.items_summary = itemsSummary
       }
       if (status === 'READY' && existing.status !== 'READY') {
         updateData.ready_at = evaluation.readyAt || now
@@ -169,6 +173,7 @@ export async function POST(request: Request) {
     let finalOrderNumber = orderNumber ? String(orderNumber) : null
     let finalDiningOption: ReturnType<typeof classifyDiningName> = diningOption
 
+    let fetchedToastOrder: any = null
     if (!finalOrderNumber && orderGuid && restaurantId) {
       try {
         const token = await getAuthToken()
@@ -180,19 +185,19 @@ export async function POST(request: Request) {
             }
           })
           if (res.ok) {
-            const toastOrder = await res.json()
-            if (toastOrder.displayNumber) {
-              finalOrderNumber = String(toastOrder.displayNumber)
+            fetchedToastOrder = await res.json()
+            if (fetchedToastOrder.displayNumber) {
+              finalOrderNumber = String(fetchedToastOrder.displayNumber)
             }
-            if (toastOrder.diningOption?.guid || toastOrder.diningOption?.name) {
+            if (fetchedToastOrder.diningOption?.guid || fetchedToastOrder.diningOption?.name) {
               const rId = String(restaurantId || STORE_GUID_BY_CODE[storeInfo.code] || '')
               const diningMap = await getDiningMap(token, rId)
-              const dGuid = String(toastOrder.diningOption?.guid || '')
-              const dName = diningMap[dGuid] || toastOrder.diningOption?.name || ''
+              const dGuid = String(fetchedToastOrder.diningOption?.guid || '')
+              const dName = diningMap[dGuid] || fetchedToastOrder.diningOption?.name || ''
               finalDiningOption = classifyDiningName(dName)
             }
-            if (toastOrder.customer?.firstName && !customerName) {
-              customerName = toastOrder.customer.firstName
+            if (fetchedToastOrder.customer?.firstName && !customerName) {
+              customerName = fetchedToastOrder.customer.firstName
             }
           }
         }
@@ -214,6 +219,8 @@ export async function POST(request: Request) {
       finalOrderNumber = String(orderGuid?.slice(-4) || '---')
     }
 
+    const itemsSummary = extractOrderItemsSummary(orderObj) || (fetchedToastOrder ? extractOrderItemsSummary(fetchedToastOrder) : null)
+
     // Insertar o actualizar registro en Supabase (evitar duplicados con onConflict)
     if (orderGuid) {
       await supabaseAdmin.from('order_ready_announcements').upsert({
@@ -228,6 +235,7 @@ export async function POST(request: Request) {
         business_date: currentBusinessDate,
         announced: false,
         ready_at: status === 'READY' ? (evaluation.readyAt || now) : null,
+        items_summary: itemsSummary,
         created_at: evaluation.sentAt || now
       }, { onConflict: 'order_guid' })
     } else {
@@ -243,6 +251,7 @@ export async function POST(request: Request) {
         business_date: currentBusinessDate,
         announced: false,
         ready_at: status === 'READY' ? (evaluation.readyAt || now) : null,
+        items_summary: itemsSummary,
         created_at: evaluation.sentAt || now
       })
     }

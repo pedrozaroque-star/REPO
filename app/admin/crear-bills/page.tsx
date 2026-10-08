@@ -22,6 +22,8 @@
  * 
  * @notes
  * - Soporta filtrado por tienda, estado (Todos, Pendientes, Creados) y búsqueda por número o monto.
+ * - Ordenamiento interactivo por encabezado de columna (Factura #, Fecha Emisión, Vencimiento, Tienda, Monto Total, Estado del Bill).
+ * - Ordenamiento por defecto: Agrupado por Tienda (A-Z) y ordenado por Fecha cronológica y número de factura.
  * - Validación estricta anti-duplicados para evitar registrar dos veces el mismo gasto.
  */
 
@@ -32,10 +34,17 @@ import {
     Receipt, RefreshCw, CheckCircle2, Clock, Search, Filter, Store,
     Calendar, ArrowRight, ExternalLink, ShieldCheck, ChevronRight, X,
     Sparkles, Building2, CheckSquare, Square, DollarSign, Eye, AlertCircle,
-    Check, AlertTriangle
+    Check, AlertTriangle, ChevronUp, ChevronDown, ArrowUpDown
 } from 'lucide-react';
 import { useLanguage } from '@/lib/i18n';
 import { WarehouseInvoiceRecord, STORE_QB_MAPPINGS } from '@/types/quickbooks-bills';
+
+export type SortKey = 'docNumber' | 'txnDate' | 'dueDate' | 'storeName' | 'totalAmount' | 'hasBill';
+
+export interface SortConfig {
+    key: SortKey;
+    direction: 'asc' | 'desc';
+}
 
 export default function CrearBillsPage() {
     const { t, language } = useLanguage();
@@ -63,6 +72,12 @@ export default function CrearBillsPage() {
     const [selectedStatus, setSelectedStatus] = useState<'all' | 'pending' | 'created'>('all');
     const [searchTerm, setSearchTerm] = useState<string>('');
     const [selectedDocNumbers, setSelectedDocNumbers] = useState<Set<string>>(new Set());
+
+    // Sorting state (Default: by Store and by Date)
+    const [sortConfig, setSortConfig] = useState<SortConfig>({
+        key: 'storeName',
+        direction: 'asc'
+    });
 
     // Modals
     const [confirmModal, setConfirmModal] = useState<{
@@ -99,6 +114,9 @@ export default function CrearBillsPage() {
             else setIsLoading(true);
 
             const res = await fetch('/api/quickbooks/bills?limit=150');
+            if (!res.ok) {
+                throw new Error(`HTTP ${res.status}: Error al consultar facturas de QuickBooks`);
+            }
             const data = await res.json();
 
             if (data.success && data.invoices) {
@@ -132,12 +150,66 @@ export default function CrearBillsPage() {
         loadData();
     }, []);
 
+    // Clear batch selection when switching store to prevent accidental cross-store bill creation
+    useEffect(() => {
+        setSelectedDocNumbers(new Set());
+    }, [selectedStore]);
+
+    // Global Escape key listener to close modals
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'Escape' && !isSubmitting) {
+                if (confirmModal.isOpen) setConfirmModal({ isOpen: false });
+                if (batchModal.isOpen) setBatchModal({ isOpen: false });
+                if (viewBillModal.isOpen) setViewBillModal({ isOpen: false });
+            }
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [confirmModal.isOpen, batchModal.isOpen, viewBillModal.isOpen, isSubmitting]);
+
+    // Invoices scoped to selected store (for reactive KPIs)
+    const storeInvoices = useMemo(() => {
+        if (selectedStore === 'all') return invoices;
+        return invoices.filter((inv) => inv.storeId === selectedStore || (inv.storeName || '').toLowerCase() === selectedStore.toLowerCase());
+    }, [invoices, selectedStore]);
+
+    // Dynamic reactive summary based on current store selection
+    const displaySummary = useMemo(() => {
+        let pendingCount = 0;
+        let createdCount = 0;
+        let pendingAmount = 0;
+        let createdAmount = 0;
+        let totalAmount = 0;
+
+        for (const inv of storeInvoices) {
+            const amt = Number(inv.totalAmount) || 0;
+            totalAmount += amt;
+            if (inv.hasBill) {
+                createdCount++;
+                createdAmount += amt;
+            } else {
+                pendingCount++;
+                pendingAmount += amt;
+            }
+        }
+
+        return {
+            totalCount: storeInvoices.length,
+            pendingCount,
+            createdCount,
+            pendingAmount: Math.round(pendingAmount * 100) / 100,
+            createdAmount: Math.round(createdAmount * 100) / 100,
+            totalAmount: Math.round(totalAmount * 100) / 100
+        };
+    }, [storeInvoices]);
+
     // Filtered invoices
     const filteredInvoices = useMemo(() => {
         return invoices.filter((inv) => {
             // Filter by store
             if (selectedStore !== 'all') {
-                if (inv.storeId !== selectedStore && inv.storeName.toLowerCase() !== selectedStore.toLowerCase()) {
+                if (inv.storeId !== selectedStore && (inv.storeName || '').toLowerCase() !== selectedStore.toLowerCase()) {
                     return false;
                 }
             }
@@ -146,13 +218,16 @@ export default function CrearBillsPage() {
             if (selectedStatus === 'pending' && inv.hasBill) return false;
             if (selectedStatus === 'created' && !inv.hasBill) return false;
 
-            // Search filter
+            // Search filter with flexible syntax (#, $, commas)
             if (searchTerm.trim() !== '') {
-                const term = searchTerm.toLowerCase().trim();
-                const matchDoc = inv.docNumber.toLowerCase().includes(term);
-                const matchStore = inv.storeName.toLowerCase().includes(term);
-                const matchCustomer = inv.customerName.toLowerCase().includes(term);
-                const matchAmount = inv.totalAmount.toString().includes(term);
+                const term = searchTerm.toLowerCase().replace(/[#$,]/g, '').trim();
+                const docClean = (inv.docNumber || '').toLowerCase().replace(/#/g, '');
+                const matchDoc = docClean.includes(term);
+                const matchStore = (inv.storeName || '').toLowerCase().includes(term);
+                const matchCustomer = (inv.customerName || '').toLowerCase().includes(term);
+                const rawAmt = (inv.totalAmount || 0).toString();
+                const formattedAmt = formatCurrency(inv.totalAmount || 0).toLowerCase().replace(/[$,]/g, '');
+                const matchAmount = rawAmt.includes(term) || formattedAmt.includes(term);
                 if (!matchDoc && !matchStore && !matchCustomer && !matchAmount) {
                     return false;
                 }
@@ -161,6 +236,93 @@ export default function CrearBillsPage() {
             return true;
         });
     }, [invoices, selectedStore, selectedStatus, searchTerm]);
+
+    // Request column sorting toggle
+    const requestSort = (key: SortKey) => {
+        setSortConfig((prev) => {
+            if (prev.key === key) {
+                return {
+                    key,
+                    direction: prev.direction === 'asc' ? 'desc' : 'asc'
+                };
+            }
+            const initialDirection: 'asc' | 'desc' =
+                key === 'storeName' || key === 'dueDate' || key === 'hasBill' ? 'asc' : 'desc';
+            return { key, direction: initialDirection };
+        });
+    };
+
+    // Sorted invoices with multi-level sorting (Default: Store A-Z, then Date)
+    const sortedInvoices = useMemo(() => {
+        const list = [...filteredInvoices];
+        return list.sort((a, b) => {
+            const dir = sortConfig.direction === 'asc' ? 1 : -1;
+
+            if (sortConfig.key === 'storeName') {
+                const storeCmp = (a.storeName || '').localeCompare(b.storeName || '');
+                if (storeCmp !== 0) return storeCmp * dir;
+                // Secondary sort by txnDate (chronological within store)
+                const dateCmp = (a.txnDate || '').localeCompare(b.txnDate || '');
+                if (dateCmp !== 0) return dateCmp * dir;
+                // Tertiary sort by docNumber
+                const numA = parseInt((a.docNumber || '').replace(/\D/g, ''), 10) || 0;
+                const numB = parseInt((b.docNumber || '').replace(/\D/g, ''), 10) || 0;
+                return (numA - numB) * dir;
+            }
+
+            if (sortConfig.key === 'txnDate') {
+                const dateCmp = (a.txnDate || '').localeCompare(b.txnDate || '');
+                if (dateCmp !== 0) return dateCmp * dir;
+                // Secondary: storeName
+                const storeCmp = (a.storeName || '').localeCompare(b.storeName || '');
+                if (storeCmp !== 0) return storeCmp;
+                const numA = parseInt((a.docNumber || '').replace(/\D/g, ''), 10) || 0;
+                const numB = parseInt((b.docNumber || '').replace(/\D/g, ''), 10) || 0;
+                return (numA - numB) * dir;
+            }
+
+            if (sortConfig.key === 'dueDate') {
+                const dueCmp = (a.dueDate || '').localeCompare(b.dueDate || '');
+                if (dueCmp !== 0) return dueCmp * dir;
+                return (a.storeName || '').localeCompare(b.storeName || '');
+            }
+
+            if (sortConfig.key === 'docNumber') {
+                const numA = parseInt((a.docNumber || '').replace(/\D/g, ''), 10) || 0;
+                const numB = parseInt((b.docNumber || '').replace(/\D/g, ''), 10) || 0;
+                if (numA !== numB) return (numA - numB) * dir;
+                return (a.docNumber || '').localeCompare(b.docNumber || '') * dir;
+            }
+
+            if (sortConfig.key === 'totalAmount') {
+                const diff = (Number(a.totalAmount) || 0) - (Number(b.totalAmount) || 0);
+                if (diff !== 0) return diff * dir;
+                return (a.storeName || '').localeCompare(b.storeName || '');
+            }
+
+            if (sortConfig.key === 'hasBill') {
+                const valA = a.hasBill ? 1 : 0;
+                const valB = b.hasBill ? 1 : 0;
+                if (valA !== valB) return (valA - valB) * dir;
+                const storeCmp = (a.storeName || '').localeCompare(b.storeName || '');
+                if (storeCmp !== 0) return storeCmp;
+                return (a.txnDate || '').localeCompare(b.txnDate || '');
+            }
+
+            return 0;
+        });
+    }, [filteredInvoices, sortConfig]);
+
+    // Total accumulated amount of currently selected batch
+    const selectedTotalAmount = useMemo(() => {
+        let sum = 0;
+        for (const inv of invoices) {
+            if (selectedDocNumbers.has(inv.docNumber)) {
+                sum += Number(inv.totalAmount) || 0;
+            }
+        }
+        return Math.round(sum * 100) / 100;
+    }, [invoices, selectedDocNumbers]);
 
     // List of unique stores from mapping
     const storeOptions = useMemo(() => {
@@ -206,6 +368,13 @@ export default function CrearBillsPage() {
                     text: (t('create_bills.success_single') || 'Bill creado exitosamente en QuickBooks Online (ID: {id})').replace('{id}', createdBill.Id)
                 });
                 setConfirmModal({ isOpen: false });
+
+                // Deselect if it was selected in batch
+                setSelectedDocNumbers((prev) => {
+                    const next = new Set(prev);
+                    next.delete(docNumber);
+                    return next;
+                });
 
                 // Update local state directly
                 setInvoices((prev) =>
@@ -264,7 +433,7 @@ export default function CrearBillsPage() {
     };
 
     const handleSelectAllVisiblePending = () => {
-        const pendingVisible = filteredInvoices.filter((inv) => !inv.hasBill);
+        const pendingVisible = sortedInvoices.filter((inv) => !inv.hasBill);
         const allSelected = pendingVisible.every((inv) => selectedDocNumbers.has(inv.docNumber));
 
         setSelectedDocNumbers((prev) => {
@@ -407,10 +576,10 @@ export default function CrearBillsPage() {
                     </div>
                     <div className="mt-3 flex items-baseline justify-between">
                         <span className="text-3xl font-bold text-slate-900 dark:text-white">
-                            {summary.pendingCount}
+                            {displaySummary.pendingCount}
                         </span>
                         <span className="text-sm font-semibold text-amber-600 dark:text-amber-400">
-                            {formatCurrency(summary.pendingAmount)}
+                            {formatCurrency(displaySummary.pendingAmount)}
                         </span>
                     </div>
                     <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
@@ -430,10 +599,10 @@ export default function CrearBillsPage() {
                     </div>
                     <div className="mt-3 flex items-baseline justify-between">
                         <span className="text-3xl font-bold text-slate-900 dark:text-white">
-                            {summary.createdCount}
+                            {displaySummary.createdCount}
                         </span>
                         <span className="text-sm font-semibold text-emerald-600 dark:text-emerald-400">
-                            {formatCurrency(summary.createdAmount)}
+                            {formatCurrency(displaySummary.createdAmount)}
                         </span>
                     </div>
                     <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
@@ -453,10 +622,10 @@ export default function CrearBillsPage() {
                     </div>
                     <div className="mt-3 flex items-baseline justify-between">
                         <span className="text-3xl font-bold text-slate-900 dark:text-white">
-                            {summary.totalCount}
+                            {displaySummary.totalCount}
                         </span>
                         <span className="text-sm font-semibold text-blue-600 dark:text-blue-400">
-                            {formatCurrency(summary.totalAmount)}
+                            {formatCurrency(displaySummary.totalAmount)}
                         </span>
                     </div>
                     <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
@@ -520,7 +689,7 @@ export default function CrearBillsPage() {
                                     : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                             }`}
                         >
-                            {t('create_bills.status_all') || 'Todos'} ({summary.totalCount})
+                            {t('create_bills.status_all') || 'Todos'} ({displaySummary.totalCount})
                         </button>
                         <button
                             onClick={() => setSelectedStatus('pending')}
@@ -531,7 +700,7 @@ export default function CrearBillsPage() {
                             }`}
                         >
                             <span className="w-1.5 h-1.5 rounded-full bg-amber-200"></span>
-                            {t('create_bills.status_pending') || 'Pendientes'} ({summary.pendingCount})
+                            {t('create_bills.status_pending') || 'Pendientes'} ({displaySummary.pendingCount})
                         </button>
                         <button
                             onClick={() => setSelectedStatus('created')}
@@ -542,7 +711,7 @@ export default function CrearBillsPage() {
                             }`}
                         >
                             <span className="w-1.5 h-1.5 rounded-full bg-emerald-200"></span>
-                            {t('create_bills.status_created') || 'Creados'} ({summary.createdCount})
+                            {t('create_bills.status_created') || 'Creados'} ({displaySummary.createdCount})
                         </button>
                     </div>
                 </div>
@@ -571,30 +740,37 @@ export default function CrearBillsPage() {
 
             {/* BATCH ACTION BAR (Shown when pending items are selected) */}
             {selectedDocNumbers.size > 0 && (
-                <div className="bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800/80 p-4 rounded-2xl flex items-center justify-between shadow-sm animate-in fade-in slide-in-from-top-2">
+                <div className="sticky top-4 z-30 bg-emerald-50 dark:bg-emerald-950/80 border border-emerald-200 dark:border-emerald-800/80 p-4 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-lg backdrop-blur-sm animate-in fade-in slide-in-from-top-2">
                     <div className="flex items-center gap-3">
-                        <div className="p-2 bg-emerald-600 text-white rounded-lg">
+                        <div className="p-2 bg-emerald-600 text-white rounded-lg shrink-0">
                             <CheckSquare className="w-5 h-5" />
                         </div>
                         <div>
-                            <p className="text-sm font-bold text-emerald-950 dark:text-emerald-100">
-                                {selectedDocNumbers.size} facturas seleccionadas para crear Bill
-                            </p>
+                            <div className="flex items-center gap-2 flex-wrap">
+                                <p className="text-sm font-bold text-emerald-950 dark:text-emerald-100">
+                                    {t('create_bills.batch_bar_count')?.replace('{count}', String(selectedDocNumbers.size)) || `${selectedDocNumbers.size} facturas seleccionadas`}
+                                </p>
+                                <span className="text-xs font-bold font-mono px-2 py-0.5 bg-emerald-200/80 dark:bg-emerald-900 text-emerald-900 dark:text-emerald-200 rounded-md">
+                                    {t('create_bills.batch_bar_amount')?.replace('{amount}', formatCurrency(selectedTotalAmount)) || `Total: ${formatCurrency(selectedTotalAmount)}`}
+                                </span>
+                            </div>
                             <p className="text-xs text-emerald-700 dark:text-emerald-300">
-                                Se registrarán en lote bajo el proveedor "Tacos El Gavilan - Warehouse" y cuenta 50010 COGS Purchases.
+                                {t('create_bills.batch_bar_desc') || 'Se registrarán en lote bajo el proveedor "Tacos El Gavilan - Warehouse" y cuenta 50010 COGS Purchases:Prep Foods.'}
                             </p>
                         </div>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 shrink-0">
                         <button
                             onClick={() => setSelectedDocNumbers(new Set())}
-                            className="px-3 py-1.5 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white"
+                            disabled={isSubmitting}
+                            className="px-3 py-1.5 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white disabled:opacity-50"
                         >
-                            Deseleccionar
+                            {t('create_bills.btn_deselect') || 'Deseleccionar'}
                         </button>
                         <button
                             onClick={() => setBatchModal({ isOpen: true })}
-                            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-bold rounded-xl shadow-md transition-all flex items-center gap-2"
+                            disabled={isSubmitting}
+                            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-bold rounded-xl shadow-md transition-all flex items-center gap-2 disabled:opacity-50"
                         >
                             <Sparkles className="w-4 h-4" />
                             <span>{t('create_bills.batch_create_btn') || 'Crear Bills Seleccionados'} ({selectedDocNumbers.size})</span>
@@ -619,12 +795,114 @@ export default function CrearBillsPage() {
                                         <CheckSquare className="w-4 h-4" />
                                     </button>
                                 </th>
-                                <th className="p-4">{t('create_bills.th_invoice') || 'Factura / Invoice #'}</th>
-                                <th className="p-4">{t('create_bills.th_date') || 'Fecha Emisión'}</th>
-                                <th className="p-4">{t('create_bills.th_due_date') || 'Vencimiento'}</th>
-                                <th className="p-4">{t('create_bills.th_store') || 'Sucursal (Tienda)'}</th>
-                                <th className="p-4 text-right">{t('create_bills.th_amount') || 'Monto Total'}</th>
-                                <th className="p-4 text-center">{t('create_bills.th_status') || 'Estado del Bill'}</th>
+                                <th 
+                                    className="p-4 cursor-pointer hover:bg-slate-100/75 dark:hover:bg-slate-800/80 transition-colors select-none group"
+                                    onClick={() => requestSort('docNumber')}
+                                    title="Ordenar por número de factura"
+                                >
+                                    <div className="flex items-center gap-1.5">
+                                        <span>{t('create_bills.th_invoice') || 'Factura / Invoice #'}</span>
+                                        {sortConfig.key === 'docNumber' ? (
+                                            sortConfig.direction === 'asc' ? (
+                                                <ChevronUp className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                                            ) : (
+                                                <ChevronDown className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                                            )
+                                        ) : (
+                                            <ArrowUpDown className="w-3.5 h-3.5 opacity-0 group-hover:opacity-40 transition-opacity" />
+                                        )}
+                                    </div>
+                                </th>
+                                <th 
+                                    className="p-4 cursor-pointer hover:bg-slate-100/75 dark:hover:bg-slate-800/80 transition-colors select-none group"
+                                    onClick={() => requestSort('txnDate')}
+                                    title="Ordenar por fecha de emisión"
+                                >
+                                    <div className="flex items-center gap-1.5">
+                                        <span>{t('create_bills.th_date') || 'Fecha Emisión'}</span>
+                                        {sortConfig.key === 'txnDate' ? (
+                                            sortConfig.direction === 'asc' ? (
+                                                <ChevronUp className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                                            ) : (
+                                                <ChevronDown className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                                            )
+                                        ) : (
+                                            <ArrowUpDown className="w-3.5 h-3.5 opacity-0 group-hover:opacity-40 transition-opacity" />
+                                        )}
+                                    </div>
+                                </th>
+                                <th 
+                                    className="p-4 cursor-pointer hover:bg-slate-100/75 dark:hover:bg-slate-800/80 transition-colors select-none group"
+                                    onClick={() => requestSort('dueDate')}
+                                    title="Ordenar por fecha de vencimiento"
+                                >
+                                    <div className="flex items-center gap-1.5">
+                                        <span>{t('create_bills.th_due_date') || 'Vencimiento'}</span>
+                                        {sortConfig.key === 'dueDate' ? (
+                                            sortConfig.direction === 'asc' ? (
+                                                <ChevronUp className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                                            ) : (
+                                                <ChevronDown className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                                            )
+                                        ) : (
+                                            <ArrowUpDown className="w-3.5 h-3.5 opacity-0 group-hover:opacity-40 transition-opacity" />
+                                        )}
+                                    </div>
+                                </th>
+                                <th 
+                                    className="p-4 cursor-pointer hover:bg-slate-100/75 dark:hover:bg-slate-800/80 transition-colors select-none group"
+                                    onClick={() => requestSort('storeName')}
+                                    title="Ordenar por sucursal / tienda"
+                                >
+                                    <div className="flex items-center gap-1.5">
+                                        <span>{t('create_bills.th_store') || 'Sucursal (Tienda)'}</span>
+                                        {sortConfig.key === 'storeName' ? (
+                                            sortConfig.direction === 'asc' ? (
+                                                <ChevronUp className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                                            ) : (
+                                                <ChevronDown className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                                            )
+                                        ) : (
+                                            <ArrowUpDown className="w-3.5 h-3.5 opacity-0 group-hover:opacity-40 transition-opacity" />
+                                        )}
+                                    </div>
+                                </th>
+                                <th 
+                                    className="p-4 text-right cursor-pointer hover:bg-slate-100/75 dark:hover:bg-slate-800/80 transition-colors select-none group"
+                                    onClick={() => requestSort('totalAmount')}
+                                    title="Ordenar por monto total"
+                                >
+                                    <div className="flex items-center justify-end gap-1.5">
+                                        <span>{t('create_bills.th_amount') || 'Monto Total'}</span>
+                                        {sortConfig.key === 'totalAmount' ? (
+                                            sortConfig.direction === 'asc' ? (
+                                                <ChevronUp className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                                            ) : (
+                                                <ChevronDown className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                                            )
+                                        ) : (
+                                            <ArrowUpDown className="w-3.5 h-3.5 opacity-0 group-hover:opacity-40 transition-opacity" />
+                                        )}
+                                    </div>
+                                </th>
+                                <th 
+                                    className="p-4 text-center cursor-pointer hover:bg-slate-100/75 dark:hover:bg-slate-800/80 transition-colors select-none group"
+                                    onClick={() => requestSort('hasBill')}
+                                    title="Ordenar por estado del Bill"
+                                >
+                                    <div className="flex items-center justify-center gap-1.5">
+                                        <span>{t('create_bills.th_status') || 'Estado del Bill'}</span>
+                                        {sortConfig.key === 'hasBill' ? (
+                                            sortConfig.direction === 'asc' ? (
+                                                <ChevronUp className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                                            ) : (
+                                                <ChevronDown className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                                            )
+                                        ) : (
+                                            <ArrowUpDown className="w-3.5 h-3.5 opacity-0 group-hover:opacity-40 transition-opacity" />
+                                        )}
+                                    </div>
+                                </th>
                                 <th className="p-4 text-right">{t('create_bills.th_actions') || 'Acciones'}</th>
                             </tr>
                         </thead>
@@ -635,12 +913,12 @@ export default function CrearBillsPage() {
                                         <div className="flex flex-col items-center justify-center gap-3">
                                             <RefreshCw className="w-8 h-8 animate-spin text-emerald-600" />
                                             <p className="font-semibold text-slate-600 dark:text-slate-300">
-                                                Cargando facturas desde QuickBooks Online...
+                                                {t('create_bills.loading_invoices') || 'Cargando facturas desde QuickBooks Online...'}
                                             </p>
                                         </div>
                                     </td>
                                 </tr>
-                            ) : filteredInvoices.length === 0 ? (
+                            ) : sortedInvoices.length === 0 ? (
                                 <tr>
                                     <td colSpan={8} className="p-12 text-center text-slate-400">
                                         <div className="flex flex-col items-center justify-center gap-2">
@@ -652,7 +930,7 @@ export default function CrearBillsPage() {
                                     </td>
                                 </tr>
                             ) : (
-                                filteredInvoices.map((inv) => {
+                                sortedInvoices.map((inv) => {
                                     const isSelected = selectedDocNumbers.has(inv.docNumber);
                                     return (
                                         <tr
@@ -670,8 +948,9 @@ export default function CrearBillsPage() {
                                                 ) : (
                                                     <button
                                                         onClick={() => toggleSelectDocNumber(inv.docNumber)}
+                                                        disabled={isSubmitting}
                                                         aria-label={`Seleccionar factura ${inv.docNumber}`}
-                                                        className="text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400"
+                                                        className="text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 disabled:opacity-50"
                                                     >
                                                         {isSelected ? (
                                                             <CheckSquare className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
@@ -738,7 +1017,8 @@ export default function CrearBillsPage() {
                                                 {inv.hasBill ? (
                                                     <button
                                                         onClick={() => setViewBillModal({ isOpen: true, invoice: inv })}
-                                                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold rounded-lg transition-colors border border-slate-200 dark:border-slate-700"
+                                                        disabled={isSubmitting}
+                                                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold rounded-lg transition-colors border border-slate-200 dark:border-slate-700 disabled:opacity-50"
                                                     >
                                                         <Eye className="w-3.5 h-3.5" />
                                                         <span>{t('create_bills.btn_view_bill') || 'Ver Bill'}</span>
@@ -746,7 +1026,8 @@ export default function CrearBillsPage() {
                                                 ) : (
                                                     <button
                                                         onClick={() => handleOpenConfirmSingle(inv)}
-                                                        className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-lg shadow-sm hover:shadow transition-all"
+                                                        disabled={isSubmitting}
+                                                        className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-lg shadow-sm hover:shadow transition-all disabled:opacity-50"
                                                     >
                                                         <Sparkles className="w-3.5 h-3.5" />
                                                         <span>{t('create_bills.btn_create_bill') || 'Crear Bill'}</span>
@@ -764,7 +1045,14 @@ export default function CrearBillsPage() {
 
             {/* CONFIRM SINGLE BILL CREATION MODAL */}
             {confirmModal.isOpen && confirmModal.invoice && (
-                <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+                <div 
+                    className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4"
+                    onClick={(e) => {
+                        if (e.target === e.currentTarget && !isSubmitting) {
+                            setConfirmModal({ isOpen: false });
+                        }
+                    }}
+                >
                     <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-lg w-full border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden animate-in zoom-in-95">
                         <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
                             <div className="flex items-center gap-3">
@@ -910,7 +1198,14 @@ export default function CrearBillsPage() {
 
             {/* CONFIRM BATCH BILL CREATION MODAL */}
             {batchModal.isOpen && (
-                <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+                <div 
+                    className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4"
+                    onClick={(e) => {
+                        if (e.target === e.currentTarget && !isSubmitting) {
+                            setBatchModal({ isOpen: false });
+                        }
+                    }}
+                >
                     <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-lg w-full border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden animate-in zoom-in-95">
                         <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
                             <div className="flex items-center gap-3">
@@ -956,6 +1251,13 @@ export default function CrearBillsPage() {
                                     );
                                 })}
                             </div>
+
+                            <div className="pt-2 px-1 flex justify-between items-center text-xs font-bold text-slate-700 dark:text-slate-300">
+                                <span>{t('create_bills.batch_modal_total') || 'Total del Lote'}:</span>
+                                <span className="font-mono text-emerald-600 dark:text-emerald-400 text-sm">
+                                    {formatCurrency(selectedTotalAmount)}
+                                </span>
+                            </div>
                         </div>
 
                         <div className="p-6 bg-slate-50/50 dark:bg-slate-800/40 border-t border-slate-100 dark:border-slate-800 flex justify-end gap-3">
@@ -979,7 +1281,7 @@ export default function CrearBillsPage() {
                                 ) : (
                                     <>
                                         <Sparkles className="w-4 h-4" />
-                                        <span>Crear {selectedDocNumbers.size} Bills</span>
+                                        <span>{t('create_bills.batch_create_btn') || 'Crear Bills Seleccionados'} ({selectedDocNumbers.size})</span>
                                     </>
                                 )}
                             </button>
@@ -990,7 +1292,14 @@ export default function CrearBillsPage() {
 
             {/* VIEW BILL DETAILS MODAL */}
             {viewBillModal.isOpen && viewBillModal.invoice && (
-                <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+                <div 
+                    className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4"
+                    onClick={(e) => {
+                        if (e.target === e.currentTarget) {
+                            setViewBillModal({ isOpen: false });
+                        }
+                    }}
+                >
                     <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-md w-full border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden animate-in zoom-in-95">
                         <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
                             <div className="flex items-center gap-3">
@@ -1079,9 +1388,9 @@ export default function CrearBillsPage() {
                         <div className="p-6 bg-slate-50/50 dark:bg-slate-800/40 border-t border-slate-100 dark:border-slate-800 flex justify-end">
                             <button
                                 onClick={() => setViewBillModal({ isOpen: false })}
-                                className="px-5 py-2 bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 text-sm font-bold rounded-xl"
+                                className="px-5 py-2 bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 text-sm font-bold rounded-xl hover:opacity-90 transition-opacity"
                             >
-                                Entendido
+                                {t('create_bills.understood') || 'Entendido'}
                             </button>
                         </div>
                     </div>
