@@ -24,6 +24,7 @@
  * - Soporta filtrado por tienda, estado (Todos, Pendientes, Creados) y búsqueda por número o monto.
  * - Ordenamiento interactivo por encabezado de columna (Factura #, Fecha Emisión, Vencimiento, Tienda, Monto Total, Estado del Bill).
  * - Ordenamiento por defecto: Agrupado por Tienda (A-Z) y ordenado por Fecha cronológica y número de factura.
+ * - Fix TDZ en buscador: elevación de formatCurrency a nivel de módulo con caché de Intl.NumberFormat para evitar ReferenceError en producción.
  * - Validación estricta anti-duplicados para evitar registrar dos veces el mismo gasto.
  */
 
@@ -44,6 +45,16 @@ export type SortKey = 'docNumber' | 'txnDate' | 'dueDate' | 'storeName' | 'total
 export interface SortConfig {
     key: SortKey;
     direction: 'asc' | 'desc';
+}
+
+const currencyFormatter = new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 2
+});
+
+export function formatCurrency(val: number): string {
+    return currencyFormatter.format(val || 0);
 }
 
 export default function CrearBillsPage() {
@@ -225,10 +236,16 @@ export default function CrearBillsPage() {
                 const matchDoc = docClean.includes(term);
                 const matchStore = (inv.storeName || '').toLowerCase().includes(term);
                 const matchCustomer = (inv.customerName || '').toLowerCase().includes(term);
-                const rawAmt = (inv.totalAmount || 0).toString();
-                const formattedAmt = formatCurrency(inv.totalAmount || 0).toLowerCase().replace(/[$,]/g, '');
+                const rawAmt = (inv.totalAmount ?? 0).toString();
+                const formattedAmt = formatCurrency(inv.totalAmount ?? 0).toLowerCase().replace(/[$,]/g, '');
                 const matchAmount = rawAmt.includes(term) || formattedAmt.includes(term);
-                if (!matchDoc && !matchStore && !matchCustomer && !matchAmount) {
+                const matchDate = (inv.txnDate || '').toLowerCase().includes(term) || (inv.dueDate || '').toLowerCase().includes(term);
+                const matchBill = inv.bill ? (
+                    (inv.bill.billId || '').toLowerCase().includes(term) ||
+                    (inv.bill.docNumber || '').toLowerCase().includes(term)
+                ) : false;
+
+                if (!matchDoc && !matchStore && !matchCustomer && !matchAmount && !matchDate && !matchBill) {
                     return false;
                 }
             }
@@ -492,14 +509,6 @@ export default function CrearBillsPage() {
         } finally {
             setIsSubmitting(false);
         }
-    };
-
-    const formatCurrency = (val: number) => {
-        return new Intl.NumberFormat('en-US', {
-            style: 'currency',
-            currency: 'USD',
-            minimumFractionDigits: 2
-        }).format(val);
     };
 
     return (
