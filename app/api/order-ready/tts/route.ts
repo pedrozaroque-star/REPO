@@ -40,7 +40,17 @@ export async function GET(request: Request) {
       }
     })
   } catch (err: any) {
+    const isQuota = err?.message?.includes('GEMINI_TTS_QUOTA_EXHAUSTED') || err?.message?.includes('429')
     console.error('[order-ready/tts] error:', err?.message)
-    return NextResponse.json({ error: err?.message || 'TTS failed' }, { status: 502 })
+    return NextResponse.json(
+      { 
+        error: isQuota ? 'TTS_QUOTA_EXHAUSTED' : (err?.message || 'TTS failed'),
+        fallback: true 
+      }, 
+      { 
+        status: isQuota ? 503 : 502,
+        headers: isQuota ? { 'Retry-After': '900' } : undefined
+      }
+    )
   }
 }

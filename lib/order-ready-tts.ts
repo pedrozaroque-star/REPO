@@ -149,7 +149,10 @@ async function generateTextWithGemini(
   // Priorizar llaves que no estén temporalmente bloqueadas por 429
   const now = Date.now()
   const unblockedKeys = allKeys.filter((k) => (keyBlockedUntil.get(k) || 0) <= now)
-  const candidateKeys = unblockedKeys.length > 0 ? unblockedKeys : allKeys
+  if (unblockedKeys.length === 0) {
+    throw new Error('GEMINI_TTS_QUOTA_EXHAUSTED: Cuota diaria de Gemini TTS alcanzada en todas las llaves (429 RESOURCE_EXHAUSTED). Use voz local del navegador.')
+  }
+  const candidateKeys = unblockedKeys
 
   // Rotación balanceada (round-robin)
   const startIndex = (poolIndex++) % candidateKeys.length
@@ -232,8 +235,8 @@ async function generateTextWithGemini(
     }
 
     if (allModels429) {
-      // Si todos los modelos de esta llave arrojaron 429, enfriar la llave 45s para resetear el RPM
-      keyBlockedUntil.set(key, Date.now() + 45 * 1000)
+      // Si todos los modelos de esta llave arrojaron 429 (cuota diaria alcanzada), enfriar por 15 minutos
+      keyBlockedUntil.set(key, Date.now() + 15 * 60 * 1000)
     }
   }
 

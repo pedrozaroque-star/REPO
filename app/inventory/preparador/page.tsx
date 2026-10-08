@@ -34,6 +34,7 @@ import { createClient } from '@/lib/supabase-client'
 import { motion, AnimatePresence } from 'framer-motion'
 import { TOAST_STORE_MAP } from '@/lib/toast-stores'
 import { getCaliforniaBusinessDate } from '@/lib/business-date'
+import { isForbiddenRaulVoice } from '@/lib/order-ready-tts'
         
 
 interface MeatData {
@@ -500,7 +501,156 @@ export default function PreparadorPage() {
         }
     }, [storeId, stores, supabase])
 
-    // Acción de llamado de orden (impulso táctil enviado a la PC del Manager)
+    // Reproductor de Campanilla Ding-Dong armónica (D5 -> A5) en la tableta
+    const playTabletChime = async () => {
+        try {
+            const AudioCtx = window.AudioContext || (window as any).webkitAudioContext
+            if (!AudioCtx) return
+            if (!tabletAudioCtxRef.current || tabletAudioCtxRef.current.state === 'closed') {
+                tabletAudioCtxRef.current = new AudioCtx()
+            }
+            const ctx = tabletAudioCtxRef.current
+            if (ctx.state === 'suspended') {
+                await ctx.resume().catch(() => {})
+            }
+            const now = ctx.currentTime
+
+            // Campana 1: D5 (587.33 Hz)
+            const osc1 = ctx.createOscillator()
+            const gain1 = ctx.createGain()
+            osc1.type = 'sine'
+            osc1.frequency.setValueAtTime(587.33, now)
+            gain1.gain.setValueAtTime(0.28, now)
+            gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.5)
+            osc1.connect(gain1)
+            gain1.connect(ctx.destination)
+            osc1.start(now)
+            osc1.stop(now + 0.5)
+
+            // Campana 2: A5 (880 Hz) con leve retraso melódico
+            const osc2 = ctx.createOscillator()
+            const gain2 = ctx.createGain()
+            osc2.type = 'sine'
+            osc2.frequency.setValueAtTime(880, now + 0.16)
+            gain2.gain.setValueAtTime(0.35, now + 0.16)
+            gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.8)
+            osc2.connect(gain2)
+            gain2.connect(ctx.destination)
+            osc2.start(now + 0.16)
+            osc2.stop(now + 0.8)
+
+            await new Promise(r => setTimeout(r, 650))
+        } catch (e) {
+            console.warn('[Preparador] Error en chime:', e)
+        }
+    }
+
+    // Reproductor de voz femenina natural (WAV en caché de Supabase o síntesis local del navegador)
+    const playTabletOrderVoice = async (orderNumber: string) => {
+        const num = String(parseInt(orderNumber, 10))
+        if (!num || isNaN(Number(num))) return
+
+        // 1. Tocar campanilla Ding-Dong
+        await playTabletChime()
+
+        // 2. Intentar reproducir clip WAV de alta fidelidad desde Supabase Storage vía /api/order-ready/tts
+        let audioPlayed = false
+        try {
+            const controller = new AbortController()
+            const timeoutId = setTimeout(() => controller.abort(), 2200) // 2.2s failover
+            const res = await fetch(`/api/order-ready/tts?n=${num}&lang=es&voice=Kore`, {
+                signal: controller.signal
+            })
+            clearTimeout(timeoutId)
+
+            if (res.ok) {
+                const blob = await res.blob()
+                const audioUrl = URL.createObjectURL(blob)
+                await new Promise<void>((resolve) => {
+                    const audio = new Audio(audioUrl)
+                    audio.volume = 1.0
+                    let done = false
+                    const finish = () => {
+                        if (!done) {
+                            done = true
+                            audio.onended = null
+                            audio.onerror = null
+                            URL.revokeObjectURL(audioUrl)
+                            resolve()
+                        }
+                    }
+                    audio.onended = finish
+                    audio.onerror = finish
+                    setTimeout(finish, 7000)
+                    audio.play().then(() => {
+                        audioPlayed = true
+                    }).catch(finish)
+                })
+            }
+        } catch (e) {
+            // Continúa a fallback de voz local
+        }
+
+        // 3. Fallback de voz del navegador si el archivo no está en caché o la cuota API está en cooldown
+        if (!audioPlayed && typeof window !== 'undefined' && 'speechSynthesis' in window) {
+            await new Promise<void>((resolve) => {
+                let done = false
+                const finish = () => {
+                    if (!done) {
+                        done = true
+                        resolve()
+                    }
+                }
+                setTimeout(finish, 6000) // Watchdog de seguridad
+
+                try {
+                    const synth = window.speechSynthesis
+                    if (synth.paused) synth.resume()
+                    synth.cancel()
+
+                    const allVoices = synth.getVoices().filter(v => !isForbiddenRaulVoice(v.name))
+                    // Buscar mejor voz en español (descartando a Raúl)
+                    let chosen = allVoices.find(v => {
+                        const l = (v.lang || '').toLowerCase()
+                        const n = v.name.toLowerCase()
+                        return (l.startsWith('es') || l.startsWith('spa')) &&
+                               !isForbiddenRaulVoice(v.name) &&
+                               /female|mujer|monica|sabina|paulina|helena|dalia|google/i.test(n)
+                    })
+                    if (!chosen) {
+                        chosen = allVoices.find(v => {
+                            const l = (v.lang || '').toLowerCase()
+                            return (l.startsWith('es') || l.startsWith('spa')) && !isForbiddenRaulVoice(v.name)
+                        })
+                    }
+                    if (!chosen) {
+                        chosen = allVoices.find(v => !isForbiddenRaulVoice(v.name))
+                    }
+
+                    const utt = new SpeechSynthesisUtterance(`Orden ${num}, ¡ya está!`)
+                    utt.rate = 0.95
+                    utt.volume = 1.0
+                    if (chosen) {
+                        utt.voice = chosen
+                        utt.lang = chosen.lang || 'es-MX'
+                        if (/male|david|hombre|guy|mark/i.test(chosen.name)) {
+                            utt.pitch = 1.22 // Tono más cálido/agudo si la única voz del sistema es masculina no-Raúl
+                        }
+                    } else {
+                        utt.lang = 'es-MX'
+                    }
+
+                    utt.onend = finish
+                    utt.onerror = finish
+                    synth.speak(utt)
+                } catch (err) {
+                    finish()
+                }
+            })
+        }
+    }
+
+    // Acción de llamado de orden (impulso táctil enviado a la PC del Manager y voz local en tableta)
     const handleCallOrderImpulse = async (order: any) => {
         if (!order || !order.id || callingIdsRef.current.has(order.id)) return
 
@@ -508,30 +658,10 @@ export default function PreparadorPage() {
         setCallingOrderIds(prev => new Set(prev).add(order.id))
         setCallSuccessOrderIds(prev => new Set(prev).add(order.id))
 
-        // Tono auditivo local suave en la tableta (reutilizando AudioContext sin memory leak)
-        try {
-            const AudioCtx = window.AudioContext || (window as any).webkitAudioContext
-            if (AudioCtx) {
-                if (!tabletAudioCtxRef.current || tabletAudioCtxRef.current.state === 'closed') {
-                    tabletAudioCtxRef.current = new AudioCtx()
-                }
-                const ctx = tabletAudioCtxRef.current
-                if (ctx.state === 'suspended') {
-                    ctx.resume().catch(() => {})
-                }
-                const osc = ctx.createOscillator()
-                const gain = ctx.createGain()
-                osc.connect(gain)
-                gain.connect(ctx.destination)
-                osc.type = 'sine'
-                osc.frequency.setValueAtTime(880, ctx.currentTime)
-                osc.frequency.exponentialRampToValueAtTime(1320, ctx.currentTime + 0.12)
-                gain.gain.setValueAtTime(0.2, ctx.currentTime)
-                gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15)
-                osc.start()
-                osc.stop(ctx.currentTime + 0.16)
-            }
-        } catch (e) {}
+        // Reproducir campanilla Ding-Dong y voz natural en la tableta localmente
+        playTabletOrderVoice(order.order_number).catch((err) => {
+            console.warn('[Preparador] Error en voz de tableta:', err)
+        })
 
         const currentStore = stores.find(s => String(s.id) === String(storeId))
         const storeCode = (currentStore?.code || TOAST_STORE_MAP[currentStore?.external_id]?.code || '').toUpperCase()

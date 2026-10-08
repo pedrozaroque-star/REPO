@@ -867,40 +867,53 @@ function OrderReadyBoardContent() {
             return
           }
 
-          // 2. Bloqueo 100% incondicional de Raúl
+          // 2. Bloqueo 100% incondicional de Raúl (REGLA ABSOLUTA TACOS GAVILAN)
           if (isForbiddenRaulVoice(utt.voice.name)) {
             console.warn('[order-ready] Bloqueo absoluto anti-Raúl: voz descartada:', utt.voice.name)
             onEndCallback()
             return
           }
 
-          // 3. Si la voz seleccionada es femenina (Kore, Aoede, Zephyr):
+          // 3. Si la voz seleccionada es femenina pero la única disponible en el SO es masculina no-Raúl:
+          // Modificar tono (pitch) a 1.25 para darle mayor calidez/agudeza y evitar silencio total
           if (isFemale) {
             const vNameNorm = utt.voice.name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
-            if (/raul|david|male|hombre|jorge|diego|pablo|miguel|guy|mark|george/i.test(vNameNorm)) {
-              console.warn('[order-ready] Bloqueo de seguridad: voz masculina detectada cuando se configuró femenina:', utt.voice.name)
-              onEndCallback()
-              return
+            if (/male|david|hombre|jorge|diego|pablo|miguel|guy|mark|george/i.test(vNameNorm)) {
+              utt.pitch = 1.22
             }
           }
 
-          utt.onend = () => onEndCallback()
-          utt.onerror = () => onEndCallback()
+          let callbackCalled = false
+          const finish = () => {
+            if (!callbackCalled) {
+              callbackCalled = true
+              onEndCallback()
+            }
+          }
+
+          utt.onend = finish
+          utt.onerror = finish
+          setTimeout(finish, 8000) // Watchdog por locución
 
           try {
-            window.speechSynthesis.speak(utt)
+            const synth = window.speechSynthesis
+            if (synth.paused) synth.resume()
+            synth.cancel()
+            synth.speak(utt)
           } catch (e) {
             console.warn('[order-ready] Error en speechSynthesis.speak:', e)
-            onEndCallback()
+            finish()
           }
         }
 
         const validEnVoice = enVoice && !isForbiddenRaulVoice(enVoice.name) ? enVoice : null
         const validEsVoice = esVoice && !isForbiddenRaulVoice(esVoice.name) ? esVoice : null
+        // Fallback garantizado: cualquier voz disponible que NO sea Raúl
+        const anyNonRaulVoice = voices.find(v => !isForbiddenRaulVoice(v.name)) || null
 
         if (voiceLanguage === 'bilingual') {
-          const chosenEn = validEnVoice || safeEmergencyFemale
-          const chosenEs = validEsVoice || chosenEn
+          const chosenEn = validEnVoice || safeEmergencyFemale || anyNonRaulVoice
+          const chosenEs = validEsVoice || chosenEn || anyNonRaulVoice
 
           // Si no hay ninguna voz garantizada no-Raúl en todo el sistema: SILENCIO ABSOLUTO (CERO RAÚL)
           if (!chosenEn || isForbiddenRaulVoice(chosenEn.name)) {
@@ -940,7 +953,7 @@ function OrderReadyBoardContent() {
             }, 200)
           })
         } else if (voiceLanguage === 'en') {
-          const chosen = validEnVoice || safeEmergencyFemale
+          const chosen = validEnVoice || safeEmergencyFemale || anyNonRaulVoice
           if (!chosen || isForbiddenRaulVoice(chosen.name)) {
             console.warn('[order-ready] Bloqueo anti-Raúl: sin voz segura para inglés.')
             resolve()
@@ -959,7 +972,7 @@ function OrderReadyBoardContent() {
           })
         } else {
           // Solo español
-          const chosen = validEsVoice || validEnVoice || safeEmergencyFemale
+          const chosen = validEsVoice || validEnVoice || safeEmergencyFemale || anyNonRaulVoice
           if (!chosen || isForbiddenRaulVoice(chosen.name)) {
             console.warn('[order-ready] Bloqueo anti-Raúl: sin voz segura para español.')
             resolve()
