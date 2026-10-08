@@ -546,6 +546,19 @@ export const TOOL_DECLARATIONS = [
         minutes: { type: 'NUMBER', description: 'Ventana de tiempo en minutos hacia atrás (por defecto 45 min).' }
       }
     }
+  },
+  {
+    name: 'query_maintenance_logs',
+    description: 'Query external contractor and equipment maintenance service records, repairs, hood cleanings, grease trap pumpings, and pest control visits across Tacos Gavilan stores.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        store_name: { type: 'STRING', description: 'Optional store name filter (e.g. "Lynwood", "Alamo")' },
+        category: { type: 'STRING', description: 'Optional category (hood_cleaning, refrigeration, grease_trap, pest_control, cooking_equipment, plumbing, electrical, power_washing, general)' },
+        status: { type: 'STRING', description: 'Optional status filter (completed, pending_parts, follow_up_needed)' },
+        limit: { type: 'NUMBER', description: 'Max number of logs to return (default 10)' }
+      }
+    }
   }
 ]
 
@@ -553,6 +566,7 @@ export const TOOL_DECLARATIONS = [
 export async function executeTool(name: string, args: any): Promise<string> {
   try {
     switch (name) {
+      case 'query_maintenance_logs': return await queryMaintenanceLogs(args)
       case 'query_viele_orders': return await queryVieleOrders(args)
       case 'query_pnl_consolidated': return await queryPnlConsolidatedTool(args)
       case 'check_system_health': return await checkSystemHealthTool(args)
@@ -613,6 +627,48 @@ async function getStoreMaps() {
     nameToId[n.toLowerCase()] = s.id
   })
   return { idToName, nameToId, stores: stores || [] }
+}
+
+// ── Maintenance Logs Tool ──
+async function queryMaintenanceLogs(args: any): Promise<string> {
+  const { store_name, category, status, limit = 10 } = args || {}
+  try {
+    let query = supabaseAdmin
+      .from('maintenance_service_logs')
+      .select('*')
+      .order('service_date', { ascending: false })
+      .limit(limit)
+
+    if (category) query = query.eq('category', category)
+    if (status) query = query.eq('status', status)
+
+    const { data: logs, error } = await query
+    if (error) return `Error consultando bitácora de mantenimiento: ${error.message}`
+    if (!logs || logs.length === 0) return 'No se encontraron registros de mantenimiento en la bitácora.'
+
+    const { idToName } = await getStoreMaps()
+
+    let filtered = logs
+    if (store_name) {
+      const q = store_name.toLowerCase()
+      filtered = logs.filter(l => {
+        const name = (idToName[l.store_id] || '').toLowerCase()
+        return name.includes(q)
+      })
+    }
+
+    if (filtered.length === 0) return `No se encontraron registros de mantenimiento para "${store_name}".`
+
+    const lines = filtered.map(l => {
+      const stName = idToName[l.store_id] || `Tienda ${l.store_id}`
+      const costStr = l.cost_estimate ? ` • $${Number(l.cost_estimate).toFixed(2)} USD` : ''
+      return `- **${l.service_date}** | **${stName}** | **${l.company_name}** (${l.technician_name}) | Categ: ${l.category} | Equipo: ${l.area_equipment} | ${l.work_description} [Status: ${l.status}] | Validó: ${l.manager_name}${costStr}`
+    })
+
+    return `### Bitácora de Mantenimiento y Proveedores (${filtered.length} registros):\n${lines.join('\n')}`
+  } catch (err: any) {
+    return `Error ejecutando consulta de mantenimiento: ${err.message}`
+  }
 }
 
 async function getStoreIdsByName(storeName: string): Promise<number[]> {

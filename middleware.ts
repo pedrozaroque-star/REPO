@@ -7,7 +7,8 @@ const PUBLIC_ROUTES = [
   '/clientes',
   '/evaluacion',
   '/admin',
-  '/feedback-publico'
+  '/feedback-publico',
+  '/mantenimiento'
 ]
 
 // Rutas protegidas que SÍ requieren autenticación

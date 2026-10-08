@@ -13,7 +13,7 @@ import {
     DollarSign, TrendingUp, Calendar, MessageSquare, CalendarCheck, UserCog,
     Monitor, ChefHat, Zap, X, PanelLeftClose, PanelLeft, RefreshCw,
     Settings, Keyboard, HelpCircle, ExternalLink, Moon, Sun, Globe, Shield,
-    CalendarDays, Sparkles, Info, UserCircle, Menu, Folder, Truck, Timer, Shirt, Car, Calculator, Package, BarChart3, UserCheck, Bell, Receipt
+    CalendarDays, Sparkles, Info, UserCircle, Menu, Folder, Truck, Timer, Shirt, Car, Calculator, Package, BarChart3, UserCheck, Bell, Receipt, Wrench
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useLanguage } from '@/lib/i18n'
@@ -212,6 +212,16 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                     tooltip: language === 'en'
                         ? 'Customer-facing order pickup display and voice announcer (Tablero de pedidos listos y locutor de voz)'
                         : 'Tablero de pedidos listos para clientes y locutor de voz automático'
+                },
+                {
+                    name: t('items.maintenance') || 'Mantenimiento & Proveedores',
+                    plainName: 'Mantenimiento',
+                    path: '/admin/mantenimiento',
+                    icon: <Wrench size={20} />,
+                    roles: ['asistente', 'manager', 'supervisor', 'admin'],
+                    tooltip: language === 'en'
+                        ? 'Vendor service visits, equipment repairs, and technical photo evidence log'
+                        : 'Registro de visitas de técnicos, reparaciones de equipos y evidencias fotográficas de proveedores'
                 },
             ]
         },
