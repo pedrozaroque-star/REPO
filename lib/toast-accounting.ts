@@ -110,6 +110,10 @@ export interface ToastAccountingData {
   doordashPayment: number
   grubhubPayment: number
   cashDeposit: number
+  // Toast Cash Management (Depósitos de Efectivo registrados en Toast POS)
+  toastDepositAmount: number
+  hasToastDeposit: boolean
+  toastDepositsList: Array<{ guid: string; amount: number; date: string; employee?: string }>
   // Validación de Órdenes Abiertas (Step 11 Cohesion)
   openOrdersCount: number
   outOfBalanceOrdersCount: number
@@ -125,8 +129,8 @@ export async function fetchToastAccountingData(
 ): Promise<ToastAccountingData> {
   const token = await getAuthToken()
 
-  // 1. Obtener Dining Options Map y Alternate Payment Types Map (para EBT y delivery)
-  const [optRes, altRes] = await Promise.all([
+  // 1. Obtener Dining Options Map, Alternate Payment Types Map, y Depósitos de Cash Management de Toast POS
+  const [optRes, altRes, depRes] = await Promise.all([
     fetch(`${TOAST_API_HOST}/config/v2/diningOptions`, {
       headers: {
         Authorization: `Bearer ${token}`,
@@ -134,6 +138,12 @@ export async function fetchToastAccountingData(
       },
     }),
     fetch(`${TOAST_API_HOST}/config/v2/alternatePaymentTypes`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Toast-Restaurant-External-ID': storeExternalId,
+      },
+    }).catch(() => null),
+    fetch(`${TOAST_API_HOST}/cashmgmt/v1/deposits?businessDate=${businessDate}`, {
       headers: {
         Authorization: `Bearer ${token}`,
         'Toast-Restaurant-External-ID': storeExternalId,
@@ -155,6 +165,26 @@ export async function fetchToastAccountingData(
     if (Array.isArray(altData)) {
       for (const alt of altData) {
         if (alt.guid && alt.name) altMap[alt.guid] = alt.name
+      }
+    }
+  }
+
+  // Parsear depósitos registrados en Toast POS (Cash Management)
+  let toastDepositAmount = 0
+  let hasToastDeposit = false
+  const toastDepositsList: Array<{ guid: string; amount: number; date: string; employee?: string }> = []
+  if (depRes && depRes.ok) {
+    const rawDeps = await depRes.json().catch(() => [])
+    if (Array.isArray(rawDeps) && rawDeps.length > 0) {
+      hasToastDeposit = true
+      toastDepositAmount = Math.round(rawDeps.reduce((sum: number, d: any) => sum + (Number(d.amount) || 0), 0) * 100) / 100
+      for (const d of rawDeps) {
+        toastDepositsList.push({
+          guid: d.guid,
+          amount: Number(d.amount) || 0,
+          date: d.date,
+          employee: d.employee?.guid,
+        })
       }
     }
   }
@@ -812,6 +842,9 @@ export async function fetchToastAccountingData(
     doordashPayment,
     grubhubPayment,
     cashDeposit,
+    toastDepositAmount,
+    hasToastDeposit,
+    toastDepositsList,
     openOrdersCount,
     outOfBalanceOrdersCount,
     openOrdersList,

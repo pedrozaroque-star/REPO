@@ -303,14 +303,18 @@ export async function POST(request: NextRequest) {
           continue
         }
 
-        // Cohesion parity: "Deposit To Bank" starts at 0.00 until manager enters real deposit slip.
-        // Only preserve if manually entered by user (flagged in qb_sync_response or status reviewed/published)
-        const manualDepositEntered = (existingPacket?.qb_sync_response as any)?.manual_cash_deposit === true
-        const previousDeposit = manualDepositEntered && existingPacket?.cash_deposit !== undefined && existingPacket?.cash_deposit !== null
-          ? Number(existingPacket.cash_deposit)
-          : 0
-        salesPacketData.cash_deposits = previousDeposit
+        // Calculate Expected Cash first (from gross receipts minus non-cash payments)
         const expectedCash = calculateExpectedCash(salesPacketData)
+
+        // Toast Cash Management Parity:
+        // El depósito bancario proviene estrictamente de lo registrado por el gerente en Toast POS Cash Management.
+        // Si ya está registrado en Toast: se toma el monto real.
+        // Si aún no está registrado en Toast: queda en $0.00 con estado pendiente.
+        const finalDeposit = toastAccountingResult?.hasToastDeposit && toastAccountingResult.toastDepositAmount > 0
+          ? toastAccountingResult.toastDepositAmount
+          : 0
+        const depositSource: 'toast' | 'pending' = finalDeposit > 0 ? 'toast' : 'pending'
+        salesPacketData.cash_deposits = finalDeposit
 
         // Generate journal lines
         const journal = generateJournalLines(salesPacketData, siteConfig)
@@ -339,7 +343,8 @@ export async function POST(request: NextRequest) {
           discount_breakdown: toastAccountingResult?.discountBreakdown || {},
           card_breakdown: toastAccountingResult?.cardBreakdown || {},
           sales_gross_by_option: toastAccountingResult?.salesGrossByOption || {},
-          manual_cash_deposit: manualDepositEntered,
+          deposit_source: depositSource,
+          toast_deposits: toastAccountingResult?.toastDepositsList || [],
         }
 
         // Upsert the packet
@@ -383,7 +388,8 @@ export async function POST(request: NextRequest) {
             discount_breakdown: toastAccountingResult?.discountBreakdown || {},
             card_breakdown: toastAccountingResult?.cardBreakdown || {},
             sales_gross_by_option: toastAccountingResult?.salesGrossByOption || {},
-            manual_cash_deposit: manualDepositEntered,
+            deposit_source: depositSource,
+            toast_deposits: toastAccountingResult?.toastDepositsList || [],
           },
           updated_at: new Date().toISOString(),
         }

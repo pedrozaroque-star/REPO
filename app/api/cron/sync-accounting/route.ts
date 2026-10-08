@@ -254,14 +254,18 @@ export async function GET(request: Request) {
             cash_deposits: 0
           }
 
-          // Cohesion parity: "Deposit To Bank" starts at 0.00 until manager enters real deposit slip.
-          const existingSyncMeta = existingPacket?.qb_sync_response as Record<string, any> | null
-          const manualDepositEntered = Boolean(existingSyncMeta?.manual_cash_deposit)
-          const previousDeposit = manualDepositEntered && existingPacket?.cash_deposit !== undefined && existingPacket?.cash_deposit !== null
-            ? Number(existingPacket.cash_deposit)
-            : 0
-          salesPacketData.cash_deposits = previousDeposit
+          // Calculate Expected Cash first (from gross receipts minus non-cash payments)
           const expectedCash = calculateExpectedCash(salesPacketData)
+
+          // Toast Cash Management Parity:
+          // El depósito bancario proviene estrictamente de lo registrado por el gerente en Toast POS Cash Management.
+          // Si ya está registrado en Toast: se toma el monto real.
+          // Si aún no está registrado en Toast: queda en $0.00 con estado pendiente.
+          const finalDeposit = toastData?.hasToastDeposit && toastData.toastDepositAmount > 0
+            ? toastData.toastDepositAmount
+            : 0
+          const depositSource: 'toast' | 'pending' = finalDeposit > 0 ? 'toast' : 'pending'
+          salesPacketData.cash_deposits = finalDeposit
           const journal = generateJournalLines(salesPacketData, siteConfig)
           const docNumber = formatDocNumber(storeName.replace(/^Tacos Gavilan\s+/i, '').trim(), targetDate)
 
@@ -314,7 +318,8 @@ export async function GET(request: Request) {
             notes: validationInfo.message,
             qb_sync_response: {
               validation: validationInfo,
-              manual_cash_deposit: manualDepositEntered,
+              deposit_source: depositSource,
+              toast_deposits: toastData.toastDepositsList || [],
               sales_gross_by_option: toastData.salesGrossByOption || {},
               discount_breakdown: toastData.discountBreakdown || {},
               card_breakdown: toastData.cardBreakdown || {}

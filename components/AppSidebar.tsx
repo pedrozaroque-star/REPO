@@ -13,7 +13,7 @@ import {
     DollarSign, TrendingUp, Calendar, MessageSquare, CalendarCheck, UserCog,
     Monitor, ChefHat, Zap, X, PanelLeftClose, PanelLeft, RefreshCw,
     Settings, Keyboard, HelpCircle, ExternalLink, Moon, Sun, Globe, Shield,
-    CalendarDays, Sparkles, Info, UserCircle, Menu, Folder, Truck, Timer, Shirt, Car, Calculator, Package, BarChart3, UserCheck, Bell, Receipt, Wrench
+    CalendarDays, Sparkles, Info, UserCircle, Menu, Folder, Truck, Timer, Shirt, Car, Calculator, Package, BarChart3, UserCheck, Bell, Receipt, Wrench, Smartphone
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useLanguage } from '@/lib/i18n'
@@ -314,6 +314,16 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                     tooltip: language === 'en'
                         ? 'Executive dashboard with real-time Toast POS sales and store alerts (Tablero principal con métricas en vivo)'
                         : 'Tablero principal con métricas en tiempo real, ventas Toast POS y alertas operativas'
+                },
+                {
+                    name: t('items.customer_app') || (language === 'en' ? 'Customer App' : 'App Clientes'),
+                    plainName: 'App Clientes',
+                    path: '/app',
+                    icon: <Smartphone size={20} />,
+                    roles: ['asistente', 'manager', 'supervisor', 'admin'],
+                    tooltip: language === 'en'
+                        ? 'Customer mobile ordering app preview and menu consultation (App móvil de pedidos y consulta para clientes)'
+                        : 'Consulta y vista previa de la app móvil de pedidos para clientes'
                 },
                 {
                     name: t('items.manager'),
@@ -672,7 +682,7 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
     const renderNavItem = (item: MenuItem, groupId: string, isMobile: boolean = false) => {
         const isActive = pathname === item.path || (item.path !== '/dashboard' && pathname.startsWith(item.path + '/'))
         const colors = GROUP_COLORS[groupId] || GROUP_COLORS.operaciones
-        const hasNewBadge = item.path === '/basecamp' || item.path === '/admin/compras/viele'
+        const hasNewBadge = item.path === '/basecamp' || item.path === '/admin/compras/viele' || item.path === '/app'
 
         return (
             <Link

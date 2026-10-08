@@ -168,6 +168,7 @@ async function generateTextWithGemini(
 
   for (const key of rotatedKeys) {
     let allModels429 = true
+    let keyDailyExhausted = false
 
     for (const model of MODELS) {
       for (let attempt = 0; attempt < 2; attempt++) {
@@ -217,7 +218,9 @@ async function generateTextWithGemini(
             const errText = await res.text()
             lastErr = `${model} (key ...${key.slice(-4)}): ${res.status} ${errText.slice(0, 160)}`
             if (res.status === 429 || /quota|exceeded/i.test(errText)) {
-              // Cuota de este modelo agotada: intentar el siguiente modelo en la lista sin descartar la llave
+              if (/per_day|per_model_per_day|free_tier_requests|Please retry in [0-9]+h/i.test(errText)) {
+                keyDailyExhausted = true
+              }
               break
             } else {
               allModels429 = false
@@ -238,8 +241,9 @@ async function generateTextWithGemini(
     }
 
     if (allModels429) {
-      // Si todos los modelos arrojaron 429, enfriar la llave 60s para restablecer el límite por minuto (RPM)
-      keyBlockedUntil.set(key, Date.now() + 60 * 1000)
+      // Si la cuota diaria está agotada, enfriar por 4 horas para no reintentarla inútilmente. Si es solo RPM, enfriar 45s.
+      const blockDuration = keyDailyExhausted ? 4 * 60 * 60 * 1000 : 45 * 1000
+      keyBlockedUntil.set(key, Date.now() + blockDuration)
     }
   }
 

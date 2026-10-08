@@ -453,12 +453,10 @@ export default function AccountingPage() {
             <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-slate-400"></span> {t('accounting.status_pending') || 'Pendiente'}</span>
             <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-blue-500"></span> {t('accounting.status_ready_calculated') || 'Listo (Calculado)'}</span>
             <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-amber-500"></span> {t('accounting.status_open_orders') || 'Órdenes Abiertas'}</span>
-            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-yellow-500"></span> {t('accounting.status_reviewed') || 'Revisado'}</span>
             <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span> {t('accounting.status_published') || 'Publicado'}</span>
-            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-rose-500"></span> {t('accounting.status_rejected') || 'Rechazado'}</span>
           </div>
           <div className="text-slate-600 dark:text-slate-400 font-medium">
-            {t('accounting.legend_click_hint') || 'Haz clic en cualquier botón para ver la póliza y ajustar efectivo'}
+            {t('accounting.legend_click_hint') || 'Haz clic en cualquier celda para ver la póliza y publicar a QuickBooks'}
           </div>
         </div>
       </div>

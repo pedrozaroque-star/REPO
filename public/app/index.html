@@ -3,8 +3,23 @@
   <head>
     <meta charset="utf-8" />
     <meta httpEquiv="X-UA-Compatible" content="IE=edge" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <title>Tacos Gavilan</title>
+    <script>
+      (function() {
+        try {
+          var p = window.location.pathname || '';
+          if (p.endsWith('/index.html') || p.endsWith('index.html')) {
+            var clean = p.replace(/index\.html$/, '');
+            if (!clean.endsWith('/')) clean += '/';
+            window.history.replaceState(null, '', clean + window.location.search + window.location.hash);
+          }
+        } catch(e) {}
+      })();
+    </script>
     <!-- The `react-native-web` recommended style reset: https://necolas.github.io/react-native-web/docs/setup/#root-element -->
     <style id="expo-reset">
       /* These styles make the body full-height */
@@ -32,6 +47,6 @@
     </noscript>
     <!-- The root element for your Expo app. -->
     <div id="root"></div>
-  <script src="/app/_expo/static/js/web/entry-2fba95feaf2a427c9a6931f368b34bee.js" defer></script>
+  <script src="/app/_expo/static/js/web/entry-0858dc0b19cafe332c8d67d8f7134cae.js" defer></script>
 </body>
 </html>

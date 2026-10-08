@@ -2433,12 +2433,13 @@ async function queryAccountingPackets(args: any) {
   if (!data || data.length === 0) return 'No accounting packets found for the specified criteria.'
 
   let result = `### Accounting Packets (${data.length} found)\n\n`
-  result += '| Store | Date | Status | Net Sales | Debits | Credits | QB Published |\n'
-  result += '|-------|------|--------|-----------|--------|---------|-------------|\n'
+  result += '| Store | Date | Status | Net Sales | Deposit | Over/(Short) | QB Published |\n'
+  result += '|-------|------|--------|-----------|---------|--------------|-------------|\n'
   
   for (const p of data) {
     const storeName = (p.stores as any)?.name?.replace(/Tacos Gavilan\s*/i, '') || ''
-    result += `| ${storeName} | ${p.business_date} | ${p.status} | ${fmt$(p.net_sales)} | ${fmt$(p.journal_total_debits)} | ${fmt$(p.journal_total_credits)} | ${p.qb_journal_entry_id ? '✅' : '—'} |\n`
+    const depSource = (p.qb_sync_response as any)?.manual_cash_deposit ? ' (Manual)' : (p.qb_sync_response as any)?.deposit_source === 'toast' ? ' (Toast)' : ''
+    result += `| ${storeName} | ${p.business_date} | ${p.status} | ${fmt$(p.net_sales)} | ${fmt$(p.cash_deposit)}${depSource} | ${fmt$(p.cash_over_short)} | ${p.qb_journal_entry_id ? '✅' : '—'} |\n`
   }
 
   // Summary
