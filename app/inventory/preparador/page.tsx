@@ -26,7 +26,8 @@ import {
     BellRing, ChefHat, Clock, AlertTriangle, Send, UtensilsCrossed, PackageOpen, 
     X, Loader2, Play, Maximize, Minimize, HelpCircle, CheckCircle2, TrendingDown, 
     Calendar, FileText, BookOpen, Sun, ChevronLeft, ChevronRight, Store, Flame, 
-    BarChart3, SlidersHorizontal, ShoppingBag, Utensils, Volume2, RefreshCw, Megaphone 
+    BarChart3, SlidersHorizontal, ShoppingBag, Utensils, Volume2, RefreshCw, Megaphone,
+    CupSoda 
 } from 'lucide-react'
 import { useAuth } from '@/components/ProtectedRoute'
 import { createClient } from '@/lib/supabase-client'
@@ -92,6 +93,24 @@ function parseOrderItemsSummary(raw: string | null | undefined): ParsedOrderItem
         })
     }
     return []
+}
+
+/**
+ * Detecta si un artículo de comanda corresponde a una bebida (aguas frescas, sodas, café, champurrado, etc.)
+ * para permitir al preparador enfocarse al 100% en la parrilla y cocina caliente sin clutter de mostrador.
+ */
+export function isDrinkItem(name: string | null | undefined): boolean {
+    if (!name) return false
+    const raw = name.trim().toLowerCase()
+    if (raw.includes('aguacate') || raw.includes('guacamole')) return false
+
+    const n = raw.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+
+    return (
+        /(^|\b)(horchata|jamaica|tamarindo|champurrado|lemonade|iced tea|fanta|sprite|coke|coca|soda|sodas|dr pepper|jarrito|jarritos|coffee|cafe|bottled water|agua fresca|gallon agua|water|hielo|ice|jugo|juice|beverage|smoothie|sidral|squirt|sangria)($|\b)/i.test(n) ||
+        /^(large|medium|med|lg|sm|small)\s+(horchata|jamaica|tamarindo|pina|coke|diet coke|sprite|fanta|lemonade|iced tea|tea|drink)/i.test(n) ||
+        /^(olla cafe|olla champurrado|champurrado)/i.test(n)
+    )
 }
 
 export default function PreparadorPage() {
@@ -369,6 +388,25 @@ export default function PreparadorPage() {
     const [callSuccessOrderIds, setCallSuccessOrderIds] = useState<Set<string>>(new Set())
     const realtimeChannelRef = useRef<any>(null)
     const tabletAudioCtxRef = useRef<AudioContext | null>(null)
+    const [hideDrinks, setHideDrinks] = useState(true)
+
+    // Cargar preferencia de ocultar bebidas (activada por defecto para la cocina)
+    useEffect(() => {
+        try {
+            const saved = localStorage.getItem('prep_hide_drinks')
+            if (saved !== null) {
+                setHideDrinks(saved === 'true')
+            }
+        } catch {}
+    }, [])
+
+    const toggleHideDrinks = () => {
+        setHideDrinks(prev => {
+            const next = !prev
+            try { localStorage.setItem('prep_hide_drinks', String(next)) } catch {}
+            return next
+        })
+    }
 
     // Consulta de órdenes listas de la sucursal actual (polling silencioso)
     const fetchReadyOrders = async (isManual = false) => {
@@ -1811,6 +1849,23 @@ export default function PreparadorPage() {
                                 </div>
 
                                 <div className="flex items-center gap-2">
+                                    {/* Botón selector para Ocultar / Mostrar Bebidas en cocina */}
+                                    <button
+                                        type="button"
+                                        onClick={toggleHideDrinks}
+                                        title={hideDrinks ? t('prep.showDrinks') : t('prep.hideDrinks')}
+                                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold text-xs transition-all shadow-xs active:scale-95 cursor-pointer border ${
+                                            hideDrinks
+                                                ? 'bg-amber-50 text-amber-900 border-amber-300 dark:bg-amber-950/60 dark:text-amber-200 dark:border-amber-800'
+                                                : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700'
+                                        }`}
+                                    >
+                                        <CupSoda size={15} className={hideDrinks ? 'text-amber-700 dark:text-amber-300' : 'text-slate-400'} />
+                                        <span className="uppercase tracking-tight text-[11px] sm:text-xs">
+                                            {hideDrinks ? t('prep.drinksHidden') : t('prep.drinksVisible')}
+                                        </span>
+                                    </button>
+
                                     <span className="hidden sm:inline-flex items-center gap-1.5 text-[11px] font-black text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 px-2.5 py-1 rounded-full border border-emerald-300 dark:border-emerald-800">
                                         <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
                                         {t('prep.liveIndicator')}
@@ -1858,7 +1913,12 @@ export default function PreparadorPage() {
 
                                             // Parsear los platillos y modificadores de la orden (estilo KDS)
                                             const items = parseOrderItemsSummary(order.items_summary)
-                                            const totalItemsCount = items.reduce((sum, it) => sum + it.quantity, 0)
+                                            const foodItems = items.filter(it => !isDrinkItem(it.name))
+                                            const drinkItems = items.filter(it => isDrinkItem(it.name))
+                                            const displayedItems = hideDrinks ? foodItems : items
+                                            const hiddenDrinkCount = drinkItems.reduce((acc, d) => acc + d.quantity, 0)
+                                            const totalFoodCount = foodItems.reduce((sum, it) => sum + it.quantity, 0)
+                                            const totalAllCount = items.reduce((sum, it) => sum + it.quantity, 0)
 
                                             return (
                                                 <div
@@ -1934,10 +1994,28 @@ export default function PreparadorPage() {
                                                                 )}
                                                             </div>
 
-                                                            {totalItemsCount > 0 && (
-                                                                <span className="text-xs sm:text-sm font-semibold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700/60 px-2.5 py-1 rounded-lg shrink-0">
-                                                                    {totalItemsCount === 1 ? t('prep.itemCountSingle') : t('prep.itemsCount').replace('{n}', String(totalItemsCount))}
-                                                                </span>
+                                                            {hideDrinks ? (
+                                                                totalFoodCount > 0 ? (
+                                                                    <span className="text-xs sm:text-sm font-semibold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700/60 px-2.5 py-1 rounded-lg shrink-0">
+                                                                        {totalFoodCount === 1 ? t('prep.itemCountSingle') : t('prep.itemsCount').replace('{n}', String(totalFoodCount))}
+                                                                        {hiddenDrinkCount > 0 && (
+                                                                            <span className="text-amber-700 dark:text-amber-400 font-bold ml-1.5">
+                                                                                (+{hiddenDrinkCount} beb.)
+                                                                            </span>
+                                                                        )}
+                                                                    </span>
+                                                                ) : hiddenDrinkCount > 0 ? (
+                                                                    <span className="text-xs sm:text-sm font-semibold text-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/50 border border-amber-300 dark:border-amber-800 px-2.5 py-1 rounded-lg shrink-0 flex items-center gap-1">
+                                                                        <CupSoda size={13} />
+                                                                        <span>{t('prep.onlyDrinks')}</span>
+                                                                    </span>
+                                                                ) : null
+                                                            ) : (
+                                                                totalAllCount > 0 && (
+                                                                    <span className="text-xs sm:text-sm font-semibold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700/60 px-2.5 py-1 rounded-lg shrink-0">
+                                                                        {totalAllCount === 1 ? t('prep.itemCountSingle') : t('prep.itemsCount').replace('{n}', String(totalAllCount))}
+                                                                    </span>
+                                                                )
                                                             )}
                                                         </div>
 
@@ -1947,29 +2025,46 @@ export default function PreparadorPage() {
 
                                                     {/* Contenido de la orden (Lista Completa de Platillos SIN scroll interno) */}
                                                     <div className="flex-1 my-2 space-y-2">
-                                                        {items.length > 0 ? (
-                                                            items.map((it, itIdx) => (
-                                                                <div key={itIdx} className="text-left py-1.5 border-b border-slate-100 dark:border-slate-800/60 last:border-0">
-                                                                    <div className="flex items-start gap-2.5">
-                                                                        <span className="font-mono font-bold text-sm sm:text-base px-2.5 py-0.5 rounded-md bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-slate-100 border border-slate-300 dark:border-slate-700 shrink-0 min-w-[34px] text-center shadow-xs">
-                                                                            {it.quantity}x
-                                                                        </span>
-                                                                        <span className="font-semibold text-base sm:text-lg text-slate-900 dark:text-white leading-snug">
-                                                                            {it.name}
-                                                                        </span>
-                                                                    </div>
-                                                                    {it.modifiers && it.modifiers.length > 0 && (
-                                                                        <div className="pl-9 pt-1 space-y-0.5">
-                                                                            {it.modifiers.map((mod, modIdx) => (
-                                                                                <p key={modIdx} className="text-sm font-medium text-amber-800 dark:text-amber-300 leading-snug flex items-center gap-1.5">
-                                                                                    <span className="text-slate-400 dark:text-slate-500">↳</span>
-                                                                                    <span>{mod}</span>
-                                                                                </p>
-                                                                            ))}
+                                                        {displayedItems.length > 0 ? (
+                                                            <>
+                                                                {displayedItems.map((it, itIdx) => (
+                                                                    <div key={itIdx} className="text-left py-1.5 border-b border-slate-100 dark:border-slate-800/60 last:border-0">
+                                                                        <div className="flex items-start gap-2.5">
+                                                                            <span className="font-mono font-bold text-sm sm:text-base px-2.5 py-0.5 rounded-md bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-slate-100 border border-slate-300 dark:border-slate-700 shrink-0 min-w-[34px] text-center shadow-xs">
+                                                                                {it.quantity}x
+                                                                            </span>
+                                                                            <span className="font-semibold text-base sm:text-lg text-slate-900 dark:text-white leading-snug">
+                                                                                {it.name}
+                                                                            </span>
                                                                         </div>
-                                                                    )}
-                                                                </div>
-                                                            ))
+                                                                        {it.modifiers && it.modifiers.length > 0 && (
+                                                                            <div className="pl-9 pt-1 space-y-0.5">
+                                                                                {it.modifiers.map((mod, modIdx) => (
+                                                                                    <p key={modIdx} className="text-sm font-medium text-amber-800 dark:text-amber-300 leading-snug flex items-center gap-1.5">
+                                                                                        <span className="text-slate-400 dark:text-slate-500">↳</span>
+                                                                                        <span>{mod}</span>
+                                                                                    </p>
+                                                                                ))}
+                                                                            </div>
+                                                                        )}
+                                                                    </div>
+                                                                ))}
+
+                                                                {hideDrinks && hiddenDrinkCount > 0 && (
+                                                                    <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-50/70 dark:bg-amber-950/40 border border-amber-200/80 dark:border-amber-800/50 text-amber-900 dark:text-amber-200 text-xs font-semibold mt-2">
+                                                                        <CupSoda size={14} className="shrink-0 text-amber-600 dark:text-amber-400" />
+                                                                        <span>{t('prep.hiddenDrinksBadge').replace('{n}', String(hiddenDrinkCount))} (mostrador)</span>
+                                                                    </div>
+                                                                )}
+                                                            </>
+                                                        ) : hideDrinks && hiddenDrinkCount > 0 ? (
+                                                            <div className="h-full min-h-[90px] flex flex-col items-center justify-center text-center p-3 text-amber-800 dark:text-amber-300 bg-amber-50/40 dark:bg-amber-950/20 rounded-xl border border-dashed border-amber-200 dark:border-amber-800/40">
+                                                                <CupSoda size={22} className="mb-1 text-amber-600 dark:text-amber-400 opacity-80" />
+                                                                <span className="text-sm font-bold">{t('prep.onlyDrinks')}</span>
+                                                                <span className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                                                                    {hiddenDrinkCount} {hiddenDrinkCount === 1 ? 'bebida despachada en mostrador' : 'bebidas despachadas en mostrador'}
+                                                                </span>
+                                                            </div>
                                                         ) : (
                                                             <div className="h-full min-h-[90px] flex flex-col items-center justify-center text-center p-3 text-slate-400">
                                                                 <UtensilsCrossed size={20} className="mb-1 opacity-50" />
