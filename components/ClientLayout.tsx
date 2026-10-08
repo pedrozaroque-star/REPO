@@ -1,3 +1,18 @@
+/**
+ * @module components/ClientLayout
+ * @description Layout principal del lado del cliente para TEG System.
+ * Gestiona la barra lateral (AppSidebar), barra inferior móvil (BottomTabBar),
+ * rastreador de millas de supervisores y rutas públicas sin navegación administrativa.
+ * 
+ * @businessRules
+ * - Las rutas públicas (login, kioscos, tableros de clientes y aplicación de pedidos /app)
+ *   se renderizan a pantalla completa sin elementos de administración (sidebar ni tab bar).
+ * - En rutas administrativas, el estado colapsado del sidebar se persiste en localStorage.
+ * 
+ * @dataFlow
+ * - Utiliza usePathname() para determinar si la ruta activa es pública o administrativa.
+ */
+
 'use client'
 
 import { usePathname } from 'next/navigation'
@@ -40,6 +55,8 @@ export default function ClientLayout({
         '/login', 
         '/', 
         '/auth/login', 
+        '/app',
+        '/ordenar',
         '/clientes', 
         '/evaluacion/kiosk', 
         '/feedback-publico', 
