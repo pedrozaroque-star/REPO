@@ -6,13 +6,14 @@
  * - Soporta parámetro ?summary=true para entregar métricas ejecutivas y semáforo de mantenimientos recurrentes
  *   (lavado de campanas, trampas de grasa y control de plagas) por cada sucursal.
  * - POST: Permite el registro público de actividades de técnicos y proveedores sin requerir inicio de sesión previo.
+ * - DELETE: Permite a administradores eliminar permanentemente un registro de mantenimiento por su ID único, purgando también todas sus evidencias fotográficas y firmas del bucket 'checklist-photos' en Supabase Storage.
  * - Valida campos mandatorios (tienda, proveedor, técnico, categoría, equipo/área, descripción de trabajo, encargado).
  * - En cada registro exitoso, genera notificaciones de sistema para supervisores y administradores.
  * - Las fechas y horas respetan la zona horaria oficial 'America/Los_Angeles' y la jornada de 6:00 AM a 5:59 AM.
  * @dataFlow
- * - Frontend (Kiosco / Formulario Móvil / Panel Admin) -> /api/mantenimiento -> PostgreSQL (maintenance_service_logs & stores).
+ * - Frontend (Kiosco / Formulario Móvil / Panel Admin) -> /api/mantenimiento -> PostgreSQL (maintenance_service_logs & stores) & Supabase Storage (checklist-photos).
  * @notes
- * - Utiliza getSupabaseAdminClient() para garantizar transacciones de lectura y escritura seguras.
+ * - Utiliza getSupabaseAdminClient() para garantizar transacciones de lectura, escritura y eliminación segura de datos y archivos.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -24,17 +25,12 @@ export const dynamic = 'force-dynamic'
  * Obtiene la fecha de negocio actual en 'America/Los_Angeles' considerando que el día
  * laboral inicia a las 6:00 AM y termina a las 5:59 AM del día siguiente.
  */
-function getBusinessDatePST(): string {
-  const now = new Date()
-  const laString = now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })
-  const laDate = new Date(laString)
+function getBusinessDatePST(date = new Date()): string {
+  const laDate = new Date(date.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
   const hour = laDate.getHours()
-
-  // Si son antes de las 6:00 AM, el día de negocio corresponde a ayer
   if (hour < 6) {
     laDate.setDate(laDate.getDate() - 1)
   }
-
   const yyyy = laDate.getFullYear()
   const mm = String(laDate.getMonth() + 1).padStart(2, '0')
   const dd = String(laDate.getDate()).padStart(2, '0')
@@ -64,7 +60,7 @@ export async function GET(request: NextRequest) {
     const { data: storesList } = await supabase
       .from('stores')
       .select('id, name, code, city, address, is_active')
-      .order('name')
+      .order('id')
 
     const storesMap = new Map<string, any>()
     storesList?.forEach(s => {
@@ -73,8 +69,9 @@ export async function GET(request: NextRequest) {
 
     // Si se solicitó solo o además el resumen operativo:
     if (summary) {
-      const now = new Date()
-      const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0]
+      const businessDate = getBusinessDatePST()
+      const [currYear, currMonth] = businessDate.split('-')
+      const firstDayOfMonth = `${currYear}-${currMonth}-01`
 
       // Logs del mes actual
       const { data: monthLogs } = await supabase
@@ -146,9 +143,12 @@ export async function GET(request: NextRequest) {
       query = query.lte('service_date', to)
     }
     if (search) {
-      query = query.or(
-        `company_name.ilike.%${search}%,technician_name.ilike.%${search}%,area_equipment.ilike.%${search}%,work_description.ilike.%${search}%,invoice_number.ilike.%${search}%`
-      )
+      const sanitized = search.replace(/[,()]/g, ' ').trim()
+      if (sanitized) {
+        query = query.or(
+          `company_name.ilike.%${sanitized}%,technician_name.ilike.%${sanitized}%,area_equipment.ilike.%${sanitized}%,work_description.ilike.%${sanitized}%,invoice_number.ilike.%${sanitized}%`
+        )
+      }
     }
 
     const { data: logs, error, count } = await query
@@ -240,11 +240,34 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'El nombre del encargado en turno que validó la visita es obligatorio' }, { status: 400 })
     }
 
+    // Validación estricta de evidencia fotográfica obligatoria
+    const hasPhotosBefore = Array.isArray(photos_before) && photos_before.length > 0
+    const hasPhotosAfter = Array.isArray(photos_after) && photos_after.length > 0
+    const hasPhotosInvoice = Array.isArray(photos_invoice) && photos_invoice.length > 0
+
+    if (!hasPhotosBefore && !hasPhotosAfter && !hasPhotosInvoice) {
+      return NextResponse.json({
+        success: false,
+        error: 'Es obligatorio adjuntar al menos una fotografía como evidencia del servicio (antes, después o factura/ticket)'
+      }, { status: 400 })
+    }
+
     const officialDate = service_date || getBusinessDatePST()
+
+    // Sanitizar y validar costo estimado para evitar PostgresError 22P02 con NaN
+    let safeCostEstimate: number | null = null
+    if (cost_estimate !== undefined && cost_estimate !== null && cost_estimate !== '') {
+      const cleaned = typeof cost_estimate === 'string'
+        ? parseFloat(cost_estimate.replace(/[^0-9.]/g, ''))
+        : Number(cost_estimate)
+      if (!isNaN(cleaned) && isFinite(cleaned)) {
+        safeCostEstimate = Math.round(cleaned * 100) / 100
+      }
+    }
 
     // Preparar objeto de inserción atómico (sin columnas autogeneradas)
     const insertPayload: Record<string, any> = {
-      store_id,
+      store_id: String(store_id).trim(),
       service_date: officialDate,
       start_time: start_time || null,
       end_time: end_time || null,
@@ -261,7 +284,7 @@ export async function POST(request: NextRequest) {
       photos_after: Array.isArray(photos_after) ? photos_after : [],
       photos_invoice: Array.isArray(photos_invoice) ? photos_invoice : [],
       invoice_number: invoice_number?.trim() || null,
-      cost_estimate: cost_estimate !== undefined && cost_estimate !== null && cost_estimate !== '' ? Number(cost_estimate) : null,
+      cost_estimate: safeCostEstimate,
       manager_name: manager_name.trim(),
       manager_signature_url: manager_signature_url || null,
       notes: notes?.trim() || null
@@ -280,17 +303,20 @@ export async function POST(request: NextRequest) {
 
     // Buscar el nombre de la tienda para generar la notificación
     let storeDisplayName = 'la sucursal'
-    try {
-      const { data: storeData } = await supabase
-        .from('stores')
-        .select('name, code')
-        .eq('id', store_id)
-        .maybeSingle()
-      if (storeData) {
-        storeDisplayName = storeData.code ? `${storeData.name} #${storeData.code}` : storeData.name
+    const parsedStoreId = parseInt(String(store_id), 10)
+    if (!isNaN(parsedStoreId)) {
+      try {
+        const { data: storeData } = await supabase
+          .from('stores')
+          .select('name, address')
+          .eq('id', parsedStoreId)
+          .maybeSingle()
+        if (storeData) {
+          storeDisplayName = storeData.name
+        }
+      } catch {
+        // Fallback seguro
       }
-    } catch {
-      // Fallback
     }
 
     // Generar notificación del sistema para supervisores y administradores
@@ -303,11 +329,12 @@ export async function POST(request: NextRequest) {
 
       if (targetUsers && targetUsers.length > 0) {
         const notifPayloads = targetUsers.map(u => ({
-          user_id: u.id,
+          user_id: String(u.id),
           title: `🛠️ Servicio Registrado: ${company_name.trim()}`,
           message: `${technician_name.trim()} completó servicio de ${category} (${area_equipment.trim()}) en ${storeDisplayName}. Validado por ${manager_name.trim()}.`,
           type: 'maintenance',
           read: false,
+          is_read: false,
           link: '/admin/mantenimiento'
         }))
 
@@ -328,3 +355,113 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: err.message || 'Error interno al guardar registro' }, { status: 500 })
   }
 }
+
+// ============================================================================
+// DELETE: Eliminar Registro de Actividad de Proveedor / Mantenimiento
+// ============================================================================
+export async function DELETE(request: NextRequest) {
+  try {
+    const supabase = await getSupabaseAdminClient()
+    const { searchParams } = new URL(request.url)
+    const id = searchParams.get('id')?.trim()
+
+    if (!id) {
+      return NextResponse.json(
+        { success: false, error: 'El parámetro ID es obligatorio para eliminar el registro' },
+        { status: 400 }
+      )
+    }
+
+    // 1. Verificar si el registro existe previamente y consultar las fotos/firmas asociadas
+    const { data: existingRecord, error: findError } = await supabase
+      .from('maintenance_service_logs')
+      .select('id, company_name, technician_name, store_id, photos_before, photos_after, photos_invoice, manager_signature_url')
+      .eq('id', id)
+      .maybeSingle()
+
+    if (findError) {
+      console.error('[mantenimiento] Error al verificar registro previo para eliminar:', findError)
+      return NextResponse.json({ success: false, error: findError.message }, { status: 500 })
+    }
+
+    if (!existingRecord) {
+      return NextResponse.json(
+        { success: false, error: 'El registro no fue encontrado o ya ha sido eliminado' },
+        { status: 404 }
+      )
+    }
+
+    // 2. Extraer rutas relativas de Supabase Storage para eliminar los archivos físicos
+    const allUrls: string[] = [
+      ...(Array.isArray(existingRecord.photos_before) ? existingRecord.photos_before : []),
+      ...(Array.isArray(existingRecord.photos_after) ? existingRecord.photos_after : []),
+      ...(Array.isArray(existingRecord.photos_invoice) ? existingRecord.photos_invoice : []),
+      ...(existingRecord.manager_signature_url ? [existingRecord.manager_signature_url] : [])
+    ]
+
+    const filesToRemove: string[] = []
+    const bucketName = 'checklist-photos'
+    const bucketMarker = `/${bucketName}/`
+
+    for (const url of allUrls) {
+      if (!url || typeof url !== 'string') continue
+      // Caso 1: URL pública de Supabase Storage con '/checklist-photos/'
+      const markerIdx = url.indexOf(bucketMarker)
+      if (markerIdx !== -1) {
+        const rawPath = url.substring(markerIdx + bucketMarker.length).split('?')[0]
+        const decodedPath = decodeURIComponent(rawPath)
+        // Solo eliminamos archivos que pertenezcan a la carpeta de mantenimiento por seguridad
+        if (decodedPath && decodedPath.startsWith('maintenance/')) {
+          filesToRemove.push(decodedPath)
+        }
+      } else if (url.startsWith('maintenance/')) {
+        // Caso 2: Ruta relativa directa
+        filesToRemove.push(url.split('?')[0])
+      }
+    }
+
+    // 3. Purgar archivos físicos del bucket de Storage si existen
+    let filesDeletedCount = 0
+    if (filesToRemove.length > 0) {
+      try {
+        const { error: storageRemoveError } = await supabase.storage
+          .from(bucketName)
+          .remove(filesToRemove)
+
+        if (storageRemoveError) {
+          console.warn('[mantenimiento] Advertencia al purgar fotos de Storage:', storageRemoveError.message)
+        } else {
+          filesDeletedCount = filesToRemove.length
+          console.log(`[mantenimiento] ${filesDeletedCount} archivos eliminados de Storage para el registro ${id}:`, filesToRemove)
+        }
+      } catch (storageEx: any) {
+        console.warn('[mantenimiento] Excepción no bloqueante al limpiar Storage:', storageEx?.message)
+      }
+    }
+
+    // 4. Ejecutar eliminación del registro en base de datos
+    const { error: deleteError } = await supabase
+      .from('maintenance_service_logs')
+      .delete()
+      .eq('id', id)
+
+    if (deleteError) {
+      console.error('[mantenimiento] Error al eliminar registro:', deleteError)
+      return NextResponse.json({ success: false, error: deleteError.message }, { status: 500 })
+    }
+
+    return NextResponse.json({
+      success: true,
+      message: 'Registro de mantenimiento y sus evidencias fotográficas eliminados exitosamente',
+      deletedId: id,
+      deletedFilesCount: filesDeletedCount
+    })
+  } catch (err: any) {
+    console.error('[mantenimiento] Excepción en DELETE:', err)
+    return NextResponse.json(
+      { success: false, error: err.message || 'Error interno al procesar la eliminación' },
+      { status: 500 }
+    )
+  }
+}
+

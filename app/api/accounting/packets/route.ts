@@ -206,7 +206,7 @@ export async function POST(request: NextRequest) {
               credit_card_deposit: toastData.creditCardDeposit,
               credit_card_fees: toastData.creditCardFees,
               credit_card_other_deductions: toastData.creditCardOtherDeductions,
-              cash_deposits: toastData.cashDeposit,
+              cash_deposits: 0,
             }
           } catch (toastErr: any) {
             console.warn(`[Accounting] Granular Toast API fetch failed for ${storeName}, falling back to cache:`, toastErr.message)
@@ -261,7 +261,7 @@ export async function POST(request: NextRequest) {
             grubhub_payment: grubhubPayment,
             credit_card_deposit: ccDeposit,
             credit_card_fees: ccFees,
-            cash_deposits: cashDeposit,
+            cash_deposits: 0,
           }
         }
 
@@ -292,7 +292,7 @@ export async function POST(request: NextRequest) {
         // Check if an existing packet is already published to protect QuickBooks integrity
         const { data: existingPacket } = await supabaseAdmin
           .from('accounting_sales_packets')
-          .select('id, status, cash_deposit, qb_journal_entry_id, qb_doc_number, published_at')
+          .select('id, status, cash_deposit, qb_journal_entry_id, qb_doc_number, published_at, qb_sync_response')
           .eq('store_id', mapping.store_id)
           .eq('business_date', sale.business_date)
           .maybeSingle()
@@ -304,12 +304,13 @@ export async function POST(request: NextRequest) {
         }
 
         // Cohesion parity: "Deposit To Bank" starts at 0.00 until manager enters real deposit slip.
-        // If a deposit was already entered previously in this packet, preserve it.
-        const expectedCash = calculateExpectedCash(salesPacketData)
-        const previousDeposit = existingPacket?.cash_deposit !== undefined && existingPacket?.cash_deposit !== null
+        // Only preserve if manually entered by user (flagged in qb_sync_response or status reviewed/published)
+        const manualDepositEntered = (existingPacket?.qb_sync_response as any)?.manual_cash_deposit === true
+        const previousDeposit = manualDepositEntered && existingPacket?.cash_deposit !== undefined && existingPacket?.cash_deposit !== null
           ? Number(existingPacket.cash_deposit)
           : 0
         salesPacketData.cash_deposits = previousDeposit
+        const expectedCash = calculateExpectedCash(salesPacketData)
 
         // Generate journal lines
         const journal = generateJournalLines(salesPacketData, siteConfig)
@@ -334,19 +335,16 @@ export async function POST(request: NextRequest) {
           checkedAt: new Date().toISOString(),
           message: hasOpenOrders 
             ? `⚠️ BLOQUEO DE VALIDACIÓN (Toast POS): Se detectaron ${openOrdersCount} orden(es) abierta(s) y ${outOfBalanceOrdersCount} desbalanceada(s). Publicación a QuickBooks bloqueada hasta su cierre en el POS.`
-            : '✓ Validación superada: 0 órdenes abiertas en Toast POS. Póliza balanceada lista para revisión.'
+            : '✓ Validación superada: 0 órdenes abiertas en Toast POS. Póliza balanceada lista para revisión.',
+          discount_breakdown: toastAccountingResult?.discountBreakdown || {},
+          card_breakdown: toastAccountingResult?.cardBreakdown || {},
+          sales_gross_by_option: toastAccountingResult?.salesGrossByOption || {},
+          manual_cash_deposit: manualDepositEntered,
         }
 
         // Upsert the packet
-        const totalGrossReceipts = Math.round((
-          (salesPacketData.net_sales || 0) +
-          (salesPacketData.total_taxes || 0) +
-          (salesPacketData.paid_in || 0) +
-          (salesPacketData.delivery_service_charges || 0) +
-          (salesPacketData.deferred_gift_cards || 0) +
-          (salesPacketData.tips_payable || 0) +
-          (salesPacketData.deposits_collected || 0)
-        ) * 100) / 100
+        const totalDiscounts = toastAccountingResult?.discountsTotal ?? sale.discounts ?? 0
+        const grossSalesAmount = Math.round(((salesPacketData.net_sales || 0) + totalDiscounts) * 100) / 100
         const packetData = {
           store_id: mapping.store_id,
           business_date: sale.business_date,
@@ -358,9 +356,9 @@ export async function POST(request: NextRequest) {
           doordash_delivery_sales: salesPacketData.doordash_delivery_sales,
           doordash_takeout_sales: salesPacketData.doordash_takeout_sales,
           grubhub_sales: Math.round(((salesPacketData.grubhub_delivery_sales || 0) + (salesPacketData.grubhub_takeout_sales || 0)) * 100) / 100,
-          gross_sales: totalGrossReceipts,
+          gross_sales: grossSalesAmount,
           net_sales: salesPacketData.net_sales,
-          total_discounts: toastAccountingResult?.discountsTotal ?? sale.discounts ?? 0,
+          total_discounts: totalDiscounts,
           sales_tax: salesPacketData.sales_tax,
           marketplace_facilitator_tax: salesPacketData.marketplace_tax,
           facilitator_tax_paid: salesPacketData.tax_paid_by_uber,
@@ -380,7 +378,13 @@ export async function POST(request: NextRequest) {
           journal_lines: journal.lines,
           qb_doc_number: docNumber,
           notes: validationInfo.message,
-          qb_sync_response: { validation: validationInfo },
+          qb_sync_response: { 
+            validation: validationInfo,
+            discount_breakdown: toastAccountingResult?.discountBreakdown || {},
+            card_breakdown: toastAccountingResult?.cardBreakdown || {},
+            sales_gross_by_option: toastAccountingResult?.salesGrossByOption || {},
+            manual_cash_deposit: manualDepositEntered,
+          },
           updated_at: new Date().toISOString(),
         }
 

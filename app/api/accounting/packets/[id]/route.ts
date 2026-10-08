@@ -189,8 +189,23 @@ export async function PATCH(
 
       const existingLines: any[] = (packet.journal_lines || []).map((l: any) => ({ ...l }))
       const depositLine = existingLines.find((l: any) => l.account === undepositedAcct)
-      if (depositLine) {
-        depositLine.debit = Math.round(cash_deposit * 100) / 100
+      if (cash_deposit > 0) {
+        if (depositLine) {
+          depositLine.debit = Math.round(cash_deposit * 100) / 100
+        } else {
+          existingLines.push({
+            account: undepositedAcct,
+            memo: 'Deposit To Bank',
+            debit: Math.round(cash_deposit * 100) / 100,
+            credit: 0,
+            sourceMemo: 'Cash Deposits',
+            location: siteConfig.location,
+            className: siteConfig.className,
+          })
+        }
+      } else if (depositLine) {
+        const idx = existingLines.indexOf(depositLine)
+        if (idx !== -1) existingLines.splice(idx, 1)
       }
 
       // Recalculate or add/remove Cash Over/Short
@@ -247,6 +262,13 @@ export async function PATCH(
       updatePayload.journal_lines = existingLines
       updatePayload.journal_total_debits = totalDebits
       updatePayload.journal_total_credits = totalCredits
+
+      // Mark manual cash deposit flag in qb_sync_response
+      const currentMeta = (packet.qb_sync_response as Record<string, any>) || {}
+      updatePayload.qb_sync_response = {
+        ...currentMeta,
+        manual_cash_deposit: true,
+      }
     }
 
     // 5. Handle notes update

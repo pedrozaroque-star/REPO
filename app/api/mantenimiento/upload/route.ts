@@ -18,11 +18,27 @@ import { getSupabaseAdminClient } from '@/lib/supabase'
 
 export const dynamic = 'force-dynamic'
 
+/**
+ * Obtiene la fecha de negocio oficial en California PST ('America/Los_Angeles')
+ * con la frontera laboral de las 6:00 AM.
+ */
+function getBusinessDatePST(date = new Date()): string {
+  const laDate = new Date(date.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
+  const hour = laDate.getHours()
+  if (hour < 6) {
+    laDate.setDate(laDate.getDate() - 1)
+  }
+  const yyyy = laDate.getFullYear()
+  const mm = String(laDate.getMonth() + 1).padStart(2, '0')
+  const dd = String(laDate.getDate()).padStart(2, '0')
+  return `${yyyy}-${mm}-${dd}`
+}
+
 export async function POST(request: NextRequest) {
   try {
     const supabase = await getSupabaseAdminClient()
     const contentType = request.headers.get('content-type') || ''
-    const today = new Date().toISOString().split('T')[0]
+    const today = getBusinessDatePST()
 
     // 1. Manejo de subida vía FormData (Archivos de cámara o galería)
     if (contentType.includes('multipart/form-data')) {
@@ -32,6 +48,11 @@ export async function POST(request: NextRequest) {
 
       if (!file) {
         return NextResponse.json({ success: false, error: 'No se recibió ningún archivo de imagen' }, { status: 400 })
+      }
+
+      // Validar tamaño máximo (10MB)
+      if (file.size > 10 * 1024 * 1024) {
+        return NextResponse.json({ success: false, error: 'El archivo excede el tamaño máximo permitido (10MB)' }, { status: 400 })
       }
 
       const buffer = Buffer.from(await file.arrayBuffer())

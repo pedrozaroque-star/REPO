@@ -131,6 +131,10 @@ interface Packet {
   published_at?: string
   notes?: string
   qb_sync_response?: {
+    manual_cash_deposit?: boolean
+    sales_gross_by_option?: Record<string, number>
+    discount_breakdown?: Record<string, number>
+    card_breakdown?: Record<string, { gross: number; fee: number; deposit: number }>
     validation?: {
       passed: boolean
       hasOpenOrders: boolean
@@ -541,99 +545,144 @@ export default function PacketDetailPage() {
         {/* 3. Reconciliation Summary Card */}
         <Card>
           <h2 className="text-base font-bold text-slate-900 dark:text-white mb-4">{t('accounting.section_summary') || 'Resumen de Conciliación'}</h2>
-          <div className="space-y-2.5 text-sm">
-            <div className="flex justify-between">
-              <span className="text-slate-500 dark:text-slate-400">{t('accounting.col_gross_sales') || 'Ventas Brutas'}</span>
-              <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">{formatCurrency(packet.gross_sales)}</span>
-            </div>
-            <div className="flex justify-between text-rose-600 dark:text-rose-400">
-              <span>{t('accounting.section_discounts') || 'Descuentos'}</span>
-              <span className="font-mono font-semibold">-{formatCurrency(packet.total_discounts ?? packet.discounts ?? 0)}</span>
-            </div>
-            <div className="flex justify-between font-bold pt-2 border-t border-slate-100 dark:border-slate-800 text-slate-900 dark:text-white">
-              <span>{t('accounting.col_net_sales') || 'Ventas Netas'}</span>
-              <span className="font-mono text-blue-600 dark:text-blue-400">{formatCurrency(packet.net_sales)}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-slate-500 dark:text-slate-400">{t('accounting.col_taxes') || 'Impuestos'}</span>
-              <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">{formatCurrency(packet.total_taxes)}</span>
-            </div>
-            {Boolean((packet.paid_in || 0) > 0 || packet.journal_lines?.some((l: any) => l.account === '12049')) && (
-              <div className="flex justify-between text-emerald-600 dark:text-emerald-400">
-                <span>{t('accounting.label_paid_in') || 'Paid In Total (Deposits Received)'}</span>
-                <span className="font-mono font-semibold">
-                  {formatCurrency(packet.paid_in || packet.journal_lines?.find((l: any) => l.account === '12049')?.credit || 0)}
-                </span>
-              </div>
-            )}
-            <div className="flex justify-between font-extrabold pt-2 border-t-2 border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white text-base">
-              <span>{t('accounting.col_total_gross_receipts') || 'Total Gross Receipts'}</span>
-              <span className="font-mono">{formatCurrency(packet.net_sales + packet.total_taxes + (packet.paid_in || packet.journal_lines?.find((l: any) => l.account === '12049')?.credit || 0))}</span>
-            </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-slate-500 dark:text-slate-400 border-b border-slate-100 dark:border-slate-800 text-xs uppercase font-bold">
+                  <th className="pb-2 text-left">{t('accounting.col_item') || 'Concepto'}</th>
+                  <th className="pb-2 text-right">{t('accounting.label_gross') || 'Bruto'}</th>
+                  <th className="pb-2 text-right">{t('accounting.label_net') || 'Neto'}</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-mono">
+                <tr>
+                  <td className="py-2 font-sans text-slate-700 dark:text-slate-300 font-medium">{t('accounting.col_gross_sales') || 'Ventas Brutas'}</td>
+                  <td className="py-2 text-right font-semibold text-slate-800 dark:text-slate-200">{formatCurrency(packet.gross_sales)}</td>
+                  <td className="py-2 text-right font-semibold text-slate-800 dark:text-slate-200">{formatCurrency(packet.gross_sales)}</td>
+                </tr>
+                <tr className="text-rose-600 dark:text-rose-400">
+                  <td className="py-2 font-sans font-medium">{t('accounting.section_discounts') || 'Descuentos'}</td>
+                  <td className="py-2 text-right font-semibold">-{formatCurrency(packet.total_discounts ?? packet.discounts ?? 0)}</td>
+                  <td className="py-2 text-right font-semibold">-{formatCurrency(packet.total_discounts ?? packet.discounts ?? 0)}</td>
+                </tr>
+                <tr className="font-bold text-slate-900 dark:text-white bg-slate-50/50 dark:bg-slate-800/30">
+                  <td className="py-2 font-sans">{t('accounting.col_net_sales') || 'Ventas Netas'}</td>
+                  <td className="py-2 text-right text-blue-600 dark:text-blue-400">{formatCurrency(packet.net_sales)}</td>
+                  <td className="py-2 text-right text-blue-600 dark:text-blue-400">{formatCurrency(packet.net_sales)}</td>
+                </tr>
+                <tr>
+                  <td className="py-2 font-sans text-slate-700 dark:text-slate-300 font-medium">{t('accounting.col_taxes') || 'Impuestos'}</td>
+                  <td className="py-2 text-right font-semibold text-slate-800 dark:text-slate-200">{formatCurrency(packet.total_taxes)}</td>
+                  <td className="py-2 text-right font-semibold text-slate-800 dark:text-slate-200">{formatCurrency(packet.total_taxes)}</td>
+                </tr>
+                {Boolean((packet.paid_in || 0) > 0 || packet.journal_lines?.some((l: any) => l.account === '12049')) && (
+                  <tr className="text-emerald-600 dark:text-emerald-400">
+                    <td className="py-2 font-sans font-medium">{t('accounting.label_paid_in') || 'Paid In Total (Deposits Received)'}</td>
+                    <td className="py-2 text-right font-semibold">{formatCurrency(packet.paid_in || packet.journal_lines?.find((l: any) => l.account === '12049')?.credit || 0)}</td>
+                    <td className="py-2 text-right font-semibold">{formatCurrency(packet.paid_in || packet.journal_lines?.find((l: any) => l.account === '12049')?.credit || 0)}</td>
+                  </tr>
+                )}
+                <tr className="font-extrabold text-slate-900 dark:text-white border-t-2 border-slate-200 dark:border-slate-700 text-sm">
+                  <td className="py-2.5 font-sans">{t('accounting.col_total_gross_receipts') || 'Total Gross Receipts'}</td>
+                  <td className="py-2.5 text-right">{formatCurrency(packet.net_sales + packet.total_taxes + (packet.paid_in || packet.journal_lines?.find((l: any) => l.account === '12049')?.credit || 0))}</td>
+                  <td className="py-2.5 text-right">{formatCurrency(packet.net_sales + packet.total_taxes + (packet.paid_in || packet.journal_lines?.find((l: any) => l.account === '12049')?.credit || 0))}</td>
+                </tr>
+              </tbody>
+            </table>
           </div>
         </Card>
 
         {/* 4. Sales Details Card */}
         <Card>
           <h2 className="text-base font-bold text-slate-900 dark:text-white mb-4">{t('accounting.section_sales') || 'Detalle por Canal'}</h2>
-          <div className="space-y-2 text-sm">
-            {packet.journal_lines && packet.journal_lines.filter((l: any) => l.credit > 0 && (l.account.startsWith('400') || l.memo === 'Delivery Service')).length > 0 ? (
-              packet.journal_lines.filter((l: any) => l.credit > 0 && (l.account.startsWith('400') || l.memo === 'Delivery Service')).map((line: any, idx: number) => (
-                <div key={idx} className="flex justify-between">
-                  <span className="text-slate-500 dark:text-slate-400">{line.memo}</span>
-                  <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">{formatCurrency(line.credit)}</span>
-                </div>
-              ))
-            ) : (
-              <>
-                <div className="flex justify-between">
-                  <span className="text-slate-500 dark:text-slate-400">{t('accounting.dining_for_here') || 'Comedor (For Here)'}</span>
-                  <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">{formatCurrency(packet.dine_in_sales)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-500 dark:text-slate-400">{t('accounting.dining_to_go') || 'Para Llevar (To Go)'}</span>
-                  <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">{formatCurrency(packet.togo_sales)}</span>
-                </div>
-                {Boolean((packet.drive_thru_sales || 0) > 0) && (
-                  <div className="flex justify-between">
-                    <span className="text-slate-500 dark:text-slate-400">Drive Thru</span>
-                    <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">{formatCurrency(packet.drive_thru_sales)}</span>
-                  </div>
-                )}
-                {Boolean((packet.kiosk_takeout_sales || 0) > 0) && (
-                  <div className="flex justify-between">
-                    <span className="text-slate-500 dark:text-slate-400">Kiosk Take Out</span>
-                    <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">{formatCurrency(packet.kiosk_takeout_sales)}</span>
-                  </div>
-                )}
-                {Boolean((packet.kiosk_dine_in_sales || 0) > 0) && (
-                  <div className="flex justify-between">
-                    <span className="text-slate-500 dark:text-slate-400">Kiosk Dine In</span>
-                    <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">{formatCurrency(packet.kiosk_dine_in_sales)}</span>
-                  </div>
-                )}
-                <div className="flex justify-between">
-                  <span className="text-slate-500 dark:text-slate-400">{t('accounting.dining_uber_delivery') || 'Uber Eats (Delivery)'}</span>
-                  <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">{formatCurrency(packet.uber_delivery_sales)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-500 dark:text-slate-400">{t('accounting.dining_doordash_delivery') || 'DoorDash (Delivery)'}</span>
-                  <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">{formatCurrency(packet.doordash_delivery_sales)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-500 dark:text-slate-400">{t('accounting.dining_grubhub') || 'GrubHub'}</span>
-                  <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">{formatCurrency(packet.grubhub_sales)}</span>
-                </div>
-              </>
-            )}
-            <div className="flex justify-between font-extrabold pt-2 border-t-2 border-slate-200 dark:border-slate-700 text-blue-600 dark:text-blue-400">
-              <span>{t('accounting.total_net_sales') || 'Total Ventas Netas'}</span>
-              <span className="font-mono">{formatCurrency(packet.net_sales)}</span>
-            </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-slate-500 dark:text-slate-400 border-b border-slate-100 dark:border-slate-800 text-xs uppercase font-bold">
+                  <th className="pb-2 text-left">{t('accounting.col_channel_method') || 'Canal'}</th>
+                  <th className="pb-2 text-right">{t('accounting.label_gross') || 'Bruto'}</th>
+                  <th className="pb-2 text-right">{t('accounting.label_net') || 'Neto'}</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-mono">
+                {(() => {
+                  const grossMap = packet.qb_sync_response?.sales_gross_by_option || {}
+                  const rows = [
+                    { name: t('accounting.dining_for_here') || 'For Here', gross: grossMap.forHere ?? packet.dine_in_sales, net: packet.dine_in_sales },
+                    { name: t('accounting.dining_to_go') || 'To Go', gross: grossMap.toGo ?? packet.togo_sales, net: packet.togo_sales },
+                    ...(Number(packet.drive_thru_sales || grossMap.driveThru || 0) > 0 ? [{ name: 'Drive Thru', gross: grossMap.driveThru ?? packet.drive_thru_sales, net: packet.drive_thru_sales }] : []),
+                    ...(Number(packet.kiosk_dine_in_sales || grossMap.kioskDineIn || 0) > 0 ? [{ name: 'Kiosk Dine In', gross: grossMap.kioskDineIn ?? packet.kiosk_dine_in_sales, net: packet.kiosk_dine_in_sales }] : []),
+                    ...(Number(packet.kiosk_takeout_sales || grossMap.kioskTakeOut || 0) > 0 ? [{ name: 'Kiosk Take Out', gross: grossMap.kioskTakeOut ?? packet.kiosk_takeout_sales, net: packet.kiosk_takeout_sales }] : []),
+                    ...(Number(packet.toast_online_sales || grossMap.toastOnline || 0) > 0 ? [{ name: 'Toast Online', gross: grossMap.toastOnline ?? packet.toast_online_sales, net: packet.toast_online_sales }] : []),
+                    ...(Number(packet.toast_delivery_sales || grossMap.toastDelivery || 0) > 0 ? [{ name: 'Toast Delivery', gross: grossMap.toastDelivery ?? packet.toast_delivery_sales, net: packet.toast_delivery_sales }] : []),
+                    { name: 'Uber Eats - Delivery', gross: grossMap.uberDelivery ?? packet.uber_delivery_sales, net: packet.uber_delivery_sales },
+                    ...(Number(packet.uber_takeout_sales || grossMap.uberTakeout || 0) > 0 ? [{ name: 'Uber Eats Takeout', gross: grossMap.uberTakeout ?? packet.uber_takeout_sales, net: packet.uber_takeout_sales }] : []),
+                    { name: 'DoorDash - Delivery', gross: grossMap.doordashDelivery ?? packet.doordash_delivery_sales, net: packet.doordash_delivery_sales },
+                    ...(Number(packet.doordash_takeout_sales || grossMap.doordashTakeout || 0) > 0 ? [{ name: 'DoorDash - Takeout', gross: grossMap.doordashTakeout ?? packet.doordash_takeout_sales, net: packet.doordash_takeout_sales }] : []),
+                    ...(Number(packet.grubhub_sales || grossMap.grubhubDelivery || 0) > 0 ? [{ name: 'GrubHub Delivery', gross: grossMap.grubhubDelivery ?? packet.grubhub_sales, net: packet.grubhub_sales }] : []),
+                    ...(Number(grossMap.grubhubTakeout || 0) > 0 ? [{ name: 'GrubHub Takeout', gross: grossMap.grubhubTakeout, net: grossMap.grubhubTakeout }] : []),
+                  ]
+                  return (
+                    <>
+                      {rows.map((r, i) => (
+                        <tr key={i}>
+                          <td className="py-2 font-sans text-slate-700 dark:text-slate-300 font-medium">{r.name}</td>
+                          <td className="py-2 text-right font-semibold text-slate-800 dark:text-slate-200">{formatCurrency(r.gross)}</td>
+                          <td className="py-2 text-right font-semibold text-slate-800 dark:text-slate-200">{formatCurrency(r.net)}</td>
+                        </tr>
+                      ))}
+                      <tr className="font-extrabold text-blue-600 dark:text-blue-400 border-t-2 border-slate-200 dark:border-slate-700">
+                        <td className="py-2.5 font-sans">{t('accounting.total_net_sales') || 'Total Ventas'}</td>
+                        <td className="py-2.5 text-right">{formatCurrency(packet.gross_sales)}</td>
+                        <td className="py-2.5 text-right">{formatCurrency(packet.net_sales)}</td>
+                      </tr>
+                    </>
+                  )
+                })()}
+              </tbody>
+            </table>
           </div>
         </Card>
 
-        {/* 5. Tax Details Card */}
+        {/* 5. Discount Details Card */}
+        <Card>
+          <h2 className="text-base font-bold text-slate-900 dark:text-white mb-4">{t('accounting.section_discounts') || 'Detalle de Descuentos'}</h2>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-slate-500 dark:text-slate-400 border-b border-slate-100 dark:border-slate-800 text-xs uppercase font-bold">
+                  <th className="pb-2 text-left">{t('accounting.col_discount_type') || 'Tipo de Descuento'}</th>
+                  <th className="pb-2 text-right">{t('accounting.label_gross') || 'Bruto'}</th>
+                  <th className="pb-2 text-right">{t('accounting.label_net') || 'Neto'}</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-mono">
+                {packet.qb_sync_response?.discount_breakdown && Object.keys(packet.qb_sync_response.discount_breakdown).length > 0 ? (
+                  Object.entries(packet.qb_sync_response.discount_breakdown).map(([name, amount], idx) => (
+                    <tr key={idx}>
+                      <td className="py-2 font-sans text-slate-700 dark:text-slate-300 font-medium">{name}</td>
+                      <td className="py-2 text-right font-semibold text-rose-600 dark:text-rose-400">{formatCurrency(amount)}</td>
+                      <td className="py-2 text-right font-semibold text-rose-600 dark:text-rose-400">{formatCurrency(amount)}</td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td className="py-2 font-sans text-slate-700 dark:text-slate-300 font-medium">{t('accounting.section_discounts') || 'Descuentos'}</td>
+                    <td className="py-2 text-right font-semibold text-rose-600 dark:text-rose-400">{formatCurrency(packet.total_discounts ?? packet.discounts ?? 0)}</td>
+                    <td className="py-2 text-right font-semibold text-rose-600 dark:text-rose-400">{formatCurrency(packet.total_discounts ?? packet.discounts ?? 0)}</td>
+                  </tr>
+                )}
+                <tr className="font-extrabold text-rose-600 dark:text-rose-400 border-t-2 border-slate-200 dark:border-slate-700">
+                  <td className="py-2.5 font-sans">{t('accounting.total_discounts_label') || 'Total Descuentos'}</td>
+                  <td className="py-2.5 text-right">{formatCurrency(packet.total_discounts ?? packet.discounts ?? 0)}</td>
+                  <td className="py-2.5 text-right">{formatCurrency(packet.total_discounts ?? packet.discounts ?? 0)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </Card>
+
+        {/* 6. Tax Details Card */}
         <Card>
           <h2 className="text-base font-bold text-slate-900 dark:text-white mb-4">{t('accounting.section_taxes') || 'Detalle de Impuestos'}</h2>
           <div className="space-y-2.5 text-sm">
@@ -656,44 +705,103 @@ export default function PacketDetailPage() {
           </div>
         </Card>
 
-        {/* 6. Credit Card Payments Card */}
+        {/* 7. Credit Card Payments Card */}
         <Card>
-          <h2 className="text-base font-bold text-slate-900 dark:text-white mb-4">{t('accounting.section_credit_cards') || 'Tarjetas de Crédito'}</h2>
-          <div className="space-y-2.5 text-sm">
-            <div className="flex justify-between">
-              <span className="text-slate-500 dark:text-slate-400">{t('accounting.cc_gross_total') || 'Total Tarjetas Bruto'}</span>
-              <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">{formatCurrency(packet.total_credit_cards_gross ?? packet.cc_gross)}</span>
+          <h2 className="text-base font-bold text-slate-900 dark:text-white mb-4">{t('accounting.section_credit_cards') || 'Pagos con Tarjeta de Crédito'}</h2>
+          {packet.qb_sync_response?.card_breakdown && Object.keys(packet.qb_sync_response.card_breakdown).length > 0 ? (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-slate-500 dark:text-slate-400 border-b border-slate-100 dark:border-slate-800 text-xs uppercase font-bold">
+                    <th className="pb-2 text-left">{t('accounting.col_card_brand') || 'Tipo'}</th>
+                    <th className="pb-2 text-right">{t('accounting.label_gross') || 'Bruto'}</th>
+                    <th className="pb-2 text-right">{t('accounting.col_fee') || 'Comisión'}</th>
+                    <th className="pb-2 text-right">{t('accounting.col_net_deposit') || 'Depósito'}</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-mono">
+                  {Object.entries(packet.qb_sync_response.card_breakdown).map(([brand, bData], idx) => (
+                    <tr key={idx}>
+                      <td className="py-2 font-sans font-semibold text-slate-700 dark:text-slate-300">{brand}</td>
+                      <td className="py-2 text-right font-semibold text-slate-800 dark:text-slate-200">{formatCurrency(bData.gross)}</td>
+                      <td className="py-2 text-right font-semibold text-rose-600 dark:text-rose-400">-{formatCurrency(bData.fee)}</td>
+                      <td className="py-2 text-right font-bold text-blue-600 dark:text-blue-400">{formatCurrency(bData.deposit)}</td>
+                    </tr>
+                  ))}
+                  <tr className="font-extrabold border-t-2 border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white">
+                    <td className="py-2.5 font-sans">{t('accounting.total_card_payments') || 'Total'}</td>
+                    <td className="py-2.5 text-right">{formatCurrency(packet.total_credit_cards_gross ?? packet.cc_gross)}</td>
+                    <td className="py-2.5 text-right text-rose-600 dark:text-rose-400">-{formatCurrency(packet.credit_card_fees ?? packet.cc_fees)}</td>
+                    <td className="py-2.5 text-right text-blue-600 dark:text-blue-400">{formatCurrency(packet.credit_card_deposit ?? packet.cc_deposit)}</td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
-            <div className="flex justify-between font-bold text-blue-600 dark:text-blue-400">
-              <span>{t('accounting.cc_net_deposit') || 'Depósito Neto al Banco'}</span>
-              <span className="font-mono">{formatCurrency(packet.credit_card_deposit ?? packet.cc_deposit)}</span>
-            </div>
-            <div className="flex justify-between text-slate-500 dark:text-slate-400">
-              <span>{t('accounting.label_fees') || 'Comisiones Bancarias'}</span>
-              <span className="font-mono font-semibold text-rose-600 dark:text-rose-400">-{formatCurrency(packet.credit_card_fees ?? packet.cc_fees)}</span>
-            </div>
-            {packet.journal_lines?.some((l: any) => l.memo.includes('Other Deductions')) && (
-              <div className="flex justify-between text-amber-600 dark:text-amber-400">
-                <span>{t('accounting.toast_capital_deductions') || 'Toast Capital / Otras Deducciones'}</span>
-                <span className="font-mono font-semibold">
-                  -{formatCurrency(packet.journal_lines.find((l: any) => l.memo.includes('Other Deductions'))?.debit || 0)}
-                </span>
+          ) : (
+            <div className="space-y-2.5 text-sm">
+              <div className="flex justify-between">
+                <span className="text-slate-500 dark:text-slate-400">{t('accounting.cc_gross_total') || 'Total Tarjetas Bruto'}</span>
+                <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">{formatCurrency(packet.total_credit_cards_gross ?? packet.cc_gross)}</span>
               </div>
-            )}
+              <div className="flex justify-between font-bold text-blue-600 dark:text-blue-400">
+                <span>{t('accounting.cc_net_deposit') || 'Depósito Neto al Banco'}</span>
+                <span className="font-mono">{formatCurrency(packet.credit_card_deposit ?? packet.cc_deposit)}</span>
+              </div>
+              <div className="flex justify-between text-slate-500 dark:text-slate-400">
+                <span>{t('accounting.label_fees') || 'Comisiones Bancarias'}</span>
+                <span className="font-mono font-semibold text-rose-600 dark:text-rose-400">-{formatCurrency(packet.credit_card_fees ?? packet.cc_fees)}</span>
+              </div>
+            </div>
+          )}
+        </Card>
+
+        {/* 8. Cash Reconciliation Card */}
+        <Card>
+          <h2 className="text-base font-bold text-slate-900 dark:text-white mb-4">{t('accounting.section_cash') || 'Conciliación de Efectivo'}</h2>
+          <div className="space-y-4 text-sm">
+            <div className="flex justify-between">
+              <span className="text-slate-500 dark:text-slate-400">{t('accounting.label_expected_cash') || 'Efectivo Esperado'}</span>
+              <span className="font-mono font-bold text-slate-800 dark:text-slate-200">{formatCurrency(packet.expected_cash)}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-slate-700 dark:text-slate-300 font-bold">{t('accounting.label_cash_deposit') || 'Depósito en Banco'}</span>
+              {packet.status === 'published' ? (
+                <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">{formatCurrency(packet.cash_deposit)}</span>
+              ) : (
+                <div className="flex gap-2 w-40">
+                  <input 
+                    type="number" 
+                    step="0.01"
+                    value={cashDeposit} 
+                    onChange={(e) => setCashDeposit(e.target.value)} 
+                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-2.5 py-1 text-sm font-mono text-right text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-bold"
+                  />
+                  <Button size="sm" variant="outline" onClick={handleSaveCashDeposit} disabled={actionLoading}>
+                    {t('accounting.btn_save') || 'Guardar'}
+                  </Button>
+                </div>
+              )}
+            </div>
+            <div className="flex justify-between font-extrabold pt-2 border-t-2 border-slate-200 dark:border-slate-700">
+              <span className="text-slate-900 dark:text-white">{t('accounting.label_cash_over_short') || 'Sobrante / (Faltante)'}</span>
+              <span className={`font-mono text-base ${packet.cash_over_short < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                {formatCurrency(packet.cash_over_short)}
+              </span>
+            </div>
           </div>
         </Card>
 
-        {/* 7. Other Payments Card */}
-        <Card className="col-span-1 md:col-span-2 lg:col-span-2">
+        {/* 9. Other Payments Card */}
+        <Card className="col-span-1 md:col-span-2 lg:col-span-3">
           <h2 className="text-base font-bold text-slate-900 dark:text-white mb-4">{t('accounting.section_other_payments') || 'Cuentas por Cobrar de Aplicaciones, Tarjetas de Regalo y EBT'}</h2>
           <div className="overflow-x-auto">
             <table className="w-full text-sm divide-y divide-slate-100 dark:divide-slate-800">
               <thead>
-                <tr className="text-left text-slate-500 dark:text-slate-400">
-                  <th className="pb-2.5 font-bold">{t('accounting.col_channel_method') || 'Canal / Método'}</th>
-                  <th className="pb-2.5 text-right font-bold">{t('accounting.col_gross_amount') || 'Monto Bruto'}</th>
-                  <th className="pb-2.5 text-right font-bold">{t('accounting.col_tax_withheld') || 'Impuesto Retenido'}</th>
-                  <th className="pb-2.5 text-right font-bold">{t('accounting.col_net_ar') || 'Neto A/R'}</th>
+                <tr className="text-left text-slate-500 dark:text-slate-400 text-xs uppercase font-bold">
+                  <th className="pb-2.5">{t('accounting.col_channel_method') || 'Canal / Método'}</th>
+                  <th className="pb-2.5 text-right">{t('accounting.col_gross_amount') || 'Monto Bruto'}</th>
+                  <th className="pb-2.5 text-right">{t('accounting.col_tax_withheld') || 'Impuesto Retenido'}</th>
+                  <th className="pb-2.5 text-right">{t('accounting.col_net_ar') || 'Neto A/R'}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-mono">
@@ -733,44 +841,22 @@ export default function PacketDetailPage() {
                     </td>
                   </tr>
                 )}
+                <tr className="font-extrabold text-slate-900 dark:text-white border-t-2 border-slate-200 dark:border-slate-700">
+                  <td className="py-2.5 font-sans" colSpan={3}>{t('accounting.non_cash_payments_total') || 'Total Pagos No Efectivo'}</td>
+                  <td className="py-2.5 text-right text-blue-600 dark:text-blue-400">
+                    {formatCurrency(
+                      (packet.credit_card_deposit ?? packet.cc_deposit ?? 0) +
+                      (packet.credit_card_fees ?? packet.cc_fees ?? 0) +
+                      (packet.uber_payment ?? 0) +
+                      (packet.doordash_payment ?? 0) +
+                      (packet.grubhub_payment ?? 0) +
+                      (packet.ebt_amount ?? 0) +
+                      (packet.journal_lines?.find((l: any) => l.memo.includes('Gift Card') && l.debit > 0)?.debit || 0)
+                    )}
+                  </td>
+                </tr>
               </tbody>
             </table>
-          </div>
-        </Card>
-
-        {/* 8. Cash Reconciliation Card */}
-        <Card className="lg:col-span-1">
-          <h2 className="text-base font-bold text-slate-900 dark:text-white mb-4">{t('accounting.section_cash') || 'Conciliación de Efectivo'}</h2>
-          <div className="space-y-4 text-sm">
-            <div className="flex justify-between">
-              <span className="text-slate-500 dark:text-slate-400">{t('accounting.label_expected_cash') || 'Efectivo Esperado'}</span>
-              <span className="font-mono font-bold text-slate-800 dark:text-slate-200">{formatCurrency(packet.expected_cash)}</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-slate-700 dark:text-slate-300 font-bold">{t('accounting.label_cash_deposit') || 'Depósito en Banco'}</span>
-              {packet.status === 'published' ? (
-                <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">{formatCurrency(packet.cash_deposit)}</span>
-              ) : (
-                <div className="flex gap-2 w-40">
-                  <input 
-                    type="number" 
-                    step="0.01"
-                    value={cashDeposit} 
-                    onChange={(e) => setCashDeposit(e.target.value)} 
-                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-2.5 py-1 text-sm font-mono text-right text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-bold"
-                  />
-                  <Button size="sm" variant="outline" onClick={handleSaveCashDeposit} disabled={actionLoading}>
-                    {t('accounting.btn_save') || 'Guardar'}
-                  </Button>
-                </div>
-              )}
-            </div>
-            <div className="flex justify-between font-extrabold pt-2 border-t-2 border-slate-200 dark:border-slate-700">
-              <span className="text-slate-900 dark:text-white">{t('accounting.label_cash_over_short') || 'Sobrante / (Faltante)'}</span>
-              <span className={`font-mono text-base ${packet.cash_over_short < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
-                {formatCurrency(packet.cash_over_short)}
-              </span>
-            </div>
           </div>
         </Card>
       </div>

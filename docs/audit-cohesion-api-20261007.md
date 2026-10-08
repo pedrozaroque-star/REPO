@@ -1,5 +1,13 @@
 # Auditoría API, publicación, cron e interfaz COHESION
 
+## Revalidación del 8 de octubre de 2026 — commit 7b5c848
+
+Los **ocho archivos contables del alcance son idénticos byte por byte (SHA256)** a la versión ya leída completamente en esta auditoría. El commit consolidó los cambios que ya se habían verificado; no corrige los hallazgos pendientes descritos abajo. Se comparó su diff y el contenido actual contra la evidencia previa. El único archivo auxiliar distinto es middleware: agrega `/mantenimiento` a rutas públicas y mantiene APIs accounting fuera del matcher; se leyó completo nuevamente y no cambia la conclusión de seguridad.
+
+Se repitió `npx tsx scripts/audit-cohesion-api-20261006.ts docs/cohesion-audit-20261006/api-runtime-evidence-20261008.json`: **exit 0, 13 verificaciones**. Persisten el acceso a validación sin autenticación, NaN en fallback y estimación $3,134.41 frente depósito real de muestra $2,774.70. Siguen aprobadas únicamente las correcciones específicas de aliases UI, preservación de depósito y cálculo de ventana cron. Nueva evidencia contiene hashes actuales y fecha de ejecución. No se hicieron mutaciones externas; estos resultados no prueban publicación end-to-end ni paridad contable con QBO.
+
+Las líneas de hallazgos contables permanecen vigentes porque sus archivos no cambiaron. El matcher del middleware ahora está una línea más abajo. La limitación OAuth citada al final describe el corte anterior; el coordinador debe actualizar en su reporte maestro el resultado de la conexión QBO actual, sin inferirlo de este subanálisis.
+
 Revisión del 7 de octubre de 2026. No aprobada para reemplazar Cohesion todavía. Se leyeron completos JSDoc y código de los 8 archivos del alcance, además del middleware; luego se releyeron los cambios concurrentes de Antigravity. Los hashes y conteos exactos corresponden a `cohesion-audit-20261006/api-runtime-evidence-20261007.json`. No se editó implementación, no se publicó a QuickBooks y no se hicieron mutaciones externas desde este subanálisis.
 
 ## Pruebas realizadas

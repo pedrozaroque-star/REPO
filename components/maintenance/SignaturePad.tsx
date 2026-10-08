@@ -4,9 +4,12 @@
  * y validación de visitas de técnicos y proveedores de servicio en Tacos Gavilan.
  * @businessRules
  * - Permite al encargado en turno firmar con el dedo en pantallas táctiles de celulares o con el mouse.
- * - Genera trazos fluidos con punta redondeada y color oscuro contrastante.
+ * - Genera trazos fluidos con punta redondeada y color oscuro contrastante (#0f172a).
+ * - Canvas con fondo blanco estilo papel de recibo fijo para máxima visibilidad en modo claro y oscuro.
+ * - Rehidrata automáticamente firmas previas mediante initialSignatureUrl para no perder trazos al navegar entre pasos.
+ * - Optimizado a 60fps reiniciando sub-paths para evitar acumulación de lag en pantallas móviles táctiles.
  * - Proporciona botón de limpieza rápida para reiniciar la firma si hay error.
- * - Notifica al formulario padre mediante callback onChange(base64DataUrl | null).
+ * - Notifica al formulario padre mediante callback onSignatureChange(base64DataUrl | null).
  * @dataFlow
  * - Eventos táctiles/ratón -> Dibujado en Canvas -> toDataURL('image/png') -> Callback hacia formulario padre.
  * @notes
@@ -15,25 +18,38 @@
 
 'use client'
 
-import React, { useRef, useState, useEffect } from 'react'
+import React, { useRef, useState, useEffect, useCallback } from 'react'
 import { Eraser, CheckCircle2 } from 'lucide-react'
 import { useLanguage } from '@/lib/i18n'
 
 interface SignaturePadProps {
   onSignatureChange: (dataUrl: string | null) => void
+  initialSignatureUrl?: string | null
   disabled?: boolean
 }
 
-export default function SignaturePad({ onSignatureChange, disabled = false }: SignaturePadProps) {
+export default function SignaturePad({
+  onSignatureChange,
+  initialSignatureUrl = null,
+  disabled = false
+}: SignaturePadProps) {
   const { t } = useLanguage()
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const isDrawing = useRef(false)
+  const hasDrawnRef = useRef(false)
   const [hasSignature, setHasSignature] = useState(false)
 
   // Configurar resolución nativa de pantalla (Retina / High DPI)
-  const resizeCanvas = () => {
+  const resizeCanvas = useCallback(() => {
     const canvas = canvasRef.current
     if (!canvas) return
+
+    let prevDataUrl: string | null = null
+    if (hasDrawnRef.current) {
+      prevDataUrl = canvas.toDataURL('image/png')
+    } else if (initialSignatureUrl) {
+      prevDataUrl = initialSignatureUrl
+    }
 
     const rect = canvas.getBoundingClientRect()
     const dpr = window.devicePixelRatio || 1
@@ -46,16 +62,44 @@ export default function SignaturePad({ onSignatureChange, disabled = false }: Si
       ctx.scale(dpr, dpr)
       ctx.lineCap = 'round'
       ctx.lineJoin = 'round'
-      ctx.strokeStyle = '#0f172a' // Slate 900
+      ctx.strokeStyle = '#0f172a' // Slate 900 de alto contraste
       ctx.lineWidth = 2.5
+
+      if (prevDataUrl) {
+        const img = new Image()
+        img.onload = () => {
+          ctx.drawImage(img, 0, 0, rect.width, rect.height)
+          hasDrawnRef.current = true
+          setHasSignature(true)
+        }
+        img.src = prevDataUrl
+      }
     }
-  }
+  }, [initialSignatureUrl])
 
   useEffect(() => {
     resizeCanvas()
     window.addEventListener('resize', resizeCanvas)
     return () => window.removeEventListener('resize', resizeCanvas)
-  }, [])
+  }, [resizeCanvas])
+
+  // Rehidratar firma inicial si se provee después del montaje
+  useEffect(() => {
+    if (initialSignatureUrl && !hasDrawnRef.current) {
+      const canvas = canvasRef.current
+      if (!canvas) return
+      const ctx = canvas.getContext('2d')
+      if (!ctx) return
+      const rect = canvas.getBoundingClientRect()
+      const img = new Image()
+      img.onload = () => {
+        ctx.drawImage(img, 0, 0, rect.width, rect.height)
+        hasDrawnRef.current = true
+        setHasSignature(true)
+      }
+      img.src = initialSignatureUrl
+    }
+  }, [initialSignatureUrl])
 
   const getCoordinates = (e: React.MouseEvent | React.TouchEvent) => {
     const canvas = canvasRef.current
@@ -80,6 +124,8 @@ export default function SignaturePad({ onSignatureChange, disabled = false }: Si
     if (disabled) return
     e.preventDefault()
     isDrawing.current = true
+    hasDrawnRef.current = true
+    setHasSignature(true)
     const { x, y } = getCoordinates(e)
     const ctx = canvasRef.current?.getContext('2d')
     if (ctx) {
@@ -96,9 +142,9 @@ export default function SignaturePad({ onSignatureChange, disabled = false }: Si
     if (ctx) {
       ctx.lineTo(x, y)
       ctx.stroke()
-      if (!hasSignature) {
-        setHasSignature(true)
-      }
+      // Reiniciar subpath en cada coordenada para eliminar acumulación de lag táctil en móviles
+      ctx.beginPath()
+      ctx.moveTo(x, y)
     }
   }
 
@@ -107,7 +153,7 @@ export default function SignaturePad({ onSignatureChange, disabled = false }: Si
     e.preventDefault()
     isDrawing.current = false
     const canvas = canvasRef.current
-    if (canvas && hasSignature) {
+    if (canvas && hasDrawnRef.current) {
       const dataUrl = canvas.toDataURL('image/png')
       onSignatureChange(dataUrl)
     }
@@ -121,16 +167,18 @@ export default function SignaturePad({ onSignatureChange, disabled = false }: Si
     if (ctx) {
       ctx.clearRect(0, 0, canvas.width, canvas.height)
     }
+    hasDrawnRef.current = false
     setHasSignature(false)
     onSignatureChange(null)
   }
 
   return (
     <div className="w-full">
-      <div className="relative border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-2xl bg-white dark:bg-gray-800/80 p-2 overflow-hidden shadow-inner">
+      {/* Fondo blanco estilo papel siempre para contraste perfecto en modo claro y oscuro */}
+      <div className="relative border-2 border-dashed border-slate-300 dark:border-slate-500 rounded-2xl bg-white p-2 overflow-hidden shadow-inner">
         <canvas
           ref={canvasRef}
-          className="w-full h-36 touch-none cursor-crosshair block rounded-xl"
+          className="w-full h-36 touch-none cursor-crosshair block rounded-xl bg-white"
           onMouseDown={startDrawing}
           onMouseMove={draw}
           onMouseUp={stopDrawing}
@@ -142,16 +190,16 @@ export default function SignaturePad({ onSignatureChange, disabled = false }: Si
 
         {!hasSignature && (
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-            <span className="text-xs sm:text-sm font-medium text-gray-400 dark:text-gray-500 italic select-none">
+            <span className="text-xs sm:text-sm font-medium text-slate-400 italic select-none">
               {t('maintenance.signature_hint')}
             </span>
           </div>
         )}
 
         {hasSignature && (
-          <div className="absolute top-2 right-2 flex items-center gap-1.5 bg-emerald-50 dark:bg-emerald-950/80 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400 px-2 py-0.5 rounded-full text-xs font-semibold shadow-sm animate-in fade-in">
+          <div className="absolute top-2 right-2 flex items-center gap-1.5 bg-emerald-50 border border-emerald-300 text-emerald-700 px-2 py-0.5 rounded-full text-xs font-semibold shadow-sm animate-in fade-in">
             <CheckCircle2 size={12} />
-            <span>Firmado</span>
+            <span>{t('maintenance.signed')}</span>
           </div>
         )}
       </div>
@@ -161,7 +209,7 @@ export default function SignaturePad({ onSignatureChange, disabled = false }: Si
           type="button"
           onClick={clearCanvas}
           disabled={!hasSignature || disabled}
-          className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold text-gray-600 dark:text-gray-400 hover:text-red-600 dark:hover:text-red-400 transition-colors disabled:opacity-30 disabled:pointer-events-none"
+          className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-red-600 dark:hover:text-red-400 transition-colors disabled:opacity-30 disabled:pointer-events-none"
         >
           <Eraser size={14} />
           {t('maintenance.signature_clear')}

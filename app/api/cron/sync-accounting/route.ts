@@ -251,15 +251,17 @@ export async function GET(request: Request) {
             credit_card_deposit: toastData.creditCardDeposit,
             credit_card_fees: toastData.creditCardFees,
             credit_card_other_deductions: toastData.creditCardOtherDeductions,
-            cash_deposits: toastData.cashDeposit
+            cash_deposits: 0
           }
 
           // Cohesion parity: "Deposit To Bank" starts at 0.00 until manager enters real deposit slip.
-          const expectedCash = calculateExpectedCash(salesPacketData)
-          const previousDeposit = existingPacket?.cash_deposit !== undefined && existingPacket?.cash_deposit !== null
+          const existingSyncMeta = existingPacket?.qb_sync_response as Record<string, any> | null
+          const manualDepositEntered = Boolean(existingSyncMeta?.manual_cash_deposit)
+          const previousDeposit = manualDepositEntered && existingPacket?.cash_deposit !== undefined && existingPacket?.cash_deposit !== null
             ? Number(existingPacket.cash_deposit)
             : 0
           salesPacketData.cash_deposits = previousDeposit
+          const expectedCash = calculateExpectedCash(salesPacketData)
           const journal = generateJournalLines(salesPacketData, siteConfig)
           const docNumber = formatDocNumber(storeName.replace(/^Tacos Gavilan\s+/i, '').trim(), targetDate)
 
@@ -275,15 +277,8 @@ export async function GET(request: Request) {
               : '✓ Validación Paso 11 superada: 0 órdenes abiertas en Toast POS. Póliza lista para publicación.'
           }
 
-          const totalGrossReceipts = Math.round((
-            (salesPacketData.net_sales || 0) +
-            (salesPacketData.total_taxes || 0) +
-            (salesPacketData.paid_in || 0) +
-            (salesPacketData.delivery_service_charges || 0) +
-            (salesPacketData.deferred_gift_cards || 0) +
-            (salesPacketData.tips_payable || 0) +
-            (salesPacketData.deposits_collected || 0)
-          ) * 100) / 100
+          const totalDiscounts = toastData.discountsTotal ?? 0
+          const grossSalesAmount = Math.round(((salesPacketData.net_sales || 0) + totalDiscounts) * 100) / 100
           const packetData = {
             store_id: mapping.store_id,
             business_date: targetDate,
@@ -295,9 +290,9 @@ export async function GET(request: Request) {
             doordash_delivery_sales: salesPacketData.doordash_delivery_sales,
             doordash_takeout_sales: salesPacketData.doordash_takeout_sales,
             grubhub_sales: Math.round(((salesPacketData.grubhub_delivery_sales || 0) + (salesPacketData.grubhub_takeout_sales || 0)) * 100) / 100,
-            gross_sales: totalGrossReceipts,
+            gross_sales: grossSalesAmount,
             net_sales: salesPacketData.net_sales,
-            total_discounts: toastData.discountsTotal ?? 0,
+            total_discounts: totalDiscounts,
             sales_tax: salesPacketData.sales_tax,
             marketplace_facilitator_tax: salesPacketData.marketplace_tax,
             facilitator_tax_paid: salesPacketData.tax_paid_by_uber,
@@ -317,7 +312,13 @@ export async function GET(request: Request) {
             journal_lines: journal.lines,
             qb_doc_number: docNumber,
             notes: validationInfo.message,
-            qb_sync_response: { validation: validationInfo },
+            qb_sync_response: {
+              validation: validationInfo,
+              manual_cash_deposit: manualDepositEntered,
+              sales_gross_by_option: toastData.salesGrossByOption || {},
+              discount_breakdown: toastData.discountBreakdown || {},
+              card_breakdown: toastData.cardBreakdown || {}
+            },
             updated_at: new Date().toISOString()
           }
 

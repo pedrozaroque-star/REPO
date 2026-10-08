@@ -34,8 +34,11 @@ export type VoiceId = (typeof AVAILABLE_VOICES)[number]['id']
 
 const BUCKET = 'order-ready-tts'
 const DEFAULT_VOICE: VoiceId = 'Kore'
-const MODELS = ['gemini-3.8-flash-lite-tts', 'gemini-3.8-flash-tts', 'gemini-2.5-flash-preview-tts', 'gemini-2.5-pro-preview-tts']
 const CACHE_VERSION = 'v4'
+const MODELS = [
+  'gemini-3.8-flash-tts',
+  'gemini-3.8-flash-lite-tts'
+]
 
 export type TtsLang = 'en' | 'es'
 
@@ -235,8 +238,8 @@ async function generateTextWithGemini(
     }
 
     if (allModels429) {
-      // Si todos los modelos de esta llave arrojaron 429 (cuota diaria alcanzada), enfriar por 15 minutos
-      keyBlockedUntil.set(key, Date.now() + 15 * 60 * 1000)
+      // Si todos los modelos arrojaron 429, enfriar la llave 60s para restablecer el límite por minuto (RPM)
+      keyBlockedUntil.set(key, Date.now() + 60 * 1000)
     }
   }
 
@@ -247,8 +250,8 @@ async function generateWithGemini(n: string, lang: TtsLang, voice: VoiceId): Pro
   const textToSpeak = buildPrompt(n, lang)
   const stylePrompt =
     lang === 'es'
-      ? 'cheerful, energetic and enthusiastic counter announcement, saying the company slogan "¡ya está!" with joyful energy'
-      : 'cheerful, upbeat and friendly counter announcement'
+      ? 'cheerful, energetic, warm and enthusiastic Mexican restaurant counter announcement, speaking with a warm natural Mexican Spanish accent and saying the company slogan "¡ya está!" with joyful energy'
+      : 'cheerful, upbeat, warm and friendly counter announcement'
   return generateTextWithGemini(textToSpeak, lang, voice, stylePrompt)
 }
 

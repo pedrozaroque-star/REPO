@@ -77,6 +77,21 @@ export interface ToastAccountingData {
   doordashTakeoutSales: number
   grubhubDeliverySales: number
   grubhubTakeoutSales: number
+  salesGrossByOption?: {
+    forHere: number
+    toGo: number
+    driveThru: number
+    kioskDineIn: number
+    kioskTakeOut: number
+    toastOnline: number
+    toastDelivery: number
+    uberDelivery: number
+    uberTakeout: number
+    doordashDelivery: number
+    doordashTakeout: number
+    grubhubDelivery: number
+    grubhubTakeout: number
+  }
   salesTax: number
   marketplaceTax: number
   taxPaidByUber: number
@@ -84,10 +99,12 @@ export interface ToastAccountingData {
   giftCardRedemption: number
   deliveryServiceCharges: number
   discountsTotal: number
+  discountBreakdown?: Record<string, number>
   creditCardGross: number
   creditCardFees: number
   creditCardOtherDeductions: number
   creditCardDeposit: number
+  cardBreakdown?: Record<string, { gross: number, fee: number, deposit: number }>
   ebtAmount: number
   uberPayment: number
   doordashPayment: number
@@ -124,17 +141,21 @@ export async function fetchToastAccountingData(
     }).catch(() => null),
   ])
 
-  const diningOptions = await optRes.json()
+  const diningOptions = optRes.ok ? await optRes.json() : []
   const diningMap: Record<string, string> = {}
-  for (const opt of diningOptions || []) {
-    diningMap[opt.guid] = opt.name
+  if (Array.isArray(diningOptions)) {
+    for (const opt of diningOptions) {
+      if (opt.guid && opt.name) diningMap[opt.guid] = opt.name
+    }
   }
 
   const altMap: Record<string, string> = {}
   if (altRes && altRes.ok) {
     const altData = await altRes.json()
-    for (const alt of altData || []) {
-      if (alt.guid && alt.name) altMap[alt.guid] = alt.name
+    if (Array.isArray(altData)) {
+      for (const alt of altData) {
+        if (alt.guid && alt.name) altMap[alt.guid] = alt.name
+      }
     }
   }
 
@@ -187,6 +208,7 @@ export async function fetchToastAccountingData(
     'checks.selections.itemGroup.name',
     'checks.selections.displayName',
     'checks.selections.giftCard',
+    'checks.selections.appliedDiscounts',
   ].join(',')
   url.searchParams.append('fields', fields)
 
@@ -213,24 +235,37 @@ export async function fetchToastAccountingData(
     else page++
   }
 
-  // Acumuladores de Ventas
+  // Acumuladores de Ventas (Net y Gross por canal)
   let forHere = 0
+  let forHereGross = 0
   let toGo = 0
+  let toGoGross = 0
   let driveThru = 0
+  let driveThruGross = 0
   let kioskDineIn = 0
+  let kioskDineInGross = 0
   let kioskTakeOut = 0
+  let kioskTakeOutGross = 0
   let toastOnline = 0
+  let toastOnlineGross = 0
   // Cohesion cambio su mapeo ~2026-10-03: antes el Toast Delivery iba en 40050 y las Other Deductions dentro de Merchant Fees (51030)
   const legacyCohesionRules = businessDate < '20261003'
   let toastDelivery = 0
+  let toastDeliveryGross = 0
   let tipsPayable = 0
   let depositsCollected = 0
   let uberDel = 0
+  let uberDelGross = 0
   let uberTake = 0
+  let uberTakeGross = 0
   let ddDel = 0
+  let ddDelGross = 0
   let ddTake = 0
+  let ddTakeGross = 0
   let ghDel = 0
+  let ghDelGross = 0
   let ghTake = 0
+  let ghTakeGross = 0
 
   let totalTax = 0
   let marketplaceTax = 0
@@ -240,10 +275,17 @@ export async function fetchToastAccountingData(
   let giftCardRedemption = 0
   let deliveryServiceCharges = 0
   let discountsTotal = 0
+  const discountBreakdown: Record<string, number> = {}
 
   let creditCardGross = 0
   let creditCardActualFees = 0
   let creditCardOtherDeductions = 0
+  const cardBreakdown: Record<string, { gross: number, fee: number, deposit: number }> = {
+    VISA: { gross: 0, fee: 0, deposit: 0 },
+    MASTERCARD: { gross: 0, fee: 0, deposit: 0 },
+    DISCOVER: { gross: 0, fee: 0, deposit: 0 },
+    AMEX: { gross: 0, fee: 0, deposit: 0 },
+  }
   let ebtAmount = 0
   let uberPayment = 0
   let doordashPayment = 0
@@ -378,18 +420,28 @@ export async function fetchToastAccountingData(
           checkItemNetSum += p
           checkItemGrossSum += pre
         }
-      }
 
-      const itemLevelDiscounts = Math.max(0, checkItemGrossSum - checkItemNetSum)
-      let checkLevelDiscounts = 0
-      if (check.appliedDiscounts) {
-        for (const d of check.appliedDiscounts) {
-          const dAmt = Number(d.amount || 0)
-          checkNet -= dAmt
-          checkLevelDiscounts += dAmt
+        // Acumular descuentos a nivel de item (ej. Senior Discount)
+        if (sel.appliedDiscounts && Array.isArray(sel.appliedDiscounts)) {
+          for (const d of sel.appliedDiscounts) {
+            const dAmt = Number(d.discountAmount ?? d.nonTaxDiscountAmount ?? d.amount ?? 0)
+            const dName = d.name || 'Descuento Item'
+            discountBreakdown[dName] = Math.round(((discountBreakdown[dName] || 0) + dAmt) * 100) / 100
+          }
         }
       }
-      discountsTotal += itemLevelDiscounts + checkLevelDiscounts
+
+      // En Toast POS, sel.price ya tiene descontados tanto los descuentos por item como por check.
+      // La diferencia (checkItemGrossSum - checkItemNetSum) representa el descuento total del cheque.
+      const checkDiscounts = Math.max(0, checkItemGrossSum - checkItemNetSum)
+      if (check.appliedDiscounts && Array.isArray(check.appliedDiscounts)) {
+        for (const d of check.appliedDiscounts) {
+          const dAmt = Number(d.discountAmount ?? d.nonTaxDiscountAmount ?? d.amount ?? 0)
+          const dName = d.name || 'Descuento General'
+          discountBreakdown[dName] = Math.round(((discountBreakdown[dName] || 0) + dAmt) * 100) / 100
+        }
+      }
+      discountsTotal += checkDiscounts
 
       // Reembolsos no vinculados a nivel de pagos (Unlinked Refunds)
       let paymentRefunds = 0
@@ -400,47 +452,63 @@ export async function fetchToastAccountingData(
       checkNet -= unlinkedRefunds
 
       checkNet = Math.round(checkNet * 100) / 100
+      const checkGross = Math.round(checkItemGrossSum * 100) / 100
 
       const dOptLower = (dOptionRaw || '').toLowerCase().trim()
 
-      // Clasificar por Dining Option
+      // Clasificar por Dining Option (Net y Gross)
       if (optName.includes('uber') && (optName.includes('takeout') || optName.includes('take out'))) {
         uberTake += checkNet
+        uberTakeGross += checkGross
         taxPaidByUber += checkTax
       } else if (optName.includes('uber') || optName.includes('postmates')) {
         uberDel += checkNet
+        uberDelGross += checkGross
         taxPaidByUber += checkTax
       } else if (optName.includes('doordash') && (optName.includes('takeout') || optName.includes('take out'))) {
         ddTake += checkNet
+        ddTakeGross += checkGross
         marketplaceTax += checkTax
       } else if (optName.includes('doordash') || optName.includes('dash')) {
         ddDel += checkNet
+        ddDelGross += checkGross
         marketplaceTax += checkTax
       } else if (optName.includes('grub') && (optName.includes('takeout') || optName.includes('take out'))) {
         ghTake += checkNet
+        ghTakeGross += checkGross
         marketplaceTax += checkTax
       } else if (optName.includes('grub')) {
         ghDel += checkNet
+        ghDelGross += checkGross
         marketplaceTax += checkTax
       } else if (dOptLower.includes('toast delivery') && !legacyCohesionRules) {
         // Dining Option "Toast Delivery Services" -> línea propia 53060 en Cohesion
         toastDelivery += checkNet
+        toastDeliveryGross += checkGross
       } else if (optName.includes('online')) {
         toastOnline += checkNet
+        toastOnlineGross += checkGross
       } else if (dOptLower.includes('drive') || optName.includes('drive')) {
         driveThru += checkNet
+        driveThruGross += checkGross
       } else if (dOptLower.includes('kiosk dine in')) {
         kioskDineIn += checkNet
+        kioskDineInGross += checkGross
       } else if (dOptLower.includes('kiosk take out') || dOptLower === 'kiosk' || (dOptLower.includes('kiosk') && !dOptLower.includes('dine in') && !dOptLower.includes('for here'))) {
         kioskTakeOut += checkNet
+        kioskTakeOutGross += checkGross
       } else if (dOptLower.includes('for here') || dOptLower.includes('dine in') || dOptLower.includes('comedor')) {
         forHere += checkNet
+        forHereGross += checkGross
       } else if (dOptLower.includes('to go') || dOptLower.includes('take out') || dOptLower.includes('llevar')) {
         toGo += checkNet
+        toGoGross += checkGross
       } else if (optName.includes('to go') || optName.includes('curbside') || optName.includes('phone')) {
         toGo += checkNet
+        toGoGross += checkGross
       } else {
         forHere += checkNet
+        forHereGross += checkGross
       }
 
       // Clasificar pagos
@@ -471,9 +539,23 @@ export async function fetchToastAccountingData(
         } else if (pType === 'CREDIT') {
           // Cohesion incluye la propina de tarjeta en el depósito y la registra como Tips Payable (12100)
           const tip = Number(p.tipAmount || 0)
-          creditCardGross += amt + tip
+          const fee = Number(p.originalProcessingFee || 0)
+          const fullGross = amt + tip
+          creditCardGross += fullGross
           tipsPayable += tip
-          creditCardActualFees += Number(p.originalProcessingFee || 0)
+          creditCardActualFees += fee
+
+          const rawCard = String(p.cardType || '').toUpperCase()
+          const cKey = rawCard.includes('VISA') ? 'VISA'
+            : rawCard.includes('MASTER') ? 'MASTERCARD'
+            : rawCard.includes('DISC') ? 'DISCOVER'
+            : rawCard.includes('AMEX') || rawCard.includes('AMERICAN') ? 'AMEX'
+            : 'OTHER'
+
+          if (!cardBreakdown[cKey]) cardBreakdown[cKey] = { gross: 0, fee: 0, deposit: 0 }
+          cardBreakdown[cKey].gross = Math.round((cardBreakdown[cKey].gross + fullGross) * 100) / 100
+          cardBreakdown[cKey].fee = Math.round((cardBreakdown[cKey].fee + fee) * 100) / 100
+          cardBreakdown[cKey].deposit = Math.round((cardBreakdown[cKey].gross - cardBreakdown[cKey].fee) * 100) / 100
         } else if (pName.includes('uber') || pName.includes('postmates')) {
           uberPayment += amt
         } else if (pName.includes('doordash') || pName.includes('dash')) {
@@ -539,10 +621,23 @@ export async function fetchToastAccountingData(
                 const pName = (altName || pp.displayName || pp.paymentInstrument?.displayName || '').toLowerCase()
 
                 if (pT === 'CREDIT') {
-                  creditCardGross += pAmt + pTip
+                  const fullGross = pAmt + pTip
+                  creditCardGross += fullGross
                   tipsPayable += pTip
                   creditCardActualFees += fee
                   paidIn += pAmt
+
+                  const rawCard = String(pp.cardType || '').toUpperCase()
+                  const cKey = rawCard.includes('VISA') ? 'VISA'
+                    : rawCard.includes('MASTER') ? 'MASTERCARD'
+                    : rawCard.includes('DISC') ? 'DISCOVER'
+                    : rawCard.includes('AMEX') || rawCard.includes('AMERICAN') ? 'AMEX'
+                    : 'OTHER'
+
+                  if (!cardBreakdown[cKey]) cardBreakdown[cKey] = { gross: 0, fee: 0, deposit: 0 }
+                  cardBreakdown[cKey].gross = Math.round((cardBreakdown[cKey].gross + fullGross) * 100) / 100
+                  cardBreakdown[cKey].fee = Math.round((cardBreakdown[cKey].fee + fee) * 100) / 100
+                  cardBreakdown[cKey].deposit = Math.round((cardBreakdown[cKey].gross - cardBreakdown[cKey].fee) * 100) / 100
                 } else if (pT === 'CASH') {
                   cashDeposit += pAmt
                   paidIn += pAmt
@@ -598,7 +693,7 @@ export async function fetchToastAccountingData(
   marketplaceTax = r(marketplaceTax)
   taxPaidByUber = r(taxPaidByUber)
   const salesTax = r(totalTax - marketplaceTax - taxPaidByUber)
-  const grossSales = r(netSales + totalTax)
+  const grossSales = r(netSales + discountsTotal)
 
   deferredSalesGiftCards = r(deferredSalesGiftCards)
   giftCardRedemption = r(giftCardRedemption)
@@ -684,6 +779,21 @@ export async function fetchToastAccountingData(
     doordashTakeoutSales: ddTake,
     grubhubDeliverySales: ghDel,
     grubhubTakeoutSales: ghTake,
+    salesGrossByOption: {
+      forHere: r(forHereGross),
+      toGo: r(toGoGross),
+      driveThru: r(driveThruGross),
+      kioskDineIn: r(kioskDineInGross),
+      kioskTakeOut: r(kioskTakeOutGross),
+      toastOnline: r(toastOnlineGross),
+      toastDelivery: r(toastDeliveryGross),
+      uberDelivery: r(uberDelGross),
+      uberTakeout: r(uberTakeGross),
+      doordashDelivery: r(ddDelGross),
+      doordashTakeout: r(ddTakeGross),
+      grubhubDelivery: r(ghDelGross),
+      grubhubTakeout: r(ghTakeGross),
+    },
     salesTax,
     marketplaceTax,
     taxPaidByUber,
@@ -691,10 +801,12 @@ export async function fetchToastAccountingData(
     giftCardRedemption,
     deliveryServiceCharges,
     discountsTotal: r(discountsTotal),
+    discountBreakdown,
     creditCardGross,
     creditCardFees: ccFees,
     creditCardOtherDeductions,
     creditCardDeposit: ccDeposit,
+    cardBreakdown,
     ebtAmount,
     uberPayment,
     doordashPayment,

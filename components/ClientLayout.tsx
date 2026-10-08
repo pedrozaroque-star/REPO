@@ -43,6 +43,7 @@ export default function ClientLayout({
         '/clientes', 
         '/evaluacion/kiosk', 
         '/feedback-publico', 
+        '/mantenimiento/registro',
         '/planificador/imprimir', 
         '/tv', 
         '/procedimientos/imprimir',
@@ -61,7 +62,7 @@ export default function ClientLayout({
         }
     }, [pathname])
 
-    const isPublicPage = publicRoutes.includes(pathname) || isDedicatedKiosk
+    const isPublicPage = publicRoutes.some(r => pathname === r || pathname.startsWith(r + '/')) || pathname.startsWith('/mantenimiento/registro') || isDedicatedKiosk
 
     // Full-width routes (large tables, schedules, etc.)
     const fullWidthRoutes = ['/horarios', '/admin/plantillas', '/order-ready-board']

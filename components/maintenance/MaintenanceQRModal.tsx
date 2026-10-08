@@ -30,6 +30,7 @@ interface Store {
   name: string
   code?: string
   city?: string
+  address?: string
 }
 
 interface MaintenanceQRModalProps {
@@ -38,9 +39,15 @@ interface MaintenanceQRModalProps {
   stores: Store[]
 }
 
-const PRODUCTION_DOMAIN = typeof window !== 'undefined'
-  ? window.location.origin
-  : 'https://tacosgavilan.vercel.app'
+const getBaseDomain = () => {
+  if (typeof window !== 'undefined') {
+    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+      return 'https://tacosgavilan.vercel.app'
+    }
+    return window.location.origin
+  }
+  return 'https://tacosgavilan.vercel.app'
+}
 
 export default function MaintenanceQRModal({
   isOpen,
@@ -55,17 +62,19 @@ export default function MaintenanceQRModal({
 
   if (!isOpen) return null
 
+  const domain = getBaseDomain()
+
   // URL dinámica según tienda seleccionada
   const targetUrl = selectedStoreId === 'generic'
-    ? `${PRODUCTION_DOMAIN}/mantenimiento/registro`
-    : `${PRODUCTION_DOMAIN}/mantenimiento/registro?store=${selectedStoreId}`
+    ? `${domain}/mantenimiento/registro`
+    : `${domain}/mantenimiento/registro?store=${selectedStoreId}`
 
   // Generador de QR usando QuickChart API (vectorial y fiable)
   const qrImageUrl = `https://quickchart.io/qr?text=${encodeURIComponent(targetUrl)}&size=500&margin=2&ecLevel=H&format=png`
 
-  const selectedStore = stores.find(s => s.id === selectedStoreId)
+  const selectedStore = stores.find(s => String(s.id) === String(selectedStoreId))
   const storeLabel = selectedStore
-    ? formatStoreName(selectedStore.name) + (selectedStore.code ? ` #${selectedStore.code}` : '')
+    ? `Tacos Gavilan • ${formatStoreName(selectedStore.name)}`
     : (isEs ? 'Todas las Sucursales (Genérico)' : 'All Stores (Generic)')
 
   const handleCopyLink = () => {
@@ -125,7 +134,13 @@ export default function MaintenanceQRModal({
               font-weight: 800;
               padding: 6px 18px;
               border-radius: 9999px;
-              margin-bottom: 20px;
+              margin-bottom: ${selectedStore?.address ? '8px' : '20px'};
+            }
+            .store-address {
+              font-size: 13px;
+              font-weight: 600;
+              color: #64748b;
+              margin-bottom: 18px;
             }
             .qr-wrapper {
               background: #ffffff;
@@ -167,6 +182,7 @@ export default function MaintenanceQRModal({
             <div class="brand">Tacos Gavilan</div>
             <div class="tagline">Bitácora Oficial de Mantenimiento y Proveedores</div>
             <div class="store-badge">${storeLabel}</div>
+            ${selectedStore?.address ? `<div class="store-address">📍 ${selectedStore.address}${selectedStore.city ? `, ${selectedStore.city}` : ''}</div>` : ''}
             
             <div class="qr-wrapper">
               <img class="qr-img" src="${qrImageUrl}" alt="QR Mantenimiento" />
@@ -246,7 +262,7 @@ export default function MaintenanceQRModal({
                 </option>
                 {stores.map((s) => (
                   <option key={s.id} value={s.id}>
-                    📍 {formatStoreName(s.name)} {s.code ? `(#${s.code})` : ''} {s.city ? `— ${s.city}` : ''}
+                    📍 {formatStoreName(s.name)}{s.address ? ` — ${s.address}` : ''}
                   </option>
                 ))}
               </select>
@@ -261,9 +277,15 @@ export default function MaintenanceQRModal({
                 </span>
               </div>
 
-              <div className="px-3 py-1 rounded-full bg-red-100 dark:bg-red-950/80 text-red-700 dark:text-red-300 text-xs font-extrabold mb-4">
+              <div className="px-3 py-1 rounded-full bg-red-100 dark:bg-red-950/80 text-red-700 dark:text-red-300 text-xs font-extrabold mb-1">
                 {storeLabel}
               </div>
+
+              {selectedStore?.address && (
+                <div className="text-[11px] font-semibold text-gray-500 dark:text-gray-400 mb-3">
+                  📍 {selectedStore.address}{selectedStore.city ? `, ${selectedStore.city}` : ''}
+                </div>
+              )}
 
               <div className="p-4 bg-white rounded-2xl shadow-md border border-gray-200 dark:border-gray-600">
                 <img

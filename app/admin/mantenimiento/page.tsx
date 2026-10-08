@@ -3,15 +3,12 @@
  * @description Panel administrativo y de supervisión para la Bitácora de Mantenimiento y Proveedores de Tacos Gavilan.
  * @businessRules
  * - Muestra todas las intervenciones técnicas de las 15 sucursales con evidencias fotográficas y firmas.
- * - Monitorea el semáforo de mantenimientos recurrentes obligatorios:
- *   * Lavado de campanas (Hood cleaning): cada ~90 días.
- *   * Desazolve de trampa de grasa (Grease trap): cada ~30-60 días.
- *   * Control de plagas (Pest control): cada ~30 días.
  * - Permite exportación de reportes a CSV para auditorías de salud, bomberos o contabilidad.
  * - Permite abrir el generador de Códigos QR para imprimir las calcomanías oficiales de cada sucursal.
+ * - Permite a administradores y supervisores eliminar registros de servicios con diálogo de confirmación y purga de Storage.
  * - Aplica zona horaria PST 'America/Los_Angeles' y soporte bilingüe con useLanguage().
  * @dataFlow
- * - /api/mantenimiento -> maintenance_service_logs & stores -> Renderizado de métricas, semáforo y bitácora.
+ * - /api/mantenimiento -> maintenance_service_logs & stores -> Renderizado de métricas, bitácora y eliminación.
  * @notes
  * - Incluye modal interactivo con visor de imágenes a pantalla completa para inspección forense de trabajos.
  */
@@ -25,7 +22,8 @@ import {
   Building2, CheckCircle2, Clock, AlertTriangle, Eye,
   X, ChevronDown, ChevronRight, ExternalLink, Flame,
   Snowflake, Droplets, Bug, Sparkles, RefreshCw, FileText,
-  DollarSign, ShieldCheck, User, Phone, Check, ArrowUpDown
+  DollarSign, ShieldCheck, User, Phone, Check, ArrowUpDown,
+  Trash2, Loader2
 } from 'lucide-react'
 import { useLanguage } from '@/lib/i18n'
 import { formatStoreName } from '@/lib/supabase'
@@ -36,6 +34,7 @@ interface Store {
   name: string
   code?: string
   city?: string
+  address?: string
 }
 
 interface MaintenanceLog {
@@ -72,7 +71,6 @@ export default function AdminMaintenanceDashboardPage() {
   const [logs, setLogs] = useState<MaintenanceLog[]>([])
   const [stores, setStores] = useState<Store[]>([])
   const [loading, setLoading] = useState(true)
-  const [recurrentHealth, setRecurrentHealth] = useState<Record<string, { lastHood?: string; lastGreaseTrap?: string; lastPestControl?: string }>>({})
 
   // Filtros
   const [selectedStore, setSelectedStore] = useState<string>('all')
@@ -86,6 +84,46 @@ export default function AdminMaintenanceDashboardPage() {
   const [selectedLog, setSelectedLog] = useState<MaintenanceLog | null>(null)
   const [qrModalOpen, setQrModalOpen] = useState(false)
   const [zoomedImage, setZoomedImage] = useState<string | null>(null)
+  const [logToDelete, setLogToDelete] = useState<MaintenanceLog | null>(null)
+  const [isDeleting, setIsDeleting] = useState(false)
+  const [deleteFeedback, setDeleteFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
+
+  // Auto-limpieza de mensaje de feedback de eliminación tras 4 segundos
+  useEffect(() => {
+    if (deleteFeedback) {
+      const timer = setTimeout(() => {
+        setDeleteFeedback(null)
+      }, 4000)
+      return () => clearTimeout(timer)
+    }
+  }, [deleteFeedback])
+
+  // Manejo de eliminación confirmada
+  const handleConfirmDelete = async () => {
+    if (!logToDelete) return
+    setIsDeleting(true)
+    try {
+      const res = await fetch(`/api/mantenimiento?id=${logToDelete.id}`, {
+        method: 'DELETE'
+      })
+      const json = await res.json()
+      if (json.success) {
+        setLogs(prev => prev.filter(l => l.id !== logToDelete.id))
+        if (selectedLog?.id === logToDelete.id) {
+          setSelectedLog(null)
+        }
+        setDeleteFeedback({ type: 'success', message: t('maintenance.delete_success') })
+        setLogToDelete(null)
+      } else {
+        setDeleteFeedback({ type: 'error', message: json.error || t('maintenance.delete_error') })
+      }
+    } catch (err: any) {
+      console.error('Error al eliminar registro de mantenimiento:', err)
+      setDeleteFeedback({ type: 'error', message: err.message || t('maintenance.delete_error') })
+    } finally {
+      setIsDeleting(false)
+    }
+  }
 
   // Cargar datos
   const fetchData = async () => {
@@ -105,13 +143,6 @@ export default function AdminMaintenanceDashboardPage() {
       if (json.success) {
         setLogs(json.data || [])
         if (json.stores) setStores(json.stores)
-      }
-
-      // Consultar resumen de semáforo preventivo
-      const summaryRes = await fetch('/api/mantenimiento?summary=true')
-      const summaryJson = await summaryRes.json()
-      if (summaryJson.success && summaryJson.summary?.recurrentByStore) {
-        setRecurrentHealth(summaryJson.summary.recurrentByStore)
       }
     } catch (err) {
       console.error('Error cargando bitácora de mantenimiento:', err)
@@ -167,21 +198,21 @@ export default function AdminMaintenanceDashboardPage() {
     const rows = filteredLogs.map(l => [
       `"${l.service_date}"`,
       `"${formatStoreName(l.store?.name || 'N/A')}"`,
-      `"${(l.company_name || '').replace(/"/g, '""')}"`,
-      `"${(l.technician_name || '').replace(/"/g, '""')}"`,
+      `"${(l.company_name || '').replace(/"/g, '""').replace(/[\r\n]+/g, ' ')}"`,
+      `"${(l.technician_name || '').replace(/"/g, '""').replace(/[\r\n]+/g, ' ')}"`,
       `"${l.technician_phone || ''}"`,
       `"${l.category}"`,
       `"${l.service_type}"`,
-      `"${(l.area_equipment || '').replace(/"/g, '""')}"`,
-      `"${(l.work_description || '').replace(/"/g, '""')}"`,
-      `"${(l.parts_replaced || '').replace(/"/g, '""')}"`,
+      `"${(l.area_equipment || '').replace(/"/g, '""').replace(/[\r\n]+/g, ' ')}"`,
+      `"${(l.work_description || '').replace(/"/g, '""').replace(/[\r\n]+/g, ' ')}"`,
+      `"${(l.parts_replaced || '').replace(/"/g, '""').replace(/[\r\n]+/g, ' ')}"`,
       `"${l.status}"`,
       `"${l.invoice_number || ''}"`,
-      l.cost_estimate ? `"${l.cost_estimate}"` : '""',
-      `"${(l.manager_name || '').replace(/"/g, '""')}"`
+      (l.cost_estimate !== null && l.cost_estimate !== undefined) ? `"${l.cost_estimate}"` : '""',
+      `"${(l.manager_name || '').replace(/"/g, '""').replace(/[\r\n]+/g, ' ')}"`
     ])
 
-    const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n')
+    const csvContent = '\uFEFF' + [headers.join(','), ...rows.map(r => r.join(','))].join('\n')
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
@@ -215,24 +246,6 @@ export default function AdminMaintenanceDashboardPage() {
         return { label: t('maintenance.category_it'), color: 'text-purple-700 bg-purple-50 border-purple-200 dark:bg-purple-950/50 dark:text-purple-300' }
       default:
         return { label: t('maintenance.category_general'), color: 'text-slate-700 bg-slate-50 border-slate-200 dark:bg-slate-800 dark:text-slate-300' }
-    }
-  }
-
-  // Helper para días transcurridos y semáforo preventivo
-  const calculateRecurrentStatus = (lastDateStr?: string, maxDays = 90) => {
-    if (!lastDateStr) {
-      return { status: 'no_record', label: t('maintenance.no_record'), color: 'text-slate-500 bg-slate-100 dark:bg-slate-800' }
-    }
-    const lastDate = new Date(lastDateStr)
-    const now = new Date()
-    const diffDays = Math.floor((now.getTime() - lastDate.getTime()) / (1000 * 60 * 60 * 24))
-
-    if (diffDays <= maxDays * 0.75) {
-      return { status: 'optimal', label: `${diffDays}d • ${t('maintenance.optimal')}`, color: 'text-emerald-700 bg-emerald-100 dark:bg-emerald-950 dark:text-emerald-300' }
-    } else if (diffDays <= maxDays) {
-      return { status: 'due_soon', label: `${diffDays}d • ${t('maintenance.due_soon')}`, color: 'text-amber-700 bg-amber-100 dark:bg-amber-950 dark:text-amber-300' }
-    } else {
-      return { status: 'overdue', label: `${diffDays}d • ${t('maintenance.overdue')}`, color: 'text-red-700 bg-red-100 dark:bg-red-950 dark:text-red-300' }
     }
   }
 
@@ -287,6 +300,38 @@ export default function AdminMaintenanceDashboardPage() {
         </div>
       </div>
 
+      {/* MENSAJE DE FEEDBACK TRAS ELIMINAR O ACCIÓN */}
+      <AnimatePresence>
+        {deleteFeedback && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            className={`p-4 rounded-2xl flex items-center justify-between gap-3 text-xs font-bold border shadow-sm transition-all ${
+              deleteFeedback.type === 'success'
+                ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-850 text-emerald-800 dark:text-emerald-300'
+                : 'bg-red-50 dark:bg-red-950/40 border-red-200 dark:border-red-850 text-red-800 dark:text-red-300'
+            }`}
+          >
+            <div className="flex items-center gap-2.5">
+              {deleteFeedback.type === 'success' ? (
+                <CheckCircle2 size={16} className="text-emerald-600 dark:text-emerald-400 flex-shrink-0" />
+              ) : (
+                <AlertTriangle size={16} className="text-red-600 dark:text-red-400 flex-shrink-0" />
+              )}
+              <span>{deleteFeedback.message}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setDeleteFeedback(null)}
+              className="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-black/5 transition-colors"
+            >
+              <X size={14} />
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* TARJETAS KPI DE RESUMEN */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 border border-slate-200 dark:border-slate-800 shadow-sm flex items-center justify-between">
@@ -320,7 +365,7 @@ export default function AdminMaintenanceDashboardPage() {
         <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 border border-slate-200 dark:border-slate-800 shadow-sm flex items-center justify-between">
           <div>
             <span className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-              {isEs ? 'Tiendas Atendidas' : 'Serviced Stores'}
+              {t('maintenance.serviced_stores')}
             </span>
             <div className="text-3xl font-black text-emerald-600 dark:text-emerald-400 mt-1">
               {distinctStoresCount} <span className="text-xs text-slate-400 font-normal">/ {stores.length || 15}</span>
@@ -329,65 +374,6 @@ export default function AdminMaintenanceDashboardPage() {
           <div className="p-3 rounded-2xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400">
             <Building2 size={24} />
           </div>
-        </div>
-      </div>
-
-      {/* SEMÁFORO DE MANTENIMIENTOS RECURRENTES (Campanas, Trampas de Grasa, Plagas) */}
-      <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 border border-slate-200 dark:border-slate-800 shadow-sm">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
-            <ShieldCheck size={20} className="text-red-600" />
-            <h2 className="text-sm font-black uppercase tracking-wider text-slate-900 dark:text-white">
-              {t('maintenance.recurrent_health')}
-            </h2>
-          </div>
-          <span className="text-xs text-slate-500">
-            {isEs ? 'Campanas (~90d) • Trampa Grasa (~45d) • Plagas (~30d)' : 'Hoods (~90d) • Grease (~45d) • Pest (~30d)'}
-          </span>
-        </div>
-
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
-            <thead>
-              <tr className="border-b border-slate-100 dark:border-slate-800 text-slate-400 font-bold uppercase tracking-wider">
-                <th className="py-2.5 px-3">{t('maintenance.store')}</th>
-                <th className="py-2.5 px-3">{t('maintenance.hood_status')}</th>
-                <th className="py-2.5 px-3">{t('maintenance.grease_status')}</th>
-                <th className="py-2.5 px-3">{t('maintenance.pest_status')}</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 font-medium">
-              {stores.slice(0, 8).map(st => {
-                const health = recurrentHealth[st.id] || {}
-                const hood = calculateRecurrentStatus(health.lastHood, 90)
-                const grease = calculateRecurrentStatus(health.lastGreaseTrap, 45)
-                const pest = calculateRecurrentStatus(health.lastPestControl, 30)
-
-                return (
-                  <tr key={st.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/40 transition-colors">
-                    <td className="py-2.5 px-3 font-bold text-slate-800 dark:text-slate-200">
-                      {formatStoreName(st.name)} {st.code ? `(#${st.code})` : ''}
-                    </td>
-                    <td className="py-2.5 px-3">
-                      <span className={`inline-block px-2.5 py-0.5 rounded-full text-[11px] font-bold ${hood.color}`}>
-                        {hood.label}
-                      </span>
-                    </td>
-                    <td className="py-2.5 px-3">
-                      <span className={`inline-block px-2.5 py-0.5 rounded-full text-[11px] font-bold ${grease.color}`}>
-                        {grease.label}
-                      </span>
-                    </td>
-                    <td className="py-2.5 px-3">
-                      <span className={`inline-block px-2.5 py-0.5 rounded-full text-[11px] font-bold ${pest.color}`}>
-                        {pest.label}
-                      </span>
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
         </div>
       </div>
 
@@ -407,7 +393,7 @@ export default function AdminMaintenanceDashboardPage() {
               <option value="all">{t('maintenance.all_stores')}</option>
               {stores.map(s => (
                 <option key={s.id} value={s.id}>
-                  {formatStoreName(s.name)} {s.code ? `(#${s.code})` : ''}
+                  {formatStoreName(s.name)}{s.address ? ` — ${s.address}` : ''}
                 </option>
               ))}
             </select>
@@ -478,7 +464,7 @@ export default function AdminMaintenanceDashboardPage() {
         {loading ? (
           <div className="p-12 text-center text-slate-400">
             <RefreshCw className="animate-spin mx-auto mb-2" size={24} />
-            <span className="text-xs font-semibold">{isEs ? 'Cargando bitácora...' : 'Loading logs...'}</span>
+            <span className="text-xs font-semibold">{t('maintenance.loading_logs')}</span>
           </div>
         ) : filteredLogs.length === 0 ? (
           <div className="p-12 text-center text-slate-400">
@@ -516,7 +502,14 @@ export default function AdminMaintenanceDashboardPage() {
                         {log.service_date}
                       </td>
                       <td className="py-3 px-4 font-bold text-slate-800 dark:text-slate-200 whitespace-nowrap">
-                        {formatStoreName(log.store?.name || 'N/A')} {log.store?.code ? `(#${log.store.code})` : ''}
+                        <div className="font-extrabold text-slate-900 dark:text-white">
+                          {formatStoreName(log.store?.name || 'N/A')}
+                        </div>
+                        {log.store?.address && (
+                          <div className="text-[10px] text-slate-400 font-normal">
+                            {log.store.address}
+                          </div>
+                        )}
                       </td>
                       <td className="py-3 px-4">
                         <div className="font-extrabold text-slate-900 dark:text-white">{log.company_name}</div>
@@ -568,16 +561,29 @@ export default function AdminMaintenanceDashboardPage() {
                         </div>
                       </td>
                       <td className="py-3 px-4 text-right whitespace-nowrap">
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            setSelectedLog(log)
-                          }}
-                          className="px-3 py-1 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/60 dark:hover:text-red-400 text-xs font-bold transition-colors"
-                        >
-                          {t('maintenance.view_details')}
-                        </button>
+                        <div className="flex items-center justify-end gap-1.5">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setSelectedLog(log)
+                            }}
+                            className="px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/60 dark:hover:text-red-400 text-xs font-bold transition-colors"
+                          >
+                            {t('maintenance.view_details')}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setLogToDelete(log)
+                            }}
+                            title={t('maintenance.delete_btn_tooltip')}
+                            className="p-1.5 rounded-xl text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 dark:hover:text-red-400 transition-colors"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   )
@@ -656,7 +662,7 @@ export default function AdminMaintenanceDashboardPage() {
                     <span className="font-extrabold text-slate-900 dark:text-white">
                       {selectedLog.invoice_number || 'N/A'}
                     </span>
-                    {selectedLog.cost_estimate && (
+                    {(selectedLog.cost_estimate !== null && selectedLog.cost_estimate !== undefined) && (
                       <span className="text-emerald-600 font-bold block text-[11px]">
                         ${selectedLog.cost_estimate.toFixed(2)} USD
                       </span>
@@ -769,7 +775,7 @@ export default function AdminMaintenanceDashboardPage() {
                     </span>
                   </div>
                   <p className="text-slate-700 dark:text-slate-300 font-semibold mb-2">
-                    {isEs ? 'Validado y recibido por:' : 'Verified and received by:'} <strong className="text-emerald-700 dark:text-emerald-300">{selectedLog.manager_name}</strong>
+                    {t('maintenance.verified_by')} <strong className="text-emerald-700 dark:text-emerald-300">{selectedLog.manager_name}</strong>
                   </p>
 
                   {selectedLog.manager_signature_url && (
@@ -785,7 +791,15 @@ export default function AdminMaintenanceDashboardPage() {
               </div>
 
               {/* Modal Footer */}
-              <div className="p-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40 flex justify-end">
+              <div className="p-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40 flex items-center justify-between">
+                <button
+                  type="button"
+                  onClick={() => setLogToDelete(selectedLog)}
+                  className="px-4 py-2 rounded-2xl bg-red-50 dark:bg-red-950/30 hover:bg-red-100 dark:hover:bg-red-900/50 text-red-600 dark:text-red-400 text-xs font-bold flex items-center gap-1.5 transition-colors border border-red-200/50 dark:border-red-900/40"
+                >
+                  <Trash2 size={14} />
+                  <span>{t('maintenance.delete_record')}</span>
+                </button>
                 <button
                   type="button"
                   onClick={() => setSelectedLog(null)}
@@ -836,6 +850,104 @@ export default function AdminMaintenanceDashboardPage() {
         onClose={() => setQrModalOpen(false)}
         stores={stores}
       />
+
+      {/* MODAL DE CONFIRMACIÓN DE ELIMINACIÓN */}
+      <AnimatePresence>
+        {logToDelete && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 w-full max-w-md overflow-hidden p-6"
+            >
+              <div className="flex items-center gap-3.5 mb-4">
+                <div className="w-12 h-12 rounded-2xl bg-red-100 dark:bg-red-950/60 flex items-center justify-center text-red-600 dark:text-red-400 flex-shrink-0">
+                  <Trash2 size={24} />
+                </div>
+                <div>
+                  <h3 className="text-base font-extrabold text-slate-900 dark:text-white">
+                    {t('maintenance.delete_confirm_title')}
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                    {t('maintenance.delete_confirm_message')}
+                  </p>
+                </div>
+              </div>
+
+              {/* Ficha Resumen del Registro a Eliminar */}
+              <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700 text-xs space-y-1.5 mb-5">
+                <div className="flex justify-between">
+                  <span className="text-slate-400 font-bold">{t('maintenance.vendor')}:</span>
+                  <span className="font-extrabold text-slate-900 dark:text-white">{logToDelete.company_name}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-400 font-bold">{t('maintenance.technician')}:</span>
+                  <span className="font-medium text-slate-800 dark:text-slate-200">{logToDelete.technician_name}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-400 font-bold">{t('maintenance.store')}:</span>
+                  <span className="font-extrabold text-slate-900 dark:text-white">
+                    {formatStoreName(logToDelete.store?.name || 'N/A')}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-400 font-bold">{t('maintenance.date')}:</span>
+                  <span className="font-medium text-slate-800 dark:text-slate-200">{logToDelete.service_date}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-400 font-bold">{t('maintenance.equipment')}:</span>
+                  <span className="font-medium text-slate-800 dark:text-slate-200 truncate max-w-[200px]">
+                    {logToDelete.area_equipment}
+                  </span>
+                </div>
+
+                {/* Aviso visual de borrado de fotos y firma en Storage */}
+                {((logToDelete.photos_before?.length || 0) + (logToDelete.photos_after?.length || 0) + (logToDelete.photos_invoice?.length || 0) + (logToDelete.manager_signature_url ? 1 : 0)) > 0 && (
+                  <div className="flex items-center gap-2 p-2.5 mt-2 rounded-xl bg-red-50/80 dark:bg-red-950/40 border border-red-200/60 dark:border-red-900/40 text-[11px] font-bold text-red-700 dark:text-red-300">
+                    <span className="text-sm">📸</span>
+                    <span>
+                      {t('maintenance.photos_will_be_deleted', {
+                        count: (logToDelete.photos_before?.length || 0) + (logToDelete.photos_after?.length || 0) + (logToDelete.photos_invoice?.length || 0) + (logToDelete.manager_signature_url ? 1 : 0)
+                      })}
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              {/* Botones de Acción */}
+              <div className="flex items-center justify-end gap-2.5">
+                <button
+                  type="button"
+                  disabled={isDeleting}
+                  onClick={() => setLogToDelete(null)}
+                  className="px-4 py-2 rounded-2xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-xs font-bold text-slate-700 dark:text-slate-300 transition-colors disabled:opacity-50"
+                >
+                  {t('common.cancel')}
+                </button>
+                <button
+                  type="button"
+                  disabled={isDeleting}
+                  onClick={handleConfirmDelete}
+                  className="px-4 py-2 rounded-2xl bg-red-600 hover:bg-red-700 text-white text-xs font-extrabold shadow-md shadow-red-600/20 flex items-center gap-1.5 transition-all disabled:opacity-50"
+                >
+                  {isDeleting ? (
+                    <>
+                      <Loader2 size={14} className="animate-spin" />
+                      <span>{t('maintenance.deleting')}</span>
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 size={14} />
+                      <span>{t('maintenance.delete_record')}</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   )
 }

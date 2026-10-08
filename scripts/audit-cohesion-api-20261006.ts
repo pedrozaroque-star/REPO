@@ -60,7 +60,7 @@ async function main() {
   const dates = (now:Date) => vm.runInNewContext(ts.transpile(dateBlock.replace('formatToParts(new Date())','formatToParts(inputDate)')+'\nrollingDates', {target:ts.ScriptTarget.ES2020}), {Date,Intl,inputDate:now})
   for (const [input, expected] of [['2026-10-07T00:00:00-07:00','2026-10-05'],['2026-10-07T05:59:00-07:00','2026-10-05'],['2026-10-07T06:00:00-07:00','2026-10-06'],['2026-10-07T16:59:00-07:00','2026-10-06'],['2026-10-07T17:00:00-07:00','2026-10-06'],['2026-11-01T05:59:00-08:00','2026-10-30'],['2026-11-01T06:00:00-08:00','2026-10-31']]) { assert.equal(dates(new Date(input))[0],expected); record('Cron date '+input,{expected}) }
   const result = {capturedAt:new Date().toISOString(), scope:'No network mutations; two real handlers with empty bodies; real DB snapshot; source-extracted pure logic.', hashes:paths.map(path=>({path,sha256:crypto.createHash('sha256').update(sources[path]).digest('hex'),lines:sources[path].split('\n').length})),checks}
-  fs.writeFileSync('docs/cohesion-audit-20261006/api-runtime-evidence-20261007.json', JSON.stringify(result,null,2)+'\n')
+  fs.writeFileSync(process.argv[2] || 'docs/cohesion-audit-20261006/api-runtime-evidence-20261007.json', JSON.stringify(result,null,2)+'\n')
   console.log('PASS reproduction checks:',checks.length)
 }
 main().catch(e=>{console.error(e);process.exitCode=1})
