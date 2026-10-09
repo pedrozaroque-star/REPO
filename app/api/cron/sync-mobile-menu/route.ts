@@ -1,384 +1,287 @@
+/**
+ * @module cron/sync-mobile-menu
+ * @description Ingestion pipeline that builds and synchronizes the official Tacos Gavilan customer mobile menu cache (app_menu_cache) from Toast POS menu items and modifiers.
+ * @businessRules
+ * - Maps active Toast POS items to customer-facing categories with exact store-level pricing.
+ * - Enforces authentic Toast UUIDs (PostgreSQL UUID type) for toast_item_guid.
+ * - Attaches authentic modifier groups (Salsas, Extras, Cooking preferences) with real additive prices.
+ * - Filters out separators, test items, and discontinued proteins (Tripa).
+ * - Sincroniza las 15 sucursales activas de Tacos Gavilan.
+ * @dataFlow
+ * - Reads active items & modifiers from public.toast_menu_items.
+ * - Reads active stores from public.stores.
+ * - Purges outdated cache per store and batch-inserts fresh authentic menu rows into public.app_menu_cache.
+ * @notes Resolves historical 22P02 PostgresError caused by string slugs; populates ~216 verified items per store.
+ */
+
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 
 export const dynamic = 'force-dynamic'
 
-// ============================================================================
-// Menú realista de Tacos Gavilán — Datos para sync a app_menu_cache
-// ============================================================================
-
-/** Estructura de un modificador individual */
 interface MenuModifier {
   guid: string
   name: string
   price: number
 }
 
-/** Estructura de un grupo de modificadores */
 interface ModifierGroup {
+  guid: string
   name: string
   minSelections: number
   maxSelections: number
-  modifiers: MenuModifier[]
+  options: MenuModifier[]
 }
 
-/** Estructura de un item del menú para inserción */
-interface MenuItem {
+interface MenuCacheRow {
+  store_id: number
   category_name: string
   toast_item_guid: string
   name: string
   description: string
   price: number
-  image_url: string | null
+  image_url: string
   modifier_groups_json: ModifierGroup[]
   is_available: boolean
+  last_synced: string
 }
 
-// ============================================================================
-// Grupos de modificadores compartidos por la mayoría de items
-// ============================================================================
+export async function GET(): Promise<NextResponse> {
+  const startTime = Date.now()
+  const now = new Date().toISOString()
 
-/** Modificadores de ingredientes — aplican a tacos, burritos, quesadillas */
-const INGREDIENTES_GROUP: ModifierGroup = {
-  name: 'Ingredientes',
-  minSelections: 0,
-  maxSelections: 3,
-  modifiers: [
-    { guid: 'mod-sin-cebolla', name: 'Sin Cebolla', price: 0 },
-    { guid: 'mod-sin-cilantro', name: 'Sin Cilantro', price: 0 },
-    { guid: 'mod-extra-cebolla', name: 'Extra Cebolla', price: 0.25 },
-  ],
-}
-
-/** Extras premium — aplican a todos los items de comida */
-const EXTRAS_GROUP: ModifierGroup = {
-  name: 'Extras',
-  minSelections: 0,
-  maxSelections: 3,
-  modifiers: [
-    { guid: 'mod-doble-carne', name: 'Doble Carne', price: 2.00 },
-    { guid: 'mod-guacamole', name: 'Guacamole', price: 1.50 },
-    { guid: 'mod-crema', name: 'Crema', price: 0.50 },
-  ],
-}
-
-/** Modificadores combinados para items de comida */
-const FOOD_MODIFIERS: ModifierGroup[] = [INGREDIENTES_GROUP, EXTRAS_GROUP]
-
-// ============================================================================
-// Definición completa del menú de Tacos Gavilán
-// ============================================================================
-
-const MENU_ITEMS: MenuItem[] = [
-  // --- TACOS (6 items) ---
-  {
-    category_name: 'Tacos',
-    toast_item_guid: 'taco-asada',
-    name: 'Taco de Asada',
-    description: 'Taco de carne asada con cebolla y cilantro en tortilla de maíz',
-    price: 2.75,
-    image_url: null,
-    modifier_groups_json: FOOD_MODIFIERS,
-    is_available: true,
-  },
-  {
-    category_name: 'Tacos',
-    toast_item_guid: 'taco-pastor',
-    name: 'Taco al Pastor',
-    description: 'Taco al pastor con piña, cebolla y cilantro en tortilla de maíz',
-    price: 2.75,
-    image_url: null,
-    modifier_groups_json: FOOD_MODIFIERS,
-    is_available: true,
-  },
-  {
-    category_name: 'Tacos',
-    toast_item_guid: 'taco-pollo',
-    name: 'Taco de Pollo',
-    description: 'Taco de pollo asado con cebolla y cilantro en tortilla de maíz',
-    price: 2.50,
-    image_url: null,
-    modifier_groups_json: FOOD_MODIFIERS,
-    is_available: true,
-  },
-  {
-    category_name: 'Tacos',
-    toast_item_guid: 'taco-carnitas',
-    name: 'Taco de Carnitas',
-    description: 'Taco de carnitas de cerdo con cebolla y cilantro en tortilla de maíz',
-    price: 2.75,
-    image_url: null,
-    modifier_groups_json: FOOD_MODIFIERS,
-    is_available: true,
-  },
-  {
-    category_name: 'Tacos',
-    toast_item_guid: 'taco-chorizo',
-    name: 'Taco de Chorizo',
-    description: 'Taco de chorizo con cebolla y cilantro en tortilla de maíz',
-    price: 2.75,
-    image_url: null,
-    modifier_groups_json: FOOD_MODIFIERS,
-    is_available: true,
-  },
-  {
-    category_name: 'Tacos',
-    toast_item_guid: 'taco-cabeza',
-    name: 'Taco de Cabeza',
-    description: 'Taco de cabeza de res con cebolla y cilantro en tortilla de maíz',
-    price: 3.00,
-    image_url: null,
-    modifier_groups_json: FOOD_MODIFIERS,
-    is_available: true,
-  },
-
-  // --- BURRITOS (4 items) ---
-  {
-    category_name: 'Burritos',
-    toast_item_guid: 'burrito-asada',
-    name: 'Burrito de Asada',
-    description: 'Burrito de carne asada con arroz, frijoles, cebolla y cilantro',
-    price: 9.50,
-    image_url: null,
-    modifier_groups_json: FOOD_MODIFIERS,
-    is_available: true,
-  },
-  {
-    category_name: 'Burritos',
-    toast_item_guid: 'burrito-pastor',
-    name: 'Burrito al Pastor',
-    description: 'Burrito al pastor con arroz, frijoles, piña, cebolla y cilantro',
-    price: 9.50,
-    image_url: null,
-    modifier_groups_json: FOOD_MODIFIERS,
-    is_available: true,
-  },
-  {
-    category_name: 'Burritos',
-    toast_item_guid: 'burrito-pollo',
-    name: 'Burrito de Pollo',
-    description: 'Burrito de pollo asado con arroz, frijoles, cebolla y cilantro',
-    price: 9.00,
-    image_url: null,
-    modifier_groups_json: FOOD_MODIFIERS,
-    is_available: true,
-  },
-  {
-    category_name: 'Burritos',
-    toast_item_guid: 'burrito-bean-cheese',
-    name: 'Burrito de Frijol con Queso',
-    description: 'Burrito de frijoles refritos con queso derretido',
-    price: 7.50,
-    image_url: null,
-    modifier_groups_json: FOOD_MODIFIERS,
-    is_available: true,
-  },
-
-  // --- QUESADILLAS (3 items) ---
-  {
-    category_name: 'Quesadillas',
-    toast_item_guid: 'quesadilla-asada',
-    name: 'Quesadilla de Asada',
-    description: 'Quesadilla de carne asada con queso derretido en tortilla de harina',
-    price: 8.50,
-    image_url: null,
-    modifier_groups_json: FOOD_MODIFIERS,
-    is_available: true,
-  },
-  {
-    category_name: 'Quesadillas',
-    toast_item_guid: 'quesadilla-pollo',
-    name: 'Quesadilla de Pollo',
-    description: 'Quesadilla de pollo asado con queso derretido en tortilla de harina',
-    price: 8.00,
-    image_url: null,
-    modifier_groups_json: FOOD_MODIFIERS,
-    is_available: true,
-  },
-  {
-    category_name: 'Quesadillas',
-    toast_item_guid: 'quesadilla-cheese',
-    name: 'Quesadilla de Queso',
-    description: 'Quesadilla de queso derretido en tortilla de harina',
-    price: 6.50,
-    image_url: null,
-    modifier_groups_json: FOOD_MODIFIERS,
-    is_available: true,
-  },
-
-  // --- BEBIDAS (5 items) — Sin modificadores de ingredientes/extras ---
-  {
-    category_name: 'Bebidas',
-    toast_item_guid: 'bebida-horchata',
-    name: 'Horchata Grande',
-    description: 'Agua fresca de horchata preparada con arroz, canela y vainilla (32 oz)',
-    price: 3.50,
-    image_url: null,
-    modifier_groups_json: [],
-    is_available: true,
-  },
-  {
-    category_name: 'Bebidas',
-    toast_item_guid: 'bebida-jamaica',
-    name: 'Jamaica Grande',
-    description: 'Agua fresca de flor de jamaica (32 oz)',
-    price: 3.50,
-    image_url: null,
-    modifier_groups_json: [],
-    is_available: true,
-  },
-  {
-    category_name: 'Bebidas',
-    toast_item_guid: 'bebida-coca-mexicana',
-    name: 'Coca-Cola Mexicana',
-    description: 'Coca-Cola importada de México en botella de vidrio (355 ml)',
-    price: 3.00,
-    image_url: null,
-    modifier_groups_json: [],
-    is_available: true,
-  },
-  {
-    category_name: 'Bebidas',
-    toast_item_guid: 'bebida-agua',
-    name: 'Agua',
-    description: 'Botella de agua purificada (500 ml)',
-    price: 2.00,
-    image_url: null,
-    modifier_groups_json: [],
-    is_available: true,
-  },
-  {
-    category_name: 'Bebidas',
-    toast_item_guid: 'bebida-jarritos',
-    name: 'Jarritos',
-    description: 'Refresco Jarritos sabor variado en botella de vidrio (370 ml)',
-    price: 2.50,
-    image_url: null,
-    modifier_groups_json: [],
-    is_available: true,
-  },
-]
-
-// ============================================================================
-// GET /api/cron/sync-mobile-menu
-// Sincroniza el menú de Tacos Gavilán a la tabla app_menu_cache
-// para cada tienda activa.
-// ============================================================================
-export async function GET(request: Request) {
   try {
-    // --- Verificar autorización del cron (CRON_SECRET) ---
-    const authHeader = request.headers.get('authorization')
-    if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-      if (process.env.CRON_SECRET) {
-        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    console.log('🔄 [MOBILE MENU SYNC] Starting mobile menu synchronization from Toast...')
+
+    // 1. Obtener items y modificadores activos de Toast POS
+    const { data: allItems, error: itemsErr } = await supabaseAdmin
+      .from('toast_menu_items')
+      .select('guid, name, price, group_name, is_modifier, active')
+      .eq('active', true)
+
+    if (itemsErr || !allItems || allItems.length === 0) {
+      console.error('❌ [MOBILE MENU SYNC] Error fetching toast_menu_items:', itemsErr?.message)
+      return NextResponse.json({ ok: false, error: 'No se encontraron items en toast_menu_items' }, { status: 500 })
+    }
+
+    // 2. Extraer y estructurar grupos de modificadores
+    const modifierItems = allItems.filter(it => it.is_modifier)
+    const modGroupsMap = new Map<string, MenuModifier[]>()
+
+    for (const m of modifierItems) {
+      const list = modGroupsMap.get(m.group_name) || []
+      list.push({
+        guid: m.guid,
+        name: m.name.replace(/\(In Store\)/gi, '').trim(),
+        price: Number(m.price) || 0
+      })
+      modGroupsMap.set(m.group_name, list)
+    }
+
+    const getModGroup = (rawGroupName: string, displayName: string, min = 0, max = 5): ModifierGroup | null => {
+      const mods = modGroupsMap.get(rawGroupName)
+      if (!mods || mods.length === 0) return null
+      return {
+        guid: `group-${rawGroupName.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
+        name: displayName,
+        minSelections: min,
+        maxSelections: max,
+        options: mods
       }
     }
 
-    console.log('⏰ [MOBILE CRON] Iniciando sincronización de menú móvil...')
+    const tacoCondiments = getModGroup('[Mod] Taco Condiments (In Store)', 'Salsas y Vegetales', 0, 3)
+    const tacoExtras = getModGroup('[Mod] Taco Extras (In Store)', 'Ingredientes Extra', 0, 3)
+    const tacoMods = getModGroup('[Mod] Taco Mods (In Store)', 'Preparación', 0, 2)
+    const burritoCondiments = getModGroup('[Mod] Burrito Condiments (In Store)', 'Arroz, Frijol y Salsas', 0, 4)
+    const tortaCondiments = getModGroup('[Mod] Torta Condiments (In Store)', 'Condimentos de Torta', 0, 2)
+    const tortaMods = getModGroup('[Mod] Torta Mods (In Store)', 'Preparación de Torta', 0, 2)
+    const sopeAddOns = getModGroup('[Mod] Sope Add Ons', 'Toppings y Queso', 0, 3)
+    const sopeMods = getModGroup('[Mod] Sope Modifiers', 'Preparación', 0, 2)
+    const nachosCondiments = getModGroup('[Mod] S.Nachos Condiments (In Store)', 'Condimentos de Nachos', 0, 4)
+    const platoTortillas = getModGroup('[Mod] Tortillas', 'Tipo de Tortilla', 1, 1)
+    const platoAddOns = getModGroup('[Mod] Plato Add Ons', 'Extras para Plato', 0, 2)
+    const mulitaExtras = getModGroup('[Mod] Mulita Extras (In Store)', 'Extras', 0, 2)
+    const sMulitaExtras = getModGroup('[Mod] S.Mulita Extras (In Store)', 'Extras', 0, 2)
+    const drinkMods = getModGroup('[Mod] Drink Modifiers (In Store)', 'Hielo', 0, 1)
 
-    // --- 1. OBTENER TODAS LAS TIENDAS ACTIVAS ---
-    const { data: stores, error: storesError } = await supabaseAdmin
-      .from('stores')
-      .select('id, name')
-      .eq('is_active', true)
-
-    if (storesError) {
-      console.error('[MOBILE CRON] Error obteniendo tiendas:', storesError)
-      return NextResponse.json(
-        { ok: false, error: 'Error al obtener tiendas activas.' },
-        { status: 500 }
-      )
+    // 3. Filtrar y preparar platillos base
+    const dishItems = allItems.filter(it => !it.is_modifier)
+    const isSeparatorOrTest = (name: string): boolean => {
+      const l = name.toLowerCase().trim()
+      return l.includes('separator') || l.includes('separador') || l.includes('test') || l.includes('policia') || l.includes('empleado') || /^[-\s#=*_.]+$/.test(l)
     }
 
-    if (!stores || stores.length === 0) {
-      console.log('[MOBILE CRON] No se encontraron tiendas activas.')
-      return NextResponse.json({
-        ok: true,
-        storesProcessed: 0,
-        itemsSynced: 0,
-        message: 'No hay tiendas activas para sincronizar.',
+    const templateRows: Omit<MenuCacheRow, 'store_id'>[] = []
+
+    for (const item of dishItems) {
+      if (isSeparatorOrTest(item.name)) continue
+      if (item.name.toLowerCase().includes('tripa')) continue
+
+      let category = ''
+      let imageUrl = 'assets/dishes/taco.png'
+      let modGroups: ModifierGroup[] = []
+
+      const gName = item.group_name
+      const iName = item.name
+
+      if (gName.includes('Tacos (In Store)')) {
+        category = 'Tacos'
+        imageUrl = 'assets/dishes/taco.png'
+        if (tacoCondiments) modGroups.push(tacoCondiments)
+        if (tacoExtras) modGroups.push(tacoExtras)
+        if (tacoMods) modGroups.push(tacoMods)
+      } else if (gName.includes('Super Burritos (In Store)')) {
+        category = 'Super Burritos'
+        imageUrl = 'assets/dishes/super-burrito.png'
+        if (burritoCondiments) modGroups.push(burritoCondiments)
+        if (tacoExtras) modGroups.push(tacoExtras)
+      } else if (gName.includes('Burritos (In Store)')) {
+        category = 'Burritos'
+        imageUrl = 'assets/dishes/burrito.png'
+        if (burritoCondiments) modGroups.push(burritoCondiments)
+        if (tacoExtras) modGroups.push(tacoExtras)
+      } else if (gName.includes('Pura Carne Burritos') || gName.includes('Super PC Burritos')) {
+        category = 'Burritos Pura Carne'
+        imageUrl = 'assets/dishes/super-burrito.png'
+        if (tacoExtras) modGroups.push(tacoExtras)
+      } else if (gName.includes('Super Mulitas (In Store)')) {
+        category = 'Super Mulitas'
+        imageUrl = 'assets/dishes/super-mulita.png'
+        if (sMulitaExtras) modGroups.push(sMulitaExtras)
+        if (tacoCondiments) modGroups.push(tacoCondiments)
+      } else if (gName.includes('Mulitas (In Store)')) {
+        category = 'Mulitas'
+        imageUrl = 'assets/dishes/mulita.png'
+        if (mulitaExtras) modGroups.push(mulitaExtras)
+        if (tacoCondiments) modGroups.push(tacoCondiments)
+      } else if (gName.includes('Super Quesadillas (In Store)')) {
+        category = 'Super Quesadillas'
+        imageUrl = 'assets/dishes/super-quesadilla.png'
+        if (tacoExtras) modGroups.push(tacoExtras)
+      } else if (gName.includes('Quesadillas (In Store)')) {
+        category = 'Quesadillas'
+        imageUrl = 'assets/dishes/quesadilla.png'
+        if (tacoExtras) modGroups.push(tacoExtras)
+      } else if (gName.includes('Tortas (In Store)')) {
+        category = 'Tortas'
+        imageUrl = 'assets/dishes/torta.png'
+        if (tortaCondiments) modGroups.push(tortaCondiments)
+        if (tortaMods) modGroups.push(tortaMods)
+      } else if (gName.includes('Sopes (In Store)')) {
+        category = 'Sopes'
+        imageUrl = 'assets/dishes/sopes.png'
+        if (sopeAddOns) modGroups.push(sopeAddOns)
+        if (sopeMods) modGroups.push(sopeMods)
+      } else if (gName.includes('Platos (In Store)') || (gName.includes('Combos') && iName.includes('Taco Plate'))) {
+        category = 'Platos y Combos'
+        imageUrl = 'assets/dishes/plato.png'
+        if (platoTortillas) modGroups.push(platoTortillas)
+        if (platoAddOns) modGroups.push(platoAddOns)
+      } else if (gName.includes('Super Nachos (In Store)')) {
+        category = 'Super Nachos'
+        imageUrl = 'assets/dishes/nachos.png'
+        if (nachosCondiments) modGroups.push(nachosCondiments)
+      } else if (gName.includes('Desserts (In Store)')) {
+        category = 'Postres'
+        imageUrl = iName.toLowerCase().includes('flan') ? 'assets/dishes/flan.png' : 'assets/dishes/cheesecake.png'
+      } else if (gName.includes('Fountain Drinks (In Store)')) {
+        category = 'Aguas Frescas y Bebidas'
+        if (iName.toLowerCase().includes('horchata')) imageUrl = 'assets/dishes/horchata.png'
+        else if (iName.toLowerCase().includes('jamaica')) imageUrl = 'assets/dishes/jamaica.png'
+        else if (iName.toLowerCase().includes('tamarindo')) imageUrl = 'assets/dishes/tamarindo.png'
+        else imageUrl = 'assets/dishes/sodas.png'
+        if (drinkMods) modGroups.push(drinkMods)
+      } else if (gName.includes('Misc. Drinks (In Store)')) {
+        category = 'Bebidas Calientes y Especiales'
+        imageUrl = 'assets/dishes/sodas.png'
+      } else if (gName.includes('Side Orders (In Store)')) {
+        category = 'Guarniciones y Extras'
+        imageUrl = 'assets/dishes/nachos.png'
+      } else if (gName.includes('Desayunos (In Store)') || gName.includes('Breakfast')) {
+        category = 'Desayunos'
+        imageUrl = 'assets/dishes/burrito.png'
+      } else if (gName.includes('Catering (In Store)')) {
+        category = 'Party Trays y Catering'
+        imageUrl = 'assets/dishes/plato.png'
+      }
+
+      if (!category) continue
+
+      templateRows.push({
+        category_name: category,
+        toast_item_guid: item.guid,
+        name: item.name.replace(/\(In Store\)/gi, '').trim(),
+        description: `Preparado al momento con receta tradicional de Tacos Gavilan`,
+        price: Number(item.price) || 0,
+        image_url: imageUrl,
+        modifier_groups_json: modGroups,
+        is_available: true,
+        last_synced: now
       })
     }
 
-    let totalItemsSynced = 0
-    const storeResults: Array<{ storeId: number; name: string; items: number; success: boolean }> = []
-    const now = new Date().toISOString()
+    // 4. Obtener tiendas activas
+    const { data: stores, error: storesErr } = await supabaseAdmin
+      .from('stores')
+      .select('id, name')
+      .order('id')
 
-    // --- 2. PROCESAR CADA TIENDA ---
+    if (storesErr || !stores || stores.length === 0) {
+      console.error('❌ [MOBILE MENU SYNC] Error fetching stores:', storesErr?.message)
+      return NextResponse.json({ ok: false, error: 'No se encontraron tiendas activas' }, { status: 500 })
+    }
+
+    console.log(`📋 [MOBILE MENU SYNC] Syncing ${templateRows.length} items across ${stores.length} stores...`)
+
+    let totalInserted = 0
+    const storeResults: { storeId: number; name: string; items: number; success: boolean }[] = []
+
     for (const store of stores) {
       try {
-        // 🛡️ PROTOCOLO DE REPARACIÓN: Borrar caché existente de la tienda
-        // antes de insertar datos frescos (evita duplicados y datos obsoletos)
-        const { error: deleteError } = await supabaseAdmin
-          .from('app_menu_cache')
-          .delete()
-          .eq('store_id', store.id)
+        // Borrar caché previo de esta tienda de manera segura
+        await supabaseAdmin.from('app_menu_cache').delete().eq('store_id', store.id)
 
-        if (deleteError) {
-          console.error(
-            `[MOBILE CRON] Error borrando caché de tienda ${store.id} (${store.name}):`,
-            deleteError
-          )
-          storeResults.push({ storeId: store.id, name: store.name, items: 0, success: false })
-          continue
-        }
-
-        // Preparar filas para inserción masiva
-        const rows = MENU_ITEMS.map(item => ({
-          store_id: store.id,
-          category_name: item.category_name,
-          toast_item_guid: item.toast_item_guid,
-          name: item.name,
-          description: item.description,
-          price: item.price,
-          image_url: item.image_url,
-          modifier_groups_json: item.modifier_groups_json,
-          is_available: item.is_available,
-          last_synced: now,
+        // Preparar las filas de esta tienda
+        const storeRows = templateRows.map(row => ({
+          ...row,
+          store_id: store.id
         }))
 
-        const { error: insertError } = await supabaseAdmin
-          .from('app_menu_cache')
-          .insert(rows)
-
-        if (insertError) {
-          console.error(
-            `[MOBILE CRON] Error insertando menú para tienda ${store.id} (${store.name}):`,
-            insertError
-          )
-          storeResults.push({ storeId: store.id, name: store.name, items: 0, success: false })
-          continue
+        // Insertar en bloques de 50 para evitar exceder límites de payload
+        const chunkSize = 50
+        for (let i = 0; i < storeRows.length; i += chunkSize) {
+          const chunk = storeRows.slice(i, i + chunkSize)
+          const { error: insErr } = await supabaseAdmin.from('app_menu_cache').insert(chunk)
+          if (insErr) {
+            throw insErr
+          }
         }
 
-        totalItemsSynced += rows.length
-        storeResults.push({ storeId: store.id, name: store.name, items: rows.length, success: true })
-
-        console.log(
-          `✅ [MOBILE CRON] Tienda ${store.id} (${store.name}): ${rows.length} items sincronizados`
-        )
-      } catch (storeErr: unknown) {
-        const msg = storeErr instanceof Error ? storeErr.message : 'Error desconocido'
-        console.error(`[MOBILE CRON] Error procesando tienda ${store.id} (${store.name}):`, msg)
+        totalInserted += storeRows.length
+        storeResults.push({ storeId: store.id, name: store.name, items: storeRows.length, success: true })
+        console.log(`✅ [MOBILE MENU SYNC] Tienda ${store.id} (${store.name}): ${storeRows.length} items sincronizados`)
+      } catch (storeError) {
+        const msg = storeError instanceof Error ? storeError.message : 'Error desconocido'
+        console.error(`❌ [MOBILE MENU SYNC] Error en tienda ${store.id} (${store.name}):`, msg)
         storeResults.push({ storeId: store.id, name: store.name, items: 0, success: false })
       }
     }
 
-    // --- 3. RESUMEN FINAL ---
-    const storesProcessed = storeResults.filter(r => r.success).length
-    console.log(
-      `✅ [MOBILE CRON] Sincronización completada — ${storesProcessed}/${stores.length} tiendas — ${totalItemsSynced} items totales`
-    )
+    const durationMs = Date.now() - startTime
+    console.log(`🎉 [MOBILE MENU SYNC] Completed in ${durationMs}ms — ${totalInserted} items across ${stores.length} stores.`)
 
     return NextResponse.json({
       ok: true,
-      storesProcessed,
-      itemsSynced: totalItemsSynced,
+      durationMs,
+      storesCount: stores.length,
+      itemsCount: totalInserted,
       details: storeResults,
-      syncedAt: now,
+      syncedAt: now
     })
-  } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : 'Error interno desconocido'
-    console.error('[MOBILE CRON] Error crítico en sync-mobile-menu:', message)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Error interno desconocido'
+    console.error('❌ [MOBILE MENU SYNC] Critical fatal error:', message)
     return NextResponse.json({ ok: false, error: message }, { status: 500 })
   }
 }

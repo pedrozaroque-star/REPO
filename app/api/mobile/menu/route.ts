@@ -1,13 +1,22 @@
+/**
+ * @module api/mobile/menu
+ * @description Public endpoint returning the active restaurant menu and modifier groups for a specific store.
+ * @businessRules
+ * - Reads from app_menu_cache filtered by store_id and is_available = true.
+ * - Extracts and aggregates modifier groups so the customer customizer can render ingredient choices.
+ * - Exposes both guid and toastGuid matching Toast POS item UUIDs.
+ * @dataFlow
+ * - Client GET /api/mobile/menu?storeId=N -> Supabase app_menu_cache -> Grouped categories and modifier groups JSON.
+ * @notes
+ * - Returns authentic Toast pricing and UUIDs for reliable anti-tamper validation.
+ */
+
 import { type NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { corsResponse, jsonOk, jsonError } from '../_helpers'
 
 // ============================================================================
 // GET /api/mobile/menu?storeId=N — Menú por sucursal (público)
-// ============================================================================
-// Devuelve el menú de una tienda específica, agrupado por categorías.
-// También extrae y devuelve los grupos de modificadores (extras, toppings, etc.)
-// para que la app pueda renderizar los selectores de personalización.
 // ============================================================================
 
 // --- Tipos internos ---
@@ -31,6 +40,7 @@ interface ModifierGroup {
 /** Ítem de menú tal como se devuelve en la respuesta */
 interface MenuItemResponse {
   id: string
+  guid: string
   toastGuid: string
   name: string
   description: string | null
@@ -143,6 +153,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       // Agregar el ítem a su categoría
       categories[categoryName].push({
         id: row.id,
+        guid: row.toast_item_guid,
         toastGuid: row.toast_item_guid,
         name: row.name,
         description: row.description,

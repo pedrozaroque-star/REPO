@@ -559,6 +559,20 @@ export const TOOL_DECLARATIONS = [
         limit: { type: 'NUMBER', description: 'Max number of logs to return (default 10)' }
       }
     }
+  },
+  {
+    name: 'query_mobile_orders',
+    description: 'Consultar órdenes móviles de clientes (Tacos Gavilan App) para retiro (Pickup, Mostrador, Curbside) o entrega (Delivery vía DoorDash Drive). Muestra estados de cocina (HOLDING/FIRED/READY), estado de pago en Stripe, inyección a Toast KDS y seguimiento logístico de entrega.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        store_name: { type: 'STRING', description: 'Nombre o fragmento de la sucursal (ej: "Lynwood", "Slauson", "Central")' },
+        channel: { type: 'STRING', description: 'Filtro por canal: "PICKUP", "DELIVERY", o "ALL"' },
+        kitchen_status: { type: 'STRING', description: 'Filtro por estado de cocina: "HOLDING", "FIRED", "PREPARING", "READY", "COMPLETED", "CANCELLED"' },
+        payment_status: { type: 'STRING', description: 'Filtro por estado de pago: "PENDING", "PAID", "FAILED", "REFUNDED"' },
+        limit: { type: 'NUMBER', description: 'Límite de órdenes a consultar (por defecto 20)' }
+      }
+    }
   }
 ]
 
@@ -607,6 +621,7 @@ export async function executeTool(name: string, args: any): Promise<string> {
       case 'query_grubhub_audit': return await queryGrubhubAudit(args)
       case 'query_order_ready_board': return await queryOrderReadyBoardTool(args)
       case 'query_quickbooks_bills': return await queryQuickbooksBillsTool(args)
+      case 'query_mobile_orders': return await queryMobileOrdersTool(args)
       default: return `Tool "${name}" not found.`
     }
   } catch (e: any) {
@@ -3005,3 +3020,83 @@ async function queryQuickbooksBillsTool(args: { store_name?: string; status?: st
     return `Error consultando bills de QuickBooks: ${e.message}`;
   }
 }
+
+/**
+ * Consulta órdenes de clientes de la app móvil (Tacos Gavilan App) en public.app_orders.
+ */
+async function queryMobileOrdersTool(args: any): Promise<string> {
+  try {
+    const { idToName } = await getStoreMaps();
+    let query = supabaseAdmin
+      .from('app_orders')
+      .select('id, store_id, toast_order_guid, total_amount, net_amount, tax_amount, pickup_method, curbside_stall, status, payment_status, created_at, items_json')
+      .order('created_at', { ascending: false })
+      .limit(args.limit || 20);
+
+    if (args.store_name) {
+      const cleanTarget = clean(args.store_name).toLowerCase();
+      let targetId: any = null;
+      for (const [id, name] of Object.entries(idToName)) {
+        if (name.toLowerCase().includes(cleanTarget)) {
+          targetId = id;
+          break;
+        }
+      }
+      if (targetId) {
+        query = query.eq('store_id', targetId);
+      }
+    }
+
+    if (args.kitchen_status) {
+      query = query.eq('status', args.kitchen_status.toUpperCase());
+    }
+
+    if (args.payment_status) {
+      query = query.eq('payment_status', args.payment_status.toUpperCase());
+    }
+
+    const { data: rawOrders, error } = await query;
+    if (error) throw error;
+    if (!rawOrders || rawOrders.length === 0) {
+      return `No se encontraron órdenes móviles con los filtros especificados${args.store_name ? ` para ${args.store_name}` : ''}.`;
+    }
+
+    let orders = rawOrders;
+    if (args.channel && args.channel !== 'ALL') {
+      const targetChannel = args.channel.toUpperCase();
+      orders = orders.filter((o: any) => {
+        const orderChan = (o.items_json?.channel || (o.pickup_method === 'in_store' && o.curbside_stall === 'DOORDASH_DELIVERY' ? 'DELIVERY' : 'PICKUP')).toUpperCase();
+        return orderChan === targetChannel;
+      });
+    }
+
+    if (orders.length === 0) {
+      return `No se encontraron órdenes móviles para el canal ${args.channel}.`;
+    }
+
+    let out = `📱 **Órdenes Móviles de Clientes (Tacos Gavilan App)**\n`;
+    out += `• **Total órdenes encontradas**: ${orders.length}\n\n`;
+    out += `| Orden # | Sucursal | Canal / Método | Total | Cocina | Pago | Toast GUID | Cajón / Delivery |\n`;
+    out += `|---------|----------|----------------|-------|--------|------|------------|------------------|\n`;
+
+    orders.forEach((o: any) => {
+      const storeName = idToName[o.store_id] || `Tienda ${o.store_id}`;
+      const isDelivery = o.items_json?.channel === 'DELIVERY' || o.curbside_stall === 'DOORDASH_DELIVERY';
+      const channelStr = isDelivery ? '🚗 DELIVERY' : `🛍️ PICKUP (${o.pickup_method || 'mostrador'})`;
+      const kitchenBadge = o.status === 'READY' ? '🟢 READY' : o.status === 'FIRED' ? '🔥 FIRED' : o.status === 'HOLDING' ? '⏳ HOLDING' : o.status;
+      const payBadge = o.payment_status === 'PAID' ? '💳 PAID' : '🟡 PENDING';
+      const toastGuid = o.toast_order_guid ? `\`${o.toast_order_guid.slice(0, 8)}...\`` : '—';
+      const stallOrDelivery = isDelivery 
+        ? (o.items_json?.deliveryLogistics?.delivery_status || 'DoorDash')
+        : (o.curbside_stall ? `Cajón: ${o.curbside_stall}` : 'Mostrador');
+      const orderNum = o.items_json?.orderNumber || o.id.slice(0, 8).toUpperCase();
+      
+      out += `| #${orderNum} | ${storeName} | ${channelStr} | $${Number(o.total_amount || 0).toFixed(2)} | ${kitchenBadge} | ${payBadge} | ${toastGuid} | ${stallOrDelivery} |\n`;
+    });
+
+    return out;
+  } catch (e: any) {
+    return `Error consultando órdenes móviles: ${e.message}`;
+  }
+}
+

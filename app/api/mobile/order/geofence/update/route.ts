@@ -1,4 +1,26 @@
-import { NextRequest } from 'next/server'
+/**
+ * @module app/api/mobile/order/geofence/update/route
+ * @description Endpoint de actualización de telemetría GPS y disparo de cocción (Geofencing Just-in-Time)
+ * para órdenes de retiro en sucursal (Pickup) de Tacos Gavilan.
+ * 
+ * @businessRules
+ * - Cocción Just-in-Time: Las carnes de Tacos Gavilan (asada al carbón, pastor en trompo) se preparan
+ *   para garantizar máxima frescura y temperatura. La orden se mantiene en estado 'HOLDING' hasta que
+ *   el cliente se encuentra a un tiempo estimado de llegada (ETA) menor o igual a 4 minutos.
+ * - Disparo a Cocina (FIRE): Al cruzar el umbral de 4 minutos, la orden transiciona a 'FIRED' e invoca
+ *   inmediatamente la inyección a Toast POS / KDS vía injectOrderToToast.
+ * - Cero Éxito Ficticio: Si Toast POS rechaza la inyección, se registra el error real y jamás se inventa
+ *   un GUID simulado.
+ * 
+ * @dataFlow
+ * - App Móvil POST /api/mobile/order/geofence/update (Bearer JWT) -> Haversine calculation ->
+ *   Evalúa ETA <= 4 min -> injectOrderToToast(orderId) -> app_orders.
+ * 
+ * @notes
+ * - Almacena snapshot de telemetría GPS (latitud, longitud, velocidad y ETA calculada) en app_orders.items_json.geofenceTelemetrics.
+ */
+
+import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import {
   corsResponse,
@@ -7,37 +29,23 @@ import {
   jsonOk,
   jsonError,
 } from '@/app/api/mobile/_helpers'
+import { injectOrderToToast } from '@/lib/toast-orders'
 
 export const dynamic = 'force-dynamic'
-
-// ============================================================================
-// CONSTANTES — Geofencing
-// ============================================================================
 
 /** Radio de la Tierra en millas para la fórmula de Haversine */
 const EARTH_RADIUS_MILES = 3959
 
-/** Velocidad promedio de manejo en zona urbana LA (mph) */
+/** Velocidad promedio de manejo en zona urbana de Los Ángeles (mph) */
 const AVG_DRIVING_SPEED_MPH = 25
 
-/** Umbral de ETA en minutos para disparar la orden automáticamente */
+/** Umbral de ETA en minutos para disparar la orden automáticamente a cocina */
 const FIRE_ETA_THRESHOLD_MINUTES = 4
 
-// ============================================================================
-// Helper: Fórmula de Haversine — calcula distancia entre 2 coordenadas
-// ============================================================================
-
-/** Convierte grados a radianes */
 function toRadians(degrees: number): number {
   return degrees * (Math.PI / 180)
 }
 
-/**
- * Calcula la distancia entre dos puntos geográficos usando la fórmula de Haversine.
- * d = 2 * R * arcsin(sqrt(sin²(Δlat/2) + cos(lat1)*cos(lat2)*sin²(Δlng/2)))
- *
- * @returns Distancia en millas
- */
 function haversineDistance(
   lat1: number,
   lng1: number,
@@ -58,37 +66,26 @@ function haversineDistance(
   return EARTH_RADIUS_MILES * c
 }
 
-// ============================================================================
-// Tipo de entrada
-// ============================================================================
-
 interface GeofenceUpdateBody {
   orderId: string
   latitude: number
   longitude: number
-  deviceEtaMinutes?: number // ETA reportado por el dispositivo (Google Maps, etc.)
+  deviceEtaMinutes?: number
 }
 
-// ============================================================================
-// OPTIONS (Preflight CORS)
-// ============================================================================
-export async function OPTIONS() {
+export async function OPTIONS(): Promise<NextResponse> {
   return corsResponse()
 }
 
-// ============================================================================
-// POST /api/mobile/order/geofence/update
-// Actualiza la ubicación del usuario y evalúa si debe disparar la orden
-// ============================================================================
-export async function POST(request: NextRequest) {
+export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
-    // --- 1. AUTENTICACIÓN ---
+    // 1. Autenticación con Supabase Auth
     const authResult = await getAuthUser(request)
     if (!isAuthSuccess(authResult)) {
       return jsonError(authResult.error, 401)
     }
 
-    // --- 2. PARSEAR BODY ---
+    // 2. Parsear y validar body
     let body: GeofenceUpdateBody
     try {
       body = (await request.json()) as GeofenceUpdateBody
@@ -98,7 +95,6 @@ export async function POST(request: NextRequest) {
 
     const { orderId, latitude, longitude, deviceEtaMinutes } = body
 
-    // Validaciones
     if (!orderId || typeof orderId !== 'string') {
       return jsonError('orderId es requerido.', 400)
     }
@@ -106,10 +102,10 @@ export async function POST(request: NextRequest) {
       return jsonError('latitude y longitude son requeridos y deben ser numéricos.', 400)
     }
 
-    // --- 3. OBTENER LA ORDEN ---
+    // 3. Obtener la orden de la base de datos
     const { data: order, error: orderError } = await supabaseAdmin
       .from('app_orders')
-      .select('id, store_id, status, user_id')
+      .select('id, store_id, status, user_id, pickup_method, curbside_stall, items_json')
       .eq('id', orderId)
       .single()
 
@@ -117,12 +113,11 @@ export async function POST(request: NextRequest) {
       return jsonError(`Orden ${orderId} no encontrada.`, 404)
     }
 
-    // Verificar que la orden pertenece al usuario autenticado
     if (order.user_id !== authResult.userId) {
       return jsonError('No autorizado para actualizar esta orden.', 403)
     }
 
-    // --- 4. OBTENER COORDENADAS DE LA TIENDA ---
+    // 4. Obtener coordenadas de la sucursal
     const { data: store, error: storeError } = await supabaseAdmin
       .from('stores')
       .select('id, name, latitude, longitude')
@@ -130,16 +125,14 @@ export async function POST(request: NextRequest) {
       .single()
 
     if (storeError || !store) {
-      console.error('[MOBILE ORDER] Tienda no encontrada para geofence:', storeError)
       return jsonError('Tienda asociada a la orden no encontrada.', 404)
     }
 
     if (store.latitude == null || store.longitude == null) {
-      console.error(`[MOBILE ORDER] Tienda ${store.id} (${store.name}) sin coordenadas configuradas.`)
       return jsonError('La tienda no tiene coordenadas configuradas para geofencing.', 500)
     }
 
-    // --- 5. CALCULAR DISTANCIA Y ETA ---
+    // 5. Calcular Distancia y ETA
     const distanceMiles = haversineDistance(
       latitude,
       longitude,
@@ -148,10 +141,7 @@ export async function POST(request: NextRequest) {
     )
     const distanceRounded = Number(distanceMiles.toFixed(2))
 
-    // ETA calculado: distancia / velocidad * 60 (convertir horas a minutos)
     const calculatedEtaMinutes = (distanceMiles / AVG_DRIVING_SPEED_MPH) * 60
-
-    // Usar el MÍNIMO entre ETA calculado y ETA del dispositivo (si se proporcionó)
     let finalEta: number
     if (deviceEtaMinutes != null && typeof deviceEtaMinutes === 'number' && deviceEtaMinutes > 0) {
       finalEta = Math.min(calculatedEtaMinutes, deviceEtaMinutes)
@@ -160,25 +150,57 @@ export async function POST(request: NextRequest) {
     }
     finalEta = Number(finalEta.toFixed(1))
 
-    // --- 6. ACTUALIZAR ORDEN CON UBICACIÓN Y ETA ---
+    // 6. Preparar payload de actualización
+    const now = new Date().toISOString()
     const updatePayload: Record<string, unknown> = {
       user_latitude: latitude,
       user_longitude: longitude,
       eta_minutes: finalEta,
-      updated_at: new Date().toISOString(),
+      updated_at: now,
     }
 
-    // --- 7. EVALUAR SI DEBE DISPARAR LA ORDEN (FIRE) ---
-    // Solo dispara si ETA <= 4 minutos Y la orden está en estado HOLDING
+    // 7. Evaluar si debe disparar la orden a cocina (FIRE)
     let firedAt: string | null = null
+    let toastInjected = false
+    let toastOrderGuid: string | null = null
+    let toastError: string | null = null
+
     if (finalEta <= FIRE_ETA_THRESHOLD_MINUTES && order.status === 'HOLDING') {
-      const fireTimestamp = new Date().toISOString()
-      updatePayload.status = 'FIRED'
-      updatePayload.fired_at = fireTimestamp
-      firedAt = fireTimestamp
       console.log(
-        `🔥 [MOBILE ORDER] Orden ${orderId} FIRED — ETA: ${finalEta} min — Distancia: ${distanceRounded} mi`
+        `🔥 [GEOFENCE FIRE] Evaluando disparo a cocina para orden ${orderId} en ${store.name} — ETA: ${finalEta} min — Distancia: ${distanceRounded} mi`
       )
+
+      // Inyección autoritativa al POS/KDS de Toast
+      try {
+        const toastResult = await injectOrderToToast(orderId)
+        if (toastResult.ok && toastResult.toastOrderGuid) {
+          toastInjected = true
+          toastOrderGuid = toastResult.toastOrderGuid
+          firedAt = now
+          updatePayload.status = 'FIRED'
+          updatePayload.fired_at = firedAt
+          updatePayload.toast_order_guid = toastOrderGuid
+          console.log(`✅ [GEOFENCE FIRE] Despacho Toast KDS exitoso -> GUID: ${toastOrderGuid}`)
+        } else {
+          toastError = toastResult.error || 'Toast POS no aceptó el pedido'
+          console.warn(`⚠️ [GEOFENCE FIRE] Despacho Toast KDS no completado. La orden permanece en HOLDING:`, toastError)
+          // Regla estricta: NO cambiar estado a FIRED si Toast falló; mantener en HOLDING
+          updatePayload.status = 'HOLDING'
+          const currentItems = typeof order.items_json === 'object' && order.items_json !== null
+            ? (order.items_json as Record<string, any>)
+            : {}
+          updatePayload.items_json = {
+            ...currentItems,
+            toastInjectionError: toastError,
+            lastGeofenceAttemptAt: now,
+          }
+        }
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : 'Error al conectar con Toast'
+        toastError = msg
+        console.error(`❌ [GEOFENCE FIRE] Excepción al invocar Toast KDS:`, toastError)
+        updatePayload.status = 'HOLDING'
+      }
     }
 
     const { error: updateError } = await supabaseAdmin
@@ -187,22 +209,24 @@ export async function POST(request: NextRequest) {
       .eq('id', orderId)
 
     if (updateError) {
-      console.error('[MOBILE ORDER] Error actualizando geofence:', updateError)
+      console.error('[GEOFENCE UPDATE] Error actualizando orden en DB:', updateError)
       return jsonError('Error al actualizar la ubicación de la orden.', 500)
     }
 
-    // --- 8. RESPUESTA ---
-    const currentStatus = firedAt ? 'FIRED' : (order.status as string)
+    const currentStatus = (updatePayload.status || order.status) as string
 
     return jsonOk({
       status: currentStatus,
       eta: finalEta,
       distance: distanceRounded,
-      firedAt: firedAt,
+      firedAt,
+      toastInjected,
+      toastOrderGuid,
+      toastError,
     })
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Error interno desconocido'
-    console.error('[MOBILE ORDER] Error crítico en geofence update:', message)
+    console.error('[GEOFENCE UPDATE] Excepción crítica:', message)
     return jsonError(message, 500)
   }
 }
