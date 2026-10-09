@@ -326,6 +326,16 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                         : 'Consulta y vista previa de la app móvil de pedidos para clientes'
                 },
                 {
+                    name: t('items.new_website') || (language === 'en' ? 'New Website' : 'Nueva Web'),
+                    plainName: 'Nueva Web',
+                    path: '/nueva-web',
+                    icon: <Globe size={20} />,
+                    roles: ['asistente', 'manager', 'supervisor', 'admin'],
+                    tooltip: language === 'en'
+                        ? 'Tacos Gavilan new website design preview and live testing (file:///C:/Users/pedro/Desktop/tacosgavilan-web/index.html)'
+                        : 'Vista previa y pruebas en vivo del nuevo diseño web de Tacos Gavilan (file:///C:/Users/pedro/Desktop/tacosgavilan-web/index.html)'
+                },
+                {
                     name: t('items.manager'),
                     plainName: 'Checklists Manager',
                     path: '/checklists-manager',
@@ -682,7 +692,7 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
     const renderNavItem = (item: MenuItem, groupId: string, isMobile: boolean = false) => {
         const isActive = pathname === item.path || (item.path !== '/dashboard' && pathname.startsWith(item.path + '/'))
         const colors = GROUP_COLORS[groupId] || GROUP_COLORS.operaciones
-        const hasNewBadge = item.path === '/basecamp' || item.path === '/admin/compras/viele' || item.path === '/app'
+        const hasNewBadge = item.path === '/basecamp' || item.path === '/admin/compras/viele' || item.path === '/app' || item.path === '/nueva-web'
 
         return (
             <Link

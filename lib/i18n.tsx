@@ -98,6 +98,7 @@ export const dictionaries: Record<Language, Dictionary> = {
             order_ready_board: 'Order Ready Board',
             ordering_app: 'App Móvil Pedidos',
             customer_app: 'App Clientes',
+            new_website: 'Nueva Web',
             exit_to_teg: 'Salir al Sistema TEG',
             safe: 'Caja Fuerte',
             miles: 'MilesIQ',
@@ -4499,6 +4500,30 @@ export const dictionaries: Record<Language, Dictionary> = {
             delete_error: 'Error al eliminar el registro de mantenimiento.',
             delete_btn_tooltip: 'Eliminar este registro',
             photos_will_be_deleted: '{count} fotografía(s) y firmas asociadas serán eliminadas permanentemente de la nube.'
+        },
+        new_website: {
+            title: 'Tacos Gavilan — Nueva Web',
+            subtitle: 'Entorno de pruebas y visor en vivo del nuevo diseño web oficial',
+            badge_dev: 'DISEÑO ACTUAL',
+            badge_live: 'EN VIVO',
+            open_tab: 'Abrir en nueva pestaña',
+            launch_browser: 'Abrir archivo local (file:///)',
+            copy_path: 'Copiar ruta local',
+            copied_toast: 'Ruta local copiada al portapapeles',
+            reload: 'Recargar diseño',
+            fullscreen: 'Pantalla completa',
+            exit_fullscreen: 'Salir de pantalla completa',
+            back_to_teg: 'Regresar a TEG System',
+            view_desktop: 'Escritorio',
+            view_tablet: 'Tablet',
+            view_mobile: 'Móvil',
+            loading_preview: 'Cargando diseño web de Tacos Gavilan...',
+            fallback_hint: 'Editando directamente desde file:///C:/Users/pedro/Desktop/tacosgavilan-web/index.html',
+            device_size: 'Resolución',
+            status_ready: 'Listo',
+            local_file_detected: 'Archivo local detectado en tiempo real',
+            launch_success: 'Abriendo archivo local en el navegador predeterminado...',
+            launch_error: 'No se pudo abrir el archivo local automáticamente. Usa el botón de copiar ruta.'
         }
     },
     en: {
@@ -4577,6 +4602,7 @@ export const dictionaries: Record<Language, Dictionary> = {
             order_ready_board: 'Order Ready Board',
             ordering_app: 'Mobile Ordering App',
             customer_app: 'Customer App',
+            new_website: 'New Website',
             exit_to_teg: 'Exit to TEG System',
             safe: 'Cash Safe',
             miles: 'MilesIQ',
@@ -8977,6 +9003,30 @@ export const dictionaries: Record<Language, Dictionary> = {
             delete_error: 'Error deleting maintenance record.',
             delete_btn_tooltip: 'Delete this record',
             photos_will_be_deleted: '{count} photo(s) and associated signatures will be permanently deleted from cloud storage.'
+        },
+        new_website: {
+            title: 'Tacos Gavilan — New Website',
+            subtitle: 'Live preview and testing environment for the official new web design',
+            badge_dev: 'CURRENT DESIGN',
+            badge_live: 'LIVE',
+            open_tab: 'Open in new tab',
+            launch_browser: 'Open local file (file:///)',
+            copy_path: 'Copy local path',
+            copied_toast: 'Local path copied to clipboard',
+            reload: 'Reload design',
+            fullscreen: 'Fullscreen',
+            exit_fullscreen: 'Exit fullscreen',
+            back_to_teg: 'Back to TEG System',
+            view_desktop: 'Desktop',
+            view_tablet: 'Tablet',
+            view_mobile: 'Mobile',
+            loading_preview: 'Loading Tacos Gavilan website design...',
+            fallback_hint: 'Editing directly from file:///C:/Users/pedro/Desktop/tacosgavilan-web/index.html',
+            device_size: 'Resolution',
+            status_ready: 'Ready',
+            local_file_detected: 'Local file detected in real time',
+            launch_success: 'Opening local file in default browser...',
+            launch_error: 'Could not open local file automatically. Use the copy path button.'
         }
     }
 };

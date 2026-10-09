@@ -38,6 +38,7 @@
  * - Cada Gallon Agua/Agua Fresca vendido consume un Galón Vacío; su caja en catálogo contiene 48 piezas, así que el consumo teórico por venta es 1/48 caja.
  * - Al explicar consumo teórico de tortillas o sopes vendidos por docena, quantity_per_unit ya expresa piezas por paquete; no se divide otra vez entre 12.
  * - Seguridad Orden Diaria (2026-10-01): escrituras de PAR, sobrantes y borradores requieren sesión y perfil de tienda incluso en desarrollo; un fallo DB de sobrante no equivale a captura. QuickBooks no debe crear otro Estimate si falla la lectura o actualización de uno existente, ni enviar artículos positivos sin mapeo QB. La idempotencia/concurrencia del primer envío y el reemplazo transaccional de borradores aún requieren cierre antes de activar autonomía.
+ * - Sitio Web Oficial Tacos Gavilan (tacosgavilan-web): Toast es el procesador transaccional exclusivo (order.online/business/-137616); Slauson Store ID es estrictamente 23989119 (sin colisión con LA Broadway 260769); West Covina canónico 725035; formulario de contacto persiste a customer_feedback con source='website_contact' y mapeo a las 15 tiendas activas. Entorno de visor interactivo en /nueva-web servido en vivo por /api/web-preview y vinculado directamente a file:///C:/Users/pedro/Desktop/tacosgavilan-web/index.html.
  * @dataFlow
  * - Gemini Tool Calls -> executeTool() -> Database Select/Upsert / Local Forecasting Engine / AI Breaks Engine -> Formatted Markdown String Response.
  * @notes Combines multi-year lookups and weather APIs dynamically to generate instant predictive insights inside the support chat. La recuperación histórica de tickets Toast 2026 se archiva localmente y comprimida por defecto, sin PII; los snapshots no representan por sí solos consumo real ni autorizan pedidos automáticos.
@@ -562,7 +563,7 @@ export const TOOL_DECLARATIONS = [
   },
   {
     name: 'query_mobile_orders',
-    description: 'Consultar órdenes móviles de clientes (Tacos Gavilan App) para retiro (Pickup, Mostrador, Curbside) o entrega (Delivery vía DoorDash Drive). Muestra estados de cocina (HOLDING/FIRED/READY), estado de pago en Stripe, inyección a Toast KDS y seguimiento logístico de entrega.',
+    description: 'Consultar órdenes de la app móvil oficial de clientes de Tacos Gavilan (Arquitectura 100% nativa con Toast Menus V3, cotizaciones autoritativas /prices, outbox transaccional y clasificación BLOCKED_EXTERNALLY). Muestra estados de comanda, pagos y canales.',
     parameters: {
       type: 'OBJECT',
       properties: {
