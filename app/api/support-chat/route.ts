@@ -596,6 +596,7 @@ Food Cost % = (Total Ingredient Cost ÷ Net Sales) × 100
   * West Covina (101 S. Azusa Ave, West Covina, CA 91791) -> Store ID 725035 (URL canónica: https://order.online/store/tacos-gavilan-west-covina-725035)
 - **Formulario de Contacto y Feedback del Consumidor**: Endpoint serverless \`/api/contact\` con limitación de tasa (5 peticiones por 10 min), trampa honeypot invisible (\`b_company_website\`), sanitización de datos y persistencia directa en la tabla \`public.customer_feedback\` de Supabase con \`source = 'website_contact'\`, \`requires_follow_up = true\` y mapeo del \`store_id\` (o 14 para Lynwood por defecto).
 - **Accesibilidad y Rendimiento**: Certificado 100% WCAG 2.2 AA (axe-core audit con 0 violaciones en Desktop, Móvil, y estados de modales activos), assets convertidos a WebP con 82.6% de reducción en peso (de 20.98 MB a 3.42 MB), y 0px de overflow horizontal en todos los viewports de 320px a 1440px.
+- **Calibraciones de Menú, Hero y Google Maps**: Hero limpio sin píldora inferior redundante para destacar el lema oficial "Ya está." y los botones CTA; menú con 9 categorías oficiales (eliminados Desserts y Tripa obsoletos, agregado Tamarindo en Drinks y filtro por defecto en Tacos con navegación por teclado accesible via roving tabindex); selector interactivo de 3 temas de Google Maps (Oscuro, Claro, Satelital) con inicialización asíncrona robusta y popups bilingües.
 
 ## NPS (NET PROMOTER SCORE)
 - NPS measures customer loyalty: "On a scale of 0-10, how likely are you to recommend us?"

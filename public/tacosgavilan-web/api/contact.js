@@ -1,7 +1,7 @@
 /**
  * @module api/contact
  * @description Production Vercel Serverless Function for official Tacos Gavilan customer contact form submissions.
- * Implements strict fail-closed security, content-type and body-size guards, in-memory rate limiting,
+ * Implements strict fail-closed security, content-type and body-size guards, best-effort per-instance rate limiting,
  * honeypot bot trap, ASCII control character sanitization, whitelisted parameters, and confirmed Supabase persistence.
  *
  * @businessRules
@@ -9,7 +9,8 @@
  *   2. Fail-Closed Guarantee: Never return HTTP 200 without verified database persistence in Supabase.
  *   3. If Supabase configuration or network fails, return 503 CONTACT_SERVICE_UNAVAILABLE with office phone fallback (310) 870-7009.
  *   4. Strictly whitelist topics and store names to prevent injection or corruption of customer_feedback records.
- *   5. Rate limited to 5 submissions per 10-minute window per IP to prevent spam and denial of service.
+ *   5. Each warm serverless instance limits an IP to 5 submissions per 10-minute window; this is defense in depth,
+ *      not a distributed global rate limit.
  *
  * @dataFlow
  *   - index.html (#contact-form) -> POST /api/contact -> Supabase public.customer_feedback (store_id, customer_name, comments, complaint_type).
@@ -17,6 +18,7 @@
  * @notes
  *   - Verified against live Supabase schema for public.customer_feedback (references stores.id).
  *   - Corporate headquarters (Lynwood, store_id: 14) serves as default anchor when no specific store is chosen.
+ *   - Expired in-memory rate-limit entries are periodically purged to bound memory use in warm instances.
  */
 
 const RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000; // 10 minutes
@@ -25,10 +27,17 @@ const MAX_PAYLOAD_BYTES = 10240; // 10 KB
 
 // In-memory rate limiting store (per serverless instance)
 const rateLimitMap = new Map();
+let rateLimitChecks = 0;
 
 function isRateLimited(ip) {
     if (!ip) return false;
     const now = Date.now();
+    rateLimitChecks++;
+    if (rateLimitChecks % 100 === 0) {
+        for (const [storedIp, storedRecord] of rateLimitMap.entries()) {
+            if (now > storedRecord.resetAt) rateLimitMap.delete(storedIp);
+        }
+    }
     const record = rateLimitMap.get(ip);
 
     if (!record) {

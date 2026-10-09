@@ -4,69 +4,146 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>Page Not Found | Tacos Gavilan</title>
-    <meta name="description" content="The page you requested could not be found. Return to Tacos Gavilan home or order online.">
+    <meta name="description" content="The page you requested could not be found. Return to Tacos Gavilan homepage or find a location near you.">
+    <meta name="robots" content="noindex, follow">
     <link rel="icon" type="image/x-icon" href="/img/favicon.ico">
-    <link rel="stylesheet" href="/css/style.css">
+    <link rel="apple-touch-icon" sizes="192x192" href="/img/icon-192.webp">
+    <meta name="theme-color" content="#DA291C">
+    <link rel="stylesheet" href="/css/style.css?v=27">
     <style>
         .error-page-wrapper {
             min-height: 100dvh;
             display: flex;
+            flex-direction: column;
+            justify-content: space-between;
             align-items: center;
-            justify-content: center;
             text-align: center;
-            padding: 2rem 1.5rem;
+            padding: calc(var(--sat, 0px) + 2rem) 1.5rem calc(var(--sab, 0px) + 2rem);
             background: #0a0a0a;
             color: #ffffff;
+            box-sizing: border-box;
+        }
+        .error-main {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-grow: 1;
+            width: 100%;
+            padding: 2rem 0;
         }
         .error-card {
-            max-width: 520px;
+            max-width: 580px;
+            width: 100%;
             padding: 3rem 2rem;
             background: rgba(255, 255, 255, 0.04);
             border: 1px solid rgba(255, 199, 44, 0.25);
             border-radius: 16px;
             backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
         }
         .error-code {
             font-size: clamp(4rem, 15vw, 6.5rem);
             font-weight: 900;
             color: var(--clr-gold, #FFC72C);
             line-height: 1;
-            margin-bottom: 1rem;
+            margin-bottom: 0.75rem;
             font-family: var(--ff-heading, sans-serif);
         }
         .error-title {
             font-size: 1.5rem;
             font-weight: 700;
             margin-bottom: 1rem;
+            color: #ffffff;
         }
         .error-desc {
-            color: rgba(255, 255, 255, 0.7);
-            font-size: 1rem;
+            color: rgba(255, 255, 255, 0.78);
+            font-size: 1.05rem;
             line-height: 1.6;
             margin-bottom: 2rem;
         }
+        .error-desc span {
+            display: block;
+            margin-top: 0.5rem;
+            font-size: 0.95rem;
+            color: rgba(255, 255, 255, 0.6);
+        }
         .error-actions {
             display: flex;
-            gap: 1rem;
+            gap: 0.85rem;
             justify-content: center;
             flex-wrap: wrap;
+        }
+        .error-actions .btn {
+            min-height: 44px;
+            padding: 0.65rem 1.25rem;
+            font-size: 0.9rem;
+            font-weight: 600;
+        }
+        .error-footer {
+            width: 100%;
+            max-width: 680px;
+            padding-top: 2rem;
+            border-top: 1px solid rgba(255, 255, 255, 0.08);
+            font-size: 0.85rem;
+            color: rgba(255, 255, 255, 0.5);
+        }
+        .error-footer-links {
+            display: flex;
+            justify-content: center;
+            gap: 1.25rem;
+            flex-wrap: wrap;
+            margin-bottom: 0.75rem;
+        }
+        .error-footer-links a {
+            color: rgba(255, 255, 255, 0.7);
+            text-decoration: none;
+            transition: color 0.2s ease;
+        }
+        .error-footer-links a:hover,
+        .error-footer-links a:focus {
+            color: var(--clr-gold, #FFC72C);
+            text-decoration: underline;
         }
     </style>
 </head>
 <body>
+    <a href="#main-content" class="skip-link" data-en="Skip to main content" data-es="Saltar al contenido principal">Skip to main content</a>
     <div class="error-page-wrapper">
-        <div class="error-card">
-            <div class="error-code">404</div>
-            <h1 class="error-title">Page Not Found · Página No Encontrada</h1>
-            <p class="error-desc">
-                The page you are looking for does not exist or may have been moved.<br>
-                La página que buscas no existe o ha sido movida.
-            </p>
-            <div class="error-actions">
-                <a href="/" class="btn btn-secondary">Return Home / Volver al Inicio</a>
-                <a href="https://order.online/business/-137616" target="_blank" rel="noopener noreferrer" class="btn btn-primary">Order Online / Ordenar</a>
+        <header style="display:flex;align-items:center;gap:1rem;">
+            <a href="/" aria-label="Tacos Gavilan Home">
+                <img src="/img/logo.webp" alt="Tacos Gavilan" width="160" height="48" style="height: auto; max-width: 160px;">
+            </a>
+            <button type="button" class="location-lang-toggle" id="location-lang-toggle" aria-label="Change language to Spanish" style="min-width:48px;min-height:48px;border:2px solid #FFC72C;border-radius:999px;color:#fff;background:transparent;font-weight:700;">ES</button>
+        </header>
+
+        <main id="main-content" class="error-main">
+            <div class="error-card">
+                <div class="error-code">404</div>
+                <h1 class="error-title" data-en="Page Not Found" data-es="Página No Encontrada">Page Not Found</h1>
+                <p class="error-desc" data-en="The page you are looking for does not exist or may have been moved." data-es="La página que buscas no existe o fue movida.">The page you are looking for does not exist or may have been moved.</p>
+                <div class="error-actions">
+                    <a href="/" class="btn btn-secondary" data-en="Home" data-es="Inicio">Home</a>
+                    <a href="/#locations" class="btn btn-secondary" data-en="Locations" data-es="Sucursales">Locations</a>
+                    <a href="https://order.online/business/-137616" target="_blank" rel="noopener noreferrer" class="btn btn-primary" data-en="Order Online" data-es="Ordenar en Línea">Order Online</a>
+                </div>
             </div>
-        </div>
+        </main>
+
+        <footer class="error-footer">
+            <nav class="error-footer-links" aria-label="Secondary footer links">
+                <a href="/#about" data-en="About" data-es="Nosotros">About</a>
+                <a href="/#menu" data-en="Menu" data-es="Menú">Menu</a>
+                <a href="/#locations" data-en="Locations" data-es="Sucursales">Locations</a>
+                <a href="/#contact" data-en="Contact" data-es="Contacto">Contact</a>
+                <a href="/#careers" data-en="Careers" data-es="Empleo">Careers</a>
+                <a href="/?legal=privacy" data-en="Privacy" data-es="Privacidad">Privacy</a>
+                <a href="/?legal=terms" data-en="Terms" data-es="Términos">Terms</a>
+                <a href="/?legal=accessibility" data-en="Accessibility" data-es="Accesibilidad">Accessibility</a>
+            </nav>
+            <p data-en="© 2026 Tacos Gavilan. All rights reserved. Authentic Mexican food since 1992." data-es="© 2026 Tacos Gavilan. Todos los derechos reservados. Auténtica comida mexicana desde 1992.">&copy; 2026 Tacos Gavilan. All rights reserved. Authentic Mexican food since 1992.</p>
+        </footer>
     </div>
+    <script src="/js/location-page.js?v=27"></script>
 </body>
 </html>

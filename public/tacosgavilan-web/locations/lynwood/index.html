@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>Tacos Gavilan Lynwood | Authentic Mexican Food & Online Ordering</title>
     <meta name="description" content="Visit Tacos Gavilan in Lynwood, CA at 3220 E. Imperial Hwy. Authentic Mexican tacos, burritos, quesadillas, and catering. Order pickup or delivery online.">
-    <link rel="canonical" href="https://tacosgavilan.com/locations/lynwood">
+    <link rel="canonical" href="https://tacosgavilan.com/locations/lynwood/">
     <link rel="icon" type="image/x-icon" href="/img/favicon.ico">
     <meta name="theme-color" content="#DA291C">
     
@@ -15,7 +15,7 @@
     <meta property="og:image" content="https://tacosgavilan.com/img/hero-bg.webp">
     <meta property="og:image:width" content="1200">
     <meta property="og:image:height" content="630">
-    <meta property="og:url" content="https://tacosgavilan.com/locations/lynwood">
+    <meta property="og:url" content="https://tacosgavilan.com/locations/lynwood/">
     <meta property="og:type" content="restaurant.restaurant">
 
     <!-- Schema.org JSON-LD -->
@@ -23,17 +23,19 @@
     {
   "@context": "https://schema.org",
   "@type": "FastFoodRestaurant",
-  "@id": "https://tacosgavilan.com/locations/lynwood#restaurant",
+  "@id": "https://tacosgavilan.com/locations/lynwood/#restaurant",
   "name": "Tacos Gavilan - Lynwood",
   "parentOrganization": {
-    "@type": "Restaurant",
+    "@type": "Organization",
+    "@id": "https://tacosgavilan.com/#organization",
     "name": "Tacos Gavilan",
     "url": "https://tacosgavilan.com"
   },
-  "url": "https://tacosgavilan.com/locations/lynwood",
-  "telephone": "(310) 639-6799",
+  "url": "https://tacosgavilan.com/locations/lynwood/",
+  "telephone": "+1-310-639-6799",
   "servesCuisine": "Mexican",
-  "priceRange": "$$",
+  "hasMenu": "https://tacosgavilan.com/#menu",
+  "priceRange": "$",
   "address": {
     "@type": "PostalAddress",
     "streetAddress": "3220 E. Imperial Hwy",
@@ -107,16 +109,21 @@
             flex-wrap: wrap;
             margin-top: 2rem;
         }
+    
+        .location-lang-toggle { min-width: 48px; min-height: 48px; border: 2px solid var(--clr-gold, #FFC72C); border-radius: 999px; color: #fff; background: transparent; font-weight: 700; cursor: pointer; }
+        .location-lang-toggle:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
+        @media (max-width: 480px) { .header-actions .btn { display: none; } }
     </style>
 </head>
 <body>
+    <a href="#main-content" class="skip-link" data-en="Skip to main content" data-es="Saltar al contenido principal">Skip to main content</a>
     <header class="header scrolled">
         <div class="container header-container">
-            <a href="/" class="logo">
+            <a href="/" class="logo" aria-label="Tacos Gavilan Home" data-en-aria="Tacos Gavilan Home" data-es-aria="Inicio de Tacos Gavilan">
                 <img src="/img/logo.webp" alt="Tacos Gavilan Logo" width="160" height="48">
             </a>
-            <div class="header-actions">
-                <a href="https://order.online/store/tacos-gavilan-lynwood-727877" target="_blank" rel="noopener noreferrer" class="btn btn-primary">Order Online</a>
+            <div class="header-actions"><button type="button" class="location-lang-toggle" id="location-lang-toggle" aria-label="Change language to Spanish">ES</button>
+                <a href="https://order.online/store/tacos-gavilan-lynwood-727877" target="_blank" rel="noopener noreferrer" class="btn btn-primary" data-en="Order Online" data-es="Ordenar en Línea">Order Online</a>
             </div>
         </div>
     </header>
@@ -125,13 +132,13 @@
         <div class="location-page-hero">
             <div class="container">
                 <h1 class="hero-title" style="font-size: clamp(2rem, 6vw, 3.5rem);">Tacos Gavilan · Lynwood</h1>
-                <p class="hero-subtitle">Authentic Mexican Flavor Since 1992</p>
+                <p class="hero-subtitle" data-en="Authentic Mexican Flavor Since 1992" data-es="Auténtico sabor mexicano desde 1992">Authentic Mexican Flavor Since 1992</p>
             </div>
         </div>
 
         <div class="container">
             <div class="location-details-card">
-                <h2>Visit or Order from Lynwood</h2>
+                <h2 data-en="Visit or Order from Lynwood" data-es="Visita u ordena en Lynwood">Visit or Order from Lynwood</h2>
                 
                 <div class="location-info-row">
                     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
@@ -140,25 +147,43 @@
 
                 <div class="location-info-row">
                     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
-                    <a href="tel:(310) 639-6799">(310) 639-6799</a>
+                    <a href="tel:+13106396799">(310) 639-6799</a>
+                </div>
+
+                <div class="location-info-row">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                    <span data-en="Hours vary by location. Please confirm before visiting." data-es="Los horarios varían por sucursal. Confirma antes de visitarnos.">Hours vary by location. Please confirm before visiting.</span>
                 </div>
 
                 <div class="location-cta-group">
-                    <a href="https://order.online/store/tacos-gavilan-lynwood-727877" target="_blank" rel="noopener noreferrer" class="btn btn-primary btn-lg">Order Pickup or Delivery on Toast</a>
-                    <a href="https://maps.google.com/?q=33.930001,-118.21232" target="_blank" rel="noopener noreferrer" class="btn btn-secondary">Get Directions in Google Maps</a>
+                    <a href="https://order.online/store/tacos-gavilan-lynwood-727877" target="_blank" rel="noopener noreferrer" class="btn btn-primary btn-lg" data-en="Order Pickup or Delivery on Toast" data-es="Ordenar para recoger o entrega en Toast">Order Pickup or Delivery on Toast</a>
+                    <a href="https://maps.google.com/?q=33.930001,-118.21232" target="_blank" rel="noopener noreferrer" class="btn btn-secondary" data-en="Get Directions in Google Maps" data-es="Cómo llegar en Google Maps">Get Directions in Google Maps</a>
                 </div>
 
                 <div style="margin-top: 2rem;">
-                    <a href="/#locations" style="color: rgba(255,255,255,0.7); text-decoration: underline;">← View All 15 Tacos Gavilan Locations</a>
+                    <a href="/#locations" style="color: rgba(255,255,255,0.7); text-decoration: underline;" data-en="← View All 15 Tacos Gavilan Locations" data-es="← Ver las 15 sucursales de Tacos Gavilan">← View All 15 Tacos Gavilan Locations</a>
                 </div>
             </div>
         </div>
     </main>
 
     <footer class="footer">
-        <div class="container text-center" style="padding: 2rem 0; color: rgba(255,255,255,0.6);">
-            <p>&copy; 2026 Tacos Gavilan. All rights reserved. | <a href="/#about" style="color: inherit;">About</a> · <a href="/#menu" style="color: inherit;">Menu</a> · <a href="/#contact" style="color: inherit;">Contact</a></p>
+        <div class="container text-center" style="padding: 2.5rem 0; color: rgba(255,255,255,0.6);">
+            <div style="display: flex; justify-content: center; gap: 1.5rem; flex-wrap: wrap; margin-bottom: 1rem;">
+                <a href="/#about" style="color: inherit;" data-en="About" data-es="Nosotros">About</a>
+                <a href="/#menu" style="color: inherit;" data-en="Menu" data-es="Menú">Menu</a>
+                <a href="/#locations" style="color: inherit;" data-en="All Locations" data-es="Sucursales">All Locations</a>
+                <a href="/#contact" style="color: inherit;" data-en="Contact" data-es="Contacto">Contact</a>
+                <a href="/#careers" style="color: inherit;" data-en="Careers" data-es="Empleo">Careers</a>
+            </div>
+            <div class="location-legal-links" style="display:flex;justify-content:center;gap:1.5rem;flex-wrap:wrap;margin-bottom:1rem;">
+                <a href="/?legal=privacy" style="color:inherit;" data-en="Privacy" data-es="Privacidad">Privacy</a>
+                <a href="/?legal=terms" style="color:inherit;" data-en="Terms" data-es="Términos">Terms</a>
+                <a href="/?legal=accessibility" style="color:inherit;" data-en="Accessibility" data-es="Accesibilidad">Accessibility</a>
+            </div>
+            <p data-en="© 2026 Tacos Gavilan. All rights reserved. | Authentic Mexican food since 1992." data-es="© 2026 Tacos Gavilan. Todos los derechos reservados. | Auténtica comida mexicana desde 1992.">© 2026 Tacos Gavilan. All rights reserved. | Authentic Mexican food since 1992.</p>
         </div>
     </footer>
+    <script src="/js/location-page.js"></script>
 </body>
 </html>

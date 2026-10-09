@@ -16,8 +16,11 @@
  *
  * @notes
  *   - Supports safe-area-inset-top and safe-area-inset-bottom for Dynamic Island / gesture home bar.
+ *   - Fixed-position headers and full-screen dialogs respect all four safe-area insets without changing
+ *     their zero-inset desktop layout.
  *   - Enhanced menu tabs horizontal scroll-snap for fluid touch interaction.
  *   - Modal styles support Privacy Policy, Terms of Use, and Accessibility Statement overlays.
+ *   - Mobile menu cards are centered without changing desktop composition or image crops.
  */
 
 
@@ -664,40 +667,40 @@ html.js-animations-enabled .fade-in-up:not(.is-visible) {
     opacity: 0;
     visibility: hidden;
     transform: translateY(30px);
-    transition: opacity 0.6s cubic-bezier(0.16, 1, 0.3, 1), transform 0.6s cubic-bezier(0.16, 1, 0.3, 1), visibility 0.6s;
+    transition: none;
 }
 
 html.js-animations-enabled .fade-in-left:not(.is-visible) {
     opacity: 0;
     visibility: hidden;
     transform: translateX(-40px);
-    transition: opacity 0.6s ease-out, transform 0.6s ease-out, visibility 0.6s;
+    transition: none;
 }
 
 html.js-animations-enabled .fade-in-right:not(.is-visible) {
     opacity: 0;
     visibility: hidden;
     transform: translateX(40px);
-    transition: opacity 0.6s ease-out, transform 0.6s ease-out, visibility 0.6s;
+    transition: none;
 }
 
 html.js-animations-enabled .fade-in:not(.is-visible) {
     opacity: 0;
     visibility: hidden;
-    transition: opacity 0.6s ease-out, visibility 0.6s;
+    transition: none;
 }
 
 html.js-animations-enabled .text-reveal:not(.is-visible):not(.is-revealed) {
     opacity: 0;
     visibility: hidden;
-    transition: opacity 0.4s ease-out, visibility 0.4s;
+    transition: none;
 }
 
 html.js-animations-enabled .text-reveal:not(.is-visible):not(.is-revealed) .char {
     opacity: 0;
     visibility: hidden;
     transform: translateY(20px) rotate(2deg);
-    transition: opacity 0.4s ease-out, transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), visibility 0.4s;
+    transition: none;
     will-change: transform, opacity;
 }
 
@@ -715,12 +718,22 @@ html.js-animations-enabled .text-reveal:not(.is-visible):not(.is-revealed) .char
     opacity: 1 !important;
     visibility: visible !important;
     transform: none !important;
+    transition: opacity 0.6s cubic-bezier(0.16, 1, 0.3, 1), transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .text-reveal.is-visible,
 .text-reveal.is-revealed {
     opacity: 1 !important;
     visibility: visible !important;
+    transition: opacity 0.4s ease-out;
+}
+
+.text-reveal.is-visible .char,
+.text-reveal.is-revealed .char {
+    opacity: 1 !important;
+    visibility: visible !important;
+    transform: none !important;
+    transition: opacity 0.4s ease-out, transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .text-reveal.is-visible .char,
@@ -959,9 +972,8 @@ body.menu-open .header::before {
 .hero {
     position: relative;
     width: 100%;
-    height: 100vh;
-    height: 100svh;
-    min-height: 600px;
+    min-height: 100vh;
+    min-height: 100svh;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1757,7 +1769,7 @@ body.menu-open .header::before {
 
 .location-address {
     font-size: 0.85rem;
-    color: var(--clr-text-muted);
+    color: var(--clr-text-light);
     line-height: 1.5;
     flex-grow: 1;
 }
@@ -1768,6 +1780,18 @@ body.menu-open .header::before {
     font-weight: 700;
     color: var(--clr-white);
     margin: 0;
+}
+
+.location-name-link {
+    color: inherit;
+    text-decoration: none;
+}
+
+.location-name-link:hover,
+.location-name-link:focus-visible {
+    color: var(--clr-gold);
+    text-decoration: underline;
+    text-underline-offset: 0.2em;
 }
 
 .location-card .btn {
@@ -1918,6 +1942,59 @@ body.menu-open .header::before {
     display: flex;
     align-items: center;
     gap: 0.75rem;
+    margin-left: auto;
+}
+
+/* --- Map Theme Switcher --- */
+.map-theme-switcher {
+    display: inline-flex;
+    align-items: center;
+    background: #f3f4f6;
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    border-radius: var(--radius-full);
+    padding: 3px;
+    gap: 2px;
+}
+
+.map-theme-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem;
+    padding: 0.45rem 0.8rem;
+    min-height: 36px;
+    border: none;
+    border-radius: var(--radius-full);
+    background: transparent;
+    color: #4b5563;
+    font-family: var(--ff-body);
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    line-height: 1;
+    white-space: nowrap;
+}
+
+.map-theme-btn svg {
+    color: inherit;
+    flex-shrink: 0;
+}
+
+.map-theme-btn:hover {
+    color: var(--clr-black-deep);
+    background: rgba(0, 0, 0, 0.05);
+}
+
+.map-theme-btn.is-active {
+    background: var(--clr-black-deep);
+    color: var(--clr-gold);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.16);
+}
+
+.map-theme-btn:focus-visible {
+    outline: 2px solid var(--clr-red);
+    outline-offset: 2px;
 }
 
 /* --- Close Button --- */
@@ -1965,24 +2042,59 @@ body.menu-open .header::before {
     }
 
     .map-modal-header {
-        flex-wrap: wrap;
+        display: grid;
+        grid-template-columns: 1fr auto;
+        grid-template-areas:
+            "title close"
+            "actions actions";
+        gap: 0.6rem;
         padding: 0.75rem 1rem;
+    }
+
+    .map-modal-title {
+        grid-area: title;
+        align-self: center;
     }
 
     .map-modal-title h3 {
         font-size: 0.95rem;
     }
 
-    .map-btn {
-        min-height: 44px;
-        padding: 0.65rem 1.15rem;
-        font-size: 0.82rem;
-    }
-
     .map-modal-close {
+        grid-area: close;
+        justify-self: end;
         width: 44px;
         height: 44px;
         min-width: 44px;
+    }
+
+    .map-modal-actions {
+        grid-area: actions;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        width: 100%;
+    }
+
+    .map-theme-switcher {
+        flex: 1 1 auto;
+        display: flex;
+        justify-content: space-between;
+    }
+
+    .map-theme-btn {
+        flex: 1;
+        justify-content: center;
+        padding: 0.45rem 0.35rem;
+        font-size: 0.75rem;
+        min-height: 44px;
+    }
+
+    .map-btn {
+        flex: 0 0 auto;
+        min-height: 44px;
+        padding: 0.65rem 1rem;
+        font-size: 0.82rem;
     }
 }
 
@@ -1997,6 +2109,7 @@ body.menu-open .header::before {
 
     .map-modal-header {
         gap: 0.5rem;
+        padding: 0.65rem 0.75rem;
     }
 
     .map-modal-title h3 {
@@ -2004,9 +2117,28 @@ body.menu-open .header::before {
     }
 
     .map-btn {
-        flex: 1;
+        flex: 0 0 auto;
         justify-content: center;
         min-height: 44px;
+        padding: 0.5rem 0.75rem;
+    }
+}
+
+@media (max-width: 360px) {
+    .map-modal-header {
+        padding: 0.5rem;
+        gap: 0.4rem;
+    }
+
+    .map-theme-btn {
+        padding: 0.4rem 0.25rem;
+        font-size: 0.7rem;
+        gap: 0.2rem;
+    }
+
+    .map-btn {
+        padding: 0.45rem 0.55rem;
+        font-size: 0.75rem;
     }
 }
 
@@ -2879,6 +3011,18 @@ button:focus-visible {
         --header-height: 64px;
     }
 
+    /* Keep the fixed header and its controls below notches / Dynamic Island. */
+    .header {
+        height: calc(var(--header-height) + var(--sat));
+        padding-left: var(--sal);
+        padding-right: var(--sar);
+    }
+
+    .header-container {
+        height: calc(var(--header-height) + var(--sat));
+        padding-top: var(--sat);
+    }
+
     body {
         padding-bottom: calc(68px + var(--sab));
     }
@@ -3323,7 +3467,7 @@ button:focus-visible {
 @media (max-width: 480px) {
 
     body {
-        font-size: 15px;
+        font-size: 16px;
     }
 
     .container {
@@ -3385,7 +3529,12 @@ button:focus-visible {
     .menu-grid {
         display: grid;
         grid-template-columns: 1fr;
+        justify-items: center;
         perspective: none;
+    }
+
+    .menu-item {
+        margin-inline: auto;
     }
 
     .menu-item-img {
@@ -3643,6 +3792,10 @@ button:focus-visible {
 
     .hero {
         min-height: 100vh;
+        height: auto;
+        padding-top: max(75px, calc(var(--header-height) + var(--sat, 0px)));
+        padding-bottom: max(35px, var(--sab, 0px));
+        overflow: visible;
     }
 
     .hero-title {
@@ -4509,6 +4662,7 @@ html, body {
 .menu-item-img img {
     aspect-ratio: 16 / 10;
     object-fit: cover;
+    object-position: center center;
     width: 100%;
     display: block;
 }
@@ -4520,4 +4674,246 @@ body:has(#contact-form input:focus, #contact-form textarea:focus, #contact-form 
     transform: translateY(100%) !important;
 }
 
+/* Hide sticky bottom bar while cookie banner is visible */
+body.has-cookie-banner .mobile-sticky-bar {
+    transform: translateY(120%) !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+}
 
+/* Safe-area protection for fullscreen map, image and legal dialogs. */
+.map-modal-overlay {
+    padding-top: var(--sat);
+    padding-right: var(--sar);
+    padding-bottom: var(--sab);
+    padding-left: var(--sal);
+}
+
+.map-modal-header {
+    padding-top: max(1rem, var(--sat));
+    padding-right: max(1rem, var(--sar));
+    padding-left: max(1rem, var(--sal));
+}
+
+.lightbox-modal-overlay {
+    padding-top: max(1.5rem, var(--sat));
+    padding-right: max(1.5rem, var(--sar));
+    padding-bottom: max(1.5rem, var(--sab));
+    padding-left: max(1.5rem, var(--sal));
+}
+
+.lightbox-close {
+    top: max(1.5rem, var(--sat));
+    right: max(1.5rem, var(--sar));
+}
+
+.privacy-modal-overlay {
+    padding-top: max(1.5rem, var(--sat));
+    padding-right: max(1.5rem, var(--sar));
+    padding-bottom: max(1.5rem, var(--sab));
+    padding-left: max(1.5rem, var(--sal));
+}
+
+.privacy-modal {
+    max-height: calc(100dvh - var(--sat) - var(--sab) - 3rem);
+}
+
+@media (max-width: 600px) {
+    .privacy-modal-overlay {
+        padding-top: max(0.75rem, var(--sat));
+        padding-right: max(0.75rem, var(--sar));
+        padding-bottom: max(0.75rem, var(--sab));
+        padding-left: max(0.75rem, var(--sal));
+    }
+
+    .privacy-modal {
+        max-height: calc(100dvh - var(--sat) - var(--sab) - 1.5rem);
+    }
+}
+
+/* =============================================================
+   33. LOCATION CARD ACTIONS & SECONDARY LINKS
+   ============================================================= */
+.location-card-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 0.65rem;
+    margin-top: 0.75rem;
+}
+
+.location-card-secondary-links {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding-top: 0.35rem;
+}
+
+.location-directions-link,
+.location-details-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: #D1D5DB;
+    text-decoration: none;
+    transition: color var(--transition-fast);
+    min-height: 36px;
+}
+
+.location-directions-link:hover,
+.location-details-link:hover {
+    color: var(--clr-gold);
+}
+
+.location-directions-link svg,
+.location-details-link svg {
+    flex-shrink: 0;
+}
+
+/* =============================================================
+   34. INTERACTIVE MAP FALLBACK CARD & STORES LIST
+   ============================================================= */
+.map-fallback-card {
+    padding: 2.25rem 1.5rem;
+    text-align: center;
+    color: #FFFFFF;
+    background: #1A1816;
+    border-radius: var(--radius-md);
+    height: 100%;
+    min-height: 420px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    overflow-y: auto;
+}
+
+.map-fallback-icon {
+    width: 48px;
+    height: 48px;
+    color: var(--clr-gold);
+    margin-bottom: 0.85rem;
+    flex-shrink: 0;
+}
+
+.map-fallback-title {
+    font-family: var(--ff-heading);
+    font-size: 1.35rem;
+    font-weight: 800;
+    color: #FFFFFF;
+    margin-bottom: 0.45rem;
+}
+
+.map-fallback-desc {
+    font-size: 0.92rem;
+    color: #D1D5DB;
+    max-width: 520px;
+    margin-bottom: 1.25rem;
+    line-height: 1.5;
+}
+
+.map-fallback-retry-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.65rem 1.5rem;
+    background: var(--clr-gold);
+    color: #12100E;
+    font-weight: 700;
+    font-size: 0.88rem;
+    border-radius: var(--radius-sm);
+    border: none;
+    cursor: pointer;
+    margin-bottom: 1.75rem;
+    transition: background var(--transition-fast), transform var(--transition-fast);
+}
+
+.map-fallback-retry-btn:hover {
+    background: #FFE082;
+    transform: translateY(-2px);
+}
+
+.map-fallback-list {
+    width: 100%;
+    max-width: 720px;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    text-align: left;
+}
+
+.map-fallback-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.9rem 1.2rem;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: var(--radius-sm);
+    gap: 1rem;
+}
+
+@media (max-width: 600px) {
+    .map-fallback-item {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.75rem;
+    }
+    .map-fallback-item-actions {
+        width: 100%;
+        display: flex;
+        justify-content: space-between;
+    }
+}
+
+.map-fallback-item-info h4 {
+    font-size: 1rem;
+    font-weight: 700;
+    color: #FFFFFF;
+    margin-bottom: 0.2rem;
+}
+
+.map-fallback-item-info p {
+    font-size: 0.84rem;
+    color: #9CA3AF;
+}
+
+.map-fallback-item-actions {
+    display: flex;
+    gap: 0.65rem;
+    flex-shrink: 0;
+}
+
+.map-fallback-item-actions a {
+    font-size: 0.82rem;
+    font-weight: 600;
+    padding: 0.45rem 0.85rem;
+    border-radius: var(--radius-sm);
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.map-fallback-btn-dir {
+    background: rgba(255, 255, 255, 0.1);
+    color: #FFFFFF;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.map-fallback-btn-dir:hover {
+    background: rgba(255, 255, 255, 0.2);
+    color: var(--clr-gold);
+}
+
+.map-fallback-btn-order {
+    background: var(--clr-red);
+    color: #FFFFFF;
+}
+
+.map-fallback-btn-order:hover {
+    background: #B91C1C;
+}

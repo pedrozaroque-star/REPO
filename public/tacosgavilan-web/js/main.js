@@ -1,7 +1,8 @@
 /**
  * @module TacosGavilan/Main
  * @description Official client-side animation engine, bilingual translation controller (EN/ES),
- * interactive Leaflet store locator map, accessible dialog overlays, and live serverless contact pipeline.
+ * interactive Google Maps store locator with controlled retry and accessible fallback card,
+ * accessible dialog overlays (WCAG 2.2 AA compliant focus traps), and live serverless contact pipeline.
  *
  * @businessRules
  *   1. Toast POS (order.online) is the exclusive transactional ordering system for Tacos Gavilan.
@@ -10,30 +11,109 @@
  *   2. Exactly 15 active Southern California locations. Slauson maps to Store ID 23989119, LA Broadway
  *      to 260769, and West Covina to canonical 725035.
  *   3. Strict brand name: strictly "Tacos Gavilan" (zero "El Gavilan", zero emojis).
- *   4. Full bilingual support (EN/ES) persisted via localStorage['tacosgavilan_lang'].
+ *   4. Full bilingual support (EN/ES) persisted via safeStorage['tacosgavilan_lang'].
  *   5. Contact form routes asynchronously to Vercel Serverless /api/contact, guarded with
- *      in-memory rate limiting and honeypot bot trap, persisting to Supabase contact_submissions.
+ *      in-memory rate limiting and honeypot bot trap, persisting to Supabase public.customer_feedback.
  *   6. Pre-processed WebP assets; zero runtime canvas pixel scanning on main thread.
  *
  * @dataFlow
- *   - data/stores.json -> static HTML cards in index.html & gavilanLocations Leaflet markers.
- *   - #contact-form -> POST /api/contact -> Supabase public.contact_submissions.
- *   - Leaflet Map -> CartoDB Voyager tiles with OpenStreetMap attribution.
+ *   - data/stores.json -> static HTML cards in index.html & gavilanLocations markers.
+ *   - #contact-form -> POST /api/contact -> Supabase public.customer_feedback.
+ *   - Google Maps API -> Interactive locator with dark/light/satellite themes and 15-store fallback card.
  *
  * @notes
  *   - Slauson / LA Broadway store ID collision resolved (Slauson assigned 23989119).
  *   - Fixed translation text node replacement to prevent destroying child SVGs.
- *   - Enhanced keyboard accessibility (WCAG 2.2 AA) with focus management and ESC listeners.
+ *   - Enhanced keyboard accessibility (WCAG 2.2 AA) with roving tabindex and focus traps.
+ *   - Protected storage access with safeStorage helper against Private Browsing exceptions.
+ *   - Privacy modal uses one trigger path so focus returns to the original contact link.
+ *   - Google Maps loads only after the visitor opens the locator and falls back if tiles never load.
+ *   - Location-page legal links can deep-link to the matching accessible homepage dialog.
  */
 
 document.addEventListener('DOMContentLoaded', () => {
 
     /* ==========================================================
-       0. SHARED STATE & INITIALIZATION
+       0. SHARED STATE, SAFE STORAGE & FOCUS MANAGEMENT
        ========================================================== */
-    const savedLang = localStorage.getItem('tacosgavilan_lang');
+    const safeStorage = {
+        getItem: (key) => {
+            try { return localStorage.getItem(key); } catch (e) { return null; }
+        },
+        setItem: (key, val) => {
+            try { localStorage.setItem(key, val); } catch (e) {}
+        },
+        removeItem: (key) => {
+            try { localStorage.removeItem(key); } catch (e) {}
+        }
+    };
+
+    const savedLang = safeStorage.getItem('tacosgavilan_lang');
     let currentLang = (savedLang === 'es' || savedLang === 'en') ? savedLang : 'en';
     const isDesktop = window.matchMedia('(pointer: fine)').matches;
+
+    // Focus trap manager for WCAG 2.2 AA modal and drawer compliance
+    let trapKeyHandler = null;
+    let previousActiveElement = null;
+
+    const trapFocus = (container) => {
+        if (!container) return;
+        previousActiveElement = document.activeElement;
+
+        const focusables = Array.from(container.querySelectorAll(
+            'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        )).filter(el => el.offsetWidth > 0 || el.offsetHeight > 0 || el === document.activeElement);
+
+        const firstEl = focusables[0];
+        const lastEl = focusables[focusables.length - 1];
+
+        // Isolate background landmarks from screen readers and keyboard navigation
+        const landmarks = ['#header', '#main-content', '#footer'];
+        landmarks.forEach(sel => {
+            const el = document.querySelector(sel);
+            if (el && !container.contains(el)) {
+                el.setAttribute('inert', '');
+            }
+        });
+
+        if (trapKeyHandler) document.removeEventListener('keydown', trapKeyHandler);
+
+        trapKeyHandler = (e) => {
+            if (e.key !== 'Tab') return;
+            if (e.shiftKey) {
+                if (document.activeElement === firstEl) {
+                    e.preventDefault();
+                    if (lastEl) lastEl.focus();
+                }
+            } else {
+                if (document.activeElement === lastEl) {
+                    e.preventDefault();
+                    if (firstEl) firstEl.focus();
+                }
+            }
+        };
+
+        document.addEventListener('keydown', trapKeyHandler);
+        if (firstEl) firstEl.focus();
+    };
+
+    const releaseFocus = () => {
+        if (trapKeyHandler) {
+            document.removeEventListener('keydown', trapKeyHandler);
+            trapKeyHandler = null;
+        }
+
+        const landmarks = ['#header', '#main-content', '#footer'];
+        landmarks.forEach(sel => {
+            const el = document.querySelector(sel);
+            if (el) el.removeAttribute('inert');
+        });
+
+        if (previousActiveElement && typeof previousActiveElement.focus === 'function') {
+            previousActiveElement.focus();
+        }
+        previousActiveElement = null;
+    };
 
     /* ==========================================================
        1. FOOTER DYNAMIC COPYRIGHT YEAR
@@ -98,21 +178,33 @@ document.addEventListener('DOMContentLoaded', () => {
     const navDrawerClose = document.getElementById('nav-drawer-close');
     const navLinks = document.querySelectorAll('.nav-link');
 
+    const openMenu = () => {
+        if (!mobileToggle || !nav) return;
+        nav.classList.add('nav-open');
+        mobileToggle.classList.add('active');
+        mobileToggle.setAttribute('aria-expanded', 'true');
+        document.body.classList.add('menu-open');
+        trapFocus(nav);
+    };
+
     const closeMenu = () => {
+        if (!nav || !nav.classList.contains('nav-open')) return;
+        nav.classList.remove('nav-open');
         if (mobileToggle) {
             mobileToggle.classList.remove('active');
             mobileToggle.setAttribute('aria-expanded', 'false');
         }
-        if (nav) nav.classList.remove('nav-open');
         document.body.classList.remove('menu-open');
+        releaseFocus();
     };
 
     if (mobileToggle && nav) {
         mobileToggle.addEventListener('click', () => {
-            const isOpen = nav.classList.toggle('nav-open');
-            mobileToggle.classList.toggle('active', isOpen);
-            mobileToggle.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
-            document.body.classList.toggle('menu-open', isOpen);
+            if (nav.classList.contains('nav-open')) {
+                closeMenu();
+            } else {
+                openMenu();
+            }
         });
 
         if (navDrawerClose) {
@@ -126,7 +218,6 @@ document.addEventListener('DOMContentLoaded', () => {
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape' && nav.classList.contains('nav-open')) {
                 closeMenu();
-                mobileToggle.focus();
             }
         });
     }
@@ -160,13 +251,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     /* ==========================================================
        6. SCROLL REVEAL ANIMATIONS (INTERSECTION OBSERVER)
-       Robust progressive enhancement:
-       - Content is 100% visible by default in HTML/CSS.
-       - Only enables animations if JS is running, IntersectionObserver
-         is supported, and user does NOT prefer reduced motion.
-       - Initial viewport & hero elements get .is-visible immediately.
-       - As elements enter viewport, adds .is-visible.
-       - Fallback automatically reveals everything if any failure occurs.
        ========================================================== */
     const animSelector = '.animate-up, .fade-in-up, .fade-in-left, .fade-in-right, .fade-in, .text-reveal';
     const animElements = document.querySelectorAll(animSelector);
@@ -175,19 +259,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (!prefersReducedMotion && 'IntersectionObserver' in window && animElements.length > 0) {
         try {
-            // Enable animation classes in CSS now that JS and IntersectionObserver are verified
             document.documentElement.classList.add('js-animations-enabled');
 
-            // Helper to reveal an element safely
             const revealElement = (el) => {
                 el.classList.add('is-visible');
-                el.classList.add('is-revealed'); // Backwards-compatible duplicate
+                el.classList.add('is-revealed');
             };
 
-            // Observer for scroll-triggered elements
             const revealObserver = new IntersectionObserver((entries, observer) => {
                 entries.forEach(entry => {
-                    // Check either isIntersecting or if element has already scrolled into view
                     if (entry.isIntersecting || entry.boundingClientRect.top < window.innerHeight) {
                         revealElement(entry.target);
                         observer.unobserve(entry.target);
@@ -195,12 +275,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
             }, {
                 root: null,
-                rootMargin: '0px 0px 80px 0px', // Pre-trigger 80px before entering viewport
-                threshold: 0.01 // Trigger as soon as 1% is visible
+                rootMargin: '0px 0px 80px 0px',
+                threshold: 0.01
             });
 
             animElements.forEach(el => {
-                // If element is in hero or already within the visible viewport on load, reveal immediately!
                 const rect = el.getBoundingClientRect();
                 const isHero = el.closest('.hero, #home, #hero') !== null;
                 const isInInitialViewport = rect.top < (window.innerHeight || document.documentElement.clientHeight);
@@ -212,7 +291,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             });
 
-            // Safety net: on full window load or after 500ms, reveal any elements currently in viewport
             const safetyCheck = () => {
                 const vh = window.innerHeight || document.documentElement.clientHeight;
                 animElements.forEach(el => {
@@ -238,7 +316,6 @@ document.addEventListener('DOMContentLoaded', () => {
             document.documentElement.classList.remove('js-animations-enabled');
         }
     } else {
-        // Fallback: If no IntersectionObserver or reduced motion, reveal everything immediately
         animElements.forEach(el => {
             el.classList.add('is-visible');
             el.classList.add('is-revealed');
@@ -247,28 +324,40 @@ document.addEventListener('DOMContentLoaded', () => {
 
     /* ==========================================================
        7. MENU CATEGORY TABS & ARIA TABLIST FILTERING
-       Smooth Cross-Fade Transition & Default Tacos Filter
+       Smooth Cross-Fade Transition, Roving Tabindex & Rapid Clicks Safe
        ========================================================== */
-    const menuTabs = document.querySelectorAll('.menu-tab');
-    const menuItems = document.querySelectorAll('.menu-item');
+    const menuTabs = Array.from(document.querySelectorAll('.menu-tab'));
+    const menuItems = Array.from(document.querySelectorAll('.menu-item'));
     const menuGrid = document.getElementById('menu-grid');
     let isMenuTransitioning = false;
+    let menuFadeOutTimer = null;
+    let menuReleaseTimer = null;
 
     function filterMenuCategory(category, isImmediate = false) {
         if (!menuGrid || menuItems.length === 0) return;
 
-        // Update active tab & ARIA attributes
+        // Cancel any pending transition timers from rapid clicks
+        if (menuFadeOutTimer) {
+            clearTimeout(menuFadeOutTimer);
+            menuFadeOutTimer = null;
+        }
+        if (menuReleaseTimer) {
+            clearTimeout(menuReleaseTimer);
+            menuReleaseTimer = null;
+        }
+
+        // Update active tab & ARIA attributes with roving tabindex
         menuTabs.forEach(t => {
             const isSelected = t.getAttribute('data-category') === category;
             t.classList.toggle('active', isSelected);
             t.setAttribute('aria-selected', isSelected ? 'true' : 'false');
+            t.setAttribute('tabindex', isSelected ? '0' : '-1');
             if (isSelected && t.id) {
                 menuGrid.setAttribute('aria-labelledby', t.id);
             }
         });
 
         if (isImmediate) {
-            // Immediate filter without transition (used on initial page load)
             menuItems.forEach(item => {
                 const itemCat = item.getAttribute('data-category');
                 if (category === 'all' || itemCat === category) {
@@ -284,26 +373,24 @@ document.addEventListener('DOMContentLoaded', () => {
                     item.classList.remove('category-visible');
                 }
             });
+            isMenuTransitioning = false;
             return;
         }
-
-        if (isMenuTransitioning) return;
-        isMenuTransitioning = true;
 
         // Lock container height to prevent jarring layout jump during fade-out
         const currentHeight = menuGrid.offsetHeight;
         menuGrid.style.minHeight = `${currentHeight}px`;
 
         // Phase 1: Smoothly fade out currently visible items
-        const visibleItems = Array.from(menuItems).filter(item => item.style.display !== 'none');
+        const visibleItems = menuItems.filter(item => item.style.display !== 'none');
         visibleItems.forEach(item => {
             item.style.transition = 'opacity 0.15s ease, transform 0.15s ease';
             item.style.opacity = '0';
             item.style.transform = 'translateY(8px) scale(0.98)';
         });
 
-        // Phase 2: After fade-out, switch visibility and stagger fade-in matching items
-        setTimeout(() => {
+        // Phase 2: Switch visibility and stagger fade-in matching items
+        menuFadeOutTimer = setTimeout(() => {
             const incomingItems = [];
 
             menuItems.forEach(item => {
@@ -323,32 +410,52 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             });
 
-            // Trigger reflow then stagger animate incoming items
             requestAnimationFrame(() => {
                 incomingItems.forEach((item, index) => {
                     setTimeout(() => {
                         item.style.transition = 'opacity 0.28s cubic-bezier(0.16, 1, 0.3, 1), transform 0.28s cubic-bezier(0.16, 1, 0.3, 1)';
                         item.style.opacity = '1';
                         item.style.transform = 'translateY(0) scale(1)';
-                    }, index * 30);
+                    }, index * 25);
                 });
 
-                // Release minHeight smoothly after incoming animation completes
-                setTimeout(() => {
+                menuReleaseTimer = setTimeout(() => {
                     menuGrid.style.transition = 'min-height 0.3s ease';
                     menuGrid.style.minHeight = '';
                     isMenuTransitioning = false;
-                }, Math.max(300, incomingItems.length * 30 + 200));
+                }, Math.max(250, incomingItems.length * 25 + 150));
             });
-        }, 150);
+        }, 140);
     }
 
     if (menuTabs.length > 0 && menuItems.length > 0) {
-        menuTabs.forEach(tab => {
+        menuTabs.forEach((tab, idx) => {
             tab.addEventListener('click', () => {
+                tab.focus();
                 if (tab.classList.contains('active')) return;
                 const category = tab.getAttribute('data-category');
                 filterMenuCategory(category, false);
+            });
+
+            // Arrow key navigation (roving tabindex)
+            tab.addEventListener('keydown', (e) => {
+                let targetIdx = null;
+                if (e.key === 'ArrowRight') {
+                    targetIdx = (idx + 1) % menuTabs.length;
+                } else if (e.key === 'ArrowLeft') {
+                    targetIdx = (idx - 1 + menuTabs.length) % menuTabs.length;
+                } else if (e.key === 'Home') {
+                    targetIdx = 0;
+                } else if (e.key === 'End') {
+                    targetIdx = menuTabs.length - 1;
+                }
+
+                if (targetIdx !== null) {
+                    e.preventDefault();
+                    const targetTab = menuTabs[targetIdx];
+                    targetTab.click();
+                    targetTab.focus();
+                }
             });
         });
 
@@ -433,7 +540,6 @@ document.addEventListener('DOMContentLoaded', () => {
             // Anti-Spam Honeypot check
             const honeypot = contactForm.querySelector('#b_company_website');
             if (honeypot && honeypot.value.trim() !== '') {
-                // Silent bot trap: pretend success
                 contactForm.reset();
                 if (contactStatus) {
                     contactStatus.className = 'contact-status success';
@@ -459,7 +565,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
 
-            // Set sending state
             if (submitBtn) submitBtn.disabled = true;
             if (btnSpan) btnSpan.textContent = translations[currentLang]['contact.sending'];
             if (contactStatus) {
@@ -510,6 +615,24 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // Careers preselection from URL hash or link click
+    const handleCareersPreselection = () => {
+        const hash = window.location.hash;
+        const reasonSelect = document.getElementById('reason');
+        if (hash === '#careers' && reasonSelect) {
+            reasonSelect.value = 'careers';
+            const contactSec = document.getElementById('contact');
+            if (contactSec) {
+                const headerHeight = header ? header.offsetHeight : 70;
+                const top = contactSec.getBoundingClientRect().top + window.scrollY - headerHeight;
+                window.scrollTo({ top, behavior: 'smooth' });
+            }
+        }
+    };
+
+    window.addEventListener('hashchange', handleCareersPreselection);
+    handleCareersPreselection();
+
     /* ==========================================================
        11. BILINGUAL DICTIONARY & SAFE DOM TRANSLATION ENGINE
        ========================================================== */
@@ -533,7 +656,7 @@ document.addEventListener('DOMContentLoaded', () => {
             'hero.menuBtn':  'View Menu',
 
             // Showcase
-            'showcase.title':       'Made Fresh Daily',
+            'showcase.title':       'Traditional Specialties',
             'showcase.asada':       'Tacos de Asada',
             'showcase.burritos':    'Burritos',
             'showcase.mulitas':     'Mulitas',
@@ -547,14 +670,14 @@ document.addEventListener('DOMContentLoaded', () => {
             'about.tag':       'TRADITION & PASSION',
             'about.title':     'Our Story',
             'about.p1':        'Since 1992, Tacos Gavilan has been bringing the authentic taste of Mexico to Los Angeles. What started as a single taqueria has grown into 15 locations serving thousands of families every day.',
-            'about.p2':        'We pride ourselves on using fresh ingredients, traditional recipes, and cooking with passion. From our al pastor spinning on the trompo to our handmade salsas, every bite is a celebration of our heritage.',
+            'about.p2':        'We pride ourselves on using traditional recipes and cooking with passion. From our al pastor to our signature salsas, every meal reflects decades of culinary dedication.',
             'about.locations': 'Locations',
             'about.since':     'Since',
             'about.meats':     'Meat Options',
 
             // Menu
             'menu.title':    'Our Menu',
-            'menu.subtitle': 'Choose your favorite from 9 categories, each made fresh with traditional flavors.',
+            'menu.subtitle': 'Choose your favorite from 9 categories, each prepared with traditional recipes and authentic flavor.',
 
             'menu.tab.tacos':       'Tacos',
             'menu.tab.burritos':    'Burritos',
@@ -564,63 +687,60 @@ document.addEventListener('DOMContentLoaded', () => {
             'menu.tab.tortas':      'Tortas',
             'menu.tab.platos':      'Platos',
             'menu.tab.nachos':      'Nachos',
-            'menu.tab.drinks':      'Drinks',
-            'menu.tab.desserts':    'Desserts',
+            'menu.tab.drinks':      'Aguas Frescas',
 
             'menu.tacos.name':           'Tacos de Asada',
-            'menu.tacos.desc':           'Charbroiled steak served on warm corn tortillas topped with fresh cilantro, diced onions, and your favorite salsa.',
+            'menu.tacos.desc':           'Charbroiled steak served plain on warm corn tortillas. Customize your order through Toast.',
             'menu.tacoPastor.name':      'Tacos al Pastor',
-            'menu.tacoPastor.desc':      'Tender marinated pork roasted on the vertical trompo, sliced thin with fresh cilantro, diced onions, and signature salsas.',
+            'menu.tacoPastor.desc':      'Al pastor served plain on warm corn tortillas. Customize your order through Toast.',
             'menu.tacoPollo.name':       'Tacos de Pollo',
-            'menu.tacoPollo.desc':       'Citrus-marinated grilled chicken breast, chopped fresh with cilantro and onion on warm corn tortillas.',
+            'menu.tacoPollo.desc':       'Chicken served plain on warm corn tortillas. Customize your order through Toast.',
             'menu.tacoCarnitas.name':    'Tacos de Carnitas',
-            'menu.tacoCarnitas.desc':    'Slow-simmered, tender Michoacán-style pork carnitas served on warm corn tortillas with cilantro, onions, and salsa.',
+            'menu.tacoCarnitas.desc':    'Carnitas served plain on warm corn tortillas. Customize your order through Toast.',
             'menu.tacoCabeza.name':      'Tacos de Cabeza',
-            'menu.tacoCabeza.desc':      'Steam-cooked, tender beef head meat seasoned to perfection, served melt-in-your-mouth soft with cilantro and onions.',
+            'menu.tacoCabeza.desc':      'Cabeza served plain on warm corn tortillas. Customize your order through Toast.',
             'menu.tacoLengua.name':      'Tacos de Lengua',
-            'menu.tacoLengua.desc':      'Tender, slow-braised beef tongue sliced and lightly seared, served on warm corn tortillas with cilantro and diced onions.',
+            'menu.tacoLengua.desc':      'Lengua served plain on warm corn tortillas. Customize your order through Toast.',
             'menu.tacoBuche.name':       'Tacos de Buche',
-            'menu.tacoBuche.desc':       'Crispy yet tender pork stomach simmered in its own juices and finished on the comal with fresh cilantro and onions.',
+            'menu.tacoBuche.desc':       'Buche served plain on warm corn tortillas. Customize your order through Toast.',
             'menu.tacoChorizo.name':     'Tacos de Chorizo',
-            'menu.tacoChorizo.desc':     'Artisanal Mexican spiced pork sausage seared to perfection on the comal with cilantro and onion.',
-            'menu.tacoTripa.name':       'Tacos de Tripa',
-            'menu.tacoTripa.desc':       'Crispy golden beef tripe seared to order on the hot comal, served on corn tortillas with onions, cilantro, and salsa.',
+            'menu.tacoChorizo.desc':     'Mexican sausage served plain on warm corn tortillas. Customize your order through Toast.',
             'menu.tacoPlate.name':       'Taco Plate',
             'menu.tacoPlate.desc':       'Three tacos of your choice served with seasoned Mexican rice and slow-cooked pinto beans.',
             'menu.burrito.name':         'Burrito',
             'menu.burrito.desc':         'Your choice of meat wrapped in a large flour tortilla with rice, pinto beans, onions, and cilantro.',
             'menu.superBurrito.name':    'Super Burrito',
-            'menu.superBurrito.desc':    'Loaded burrito packed with choice of meat, rice, beans, Monterey Jack cheese, sour cream, and fresh guacamole.',
+            'menu.superBurrito.desc':    'Choice of meat with rice, beans, cheese, sour cream, and guacamole.',
             'menu.quesadilla.name':      'Quesadilla',
-            'menu.quesadilla.desc':      'Golden-toasted flour tortilla melted with premium Monterey Jack cheese and your choice of meat.',
+            'menu.quesadilla.desc':      'Flour tortilla with melted cheese and your choice of meat.',
             'menu.superQuesadilla.name': 'Super Quesadilla',
             'menu.superQuesadilla.desc': 'Melted cheese quesadilla stuffed with meat, crowned with fresh guacamole and cool Mexican crema.',
             'menu.mulita.name':          'Mulita',
-            'menu.mulita.desc':          'Two handmade corn tortillas toasted with melted cheese, your choice of meat, onions, and cilantro.',
+            'menu.mulita.desc':          'Two warm corn tortillas toasted with melted cheese, your choice of meat, onions, and cilantro.',
             'menu.superMulita.name':     'Super Mulita',
             'menu.superMulita.desc':     'Double-stacked mulita layered with melted cheese, choice of meat, creamy avocado guacamole, and crema.',
             'menu.sopes.name':           'Sopes',
-            'menu.sopes.desc':           'Handmade thick masa cake with pinched edges, refried beans, meat, crisp shredded lettuce, crema, and cotija cheese.',
+            'menu.sopes.desc':           'Traditional thick corn base with refried beans, choice of meat, crisp shredded lettuce, crema, and cotija cheese.',
             'menu.torta.name':           'Torta',
             'menu.torta.desc':           'Toasted telera bread layered with choice of meat, mayo, fresh avocado, lettuce, tomato, beans, and queso.',
             'menu.plato.name':           'Plato',
             'menu.plato.desc':           'Hearty dinner plate with your choice of meat, seasoned rice, refried beans, garden salad, guacamole, and warm tortillas.',
             'menu.nachos.name':          'Super Nachos',
             'menu.nachos.desc':          'Crisp tortilla chips drenched in warm cheese, piled high with meat, pinto beans, sour cream, and guacamole.',
-            'menu.horchata.name':        'Horchata Artesanal',
-            'menu.horchata.desc':        'Traditional refreshing rice drink crafted daily with real milk, Mexican cinnamon, and a touch of vanilla.',
+            'menu.horchata.name':        'Agua de Horchata',
+            'menu.horchata.desc':        'Traditional refreshing Mexican rice and cinnamon agua fresca, served cold over ice.',
             'menu.jamaica.name':         'Agua de Jamaica',
             'menu.jamaica.desc':         'Tart and refreshing steeped hibiscus flower infusion, sweetened to perfection and served ice cold.',
             'menu.tamarindo.name':       'Agua de Tamarindo',
-            'menu.tamarindo.desc':       'Authentic Mexican tamarind fruit agua fresca, tart, sweet, and made fresh daily.',
+            'menu.tamarindo.desc':       'Traditional Mexican tamarind agua fresca, tart, sweet, and served cold over ice.',
             'menu.meatCalloutTitle':     'All items available with:',
-            'menu.meatList':             'Asada · Pastor · Pollo · Carnitas · Cabeza · Lengua · Buche · Chorizo · Tripa · Vegetarian',
-            'menu.meatOptions':          'All items available with: Asada · Pastor · Pollo · Carnitas · Cabeza · Lengua · Buche · Chorizo · Tripa · Vegetarian',
+            'menu.meatList':             'Asada · Pastor · Pollo · Carnitas · Cabeza · Lengua · Buche · Chorizo · Vegetarian',
+            'menu.meatOptions':          'All items available with: Asada · Pastor · Pollo · Carnitas · Cabeza · Lengua · Buche · Chorizo · Vegetarian',
 
             // Fiesta / Catering
             'fiesta.title':    'Fiesta Platters',
             'fiesta.subtitle': 'Feed 15 to 40+ guests',
-            'fiesta.desc':     'Make your event unforgettable. Our Fiesta Platters include your choice of meats, rice, beans, aguas frescas, salsas, and all the serving essentials. Same-day pickup and catering orders available.',
+            'fiesta.desc':     'Make your event unforgettable. Our Fiesta Platters include your choice of meats, rice, beans, aguas frescas, salsas, and all the serving essentials. Catering platters available across our locations.',
             'fiesta.f1':       'Office meetings & corporate events',
             'fiesta.f2':       'Birthdays & quinceañeras',
             'fiesta.f3':       'Family gatherings',
@@ -628,15 +748,26 @@ document.addEventListener('DOMContentLoaded', () => {
             'fiesta.btn':      'Inquire Now',
 
             // Locations
-            'locations.title':      'Our Locations',
-            'locations.subtitle':   'Find the nearest Tacos Gavilan and order online.',
-            'locations.mapBtn':     'Find Nearest Location on Map',
-            'locations.mapTitle':   'Find Your Nearest Location',
-            'locations.orderBtn':   'Order Online',
-            'locations.hoursBadge': 'Open Daily · Morning to Late Night',
+            'locations.title':        'Our Locations',
+            'locations.subtitle':     'Find the nearest Tacos Gavilan and order online.',
+            'locations.mapBtn':       'Find Nearest Location on Map',
+            'locations.mapTitle':     'Find Your Nearest Location',
+            'locations.orderBtn':     'Order Online',
+            'locations.directions':   'Directions',
+            'locations.storeDetails': 'Store Details',
+            'locations.hoursBadge':   '15 Southern California Locations',
 
             // Map
-            'map.findMe': 'Find Me',
+            'map.findMe':          'Find Me',
+            'map.themeDark':       'Dark',
+            'map.themeLight':      'Light',
+            'map.themeSatellite':  'Satellite',
+            'map.errorTitle':      'Map Unavailable',
+            'map.errorDesc':       'We were unable to load the interactive map right now. You can still access direct directions and online ordering for all 15 locations below.',
+            'map.retry':           'Try Again',
+            'map.milesFromYou':    'miles from you',
+            'map.popupOrder':      'Order Online',
+            'map.popupDirections': 'Directions',
 
             // Contact
             'contact.title':          'Get in Touch',
@@ -665,30 +796,32 @@ document.addEventListener('DOMContentLoaded', () => {
             'footer.desc':           'Authentic Mexican food serving Southern California since 1992. From our family to yours — Ya está.',
             'footer.quickLinks':     'Quick Links',
             'footer.hoursHeading':   'HOURS',
-            'footer.hoursOpen':      'Open Daily',
-            'footer.hoursDetail':    'Morning to Late Night',
-            'footer.hoursText':      'Open Daily — Morning to Late Night',
+            'footer.hoursText':      'Hours vary by location — check your nearest restaurant',
             'footer.contactHeading': 'CONTACT',
             'footer.privacy':        'Privacy Policy',
             'footer.terms':          'Terms of Use',
             'footer.accessibility':  'Accessibility',
-            'footer.cookieSettings': 'Do Not Sell My Info',
+            'footer.cookieSettings': 'Privacy Choices',
 
             // Cookies
             'cookie.title':   'Privacy & Cookie Choices',
-            'cookie.message': 'We use cookies to improve your browsing experience, remember language preferences, and analyze site traffic in compliance with California privacy standards (CCPA).',
-            'cookie.accept':  'Accept All',
-            'cookie.decline': 'Decline',
+            'cookie.message': 'This site stores functional preferences such as language and map theme. Google Maps loads only when you open the interactive locator. We do not currently use advertising or analytics cookies.',
+            'cookie.accept':  'Allow Preferences',
+            'cookie.decline': 'Necessary Only',
 
             // Legal Modals
-            'privacy.title': 'Privacy Policy & California Privacy Notice (CCPA/CPRA)',
-            'privacy.intro': 'Tacos Gavilan ("we", "our", or "us") values your privacy. This notice explains how we collect, use, and protect your information in accordance with California law.',
-            'privacy.h1':    '1. Information We Collect',
-            'privacy.p1':    'We only collect standard technical data (such as IP address, browser type, and language preference) needed to provide our website services. When you place an online order, you are securely transferred to Toast POS (order.online), which processes payments under strict PCI-DSS security standards.',
-            'privacy.h2':    '2. Do Not Sell or Share My Personal Information',
-            'privacy.p2':    'We do not sell, rent, or trade your personal information to third parties. We do not sell or share personal information of consumers under 16 years of age.',
-            'privacy.h3':    '3. Your California Privacy Rights',
-            'privacy.p3':    'California residents have the right to know, delete, and opt out of the sale or sharing of personal information. To exercise your rights, contact us at info@tacosgavilan.com or call (310) 870-7009.',
+            'privacy.title':        'Privacy Policy & California Privacy Notice (CCPA/CPRA)',
+            'privacy.intro':        'Effective and last updated October 9, 2026. Tacos Gavilan explains here what this website collects, why it is used, and the choices available to California visitors.',
+            'privacy.h1':           '1. Information We Collect',
+            'privacy.p1':           'Our hosting and security services may process IP address, browser User Agent, request time, and language preferences to deliver and protect the site. Vercel hosts the website; Supabase stores contact submissions; Toast handles orders; Google provides fonts and the optional interactive map.',
+            'privacy.formFieldsH':  '2. Contact Form Inquiries',
+            'privacy.formFieldsP':  'When you submit our contact form, we collect your name, email address, phone number (optional), nearest store selection, topic, and message solely to respond to your inquiry and prevent automated abuse.',
+            'privacy.retentionH':   '3. Data Retention Criteria',
+            'privacy.retentionP':   'Contact messages are retained according to operational and legal needs and then deleted or de-identified. Tacos Gavilan must approve a specific retention schedule before one is promised publicly.',
+            'privacy.h2':           '4. Do Not Sell or Share Personal Information',
+            'privacy.p2':           'This website is not used to sell personal information or share it for cross-context behavioral advertising. It does not use advertising cookies. Google Maps loads only after you request the interactive locator; Toast processes orders on its own website.',
+            'privacy.rightsH':      '5. Your California Privacy Rights (CCPA / CPRA)',
+            'privacy.rightsP':      'California residents may request access, correction, or deletion and will not receive discriminatory treatment for exercising applicable rights. Email info@tacosgavilan.com or call (310) 870-7009. We may request information needed to verify the request. Because this website does not sell or share data for behavioral advertising, Global Privacy Control does not change advertising behavior here.',
 
             'terms.title': 'Terms of Use',
             'terms.intro': 'Welcome to Tacos Gavilan. By accessing or using our website, you agree to comply with and be bound by the following Terms of Use.',
@@ -699,12 +832,14 @@ document.addEventListener('DOMContentLoaded', () => {
             'terms.h3':    '3. Accuracy of Information',
             'terms.p3':    'While we strive for complete accuracy, menu offerings, ingredients, item availability, and operating hours may vary by restaurant location and day. Refer to order.online for real-time item availability at each location.',
 
-            'accessibility.title': 'Accessibility Statement',
-            'accessibility.intro': 'Tacos Gavilan is committed to digital accessibility and ensuring our website is welcoming and accessible to all guests, including individuals with disabilities.',
-            'accessibility.h1':    'Our Standards & Conformance',
-            'accessibility.p1':    'We continually improve the user experience for everyone, applying the relevant Web Content Accessibility Guidelines (WCAG 2.2 AA). Our site features keyboard-accessible navigation, high-contrast typography, text resize support, descriptive alternative text, and screen reader-friendly interactive elements.',
-            'accessibility.h2':    'Feedback & Assistance',
-            'accessibility.p2':    'If you encounter any difficulty viewing or navigating content on this website, or notice any feature that you believe is not fully accessible, please contact our team at (310) 870-7009 or email info@tacosgavilan.com with "Website Accessibility" in the subject line. We welcome your feedback and are glad to assist.'
+            'accessibility.title':        'Accessibility Statement',
+            'accessibility.intro':        'Tacos Gavilan is committed to digital accessibility and ensuring our website is welcoming and accessible to all guests, including individuals with disabilities.',
+            'accessibility.h1':           'Our Standards & Conformance',
+            'accessibility.p1':           'We use WCAG 2.2 AA as our accessibility target and continue testing keyboard navigation, contrast, text resizing, alternative text, focus management, and screen-reader semantics. This statement describes an ongoing effort, not a certification of perfect conformance.',
+            'accessibility.lastUpdatedH': 'Last Reviewed & Alternatives',
+            'accessibility.lastUpdatedP': 'Last reviewed: October 2026. If any portion of the site presents an accessibility barrier, you may also place orders directly via Toast POS (order.online) or contact your nearest location by phone.',
+            'accessibility.h2':           'Feedback & Assistance',
+            'accessibility.p2':           'If you encounter any difficulty viewing or navigating content on this website, or notice any feature that you believe is not fully accessible, please contact our team at (310) 870-7009 or email info@tacosgavilan.com with "Website Accessibility" in the subject line. We welcome your feedback and are glad to assist.'
         },
 
         es: {
@@ -726,7 +861,7 @@ document.addEventListener('DOMContentLoaded', () => {
             'hero.menuBtn':  'Ver Menú',
 
             // Showcase
-            'showcase.title':       'Hecho Fresco Cada Día',
+            'showcase.title':       'Especialidades Tradicionales',
             'showcase.asada':       'Tacos de Asada',
             'showcase.burritos':    'Burritos',
             'showcase.mulitas':     'Mulitas',
@@ -740,14 +875,14 @@ document.addEventListener('DOMContentLoaded', () => {
             'about.tag':       'TRADICIÓN & PASIÓN',
             'about.title':     'Nuestra Historia',
             'about.p1':        'Desde 1992, Tacos Gavilan ha llevado el auténtico sabor de México a Los Ángeles. Lo que comenzó como una sola taquería se ha convertido en 15 ubicaciones sirviendo a miles de familias cada día.',
-            'about.p2':        'Nos enorgullece usar ingredientes frescos, recetas tradicionales y cocinar con pasión. Desde nuestro al pastor girando en el trompo hasta nuestras salsas hechas a mano, cada bocado es una celebración de nuestra herencia.',
+            'about.p2':        'Nos enorgullece preparar recetas tradicionales y cocinar con pasión. Desde nuestro tradicional al pastor hasta nuestras salsas de la casa, cada comida refleja décadas de dedicación culinaria.',
             'about.locations': 'Ubicaciones',
             'about.since':     'Desde',
             'about.meats':     'Tipos de Carne',
 
             // Menú
             'menu.title':    'Nuestro Menú',
-            'menu.subtitle': 'Elige tu favorito de 9 categorías preparadas al momento con sazón tradicional.',
+            'menu.subtitle': 'Elige tu favorito de 9 categorías preparadas con recetas tradicionales y sabor auténtico.',
 
             'menu.tab.tacos':       'Tacos',
             'menu.tab.burritos':    'Burritos',
@@ -760,59 +895,57 @@ document.addEventListener('DOMContentLoaded', () => {
             'menu.tab.drinks':      'Aguas Frescas',
 
             'menu.tacos.name':           'Tacos de Asada',
-            'menu.tacos.desc':           'Carne asada a la parrilla servida en tortillas de maíz con cilantro fresco, cebolla picada y tu salsa favorita.',
+            'menu.tacos.desc':           'Carne asada servida sola en tortillas de maíz calientes. Personaliza tu orden en Toast.',
             'menu.tacoPastor.name':      'Tacos al Pastor',
-            'menu.tacoPastor.desc':      'Carne de cerdo marinada al trompo tradicional con cilantro fresco, cebolla picada y salsas de la casa.',
+            'menu.tacoPastor.desc':      'Al pastor servido solo en tortillas de maíz calientes. Personaliza tu orden en Toast.',
             'menu.tacoPollo.name':       'Tacos de Pollo',
-            'menu.tacoPollo.desc':       'Pechuga de pollo marinada en cítricos y asada a la parrilla, con cilantro y cebolla en tortilla de maíz.',
+            'menu.tacoPollo.desc':       'Pollo servido solo en tortillas de maíz calientes. Personaliza tu orden en Toast.',
             'menu.tacoCarnitas.name':    'Tacos de Carnitas',
-            'menu.tacoCarnitas.desc':    'Carnitas estilo Michoacán cocinadas a fuego lento, tiernas y jugosas en tortillas de maíz con cilantro, cebolla y salsa.',
+            'menu.tacoCarnitas.desc':    'Carnitas servidas solas en tortillas de maíz calientes. Personaliza tu orden en Toast.',
             'menu.tacoCabeza.name':      'Tacos de Cabeza',
-            'menu.tacoCabeza.desc':      'Carne de cabeza de res al vapor, suave y jugosa, sazonada a la perfección con cilantro, cebolla y salsa.',
+            'menu.tacoCabeza.desc':      'Cabeza servida sola en tortillas de maíz calientes. Personaliza tu orden en Toast.',
             'menu.tacoLengua.name':      'Tacos de Lengua',
-            'menu.tacoLengua.desc':      'Lengua de res cocinada a fuego lento, tierna y suave, servida en tortillas de maíz con cilantro fresco y cebolla.',
+            'menu.tacoLengua.desc':      'Lengua servida sola en tortillas de maíz calientes. Personaliza tu orden en Toast.',
             'menu.tacoBuche.name':       'Tacos de Buche',
-            'menu.tacoBuche.desc':       'Buche de cerdo dorado al comal, suave por dentro y crujiente por fuera, servido con cilantro fresco y cebolla.',
+            'menu.tacoBuche.desc':       'Buche servido solo en tortillas de maíz calientes. Personaliza tu orden en Toast.',
             'menu.tacoChorizo.name':     'Tacos de Chorizo',
-            'menu.tacoChorizo.desc':     'Chorizo de cerdo artesanal sazonado con especias tradicionales, dorado al comal con cilantro y cebolla.',
-            'menu.tacoTripa.name':       'Tacos de Tripa',
-            'menu.tacoTripa.desc':       'Tripa de res bien dorada al comal a fuego vivo, crujiente y deliciosa en tortillas de maíz con cilantro y cebolla.',
+            'menu.tacoChorizo.desc':     'Salchicha mexicana servida sola en tortillas de maíz calientes. Personaliza tu orden en Toast.',
             'menu.tacoPlate.name':       'Plato de Tacos',
             'menu.tacoPlate.desc':       'Tres tacos a tu elección servidos con arroz mexicano sazonado y frijoles refritos cocinados a fuego lento.',
             'menu.burrito.name':         'Burrito',
             'menu.burrito.desc':         'Tu elección de carne envuelta en tortilla de harina grande con arroz, frijoles, cebolla y cilantro fresco.',
             'menu.superBurrito.name':    'Súper Burrito',
-            'menu.superBurrito.desc':    'Burrito gigante con tu carne favorita, arroz, frijoles, queso Monterrey derretido, crema y guacamole.',
+            'menu.superBurrito.desc':    'Tu elección de carne con arroz, frijoles, queso, crema y guacamole.',
             'menu.quesadilla.name':      'Quesadilla',
-            'menu.quesadilla.desc':      'Tortilla de harina dorada al comal con abundante queso Monterrey derretido y tu carne preferida.',
+            'menu.quesadilla.desc':      'Tortilla de harina con queso fundido y tu carne preferida.',
             'menu.superQuesadilla.name': 'Súper Quesadilla',
             'menu.superQuesadilla.desc': 'Quesadilla dorada con queso y carne, coronada con guacamole fresco de aguacate y crema mexicana.',
             'menu.mulita.name':          'Mulita',
-            'menu.mulita.desc':          'Dos tortillas de maíz hechas a mano con queso derretido, tu carne favorita, cebolla y cilantro.',
+            'menu.mulita.desc':          'Dos tortillas de maíz con queso fundido, tu carne preferida, cebolla y cilantro.',
             'menu.superMulita.name':     'Súper Mulita',
             'menu.superMulita.desc':     'Doble piso de tortilla con queso fundido, carne al gusto, guacamole artesanal y crema agria.',
             'menu.sopes.name':           'Sopes',
-            'menu.sopes.desc':           'Base gruesa de maíz pellizcada a mano con frijoles refritos, carne, lechuga fresca, crema y queso cotija.',
+            'menu.sopes.desc':           'Base tradicional de maíz con frijoles refritos, tu carne preferida, lechuga fresca, crema y queso cotija.',
             'menu.torta.name':           'Torta',
             'menu.torta.desc':           'Telera tostada con mayonesa, tu carne favorita, aguacate fresco, lechuga, tomate, frijoles y queso.',
             'menu.plato.name':           'Plato',
             'menu.plato.desc':           'Platillo completo con tu carne preferida, arroz sazonado, frijoles, ensalada fresca, guacamole y tortillas calientes.',
             'menu.nachos.name':          'Súper Nachos',
             'menu.nachos.desc':          'Totopos crujientes de maíz bañados en queso caliente, frijoles, tu carne favorita, crema y guacamole.',
-            'menu.horchata.name':        'Horchata Artesanal',
-            'menu.horchata.desc':        'Agua fresca tradicional de arroz, leche entera, canela en raja y un toque de vainilla preparada diariamente.',
+            'menu.horchata.name':        'Agua de Horchata',
+            'menu.horchata.desc':        'Agua fresca tradicional de arroz y canela servida con hielo.',
             'menu.jamaica.name':         'Agua de Jamaica',
             'menu.jamaica.desc':         'Infusión natural de flor de jamaica 100% auténtica, dulce, refrescante y servida con mucho hielo.',
             'menu.tamarindo.name':       'Agua de Tamarindo',
-            'menu.tamarindo.desc':       'Auténtica agua fresca natural de pulpa de tamarindo, agridulce, refrescante y elaborada a diario.',
+            'menu.tamarindo.desc':       'Agua fresca tradicional de tamarindo, refrescante y servida bien fría.',
             'menu.meatCalloutTitle':     'Todos los platillos disponibles con:',
-            'menu.meatList':             'Asada · Pastor · Pollo · Carnitas · Cabeza · Lengua · Buche · Chorizo · Tripa · Vegetariano',
-            'menu.meatOptions':          'Todos los platillos disponibles con: Asada · Pastor · Pollo · Carnitas · Cabeza · Lengua · Buche · Chorizo · Tripa · Vegetariano',
+            'menu.meatList':             'Asada · Pastor · Pollo · Carnitas · Cabeza · Lengua · Buche · Chorizo · Vegetariano',
+            'menu.meatOptions':          'Todos los platillos disponibles con: Asada · Pastor · Pollo · Carnitas · Cabeza · Lengua · Buche · Chorizo · Vegetariano',
 
             // Fiesta / Eventos
             'fiesta.title':    'Fiesta Platters',
             'fiesta.subtitle': 'Para 15 a 40+ invitados',
-            'fiesta.desc':     'Haz tu evento inolvidable. Nuestras charolas de fiesta incluyen carnes al gusto, arroz, frijoles, aguas frescas, salsas y desechables. Órdenes para el mismo día disponibles.',
+            'fiesta.desc':     'Haz tu evento inolvidable. Nuestras charolas de fiesta incluyen carnes al gusto, arroz, frijoles, aguas frescas, salsas y desechables. Charolas para eventos disponibles en todas nuestras sucursales.',
             'fiesta.f1':       'Reuniones de trabajo y eventos corporativos',
             'fiesta.f2':       'Cumpleaños y quinceañeras',
             'fiesta.f3':       'Reuniones familiares y aniversarios',
@@ -820,15 +953,26 @@ document.addEventListener('DOMContentLoaded', () => {
             'fiesta.btn':      'Cotizar Ahora',
 
             // Ubicaciones
-            'locations.title':      'Nuestras Ubicaciones',
-            'locations.subtitle':   'Encuentra tu Tacos Gavilan más cercano y ordena en línea.',
-            'locations.mapBtn':     'Ver Sucursales en el Mapa',
-            'locations.mapTitle':   'Encuentra Tu Sucursal Más Cercana',
-            'locations.orderBtn':   'Ordenar en Línea',
-            'locations.hoursBadge': 'Abierto Todos los Días · Desde la Mañana',
+            'locations.title':        'Nuestras Ubicaciones',
+            'locations.subtitle':     'Encuentra tu Tacos Gavilan más cercano y ordena en línea.',
+            'locations.mapBtn':       'Ver Sucursales en el Mapa',
+            'locations.mapTitle':     'Encuentra Tu Sucursal Más Cercana',
+            'locations.orderBtn':     'Ordenar en Línea',
+            'locations.directions':   'Cómo llegar',
+            'locations.storeDetails': 'Ver Sucursal',
+            'locations.hoursBadge':   '15 Sucursales en el Sur de California',
 
             // Mapa
-            'map.findMe': 'Ubicarme',
+            'map.findMe':          'Ubicarme',
+            'map.themeDark':       'Oscuro',
+            'map.themeLight':      'Claro',
+            'map.themeSatellite':  'Satélite',
+            'map.errorTitle':      'Mapa no disponible',
+            'map.errorDesc':       'No se pudo cargar el mapa interactivo en este momento. Puedes consultar las direcciones y ordenar en línea de nuestras 15 sucursales a continuación.',
+            'map.retry':           'Intentar de nuevo',
+            'map.milesFromYou':    'millas de ti',
+            'map.popupOrder':      'Ordenar en Línea',
+            'map.popupDirections': 'Cómo llegar',
 
             // Contacto
             'contact.title':          'Contáctanos',
@@ -857,30 +1001,32 @@ document.addEventListener('DOMContentLoaded', () => {
             'footer.desc':           'Auténtica comida mexicana sirviendo al Sur de California desde 1992. De nuestra familia a la tuya — Ya está.',
             'footer.quickLinks':     'Enlaces Rápidos',
             'footer.hoursHeading':   'HORARIO',
-            'footer.hoursOpen':      'Abierto Todos los Días',
-            'footer.hoursDetail':    'Desde la Mañana hasta la Noche',
-            'footer.hoursText':      'Abierto Todos los Días — Desde la Mañana hasta la Noche',
+            'footer.hoursText':      'Los horarios varían por sucursal — consulta tu restaurante más cercano',
             'footer.contactHeading': 'CONTACTO',
             'footer.privacy':        'Política de Privacidad',
             'footer.terms':          'Términos de Uso',
             'footer.accessibility':  'Accesibilidad',
-            'footer.cookieSettings': 'No Vender Mi Información',
+            'footer.cookieSettings': 'Opciones de Privacidad',
 
             // Cookies
             'cookie.title':   'Opciones de Privacidad y Cookies',
-            'cookie.message': 'Utilizamos cookies técnicas para garantizar el funcionamiento del sitio, recordar tu idioma y analizar visitas de acuerdo con las leyes de California (CCPA).',
-            'cookie.accept':  'Aceptar Todo',
-            'cookie.decline': 'Rechazar',
+            'cookie.message': 'Este sitio guarda preferencias funcionales como idioma y tema del mapa. Google Maps se carga sólo al abrir el localizador interactivo. Actualmente no usamos cookies de publicidad ni analítica.',
+            'cookie.accept':  'Permitir Preferencias',
+            'cookie.decline': 'Sólo Necesarias',
 
             // Modales Legales
-            'privacy.title': 'Política de Privacidad y Aviso de California (CCPA/CPRA)',
-            'privacy.intro': 'Tacos Gavilan ("nosotros" o "nuestro") valora tu privacidad. Este aviso explica cómo tratamos tu información conforme a la legislación de California.',
-            'privacy.h1':    '1. Información que Recopilamos',
-            'privacy.p1':    'Solo recopilamos datos técnicos habituales (dirección IP, navegador y preferencia de idioma) para ofrecer nuestros servicios. Los pedidos y pagos se procesan de manera externa y segura a través de Toast POS (order.online) con certificación PCI-DSS.',
-            'privacy.h2':    '2. No Venta ni Cesión de Datos Personales',
-            'privacy.p2':    'No vendemos ni comercializamos tus datos personales a terceros. No vendemos datos personales de menores de 16 años.',
-            'privacy.h3':    '3. Tus Derechos de Privacidad en California',
-            'privacy.p3':    'Los residentes de California tienen derecho a conocer, eliminar y optar por no participar en la venta de sus datos. Para ejercerlos, contáctanos a info@tacosgavilan.com o al (310) 870-7009.',
+            'privacy.title':        'Política de Privacidad y Aviso de California (CCPA/CPRA)',
+            'privacy.intro':        'Vigente y actualizada el 9 de octubre de 2026. Tacos Gavilan explica aquí qué recopila este sitio, para qué se usa y qué opciones tienen los visitantes de California.',
+            'privacy.h1':           '1. Información que Recopilamos',
+            'privacy.p1':           'Los servicios de alojamiento y seguridad pueden procesar dirección IP, User Agent, hora de solicitud y preferencias de idioma para entregar y proteger el sitio. Vercel aloja la web; Supabase guarda formularios; Toast procesa pedidos; Google proporciona fuentes y el mapa interactivo opcional.',
+            'privacy.formFieldsH':  '2. Formulario de Contacto',
+            'privacy.formFieldsP':  'Al enviar el formulario de contacto, recopilamos tu nombre, correo, teléfono (opcional), sucursal elegida, motivo y mensaje únicamente para responder tu solicitud y prevenir abusos automatizados.',
+            'privacy.retentionH':   '3. Criterios de Retención de Datos',
+            'privacy.retentionP':   'Los mensajes se conservan según necesidades operativas y legales y después se eliminan o desidentifican. Tacos Gavilan debe aprobar un plazo específico antes de prometerlo públicamente.',
+            'privacy.h2':           '4. No Venta ni Cesión de Datos Personales',
+            'privacy.p2':           'Este sitio no se utiliza para vender información personal ni compartirla para publicidad conductual entre contextos. No usa cookies publicitarias. Google Maps se carga sólo al solicitar el localizador y Toast procesa pedidos en su propio sitio.',
+            'privacy.rightsH':      '5. Tus Derechos de Privacidad en California (CCPA / CPRA)',
+            'privacy.rightsP':      'Los residentes de California pueden solicitar acceso, corrección o eliminación sin recibir trato discriminatorio por ejercer derechos aplicables. Escribe a info@tacosgavilan.com o llama al (310) 870-7009. Podremos solicitar datos para verificar la petición. Como este sitio no vende ni comparte datos para publicidad conductual, Global Privacy Control no cambia el comportamiento publicitario aquí.',
 
             'terms.title': 'Términos de Uso',
             'terms.intro': 'Bienvenido a Tacos Gavilan. Al acceder y navegar en nuestro sitio web, aceptas quedar sujeto a los siguientes Términos de Uso.',
@@ -891,12 +1037,14 @@ document.addEventListener('DOMContentLoaded', () => {
             'terms.h3':    '3. Exactitud de la Información',
             'terms.p3':    'Las recetas, insumos, disponibilidad de platillos y horarios pueden tener ligeras variaciones por sucursal. Consulta en order.online para conocer la disponibilidad exacta al momento de tu orden.',
 
-            'accessibility.title': 'Declaración de Accesibilidad',
-            'accessibility.intro': 'Tacos Gavilan promueve la accesibilidad universal para que todas las personas disfruten de nuestra experiencia digital sin barreras.',
-            'accessibility.h1':    'Nuestros Estándares y Cumplimiento',
-            'accessibility.p1':    'Diseñamos conforme a las Pautas de Accesibilidad para el Contenido Web (WCAG 2.2 AA), incluyendo navegación por teclado, alto contraste, textos alternativos y soporte para lectores de pantalla.',
-            'accessibility.h2':    'Asistencia y Contacto',
-            'accessibility.p2':    'Si encuentras alguna dificultad al navegar o requieres apoyo, llámanos al (310) 870-7009 o escríbenos a info@tacosgavilan.com con el asunto "Accesibilidad Web". Estaremos atentos a asistirte.'
+            'accessibility.title':        'Declaración de Accesibilidad',
+            'accessibility.intro':        'Tacos Gavilan promueve la accesibilidad universal para que todas las personas disfruten de nuestra experiencia digital sin barreras.',
+            'accessibility.h1':           'Nuestros Estándares y Cumplimiento',
+            'accessibility.p1':           'Usamos WCAG 2.2 AA como objetivo y seguimos evaluando teclado, contraste, ampliación de texto, textos alternativos, manejo del foco y semántica para lectores de pantalla. Esta declaración describe un esfuerzo continuo, no una certificación de conformidad perfecta.',
+            'accessibility.lastUpdatedH': 'Última Revisión y Alternativas',
+            'accessibility.lastUpdatedP': 'Última revisión: Octubre 2026. Si alguna sección del sitio presenta una barrera de acceso, puedes realizar pedidos directamente mediante Toast POS (order.online) o comunicarte vía telefónica con tu sucursal más cercana.',
+            'accessibility.h2':           'Asistencia y Contacto',
+            'accessibility.p2':           'Si encuentras alguna dificultad al navegar o requieres apoyo, llámanos al (310) 870-7009 o escríbenos a info@tacosgavilan.com con el asunto "Accesibilidad Web". Estaremos atentos a asistirte.'
         }
     };
 
@@ -907,7 +1055,6 @@ document.addEventListener('DOMContentLoaded', () => {
             const translation = translations[currentLang]?.[key];
             if (translation === undefined) return;
 
-            // Safe update: if element has child elements, look for text span or text node
             const hasChildren = el.children.length > 0;
             if (!hasChildren) {
                 if (translation.includes('<') && translation.includes('>')) {
@@ -920,14 +1067,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (targetSpan) {
                     targetSpan.textContent = translation;
                 } else if (!el.querySelector('svg, img, canvas')) {
-                    // Element has only text-level children, safe to update innerHTML or textContent
                     if (translation.includes('<') && translation.includes('>')) {
                         el.innerHTML = translation;
                     } else {
                         el.textContent = translation;
                     }
                 } else {
-                    // Update text node without deleting SVGs
                     for (let i = 0; i < el.childNodes.length; i++) {
                         if (el.childNodes[i].nodeType === Node.TEXT_NODE && el.childNodes[i].nodeValue.trim().length > 0) {
                             el.childNodes[i].nodeValue = ' ' + translation.trim() + ' ';
@@ -939,12 +1084,25 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         document.documentElement.lang = currentLang;
-        localStorage.setItem('tacosgavilan_lang', currentLang);
+        safeStorage.setItem('tacosgavilan_lang', currentLang);
 
         const langToggleBtn = document.getElementById('lang-toggle');
         if (langToggleBtn) {
             langToggleBtn.textContent = currentLang === 'en' ? 'ES' : 'EN';
             langToggleBtn.setAttribute('aria-label', currentLang === 'en' ? 'Switch language to Spanish' : 'Cambiar idioma a Inglés');
+        }
+
+        // Live update active map popup if open
+        if (window._gavilanInfoWindow && window._activeGavilanMarker) {
+            const loc = window._activeGavilanMarker._gavilanData;
+            if (loc && typeof buildPopupContent === 'function') {
+                window._gavilanInfoWindow.setContent(buildPopupContent(loc, loc._lastDistance || null));
+            }
+        }
+
+        // Live update fallback card if currently visible
+        if (document.querySelector('.map-fallback-card') && typeof renderMapFallback === 'function') {
+            renderMapFallback();
         }
     };
 
@@ -956,17 +1114,58 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // Apply saved or default language on load
     applyTranslations();
 
     /* ==========================================================
-       12. INTERACTIVE LEAFLET STORE LOCATOR MAP
+       12. INTERACTIVE GOOGLE MAPS STORE LOCATOR
+       With Safe Fallback Card, Controlled Retry & Live Bilingual Popups
        ========================================================== */
     const mapOverlay = document.getElementById('map-modal-overlay');
     const mapOpenBtn = document.getElementById('open-map-btn');
     const mapCloseBtn = document.getElementById('map-modal-close');
 
     let mapInitialized = false;
+    let googleMapsLoadPromise = null;
+    let mapTilesTimer = null;
+    const GOOGLE_MAPS_SCRIPT_ID = 'tacos-gavilan-google-maps';
+    const GOOGLE_MAPS_BROWSER_KEY = 'AIzaSyCdu1R10kWbD-FaSMh4MMyxgqmhEG8xVko';
+
+    const loadGoogleMapsApi = () => {
+        if (window.google && window.google.maps) return Promise.resolve();
+        if (googleMapsLoadPromise) return googleMapsLoadPromise;
+
+        googleMapsLoadPromise = new Promise((resolve, reject) => {
+            const existing = document.getElementById(GOOGLE_MAPS_SCRIPT_ID);
+            const script = existing || document.createElement('script');
+
+            const cleanup = () => {
+                script.removeEventListener('load', onLoad);
+                script.removeEventListener('error', onError);
+            };
+            const onLoad = () => {
+                cleanup();
+                if (window.google && window.google.maps) resolve();
+                else reject(new Error('Google Maps loaded without the Maps API namespace.'));
+            };
+            const onError = () => {
+                cleanup();
+                googleMapsLoadPromise = null;
+                reject(new Error('Google Maps script failed to load.'));
+            };
+
+            script.addEventListener('load', onLoad, { once: true });
+            script.addEventListener('error', onError, { once: true });
+            if (!existing) {
+                script.id = GOOGLE_MAPS_SCRIPT_ID;
+                script.async = true;
+                script.defer = true;
+                script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(GOOGLE_MAPS_BROWSER_KEY)}`;
+                document.head.appendChild(script);
+            }
+        });
+
+        return googleMapsLoadPromise;
+    };
 
     const gavilanLocations = [
             {
@@ -1121,49 +1320,393 @@ document.addEventListener('DOMContentLoaded', () => {
             }
     ];
 
+    const buildPopupContent = (loc, distance) => {
+        const isEs = currentLang === 'es';
+        const distHtml = (distance !== null && !isNaN(distance))
+            ? `<div class="map-popup-distance">${distance.toFixed(1)} ${isEs ? 'millas de ti' : 'miles from you'}</div>`
+            : '';
+        const dirUrl = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(loc.address)}`;
+        const orderText = isEs ? 'Ordenar en Línea' : 'Order Online';
+        const dirText = isEs ? 'Cómo llegar' : 'Directions';
+
+        return `<div class="map-popup">
+            <div class="map-popup-name">${loc.name}</div>
+            <div class="map-popup-address">${loc.address}</div>
+            ${distHtml}
+            <div class="map-popup-actions">
+                <a href="${loc.order}" target="_blank" rel="noopener noreferrer" class="map-popup-btn-order">${orderText}</a>
+                <a href="${dirUrl}" target="_blank" rel="noopener noreferrer" class="map-popup-btn-directions">${dirText}</a>
+            </div>
+        </div>`;
+    };
+
+    const renderMapFallback = () => {
+        const mapContainer = document.getElementById('gavilan-map');
+        if (!mapContainer) return;
+
+        const isEs = currentLang === 'es';
+        const title = isEs ? 'Mapa no disponible' : 'Map Unavailable';
+        const desc = isEs
+            ? 'No se pudo cargar el mapa interactivo en este momento. Puedes consultar las direcciones y ordenar en línea de nuestras 15 sucursales a continuación.'
+            : 'We were unable to load the interactive map right now. You can still access direct directions and online ordering for all 15 locations below.';
+        const retryText = isEs ? 'Intentar de nuevo' : 'Try Again';
+        const dirText = isEs ? 'Cómo llegar' : 'Directions';
+        const orderText = isEs ? 'Ordenar en Línea' : 'Order Online';
+
+        const itemsHtml = gavilanLocations.map(loc => {
+            const dest = encodeURIComponent(loc.address);
+            const dirUrl = `https://www.google.com/maps/dir/?api=1&destination=${dest}`;
+            return `
+                <div class="map-fallback-item">
+                    <div class="map-fallback-item-info">
+                        <h4>${loc.name}</h4>
+                        <p>${loc.address} · ${loc.phone}</p>
+                    </div>
+                    <div class="map-fallback-item-actions">
+                        <a href="${dirUrl}" target="_blank" rel="noopener noreferrer" class="map-fallback-btn-dir">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
+                            ${dirText}
+                        </a>
+                        <a href="${loc.order}" target="_blank" rel="noopener noreferrer" class="map-fallback-btn-order">
+                            ${orderText}
+                        </a>
+                    </div>
+                </div>
+            `;
+        }).join('');
+
+        mapContainer.innerHTML = `
+            <div class="map-fallback-card" role="region" aria-label="${title}">
+                <svg class="map-fallback-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <line x1="12" y1="8" x2="12" y2="12"></line>
+                    <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                </svg>
+                <h3 class="map-fallback-title">${title}</h3>
+                <p class="map-fallback-desc">${desc}</p>
+                <button type="button" class="map-fallback-retry-btn" id="map-retry-btn">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+                    <span>${retryText}</span>
+                </button>
+                <div class="map-fallback-list">
+                    ${itemsHtml}
+                </div>
+            </div>
+        `;
+
+        const retryBtn = document.getElementById('map-retry-btn');
+        if (retryBtn) {
+            retryBtn.addEventListener('click', () => {
+                mapInitialized = false;
+                mapContainer.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#FFC72C;font-family:var(--ff-heading);font-weight:700;">${isEs ? 'Cargando mapa...' : 'Loading map...'}</div>`;
+                setTimeout(() => {
+                    initGavilanGoogleMap();
+                }, 300);
+            });
+        }
+    };
+
+    function initGavilanGoogleMap() {
+        const mapContainer = document.getElementById('gavilan-map');
+        if (!mapContainer) return;
+
+        if (typeof google === 'undefined' || !google.maps) {
+            loadGoogleMapsApi()
+                .then(tryInitMap)
+                .catch((error) => {
+                    console.warn('Google Maps is unavailable:', error);
+                    mapInitialized = false;
+                    renderMapFallback();
+                });
+            return;
+        }
+
+        tryInitMap();
+
+        function tryInitMap() {
+            try {
+                mapContainer.innerHTML = '';
+
+                const darkMapStyles = [
+                    { elementType: "geometry", stylers: [{ color: "#212121" }] },
+                    { elementType: "labels.icon", stylers: [{ visibility: "off" }] },
+                    { elementType: "labels.text.fill", stylers: [{ color: "#757575" }] },
+                    { elementType: "labels.text.stroke", stylers: [{ color: "#212121" }] },
+                    { featureType: "administrative", elementType: "geometry", stylers: [{ color: "#757575" }] },
+                    { featureType: "administrative.country", elementType: "labels.text.fill", stylers: [{ color: "#9e9e9e" }] },
+                    { featureType: "administrative.locality", elementType: "labels.text.fill", stylers: [{ color: "#bdbdbd" }] },
+                    { featureType: "poi", elementType: "labels.text.fill", stylers: [{ color: "#757575" }] },
+                    { featureType: "poi.park", elementType: "geometry", stylers: [{ color: "#181818" }] },
+                    { featureType: "poi.park", elementType: "labels.text.fill", stylers: [{ color: "#616161" }] },
+                    { featureType: "poi.park", elementType: "labels.text.stroke", stylers: [{ color: "#1b1b1b" }] },
+                    { featureType: "road", elementType: "geometry.fill", stylers: [{ color: "#2c2c2c" }] },
+                    { featureType: "road", elementType: "labels.text.fill", stylers: [{ color: "#8a8a8a" }] },
+                    { featureType: "road.arterial", elementType: "geometry", stylers: [{ color: "#373737" }] },
+                    { featureType: "road.highway", elementType: "geometry", stylers: [{ color: "#3c3c3c" }] },
+                    { featureType: "road.highway.controlled_access", elementType: "geometry", stylers: [{ color: "#4e4e4e" }] },
+                    { featureType: "road.local", elementType: "labels.text.fill", stylers: [{ color: "#616161" }] },
+                    { featureType: "transit", elementType: "labels.text.fill", stylers: [{ color: "#757575" }] },
+                    { featureType: "water", elementType: "geometry", stylers: [{ color: "#000000" }] },
+                    { featureType: "water", elementType: "labels.text.fill", stylers: [{ color: "#3d3d3d" }] }
+                ];
+
+                let savedTheme = safeStorage.getItem('tg_map_theme') || 'dark';
+
+                const getThemeOptions = (theme) => {
+                    if (theme === 'satellite') {
+                        return { mapTypeId: 'hybrid', styles: [] };
+                    }
+                    if (theme === 'light') {
+                        return { mapTypeId: 'roadmap', styles: [] };
+                    }
+                    return { mapTypeId: 'roadmap', styles: darkMapStyles };
+                };
+
+                const initialThemeOpts = getThemeOptions(savedTheme);
+
+                const map = new google.maps.Map(mapContainer, {
+                    center: { lat: 33.98, lng: -118.15 },
+                    zoom: 10,
+                    styles: initialThemeOpts.styles,
+                    mapTypeId: initialThemeOpts.mapTypeId,
+                    mapTypeControl: false,
+                    streetViewControl: false,
+                    fullscreenControl: false,
+                    zoomControl: true,
+                    gestureHandling: 'greedy'
+                });
+                window._gavilanGoogleMap = map;
+
+                clearTimeout(mapTilesTimer);
+                mapTilesTimer = setTimeout(() => {
+                    if (!mapInitialized) {
+                        console.warn('Google Maps tiles did not finish loading; showing accessible fallback.');
+                        renderMapFallback();
+                    }
+                }, 12000);
+
+                google.maps.event.addListenerOnce(map, 'tilesloaded', () => {
+                    clearTimeout(mapTilesTimer);
+                    mapInitialized = true;
+                });
+
+                const setMapTheme = (theme) => {
+                    savedTheme = theme;
+                    safeStorage.setItem('tg_map_theme', theme);
+                    const opts = getThemeOptions(theme);
+                    map.setMapTypeId(opts.mapTypeId);
+                    map.setOptions({ styles: opts.styles });
+
+                    const themeBtns = document.querySelectorAll('.map-theme-btn');
+                    themeBtns.forEach(btn => {
+                        const isActive = btn.getAttribute('data-theme') === theme;
+                        btn.classList.toggle('is-active', isActive);
+                        btn.setAttribute('aria-checked', isActive ? 'true' : 'false');
+                    });
+                };
+
+                const themeBtns = document.querySelectorAll('.map-theme-btn');
+                themeBtns.forEach(btn => {
+                    btn.addEventListener('click', () => {
+                        const theme = btn.getAttribute('data-theme');
+                        if (theme) setMapTheme(theme);
+                    });
+                });
+
+                setMapTheme(savedTheme);
+
+                const bounds = new google.maps.LatLngBounds();
+                const infoWindow = new google.maps.InfoWindow();
+                window._gavilanInfoWindow = infoWindow;
+
+                const pinIcon = {
+                    path: "M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z",
+                    fillColor: "#DA291C",
+                    fillOpacity: 1,
+                    strokeColor: "#FFC72C",
+                    strokeWeight: 2,
+                    scale: 1.5,
+                    anchor: new google.maps.Point(12, 22)
+                };
+
+                const calcDistanceMiles = (lat1, lon1, lat2, lon2) => {
+                    const R = 3958.8;
+                    const dLat = (lat2 - lat1) * Math.PI / 180;
+                    const dLon = (lon2 - lon1) * Math.PI / 180;
+                    const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                        Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                        Math.sin(dLon/2) * Math.sin(dLon/2);
+                    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+                };
+
+                const markers = gavilanLocations.map(loc => {
+                    const marker = new google.maps.Marker({
+                        position: { lat: loc.lat, lng: loc.lng },
+                        map: map,
+                        title: loc.name,
+                        icon: pinIcon
+                    });
+
+                    bounds.extend(marker.getPosition());
+                    marker._gavilanData = loc;
+
+                    marker.addListener('click', () => {
+                        window._activeGavilanMarker = marker;
+                        infoWindow.setContent(buildPopupContent(loc, loc._lastDistance || null));
+                        infoWindow.open(map, marker);
+                    });
+
+                    return marker;
+                });
+
+                window._gavilanMarkers = markers;
+                window._gavilanBounds = bounds;
+
+                // Geolocation "Find Me"
+                const locateBtn = document.getElementById('map-locate-btn');
+                const nearestInfo = document.getElementById('map-nearest-info');
+                const nearestText = document.getElementById('map-nearest-text');
+                let userMarker = null;
+
+                if (locateBtn) {
+                    locateBtn.addEventListener('click', () => {
+                        if (!navigator.geolocation) {
+                            if (nearestText && nearestInfo) {
+                                nearestText.textContent = currentLang === 'es'
+                                    ? 'Geolocalización no soportada en tu navegador.'
+                                    : 'Geolocation is not supported by your browser.';
+                                nearestInfo.style.display = 'flex';
+                            }
+                            return;
+                        }
+
+                        locateBtn.classList.add('locating');
+                        const btnSpan = locateBtn.querySelector('span');
+                        const originalText = btnSpan ? btnSpan.textContent : 'Find Me';
+                        if (btnSpan) btnSpan.textContent = currentLang === 'es' ? 'Buscando...' : 'Locating...';
+
+                        navigator.geolocation.getCurrentPosition(
+                            (pos) => {
+                                const userLatLng = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+
+                                if (userMarker) userMarker.setMap(null);
+
+                                userMarker = new google.maps.Marker({
+                                    position: userLatLng,
+                                    map: map,
+                                    title: currentLang === 'es' ? 'Tu ubicación' : 'Your Location',
+                                    icon: {
+                                        path: google.maps.SymbolPath.CIRCLE,
+                                        fillColor: "#2563EB",
+                                        fillOpacity: 1,
+                                        strokeColor: "#FFFFFF",
+                                        strokeWeight: 3,
+                                        scale: 9
+                                    },
+                                    zIndex: 9999
+                                });
+
+                                userMarker.addListener('click', () => {
+                                    infoWindow.setContent(`<div class="map-popup"><div class="map-popup-name">${currentLang === 'es' ? 'Tu ubicación' : 'Your Location'}</div></div>`);
+                                    infoWindow.open(map, userMarker);
+                                });
+
+                                let nearest = null;
+                                let minDist = Infinity;
+                                let nearestMarker = null;
+
+                                markers.forEach(m => {
+                                    const loc = m._gavilanData;
+                                    const d = calcDistanceMiles(userLatLng.lat, userLatLng.lng, loc.lat, loc.lng);
+                                    loc._lastDistance = d;
+                                    if (d < minDist) {
+                                        minDist = d;
+                                        nearest = loc;
+                                        nearestMarker = m;
+                                    }
+                                });
+
+                                if (nearest && nearestInfo && nearestText) {
+                                    nearestText.textContent = currentLang === 'es'
+                                        ? `Más cercano: ${nearest.name} (${minDist.toFixed(1)} mi)`
+                                        : `Nearest: ${nearest.name} (${minDist.toFixed(1)} mi)`;
+                                    nearestInfo.style.display = 'flex';
+                                }
+
+                                if (nearest && nearestMarker) {
+                                    const userBounds = new google.maps.LatLngBounds();
+                                    userBounds.extend(userLatLng);
+                                    userBounds.extend(nearestMarker.getPosition());
+                                    map.fitBounds(userBounds);
+
+                                    setTimeout(() => {
+                                        window._activeGavilanMarker = nearestMarker;
+                                        infoWindow.setContent(buildPopupContent(nearest, minDist));
+                                        infoWindow.open(map, nearestMarker);
+                                    }, 500);
+                                }
+
+                                locateBtn.classList.remove('locating');
+                                if (btnSpan) btnSpan.textContent = currentLang === 'es' ? 'Ubicado' : 'Located';
+                                setTimeout(() => { if (btnSpan) btnSpan.textContent = originalText; }, 3000);
+                            },
+                            (err) => {
+                                locateBtn.classList.remove('locating');
+                                if (btnSpan) btnSpan.textContent = originalText;
+                                if (nearestText && nearestInfo) {
+                                    nearestText.textContent = currentLang === 'es'
+                                        ? 'No se pudo acceder a tu ubicación. Verifica permisos.'
+                                        : 'Location access denied or unavailable.';
+                                    nearestInfo.style.display = 'flex';
+                                }
+                            },
+                            { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
+                        );
+                    });
+                }
+
+                setTimeout(() => {
+                    google.maps.event.trigger(map, 'resize');
+                    map.fitBounds(bounds);
+                }, 150);
+
+            } catch (err) {
+                console.error('Error during Google Maps initialization:', err);
+                clearTimeout(mapTilesTimer);
+                mapInitialized = false;
+                renderMapFallback();
+            }
+        }
+    }
+
     const openMapModal = () => {
         if (!mapOverlay) return;
         mapOverlay.style.display = 'flex';
-        mapOverlay.offsetHeight; // trigger reflow
+        mapOverlay.offsetHeight;
         mapOverlay.classList.add('is-open');
         document.body.style.overflow = 'hidden';
+        trapFocus(mapOverlay);
 
         setTimeout(() => {
             if (!mapInitialized) {
-                if (typeof google !== 'undefined' && google.maps) {
-                    mapInitialized = true;
-                    initGavilanGoogleMap();
-                } else {
-                    let attempts = 0;
-                    const checkGoogle = setInterval(() => {
-                        attempts++;
-                        if (typeof google !== 'undefined' && google.maps) {
-                            clearInterval(checkGoogle);
-                            mapInitialized = true;
-                            initGavilanGoogleMap();
-                        } else if (attempts > 50) {
-                            clearInterval(checkGoogle);
-                            console.warn('Google Maps script load timeout');
-                        }
-                    }, 100);
-                }
+                initGavilanGoogleMap();
             } else if (window._gavilanGoogleMap) {
                 google.maps.event.trigger(window._gavilanGoogleMap, 'resize');
                 if (window._gavilanBounds) {
                     window._gavilanGoogleMap.fitBounds(window._gavilanBounds);
                 }
             }
-        }, 200);
+        }, 150);
     };
 
     const closeMapModal = () => {
-        if (!mapOverlay) return;
+        if (!mapOverlay || !mapOverlay.classList.contains('is-open')) return;
         mapOverlay.classList.remove('is-open');
         setTimeout(() => {
             mapOverlay.style.display = 'none';
             document.body.style.overflow = '';
         }, 300);
-        if (mapOpenBtn) mapOpenBtn.focus();
+        releaseFocus();
     };
 
     if (mapOpenBtn) mapOpenBtn.addEventListener('click', openMapModal);
@@ -1181,220 +1724,14 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    function initGavilanGoogleMap() {
-        const mapContainer = document.getElementById('gavilan-map');
-        if (!mapContainer || typeof google === 'undefined' || !google.maps) return;
-
-        // Luxury Dark Theme Styles matching Tacos Gavilan branding (#151513)
-        const darkMapStyles = [
-            { elementType: "geometry", stylers: [{ color: "#212121" }] },
-            { elementType: "labels.icon", stylers: [{ visibility: "off" }] },
-            { elementType: "labels.text.fill", stylers: [{ color: "#757575" }] },
-            { elementType: "labels.text.stroke", stylers: [{ color: "#212121" }] },
-            { featureType: "administrative", elementType: "geometry", stylers: [{ color: "#757575" }] },
-            { featureType: "administrative.country", elementType: "labels.text.fill", stylers: [{ color: "#9e9e9e" }] },
-            { featureType: "administrative.locality", elementType: "labels.text.fill", stylers: [{ color: "#bdbdbd" }] },
-            { featureType: "poi", elementType: "labels.text.fill", stylers: [{ color: "#757575" }] },
-            { featureType: "poi.park", elementType: "geometry", stylers: [{ color: "#181818" }] },
-            { featureType: "poi.park", elementType: "labels.text.fill", stylers: [{ color: "#616161" }] },
-            { featureType: "poi.park", elementType: "labels.text.stroke", stylers: [{ color: "#1b1b1b" }] },
-            { featureType: "road", elementType: "geometry.fill", stylers: [{ color: "#2c2c2c" }] },
-            { featureType: "road", elementType: "labels.text.fill", stylers: [{ color: "#8a8a8a" }] },
-            { featureType: "road.arterial", elementType: "geometry", stylers: [{ color: "#373737" }] },
-            { featureType: "road.highway", elementType: "geometry", stylers: [{ color: "#3c3c3c" }] },
-            { featureType: "road.highway.controlled_access", elementType: "geometry", stylers: [{ color: "#4e4e4e" }] },
-            { featureType: "road.local", elementType: "labels.text.fill", stylers: [{ color: "#616161" }] },
-            { featureType: "transit", elementType: "labels.text.fill", stylers: [{ color: "#757575" }] },
-            { featureType: "water", elementType: "geometry", stylers: [{ color: "#000000" }] },
-            { featureType: "water", elementType: "labels.text.fill", stylers: [{ color: "#3d3d3d" }] }
-        ];
-
-        const map = new google.maps.Map(mapContainer, {
-            center: { lat: 33.98, lng: -118.15 },
-            zoom: 10,
-            styles: darkMapStyles,
-            mapTypeControl: false,
-            streetViewControl: false,
-            fullscreenControl: false,
-            zoomControl: true,
-            gestureHandling: 'greedy'
-        });
-        window._gavilanGoogleMap = map;
-
-        const bounds = new google.maps.LatLngBounds();
-        const infoWindow = new google.maps.InfoWindow();
-        window._gavilanInfoWindow = infoWindow;
-
-        // Custom Branded SVG Pin (Red fill with Gold border)
-        const pinIcon = {
-            path: "M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z",
-            fillColor: "#DA291C",
-            fillOpacity: 1,
-            strokeColor: "#FFC72C",
-            strokeWeight: 2,
-            scale: 1.5,
-            anchor: new google.maps.Point(12, 22)
-        };
-
-        const calcDistanceMiles = (lat1, lon1, lat2, lon2) => {
-            const R = 3958.8;
-            const dLat = (lat2 - lat1) * Math.PI / 180;
-            const dLon = (lon2 - lon1) * Math.PI / 180;
-            const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-                Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-                Math.sin(dLon/2) * Math.sin(dLon/2);
-            return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-        };
-
-        const buildPopupContent = (loc, distance) => {
-            const distHtml = (distance !== null && !isNaN(distance))
-                ? `<div class="map-popup-distance">${distance.toFixed(1)} ${currentLang === 'es' ? 'millas de ti' : 'miles from you'}</div>`
-                : '';
-            const dirUrl = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(loc.address)}`;
-            const orderText = currentLang === 'es' ? 'Ordenar en Línea' : 'Order Online';
-            const dirText = currentLang === 'es' ? 'Cómo llegar' : 'Directions';
-
-            return `<div class="map-popup">
-                <div class="map-popup-name">${loc.name}</div>
-                <div class="map-popup-address">${loc.address}</div>
-                ${distHtml}
-                <div class="map-popup-actions">
-                    <a href="${loc.order}" target="_blank" rel="noopener noreferrer" class="map-popup-btn-order">${orderText}</a>
-                    <a href="${dirUrl}" target="_blank" rel="noopener noreferrer" class="map-popup-btn-directions">${dirText}</a>
-                </div>
-            </div>`;
-        };
-
-        const markers = gavilanLocations.map(loc => {
-            const marker = new google.maps.Marker({
-                position: { lat: loc.lat, lng: loc.lng },
-                map: map,
-                title: loc.name,
-                icon: pinIcon
-            });
-
-            bounds.extend(marker.getPosition());
-            marker._gavilanData = loc;
-
-            marker.addListener('click', () => {
-                infoWindow.setContent(buildPopupContent(loc, loc._lastDistance || null));
-                infoWindow.open(map, marker);
-            });
-
-            return marker;
-        });
-
-        window._gavilanMarkers = markers;
-        window._gavilanBounds = bounds;
-
-        // Geolocation "Find Me"
-        const locateBtn = document.getElementById('map-locate-btn');
-        const nearestInfo = document.getElementById('map-nearest-info');
-        const nearestText = document.getElementById('map-nearest-text');
-        let userMarker = null;
-
-        if (locateBtn) {
-            locateBtn.addEventListener('click', () => {
-                if (!navigator.geolocation) {
-                    if (nearestText && nearestInfo) {
-                        nearestText.textContent = currentLang === 'es'
-                            ? 'Geolocalización no soportada en tu navegador.'
-                            : 'Geolocation is not supported by your browser.';
-                        nearestInfo.style.display = 'flex';
-                    }
-                    return;
-                }
-
-                locateBtn.classList.add('locating');
-                const btnSpan = locateBtn.querySelector('span');
-                const originalText = btnSpan ? btnSpan.textContent : 'Find Me';
-                if (btnSpan) btnSpan.textContent = currentLang === 'es' ? 'Buscando...' : 'Locating...';
-
-                navigator.geolocation.getCurrentPosition(
-                    (pos) => {
-                        const userLatLng = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-
-                        if (userMarker) userMarker.setMap(null);
-
-                        userMarker = new google.maps.Marker({
-                            position: userLatLng,
-                            map: map,
-                            title: currentLang === 'es' ? 'Tu ubicación' : 'Your Location',
-                            icon: {
-                                path: google.maps.SymbolPath.CIRCLE,
-                                fillColor: "#2563EB",
-                                fillOpacity: 1,
-                                strokeColor: "#FFFFFF",
-                                strokeWeight: 3,
-                                scale: 9
-                            },
-                            zIndex: 9999
-                        });
-
-                        userMarker.addListener('click', () => {
-                            infoWindow.setContent(`<div class="map-popup"><div class="map-popup-name">${currentLang === 'es' ? 'Tu ubicación' : 'Your Location'}</div></div>`);
-                            infoWindow.open(map, userMarker);
-                        });
-
-                        let nearest = null;
-                        let minDist = Infinity;
-                        let nearestMarker = null;
-
-                        markers.forEach(m => {
-                            const loc = m._gavilanData;
-                            const d = calcDistanceMiles(userLatLng.lat, userLatLng.lng, loc.lat, loc.lng);
-                            loc._lastDistance = d;
-                            if (d < minDist) {
-                                minDist = d;
-                                nearest = loc;
-                                nearestMarker = m;
-                            }
-                        });
-
-                        if (nearest && nearestInfo && nearestText) {
-                            nearestText.textContent = currentLang === 'es'
-                                ? `Más cercano: ${nearest.name} (${minDist.toFixed(1)} mi)`
-                                : `Nearest: ${nearest.name} (${minDist.toFixed(1)} mi)`;
-                            nearestInfo.style.display = 'flex';
-                        }
-
-                        if (nearest && nearestMarker) {
-                            const userBounds = new google.maps.LatLngBounds();
-                            userBounds.extend(userLatLng);
-                            userBounds.extend(nearestMarker.getPosition());
-                            map.fitBounds(userBounds);
-
-                            setTimeout(() => {
-                                infoWindow.setContent(buildPopupContent(nearest, minDist));
-                                infoWindow.open(map, nearestMarker);
-                            }, 500);
-                        }
-
-                        locateBtn.classList.remove('locating');
-                        if (btnSpan) btnSpan.textContent = currentLang === 'es' ? 'Ubicado' : 'Located';
-                        setTimeout(() => { if (btnSpan) btnSpan.textContent = originalText; }, 3000);
-                    },
-                    (err) => {
-                        locateBtn.classList.remove('locating');
-                        if (btnSpan) btnSpan.textContent = originalText;
-                        if (nearestText && nearestInfo) {
-                            nearestText.textContent = currentLang === 'es'
-                                ? 'No se pudo acceder a tu ubicación. Verifica permisos.'
-                                : 'Location access denied or unavailable.';
-                            nearestInfo.style.display = 'flex';
-                        }
-                    },
-                    { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
-                );
-            });
+    window.addEventListener('resize', () => {
+        if (window._gavilanGoogleMap && mapOverlay && mapOverlay.classList.contains('is-open')) {
+            google.maps.event.trigger(window._gavilanGoogleMap, 'resize');
+            if (window._gavilanBounds) {
+                window._gavilanGoogleMap.fitBounds(window._gavilanBounds);
+            }
         }
-
-        // Fit all 15 stores within view bounds
-        setTimeout(() => {
-            google.maps.event.trigger(map, 'resize');
-            map.fitBounds(bounds);
-        }, 150);
-    }
+    }, { passive: true });
 
     /* ==========================================================
        13. DISH PREVIEW LIGHTBOX MODAL
@@ -1415,15 +1752,17 @@ document.addEventListener('DOMContentLoaded', () => {
         lightboxOverlay.offsetHeight;
         lightboxOverlay.classList.add('is-open');
         document.body.style.overflow = 'hidden';
+        trapFocus(lightboxOverlay);
     };
 
     const closeLightbox = () => {
-        if (!lightboxOverlay) return;
+        if (!lightboxOverlay || !lightboxOverlay.classList.contains('is-open')) return;
         lightboxOverlay.classList.remove('is-open');
         setTimeout(() => {
             lightboxOverlay.style.display = 'none';
             document.body.style.overflow = '';
         }, 300);
+        releaseFocus();
     };
 
     document.addEventListener('click', (e) => {
@@ -1469,14 +1808,17 @@ document.addEventListener('DOMContentLoaded', () => {
             overlay.offsetHeight;
             overlay.classList.add('is-open');
             document.body.style.overflow = 'hidden';
+            trapFocus(overlay);
         };
 
         const closeModal = () => {
+            if (!overlay.classList.contains('is-open')) return;
             overlay.classList.remove('is-open');
             setTimeout(() => {
                 overlay.style.display = 'none';
                 document.body.style.overflow = '';
             }, 300);
+            releaseFocus();
         };
 
         openTriggerIds.forEach(id => {
@@ -1504,36 +1846,33 @@ document.addEventListener('DOMContentLoaded', () => {
     setupModal('terms-modal-overlay', ['open-terms-btn'], ['terms-modal-close']);
     setupModal('accessibility-modal-overlay', ['open-accessibility-btn'], ['accessibility-modal-close']);
 
-    // Delegated click handler for dynamically translated legal links (e.g. inside form privacy notice)
-    document.addEventListener('click', (e) => {
-        const link = e.target.closest('#contact-privacy-link');
-        if (link) {
-            e.preventDefault();
-            const privacyOverlay = document.getElementById('privacy-modal-overlay');
-            if (privacyOverlay) {
-                privacyOverlay.style.display = 'flex';
-                privacyOverlay.offsetHeight;
-                privacyOverlay.classList.add('is-open');
-                document.body.style.overflow = 'hidden';
-            }
-        }
-    });
+    const requestedLegalDialog = new URLSearchParams(window.location.search).get('legal');
+    const legalDialogTriggers = {
+        privacy: 'open-privacy-btn',
+        terms: 'open-terms-btn',
+        accessibility: 'open-accessibility-btn'
+    };
+    if (legalDialogTriggers[requestedLegalDialog]) {
+        document.getElementById(legalDialogTriggers[requestedLegalDialog])?.click();
+    }
 
     /* ==========================================================
        15. COOKIE CONSENT BANNER (CCPA / CPRA COMPLIANT)
-       ========================================================== */
+       ========================================================= */
     const cookieBanner = document.getElementById('cookie-banner');
     const cookieAcceptBtn = document.getElementById('cookie-accept-btn');
     const cookieDeclineBtn = document.getElementById('cookie-decline-btn');
 
     const showCookieBanner = () => {
         if (!cookieBanner) return;
-        const consent = localStorage.getItem('tacosgavilan_cookie_consent');
+        const consent = safeStorage.getItem('tacosgavilan_cookie_consent');
         if (!consent) {
             setTimeout(() => {
                 cookieBanner.style.display = 'block';
                 cookieBanner.offsetHeight;
                 cookieBanner.classList.add('cookie-banner-visible');
+                document.body.classList.add('has-cookie-banner');
+                if (mobileStickyBar) mobileStickyBar.classList.remove('is-visible');
             }, 1200);
         }
     };
@@ -1541,21 +1880,25 @@ document.addEventListener('DOMContentLoaded', () => {
     const hideCookieBanner = () => {
         if (!cookieBanner) return;
         cookieBanner.classList.remove('cookie-banner-visible');
+        document.body.classList.remove('has-cookie-banner');
         setTimeout(() => {
             cookieBanner.style.display = 'none';
+            if (typeof updateStickyBar === 'function') updateStickyBar();
         }, 400);
     };
 
     if (cookieAcceptBtn) {
         cookieAcceptBtn.addEventListener('click', () => {
-            localStorage.setItem('tacosgavilan_cookie_consent', 'accepted');
+            safeStorage.setItem('tacosgavilan_cookie_consent', 'accepted');
             hideCookieBanner();
         });
     }
 
     if (cookieDeclineBtn) {
         cookieDeclineBtn.addEventListener('click', () => {
-            localStorage.setItem('tacosgavilan_cookie_consent', 'declined');
+            safeStorage.setItem('tacosgavilan_cookie_consent', 'declined');
+            safeStorage.removeItem('tacosgavilan_lang');
+            safeStorage.removeItem('tg_map_theme');
             hideCookieBanner();
         });
     }
@@ -1567,29 +1910,30 @@ document.addEventListener('DOMContentLoaded', () => {
        ========================================================== */
     const mobileStickyBar = document.getElementById('mobile-sticky-bar');
 
+    const updateStickyBar = () => {
+        if (!mobileStickyBar) return;
+        if (window.innerWidth > 768) {
+            mobileStickyBar.classList.remove('is-visible');
+            return;
+        }
+
+        const isMenuOpen = document.body.classList.contains('menu-open');
+        const isCookieOpen = document.body.classList.contains('has-cookie-banner');
+        const isModalOpen = document.querySelector('.map-modal-overlay.is-open, .lightbox-modal-overlay.is-open, .privacy-modal-overlay.is-open');
+
+        if (isMenuOpen || isModalOpen || isCookieOpen) {
+            mobileStickyBar.classList.remove('is-visible');
+            return;
+        }
+
+        if (window.scrollY > 280) {
+            mobileStickyBar.classList.add('is-visible');
+        } else {
+            mobileStickyBar.classList.remove('is-visible');
+        }
+    };
+
     if (mobileStickyBar) {
-        const updateStickyBar = () => {
-            if (window.innerWidth > 768) {
-                mobileStickyBar.classList.remove('is-visible');
-                return;
-            }
-
-            const isMenuOpen = document.body.classList.contains('menu-open');
-            const isModalOpen = document.querySelector('.map-modal-overlay.is-open, .lightbox-modal-overlay.is-open, .privacy-modal-overlay.is-open');
-
-            if (isMenuOpen || isModalOpen) {
-                mobileStickyBar.classList.remove('is-visible');
-                return;
-            }
-
-            // Reveal after scrolling down past the hero
-            if (window.scrollY > 280) {
-                mobileStickyBar.classList.add('is-visible');
-            } else {
-                mobileStickyBar.classList.remove('is-visible');
-            }
-        };
-
         window.addEventListener('scroll', updateStickyBar, { passive: true });
         window.addEventListener('resize', updateStickyBar, { passive: true });
         updateStickyBar();
