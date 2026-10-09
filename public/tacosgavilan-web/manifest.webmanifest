@@ -1,0 +1,23 @@
+{
+  "name": "Tacos Gavilan",
+  "short_name": "Tacos Gavilan",
+  "description": "Authentic Mexican Food · Serving Southern California Since 1992",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0A0A0A",
+  "theme_color": "#DA291C",
+  "icons": [
+    {
+      "src": "/img/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/img/logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

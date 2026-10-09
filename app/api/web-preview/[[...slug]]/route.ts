@@ -30,6 +30,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import path from 'path'
 import fs from 'fs'
 import { exec } from 'child_process'
+import { syncTacosGavilanWeb } from '@/scripts/sync-web'
 
 const LOCAL_WEB_DIR = 'C:\\Users\\pedro\\Desktop\\tacosgavilan-web'
 const FALLBACK_WEB_DIR = path.join(process.cwd(), 'public', 'tacosgavilan-web')
@@ -78,23 +79,40 @@ export async function GET(
     const url = new URL(request.url)
     const action = url.searchParams.get('action')
 
-    // Acción para consultar estado de disponibilidad del archivo local
+    // Acción para consultar estado de disponibilidad del archivo local y versión sincronizada
     if (action === 'status' || (slug?.length === 1 && slug[0] === 'status')) {
-        const localExists = fs.existsSync(LOCAL_WEB_DIR)
-        const indexPath = path.join(LOCAL_WEB_DIR, 'index.html')
-        const indexExists = fs.existsSync(indexPath)
-        let lastModified: string | null = null
-        if (indexExists) {
-            const stats = fs.statSync(indexPath)
-            lastModified = stats.mtime.toISOString()
+        const localIndexPath = path.join(LOCAL_WEB_DIR, 'index.html')
+        const localIndexExists = fs.existsSync(localIndexPath)
+        let localLastModified: string | null = null
+        if (localIndexExists) {
+            const stats = fs.statSync(localIndexPath)
+            localLastModified = stats.mtime.toISOString()
         }
+
+        const fallbackIndexPath = path.join(FALLBACK_WEB_DIR, 'index.html')
+        const fallbackIndexExists = fs.existsSync(fallbackIndexPath)
+        let fallbackLastModified: string | null = null
+        if (fallbackIndexExists) {
+            const stats = fs.statSync(fallbackIndexPath)
+            fallbackLastModified = stats.mtime.toISOString()
+        }
+
         return Response.json({
             ok: true,
             localDir: LOCAL_WEB_DIR,
-            exists: indexExists,
-            lastModified,
+            localExists: localIndexExists,
+            localLastModified,
+            fallbackExists: fallbackIndexExists,
+            fallbackLastModified,
+            activeSource: localIndexExists ? 'local' : (fallbackIndexExists ? 'cloud' : 'none'),
             fileUrl: 'file:///C:/Users/pedro/Desktop/tacosgavilan-web/index.html'
         })
+    }
+
+    // Acción para sincronizar desde desarrollo local hacia public/tacosgavilan-web
+    if (action === 'sync' || (slug?.length === 1 && slug[0] === 'sync')) {
+        const syncResult = syncTacosGavilanWeb()
+        return Response.json(syncResult)
     }
 
     // Acción para abrir directamente en el navegador del sistema operativo
@@ -157,6 +175,10 @@ export async function POST(
     const { slug } = await context.params
     if (slug?.length === 1 && slug[0] === 'launch') {
         return handleLaunch()
+    }
+    if (slug?.length === 1 && slug[0] === 'sync') {
+        const syncResult = syncTacosGavilanWeb()
+        return Response.json(syncResult)
     }
     return Response.json({ error: 'Endpoint not found' }, { status: 404 })
 }

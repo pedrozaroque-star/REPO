@@ -4523,7 +4523,13 @@ export const dictionaries: Record<Language, Dictionary> = {
             status_ready: 'Listo',
             local_file_detected: 'Archivo local detectado en tiempo real',
             launch_success: 'Abriendo archivo local en el navegador predeterminado...',
-            launch_error: 'No se pudo abrir el archivo local automáticamente. Usa el botón de copiar ruta.'
+            launch_error: 'No se pudo abrir el archivo local automáticamente. Usa el botón de copiar ruta.',
+            sync_cloud: 'Sincronizar a Móvil',
+            syncing: 'Sincronizando...',
+            sync_success: '¡Sincronizado! Archivos listos para enviar a tu teléfono.',
+            sync_hint: 'Haz COMMIT y PUSH para que se actualice de inmediato en tu teléfono.',
+            viewing_cloud: 'Versión Nube (Móvil)',
+            viewing_local: 'Versión Local en vivo'
         }
     },
     en: {
@@ -9026,7 +9032,13 @@ export const dictionaries: Record<Language, Dictionary> = {
             status_ready: 'Ready',
             local_file_detected: 'Local file detected in real time',
             launch_success: 'Opening local file in default browser...',
-            launch_error: 'Could not open local file automatically. Use the copy path button.'
+            launch_error: 'Could not open local file automatically. Use the copy path button.',
+            sync_cloud: 'Sync to Mobile',
+            syncing: 'Syncing...',
+            sync_success: 'Synced! Files ready to push to your phone.',
+            sync_hint: 'Run COMMIT and PUSH to update immediately on your phone.',
+            viewing_cloud: 'Cloud Version (Mobile)',
+            viewing_local: 'Live Local Version'
         }
     }
 };

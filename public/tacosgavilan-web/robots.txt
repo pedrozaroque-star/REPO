@@ -1,0 +1,6 @@
+# robots.txt for tacosgavilan.com
+User-agent: *
+Allow: /
+Disallow: /api/
+
+Sitemap: https://tacosgavilan.com/sitemap.xml

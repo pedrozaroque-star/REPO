@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>Page Not Found | Tacos Gavilan</title>
+    <meta name="description" content="The page you requested could not be found. Return to Tacos Gavilan home or order online.">
+    <link rel="icon" type="image/x-icon" href="/img/favicon.ico">
+    <link rel="stylesheet" href="/css/style.css">
+    <style>
+        .error-page-wrapper {
+            min-height: 100dvh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            padding: 2rem 1.5rem;
+            background: #0a0a0a;
+            color: #ffffff;
+        }
+        .error-card {
+            max-width: 520px;
+            padding: 3rem 2rem;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 199, 44, 0.25);
+            border-radius: 16px;
+            backdrop-filter: blur(12px);
+        }
+        .error-code {
+            font-size: clamp(4rem, 15vw, 6.5rem);
+            font-weight: 900;
+            color: var(--clr-gold, #FFC72C);
+            line-height: 1;
+            margin-bottom: 1rem;
+            font-family: var(--ff-heading, sans-serif);
+        }
+        .error-title {
+            font-size: 1.5rem;
+            font-weight: 700;
+            margin-bottom: 1rem;
+        }
+        .error-desc {
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 1rem;
+            line-height: 1.6;
+            margin-bottom: 2rem;
+        }
+        .error-actions {
+            display: flex;
+            gap: 1rem;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+    </style>
+</head>
+<body>
+    <div class="error-page-wrapper">
+        <div class="error-card">
+            <div class="error-code">404</div>
+            <h1 class="error-title">Page Not Found · Página No Encontrada</h1>
+            <p class="error-desc">
+                The page you are looking for does not exist or may have been moved.<br>
+                La página que buscas no existe o ha sido movida.
+            </p>
+            <div class="error-actions">
+                <a href="/" class="btn btn-secondary">Return Home / Volver al Inicio</a>
+                <a href="https://order.online/business/-137616" target="_blank" rel="noopener noreferrer" class="btn btn-primary">Order Online / Ordenar</a>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
