@@ -373,11 +373,9 @@ export default function AccountingPage() {
                       {weekDays.map((d, i) => {
                         const dateStr = d.toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
                         const packet = getPacketForCell(store.id, dateStr)
-                        const validation = (packet as any)?.qb_sync_response?.validation
                         const postPublishDiscrepancy = (packet as any)?.qb_sync_response?.post_publish_discrepancy
-                        const hasOpenOrders = Boolean(validation?.hasOpenOrders || (validation?.openOrdersCount && validation.openOrdersCount > 0))
                         const hasDiscrepancy = Boolean(postPublishDiscrepancy?.hasDiscrepancy)
-                        const displayStatus = hasOpenOrders ? 'open_orders' : (packet?.status || 'pending')
+                        const displayStatus = packet?.status || 'pending'
 
                         return (
                           <td key={i} className="px-2 py-3 text-center">
@@ -385,21 +383,18 @@ export default function AccountingPage() {
                               <Link href={`/contabilidad/${packet.id}`}>
                                 <div 
                                   className={`inline-flex flex-col items-center justify-center px-3 py-1.5 text-xs rounded-xl cursor-pointer transition-all hover:scale-105 relative ${STATUS_STYLES[displayStatus] || STATUS_STYLES.pending}`}
-                                  title={hasOpenOrders 
-                                    ? `⚠️ ${validation.openOrdersCount} ${t('accounting.label_open_orders') || 'Órdenes Abiertas'}` 
-                                    : (hasDiscrepancy 
-                                      ? `⚠️ ${t('accounting.late_refund_detected') || 'Reembolso tardío detectado en Toast POS: Dif'} $${postPublishDiscrepancy.diffNet}`
-                                      : `${t('accounting.col_net_sales') || 'Venta Neta'}: ${formatCurrency(packet.net_sales || 0)}`)}
+                                  title={hasDiscrepancy 
+                                    ? `⚠️ ${t('accounting.late_refund_detected') || 'Reembolso tardío detectado en Toast POS: Dif'} $${postPublishDiscrepancy.diffNet}`
+                                    : `${t('accounting.col_net_sales') || 'Venta Neta'}: ${formatCurrency(packet.net_sales || 0)}`}
                                 >
                                   <div className="flex items-center space-x-1 font-extrabold tracking-wide">
                                     {displayStatus === 'ready' && <Clock className="w-3.5 h-3.5" />}
                                     {displayStatus === 'reviewed' && <CheckCircle className="w-3.5 h-3.5" />}
                                     {displayStatus === 'published' && <CheckCircle2 className="w-3.5 h-3.5" />}
                                     {displayStatus === 'rejected' && <XCircle className="w-3.5 h-3.5" />}
-                                    {displayStatus === 'open_orders' && <AlertTriangle className="w-3.5 h-3.5 text-amber-500 animate-pulse" />}
                                     {displayStatus === 'pending' && <Circle className="w-3.5 h-3.5 text-slate-400" />}
                                     <span>
-                                      {displayStatus === 'open_orders' ? (t('accounting.status_open_orders') || 'Órdenes Abiertas') : t(`accounting.status_${displayStatus}`)}
+                                      {t(`accounting.status_${displayStatus}`) || displayStatus}
                                     </span>
                                   </div>
                                   <span className="text-[10px] font-mono mt-0.5 opacity-90">

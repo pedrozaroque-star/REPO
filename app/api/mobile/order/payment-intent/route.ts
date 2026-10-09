@@ -80,14 +80,23 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return jsonError('El total de la cotización es inválido.', 400)
     }
 
-    // 5. Verificar si Stripe Secret Key está configurada en el entorno
+    // 5. Verificar proveedor de pagos activo (desacoplado)
+    const { getActivePaymentProvider } = await import('@/lib/mobile/payment-provider')
+    const provider = getActivePaymentProvider()
+
+    if (!provider.isEnabled) {
+      return jsonError(
+        'La captura de pago permanece deshabilitada hasta recibir el mecanismo autorizado por Toast y completar la evaluación de cumplimiento correspondiente.',
+        503
+      )
+    }
+
     const stripeSecretKey = process.env.STRIPE_SECRET_KEY
-    const stripePublishableKey = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || process.env.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY
+    const stripePublishableKey = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
 
     if (!stripeSecretKey) {
-      console.warn('⚠️ [PAYMENT INTENT] STRIPE_SECRET_KEY no está configurada en .env.local')
       return jsonError(
-        'La pasarela de pago bancaria aún no está configurada con las credenciales de producción de Tacos Gavilan. Contacte al administrador para activar los cobros.',
+        'La pasarela de pago bancario no está configurada actualmente en el servidor.',
         503
       )
     }

@@ -5,10 +5,13 @@
  * - Reads from app_menu_cache filtered by store_id and is_available = true.
  * - Extracts and aggregates modifier groups so the customer customizer can render ingredient choices.
  * - Exposes both guid and toastGuid matching Toast POS item UUIDs.
+ * - Emite metadata de catálogo explícita (catalogMetadata) advirtiendo que los datos provienen de caché local
+ *   no reconciliada en tiempo real con Toast Menus V3 (purchasable = false) hasta aprobación de scopes externos.
  * @dataFlow
- * - Client GET /api/mobile/menu?storeId=N -> Supabase app_menu_cache -> Grouped categories and modifier groups JSON.
+ * - Client GET /api/mobile/menu?storeId=N -> Supabase app_menu_cache -> Grouped categories, modifier groups, and catalogMetadata JSON.
  * @notes
- * - Returns authentic Toast pricing and UUIDs for reliable anti-tamper validation.
+ * - Returns authentic Toast pricing and UUIDs for display; authoritative pricing is resolved via /prices quote.
+ * - Identifies data as LEGACY_CACHE_UNRECONCILED to avoid false claims of real-time Menus V3 synchronization.
  */
 
 import { type NextRequest, NextResponse } from 'next/server'
@@ -163,7 +166,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       })
     }
 
-    return jsonOk({ categories, modifierGroups })
+    const catalogMetadata = {
+      source: 'LEGACY_CACHE_UNRECONCILED' as const,
+      isReconciledWithToastMenusV3: false,
+      purchasable: false,
+      warning: 'Catálogo de visualización sincronizado desde caché local. Precios y disponibilidad sujetos a cotización y confirmación oficial de Toast.',
+    }
+
+    return jsonOk({ categories, modifierGroups, catalogMetadata })
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Error desconocido'
     console.error('❌ [mobile/menu] Error inesperado:', message)

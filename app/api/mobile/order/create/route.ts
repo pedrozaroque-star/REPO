@@ -29,6 +29,7 @@ import {
   jsonError,
 } from '@/app/api/mobile/_helpers'
 import { getStoreTaxRate, computeCartHash } from '../quote/route'
+import { getActivePaymentProvider, NativePaymentFinancialStatus } from '@/lib/mobile/payment-provider'
 
 export const dynamic = 'force-dynamic'
 
@@ -182,6 +183,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return jsonError(`La cotización ya no está disponible (estado: ${quote.status}). Genere una nueva cotización.`, 400)
     }
 
+    if (quote.price_source !== 'toast_prices') {
+      return jsonError('La cotización no cuenta con autorización oficial de precios de Toast (/prices). Creación de orden bloqueada (BLOCKED_EXTERNALLY).', 403)
+    }
+
     if (new Date(quote.expires_at) < new Date()) {
       await supabaseAdmin.from('app_quotes').update({ status: 'EXPIRED' }).eq('id', quoteId)
       return jsonError('La cotización ha expirado. Por favor actualice su carrito para obtener los precios más recientes.', 400)
@@ -255,7 +260,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const totalAmount = Number(quote.total_amount)
 
     // 6. Verificación Autorizada de Pago (Cero confianza en banderas enviadas desde el teléfono)
-    let paymentStatus: 'PENDING' | 'PAID' = 'PENDING'
+    const paymentProvider = getActivePaymentProvider()
+    let paymentStatus: NativePaymentFinancialStatus = 'PENDING_PAYMENT'
     const paymentIntentId = body.paymentIntentId || null
 
     if (paymentIntentId) {
@@ -295,10 +301,32 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           console.warn('⚠️ [MOBILE ORDER CREATE] Error verificando Stripe PaymentIntent:', stripeErr)
         }
       }
+    } else if (body.paymentConfirmed) {
+      // Intento de cobro nativo mediante el proveedor oficial de Toast
+      if (!paymentProvider.isEnabled) {
+        const authResult = await paymentProvider.authorize({
+          quoteId: quote.id,
+          expectedAmountCents: Math.round(totalAmount * 100),
+          currency: 'USD',
+          orderExternalId: `order:${quote.id}`,
+          userId
+        })
+        if (authResult.blockedExternally) {
+          return jsonError(`No es posible procesar el pago: ${authResult.errorMessage}`, 403)
+        }
+      }
     }
 
-    // 7. Snapshot Completo para items_json
+    // 7. Snapshot Completo para items_json con External IDs estables para Toast POS
     const orderSnapshot = {
+      toastExternalIds: {
+        orderId: `order:${quote.id}`,
+        checkId: `check:${quote.id}:1`,
+        selections: itemsJson.map((item, idx) => ({
+          guid: item.guid,
+          selectionExternalId: `selection:${quote.id}:${idx + 1}`
+        }))
+      },
       items: itemsJson,
       channel,
       deliveryAddress: channel === 'DELIVERY' ? deliveryAddress : undefined,
@@ -313,6 +341,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       },
       quoteId: quote.id,
       cartHash: quote.cart_hash,
+      priceSource: quote.price_source,
     }
 
     // 8. Creación Atómica de la Orden y Consumo de Cotización vía PostgreSQL RPC

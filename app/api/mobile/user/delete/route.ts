@@ -59,7 +59,24 @@ export async function DELETE(request: NextRequest): Promise<NextResponse> {
       console.warn('[ACCOUNT DELETION] Aviso desvinculando órdenes:', ordersErr.message)
     }
 
-    // 3. Eliminar saldo de recompensas y transacciones de lealtad
+    // 3. Desvincular cotizaciones históricas
+    await supabaseAdmin
+      .from('app_quotes')
+      .update({ user_id: null })
+      .eq('user_id', userId)
+
+    // 4. Purgar carritos y favoritos guardados
+    await supabaseAdmin
+      .from('app_carts')
+      .delete()
+      .eq('user_id', userId)
+
+    await supabaseAdmin
+      .from('app_favorite_orders')
+      .delete()
+      .eq('user_id', userId)
+
+    // 5. Eliminar saldo de recompensas y transacciones de lealtad
     await supabaseAdmin
       .from('app_rewards_transactions')
       .delete()
@@ -70,7 +87,7 @@ export async function DELETE(request: NextRequest): Promise<NextResponse> {
       .delete()
       .eq('user_id', userId)
 
-    // 4. Eliminar perfil de usuario comensal en public.app_users
+    // 6. Eliminar perfil de usuario comensal en public.app_users
     const { error: appUserDeleteErr } = await supabaseAdmin
       .from('app_users')
       .delete()
@@ -80,7 +97,7 @@ export async function DELETE(request: NextRequest): Promise<NextResponse> {
       console.warn('[ACCOUNT DELETION] Aviso eliminando de app_users:', appUserDeleteErr.message)
     }
 
-    // 5. Eliminar usuario de Supabase Auth (auth.users)
+    // 7. Eliminar usuario de Supabase Auth (auth.users)
     const { error: authDeleteErr } = await supabaseAdmin.auth.admin.deleteUser(userId)
 
     if (authDeleteErr) {

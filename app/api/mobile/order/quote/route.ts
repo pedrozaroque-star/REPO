@@ -5,7 +5,10 @@
  * @businessRules
  * - Principio de Autoridad Financiera: La app móvil nunca fija ni calcula el total financiero vinculante.
  * - Todos los precios de platillos y modificadores se validan contra app_menu_cache de la sucursal seleccionada.
- * - Aplica la tasa exacta de impuesto sobre las ventas (CDTFA) por ciudad (ej. Lynwood 10.25%, LA 9.50%, Santa Ana 9.25%, Rialto 7.75%).
+ * - Validación Estricta de Modificadores: Todo modificador debe pertenecer a un grupo del artículo;
+ *   rechaza con VALIDATION_ERROR si un modificador no es válido o si se violan minSelections / maxSelections;
+ *   rechaza con MENU_DATA_INCOMPLETE si las definiciones de modificadores están incompletas o corruptas.
+ * - Aplica la tasa exacta de impuesto sobre las ventas (CDTFA) por ciudad (ej. Lynwood 11.25%, LA 10.25%, Santa Ana 9.25%, Rialto 7.75%).
  * - En entregas a domicilio (DELIVERY), valida el radio de cobertura máximo (5.0 millas vía fórmula Haversine) y calcula el cargo de entrega.
  * - Emite y persiste un registro autoritativo en app_quotes con cart_hash canónico y expiración de 10 minutos (TTL).
  * @dataFlow
@@ -17,9 +20,14 @@
 import { type NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { corsResponse, jsonOk, jsonError, getAuthUser, isAuthSuccess } from '../../_helpers'
+import { calculateToastPrices } from '@/lib/toast/prices-client'
+import { TOAST_WRITE_BLOCKED_DESCRIPTOR } from '@/lib/toast/menus-v3-contract'
 import crypto from 'crypto'
 
 export const dynamic = 'force-dynamic'
+
+// Feature Flag: Delivery nativo requiere aprobación contractual previa (TDS vs DoorDash Drive)
+const DELIVERY_ENABLED = process.env.ENABLE_MOBILE_DELIVERY === 'true'
 
 /**
  * Calcula un hash canónico SHA-256 de los items, modificadores y dirección de entrega.
@@ -131,19 +139,30 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return jsonError("channel debe ser 'PICKUP' o 'DELIVERY'", 400)
     }
 
+    if (channel === 'DELIVERY' && !DELIVERY_ENABLED) {
+      return jsonError(
+        'El canal de entrega a domicilio (Delivery) se encuentra en proceso de aprobación contractual con Toast/DoorDash. Actualmente solo está habilitado Retiro en Sucursal (Pickup).',
+        400
+      )
+    }
+
     if (!items || !Array.isArray(items) || items.length === 0) {
       return jsonError('La orden debe contener al menos un artículo', 400)
     }
 
-    // 1. Obtener la sucursal para validar existencia y coordenadas
+    // 1. Obtener la sucursal para validar existencia, external_id y coordenadas
     const { data: store, error: storeErr } = await supabaseAdmin
       .from('stores')
-      .select('id, name, latitude, longitude')
+      .select('id, name, external_id, latitude, longitude')
       .eq('id', storeId)
       .single()
 
     if (storeErr || !store) {
       return jsonError(`Sucursal con ID ${storeId} no encontrada`, 404)
+    }
+
+    if (!store.external_id) {
+      return jsonError(`La sucursal ${store.name} no cuenta con external_id vinculado a Toast`, 400)
     }
 
     // 2. Obtener los items del menú de esta sucursal desde app_menu_cache
@@ -172,44 +191,164 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       menuMap.set(m.toast_item_guid, m)
     }
 
-    // 3. Calcular Net Sales y validar cada partida con anti-tampering
+    // 3. Calcular Net Sales de referencia y validar cada partida con anti-tampering y reglas estrictas de modificadores
     let netSales = 0
 
     for (const item of items) {
       if (!item.quantity || item.quantity <= 0 || !Number.isInteger(item.quantity) || item.quantity > 50) {
-        return jsonError(`Cantidad inválida para el artículo (${item.quantity})`, 400)
+        return jsonError(`Cantidad inválida para el artículo (${item.quantity})`, 400, 'VALIDATION_ERROR')
       }
 
       const menuItem = menuMap.get(item.itemGuid)
       if (!menuItem) {
-        return jsonError(`Artículo '${item.itemGuid}' no disponible en la sucursal ${store.name}`, 400)
+        return jsonError(`Artículo '${item.itemGuid}' no disponible en la sucursal ${store.name}`, 400, 'VALIDATION_ERROR')
       }
 
       if (!menuItem.is_available) {
-        return jsonError(`El artículo '${menuItem.name}' está agotado actualmente`, 400)
+        return jsonError(`El artículo '${menuItem.name}' está agotado actualmente`, 400, 'VALIDATION_ERROR')
       }
 
       const basePrice = Number(menuItem.price) || 0
       let modifiersPrice = 0
 
-      // Mapear modificadores permitidos para este item
-      const allowedModsMap = new Map<string, number>()
-      if (Array.isArray(menuItem.modifier_groups_json)) {
-        for (const grp of menuItem.modifier_groups_json as any[]) {
-          const opts = grp.options || grp.modifiers || []
-          for (const opt of opts) {
-            allowedModsMap.set(opt.guid, Number(opt.price) || 0)
+      // Extraer y validar grupos de modificadores del menú
+      const rawModGroups = menuItem.modifier_groups_json
+      const modGroups: Array<{
+        guid: string
+        name: string
+        minSelections: number
+        maxSelections: number
+        optionsMap: Map<string, { guid: string; name: string; price: number }>
+      }> = []
+
+      if (rawModGroups !== null && rawModGroups !== undefined) {
+        if (!Array.isArray(rawModGroups)) {
+          console.error(`❌ [ORDER QUOTE] modifier_groups_json no es array para item ${menuItem.toast_item_guid}`)
+          return jsonError(
+            `La información de modificadores del artículo '${menuItem.name}' está incompleta en el menú local.`,
+            400,
+            'MENU_DATA_INCOMPLETE'
+          )
+        }
+
+        for (const grp of rawModGroups as any[]) {
+          if (!grp || typeof grp !== 'object' || !grp.guid || !grp.name) {
+            console.error(`❌ [ORDER QUOTE] Grupo de modificadores inválido en item ${menuItem.toast_item_guid}`, grp)
+            return jsonError(
+              `Definición de grupo de modificadores incompleta para el artículo '${menuItem.name}'.`,
+              400,
+              'MENU_DATA_INCOMPLETE'
+            )
           }
+
+          const rawOpts = grp.options || grp.modifiers || []
+          if (!Array.isArray(rawOpts)) {
+            return jsonError(
+              `Opciones de modificadores incompletas para el grupo '${grp.name}'.`,
+              400,
+              'MENU_DATA_INCOMPLETE'
+            )
+          }
+
+          const optionsMap = new Map<string, { guid: string; name: string; price: number }>()
+          for (const opt of rawOpts) {
+            if (!opt || !opt.guid || typeof opt.name !== 'string') {
+              return jsonError(
+                `Opción de modificador inválida en el grupo '${grp.name}'.`,
+                400,
+                'MENU_DATA_INCOMPLETE'
+              )
+            }
+            optionsMap.set(opt.guid.toLowerCase(), {
+              guid: opt.guid,
+              name: opt.name,
+              price: Number(opt.price) || 0
+            })
+          }
+
+          const minSel = typeof grp.minSelections === 'number'
+            ? grp.minSelections
+            : typeof grp.min === 'number'
+              ? grp.min
+              : grp.required ? 1 : 0
+          const maxSel = typeof grp.maxSelections === 'number'
+            ? grp.maxSelections
+            : typeof grp.max === 'number'
+              ? grp.max
+              : 99
+
+          modGroups.push({
+            guid: grp.guid,
+            name: grp.name,
+            minSelections: minSel,
+            maxSelections: maxSel,
+            optionsMap
+          })
         }
       }
 
-      if (Array.isArray(item.modifiers)) {
-        for (const mod of item.modifiers) {
-          if (!mod.guid) continue
-          const verifiedModPrice = allowedModsMap.get(mod.guid)
-          if (verifiedModPrice !== undefined) {
-            modifiersPrice += verifiedModPrice
+      // Si el cliente envió modificadores pero el artículo no tiene grupos de modificadores
+      const clientMods = item.modifiers || []
+      if (modGroups.length === 0 && clientMods.length > 0) {
+        return jsonError(
+          `El artículo '${menuItem.name}' no admite modificadores.`,
+          400,
+          'VALIDATION_ERROR'
+        )
+      }
+
+      // Validar cada modificador enviado por el cliente: debe pertenecer a algún grupo del artículo
+      const groupSelectionsCount = new Map<string, number>()
+      for (const grp of modGroups) {
+        groupSelectionsCount.set(grp.guid, 0)
+      }
+
+      for (const mod of clientMods) {
+        if (!mod || !mod.guid) {
+          return jsonError('Modificador con identificador GUID no proporcionado', 400, 'VALIDATION_ERROR')
+        }
+
+        const normalizedModGuid = mod.guid.toLowerCase()
+        let matchingGroup: (typeof modGroups)[0] | undefined
+
+        for (const grp of modGroups) {
+          if (grp.optionsMap.has(normalizedModGuid)) {
+            matchingGroup = grp
+            break
           }
+        }
+
+        if (!matchingGroup) {
+          return jsonError(
+            `El modificador '${mod.guid}' no es válido para el platillo '${menuItem.name}'.`,
+            400,
+            'VALIDATION_ERROR'
+          )
+        }
+
+        const optData = matchingGroup.optionsMap.get(normalizedModGuid)!
+        modifiersPrice += optData.price
+
+        const currentCount = groupSelectionsCount.get(matchingGroup.guid) || 0
+        groupSelectionsCount.set(matchingGroup.guid, currentCount + 1)
+      }
+
+      // Validar restricciones de selección minSelections y maxSelections por cada grupo
+      for (const grp of modGroups) {
+        const count = groupSelectionsCount.get(grp.guid) || 0
+        if (grp.minSelections > 0 && count < grp.minSelections) {
+          return jsonError(
+            `El artículo '${menuItem.name}' requiere seleccionar al menos ${grp.minSelections} opción(es) en el grupo '${grp.name}'.`,
+            400,
+            'VALIDATION_ERROR'
+          )
+        }
+        if (grp.maxSelections > 0 && count > grp.maxSelections) {
+          return jsonError(
+            `El artículo '${menuItem.name}' permite como máximo ${grp.maxSelections} opción(es) en el grupo '${grp.name}' (seleccionadas: ${count}).`,
+            400,
+            'VALIDATION_ERROR'
+          )
         }
       }
 
@@ -219,60 +358,80 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     netSales = Math.round(netSales * 100) / 100
 
-    // 4. Calcular tasa de impuesto sobre las ventas (Sales Tax)
+    // 4. Calcular tasa impositiva de referencia
     const taxRate = getStoreTaxRate(storeId)
     const taxAmount = Math.round(netSales * taxRate * 100) / 100
+    const safeTip = Math.max(0, Math.round(Number(tipAmount) * 100) / 100 || 0)
 
-    // 5. Validar delivery y calcular fee
-    let deliveryFee = 0
-    let isDeliverable = true
-    let distanceMiles = 0
-    const BASE_DELIVERY_FEE = 5.99
-    const DISTANCE_SURCHARGE_FEE = 1.75
-    const BASE_DELIVERY_RADIUS_MILES = 6.0
-    const MAX_DELIVERY_RADIUS_MILES = 10.0
+    // 5. Invocar cálculo autoritativo en Toast Orders /prices API
+    const toastSelections = items.map(i => ({
+      itemGuid: i.itemGuid,
+      quantity: i.quantity,
+      modifiers: (i.modifiers || []).map(m => ({ guid: m.guid }))
+    }))
 
-    if (channel === 'DELIVERY') {
-      if (!body.deliveryAddress) {
-        return jsonError('Dirección de entrega requerida para órdenes de Delivery', 400)
-      }
+    const pricesResult = await calculateToastPrices(store.external_id, {
+      selections: toastSelections,
+      deliveryAddress: channel === 'DELIVERY' && body.deliveryAddress ? {
+        streetAddress: body.deliveryAddress.streetAddress,
+        city: body.deliveryAddress.city,
+        state: body.deliveryAddress.state,
+        zipCode: body.deliveryAddress.zipCode,
+        latitude: body.deliveryAddress.latitude,
+        longitude: body.deliveryAddress.longitude
+      } : undefined
+    })
 
-      const { latitude, longitude } = body.deliveryAddress
-      if (typeof latitude !== 'number' || typeof longitude !== 'number') {
-        return jsonError('Coordenadas de entrega inválidas', 400)
-      }
-
-      if (store.latitude && store.longitude) {
-        distanceMiles = calculateDistanceMiles(
-          Number(store.latitude),
-          Number(store.longitude),
-          latitude,
-          longitude
-        )
-
-        if (distanceMiles > MAX_DELIVERY_RADIUS_MILES) {
-          return jsonError(
-            `La dirección está a ${distanceMiles.toFixed(1)} millas de ${store.name}. El radio máximo de entrega es de ${MAX_DELIVERY_RADIUS_MILES} millas.`,
-            400
-          )
-        }
-      }
-
-      // Tarifa de entrega oficial Tacos Gavilan:
-      // $5.99 base hasta 6.0 millas. Si supera 6.0 millas, se cobra +$1.75 ($7.74).
-      deliveryFee = distanceMiles > BASE_DELIVERY_RADIUS_MILES
-        ? Number((BASE_DELIVERY_FEE + DISTANCE_SURCHARGE_FEE).toFixed(2))
-        : BASE_DELIVERY_FEE
+    // Caso 1: Toast responde con bloqueo externo de permisos (HTTP 403 / code 10010)
+    if (!pricesResult.ok && pricesResult.code === 'BLOCKED_EXTERNALLY') {
+      return jsonOk({
+        ok: false,
+        code: 'BLOCKED_EXTERNALLY',
+        message: 'Pedidos en línea nativos en preparación: Esperando activación de permisos en Toast Partner Connect para el cálculo autoritativo de precios e impuestos.',
+        detail: {
+          httpStatus: pricesResult.httpStatus,
+          toastCode: pricesResult.toastCode,
+          requiredScopes: pricesResult.requiredScopes,
+          partnerActionRequired: pricesResult.partnerActionRequired
+        },
+        estimatedReference: {
+          netSales,
+          taxRate,
+          taxAmount,
+          deliveryFee: 0,
+          tipAmount: safeTip,
+          discountAmount: 0,
+          totalAmount: Math.round((netSales + taxAmount + safeTip) * 100) / 100,
+          priceSource: 'estimated_reference',
+          isPayable: false
+        },
+        quoteId: null
+      })
     }
 
-    // 6. Propina y Descuentos
-    const safeTip = Math.max(0, Math.round(Number(tipAmount) * 100) / 100 || 0)
-    const discountAmount = 0.00 // A ser integrado con recompensas aprobadas en Hito 5
+    // Caso 2: Manejo granular de errores de Toast API
+    if (!pricesResult.ok) {
+      if (pricesResult.code === 'TOAST_TIMEOUT') {
+        return jsonError(`Tiempo de espera agotado al consultar Toast /prices: ${pricesResult.message}`, 504, 'TOAST_TIMEOUT')
+      }
+      if (pricesResult.code === 'TOAST_UNREACHABLE') {
+        return jsonError(`No fue posible conectar con los servidores de Toast POS: ${pricesResult.message}`, 503, 'NETWORK_UNAVAILABLE')
+      }
+      if (pricesResult.code === 'TOAST_AUTH_ERROR') {
+        return jsonError(`Error de autenticación con Toast API: ${pricesResult.message}`, 502, 'TOAST_AUTH_ERROR')
+      }
+      return jsonError(`Error en Toast /prices API: ${pricesResult.message}`, 502, 'TOAST_API_ERROR')
+    }
 
-    // 7. Total Final Autorizado
-    const totalAmount = Math.round((netSales + taxAmount + deliveryFee + safeTip - discountAmount) * 100) / 100
+    // Caso 3: Cálculo autoritativo exitoso de Toast /prices
+    const authoritativePrices = pricesResult.data
+    const authoritativeNetSales = authoritativePrices.subtotal
+    const authoritativeTaxAmount = authoritativePrices.taxTotal
+    const authoritativeDeliveryFee = authoritativePrices.deliveryFee
+    const authoritativeTotalAmount = authoritativePrices.total
+    const discountAmount = authoritativePrices.discountTotal
 
-    // 8. Computar hash canónico del carrito y generar expiración (TTL: 10 minutos)
+    // 6. Computar hash canónico del carrito y generar expiración (TTL: 10 minutos)
     const cartHash = computeCartHash({
       storeId,
       channel,
@@ -284,7 +443,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const quoteId = crypto.randomUUID()
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString()
 
-    // 9. Extraer usuario autenticado si existe sesión
+    // 7. Extraer usuario autenticado si existe sesión
     let userId: string | null = null
     try {
       const auth = await getAuthUser(request)
@@ -315,7 +474,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       // Usuario invitado sin token Bearer
     }
 
-    // 10. Persistir la cotización autoritativa en public.app_quotes
+    // 8. Persistir la cotización autoritativa en public.app_quotes con price_source = 'toast_prices'
     const { error: quoteInsertErr } = await supabaseAdmin.from('app_quotes').insert({
       id: quoteId,
       user_id: userId,
@@ -323,16 +482,16 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       channel,
       pickup_method: body.pickupSubtype ? body.pickupSubtype.toLowerCase() : 'in_store',
       cart_hash: cartHash,
-      subtotal: netSales,
+      subtotal: authoritativeNetSales,
       discount_amount: discountAmount,
       tax_rate: taxRate,
-      tax_amount: taxAmount,
-      delivery_fee: deliveryFee,
+      tax_amount: authoritativeTaxAmount,
+      delivery_fee: authoritativeDeliveryFee,
       tip_amount: safeTip,
-      total_amount: totalAmount,
+      total_amount: authoritativeTotalAmount,
       currency: 'USD',
-      price_source: 'app_menu_cache',
-      price_version: 'v1',
+      price_source: 'toast_prices',
+      price_version: 'v2',
       items_json: items,
       delivery_address: channel === 'DELIVERY' ? body.deliveryAddress : null,
       status: 'OPEN',
@@ -344,27 +503,24 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return jsonError('Error al generar la cotización autoritativa', 500)
     }
 
-    const paymentGatewayAvailable = !!process.env.STRIPE_SECRET_KEY
+    const paymentGatewayAvailable = false // Deshabilitado hasta aprobación de Toast Credit Cards
 
     const quoteData = {
+      ok: true,
       quoteId,
       cartHash,
       expiresAt,
       paymentGatewayAvailable,
       financials: {
-        netSales,
+        netSales: authoritativeNetSales,
         taxRate,
-        taxAmount,
-        deliveryFee,
+        taxAmount: authoritativeTaxAmount,
+        deliveryFee: authoritativeDeliveryFee,
         tipAmount: safeTip,
         discountAmount,
-        totalAmount,
+        totalAmount: authoritativeTotalAmount,
       },
-      deliveryDetails: channel === 'DELIVERY' ? {
-        isDeliverable,
-        distanceMiles: Math.round(distanceMiles * 10) / 10,
-        estimatedDeliveryMinutes: Math.round(25 + distanceMiles * 4),
-      } : undefined
+      priceSource: 'toast_prices'
     }
 
     return jsonOk({

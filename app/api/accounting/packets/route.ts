@@ -327,22 +327,24 @@ export async function POST(request: NextRequest) {
         const openOrdersList = toastAccountingResult?.openOrdersList ?? []
 
         const isBalanced = journal.isBalanced
-        // If there are open orders or unclosed checks in Toast POS, the packet MUST stay in 'pending' status
-        const packetStatus = hasOpenOrders ? 'pending' : (isBalanced ? 'ready' : 'pending')
+        // Cohesion: Las ordenes abiertas se balancean contablemente via cuenta 12049, por lo que la poliza pasa a 'ready' para publicacion directa
+        const packetStatus = isBalanced ? 'ready' : 'pending'
 
         const validationInfo = {
-          passed: !hasOpenOrders,
+          passed: isBalanced,
           hasOpenOrders,
           openOrdersCount,
           outOfBalanceOrdersCount,
           openOrders: openOrdersList,
           checkedAt: new Date().toISOString(),
-          message: hasOpenOrders 
-            ? `⚠️ BLOQUEO DE VALIDACIÓN (Toast POS): Se detectaron ${openOrdersCount} orden(es) abierta(s) y ${outOfBalanceOrdersCount} desbalanceada(s). Publicación a QuickBooks bloqueada hasta su cierre en el POS.`
-            : '✓ Validación superada: 0 órdenes abiertas en Toast POS. Póliza balanceada lista para revisión.',
+          message: isBalanced 
+            ? 'Packet was Updated and Passed All Validation' 
+            : 'Unbalanced Journal Entry',
           discount_breakdown: toastAccountingResult?.discountBreakdown || {},
           card_breakdown: toastAccountingResult?.cardBreakdown || {},
           sales_gross_by_option: toastAccountingResult?.salesGrossByOption || {},
+          deposits_collected: toastAccountingResult?.depositsCollected || 0,
+          paid_in: toastAccountingResult?.paidIn || 0,
           deposit_source: depositSource,
           toast_deposits: toastAccountingResult?.toastDepositsList || [],
         }

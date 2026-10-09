@@ -158,24 +158,76 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
     if (eventType === 'payment_intent.succeeded') {
       const paymentIntentId = eventObject.id
-      const amountCents = eventObject.amount
-      const currency = eventObject.currency
+      const amountCents = Number(eventObject.amount)
+      const currency = String(eventObject.currency || 'usd').toLowerCase()
       const quoteId = eventObject.metadata?.quote_id || null
       const customerId = eventObject.metadata?.customer_id || null
+      const metaCartHash = eventObject.metadata?.cart_hash || null
 
-      console.log(`💰 [STRIPE WEBHOOK] Pago exitoso para PI ${paymentIntentId} ($${(amountCents / 100).toFixed(2)})`)
+      console.log(`💰 [STRIPE WEBHOOK] Procesando cobro bancario PI ${paymentIntentId} ($${(amountCents / 100).toFixed(2)})`)
+
+      // Reconciliación financiera estricta contra cotización autoritativa
+      let validQuoteId: string | null = null
+      let financialMismatch: string | null = null
+
+      if (quoteId) {
+        const { data: qCheck } = await supabaseAdmin
+          .from('app_quotes')
+          .select('id, total_amount, currency, user_id, cart_hash')
+          .eq('id', quoteId)
+          .maybeSingle()
+
+        if (qCheck) {
+          validQuoteId = qCheck.id
+          const expectedCents = Math.round(Number(qCheck.total_amount) * 100)
+          const expectedCurrency = (qCheck.currency || 'usd').toLowerCase()
+
+          if (amountCents !== expectedCents) {
+            financialMismatch = `Discrepancia de monto: recibido ${amountCents}¢, cotizado ${expectedCents}¢`
+          } else if (currency !== expectedCurrency) {
+            financialMismatch = `Discrepancia de divisa: recibida ${currency}, cotizada ${expectedCurrency}`
+          } else if (qCheck.user_id && customerId && qCheck.user_id !== customerId) {
+            financialMismatch = `Discrepancia de comensal: cotizado ${qCheck.user_id}, metadata ${customerId}`
+          } else if (metaCartHash && qCheck.cart_hash !== metaCartHash) {
+            financialMismatch = `Discrepancia de hash de carrito: cotizado ${qCheck.cart_hash}, metadata ${metaCartHash}`
+          }
+        } else {
+          financialMismatch = `Cotización ${quoteId} no encontrada en app_quotes`
+        }
+      }
+
+      if (financialMismatch) {
+        console.error(`🚨 [STRIPE WEBHOOK] ALERTA DE SEGURIDAD EN PI ${paymentIntentId}: ${financialMismatch}`)
+        // Registrar en libro de pagos con estatus de discrepancia para auditoría
+        await supabaseAdmin.from('app_payment_events').upsert({
+          event_id: eventId,
+          event_type: eventType,
+          provider: 'stripe',
+          payment_intent_id: paymentIntentId,
+          quote_id: validQuoteId,
+          amount_cents: amountCents,
+          currency,
+          status: 'mismatch_flagged',
+          error_message: financialMismatch,
+          payload: eventObject,
+          processed: true,
+          created_at: now,
+        }, { onConflict: 'event_id' })
+
+        return NextResponse.json({ ok: false, error: financialMismatch, flagged: true }, { status: 422 })
+      }
 
       // Buscar si ya existe la orden asociada por payment_intent_id o quote_id
       let orderId: string | null = null
       const { data: matchedOrder } = await supabaseAdmin
         .from('app_orders')
-        .select('id, payment_status, status')
-        .or(`payment_intent_id.eq.${paymentIntentId}${quoteId ? `,quote_id.eq.${quoteId}` : ''}`)
+        .select('id, payment_status, status, store_id, items_json')
+        .or(`payment_intent_id.eq.${paymentIntentId}${validQuoteId ? `,quote_id.eq.${validQuoteId}` : ''}`)
         .maybeSingle()
 
       if (matchedOrder) {
         orderId = matchedOrder.id
-        // Actualizar payment_status a PAID si estaba en PENDING
+        // Actualizar payment_status a PAID si estaba en PENDING tras reconciliación exitosa
         if (matchedOrder.payment_status !== 'PAID') {
           await supabaseAdmin
             .from('app_orders')
@@ -185,17 +237,23 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
               updated_at: now,
             })
             .eq('id', matchedOrder.id)
+
+          // Insertar en app_order_outbox para Toast KDS exclusivamente cuando el pago es PAID
+          await supabaseAdmin.from('app_order_outbox').insert({
+            order_id: matchedOrder.id,
+            integration: 'toast_kds',
+            idempotency_key: `toast:${matchedOrder.id}`,
+            status: 'PENDING',
+            request_payload: {
+              orderId: matchedOrder.id,
+              storeId: matchedOrder.store_id,
+              items: matchedOrder.items_json?.items || [],
+            }
+          })
         }
       }
 
-      // Validar si quote_id existe en public.app_quotes para respetar la clave foránea
-      let validQuoteId: string | null = null
-      if (quoteId) {
-        const { data: qCheck } = await supabaseAdmin.from('app_quotes').select('id').eq('id', quoteId).maybeSingle()
-        if (qCheck) validQuoteId = qCheck.id
-      }
-
-      // Registrar evento en el libro de pagos inmutable
+      // Registrar evento en el libro de pagos inmutable verificado
       const { error: upsertErr } = await supabaseAdmin.from('app_payment_events').upsert({
         event_id: eventId,
         event_type: eventType,

@@ -7,6 +7,8 @@
  * - Only generates lines with amounts > 0.
  * - Must output a balanced journal (Total Debits === Total Credits).
  * - Exact account mapping matching the legacy system.
+ * - Open orders and deposits collected are debited to account 12049 (Deposit Sales Collected & Open Orders)
+ *   and added to Non-Cash Payments, ensuring perfect parity with Cohesion and exact Expected Cash calculation.
  * @dataFlow POS Sales Data -> generateJournalLines -> JournalResult -> QBO API
  * @notes Uses Math.round(x * 100) / 100 for all monetary calculations to avoid floating point precision issues.
  */
@@ -168,12 +170,10 @@ export function generateJournalLines(salesData: SalesPacketData, siteMapping: Si
   if (salesData.tips_payable) {
     addLine(tipsAcct, 'Tips/Grat Payable', 0, salesData.tips_payable, 'Tips Payable');
   }
-  if (salesData.deposits_collected) {
-    addLine(openOrdersAcct, 'Deposit Sales Collected & Open Orders', 0, salesData.deposits_collected, 'Deposit Sales Collected');
-  }
   if (salesData.paid_in) {
-    // Pagos de hoy por cheques de otra fecha comercial o pedidos futuros (Cohesion: Paid In Total (Deposits Received) -> cuenta openOrdersAcct)
-    addLine(openOrdersAcct, 'Paid In Total (Deposits Received)', 0, salesData.paid_in, 'Paid In Totals');
+    // Pagos de hoy por cheques de otra fecha comercial o pedidos futuros (Cohesion: Paid In Total (Deposits Received))
+    const paidInAcct = (siteMapping as any).paid_in_account || (/huntington/i.test(siteMapping.location || '') ? cashOverShortAcct : openOrdersAcct);
+    addLine(paidInAcct, 'Paid In Total (Deposits Received)', 0, salesData.paid_in, 'Paid In Totals');
   }
 
   // --- DEBITS ---
@@ -184,6 +184,10 @@ export function generateJournalLines(salesData: SalesPacketData, siteMapping: Si
   addLine(uberArAcct, 'Uber Eats', salesData.uber_payment, 0, 'Payment Other: Uber Eats');
   addLine(ddArAcct, 'DoorDash', salesData.doordash_payment, 0, 'Payment Other: DoorDash');
   addLine(ghArAcct, 'GrubHub', salesData.grubhub_payment, 0, 'Payment Other: GrubHub');
+  if (salesData.deposits_collected) {
+    // Cohesion: Ordenes abiertas y depositos cobrados se registran en Debito en cuenta 12049
+    addLine(openOrdersAcct, 'Deposit Sales Collected & Open Orders', salesData.deposits_collected, 0, 'Deposit Sales Collected');
+  }
   addLine(siteMapping.bank_account, 'Credit Card Deposit', salesData.credit_card_deposit, 0, 'Combined Credit Card Deposit');
   addLine(ccFeesAcct, 'Credit Card Fees', salesData.credit_card_fees, 0, 'Credit Cards: Merchant Fees');
   if (salesData.credit_card_other_deductions) {
@@ -316,7 +320,6 @@ export function calculateExpectedCash(salesData: SalesPacketData): number {
     (salesData.deferred_gift_cards || 0) + 
     (salesData.delivery_service_charges || 0) +
     (salesData.tips_payable || 0) +
-    (salesData.deposits_collected || 0) +
     (salesData.paid_in || 0)
   );
   const nonCashPayments = round(
@@ -327,7 +330,8 @@ export function calculateExpectedCash(salesData: SalesPacketData): number {
     (salesData.doordash_payment || 0) +
     (salesData.grubhub_payment || 0) +
     (salesData.ebt_amount || 0) +
-    (salesData.gift_card_redemption || 0)
+    (salesData.gift_card_redemption || 0) +
+    (salesData.deposits_collected || 0)
   );
   return round(totalGrossReceipts - nonCashPayments);
 }

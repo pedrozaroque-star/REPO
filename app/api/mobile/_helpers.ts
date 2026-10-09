@@ -105,10 +105,21 @@ export function jsonOk<T extends Record<string, unknown>>(data: T, status = 200)
 
 /**
  * Crea una respuesta JSON de error con headers CORS incluidos.
+ * Soporta opcionalmente un código estructurado de error (ej: VALIDATION_ERROR, TOAST_SCOPE_BLOCKED).
  */
-export function jsonError(message: string, status = 400): NextResponse {
+export function jsonError(
+  message: string,
+  status = 400,
+  code?: string,
+  extra?: Record<string, unknown>
+): NextResponse {
   return NextResponse.json(
-    { ok: false, error: message },
+    {
+      ok: false,
+      error: message,
+      ...(code ? { code } : {}),
+      ...(extra || {})
+    },
     { status, headers: corsHeaders() }
   )
 }

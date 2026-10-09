@@ -14,7 +14,7 @@
  * @notes Resolves historical 22P02 PostgresError caused by string slugs; populates ~216 verified items per store.
  */
 
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 
 export const dynamic = 'force-dynamic'
@@ -46,9 +46,19 @@ interface MenuCacheRow {
   last_synced: string
 }
 
-export async function GET(): Promise<NextResponse> {
+export async function GET(request: NextRequest): Promise<NextResponse> {
   const startTime = Date.now()
   const now = new Date().toISOString()
+
+  // 0. Protección obligatoria de autenticación para endpoints CRON
+  const authHeader = request.headers.get('authorization')
+  const cronSecret = process.env.CRON_SECRET
+  const { searchParams } = new URL(request.url)
+  const queryKey = searchParams.get('key') || searchParams.get('secret')
+
+  if (cronSecret && authHeader !== `Bearer ${cronSecret}` && queryKey !== cronSecret) {
+    return NextResponse.json({ ok: false, error: 'No autorizado para sincronizar el menú de la app móvil.' }, { status: 401 })
+  }
 
   try {
     console.log('🔄 [MOBILE MENU SYNC] Starting mobile menu synchronization from Toast...')

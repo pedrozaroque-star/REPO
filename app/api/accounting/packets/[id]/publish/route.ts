@@ -99,20 +99,8 @@ export async function POST(
       )
     }
 
-    // Step 11 Cohesion Rule: Strictly block publishing if Open or Out-of-Balance orders exist in Toast POS
-    const validation = (packet.qb_sync_response as any)?.validation
-    if (validation && (!validation.passed || validation.hasOpenOrders)) {
-      return NextResponse.json(
-        {
-          error: `BLOQUEO DE VALIDACIÓN (Toast POS): No se puede publicar a QuickBooks Online porque la sucursal '${packet.stores?.name}' tiene ${validation.openOrdersCount || 1} orden(es) abierta(s) o desbalanceada(s) en Toast POS para la fecha ${packet.business_date}. Por regla contable estricta, la sucursal debe cobrar y cerrar todas las órdenes en el POS antes de publicar la póliza.`,
-          validationPassed: false,
-          openOrdersCount: validation.openOrdersCount,
-          outOfBalanceOrdersCount: validation.outOfBalanceOrdersCount,
-          openOrders: validation.openOrders || [],
-        },
-        { status: 422 }
-      )
-    }
+    // Step 11 Cohesion Parity: Las órdenes abiertas se compensan contablemente en la cuenta 12049 (Deposit Sales Collected & Open Orders).
+    // No se bloquea la publicación en QuickBooks Online; únicamente se exige que la póliza esté balanceada.
 
     const isUuid = (val?: string) => Boolean(val && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val))
 

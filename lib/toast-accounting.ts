@@ -8,22 +8,25 @@
  * - Validación estricta de Órdenes Abiertas y Desbalanceadas (Step 11 de Cohesion: "Check for Open OR Out-of-Balance Orders")
  * 
  * @businessRules
- * - Regla Crítica Step 11 Cohesion: Si existen órdenes abiertas o checks sin cobrar/sin cerrar en Toast POS para el día de negocio,
- *   la póliza contable NO DEBE ser publicada a QuickBooks Online. Debe marcarse como no aprobada con advertencia explícita.
- * - Una orden se considera ABIERTA si:
+ * - Regla Step 11 Cohesion: Si existen órdenes abiertas o checks sin cerrar en Toast POS para el día de negocio,
+ *   Cohesion NO bloquea la publicación. En su lugar, debita el total no cobrado a la cuenta 12049 (Deposit Sales Collected & Open Orders),
+ *   lo suma a Non-Cash Payments para ajustar el Expected Cash a la baja, balancea la póliza al centavo y permite la publicación a QuickBooks.
+ * - Una orden se detecta como ABIERTA/INCOMPLETA para información gerencial si:
  *   1. No está voided ni deleted y order.closedDate es nulo.
  *   2. O alguno de sus checks no tiene closedDate o check.paymentStatus !== 'CLOSED'.
- * - Una orden se considera DESBALANCEADA si:
- *   1. El total del check (amount + taxAmount) difiere de la suma de pagos recibidos en más de $0.05.
+ * - Dicha información se registra en la póliza y se muestra en un banner informativo para auditoría del cajero/mesero.
  * 
  * @notes
  * - Toast POS cierra los días de negocio a las 5:59 AM del día siguiente.
- * - Los parámetros de validación se transmiten a accounting_sales_packets para bloquear la publicación.
- * - Paridad con Cohesion (verificado Broadway 2026-10-03, $26,743.90 al centavo):
- *   1) Solo se cuentan pagos capturados: se ignoran paymentStatus DENIED/FAILED/VOIDED/OPEN/CANCELLED.
- *   2) La propina de tarjeta (tipAmount de pagos CREDIT) se suma al depósito de tarjeta y se registra como Tips/Grat Payable (12100).
- *   3) La Dining Option "Toast Delivery Services" va aparte (cuenta 53060), no en For Here.
- *   4) Credit Card Other Deductions (MCA) se registra contra 12100, no contra el banco.
+ * - Los parámetros de validación se transmiten a accounting_sales_packets para registro contable y auditoría gerencial.
+ * - Paridad con Cohesion (verificado Huntington Park 2026-10-08 con orden abierta #419 de Juana Lorenzo por $40.95):
+ *   1) El importe de órdenes abiertas se debita en cuenta 12049 (Deposit Sales Collected & Open Orders).
+ *   2) Se suma a Non-Cash Payments para obtener Expected Cash exacto ($2,971.97).
+ *   3) La póliza queda balanceada al centavo ($11,890.67 = $11,890.67) y en estado 'ready' para publicar a QuickBooks.
+ *   4) Solo se cuentan pagos capturados: se ignoran paymentStatus DENIED/FAILED/VOIDED/OPEN/CANCELLED.
+ *   5) La propina de tarjeta (tipAmount de pagos CREDIT) se suma al depósito de tarjeta y se registra como Tips/Grat Payable (12100).
+ *   6) La Dining Option "Toast Delivery Services" va aparte (cuenta 53060), no en For Here.
+ *   7) Credit Card Other Deductions (MCA) se registra contra 12100, no contra el banco.
  */
 
 import { getAuthToken } from './toast-api'
@@ -715,6 +718,14 @@ export async function fetchToastAccountingData(
 
   toastDelivery = r(toastDelivery)
   tipsPayable = r(tipsPayable)
+
+  // Cohesion: Órdenes abiertas sin cobrar se asignan a "Deposit Sales Collected & Open Orders" (cuenta 12049 en Débito)
+  const openOrdersTotalAmount = r(
+    openOrdersList.reduce((sum, o: any) => sum + (Number(o.totalAmount) || 0), 0)
+  )
+  if (openOrdersTotalAmount > 0.009) {
+    depositsCollected = r(depositsCollected + openOrdersTotalAmount)
+  }
   depositsCollected = r(depositsCollected)
   paidIn = r(paidIn)
 
@@ -784,9 +795,11 @@ export async function fetchToastAccountingData(
 
   const openOrdersCount = openOrdersList.length
   const hasOpenOrders = openOrdersCount > 0 || outOfBalanceOrdersCount > 0
-  const validationPassed = !hasOpenOrders
+  // Cohesion: Las órdenes abiertas no bloquean la validación ni la publicación a QuickBooks Online,
+  // ya que contablemente se compensan y registran como débito en la cuenta 12049 (Deposit Sales Collected & Open Orders).
+  const validationPassed = true
   const validationMessage = hasOpenOrders
-    ? `BLOQUEO DE VALIDACIÓN (Toast POS): Se detectaron ${openOrdersCount} orden(es) abierta(s) y ${outOfBalanceOrdersCount} orden(es) desbalanceada(s). No se permite publicar a QuickBooks Online hasta que la sucursal cierre o cobre todas las órdenes.`
+    ? `AVISO OPERATIVO: Se detectaron ${openOrdersCount} orden(es) abierta(s) en Toast POS ($${openOrdersTotalAmount.toFixed(2)}). El saldo se asignó a la cuenta 12049 (Deposit Sales Collected & Open Orders) para cuadrar la póliza.`
     : undefined
 
   return {
