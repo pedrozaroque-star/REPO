@@ -28,6 +28,7 @@
 import React, { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { ArrowLeft, Maximize2, Minimize2 } from 'lucide-react'
+import { motion, AnimatePresence } from 'framer-motion'
 import { useLanguage } from '@/lib/i18n'
 
 export default function MobileAppPage() {
@@ -35,6 +36,7 @@ export default function MobileAppPage() {
   const { t, language } = useLanguage()
   const [isTegHost, setIsTegHost] = useState(false)
   const [isFullscreen, setIsFullscreen] = useState(false)
+  const [showSplash, setShowSplash] = useState(true)
 
   // Detectar si se está ejecutando desde localhost, IP local o Vercel
   useEffect(() => {
@@ -50,6 +52,14 @@ export default function MobileAppPage() {
         port === '3001'
       setIsTegHost(isDevOrVercel)
     }
+  }, [])
+
+  // Temporizador idéntico a TEG System login (4.5s) con soporte de tap instantáneo
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setShowSplash(false)
+    }, 4500)
+    return () => clearTimeout(timer)
   }, [])
 
   // Salir hacia el panel administrativo
@@ -86,9 +96,82 @@ export default function MobileAppPage() {
 
   return (
     <div className="fixed inset-0 w-full h-full bg-[#50050a] overflow-hidden flex items-center justify-center select-none">
+      {/* 🚀 SPLASH OFICIAL 1:1 EXACTAMENTE IDÉNTICO AL INICIO DE SESIÓN DE TEG SYSTEM */}
+      <AnimatePresence>
+        {showSplash && (
+          <motion.div
+            key="teg-official-splash"
+            initial={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.45 }}
+            onClick={() => setShowSplash(false)}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-[#50050a] overflow-hidden cursor-pointer"
+          >
+            {/* Textura sutil idéntica a TEG System */}
+            <div className="absolute inset-0 opacity-10 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] pointer-events-none" />
+
+            <div className="relative z-10 flex flex-col items-center">
+              {/* Main Logo Container - Drop In Animation (1:1 login) */}
+              <motion.div
+                initial={{ y: -800, opacity: 0, rotateY: 0 }}
+                animate={{
+                  y: 0,
+                  opacity: 1,
+                  rotateY: 2520,
+                  transition: {
+                    type: 'spring',
+                    damping: 10,
+                    stiffness: 20,
+                    duration: 4.5,
+                  },
+                }}
+                className="w-48 h-48 rounded-full bg-gradient-to-br from-[#fdc82f] to-[#e69b00] p-1.5 shadow-[0_0_60px_rgba(253,200,47,0.4)] relative"
+              >
+                <div className="w-full h-full rounded-full bg-white flex items-center justify-center overflow-hidden border-4 border-[#fffbeb]">
+                  <img src="/logo.png" alt="Tacos Gavilan" className="w-[85%] h-[85%] object-contain" />
+                </div>
+
+                {/* Ripple Effect (Child of the logo to follow position if needed) */}
+                <motion.div
+                  className="absolute inset-0 rounded-full border border-white/50"
+                  initial={{ scale: 0, opacity: 0.8 }}
+                  animate={{
+                    scale: 3,
+                    opacity: 0,
+                    transition: {
+                      duration: 2,
+                      repeat: Infinity,
+                      delay: 1.2,
+                      ease: 'easeOut',
+                    },
+                  }}
+                />
+              </motion.div>
+
+              {/* Slogan Container con eslogan oficial ¡Ya está! */}
+              <motion.div
+                initial={{ opacity: 0, scale: 0.8 }}
+                animate={{
+                  opacity: 1,
+                  scale: 1,
+                  transition: { delay: 1, duration: 0.5 },
+                }}
+                className="mt-8 w-64 h-24 flex items-center justify-center"
+              >
+                <img
+                  src="/ya esta.png"
+                  alt="¡Ya está!"
+                  className="w-full h-full object-contain drop-shadow-[0_0_15px_rgba(253,200,47,0.5)]"
+                />
+              </motion.div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Opción flotante para salir al Sistema TEG (temporal para localhost y Vercel) */}
       {isTegHost && (
-        <div className="fixed bottom-20 right-3 sm:bottom-auto sm:top-3 sm:right-3 z-50 flex items-center gap-2 select-none">
+        <div className="fixed bottom-20 right-3 sm:bottom-auto sm:top-3 sm:right-3 z-40 flex items-center gap-2 select-none">
           {/* Botón opcional de pantalla completa en escritorio */}
           <button
             onClick={toggleFullscreen}
@@ -115,9 +198,9 @@ export default function MobileAppPage() {
         </div>
       )}
 
-      {/* Visor de la App Móvil 1:1 */}
+      {/* Visor de la App Móvil 1:1 precargado en segundo plano sin doble splash */}
       <iframe
-        src="/app/index.html"
+        src="/app/index.html?nosplash=1"
         className="w-full h-full border-0 select-none"
         title="Tacos Gavilan App"
         allow="geolocation; camera; microphone"
@@ -125,3 +208,4 @@ export default function MobileAppPage() {
     </div>
   )
 }
+
