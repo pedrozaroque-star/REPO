@@ -122,6 +122,23 @@ export async function PATCH(
         )
       }
 
+      // Guard: No permitir cambiar a ready o reviewed si el depósito en Toast está pendiente
+      if (newStatus === 'ready' || newStatus === 'reviewed') {
+        const cashDeposit = Number(packet.cash_deposit || 0)
+        const expectedCash = Number(packet.expected_cash || 0)
+        if (cashDeposit === 0 && expectedCash > 0) {
+          return NextResponse.json(
+            {
+              error: 'No se puede cambiar el estado a Listo o Revisado: El depósito de efectivo aún no ha sido registrado en Toast POS por la sucursal.',
+              code: 'PENDING_TOAST_DEPOSIT',
+              expected_cash: expectedCash,
+              cash_deposit: cashDeposit,
+            },
+            { status: 422 }
+          )
+        }
+      }
+
       updatePayload.status = newStatus
 
       // Set review metadata

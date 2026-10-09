@@ -92,6 +92,22 @@ export async function POST(
       )
     }
 
+    // Toast Cash Management Parity: Si el depósito de efectivo aún no ha sido registrado en Toast POS por la sucursal,
+    // se bloquea estrictamente la publicación para evitar enviar $0 al banco y un faltante artificial a 51050 Cash Over/Short.
+    const cashDeposit = Number(packet.cash_deposit || 0)
+    const expectedCash = Number(packet.expected_cash || 0)
+    if (cashDeposit === 0 && expectedCash > 0) {
+      return NextResponse.json(
+        {
+          error: 'Publicación bloqueada: El depósito de efectivo aún no ha sido registrado en Toast POS por la sucursal.',
+          code: 'PENDING_TOAST_DEPOSIT',
+          expected_cash: expectedCash,
+          cash_deposit: cashDeposit,
+        },
+        { status: 422 }
+      )
+    }
+
     if (!PUBLISHABLE_STATUSES.includes(packet.status)) {
       return NextResponse.json(
         { error: `Packet status '${packet.status}' is not publishable. Must be: ${PUBLISHABLE_STATUSES.join(', ')}` },

@@ -182,18 +182,6 @@ export async function GET(request: Request) {
 
           // Step 11 Open Orders Rule
           const hasOpenOrders = toastData.hasOpenOrders || (toastData.openOrdersCount > 0)
-          const isBalanced = true // Journal is balanced by generateJournalLines via account 12049
-
-          // Status: balanced -> ready (ready for Raquel to 1-click publish!)
-          const packetStatus = isBalanced ? 'ready' : 'pending'
-
-          if (isYesterday) {
-            stats.yesterdayGenerated++
-            if (packetStatus === 'ready') stats.yesterdayCleanReady++
-            else stats.yesterdayBlockedStep11++
-          } else if (existingPacket && existingPacket.status !== 'published') {
-            stats.olderPacketsRecalculated++
-          }
 
           const siteConfig: SiteMappingConfig = {
             location: mapping.qb_location || storeName,
@@ -269,14 +257,33 @@ export async function GET(request: Request) {
           const journal = generateJournalLines(salesPacketData, siteConfig)
           const docNumber = formatDocNumber(storeName.replace(/^Tacos Gavilan\s+/i, '').trim(), targetDate)
 
+          const isBalanced = journal.isBalanced
+          // Toast Cash Management Parity: Si el depósito de efectivo aún no ha sido registrado en Toast POS (finalDeposit === 0 y expectedCash > 0),
+          // la póliza se mantiene en 'pending' para bloquear la publicación a QuickBooks hasta que la sucursal registre su depósito.
+          const isDepositPending = finalDeposit === 0 && expectedCash > 0
+          const packetStatus = (isBalanced && !isDepositPending) ? 'ready' : 'pending'
+
+          if (isYesterday) {
+            stats.yesterdayGenerated++
+            if (packetStatus === 'ready') stats.yesterdayCleanReady++
+            else stats.yesterdayBlockedStep11++
+          } else if (existingPacket && existingPacket.status !== 'published') {
+            stats.olderPacketsRecalculated++
+          }
+
           const validationInfo = {
-            passed: isBalanced,
+            passed: isBalanced && !isDepositPending,
+            isDepositPending,
             hasOpenOrders,
             openOrdersCount: toastData.openOrdersCount || 0,
             outOfBalanceOrdersCount: toastData.outOfBalanceOrdersCount || 0,
             openOrders: toastData.openOrdersList || [],
             checkedAt: new Date().toISOString(),
-            message: isBalanced ? 'Packet was Updated and Passed All Validation' : 'Unbalanced Journal Entry'
+            message: !isBalanced 
+              ? 'Unbalanced Journal Entry' 
+              : isDepositPending
+                ? 'Depósito de efectivo pendiente en Toast POS'
+                : 'Packet was Updated and Passed All Validation'
           }
 
           const totalDiscounts = toastData.discountsTotal ?? 0

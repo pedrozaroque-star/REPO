@@ -54,6 +54,18 @@ export async function POST(request: NextRequest) {
 
     for (const packet of packets) {
       const storeName = (packet as any).stores?.name || `Store ${packet.store_id}`
+      const cashDeposit = Number(packet.cash_deposit || 0)
+      const expectedCash = Number(packet.expected_cash || 0)
+      if (cashDeposit === 0 && expectedCash > 0) {
+        results.push({
+          store: storeName,
+          id: packet.id,
+          success: false,
+          error: 'Publicación omitida: Depósito de efectivo pendiente en Toast POS por la sucursal.',
+        })
+        continue
+      }
+
       try {
         const res = await fetch(`${baseUrl}/api/accounting/packets/${packet.id}/publish`, {
           method: 'POST',

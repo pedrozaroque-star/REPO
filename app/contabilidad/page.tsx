@@ -38,6 +38,8 @@ interface Packet {
   business_date: string
   status: 'pending' | 'ready' | 'reviewed' | 'published' | 'rejected'
   net_sales: number
+  expected_cash?: number
+  cash_deposit?: number
   notes?: string
   qb_sync_response?: any
 }
@@ -375,6 +377,7 @@ export default function AccountingPage() {
                         const packet = getPacketForCell(store.id, dateStr)
                         const postPublishDiscrepancy = (packet as any)?.qb_sync_response?.post_publish_discrepancy
                         const hasDiscrepancy = Boolean(postPublishDiscrepancy?.hasDiscrepancy)
+                        const isDepositPending = Boolean(packet && Number(packet.cash_deposit || 0) === 0 && Number(packet.expected_cash || 0) > 0 && packet.status !== 'published')
                         const displayStatus = packet?.status || 'pending'
 
                         return (
@@ -385,7 +388,9 @@ export default function AccountingPage() {
                                   className={`inline-flex flex-col items-center justify-center px-3 py-1.5 text-xs rounded-xl cursor-pointer transition-all hover:scale-105 relative ${STATUS_STYLES[displayStatus] || STATUS_STYLES.pending}`}
                                   title={hasDiscrepancy 
                                     ? `⚠️ ${t('accounting.late_refund_detected') || 'Reembolso tardío detectado en Toast POS: Dif'} $${postPublishDiscrepancy.diffNet}`
-                                    : `${t('accounting.col_net_sales') || 'Venta Neta'}: ${formatCurrency(packet.net_sales || 0)}`}
+                                    : isDepositPending
+                                      ? `⚠️ ${t('accounting.blocked_pending_deposit_tooltip') || 'Bloqueado: Depósito de efectivo pendiente en Toast POS'} (-${formatCurrency(packet.expected_cash || 0)})`
+                                      : `${t('accounting.col_net_sales') || 'Venta Neta'}: ${formatCurrency(packet.net_sales || 0)}`}
                                 >
                                   <div className="flex items-center space-x-1 font-extrabold tracking-wide">
                                     {displayStatus === 'ready' && <Clock className="w-3.5 h-3.5" />}
@@ -400,6 +405,11 @@ export default function AccountingPage() {
                                   <span className="text-[10px] font-mono mt-0.5 opacity-90">
                                     {formatCurrency(packet.net_sales || 0)}
                                   </span>
+                                  {isDepositPending && (
+                                    <span className="text-[9px] font-black text-amber-600 dark:text-amber-400 mt-0.5 tracking-tight">
+                                      ⚠️ {t('accounting.status_pending_deposit') || 'Depósito Pendiente'}
+                                    </span>
+                                  )}
 
                                   {/* Discrepancy indicator badge */}
                                   {hasDiscrepancy && (

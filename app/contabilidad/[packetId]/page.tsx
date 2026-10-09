@@ -363,6 +363,9 @@ export default function PacketDetailPage() {
                 <span className="bg-amber-500 text-black text-[11px] font-black px-2 py-0.5 rounded-full">
                   Faltante temporal: -{formatCurrency(packet.expected_cash)}
                 </span>
+                <span className="bg-rose-500 text-white text-[11px] font-black px-2.5 py-0.5 rounded-full flex items-center gap-1 shadow-sm">
+                  🚫 {t('accounting.badge_qb_blocked') || 'Publicación a QB Bloqueada'}
+                </span>
               </h3>
               <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed font-medium">
                 {t('accounting.alert_pending_toast_deposit_desc')}
@@ -396,8 +399,14 @@ export default function PacketDetailPage() {
           <Button 
             variant="primary" 
             onClick={handlePublish} 
-            disabled={publishing || !isBalanced || packet.status !== 'ready'} 
-            title={!isBalanced ? (t('accounting.label_unbalanced') || 'La póliza debe estar balanceada para publicar') : undefined}
+            disabled={publishing || !isBalanced || packet.status !== 'ready' || isDepositPending} 
+            title={
+              isDepositPending 
+                ? (t('accounting.blocked_pending_deposit_tooltip') || 'Bloqueado: Depósito de efectivo pendiente en Toast POS')
+                : !isBalanced 
+                  ? (t('accounting.label_unbalanced') || 'La póliza debe estar balanceada para publicar')
+                  : undefined
+            }
           >
             {publishing ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
