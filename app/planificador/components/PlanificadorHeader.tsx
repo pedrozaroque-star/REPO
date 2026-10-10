@@ -30,6 +30,7 @@ export function PlanificadorHeader({
     setCurrentDate,
     syncing,
     draftCount,
+    totalShiftsCount = 0,
     handlePublish,
     showPublishInfo,
     setShowPublishInfo,
@@ -129,19 +130,42 @@ export function PlanificadorHeader({
                         <div className="relative">
                             <button
                                 onClick={handlePublish}
-                                disabled={draftCount === 0}
+                                disabled={draftCount === 0 && totalShiftsCount === 0}
                                 onMouseEnter={() => setShowPublishInfo(true)}
                                 onMouseLeave={() => setShowPublishInfo(false)}
-                                className={`px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-bold shadow-lg transition-all flex items-center gap-1.5 sm:gap-2 
-                                ${draftCount === 0
-                                        ? 'bg-gray-300 text-gray-500 cursor-not-allowed shadow-none dark:bg-slate-700 dark:text-slate-500' // Disabled State
-                                        : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-200 dark:shadow-none' // Active State
+                                className={`px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-bold shadow-lg transition-all flex items-center gap-1.5 sm:gap-2 cursor-pointer 
+                                ${draftCount > 0
+                                        ? 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-200 dark:shadow-none animate-pulse hover:animate-none' // Active Drafts State
+                                        : totalShiftsCount > 0
+                                        ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-200 dark:shadow-none' // Re-publish State
+                                        : 'bg-gray-300 text-gray-500 cursor-not-allowed shadow-none dark:bg-slate-700 dark:text-slate-500' // Disabled (Empty)
                                     }
                             `}
+                                title={
+                                    draftCount > 0
+                                        ? `${draftCount} ${language === 'en' ? 'draft shifts pending publication' : 'turnos borrador pendientes de publicar'}`
+                                        : totalShiftsCount > 0
+                                        ? (language === 'en' ? 'Schedule is published. Click to re-notify crew.' : 'Horario publicado. Clic para re-notificar al equipo.')
+                                        : (language === 'en' ? 'No shifts to publish' : 'No hay turnos para publicar')
+                                }
                             >
-                                <Zap size={16} fill={draftCount > 0 ? "currentColor" : "none"} />
-                                <span className="hidden xs:inline">{draftCount > 0 ? t('planner.header.publish_changes') : t('planner.header.published')}</span>
-                                <span className="xs:hidden">{draftCount > 0 ? 'Publicar' : '✔'}</span>
+                                <Zap size={16} fill={draftCount > 0 || totalShiftsCount > 0 ? "currentColor" : "none"} />
+                                <span className="hidden xs:inline">
+                                    {draftCount > 0 
+                                        ? `${t('planner.header.publish_changes')} (${draftCount})` 
+                                        : totalShiftsCount > 0
+                                        ? (t('planner.header.republish') || 'Re-publicar')
+                                        : t('planner.header.published')
+                                    }
+                                </span>
+                                <span className="xs:hidden">
+                                    {draftCount > 0 
+                                        ? `Publicar (${draftCount})` 
+                                        : totalShiftsCount > 0
+                                        ? 'Re-publicar'
+                                        : '✔'
+                                    }
+                                </span>
                             </button>
                         </div>
 

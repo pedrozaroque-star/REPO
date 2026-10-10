@@ -891,7 +891,7 @@ export default function SchedulePlanner() {
 
         // Helper to format payload and calculate shift_date with America/Los_Angeles and 6:00 AM rule
         const formatShiftPayload = (s: Shift) => {
-            const payload: any = { ...s, store_id: storeGuid, status: s.status || 'draft' }
+            const payload: any = { ...s, store_id: storeGuid, status: 'draft' }
             if (typeof payload.start_time === 'object') payload.start_time = (payload.start_time as Date).toISOString()
             if (typeof payload.end_time === 'object') payload.end_time = (payload.end_time as Date).toISOString()
 
@@ -921,12 +921,22 @@ export default function SchedulePlanner() {
         if (Array.isArray(shiftData)) {
             if (shiftData.length === 0) return
 
+            // Track any reassignments from published shifts to notify the previous employee
+            shiftData.forEach(s => {
+                if (s.id) {
+                    const existing = shifts.find(prev => prev.id === s.id)
+                    if (existing && existing.status === 'published' && existing.employee_id && existing.employee_id !== s.employee_id) {
+                        setDeletedPublishedEmpIds(prev => [...new Set([...prev, existing.employee_id!])])
+                    }
+                }
+            })
+
             // 1. Generate optimistic shifts and apply to UI state
             const optimisticItems: Shift[] = shiftData.map((s, idx) => ({
                 ...s,
                 id: s.id || `temp-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 6)}`,
                 store_id: storeGuid,
-                status: s.status || 'draft'
+                status: 'draft'
             }))
 
             setShifts(prev => {
@@ -988,8 +998,9 @@ export default function SchedulePlanner() {
                                 if (sId.startsWith('temp-') && s.employee_id === row.employee_id && s.shift_date === row.shift_date) return true
                                 return false
                             })
-                            if (matchIdx >= 0) current[matchIdx] = row
-                            else current.push(row)
+                            const rowWithDraft = { ...row, status: 'draft' as const }
+                            if (matchIdx >= 0) current[matchIdx] = rowWithDraft
+                            else current.push(rowWithDraft)
                         })
                         return current
                     })
@@ -1007,6 +1018,14 @@ export default function SchedulePlanner() {
         }
 
         // SINGLE SHIFT FLOW
+        // If an already published shift changed employee, track previous employee
+        if (shiftData.id) {
+            const existing = shifts.find(prev => prev.id === shiftData.id)
+            if (existing && existing.status === 'published' && existing.employee_id && existing.employee_id !== shiftData.employee_id) {
+                setDeletedPublishedEmpIds(prev => [...new Set([...prev, existing.employee_id!])])
+            }
+        }
+
         const tempId = shiftData.id || `temp-${Date.now()}`
         const optimisticShift: Shift = { ...shiftData, id: tempId, store_id: storeGuid, status: 'draft' }
 
@@ -1024,7 +1043,7 @@ export default function SchedulePlanner() {
         }
 
         if (result.data) {
-            setShifts(prev => prev.map(s => s.id === tempId || s.id === result.data.id ? result.data : s))
+            setShifts(prev => prev.map(s => s.id === tempId || s.id === result.data.id ? { ...result.data, status: 'draft' } : s))
             toast.success(t('planner.toasts.shift_saved'))
         } else {
             toast.error(t('planner.toasts.shift_save_error'))
@@ -1459,8 +1478,10 @@ export default function SchedulePlanner() {
             }
 
             // ONLY mark shifts as published in database after notification succeeds
-            await supabase.from('shifts').update({ status: 'published' }).in('id', ids)
-            setShifts(prev => prev.map(s => ids.includes(s.id) ? { ...s, status: 'published' } : s))
+            if (ids.length > 0) {
+                await supabase.from('shifts').update({ status: 'published' }).in('id', ids)
+                setShifts(prev => prev.map(s => ids.includes(s.id) ? { ...s, status: 'published' } : s))
+            }
 
             // SAVE BUDGET SNAPSHOT
             // 🛡️ VALIDATION: Ensure projections have all 7 days before saving
@@ -1545,9 +1566,29 @@ export default function SchedulePlanner() {
         }
 
         const drafts = shifts.filter(s => s.status === 'draft')
-        if (drafts.length === 0) return toast.error(t('planner.modals.publish.no_drafts'))
-        setShiftsToPublish(drafts)
-        setIsConfirmModalOpen(true)
+
+        // 1. If there are pending drafts, publish them
+        if (drafts.length > 0) {
+            setShiftsToPublish(drafts)
+            setIsConfirmModalOpen(true)
+            return
+        }
+
+        // 2. If there are deleted published shifts, publish the changes to impacted crew
+        if (deletedPublishedEmpIds.length > 0) {
+            setShiftsToPublish([])
+            setIsConfirmModalOpen(true)
+            return
+        }
+
+        // 3. If whole week is already published, allow re-publishing to re-notify crew
+        if (shifts.length > 0) {
+            setShiftsToPublish(shifts)
+            setIsConfirmModalOpen(true)
+            return
+        }
+
+        toast.error(t('planner.modals.publish.no_drafts'))
     }
 
     const handlePrint = () => {
@@ -1592,7 +1633,10 @@ export default function SchedulePlanner() {
             const { data } = await supabase.from('shifts').insert(payload).select().single()
             if (data) setShifts(prev => [...prev, data])
         } else {
-            // Move
+            // Move: If previously published shift changed employee, track previous employee
+            if (draggedShift?.status === 'published' && draggedShift.employee_id && draggedShift.employee_id !== targetEmpId) {
+                setDeletedPublishedEmpIds(prev => [...new Set([...prev, draggedShift.employee_id!])])
+            }
             setShifts(prev => prev.map(s => s.id === draggedShift.id ? { ...s, ...payload, id: s.id } : s))
             const { data } = await supabase.from('shifts').update(payload).eq('id', draggedShift.id).select().single()
             if (data) setShifts(prev => prev.map(s => s.id === data.id ? data : s))
@@ -1686,8 +1730,20 @@ export default function SchedulePlanner() {
                     isOpen={isConfirmModalOpen}
                     onClose={() => setIsConfirmModalOpen(false)}
                     onConfirm={executePublish}
-                    title={t('planner.modals.publish.title')}
-                    message={t('planner.modals.publish.message').replace('{n}', String(shiftsToPublish.length))}
+                    title={
+                        shiftsToPublish.length > 0 && shifts.some(s => s.status === 'draft')
+                            ? t('planner.modals.publish.title')
+                            : shiftsToPublish.length === 0 && deletedPublishedEmpIds.length > 0
+                            ? (t('planner.modals.publish.deletions_title') || 'Publicar Cambios de Horario')
+                            : (t('planner.modals.publish.republish_title') || 'Re-publicar Horario')
+                    }
+                    message={
+                        shiftsToPublish.length > 0 && shifts.some(s => s.status === 'draft')
+                            ? t('planner.modals.publish.message').replace('{n}', String(shiftsToPublish.length))
+                            : shiftsToPublish.length === 0 && deletedPublishedEmpIds.length > 0
+                            ? (t('planner.modals.publish.deletions_message') || 'Se han eliminado turnos previamente publicados. ¿Deseas notificar los cambios a los empleados afectados?')
+                            : (t('planner.modals.publish.republish_message') || 'Estás a punto de re-publicar el horario semanal ({n} turnos) y re-notificar a todo el equipo.').replace('{n}', String(shifts.length))
+                    }
                     type="primary"
                     generating={isGeneratingAPI} // Reusing loading state for visuals
                 />
@@ -1725,6 +1781,7 @@ export default function SchedulePlanner() {
                 setCurrentDate={setCurrentDate}
                 syncing={syncing}
                 draftCount={shifts.filter(s => s.status === 'draft').length + deletedPublishedEmpIds.length}
+                totalShiftsCount={shifts.length}
                 handlePublish={handlePublish}
                 showPublishInfo={showPublishInfo}
                 setShowPublishInfo={setShowPublishInfo}

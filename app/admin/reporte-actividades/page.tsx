@@ -64,7 +64,7 @@ import {
     Store
 } from 'lucide-react';
 
-type MonthKey = 'septiembre' | 'agosto' | 'julio' | 'junio';
+type MonthKey = 'octubre' | 'septiembre' | 'agosto' | 'julio' | 'junio';
 type TabKey = 'actividades' | 'tareas' | 'analitica';
 type TaskFilter = 'todas' | 'completado' | 'progreso' | 'pendiente';
 
@@ -200,15 +200,16 @@ function getStoreShiftForDate(dateStr: string, monthNum: number, year = 2026): {
 
 function getMonthNumber(monthId: MonthKey): number {
     switch (monthId) {
+        case 'octubre': return 10;
         case 'septiembre': return 9;
         case 'agosto': return 8;
         case 'julio': return 7;
         case 'junio': return 6;
-        default: return 9;
+        default: return 10;
     }
 }
 
-function cleanText(text: string): string {
+function cleanText(text?: string | null): string {
     if (!text) return '';
     return text
         .replace(/[\u{1F300}-\u{1F9FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]|✓|⚡|⏳|📌|⏱️|🏖️|📊|📋|🔬|📝|📁|✅|🔴|🟡|🔵|📦|📺|✉️|●/gu, '')
@@ -222,7 +223,7 @@ function cleanText(text: string): string {
 
 function ExecutiveReportDashboard() {
     const { t, language } = useLanguage();
-    const [selectedMonth, setSelectedMonth] = useState<MonthKey>('septiembre');
+    const [selectedMonth, setSelectedMonth] = useState<MonthKey>('octubre');
     const [changelogOpen, setChangelogOpen] = useState(false);
     const [activeTab, setActiveTab] = useState<TabKey>('actividades');
     const [searchQuery, setSearchQuery] = useState('');
@@ -231,7 +232,7 @@ function ExecutiveReportDashboard() {
     const [selectedTaskCategory, setSelectedTaskCategory] = useState<string>('todas');
     const [expandedDays, setExpandedDays] = useState<Record<string, boolean>>({});
 
-    const reportData: MonthlyReportData = MONTHLY_REPORTS[selectedMonth] || MONTHLY_REPORTS.septiembre;
+    const reportData: MonthlyReportData = MONTHLY_REPORTS[selectedMonth] || MONTHLY_REPORTS.octubre;
     const monthNum = getMonthNumber(selectedMonth);
 
     // Calculate Lynwood Store Shifts summary for the month
@@ -391,7 +392,7 @@ function ExecutiveReportDashboard() {
 
                     {/* Month Switcher Bar */}
                     <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-800/80 flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
-                        {(['septiembre', 'agosto', 'julio', 'junio'] as MonthKey[]).map(key => {
+                        {(['octubre', 'septiembre', 'agosto', 'julio', 'junio'] as MonthKey[]).map(key => {
                             const data = MONTHLY_REPORTS[key];
                             const isActive = selectedMonth === key;
                             return (
@@ -973,7 +974,7 @@ function ExecutiveReportDashboard() {
                                         return (
                                             <div key={effIdx} className="space-y-1.5">
                                                 <div className="flex items-center justify-between text-xs font-bold">
-                                                    <span className="text-slate-800 dark:text-slate-200">{cleanText(eff.module)}</span>
+                                                    <span className="text-slate-800 dark:text-slate-200">{cleanText(eff.module || eff.name || '')}</span>
                                                     <span className="font-mono font-bold text-slate-600 dark:text-slate-300">
                                                         {eff.hours.toFixed(1)} hrs ({percentage.toFixed(1)}%)
                                                     </span>

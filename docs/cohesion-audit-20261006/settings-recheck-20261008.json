@@ -1,0 +1,32 @@
+{
+  "date": "2026-10-08T07:09:06.840Z",
+  "result": "PASS contract fixed; nine settings still absent from packet mapping",
+  "saved": {
+    "updated_at": "2026-10-08T07:09:06.832Z",
+    "qb_class": "Azusa",
+    "discount_account": "40010",
+    "inc_customer_receivables": true,
+    "add_customer_name_memo": true,
+    "add_revenue_center_memo": true,
+    "cc_fee_validation": "Block",
+    "check_open_orders": false,
+    "tax_facilitator_enabled": false,
+    "alt_memos": {
+      "cash_in": "Memo probado"
+    },
+    "line_class_overrides": {
+      "cash_in": "Bell"
+    }
+  },
+  "missingPacketFields": [
+    "discount_account",
+    "inc_customer_receivables",
+    "add_customer_name_memo",
+    "add_revenue_center_memo",
+    "cc_fee_validation",
+    "check_open_orders",
+    "tax_facilitator_enabled",
+    "alt_memos",
+    "line_class_overrides"
+  ]
+}

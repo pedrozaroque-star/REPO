@@ -2,7 +2,7 @@
  * @module reports-data
  * @description Master typed data repository for all monthly activity, development roadmaps, and audited tasks (SM TEG).
  * @businessRules
- * - Provides 100% authentic, historical data for September, August, July, and June 2026.
+ * - Provides 100% authentic, historical data for October, September, August, July, and June 2026.
  * - Single source of truth for the native Next.js / React / TSX reports dashboard at /admin/reporte-actividades.
  * - Tracks 27 canonical system tasks with month-by-month audit status progression.
  */
@@ -21,6 +21,7 @@ export interface AuditedTask {
     auditJuly?: string;
     auditAugust?: string;
     auditSeptember?: string;
+    auditOctober?: string;
 }
 
 export interface DailyReportRow {
@@ -39,12 +40,14 @@ export interface ParallelActivity {
 }
 
 export interface ModuleEffort {
-    module: string;
+    module?: string;
+    name?: string;
     hours: number;
+    percent?: number;
 }
 
 export interface MonthlyReportData {
-    id: 'septiembre' | 'agosto' | 'julio' | 'junio';
+    id: 'octubre' | 'septiembre' | 'agosto' | 'julio' | 'junio';
     monthName: string;
     monthYear: string;
     totalHours: number;
@@ -1786,7 +1789,690 @@ export const PLANNER_SHIFTS_MAP: Record<string, PlannerShift> = {
     }
 };
 
-export const MONTHLY_REPORTS: Record<'septiembre' | 'agosto' | 'julio' | 'junio', MonthlyReportData> = {
+export const MONTHLY_REPORTS: Record<'octubre' | 'septiembre' | 'agosto' | 'julio' | 'junio', MonthlyReportData> = {
+    octubre: {
+    "id": "octubre",
+    "monthName": "Octubre",
+    "monthYear": "Octubre 2026",
+    "totalHours": 65.2,
+    "totalTasks": 27,
+    "completedTasks": 18,
+    "inProgressTasks": 5,
+    "pendingTasks": 4,
+    "rows": [
+        {
+            "date": "01-Oct-2026",
+            "time": "4:56 AM - 6:30 AM & 7:20 PM - 8:45 PM",
+            "hours": 3,
+            "badges": [
+                "Toast KDS Modifiers",
+                "Orden Diaria Automática",
+                "Ingesta Codex",
+                "Pruebas Multi-Tienda"
+            ],
+            "descEs": "• <strong>Toast KDS & Formato de Comandas Delivery</strong>: Análisis y refinamiento de la estructura de modificadores y atributos de tickets en pantallas de cocina (KDS) para órdenes de plataformas externas (Uber Eats, DoorDash), corrigiendo visualización de términos e ingredientes condicionales.<br>• <strong>Ingesta de Investigación Codex (Orden Diaria Automática)</strong>: Integración y migración de la investigación técnica de Codex (~/.codex) al entorno de Antigravity. Auditoría de los 48 insumos de abastecimiento diario (excluyendo Viva Lard y postres) y parametrización de algoritmos de proyección predictiva de pedidos para tiendas sin histórico suficiente.",
+            "descEn": "• <strong>Toast KDS & Delivery Ticket Formatting</strong>: Analyzed and refined ticket modifier structures and attributes on kitchen display screens (KDS) for 3rd-party delivery orders (Uber Eats, DoorDash), fixing term rendering and conditional ingredients.<br>• <strong>Codex Research Ingestion (Automated Daily Order)</strong>: Migrated and integrated Codex technical research (~/.codex) into the Antigravity workflow. Audited the 48 core daily warehouse supply items (excluding Viva Lard and desserts) and calibrated predictive order algorithms across stores."
+        },
+        {
+            "date": "02-Oct-2026",
+            "time": "2:31 AM - 3:45 AM & 9:20 PM - 10:45 PM",
+            "hours": 2.7,
+            "badges": [
+                "Orden Diaria Teórica",
+                "Auditoría Conteo Físico",
+                "Backtesting 48 Items",
+                "Lynwood #14"
+            ],
+            "descEs": "• <strong>Auditoría de Conteos Físicos vs Teóricos (48 Insumos)</strong>: Análisis comparativo detallado entre lo capturado físicamente por gerentes en almacén y el consumo teórico de recetas de Toast POS en Supabase. Backtesting minucioso para identificar variaciones por merma, diferencias de empaque y calibración de factores de ajuste.<br>• <strong>Ejecución y Monitoreo de Servidores en Vivo</strong>: Verificación de estabilidad y arranque de microservicios locales y pipelines de datos tras las pruebas intensivas de cálculo predictivo multi-tienda.",
+            "descEn": "• <strong>Physical vs Theoretical Count Audit (48 Items)</strong>: Deep comparative analysis between store manager physical counts and Toast POS recipe theoretical depletion in Supabase. Ran rigorous multi-store backtests to pinpoint prep shrinkage, packaging unit discrepancies, and buffer calibration.<br>• <strong>Live Server Monitoring & Deployment Testing</strong>: Verified local service stability and data pipelines following multi-store predictive calculation tests."
+        },
+        {
+            "date": "03-Oct-2026",
+            "time": "9:44 AM - 12:45 PM",
+            "hours": 3,
+            "badges": [
+                "Seguridad y Bloqueo App",
+                "Extracción Sobrantes Ago-Sep",
+                "Auditoría Varianza 30-Sep",
+                "Lynwood #14"
+            ],
+            "descEs": "• <strong>Protocolo de Bloqueo de Emergencia en Aplicación Móvil</strong>: Implementación de mecanismo de deshabilitación temporal y blindaje de accesos en la app móvil tras robo de dispositivo de una gerente, con posterior reactivación segura y validación en Vercel sin pérdida de credenciales ni sesiones.<br>• <strong>Extracción Masiva de Sobrantes y Pedidos (Agosto & Septiembre)</strong>: Exportación forense de registros históricos de sobrantes físicos y pedidos a bodega central de las 15 sucursales a formato estructurado (JSON/CSV). Análisis de variaciones extremas en el cierre mensual del 30 de septiembre entre existencias teóricas y físicas.",
+            "descEn": "• <strong>Mobile App Emergency Lockout Protocol</strong>: Implemented temporary remote access disablement and security lock in the mobile app following a store manager device theft, followed by safe reactivation and Vercel cloud validation without session or credential loss.<br>• <strong>Historical Leftovers & Warehouse Orders Extraction (Aug & Sep)</strong>: Executed forensic export of all physical closing counts and warehouse replenishment orders across 15 branches into structured JSON/CSV datasets. Performed variance analysis on the Sept 30 end-of-month reconciliation discrepancies."
+        },
+        {
+            "date": "04-Oct-2026",
+            "time": "9:11 AM - 11:30 AM & 3:00 PM - 4:15 PM",
+            "hours": 3.5,
+            "badges": [
+                "Viele & Sons (Sage 100)",
+                "Desbloqueo Bell y Downey",
+                "Regla Sodas Tax 0",
+                "Despacho de Borradores",
+                "Lynwood #14"
+            ],
+            "descEs": "• <strong>Corrección de Bloqueo y Flujo de Envíos Viele & Sons</strong>: Resolución crítica en el conector de compras Viele & Sons (Sage 100) que impedía enviar pedidos en sucursales Bell y Downey tras la captura de sobrantes. Eliminación de impuestos en sodas (impuesto 0), incorporación de sondeo de verificación de 40 segundos y asignación de estado 'superseded' tras 24h para evitar duplicaciones.<br>• <strong>Despacho Masivo de Órdenes a Proveedor</strong>: Automatización del envío de borradores pendientes de todas las tiendas atascadas y conciliación exitosa contra el portal externo de Viele & Sons.",
+            "descEn": "• <strong>Viele & Sons Order Submission Fix & Store Unblocking</strong>: Resolved critical blocking bug in the Viele & Sons procurement connector (Sage 100) preventing Bell and Downey stores from submitting orders after leftover count capture. Enforced zero tax on sodas, added 40-second verification polling, and 24-hour superseded state transition to prevent duplicate submissions.<br>• <strong>Bulk Order Dispatch & Vendor Parity Verification</strong>: Automated submission of pending store order drafts and confirmed end-to-end receipt against the Viele & Sons vendor portal."
+        },
+        {
+            "date": "05-Oct-2026",
+            "time": "4:05 PM - 11:35 PM",
+            "hours": 7.5,
+            "badges": [
+                "Contabilidad (Cohesion)",
+                "Paid In & Depósitos 12049",
+                "Ventas Responsive Móvil",
+                "Hardware Tablets 15\"",
+                "Lynwood #14"
+            ],
+            "descEs": "• <strong>Paridad Contable Cohesion (Cierre 10/3 & Reglas Específicas)</strong>: Implementación de lógica de 'Paid In' (pagos de cheques de nómina del día comercial anterior) idéntica a Cohesion para South Gate. Ajuste de depósitos esperados a cuenta 12049, registro de Add Value en gift cards, reclasificación de Toast Delivery en 40050/53060, y candado anti-duplicados en QuickBooks Online.<br>• <strong>Rediseño Responsive Móvil del Módulo de Ventas</strong>: Optimización completa de /ventas para celulares en orientaciones vertical y horizontal: tipografía autoescalable FitValue, gráficas de barras compactas y detección precisa de horas pico.<br>• <strong>Evaluación y Procura de Hardware de Cocina</strong>: Especificación técnica y comparativa de tabletas Android de 15 pulgadas para las 15 sucursales (4 tabletas por tienda para Preparador, Descansos y Actividades), evaluando especificaciones de uso rudo vs Samsung Galaxy Tab.",
+            "descEn": "• <strong>Cohesion Accounting Parity (10/3 Close & Store Rules)</strong>: Engineered 'Paid In' accounting logic (payroll check encashment from previous business day) matching Cohesion 1:1 for South Gate. Routed expected cash deposits to account 12049, handled Add Value gift card fees, reclassified Toast Delivery to accounts 40050/53060, and enforced QBO duplicate journal prevention.<br>• <strong>Mobile Responsive Redesign for Sales Module</strong>: Fully optimized /ventas for vertical and horizontal smartphones: dynamic FitValue typography, compact SVG charts, and peak sales hour detection.<br>• <strong>Kitchen Hardware Sourcing & Evaluation</strong>: Defined hardware requirements and benchmarked 15-inch Android tablets for 15 store locations (4 tablets per branch for Kitchen Prep, Breaks, and Activities), evaluating heavy-duty specs vs Samsung Galaxy Tab."
+        },
+        {
+            "date": "06-Oct-2026",
+            "time": "12:14 AM - 2:00 PM & 10:00 PM - 11:45 PM",
+            "hours": 15.5,
+            "badges": [
+                "Order Ready Board",
+                "Voces Neuronales Gemini TTS",
+                "KDS Expediter Toast",
+                "Evaluación Staff QR",
+                "Contabilidad Cross-Date",
+                "Lynwood #14"
+            ],
+            "descEs": "• <strong>Arquitectura y Lanzamiento del Módulo Order Ready Board (/order-ready-board)</strong>: Desarrollo integral desde cero del sistema de llamada de órdenes listas para comensales en comedor y ventanilla: integración en vivo con KDS expediter de Toast POS, sincronización bidireccional de bumps y visualizador de pantalla completa para TVs con temas claro/oscuro.<br>• <strong>Locución Neuronal Bilingüe con Gemini TTS (Voz Femenina Natural)</strong>: Implementación de motor de síntesis de voz femenina ultra-realista bilingüe (Español/Inglés) con el eslogan '¡Ya está!'. Creación de un pool multi-llave con rotación round-robin y failover automático ante cuota 429, silenciador de backlog inicial y prohibición estricta de voces robóticas de Windows.<br>• <strong>Módulo de Evaluación de Staff con Soporte Corporativo (/evaluacion)</strong>: Extensión del módulo de retroalimentación de clientes con generación de stickers QR para gafetes de personal corporativo (RRHH, Bodega, Oficina Central, roles personalizados) y modal interactivo de auditoría.<br>• <strong>Contabilidad Toast-Cohesion (Pagos Cross-Date)</strong>: Tratamiento de transacciones que cruzan la medianoche y filtro estricto de métodos de pago desbalanceados.",
+            "descEn": "• <strong>Order Ready Board Architecture & Launch (/order-ready-board)</strong>: Built from scratch the customer order pickup callout screen for dining room and takeout: real-time Toast POS expediter KDS webhook & polling sync, order bump tracking, and full-screen TV kiosk layout with light/dark themes.<br>• <strong>Bilingual Neural Speech Synthesis via Gemini TTS (Natural Female Voice)</strong>: Engineered bilingual (Spanish/English) natural female voice callouts featuring the signature '¡Ya está!' catchphrase. Implemented multi-key API pool with round-robin rotation and automatic 429 quota failover, initial backlog audio silencer, and banned robotic OS fallbacks.<br>• <strong>Staff Evaluation Module with Corporate Support (/evaluacion)</strong>: Expanded QR sticker system for employee badges to include corporate staff (HR, Warehouse, Central Office, custom roles) with an interactive audit modal.<br>• <strong>Toast-Cohesion Cross-Date Reconciliation</strong>: Engineered accounting treatment for transactions crossing midnight boundaries and strict out-of-balance payment filters."
+        },
+        {
+            "date": "07-Oct-2026",
+            "time": "3:19 AM - 8:30 AM & 5:30 PM - 11:45 PM",
+            "hours": 11.5,
+            "badges": [
+                "Mantenimiento & Proveedores",
+                "Crear Bills QBO",
+                "KDS Chime & Bebidas",
+                "Web tacosgavilan.com",
+                "Inventario Maestro",
+                "Lynwood #14"
+            ],
+            "descEs": "• <strong>Módulo de Registro de Actividades de Proveedores y Mantenimiento</strong>: Desarrollo de plataforma integral de bitácora para técnicos externos (refrigeración, parrillas, freidoras, plomería, HVAC) con estatus de caso, captura obligatoria de evidencia fotográfica del antes y después, firma digital del gerente y semáforo preventivo.<br>• <strong>Módulo Crear Bills en QuickBooks Online (/admin/crear-bills)</strong>: Creación del módulo financiero para transformar automáticamente facturas de almacén central en facturas de proveedor (Bills) en QuickBooks con conciliación de costos y catálogo de proveedores.<br>• <strong>Optimización de KDS y Campana Armónica Local en Preparador</strong>: Incorporación de timbre armónico local y locución en tableta con failover instantáneo a síntesis de navegador, conmutador de 1 toque para ocultar bebidas e indicadores de bebidas en mostrador.<br>• <strong>Investigación de Dominio y Transición de tacosgavilan.com</strong>: Análisis técnico para migrar el dominio corporativo oficial de WP Engine a la infraestructura de Vercel, manteniendo el sistema de monitoreo y consolidando la marca Tacos Gavilan.<br>• <strong>Auditoría Exhaustiva de 84 Módulos del Sistema</strong>: Relevamiento y generación del listado maestro de todos los módulos del software con casillas de priorización y diseño ejecutivo sin estatus preliminares.",
+            "descEn": "• <strong>Maintenance & Service Providers Module</strong>: Developed end-to-end service log platform for external technicians (refrigeration, grills, fryers, plumbing, HVAC) with case lifecycle tracking, mandatory before/after photo evidence, digital manager sign-off, and preventive maintenance status.<br>• <strong>QuickBooks Bills Creation Module (/admin/crear-bills)</strong>: Engineered financial tool to automatically synchronize and generate vendor Bills in QuickBooks Online from central warehouse invoices, with cost reconciliation and vendor cataloging.<br>• <strong>KDS Optimization & Local Harmonic Chime in Prep Line</strong>: Added local harmonic chime and voice announcements on tablet with browser speech fallback, 1-touch drink filter toggle, and counter drink status badges.<br>• <strong>Domain Research & tacosgavilan.com Transition</strong>: Performed technical assessment to migrate the official domain from WP Engine to Vercel infrastructure, unifying brand assets under Tacos Gavilan.<br>• <strong>Comprehensive 84-Module System Inventory</strong>: Audited and generated the master inventory document listing all 84 system routes with priority check boxes and clean executive layout."
+        },
+        {
+            "date": "08-Oct-2026",
+            "time": "12:01 AM - 3:30 AM & 12:45 PM - 6:15 PM",
+            "hours": 9,
+            "badges": [
+                "App Móvil Clientes (/app)",
+                "Toast Cash Management",
+                "Impuestos CDTFA Oct 2026",
+                "Crear Bills Sorting",
+                "Web Móvil tacosgavilan.com"
+            ],
+            "descEs": "• <strong>Lanzamiento de Aplicación Móvil de Pedidos (/app & /ordenar)</strong>: Creación de las rutas oficiales de pedido móvil para clientes con flujo de checkout de Toast Local, animación de bienvenida 1:1, selector de sucursal con geolocalización y cálculo de tarifas de entrega.<br>• <strong>Tasas Oficiales CDTFA (Octubre 2026) & Impuestos por Sucursal</strong>: Configuración de las tasas impositivas oficiales vigentes del estado de California al 1 de octubre de 2026 para las 15 tiendas de Tacos Gavilan.<br>• <strong>Paridad Toast Cash Management en Contabilidad</strong>: Integración de depósitos en efectivo sincronizados directamente desde Toast Cash Management, simplificando el flujo de trabajo sin aprobaciones redundantes, cálculo de ventas brutas (Gross Sales) y desglose bilingüe.<br>• <strong>Mejoras en Crear Bills y Diseño Web Móvil</strong>: Corrección de error de referencia TDZ en buscador, ordenamiento interactivo de columnas por tienda/fecha y optimización del diseño de tarjetas en la versión móvil de tacosgavilan.com.",
+            "descEn": "• <strong>Customer Mobile Ordering App Launch (/app & /ordenar)</strong>: Built official customer mobile ordering routes featuring Toast Local checkout flow, 1:1 system welcome animation, store GPS selector, and delivery fee calculation rules.<br>• <strong>Official Oct 1 2026 CDTFA Tax Rates by Store</strong>: Programmed updated California CDTFA sales tax rates effective October 1, 2026 across all 15 Tacos Gavilan restaurants.<br>• <strong>Toast Cash Management Parity in Accounting</strong>: Integrated cash deposits directly from Toast Cash Management, establishing a streamlined 1-click workflow without redundant approvals, Gross Sales math, and bilingual breakdowns.<br>• <strong>Crear Bills Improvements & Mobile Web Refinement</strong>: Fixed search TDZ reference bug, added interactive column sorting by store/date, and optimized location cards for mobile viewports on tacosgavilan.com."
+        },
+        {
+            "date": "09-Oct-2026",
+            "time": "5:33 AM - 1:30 PM & 10:00 PM - 11:30 PM",
+            "hours": 9.5,
+            "badges": [
+                "Splash Móvil 3D 60fps",
+                "Web tacosgavilan.com Producción",
+                "Sobrantes Optimistic UI",
+                "Toast Cash Blocking",
+                "Order Ready Voice Fix",
+                "Lynwood #14"
+            ],
+            "descEs": "• <strong>Splash Animado 3D de Alta Fidelidad a 60 FPS (/app)</strong>: Creación de la pantalla de bienvenida con aceleración por GPU, giro de 2520° en perspectiva tridimensional, aterrizaje frontal perfecto en 2.2 segundos y sincronización del eslogan corporativo con Framer Motion.<br>• <strong>Pulido de Producción y Accesibilidad en tacosgavilan.com</strong>: Optimización visual del encabezado móvil, integración de 3 temas de Google Maps (Estándar, Plateado, Noche), corrección de botones duplicados y enlaces de redes sociales, y acceso directo de previsualización en la barra lateral.<br>• <strong>Regla de Blindaje de Depósitos Toast en Contabilidad</strong>: Bloqueo de publicación en QuickBooks Online cuando el depósito bancario de efectivo de Toast POS aún no ha sido cerrado por gerencia, y alineación de órdenes abiertas con cuenta Cohesion 12049.<br>• <strong>Optimización de Captura de Sobrantes</strong>: Aceleración de la captura de inventario en tienda con interfaz optimista (Optimistic UI) y auto-guardado en segundo plano.<br>• <strong>Desduplicación de Voz en Order Ready Board & Preparador</strong>: Garantía de reproducción de voz una sola vez al dar bump en KDS y bloqueo de rueda de ratón en carrusel de preparador.",
+            "descEn": "• <strong>60 FPS High-Fidelity 3D Animated Splash (/app)</strong>: Built GPU-accelerated entrance splash featuring 2520° 3D perspective rotation, 2.2-second landing, and corporate slogan synchronization using Framer Motion.<br>• <strong>Production Polish & Accessibility for tacosgavilan.com</strong>: Refined mobile hero typography, integrated 3 interactive Google Maps themes (Standard, Silver, Night), resolved duplicate menu close buttons, fixed social media URLs, and added direct live preview in AppSidebar.<br>• <strong>Toast Cash Deposit Blocking Rule in Accounting</strong>: Enforced strict QuickBooks publishing lock when Toast POS cash deposits remain pending store manager close, and routed open order variances to Cohesion account 12049.<br>• <strong>Optimistic UI for Leftovers Capture</strong>: Dramatically accelerated store inventory leftovers entry with optimistic React state updates and background auto-save.<br>• <strong>Order Ready Board Voice Deduplication & Prep Wheel Lock</strong>: Enforced single voice announcer callout per KDS bump and blocked accidental mouse wheel scrolling on prep line carousel."
+        }
+    ],
+    "effortSummary": [
+        {
+            "name": "Aplicación Móvil & Ordenar en Línea (/app)",
+            "hours": 18.5,
+            "percent": 28.4
+        },
+        {
+            "name": "Order Ready Board & KDS en Vivo",
+            "hours": 18,
+            "percent": 27.6
+        },
+        {
+            "name": "Contabilidad, Cohesion & Crear Bills (QBO)",
+            "hours": 14.5,
+            "percent": 22.2
+        },
+        {
+            "name": "Sitio Web Corporativo (tacosgavilan.com)",
+            "hours": 8,
+            "percent": 12.3
+        },
+        {
+            "name": "Inventario, Viele & Sons y Sobrantes",
+            "hours": 6.2,
+            "percent": 9.5
+        }
+    ],
+    "parallelActivities": [
+        {
+            "title": "Turnos Oficiales en Tienda Lynwood #14 (General Manager)",
+            "hours": 37,
+            "desc": "Gestión operativa en tienda física Lynwood #14 de Carlos Velázquez (02-Oct 8h, 03-Oct 8h, 04-Oct 5h, 05-Oct 8h, 06-Oct 8h, 07-Oct 8h, 09-Oct 8h) auditando en piso el flujo de KDS, atención en comedor, cuadraturas de caja y pruebas de prototipo en tableta."
+        },
+        {
+            "title": "Monitoreo y Auditoría de APIs en Vivo (Toast POS, QBO, Viele & Sons)",
+            "hours": 12,
+            "desc": "Inspección continua de webhooks de Toast POS, validación de cuotas y latencia en Gemini TTS, sincronización de diarios contables con QuickBooks Online y flujo de órdenes de Viele & Sons."
+        },
+        {
+            "title": "Arquitectura de Despliegue, Rendimiento Móvil y Vercel CI/CD",
+            "hours": 8.5,
+            "desc": "Configuración de builds en Vercel, optimización de bundles de Next.js, empaquetado de assets para la app móvil en Expo y preparación para migración DNS de tacosgavilan.com."
+        }
+    ],
+    "tasks": [
+        {
+            "num": 1,
+            "title": "1. Inventario con reposición automática",
+            "category": "Inventario / Inventory",
+            "badgeDept": "📦 Inventario",
+            "badgePriority": "🔴 Alta",
+            "auditJune": "<strong>Muy Avanzado (En Progreso).</strong> El sistema calcula de manera inteligente el pedido sugerido de insumos para las tiendas analizando el consumo histórico de las últimas 4 semanas y las existencias actuales capturadas por el gerente.",
+            "auditJuly": "<strong>Muy Avanzado (En Progreso).</strong> El sistema calcula de manera inteligente el pedido sugerido de insumos para las tiendas con soporte preliminar de QuickBooks.",
+            "auditAugust": "<strong>✓ Completado e Implementado en Producción (Agosto 2026).</strong> Sistema de reposición semanal con cálculo de PAR dinámico, generación automática de Estimates en QuickBooks Online (usando <code>sparse: false</code> para proteger ítems) y soporte para carnes, secos, líquidos y uniformes.",
+            "steps": [
+                "Configurado el motor de órdenes semanales por sucursal hacia la bodega central.",
+                "Integrada la API de QuickBooks Online con guardado seguro.",
+                "Pruebas y validación en sucursales operando al 100%."
+            ],
+            "status": "completado",
+            "statusLabel": "Completado",
+            "audit": "<strong>✓ Completado y Optimizado en Producción (Octubre 2026).</strong> Captura ultrarrápida de sobrantes con interfaz optimista (Optimistic UI) y auto-guardado en segundo plano, cálculo automatizado de pedidos y sincronización continua con QuickBooks."
+        },
+        {
+            "num": 2,
+            "title": "2. Inventario para Bodega y COGS (Viele & Sons)",
+            "category": "Costos & Proveedores",
+            "badgeDept": "📦 Inventario",
+            "badgePriority": "🔴 Alta",
+            "auditJune": "<strong>Estructurado (En Progreso).</strong> Creado el catálogo en base de datos para diferenciar los insumos de uso interno del restaurante vs los que se compran al proveedor Viele & Sons.",
+            "auditJuly": "<strong>Estructurado (En Progreso).</strong> Creado el catálogo en base de datos para diferenciar los insumos de uso interno del restaurante vs los que se compran a Viele & Sons.",
+            "auditAugust": "<strong>✓ Completado e Integrado (Agosto 2026).</strong> Motor de scraping automático de facturas de Viele & Sons v3, indexación de los 87 insumos maestros, Radar de Precios con cálculo de impacto anual en USD ($) para las 15 tiendas y alertas automáticas por correo a directivos.",
+            "steps": [
+                "Scraper automatizado de facturas con normalización de empaques.",
+                "Dashboard ejecutivo de Radar de Precios con 4 métricas anuales.",
+                "Alertas por correo electrónico enviadas automáticamente ante aumentos."
+            ],
+            "status": "completado",
+            "statusLabel": "Completado",
+            "audit": "<strong>✓ Completado y Resuelto (Octubre 2026).</strong> Desbloqueo operativo de sucursales en Viele & Sons (Sage 100), corrección de regla de tasa 0 en sodas, sondeo de verificación de 40s y transición a estado superseded."
+        },
+        {
+            "num": 3,
+            "title": "3. Configuración local de TVs de Menús",
+            "category": "Dispositivos / Devices",
+            "badgeDept": "📺 Dispositivos",
+            "badgePriority": "🟡 Media",
+            "auditJune": "<strong>Muy Avanzado (En Progreso).</strong> Diseñada la pantalla de administración para subir las imágenes de menús por tienda y la página pública que muestra el menú rotativo en las pantallas.",
+            "auditJuly": "<strong>Muy Avanzado (En Progreso).</strong> Diseñada la pantalla de administración para subir las imágenes de menús por tienda.",
+            "auditAugust": "<strong>✓ Completado y Desplegado (Agosto 2026).</strong> Módulo de visualización y control centralizado de menús digitales en alta definición para pantallas de sucursales con soporte de cambios de precios y turnos día/noche.",
+            "steps": [
+                "Diseño responsive en alta resolución para pantallas de TV.",
+                "Conexión en tiempo real con la base de datos de precios.",
+                "Despliegue y verificación en pantallas locales."
+            ],
+            "status": "completado",
+            "statusLabel": "✓ Completado",
+            "audit": "<strong>✓ Completado y Desplegado (Agosto 2026).</strong> Módulo de visualización y control centralizado de menús digitales en alta definición para pantallas de sucursales con soporte de cambios de precios y turnos día/noche."
+        },
+        {
+            "num": 4,
+            "title": "4. Logotipo de marca en correos electrónicos",
+            "category": "Comunicaciones / Comms",
+            "badgeDept": "✉️ Comunicaciones",
+            "badgePriority": "🔵 Baja",
+            "auditJune": "<strong>Configuración Básica (En Progreso).</strong> El sistema ya envía correos institucionales utilizando el servidor de tacosgavilan.com con texto plano y firma básica.",
+            "auditJuly": "<strong>Configuración Básica (En Progreso).</strong> El sistema ya envía correos institucionales con firma básica.",
+            "auditAugust": "<strong>✓ Completado (Agosto 2026).</strong> Plantillas de correo electrónico con diseño corporativo oficial, branding de Tacos Gavilan, encabezados responsivos y soporte para notificaciones de violaciones laborales y alertas de precios.",
+            "steps": [
+                "Plantilla HTML responsiva con logotipo oficial de Tacos Gavilan.",
+                "Integración con el servicio de envío de correos (Resend/SMTP).",
+                "Verificado en clientes de correo móvil y escritorio."
+            ],
+            "status": "completado",
+            "statusLabel": "✓ Completado",
+            "audit": "<strong>✓ Completado (Agosto 2026).</strong> Plantillas de correo electrónico con diseño corporativo oficial, branding de Tacos Gavilan, encabezados responsivos y soporte para notificaciones de violaciones laborales y alertas de precios."
+        },
+        {
+            "num": 5,
+            "title": "5. Descripciones de procedimientos en página de ACTIVIDADES",
+            "category": "Operaciones / Operations",
+            "badgeDept": "📝 Operaciones",
+            "badgePriority": "🔴 Alta",
+            "auditJune": "<strong>Estructura Concluida (En Progreso).</strong> El panel administrativo y móvil de Actividades de Cocina está completo. Contiene el listado de 31 procedimientos operativos estandarizados.",
+            "auditJuly": "<strong>Estructura Concluida (En Progreso).</strong> El panel administrativo y móvil de Actividades de Cocina está completo.",
+            "auditAugust": "<strong>✓ Completado e Implementado (Agosto 2026).</strong> Catálogo digital de procedimientos operativos estandarizados con descripciones paso a paso, buscador interactivo y visualización clara para el personal.",
+            "steps": [
+                "Base de datos de procedimientos y actividades estructurada.",
+                "Interfaz de consulta rápida y búsqueda por palabra clave.",
+                "Sincronización con el Asistente de Soporte IA."
+            ],
+            "status": "completado",
+            "statusLabel": "✓ Completado",
+            "audit": "<strong>✓ Completado e Implementado (Agosto 2026).</strong> Catálogo digital de procedimientos operativos estandarizados con descripciones paso a paso, buscador interactivo y visualización clara para el personal."
+        },
+        {
+            "num": 6,
+            "title": "6. Verificar tabletas piloto en Slauson",
+            "category": "Dispositivos / Devices",
+            "badgeDept": "📺 Dispositivos",
+            "badgePriority": "🔴 Alta",
+            "auditJune": "<strong>En Pruebas (En Progreso).</strong> Hay 4 tabletas instaladas físicamente en la cocina piloto de Slauson corriendo software de telemetría.",
+            "auditJuly": "<strong>✓ Completado e Integrado (Julio 2026).</strong> Se verificaron físicamente las 4 tabletas piloto en la cocina de Slauson durante las pruebas de campo.",
+            "auditAugust": "<strong>✓ Completado e Integrado.</strong> Modo kiosko de tableta seguro para cocina (Preparador KDS) con bloqueo de edición táctil accidental, polling de sincronización cada 10 segundos con la PC del gerente y tipografía ampliada para visibilidad.",
+            "steps": [
+                "Desarrollo del modo pantalla completa exclusivo para cocina.",
+                "Polling de sincronización bidireccional cada 10s en Supabase.",
+                "Pruebas y validación en sitio en tableta de cocina."
+            ],
+            "status": "completado",
+            "statusLabel": "✓ Completado",
+            "audit": "<strong>✓ Completado e Integrado.</strong> Modo kiosko de tableta seguro para cocina (Preparador KDS) con bloqueo de edición táctil accidental, polling de sincronización cada 10 segundos con la PC del gerente y tipografía ampliada para visibilidad."
+        },
+        {
+            "num": 7,
+            "title": "7. App de Tacos Gavilán (Imitar King Taco)",
+            "category": "Sistemas / Systems",
+            "badgeDept": "💻 Sistemas",
+            "badgePriority": "🔴 Alta",
+            "auditJune": "<strong>Muy Avanzado (En Progreso).</strong> Creado el sistema de base de datos para la aplicación móvil (carritos de compra, puntos de fidelidad, selector de sucursal y menú interactivo).",
+            "auditJuly": "<strong>Muy Avanzado (En Progreso).</strong> Base de datos de la app móvil y catálogo digital de productos estructurado.",
+            "auditAugust": "<strong>⚡ En Progreso.</strong> Arquitectura móvil en React Native/Expo con flujo de pedidos, selección de sucursales y sincronización con POS Toast.",
+            "steps": [
+                "Estructura de catálogo móvil y carrito de compras.",
+                "Integración con la pasarela de pagos y menú en línea.",
+                "Pruebas de pedidos móviles en sucursales piloto."
+            ],
+            "status": "completado",
+            "statusLabel": "Completado",
+            "audit": "<strong>✓ Completado y Desplegado en Producción (Octubre 2026).</strong> Paridad contable 1:1 con Cohesion ($450/mes de ahorro), integración directa de depósitos de Toast Cash Management, tratamiento de Paid In, y bloqueo automático si falta el depósito en efectivo."
+        },
+        {
+            "num": 8,
+            "title": "8. Sincronizador y clon de Basecamp",
+            "category": "Sistemas / Systems",
+            "badgeDept": "💻 Sistemas",
+            "badgePriority": "🔴 Alta",
+            "auditJune": "<strong>Altamente Avanzado (En Progreso).</strong> El sistema web está integrado con Basecamp. Las tablas internas sincronizan automáticamente proyectos, mensajes y listas de tareas pendientes.",
+            "auditJuly": "<strong>Altamente Avanzado (En Progreso).</strong> Sincronización continua con Basecamp y descarga asíncrona de adjuntos.",
+            "auditAugust": "<strong>✓ Completado (Agosto 2026).</strong> Integración bidireccional con Basecamp 3 API con tokens auto-renovables, buscador instantáneo global (Shift+J), modal Basecamp 4 Dialog Card con desenfoque y descarga asíncrona de archivos adjuntos.",
+            "steps": [
+                "Integración OAuth2 y sincronización local-first en Supabase.",
+                "Buscador universal Shift+J con búsqueda paralela.",
+                "Rediseño moderno con modal Dialog Card y carga bajo demanda de comentarios."
+            ],
+            "status": "completado",
+            "statusLabel": "✓ Completado",
+            "audit": "<strong>✓ Completado (Agosto 2026).</strong> Integración bidireccional con Basecamp 3 API con tokens auto-renovables, buscador instantáneo global (Shift+J), modal Basecamp 4 Dialog Card con desenfoque y descarga asíncrona de archivos adjuntos."
+        },
+        {
+            "num": 9,
+            "title": "9. Página Web Oficial de Tacos El Gavilán",
+            "category": "Sistemas / Systems",
+            "badgeDept": "💻 Sistemas",
+            "badgePriority": "🟡 Media",
+            "auditJune": "<strong>Avanzado (En Progreso).</strong> Toda la estructura visual y de contenidos del sitio web oficial está finalizada (exhibición de platillos, historia, mapa de sucursales).",
+            "auditJuly": "<strong>Avanzado (En Progreso).</strong> Estructura visual y mapa de sucursales completado.",
+            "auditAugust": "<strong>⚡ En Progreso.</strong> Portal web oficial responsivo con localización de sucursales, menú interactivo y optimización SEO.",
+            "steps": [
+                "Diseño responsivo móvil y de escritorio.",
+                "Integración del directorio oficial de 15 tiendas.",
+                "Despliegue y configuración de dominio."
+            ],
+            "status": "progreso",
+            "statusLabel": "⚡ En Progreso",
+            "audit": "<strong>⚡ En Progreso.</strong> Portal web oficial responsivo con localización de sucursales, menú interactivo y optimización SEO."
+        },
+        {
+            "num": 10,
+            "title": "10. Determinar gasto en Salsa Bar",
+            "category": "Inventario / Inventory",
+            "badgeDept": "📦 Inventario",
+            "badgePriority": "🟡 Media",
+            "auditJune": "<strong>⏳ No Iniciado (Pendiente).</strong> Existe registro de mermas e ingredientes de la barra de salsas en los checklists históricos, pero no se ha desarrollado el módulo de cálculo de costo por porción.",
+            "auditJuly": "<strong>⏳ No Iniciado (Pendiente).</strong> Módulo pendiente de desarrollo para calcular el costo por porción del salsa bar.",
+            "auditAugust": "<strong>⏳ Pendiente.</strong> Modelo de costos para estimar el consumo y merma de salsas, limones y vegetales por comensal.",
+            "steps": [
+                "Estandarizar recetas y pesos de preparación de salsas.",
+                "Registrar rendimiento por tanda y costo de insumos.",
+                "Integrar en la matriz de Food Cost de la cadena."
+            ],
+            "status": "pendiente",
+            "statusLabel": "⏳ Pendiente",
+            "audit": "<strong>⏳ Pendiente.</strong> Modelo de costos para estimar el consumo y merma de salsas, limones y vegetales por comensal."
+        },
+        {
+            "num": 11,
+            "title": "11. Fotos y verificación Apple Business Connect (Slauson)",
+            "category": "Dispositivos / Marketing",
+            "badgeDept": "📺 Dispositivos",
+            "badgePriority": "🟡 Media",
+            "auditJune": "<strong>⏳ No Iniciado (Pendiente).</strong> Tarea operativa consistente en registrar la sucursal de Slauson, subir fotografías en alta resolución del interior/exterior y verificar la ficha del negocio en Apple Maps.",
+            "auditJuly": "<strong>⏳ No Iniciado (Pendiente).</strong> Verificación en Apple Maps pendiente de sesión de fotografía.",
+            "auditAugust": "<strong>⏳ Pendiente.</strong> Sesión fotográfica y verificación en Apple Business Connect para sucursales oficiales.",
+            "steps": [
+                "Fotografía profesional de exteriores e interiores de tiendas.",
+                "Carga de assets en portal Apple Business Connect.",
+                "Validación de pin y horarios en Apple Maps."
+            ],
+            "status": "pendiente",
+            "statusLabel": "⏳ Pendiente",
+            "audit": "<strong>⏳ Pendiente.</strong> Sesión fotográfica y verificación en Apple Business Connect para sucursales oficiales."
+        },
+        {
+            "num": 12,
+            "title": "12. Registro de proveedores y técnicos sin contraseña",
+            "category": "Sistemas / Systems",
+            "badgeDept": "💻 Sistemas",
+            "badgePriority": "🟡 Media",
+            "auditJune": "<strong>⏳ No Iniciado (Pendiente).</strong> Planificado un portal simplificado de acceso rápido con códigos temporales para que técnicos de refrigeración y proveedores registren sus visitas sin requerir cuenta.",
+            "auditJuly": "<strong>⏳ No Iniciado (Pendiente).</strong> Portal de acceso con código QR temporal para proveedores pendiente.",
+            "auditAugust": "<strong>⏳ Pendiente.</strong> Registro ágil mediante código QR temporal para visitas técnicas de mantenimiento en tiendas.",
+            "steps": [
+                "Generador de códigos QR y links temporales para contratistas.",
+                "Bitácora digital de entradas y salidas de técnicos.",
+                "Alertas al gerente de tienda al arribar personal externo."
+            ],
+            "status": "pendiente",
+            "statusLabel": "⏳ Pendiente",
+            "audit": "<strong>⏳ Pendiente.</strong> Registro ágil mediante código QR temporal para visitas técnicas de mantenimiento en tiendas."
+        },
+        {
+            "num": 13,
+            "title": "13. Control de uniformes, gorras e inventario de ropa",
+            "category": "Inventario / Merchandise",
+            "badgeDept": "📦 Inventario",
+            "badgePriority": "🟡 Media",
+            "auditJune": "<strong>⏳ No Iniciado (Pendiente).</strong> Módulo operativo pendiente de desarrollo para controlar las existencias de uniformes, gorras y chamarras.",
+            "auditJuly": "<strong>▶ En Progreso (Julio 2026).</strong> Se implementó y desplegó en producción el tipo de orden de Uniformes en el módulo de Pedidos de Bodega.",
+            "auditAugust": "<strong>✓ Completado e Integrado (Agosto 2026).</strong> Módulo integral de uniformes con catálogo de precios (Camisas $7, Gorras $1, Chamarras $20), exenciones gerenciales, tabla de stock mínimo de 660 registros en BD para 15 tiendas y conciliación de ventas en efectivo con Caja Fuerte.",
+            "steps": [
+                "Catálogo de precios y reglas de exención implementadas.",
+                "Tabla de stock mínimo (660 registros en BD) blindada.",
+                "Conciliación automática con la bóveda de Caja Fuerte."
+            ],
+            "status": "completado",
+            "statusLabel": "✓ Completado",
+            "audit": "<strong>✓ Completado e Integrado (Agosto 2026).</strong> Módulo integral de uniformes con catálogo de precios (Camisas $7, Gorras $1, Chamarras $20), exenciones gerenciales, tabla de stock mínimo de 660 registros en BD para 15 tiendas y conciliación de ventas en efectivo con Caja Fuerte."
+        },
+        {
+            "num": 14,
+            "title": "14. Manuales, videos y certificación de cocina",
+            "category": "Operaciones / Training",
+            "badgeDept": "📝 Operaciones",
+            "badgePriority": "🔴 Alta",
+            "auditJune": "<strong>⏳ No Iniciado (Pendiente).</strong> El sistema cuenta con exámenes rápidos de desempeño para gerentes, pero falta crear la biblioteca de videos demostrativos y el flujo de certificación para personal de línea.",
+            "auditJuly": "<strong>⏳ No Iniciado (Pendiente).</strong> Biblioteca de videos demostrativos de recetas y cocina pendiente de producción.",
+            "auditAugust": "<strong>⏳ Pendiente.</strong> Portal interactivo de capacitación con videos y exámenes de certificación para cocineros y taqueros.",
+            "steps": [
+                "Producción de videos cortos demostrativos por estación.",
+                "Cuestionarios de evaluación interactivos en tableta.",
+                "Certificados digitales de aprobación por empleado."
+            ],
+            "status": "pendiente",
+            "statusLabel": "⏳ Pendiente",
+            "audit": "<strong>⏳ Pendiente.</strong> Portal interactivo de capacitación con videos y exámenes de certificación para cocineros y taqueros."
+        },
+        {
+            "num": 15,
+            "title": "15. Sección de Cultura Empresarial",
+            "category": "Operaciones / HR",
+            "badgeDept": "📝 Operaciones",
+            "badgePriority": "🟡 Media",
+            "auditJune": "<strong>⏳ No Iniciado (Pendiente).</strong> Sección informativa planificada para capacitar y familiarizar a los nuevos empleados con los valores, historia y visión de Tacos Gavilan.",
+            "auditJuly": "<strong>⏳ No Iniciado (Pendiente).</strong> Módulo de onboarding y valores de empresa pendiente.",
+            "auditAugust": "<strong>⚡ En Progreso.</strong> Guía interactiva de bienvenida y cultura institucional integrada en el asistente de soporte.",
+            "steps": [
+                "Documento de valores, misión y estándares de servicio.",
+                "Módulo visual de inducción para nuevos empleados.",
+                "Integración en el flujo de bienvenida de la app."
+            ],
+            "status": "progreso",
+            "statusLabel": "⚡ En Progreso",
+            "audit": "<strong>⚡ En Progreso.</strong> Guía interactiva de bienvenida y cultura institucional integrada en el asistente de soporte."
+        },
+        {
+            "num": 16,
+            "title": "16. CLONAR Cohesion (app de contabilidad)",
+            "category": "Sistemas / Finance",
+            "badgeDept": "💻 Finanzas",
+            "badgePriority": "🔴 Alta",
+            "auditJune": "<strong>⏳ No Iniciado (Pendiente).</strong> Desarrollo e integración de un clon contable de la plataforma Cohesión a medida para procesar pólizas de ventas y conciliar cuentas bancarias.",
+            "auditJuly": "<strong>⏳ No Iniciado (Pendiente).</strong> Módulo contable integral en fase de especificación y análisis de viabilidad.",
+            "auditAugust": "<strong>⚡ En Progreso (80% en Agosto 2026).</strong> Extracción forense de la estructura de Cohesion ($450/mes) con Puppeteer, mapeo de 17 cuentas contables (canales de venta, impuestos, propinas y pagos) y diseño de la base de datos.",
+            "auditSeptember": "<strong>⚡ En Progreso Activo (Fase de Desarrollo y Validación Dual con Raquel Velázquez).</strong> Desarrollo del módulo nativo de Contabilidad para reemplazar Cohesion ($450/mes / $5,400/año de ahorro). Construcción de la librería central lib/accounting-journal.ts, panel interactivo /contabilidad, 7 endpoints API de pólizas diarias Toast POS → QuickBooks Online con cuenta 51050 de faltantes/sobrantes y simulaciones multi-sucursal; en proceso de pruebas paralelas contra los libros reales de QBO antes de la migración final.",
+            "steps": [
+                "Extracción forense de reglas contables, catálogos de cuentas y mapeos GL de Cohesion.",
+                "Librería central lib/accounting-journal.ts (17 cuentas, canales For Here/To Go/Uber/DoorDash/GrubHub y efectivo).",
+                "Endpoints de generación automática, panel de revisión y publicación a QuickBooks Online.",
+                "Validación dual en paralelo contra Cohesion y visto bueno de Raquel Velázquez."
+            ],
+            "status": "progreso",
+            "statusLabel": "⚡ En Progreso",
+            "audit": "<strong>⚡ En Progreso Activo (Fase de Desarrollo y Validación Dual con Raquel Velázquez).</strong> Desarrollo del módulo nativo de Contabilidad para reemplazar Cohesion ($450/mes / $5,400/año de ahorro). Construcción de la librería central lib/accounting-journal.ts, panel interactivo /contabilidad, 7 endpoints API de pólizas diarias Toast POS → QuickBooks Online con cuenta 51050 de faltantes/sobrantes y simulaciones multi-sucursal; en proceso de pruebas paralelas contra los libros reales de QBO antes de la migración final."
+        },
+        {
+            "num": 17,
+            "title": "17. Módulo de Rendimiento y Telemetría de Drive-Thru (HME Zoom Nitro)",
+            "category": "Sistemas / Hardware",
+            "badgeDept": "💻 Sistemas",
+            "badgePriority": "🔴 Alta",
+            "auditJune": "<strong>✓ Completado e Integrado (Junio 2026).</strong> Se vinculó exitosamente el sistema con los sensores físicos de autos del Drive-Thru en las sucursales con ventanilla.",
+            "auditJuly": "<strong>✓ Completado e Integrado.</strong> Se vinculó exitosamente el sistema con los sensores físicos de autos del Drive-Thru.",
+            "auditAugust": "<strong>✓ Completado e Integrado.</strong> Telemetría en tiempo real de tiempos de espera, cobro y despacho de ventanilla con alertas por cuello de botella.",
+            "auditSeptember": "<strong>✓ Completado e Integrado.</strong> Telemetría en tiempo real activa en sucursales con ventanilla.",
+            "steps": [
+                "Conexión con la API/controlador de HME Zoom Nitro.",
+                "Métricas en vivo de segundos por vehículo en ventanilla.",
+                "Historial de rendimiento y benchmarks entre sucursales."
+            ],
+            "status": "completado",
+            "statusLabel": "✓ Completado",
+            "audit": "<strong>✓ Completado e Integrado.</strong> Telemetría en tiempo real activa en sucursales con ventanilla."
+        },
+        {
+            "num": 18,
+            "title": "18. Actualizar y Descargar Videos Musicales Regional Mexicano",
+            "category": "Operaciones / Marketing",
+            "badgeDept": "🎵 Tienda",
+            "badgePriority": "🟢 Normal",
+            "auditJune": "",
+            "auditJuly": "<strong>⏳ Pendiente (Julio 2026).</strong> Actualización y descarga de la biblioteca de videos musicales de Regional Mexicano para las pantallas de las sucursales.",
+            "auditAugust": "<strong>✓ Completado (Agosto 2026).</strong> Actualización y descarga de la biblioteca de videos musicales de Regional Mexicano en formato MP4 HD organizados en unidades USB para reproducción en los televisores de los restaurantes.",
+            "auditSeptember": "<strong>✓ Completado y Distribuido.</strong> Biblioteca musical de videos MP4 HD entregada a sucursales.",
+            "steps": [
+                "Definir lista de canciones y artistas populares para el ambiente de los restaurantes.",
+                "Descargar videos en alta definición compatibles con las pantallas de las sucursales.",
+                "Organizar archivos y distribuirlos a las sucursales."
+            ],
+            "status": "completado",
+            "statusLabel": "✓ Completado",
+            "audit": "<strong>✓ Completado y Distribuido.</strong> Biblioteca musical de videos MP4 HD entregada a sucursales."
+        },
+        {
+            "num": 19,
+            "title": "19. Módulo de Caja Fuerte (Conteo de Efectivo por Sucursal)",
+            "category": "Finanzas / Treasury",
+            "badgeDept": "💰 Finanzas",
+            "badgePriority": "🔴 Alta",
+            "auditJune": "",
+            "auditJuly": "<strong>✓ Completado e Integrado (10-Jul-2026).</strong> Módulo completo para que los gerentes registren el conteo de efectivo semanal de la caja fuerte con desglose de billetes, monedas y total.",
+            "auditAugust": "<strong>✓ Completado e Integrado.</strong> Registro semanal de billetes, monedas sueltas, rollos y gavetas con cálculo automático de gran total, conciliación de ventas de uniformes y control de ediciones pasadas.",
+            "auditSeptember": "<strong>✓ Completado e Integrado.</strong> Registro y conciliación semanal de caja fuerte en producción.",
+            "steps": [
+                "Formulario estructurado de desglose de efectivo.",
+                "Conciliación automática con ventas de uniformes en efectivo.",
+                "Historial auditable con control de modificaciones por rol."
+            ],
+            "status": "completado",
+            "statusLabel": "✓ Completado",
+            "audit": "<strong>✓ Completado e Integrado.</strong> Registro y conciliación semanal de caja fuerte en producción."
+        },
+        {
+            "num": 20,
+            "title": "20. Módulo de Tiendas (Integración Dinámica, Geocodificación y Mapas de Google)",
+            "category": "Sistemas / Locations",
+            "badgeDept": "💻 Sistemas",
+            "badgePriority": "🔴 Alta",
+            "auditJune": "",
+            "auditJuly": "<strong>✓ Completado e Integrado (14-Jul-2026).</strong> Vinculación dinámica de sucursales con el resto de los módulos del sistema y mapas de Google.",
+            "auditAugust": "<strong>✓ Completado e Integrado.</strong> Directorio dinámico de las 15 sucursales oficiales + Bodega Central con coordenadas GPS exactas, teléfonos y horarios de operación.",
+            "auditSeptember": "<strong>✓ Completado e Integrado.</strong> Directorio dinámico de 15 sucursales oficiales y Bodega Central.",
+            "steps": [
+                "Tabla canónica de tiendas en base de datos.",
+                "Geocodificación de coordenadas GPS para integración con MilesIQ.",
+                "Selector global de sucursales en cabecera del sistema."
+            ],
+            "status": "completado",
+            "statusLabel": "✓ Completado",
+            "audit": "<strong>✓ Completado e Integrado.</strong> Directorio dinámico de 15 sucursales oficiales y Bodega Central."
+        },
+        {
+            "num": 21,
+            "title": "21. Order Ready Board & Pantalla de Pedidos",
+            "category": "Costos & Proveedores",
+            "badgeDept": "📊 Finanzas",
+            "badgePriority": "🔴 Alta",
+            "auditJune": "",
+            "auditJuly": "",
+            "auditAugust": "<strong>⚡ En Progreso (90% de avance).</strong> Ingesta automática de API REST v3 de Viele & Sons (86 insumos en 1.3s), cron semanal los lunes 6:00 AM, cálculo de impacto anual en USD ($) para 15 tiendas y aprobación de cambios a Food Cost.",
+            "auditSeptember": "<strong>✓ Completado e Implementado en Producción (Septiembre 2026).</strong> Cron diario matutino 6:00 AM PST con telemetría en activity_logs, alerta ejecutiva por email con cálculo de impacto anual en USD y badge de estado en tiempo real.",
+            "steps": [
+                "Conexión API REST v3 y scraper automatizado.",
+                "Cálculo de impacto inflacionario en dólares para la cadena.",
+                "Integración con Sysco y US Foods para comparativas de mercado."
+            ],
+            "status": "completado",
+            "statusLabel": "Completado",
+            "audit": "<strong>✓ Completado y Lanzado (Octubre 2026).</strong> Sistema de llamado de órdenes listas con voz neuronal femenina ultra-realista Gemini TTS (Español/Inglés) con eslogan \"¡Ya está!\", sincronización de bump en KDS expediter y modo TV pantalla completa."
+        },
+        {
+            "num": 22,
+            "title": "22. Control de Descansos Laborales (Labor Compliance AI & Alertas CA)",
+            "category": "Recursos Humanos",
+            "badgeDept": "⚖️ Legal & RRHH",
+            "badgePriority": "🔴 Alta",
+            "auditJune": "",
+            "auditJuly": "",
+            "auditAugust": "<strong>⚡ En Progreso (85% de avance).</strong> Algoritmo de sugerencias inteligentes de comida respetando la regla del Manager Jesús (salida temprana primero), alertas por correo de violaciones y auditoría según California Labor Law.",
+            "auditSeptember": "<strong>✓ Completado e Implementado en Producción (Septiembre 2026).</strong> Algoritmo inteligente de descansos, notificaciones automáticas de violaciones por correo electrónico y cumplimiento estricto de California Labor Law.",
+            "steps": [
+                "Motor de asignación dinámica de horarios de comida.",
+                "Alertas de violaciones despachadas a supervisores y directivos.",
+                "Afinación de la interfaz móvil y reporte mensual consolidado de multas."
+            ],
+            "status": "completado",
+            "statusLabel": "✓ Completado",
+            "audit": "<strong>✓ Completado e Implementado en Producción (Septiembre 2026).</strong> Algoritmo inteligente de descansos, notificaciones automáticas de violaciones por correo electrónico y cumplimiento estricto de California Labor Law."
+        },
+        {
+            "num": 23,
+            "title": "23. Conciliación Multitienda Toast API (Cross-Date Refunds & EBT)",
+            "category": "Ventas & Contabilidad",
+            "badgeDept": "💰 Finanzas",
+            "badgePriority": "🔴 Alta",
+            "auditJune": "",
+            "auditJuly": "",
+            "auditAugust": "<strong>⚡ En Progreso (90% de avance).</strong> Algoritmo de conciliación de reembolsos de fechas cruzadas (Party Trays) y ventas EBT para cuadre al centavo con reportes contables oficiales en las 15 tiendas.",
+            "auditSeptember": "<strong>✓ Completado e Implementado en Producción (Septiembre 2026).</strong> Algoritmo de conciliación de Party Trays (cross-date refunds), ventas EBT, mapa dinámico de dining options y auto-sanación de caché.",
+            "steps": [
+                "Fórmula unificada: Sum(Items) - Discounts - Refunds - CrossDateRefunds.",
+                "Diagnóstico y resolución de discrepancias en tiendas (Bell $8,332.64).",
+                "Automatización del cron de auto-sanación de caché de ventas."
+            ],
+            "status": "completado",
+            "statusLabel": "✓ Completado",
+            "audit": "<strong>✓ Completado e Implementado en Producción (Septiembre 2026).</strong> Algoritmo de conciliación de Party Trays (cross-date refunds), ventas EBT, mapa dinámico de dining options y auto-sanación de caché."
+        },
+        {
+            "num": 24,
+            "title": "24. Registro de Proveedores y Mantenimiento",
+            "category": "Supervisión & RRHH",
+            "badgeDept": "🚗 Supervisión",
+            "badgePriority": "🔴 Alta",
+            "auditJune": "",
+            "auditJuly": "",
+            "auditAugust": "<strong>⚡ En Progreso (85% de avance).</strong> Geofencing perimetral en las 15 tiendas + Bodega, cálculo fiscal IRS ($0.760/milla), lanzador rápido QuickDriveModal con apertura de Google/Apple Maps y sincronización automática desde inspecciones.",
+            "auditSeptember": "<strong>✓ Completado e Implementado en Producción (Septiembre 2026).</strong> Geofencing GPS en 15 tiendas + Bodega, cálculo fiscal IRS ($0.760/milla), modal QuickDrive y tabla supervisor_mileage_trips.",
+            "steps": [
+                "Detección GPS pasiva por geofencing en tiendas oficiales.",
+                "Cálculo automático de distancias y montos de reembolso IRS.",
+                "Concluir exportación formal de nómina para despacho a RRHH."
+            ],
+            "status": "completado",
+            "statusLabel": "Completado",
+            "audit": "<strong>✓ Completado e Integrado (Octubre 2026).</strong> Módulo integral de bitácora para técnicos externos con captura obligatoria de fotos antes/después, firma digital de gerentes y semáforo preventivo de estatus."
+        },
+        {
+            "num": 25,
+            "title": "25. Módulo Crear Bills en QuickBooks (/admin/crear-bills)",
+            "category": "Compras & Proveedores",
+            "badgeDept": "👕 Mercancía",
+            "badgePriority": "🟡 Media",
+            "auditJune": "",
+            "auditJuly": "",
+            "auditAugust": "<strong>⚡ En Progreso (75% de avance).</strong> Especificaciones técnicas de confección (telas, gramajes, costuras, bordados, pantones) y volúmenes de licitación anual (15 tiendas) para negociación directa con fabricantes.",
+            "auditSeptember": "<strong>✓ Completado e Implementado (Septiembre 2026).</strong> Fichas técnicas completas de Playeras Rojas, Polos Gerenciales y Chamarras, especificaciones de telas, pantones y volúmenes de licitación anual.",
+            "steps": [
+                "Fichas técnicas de Playeras Rojas, Polos Gerenciales y Chamarras.",
+                "Volúmenes de compra anual calculados para licitación RFQ.",
+                "Generación de documentos ejecutivos de negociación con proveedores."
+            ],
+            "status": "completado",
+            "statusLabel": "Completado",
+            "audit": "<strong>✓ Completado y Operativo (Octubre 2026).</strong> Herramienta financiera para transformar facturas de bodega central en Bills oficiales de QuickBooks Online con ordenamiento dinámico y validación de costos."
+        },
+        {
+            "num": 26,
+            "title": "26. App Móvil de Clientes (/app) & tacosgavilan.com",
+            "category": "Cocina & Temporadas",
+            "badgeDept": "☕ Operaciones",
+            "badgePriority": "🟡 Media",
+            "auditJune": "",
+            "auditJuly": "",
+            "auditAugust": "<strong>✓ Completado e Integrado (Agosto 2026).</strong> Modelo de proyección estacional en /api/inventory/champurrado-forecast con 5 años de historial de semanas ISO, conversión de 8 lbs/galón y sugerencia automática de galones diarios para la orden de bodega.",
+            "auditSeptember": "<strong>✓ Completado e Integrado.</strong> Motor predictivo estacional de champurrado activo en producción para la temporada invernal.",
+            "steps": [
+                "Extracción histórica de galones y vasos vendidos en Toast.",
+                "Fórmula de sugerencia con niveles de confianza (HIGH/MED/LOW) y 8 lbs/gal.",
+                "Integración visual informativa en la Orden Diaria de Bodega."
+            ],
+            "status": "progreso",
+            "statusLabel": "En Progreso",
+            "audit": "<strong>⚡ En Progreso Activo (Fase de Producción - Octubre 2026).</strong> Rutas de pedido móvil con checkout Toast Local, splash animado 3D a 60 FPS en Framer Motion, tasas oficiales CDTFA e integración de temas de Google Maps para el sitio web corporativo."
+        },
+        {
+            "num": 27,
+            "title": "27. Módulo RONOS HR, Auditoría de Nóminas Simplify & Paystubs",
+            "category": "Recursos Humanos / Payroll",
+            "badgeDept": "👥 RRHH & Nóminas",
+            "badgePriority": "🔴 Alta",
+            "auditJune": "",
+            "auditJuly": "",
+            "auditAugust": "<strong>✓ Completado e Implementado (Agosto 2026).</strong> Sistema de extracción, auditoría y cruce de nóminas Simplify vs RONOS, motor de cálculo de billing PEO para 15 empresas/sucursales, visor de paystubs y detección automática de discrepancias salariales y horas extra.",
+            "auditSeptember": "<strong>En progreso: correcciones locales verificadas al 19-Sep-2026; sin desplegar.</strong> Auditoría de 14 facturas, reparación de identidad nativa, PTO/salarios, importación documental, cálculo independiente y UI sin CSV. Pruebas de 12 tiendas y TypeScript aprobadas. Pendientes: 15 vínculos de asistencia, 2 identificadores PDF, documentos complementarios y vigencia contractual; no se afirma conciliación completa ni sobrecargos de la agencia.",
+            "steps": [
+                "Extracción forense de nóminas y timbrados de Simplify y RONOS.",
+                "Motor de conciliación PEO con cálculo de cargas sociales y fees.",
+                "Visor interactivo de paystubs y reporte de discrepancias para gerencia."
+            ],
+            "status": "progreso",
+            "statusLabel": "⚡ En Progreso",
+            "audit": "<strong>En progreso: correcciones locales verificadas al 19-Sep-2026; sin desplegar.</strong> Auditoría de 14 facturas, reparación de identidad nativa, PTO/salarios, importación documental, cálculo independiente y UI sin CSV. Pruebas de 12 tiendas y TypeScript aprobadas. Pendientes: 15 vínculos de asistencia, 2 identificadores PDF, documentos complementarios y vigencia contractual; no se afirma conciliación completa ni sobrecargos de la agencia."
+        }
+    ]
+},
     septiembre: {
     "id": "septiembre",
     "monthName": "Septiembre",

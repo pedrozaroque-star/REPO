@@ -1,0 +1,788 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Inventario Maestro de Módulos - Sistema Tacos Gavilan</title>
+    <style>
+        @page {
+            size: letter portrait;
+            margin: 0.4in 0.4in 0.45in 0.4in;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            color: #1e293b;
+            background: #ffffff;
+            font-size: 8.5pt;
+            line-height: 1.3;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 100%;
+            margin: 0 auto;
+        }
+
+
+
+        /* ENCABEZADOS DE CATEGORÍA */
+        .category-header {
+            font-size: 9.5pt;
+            font-weight: 800;
+            color: #0f172a;
+            background: #f1f5f9;
+            padding: 5px 10px;
+            border-radius: 4px;
+            margin-top: 14px;
+            margin-bottom: 6px;
+            border-left: 4px solid #334155;
+            text-transform: uppercase;
+            letter-spacing: -0.2px;
+            page-break-after: avoid;
+            break-after: avoid;
+        }
+
+        /* LISTA DE MÓDULOS */
+        .task-list {
+            list-style: none;
+            margin-bottom: 8px;
+        }
+
+        .task-item {
+            display: flex;
+            align-items: flex-start;
+            padding: 5.5px 4px;
+            border-bottom: 1px solid #f1f5f9;
+            page-break-inside: avoid;
+        }
+
+        .task-item:last-child {
+            border-bottom: none;
+        }
+
+        /* CASILLA DE PRIORIDAD */
+        .priority-box {
+            flex-shrink: 0;
+            width: 52px;
+            font-family: "Courier New", Courier, monospace;
+            font-size: 9pt;
+            font-weight: 700;
+            color: #475569;
+            margin-right: 8px;
+            padding-top: 1px;
+            letter-spacing: 1px;
+        }
+
+        .task-content {
+            flex-grow: 1;
+        }
+
+        .task-title {
+            font-size: 8.5pt;
+            font-weight: 700;
+            color: #0f172a;
+            margin-bottom: 1px;
+        }
+
+        .task-title .route-badge {
+            font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+            font-size: 7.5pt;
+            font-weight: 600;
+            color: #2563eb;
+            background: #eff6ff;
+            padding: 1px 4px;
+            border-radius: 3px;
+            margin-left: 4px;
+            border: 1px solid #dbeafe;
+        }
+
+        .task-desc {
+            font-size: 7.8pt;
+            color: #475569;
+            line-height: 1.25;
+        }
+
+        /* BOTÓN DE IMPRESIÓN WEB */
+        .no-print {
+            text-align: right;
+            margin-bottom: 10px;
+        }
+
+        .print-btn {
+            background: #0f172a;
+            color: #ffffff;
+            border: none;
+            padding: 6px 14px;
+            border-radius: 4px;
+            font-size: 8.5pt;
+            font-weight: 600;
+            cursor: pointer;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+
+        @media print {
+            .no-print {
+                display: none;
+            }
+            body {
+                background: transparent;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        
+        <div class="no-print">
+            <button class="print-btn" onclick="window.print()">🖨️ Imprimir este Documento</button>
+        </div>
+
+        <!-- HEADER MINIMALISTA SIN INSTRUCCIONES NI METADATOS -->
+        <div style="font-size: 13pt; font-weight: 900; color: #0f172a; text-transform: uppercase; margin-bottom: 8px; padding-bottom: 4px; border-bottom: 1px solid #cbd5e1;">Tacos Gavilan</div>
+
+        <!-- 1. VENTAS Y TELEMETRÍA EN TIEMPO REAL -->
+        <div class="category-header">📊 1. Ventas y Telemetría en Tiempo Real</div>
+        <ul class="task-list">
+            <li class="task-item">
+                <div class="priority-box">[ &nbsp;&nbsp;&nbsp;&nbsp; ]</div>
+                <div class="task-content">
+                    <div class="task-title">1. Dashboard Ejecutivo Principal <span class="route-badge">/dashboard</span></div>
+                    <div class="task-desc">Tablero central con métricas clave en vivo: ventas acumuladas del día por Toast POS, alertas de sucursales, pedidos y accesos rápidos a herramientas.</div>
+                </div>
+            </li>
+            <li class="task-item">
+                <div class="priority-box">[ &nbsp;&nbsp;&nbsp;&nbsp; ]</div>
+                <div class="task-content">
+                    <div class="task-title">2. Radar de Ventas en Vivo <span class="route-badge">/ventas</span></div>
+                    <div class="task-desc">Análisis minuto a minuto de ventas netas, comparativos por hora contra semanas anteriores y desglose por canal (Comedor, Para Llevar, Drive-Thru, Delivery).</div>
+                </div>
+            </li>
+            <li class="task-item">
+                <div class="priority-box">[ &nbsp;&nbsp;&nbsp;&nbsp; ]</div>
+                <div class="task-content">
+                    <div class="task-title">3. Historial de Ventas por Tienda <span class="route-badge">/ventas/historial</span></div>
+                    <div class="task-desc">Consulta y análisis de históricos de venta por fechas pasadas, rangos mensuales y sucursales individuales para auditoría y comparaciones.</div>
+                </div>
+            </li>
+            <li class="task-item">
+                <div class="priority-box">[ &nbsp;&nbsp;&nbsp;&nbsp; ]</div>
+                <div class="task-content">
+                    <div class="task-title">4. Reportes Financieros Consolidados de Ventas <span class="route-badge">/ventas/reportes</span></div>
+                    <div class="task-desc">Reportes consolidados de ventas netas, ventas brutas, canales de entrega, impuestos recaudados, propinas y métodos de pago de todas las tiendas.</div>
+                </div>
+            </li>
+            <li class="task-item">
+                <div class="priority-box">[ &nbsp;&nbsp;&nbsp;&nbsp; ]</div>
+                <div class="task-content">
+                    <div class="task-title">5. Auditoría de Descuentos y Cortesías POS <span class="route-badge">/admin/auditoria-descuentos</span></div>
+                    <div class="task-desc">Auditoría detallada de descuentos aplicados en terminales Toast: cortesías de gerencia (Comps), promociones, cancelaciones y control de mermas financieras.</div>
+                </div>
+            </li>
+            <li class="task-item">
+                <div class="priority-box">[ &nbsp;&nbsp;&nbsp;&nbsp; ]</div>
+                <div class="task-content">
+                    <div class="task-title">6. Telemetría y Tiempos de Drive-Thru <span class="route-badge">/drive-thru</span></div>
+                    <div class="task-desc">Métricas de velocidad de servicio en ventanilla de auto-servicio, tiempos de espera por automóvil, cuellos de botella y ranking comparativo entre sucursales.</div>
+                </div>
+            </li>
+            <li class="task-item">
+                <div class="priority-box">[ &nbsp;&nbsp;&nbsp;&nbsp; ]</div>
+                <div class="task-content">
+                    <div class="task-title">7. Tablero de Pedidos Listos para Clientes <span class="route-badge">/order-ready-board</span></div>
+                    <div class="task-desc">Pantalla pública para comedor con visualización de pedidos en preparación y pedidos listos para recoger, complementada con locutor de voz automático.</div>
+                </div>
+            </li>
+            <li class="task-item">
+                <div class="priority-box">[ &nbsp;&nbsp;&nbsp;&nbsp; ]</div>
+                <div class="task-content">
+                    <div class="task-title">8. Pantalla TV Kiosko de Tienda <span class="route-badge">/tv</span></div>
+                    <div class="task-desc">Modo de pantalla completa para televisores instalados en sucursal que proyecta totales de ventas acumuladas, metas diarias e indicadores operativos.</div>
+                </div>
+            </li>
+            <li class="task-item">
+                <div class="priority-box">[ &nbsp;&nbsp;&nbsp;&nbsp; ]</div>
+                <div class="task-content">
+                    <div class="task-title">9. Sistema de Pantallas y KDS por Tienda <span class="route-badge">/t/[screen]/[store]</span></div>
+                    <div class="task-desc">Pantallas dinámicas por sucursal que sirven como visualizadores de cocina (KDS), pantallas de entrega en mostrador y monitores de despacho en ventanilla.</div>
+                </div>
+            </li>
+        </ul>
+
+        <!-- 2. FINANZAS, CONTABILIDAD Y NÓMINA -->
+        <div class="category-header">💵 2. Finanzas, Contabilidad y Nómina</div>
+        <ul class="task-list">
+            <li class="task-item">
+                <div class="priority-box">[ &nbsp;&nbsp;&nbsp;&nbsp; ]</div>
+                <div class="task-content">
+                    <div class="task-title">10. Estado de Resultados P&L Multi-Sucursal <span class="route-badge">/admin/pnl</span></div>
+                    <div class="task-desc">Estado de Pérdidas y Ganancias (Profit & Loss) multi-sucursal comparativo lado a lado de las 15 tiendas, con eliminación automática de transacciones intercompañía.</div>
+                </div>
+            </li>
+            <li class="task-item">
+                <div class="priority-box">[ &nbsp;&nbsp;&nbsp;&nbsp; ]</div>
+                <div class="task-content">
+                    <div class="task-title">11. Pólizas Contables de Ventas Diarias Cohesion <span class="route-badge">/contabilidad</span></div>
+                    <div class="task-desc">Generación de pólizas de diario de ventas para QuickBooks Online por tienda y día laboral, sustituyendo el software externo Cohesion ($450/mes).</div>
+                </div>
+            </li>
+            <li class="task-item">
+                <div class="priority-box">[ &nbsp;&nbsp;&nbsp;&nbsp; ]</div>
+                <div class="task-content">
+                    <div class="task-title">12. Auditoría de Paquetes Contables Semanales <span class="route-badge">/contabilidad/[packetId]</span></div>
+                    <div class="task-desc">Revisión exhaustiva semanal de journals contables, cruces de efectivo, depósitos bancarios, comisiones de apps externas y cuadre al centavo antes de enviar a QuickBooks.</div>
+                </div>
+            </li>
+            <li class="task-item">
+                <div class="priority-box">[ &nbsp;&nbsp;&nbsp;&nbsp; ]</div>
+                <div class="task-content">
+                    <div class="task-title">13. Configuración y Mapeo de Cuentas Contables <span class="route-badge">/contabilidad/configuracion</span></div>
+                    <div class="task-desc">Catálogo de mapeo de códigos de cuenta de mayor en QuickBooks Online para ingresos por alimentos, bebidas, pasivos por impuestos, propinas y bancos.</div>
+                </div>
+            </li>
+            <li class="task-item">
+                <div class="priority-box">[ &nbsp;&nbsp;&nbsp;&nbsp; ]</div>
+                <div class="task-content">
+                    <div class="task-title">14. Generador y Sincronizador de Bills en QuickBooks <span class="route-badge">/admin/crear-bills</span></div>
+                    <div class="task-desc">Sincronización y creación automática de facturas de compra (Bills) en QuickBooks Online a partir de las facturas internas emitidas por Bodega Central a las tiendas.</div>
+                </div>
+            </li>
+            <li class="task-item">
+                <div class="priority-box">[ &nbsp;&nbsp;&nbsp;&nbsp; ]</div>
+                <div class="task-content">
+                    <div class="task-title">15. Arqueo de Bóveda y Caja Fuerte <span class="route-badge">/caja-fuerte</span></div>
+                    <div class="task-desc">Control y auditoría de la caja fuerte de cada tienda: conteo de fajos de billetes, rollos de monedas, fondo de cambio y conciliación de efectivo por venta de uniformes.</div>
+                </div>
+            </li>
+            <li class="task-item">
+                <div class="priority-box">[ &nbsp;&nbsp;&nbsp;&nbsp; ]</div>
+                <div class="task-content">
+                    <div class="task-title">16. Control y Reembolso de Millaje de Supervisores <span class="route-badge">/miles</span></div>
+                    <div class="task-desc">Bitácora de traslados vehiculares entre sucursales de supervisores de zona, cálculo de reembolso según tarifa oficial por milla y exportación a nómina de RRHH.</div>
+                </div>
+            </li>
+        </ul>
+
+        <!-- 3. INVENTARIO, COSTOS Y COMPRAS DE BODEGA -->
+        <div class="category-header">📦 3. Inventario, Costos y Compras de Bodega</div>
+        <ul class="task-list">
+            <li class="task-item">
+                <div class="priority-box">[ &nbsp;&nbsp;&nbsp;&nbsp; ]</div>
+                <div class="task-content">
+                    <div class="task-title">17. Panel Central de Inventario <span class="route-badge">/inventory</span></div>
+                    <div class="task-desc">Visión ejecutiva de existencias, valuación de inventario en bodega y tiendas, alertas de insumos con stock crítico y movimientos de producto.</div>
+                </div>
+            </li>
+            <li class="task-item">
+                <div class="priority-box">[ &nbsp;&nbsp;&nbsp;&nbsp; ]</div>
+                <div class="task-content">
+                    <div class="task-title">18. Pedido Diario de Tiendas a Bodega Central <span class="route-badge">/inventory/orders</span></div>
+                    <div class="task-desc">Motor algorítmico que calcula la orden de abastecimiento sugerida a cada tienda según ventas de los últimos 7 días y stock mínimo, con envío directo a QuickBooks.</div>
+                </div>
+            </li>
+            <li class="task-item">
+                <div class="priority-box">[ &nbsp;&nbsp;&nbsp;&nbsp; ]</div>
+                <div class="task-content">
+                    <div class="task-title">19. Hoja Imprimible de Pedido Diario <span class="route-badge">/inventory/orders/print-sheet</span></div>
+                    <div class="task-desc">Formato físico imprimible para que los gerentes anoten conteos en refrigeradores y almacenes antes de capturar el pedido diario.</div>
+                </div>
+            </li>
+            <li class="task-item">
+                <div class="priority-box">[ &nbsp;&nbsp;&nbsp;&nbsp; ]</div>
+                <div class="task-content">
+                    <div class="task-title">20. Módulo de Compras Viele & Sons <span class="route-badge">/admin/compras/viele</span></div>
+                    <div class="task-desc">Conteo semanal de desechables y abarrotes de tiendas, cálculo de orden de compra sugerida y exportación o checkout directo en el portal de Viele & Sons (Sage 100).</div>
+                </div>
+            </li>
+            <li class="task-item">
+                <div class="priority-box">[ &nbsp;&nbsp;&nbsp;&nbsp; ]</div>
+                <div class="task-content">
+                    <div class="task-title">21. Historial de Compras Viele & Sons <span class="route-badge">/admin/compras/viele/historial</span></div>
+                    <div class="task-desc">Registro histórico de pedidos semanales enviados al proveedor Viele & Sons, montos facturados y comparación de consumos por tienda.</div>
+                </div>
+            </li>
+            <li class="task-item">
+                <div class="priority-box">[ &nbsp;&nbsp;&nbsp;&nbsp; ]</div>
+                <div class="task-content">
+                    <div class="task-title">22. Hoja de Conteo Físico Viele & Sons <span class="route-badge">/admin/compras/viele/print-sheet</span></div>
+                    <div class="task-desc">Hoja estandarizada de conteo físico para bodega y almacén de tienda, agrupada por familias de empaques (vasos, charolas, bolsas, servilletas).</div>
+                </div>
+            </li>
+            <li class="task-item">
+                <div class="priority-box">[ &nbsp;&nbsp;&nbsp;&nbsp; ]</div>
+                <div class="task-content">
+                    <div class="task-title">23. Control y Despacho de Uniformes <span class="route-badge">/inventory/uniforms</span></div>
+                    <div class="task-desc">Control de inventario de uniformes (camisas, mandiles, gorras) por talla y color, registro de paquetes entregados a empleados nuevos y ventas descontadas por nómina o pagadas.</div>
+                </div>
+            </li>
+            <li class="task-item">
+                <div class="priority-box">[ &nbsp;&nbsp;&nbsp;&nbsp; ]</div>
+                <div class="task-content">
+                    <div class="task-title">24. Food Cost y Márgenes de Menú <span class="route-badge">/admin/food-cost</span></div>
+                    <div class="task-desc">Análisis integral del costo porcentual de alimentos (Food Cost %) por sucursal, rendimiento de compras y margen de utilidad bruta global.</div>
+                </div>
+            </li>
+            <li class="task-item">
+                <div class="priority-box">[ &nbsp;&nbsp;&nbsp;&nbsp; ]</div>
+                <div class="task-content">
+                    <div class="task-title">25. Food Cost Detallado por Sucursal <span class="route-badge">/admin/food-cost/[storeId]</span></div>
+                    <div class="task-desc">Desglose a nivel tienda de consumo real de carnes, abarrotes y lácteos contra la venta registrada en Toast, identificando sobrecostos o mermas.</div>
+                </div>
+            </li>
+            <li class="task-item">
+                <div class="priority-box">[ &nbsp;&nbsp;&nbsp;&nbsp; ]</div>
+                <div class="task-content">
+                    <div class="task-title">26. Rendimiento y Merma de Carnes en Parrilla <span class="route-badge">/admin/food-cost/meats</span></div>
+                    <div class="task-desc">Seguimiento especializado de libras de carne cruda entregadas a la tienda vs carne cocinada vendida, calculando el factor de encogimiento y merma por cocción.</div>
+                </div>
+            </li>
+            <li class="task-item">
+                <div class="priority-box">[ &nbsp;&nbsp;&nbsp;&nbsp; ]</div>
+                <div class="task-content">
+                    <div class="task-title">27. Varianza de Insumos Teórico vs Real <span class="route-badge">/admin/food-cost/varianza</span></div>
+                    <div class="task-desc">Auditoría que compara la cantidad de producto que debió consumirse según recetas teóricas contra las salidas reales de almacén para detectar pérdidas o porciones excesivas.</div>
+                </div>
+            </li>
+            <li class="task-item">
+                <div class="priority-box">[ &nbsp;&nbsp;&nbsp;&nbsp; ]</div>
+                <div class="task-content">
+                    <div class="task-title">28. Radar de Precios de Proveedores Externos <span class="route-badge">/admin/precios-proveedores</span></div>
+                    <div class="task-desc">Ingesta y comparación de listas de precios de empacadoras y distribuidores, detectando aumentos súbitos en carnes, aguacate, queso y desechables.</div>
+                </div>
+            </li>
+            <li class="task-item">
+                <div class="priority-box">[ &nbsp;&nbsp;&nbsp;&nbsp; ]</div>
+                <div class="task-content">
+                    <div class="task-title">29. Catálogo Maestro de Insumos de Bodega <span class="route-badge">/inventory/items</span></div>
+                    <div class="task-desc">Padrón de ingredientes y materias primas con claves de compra, costo unitario de proveedor, empaques (cajas, sacos, bidones) y conversión a unidades de cocina.</div>
+                </div>
+            </li>
+            <li class="task-item">
+                <div class="priority-box">[ &nbsp;&nbsp;&nbsp;&nbsp; ]</div>
+                <div class="task-content">
+                    <div class="task-title">30. Fichas Técnicas e Ingeniería de Menú <span class="route-badge">/inventory/menu</span></div>
+                    <div class="task-desc">Diseño de recetas teóricas para cada platillo del menú (tacos, burritos, quesadillas, aguas), especificando gramos/onzas exactas de cada ingrediente.</div>
+                </div>
+            </li>
+            <li class="task-item">
+                <div class="priority-box">[ &nbsp;&nbsp;&nbsp;&nbsp; ]</div>
+                <div class="task-content">
+                    <div class="task-title">31. Costos y Márgenes por Platillo <span class="route-badge">/inventory/costs</span></div>
+                    <div class="task-desc">Análisis de margen de ganancia por ítem del menú según precios actualizados de insumos en QuickBooks, evaluando precios de venta al público.</div>
+                </div>
+            </li>
+        </ul>
+
+        <!-- 4. PREPARACIÓN DE CARNE Y COCINA (PREPARADOR / PACE) -->
+        <div class="category-header">🥩 4. Preparación de Carne y Cocina (Preparador / Pace)</div>
+        <ul class="task-list">
+            <li class="task-item">
+                <div class="priority-box">[ &nbsp;&nbsp;&nbsp;&nbsp; ]</div>
+                <div class="task-content">
+                    <div class="task-title">32. Ritmo de Cocción de Parrilla (Cooking Pace) <span class="route-badge">/inventory/preparador</span></div>
+                    <div class="task-desc">Proyección inteligente de libras de carne cruda (Asada, Pastor, Pollo, Cabeza, Lengua) que el parrillero debe tirar a la plancha por bloques de 30 minutos o por tramos de turno.</div>
+                </div>
+            </li>
+            <li class="task-item">
+                <div class="priority-box">[ &nbsp;&nbsp;&nbsp;&nbsp; ]</div>
+                <div class="task-content">
+                    <div class="task-title">33. Modo Kiosko de Tableta para Cocina <span class="route-badge">/inventory/preparador/bodega</span></div>
+                    <div class="task-desc">Interfaz táctil de pantalla completa y números gigantes para la tableta de cocina, con bloqueo de edición accidental para uso rudo de los cocineros.</div>
+                </div>
+            </li>
+            <li class="task-item">
+                <div class="priority-box">[ &nbsp;&nbsp;&nbsp;&nbsp; ]</div>
+                <div class="task-content">
+                    <div class="task-title">34. Programación Manual Semanal de Carne <span class="route-badge">/inventory/preparador/tabla</span></div>
+                    <div class="task-desc">Tabla donde gerentes o supervisores configuran proyecciones manuales fijas de carne por día y hora para tiendas sin histórico suficiente o eventos extraordinarios.</div>
+                </div>
+            </li>
+        </ul>
+
+        <!-- 5. PERSONAL, HORARIOS, RONOS Y DESCANSOS -->
+        <div class="category-header">👥 5. Personal, Horarios, RONOS y Descansos</div>
+        <ul class="task-list">
+            <li class="task-item">
+                <div class="priority-box">[ &nbsp;&nbsp;&nbsp;&nbsp; ]</div>
+                <div class="task-content">
+                    <div class="task-title">35. Programación Semanal de Horarios de Tienda <span class="route-badge">/horarios</span></div>
+                    <div class="task-desc">Editor semanal de turnos de empleados por posición (cajera, parrillero, cocinero, lavaplatos), validando cobertura por turno y costo proyectado de labor.</div>
+                </div>
+            </li>
+            <li class="task-item">
+                <div class="priority-box">[ &nbsp;&nbsp;&nbsp;&nbsp; ]</div>
+                <div class="task-content">
+                    <div class="task-title">36. Planificador de Demanda y Ventas Semanales <span class="route-badge">/planificador</span></div>
+                    <div class="task-desc">Herramienta de proyección de ventas e ingresos por tienda y día de la semana para definir la plantilla de personal y horas de labor necesarias.</div>
+                </div>
+            </li>
+            <li class="task-item">
+                <div class="priority-box">[ &nbsp;&nbsp;&nbsp;&nbsp; ]</div>
+                <div class="task-content">
+                    <div class="task-title">37. Impresión de Hojas de Horario y Planificación <span class="route-badge">/planificador/imprimir</span></div>
+                    <div class="task-desc">Vista optimizada para imprimir en papel los horarios semanales aprobados y colocarlos en el tablero de anuncios de la cocina para los empleados.</div>
+                </div>
+            </li>
+            <li class="task-item">
+                <div class="priority-box">[ &nbsp;&nbsp;&nbsp;&nbsp; ]</div>
+                <div class="task-content">
+                    <div class="task-title">38. Portal de Autoservicio del Empleado (Mi Horario) <span class="route-badge">/mis-horarios</span></div>
+                    <div class="task-desc">Portal móvil para que cada empleado consulte desde su celular los turnos que tiene asignados en la semana y su historial de asistencia.</div>
+                </div>
+            </li>
+            <li class="task-item">
+                <div class="priority-box">[ &nbsp;&nbsp;&nbsp;&nbsp; ]</div>
+                <div class="task-content">
+                    <div class="task-title">39. Generador Automático de Horarios con IA (Auto-Schedule) <span class="route-badge">/gestion/auto-schedule</span></div>
+                    <div class="task-desc">Algoritmo con inteligencia artificial que genera automáticamente la propuesta de horario semanal optimizando horas según la curva de ventas proyectada.</div>
+                </div>
+            </li>
+            <li class="task-item">
+                <div class="priority-box">[ &nbsp;&nbsp;&nbsp;&nbsp; ]</div>
+                <div class="task-content">
+                    <div class="task-title">40. Control de Descansos e Infracciones de Comida <span class="route-badge">/descansos</span></div>
+                    <div class="task-desc">Programación y auditoría de turnos de comida (Lunch Breaks) para cumplir la ley laboral de California y evitar multas de 1 hora de sueldo por retraso.</div>
+                </div>
+            </li>
+            <li class="task-item">
+                <div class="priority-box">[ &nbsp;&nbsp;&nbsp;&nbsp; ]</div>
+                <div class="task-content">
+                    <div class="task-title">41. Auditoría de Ponchadas y Reloj Checador (RONOS) <span class="route-badge">/admin/ronos</span></div>
+                    <div class="task-desc">Auditoría en vivo de ponchadas sincronizadas desde Toast POS: fotos tomadas al ponchar para evitar suplantaciones y monitoreo de penalizaciones con Cingular HR.</div>
+                </div>
+            </li>
+        </ul>
+
+        <!-- 6. OPERACIONES DE TIENDA, CHECKLISTS Y PROCEDIMIENTOS -->
+        <div class="category-header">📋 6. Operaciones de Tienda, Checklists y Procedimientos</div>
+        <ul class="task-list">
+            <li class="task-item">
+                <div class="priority-box">[ &nbsp;&nbsp;&nbsp;&nbsp; ]</div>
+                <div class="task-content">
+                    <div class="task-title">42. Panel de Checklists Operativos de Tienda <span class="route-badge">/checklists</span></div>
+                    <div class="task-desc">Hub principal de checklists para asistentes de gerencia y personal de tienda con acceso a aperturas, cierres, rutinas de día y recorridos.</div>
+                </div>
+            </li>
+            <li class="task-item">
+                <div class="priority-box">[ &nbsp;&nbsp;&nbsp;&nbsp; ]</div>
+                <div class="task-content">
+                    <div class="task-title">43. Checklist de Apertura de Tienda <span class="route-badge">/checklists/crear/apertura</span></div>
+                    <div class="task-desc">Verificación matutina obligatoria de encendido de freidoras, vaporeras, mesas frías, limpieza de comedor y preparación de línea antes de abrir puertas.</div>
+                </div>
+            </li>
+            <li class="task-item">
+                <div class="priority-box">[ &nbsp;&nbsp;&nbsp;&nbsp; ]</div>
+                <div class="task-content">
+                    <div class="task-title">44. Checklist de Cierre Nocturno de Tienda <span class="route-badge">/checklists/crear/cierre</span></div>
+                    <div class="task-desc">Protocolo nocturno de apagado de gas, lavado a profundidad de parrillas y pisos, guardado de carnes, resguardo de valores y activación de alarmas.</div>
+                </div>
+            </li>
+            <li class="task-item">
+                <div class="priority-box">[ &nbsp;&nbsp;&nbsp;&nbsp; ]</div>
+                <div class="task-content">
+                    <div class="task-title">45. Checklist de Rutinas Diarias <span class="route-badge">/checklists/crear/daily</span></div>
+                    <div class="task-desc">Lista de tareas intermedias durante el turno: reposición de salsas, cambio de trapos desinfectantes, vaciado de basura y limpieza de baños.</div>
+                </div>
+            </li>
+            <li class="task-item">
+                <div class="priority-box">[ &nbsp;&nbsp;&nbsp;&nbsp; ]</div>
+                <div class="task-content">
+                    <div class="task-title">46. Checklist de Turno Gerencial <span class="route-badge">/checklists/crear/manager</span></div>
+                    <div class="task-desc">Checklist exclusivo para el gerente en turno: arqueo parcial de cajas, chequeo de presentación de empleados y revisión de velocidad en cocina.</div>
+                </div>
+            </li>
+            <li class="task-item">
+                <div class="priority-box">[ &nbsp;&nbsp;&nbsp;&nbsp; ]</div>
+                <div class="task-content">
+                    <div class="task-title">47. Checklist de Recorrido Sanitario y Servicio <span class="route-badge">/checklists/crear/recorrido</span></div>
+                    <div class="task-desc">Ronda de inspección ocular por estacionamiento, mesas de comensales, barra de salsas, cocina y almacén con calificación de estado.</div>
+                </div>
+            </li>
+            <li class="task-item">
+                <div class="priority-box">[ &nbsp;&nbsp;&nbsp;&nbsp; ]</div>
+                <div class="task-content">
+                    <div class="task-title">48. Conteo de Sobrantes de Comida al Cierre <span class="route-badge">/checklists/crear/sobrante</span></div>
+                    <div class="task-desc">Registro físico obligatorio de libras de carne sobrante, botes de salsa, frijol y arroz al terminar el día para el cálculo de consumo real.</div>
+                </div>
+            </li>
+            <li class="task-item">
+                <div class="priority-box">[ &nbsp;&nbsp;&nbsp;&nbsp; ]</div>
+                <div class="task-content">
+                    <div class="task-title">49. Bitácora Sanitaria de Temperaturas <span class="route-badge">/checklists/crear/temperaturas</span></div>
+                    <div class="task-desc">Registro sanitario de grados de temperatura en mesas frías, vitrinas de carnes, congeladores y carnes cocinadas para cumplimiento con Salubridad.</div>
+                </div>
+            </li>
+            <li class="task-item">
+                <div class="priority-box">[ &nbsp;&nbsp;&nbsp;&nbsp; ]</div>
+                <div class="task-content">
+                    <div class="task-title">50. Edición y Corrección de Checklists Operativos <span class="route-badge">/checklists/editar/[tipo]/[id]</span></div>
+                    <div class="task-desc">Módulo que permite a supervisores o gerentes autorizados corregir o complementar capturas de checklists antes de su archivo definitivo.</div>
+                </div>
+            </li>
+            <li class="task-item">
+                <div class="priority-box">[ &nbsp;&nbsp;&nbsp;&nbsp; ]</div>
+                <div class="task-content">
+                    <div class="task-title">51. Visualizador de Detalle de Checklists <span class="route-badge">/checklists/ver/[id]</span></div>
+                    <div class="task-desc">Pantalla de lectura completa del checklist respondido con respuestas marcadas, observaciones, hora exacta de envío y firmas digitales.</div>
+                </div>
+            </li>
+            <li class="task-item">
+                <div class="priority-box">[ &nbsp;&nbsp;&nbsp;&nbsp; ]</div>
+                <div class="task-content">
+                    <div class="task-title">52. Tablero de Checklists Gerenciales <span class="route-badge">/checklists-manager</span></div>
+                    <div class="task-desc">Panel directivo para supervisores de zona donde revisan, aprueban o rechazan los checklists enviados por los gerentes de cada restaurante.</div>
+                </div>
+            </li>
+            <li class="task-item">
+                <div class="priority-box">[ &nbsp;&nbsp;&nbsp;&nbsp; ]</div>
+                <div class="task-content">
+                    <div class="task-title">53. Captura de Nuevo Checklist Gerencial <span class="route-badge">/checklists-manager/crear</span></div>
+                    <div class="task-desc">Formulario especializado para que el gerente registre el estado global de la tienda, cumplimiento de estándares y novedades del turno.</div>
+                </div>
+            </li>
+            <li class="task-item">
+                <div class="priority-box">[ &nbsp;&nbsp;&nbsp;&nbsp; ]</div>
+                <div class="task-content">
+                    <div class="task-title">54. Edición de Checklist Gerencial <span class="route-badge">/checklists-manager/editar/[id]</span></div>
+                    <div class="task-desc">Ajuste y resolución de observaciones anotadas en un checklist de gerente antes de su firma final por supervisión.</div>
+                </div>
+            </li>
+            <li class="task-item">
+                <div class="priority-box">[ &nbsp;&nbsp;&nbsp;&nbsp; ]</div>
+                <div class="task-content">
+                    <div class="task-title">55. Visualizador de Checklist Gerencial <span class="route-badge">/checklists-manager/ver/[id]</span></div>
+                    <div class="task-desc">Expediente de consulta para directores con la evaluación gerencial de la sucursal, porcentaje de cumplimiento y comentarios de turno.</div>
+                </div>
+            </li>
+            <li class="task-item">
+                <div class="priority-box">[ &nbsp;&nbsp;&nbsp;&nbsp; ]</div>
+                <div class="task-content">
+                    <div class="task-title">56. Diseñador de Plantillas de Checklists <span class="route-badge">/admin/plantillas</span></div>
+                    <div class="task-desc">Herramienta administrativa para crear nuevas plantillas de checklists o modificar las existentes agregando o quitando preguntas y secciones.</div>
+                </div>
+            </li>
+            <li class="task-item">
+                <div class="priority-box">[ &nbsp;&nbsp;&nbsp;&nbsp; ]</div>
+                <div class="task-content">
+                    <div class="task-title">57. Editor de Preguntas de Plantillas <span class="route-badge">/admin/plantillas/[id]</span></div>
+                    <div class="task-desc">Configuración específica de ponderación de puntos, tipo de respuesta (Sí/No, Numérico, Foto obligatoria, Texto) en cada reactivo de checklist.</div>
+                </div>
+            </li>
+            <li class="task-item">
+                <div class="priority-box">[ &nbsp;&nbsp;&nbsp;&nbsp; ]</div>
+                <div class="task-content">
+                    <div class="task-title">58. Auditorías de Calidad e Inspecciones con Fotos Móviles <span class="route-badge">/inspecciones</span></div>
+                    <div class="task-desc">Tablero de auditorías operativas realizadas por supervisores de zona con evaluación de higiene, servicio, cocina y fotos de evidencia.</div>
+                </div>
+            </li>
+            <li class="task-item">
+                <div class="priority-box">[ &nbsp;&nbsp;&nbsp;&nbsp; ]</div>
+                <div class="task-content">
+                    <div class="task-title">59. Nueva Inspección con Cámara Móvil <span class="route-badge">/inspecciones/nueva</span></div>
+                    <div class="task-desc">Formulario móvil para auditorías en campo donde el supervisor toma fotos en tiempo real de áreas sucias, alimentos mal rotulados o fallas de servicio.</div>
+                </div>
+            </li>
+            <li class="task-item">
+                <div class="priority-box">[ &nbsp;&nbsp;&nbsp;&nbsp; ]</div>
+                <div class="task-content">
+                    <div class="task-title">60. Seguimiento de Hallazgos de Inspección <span class="route-badge">/inspecciones/editar/[id]</span></div>
+                    <div class="task-desc">Monitoreo de no-conformidades detectadas en la inspección para dar seguimiento hasta que el gerente de tienda demuestre la corrección.</div>
+                </div>
+            </li>
+            <li class="task-item">
+                <div class="priority-box">[ &nbsp;&nbsp;&nbsp;&nbsp; ]</div>
+                <div class="task-content">
+                    <div class="task-title">61. Módulo de Actividades y Procedimientos por Puesto <span class="route-badge">/actividades</span></div>
+                    <div class="task-desc">Módulo central que gestiona el catálogo maestro de actividades operativas de la tienda, su mapeo a puestos de trabajo (Parrillero, Cocinero, Cajera, Lavalozas, Gerente) por turno AM/PM, asignación diaria de personal a posiciones y checklist interactivo en tableta. <strong>Requiere perfeccionar el catálogo de actividades a realizar y redactar la descripción detallada paso a paso de cada una.</strong></div>
+                </div>
+            </li>
+            <li class="task-item">
+                <div class="priority-box">[ &nbsp;&nbsp;&nbsp;&nbsp; ]</div>
+                <div class="task-content">
+                    <div class="task-title">62. Manuales de Procedimientos y Guías de Cocina <span class="route-badge">/procedimientos/imprimir</span></div>
+                    <div class="task-desc">Biblioteca de consulta e impresión de manuales de procedimientos operativos estándar (SOP), desinfección, lavado de manos y preparación de salsas.</div>
+                </div>
+            </li>
+            <li class="task-item">
+                <div class="priority-box">[ &nbsp;&nbsp;&nbsp;&nbsp; ]</div>
+                <div class="task-content">
+                    <div class="task-title">63. Minutas y Acuerdos de Juntas Gerenciales <span class="route-badge">/reunion</span></div>
+                    <div class="task-desc">Registro digital de minutas de juntas semanales de gerentes, acuerdos pactados, fechas compromiso de entrega y seguimiento a directores de área.</div>
+                </div>
+            </li>
+            <li class="task-item">
+                <div class="priority-box">[ &nbsp;&nbsp;&nbsp;&nbsp; ]</div>
+                <div class="task-content">
+                    <div class="task-title">64. Comunicación y Casos Corporativos en Basecamp 3 <span class="route-badge">/basecamp</span></div>
+                    <div class="task-desc">Integración bidireccional que conecta avisos generales de la empresa, mensajes corporativos y casos de soporte operativo directo con Basecamp 3.</div>
+                </div>
+            </li>
+        </ul>
+
+        <!-- 7. CLIENTES, SATISFACCIÓN Y MENÚS DIGITALES -->
+        <div class="category-header">⭐ 7. Clientes, Satisfacción y Menús Digitales</div>
+        <ul class="task-list">
+            <li class="task-item">
+                <div class="priority-box">[ &nbsp;&nbsp;&nbsp;&nbsp; ]</div>
+                <div class="task-content">
+                    <div class="task-title">65. Evaluación de Desempeño de Personal con Gafetes QR <span class="route-badge">/evaluacion</span></div>
+                    <div class="task-desc">Tablero analítico de satisfacción donde se miden las calificaciones que los clientes otorgan a cajeras y personal escaneando los stickers QR de sus gafetes.</div>
+                </div>
+            </li>
+            <li class="task-item">
+                <div class="priority-box">[ &nbsp;&nbsp;&nbsp;&nbsp; ]</div>
+                <div class="task-content">
+                    <div class="task-title">66. Kiosko de Calificación en Mostrador <span class="route-badge">/evaluacion/kiosk</span></div>
+                    <div class="task-desc">Pantalla táctil instalada junto a la caja de cobro para que los clientes califiquen en segundos la amabilidad, limpieza y rapidez de su experiencia.</div>
+                </div>
+            </li>
+            <li class="task-item">
+                <div class="priority-box">[ &nbsp;&nbsp;&nbsp;&nbsp; ]</div>
+                <div class="task-content">
+                    <div class="task-title">67. Buzón Administrativo de Feedback de Clientes <span class="route-badge">/feedback</span></div>
+                    <div class="task-desc">Bandeja de entrada central de quejas, reclamos y felicitaciones enviadas por comensales, con herramientas para que supervisión resuelva el caso.</div>
+                </div>
+            </li>
+            <li class="task-item">
+                <div class="priority-box">[ &nbsp;&nbsp;&nbsp;&nbsp; ]</div>
+                <div class="task-content">
+                    <div class="task-title">68. Registro Manual de Feedback <span class="route-badge">/feedback/nuevo</span></div>
+                    <div class="task-desc">Formulario para que gerentes capturen incidencias expresadas verbalmente por clientes en el restaurante o recibidas por llamada telefónica.</div>
+                </div>
+            </li>
+            <li class="task-item">
+                <div class="priority-box">[ &nbsp;&nbsp;&nbsp;&nbsp; ]</div>
+                <div class="task-content">
+                    <div class="task-title">69. Portal Público de Sugerencias de Clientes <span class="route-badge">/feedback-publico</span></div>
+                    <div class="task-desc">Página web abierta para clientes que permite enviar comentarios, subir fotografías de su ticket o comida y calificar a la sucursal visitada.</div>
+                </div>
+            </li>
+            <li class="task-item">
+                <div class="priority-box">[ &nbsp;&nbsp;&nbsp;&nbsp; ]</div>
+                <div class="task-content">
+                    <div class="task-title">70. Configuración de Terminales de Opinión en Tienda <span class="route-badge">/clientes</span></div>
+                    <div class="task-desc">Panel de vinculación y administración de tabletas de opinión física y códigos QR de encuestas asignados a cada restaurante.</div>
+                </div>
+            </li>
+            <li class="task-item">
+                <div class="priority-box">[ &nbsp;&nbsp;&nbsp;&nbsp; ]</div>
+                <div class="task-content">
+                    <div class="task-title">71. Gestor de Menús Digitales en Pantallas TV <span class="route-badge">/admin/tv-menus</span></div>
+                    <div class="task-desc">Administración de tableros de menú en pantallas de comedor: edición de precios, fotos de platillos, promociones temporales y productos agotados.</div>
+                </div>
+            </li>
+        </ul>
+
+        <!-- 8. ADMINISTRACIÓN GENERAL, SEGURIDAD Y CONFIGURACIÓN -->
+        <div class="category-header">⚙️ 8. Administración General, Seguridad y Configuración</div>
+        <ul class="task-list">
+            <li class="task-item">
+                <div class="priority-box">[ &nbsp;&nbsp;&nbsp;&nbsp; ]</div>
+                <div class="task-content">
+                    <div class="task-title">72. Directorio Maestro y Geolocalización de Tiendas <span class="route-badge">/tiendas</span></div>
+                    <div class="task-desc">Padrón de las 15 sucursales de Tacos Gavilan: direcciones físicas, coordenadas GPS, números de teléfono, gerentes a cargo y Toast Store IDs.</div>
+                </div>
+            </li>
+            <li class="task-item">
+                <div class="priority-box">[ &nbsp;&nbsp;&nbsp;&nbsp; ]</div>
+                <div class="task-content">
+                    <div class="task-title">73. Administración de Usuarios, Roles y Permisos <span class="route-badge">/usuarios</span></div>
+                    <div class="task-desc">Control de cuentas de acceso al sistema, asignación de roles (Administrador, Supervisor, Gerente, Asistente) y vinculación a tiendas autorizadas.</div>
+                </div>
+            </li>
+            <li class="task-item">
+                <div class="priority-box">[ &nbsp;&nbsp;&nbsp;&nbsp; ]</div>
+                <div class="task-content">
+                    <div class="task-title">74. Panel Central de Administración General <span class="route-badge">/admin</span></div>
+                    <div class="task-desc">Acceso raíz para directores con accesos directos a P&L, creación de facturas, auditoría de descuentos, plantillas y herramientas directivas.</div>
+                </div>
+            </li>
+            <li class="task-item">
+                <div class="priority-box">[ &nbsp;&nbsp;&nbsp;&nbsp; ]</div>
+                <div class="task-content">
+                    <div class="task-title">75. Configuración Corporativa del Sistema <span class="route-badge">/configuracion</span></div>
+                    <div class="task-desc">Parámetros corporativos globales: definición de jornada laboral (6:00 AM a 5:59 AM), inicio de turno PM (5:00 PM) e integraciones de servidor.</div>
+                </div>
+            </li>
+            <li class="task-item">
+                <div class="priority-box">[ &nbsp;&nbsp;&nbsp;&nbsp; ]</div>
+                <div class="task-content">
+                    <div class="task-title">76. Buscador Global del Sistema <span class="route-badge">/buscar</span></div>
+                    <div class="task-desc">Motor de búsqueda unificada para localizar rápidamente empleados, números de orden, recetas, insumos, tiendas o registros en segundos.</div>
+                </div>
+            </li>
+            <li class="task-item">
+                <div class="priority-box">[ &nbsp;&nbsp;&nbsp;&nbsp; ]</div>
+                <div class="task-content">
+                    <div class="task-title">77. Monitor de Salud del Sistema y Cron Jobs <span class="route-badge">/admin/salud-sistema</span></div>
+                    <div class="task-desc">Observabilidad técnica en tiempo real: estado de crons automáticos (ventas, labor, costos), monitoreo de APIs externas y uso de base de datos Supabase vs Spend Cap.</div>
+                </div>
+            </li>
+            <li class="task-item">
+                <div class="priority-box">[ &nbsp;&nbsp;&nbsp;&nbsp; ]</div>
+                <div class="task-content">
+                    <div class="task-title">78. Bitácora Ejecutiva de Horas y Desarrollo <span class="route-badge">/admin/reporte-actividades</span></div>
+                    <div class="task-desc">Componente nativo en TSX que consolida y grafica las horas de desarrollo trabajadas, con desglose bilingüe, filtros por módulo y cronograma visual Gantt 24h.</div>
+                </div>
+            </li>
+        </ul>
+
+        <!-- 9. APLICACIONES EXTERNAS Y PROYECTOS SATÉLITE -->
+        <div class="category-header">🚀 9. Aplicaciones Digitales Externas y Proyectos Satélite</div>
+        <ul class="task-list">
+            <li class="task-item">
+                <div class="priority-box">[ &nbsp;&nbsp;&nbsp;&nbsp; ]</div>
+                <div class="task-content">
+                    <div class="task-title">79. Aplicación Móvil Oficial para Clientes (iOS & Android)</div>
+                    <div class="task-desc">Aplicación descargable desarrollada en Expo / React Native para clientes de Tacos Gavilan: catálogo interactivo, pedidos anticipados para recoger, geolocalización de sucursales, programa de lealtad y promociones.</div>
+                </div>
+            </li>
+            <li class="task-item">
+                <div class="priority-box">[ &nbsp;&nbsp;&nbsp;&nbsp; ]</div>
+                <div class="task-content">
+                    <div class="task-title">80. Sitio Web Oficial Corporativo (tacosgavilan.com)</div>
+                    <div class="task-desc">Plataforma web de la marca con menú interactivo con fotos y precios, historia de la empresa, localizador GPS de restaurantes, pedidos en línea para recoger, bolsa de trabajo y formulario de contacto.</div>
+                </div>
+            </li>
+            <li class="task-item">
+                <div class="priority-box">[ &nbsp;&nbsp;&nbsp;&nbsp; ]</div>
+                <div class="task-content">
+                    <div class="task-title">81. Registro de Actividades de Proveedores de Servicio y/o Mantenimiento</div>
+                    <div class="task-desc">Módulo de bitácora y seguimiento para técnicos externos (refrigeración, freidoras, parrillas, trampas de grasa, plomería, HVAC) con estatus de caso (abierto, en proceso, concluido) y captura obligatoria de evidencia fotográfica del antes y después de cada reparación.</div>
+                </div>
+            </li>
+            <li class="task-item">
+                <div class="priority-box">[ &nbsp;&nbsp;&nbsp;&nbsp; ]</div>
+                <div class="task-content">
+                    <div class="task-title">82. Respaldo Automático de Base de Datos y Plan de Contingencia</div>
+                    <div class="task-desc">Programación de copias de seguridad diarias de Supabase con prueba de restauración periódica para blindar toda la información del negocio ante contingencias.</div>
+                </div>
+            </li>
+            <li class="task-item">
+                <div class="priority-box">[ &nbsp;&nbsp;&nbsp;&nbsp; ]</div>
+                <div class="task-content">
+                    <div class="task-title">83. Burbuja Flotante de Asistente IA en Pantallas</div>
+                    <div class="task-desc">Botón interactivo flotante en todas las pantallas del sistema para que gerentes resuelvan dudas de procedimientos, recetas o soporte técnico con respuestas guiadas por IA.</div>
+                </div>
+            </li>
+            <li class="task-item">
+                <div class="priority-box">[ &nbsp;&nbsp;&nbsp;&nbsp; ]</div>
+                <div class="task-content">
+                    <div class="task-title">84. Encuestas de Satisfacción en Tickets de Toast POS</div>
+                    <div class="task-desc">Impresión de código QR en el ticket impreso del cliente para medir satisfacción sobre calidad del producto, tiempo de entrega y servicio recibido.</div>
+                </div>
+            </li>
+        </ul>
+
+    </div>
+
+</body>
+</html>

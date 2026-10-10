@@ -434,13 +434,22 @@ export function MobilePlannerView({
                             {t('planner.mobile.today')}
                         </button>
                     )}
-                    {draftCount > 0 && onPublish && (
+                    {(draftCount > 0 || (shifts && shifts.length > 0)) && onPublish && (
                         <button
                             onClick={onPublish}
-                            className="px-2.5 py-1 bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-black text-[10px] uppercase tracking-wider rounded-lg shadow-sm flex items-center gap-1 active:scale-95 transition-all"
+                            className={`px-2.5 py-1 text-white font-black text-[10px] uppercase tracking-wider rounded-lg shadow-sm flex items-center gap-1 active:scale-95 transition-all ${
+                                draftCount > 0 
+                                    ? 'bg-gradient-to-r from-indigo-600 to-purple-600 animate-pulse' 
+                                    : 'bg-gradient-to-r from-emerald-600 to-teal-600'
+                            }`}
                         >
                             <Zap size={11} fill="currentColor" />
-                            <span>{t('planner.mobile.publish')} ({draftCount})</span>
+                            <span>
+                                {draftCount > 0 
+                                    ? `${t('planner.mobile.publish')} (${draftCount})` 
+                                    : (t('planner.header.republish') || 'Re-publicar')
+                                }
+                            </span>
                         </button>
                     )}
                     <button
@@ -1417,13 +1426,22 @@ export function MobilePlannerView({
                                 </Link>
                             </div>
 
-                            {draftCount > 0 && onPublish && (
+                            {(draftCount > 0 || (shifts && shifts.length > 0)) && onPublish && (
                                 <button
                                     onClick={() => { setIsToolsDrawerOpen(false); onPublish(); }}
-                                    className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-black text-xs uppercase tracking-wider shadow-lg flex items-center justify-center gap-2 active:scale-98 transition-all"
+                                    className={`w-full py-3 px-4 rounded-xl text-white font-black text-xs uppercase tracking-wider shadow-lg flex items-center justify-center gap-2 active:scale-98 transition-all ${
+                                        draftCount > 0
+                                            ? 'bg-gradient-to-r from-indigo-600 to-purple-600'
+                                            : 'bg-gradient-to-r from-emerald-600 to-teal-600'
+                                    }`}
                                 >
                                     <Zap size={16} fill="currentColor" />
-                                    <span>{t('planner.mobile.publish')} ({draftCount} Borradores)</span>
+                                    <span>
+                                        {draftCount > 0 
+                                            ? `${t('planner.mobile.publish')} (${draftCount} ${language === 'en' ? 'Drafts' : 'Borradores'})` 
+                                            : (t('planner.header.republish') || 'Re-publicar Horario')
+                                        }
+                                    </span>
                                 </button>
                             )}
                         </motion.div>

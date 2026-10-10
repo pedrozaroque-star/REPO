@@ -20,20 +20,44 @@ export interface VersionMilestone {
 }
 
 export const SYSTEM_VERSION = {
-    version: 'v2.11.0',
-    versionNumber: '2.11.0',
-    releaseMonthEs: 'Septiembre 2026',
-    releaseMonthEn: 'September 2026',
+    version: 'v2.12.0',
+    versionNumber: '2.12.0',
+    releaseMonthEs: 'Octubre 2026',
+    releaseMonthEn: 'October 2026',
     stage: 'Producción',
     stageEn: 'Production',
     year: '2026',
-    labelEs: 'Septiembre 2026 • SM TEG v2.11.0',
-    labelEn: 'September 2026 • SM TEG v2.11.0',
+    labelEs: 'Octubre 2026 • SM TEG v2.12.0',
+    labelEn: 'October 2026 • SM TEG v2.12.0',
     brand: 'SM TEG',
-    lastUpdated: '2026-09-26'
+    lastUpdated: '2026-10-09'
 } as const;
 
 export const VERSION_HISTORY: readonly VersionMilestone[] = [
+    {
+        version: 'v2.12.0',
+        date: '09-Oct-2026',
+        titleEs: 'Lanzamiento de Order Ready Board con Voz Neuronal Gemini TTS, App Móvil Clientes (/app), Módulo Crear Bills (QBO), Registro de Mantenimiento y Auditoría de Octubre',
+        titleEn: 'Order Ready Board Launch with Gemini Neural TTS, Customer Mobile App (/app), QuickBooks Bills Creator, Maintenance Log & October Audit',
+        highlightsEs: [
+            'Lanzamiento oficial del módulo Order Ready Board (/order-ready-board): integración con KDS expediter de Toast POS, locución bilingüe (Español/Inglés) con voz femenina natural Gemini TTS y el eslogan "¡Ya está!", rotación multi-llave anti-429 y visualizador TV a pantalla completa',
+            'Despliegue de la Aplicación Móvil de Pedidos (/app & /ordenar) con splash animado 3D a 60 FPS acelerado por GPU, flujo de checkout Toast Local, tasas oficiales CDTFA (Octubre 2026) y reglas de entrega a domicilio',
+            'Creación del módulo financiero Crear Bills (/admin/crear-bills) para transformar facturas de bodega central en Bills de QuickBooks Online con ordenamiento interactivo y validación de costos',
+            'Módulo de Registro de Proveedores y Mantenimiento con bitácora para técnicos externos, captura obligatoria de evidencia fotográfica del antes y después, firma digital y semáforo preventivo',
+            'Paridad contable Toast Cash Management en Cohesion (depósitos esperados, Paid In de cheques de nómina, cuenta 12049 y candado anti-duplicados en QBO)',
+            'Optimización de producción y accesibilidad móvil para el sitio oficial tacosgavilan.com con 3 temas interactivos de Google Maps y previsualización en la barra lateral',
+            'Integración del mes de Octubre 2026 (65.2 horas auditadas y turnos oficiales Lynwood #14) en el componente nativo TSX del Reporte de Actividades'
+        ],
+        highlightsEn: [
+            'Official launch of Order Ready Board (/order-ready-board): Toast POS expediter KDS sync, natural female bilingual Gemini TTS voice with "¡Ya está!" signature slogan, round-robin multi-key pool, and full-screen TV display',
+            'Rolled out Customer Mobile Ordering App (/app & /ordenar) with GPU-accelerated 60 FPS 3D perspective splash, Toast Local checkout flow, official CDTFA Oct 2026 tax rates, and delivery fee calculation',
+            'Engineered Crear Bills module (/admin/crear-bills) to automatically turn central warehouse invoices into official QuickBooks Online vendor Bills with column sorting and cost verification',
+            'Maintenance & Service Providers module featuring external technician work logs, mandatory before/after photo evidence, digital manager sign-off, and preventive maintenance status indicators',
+            'Toast Cash Management accounting parity with Cohesion (expected deposits, payroll check Paid In logic, account 12049 routing, and QBO duplicate publishing protection)',
+            'Production polish and mobile accessibility for official website tacosgavilan.com with 3 interactive Google Maps themes and AppSidebar live preview link',
+            'Integrated October 2026 (65.2 audited engineering hours and Lynwood #14 manager shifts) into the native TSX Activity Reports dashboard'
+        ]
+    },
     {
         version: 'v2.11.0',
         date: '26-Sep-2026',

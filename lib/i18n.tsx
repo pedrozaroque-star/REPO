@@ -991,6 +991,7 @@ export const dictionaries: Record<Language, Dictionary> = {
                 draft_label: 'Borrador',
                 publish_changes: 'Publicar Cambios',
                 published: 'Publicado',
+                republish: 'Re-publicar',
                 clone: 'Clonar'
             },
             mobile: {
@@ -1150,9 +1151,13 @@ export const dictionaries: Record<Language, Dictionary> = {
                     success_message: 'Se han eliminado {n} turnos correctamente.\nEl tablero está vacío.'
                 },
                 publish: {
-                    no_drafts: 'No hay turnos "Borrador" para publicar',
+                    no_drafts: 'No hay turnos para publicar',
                     title: 'Publicar Horario',
-                    message: 'Estás a punto de publicar {n} turnos.\nSe enviarán notificaciones de horarios y descansos a los empleados.\n\n⚠️ RECORDATORIO: Asegúrate de guardar las asignaciones en la pestaña "3. Asignación Diaria" antes de publicar para que los empleados reciban sus actividades y puestos asignados.'
+                    message: 'Estás a punto de publicar {n} turnos.\nSe enviarán notificaciones de horarios y descansos a los empleados.\n\n⚠️ RECORDATORIO: Asegúrate de guardar las asignaciones en la pestaña "3. Asignación Diaria" antes de publicar para que los empleados reciban sus actividades y puestos asignados.',
+                    republish_title: 'Re-publicar Horario',
+                    republish_message: 'Estás a punto de re-publicar el horario semanal ({n} turnos) y re-notificar a todo el equipo.\n\n⚠️ RECORDATORIO: Asegúrate de guardar las asignaciones en la pestaña "3. Asignación Diaria" antes de publicar.',
+                    deletions_title: 'Publicar Cambios de Horario',
+                    deletions_message: 'Se han eliminado turnos previamente publicados. ¿Deseas notificar los cambios a los empleados afectados?'
                 }
             },
             toasts: {
@@ -5506,6 +5511,7 @@ export const dictionaries: Record<Language, Dictionary> = {
                 draft_label: 'Draft',
                 publish_changes: 'Publish Changes',
                 published: 'Published',
+                republish: 'Re-publish',
                 clone: 'Clone'
             },
             mobile: {
@@ -5665,9 +5671,13 @@ export const dictionaries: Record<Language, Dictionary> = {
                     success_message: '{n} shifts deleted successfully.\nThe board is empty.'
                 },
                 publish: {
-                    no_drafts: 'No "Draft" shifts to publish',
+                    no_drafts: 'No shifts to publish',
                     title: 'Publish Schedule',
-                    message: 'You are about to publish {n} shifts.\nSchedule and break notifications will be sent to employees.\n\n⚠️ REMINDER: Make sure to save assignments under the "3. Daily Assignment" tab before publishing so employees receive their assigned positions and activities.'
+                    message: 'You are about to publish {n} shifts.\nSchedule and break notifications will be sent to employees.\n\n⚠️ REMINDER: Make sure to save assignments under the "3. Daily Assignment" tab before publishing so employees receive their assigned positions and activities.',
+                    republish_title: 'Re-publish Schedule',
+                    republish_message: 'You are about to re-publish the weekly schedule ({n} shifts) and re-notify the entire team.\n\n⚠️ REMINDER: Make sure to save assignments under the "3. Daily Assignment" tab before publishing.',
+                    deletions_title: 'Publish Schedule Changes',
+                    deletions_message: 'Previously published shifts were deleted. Do you want to notify the affected employees?'
                 }
             },
             toasts: {
