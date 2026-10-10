@@ -224,12 +224,64 @@ export default function BodegaPWA() {
         return () => clearTimeout(timer)
     }, [activeIndex])
 
-    // Fullscreen Mode
+    // Fullscreen Mode & Carousel Interaction Refs
     const containerRef = useRef<HTMLDivElement>(null)
+    const bodegaPanelRef = useRef<HTMLDivElement>(null)
+    const bodegaCarouselRef = useRef<HTMLDivElement>(null)
     const [isFullscreen, setIsFullscreen] = useState(false)
     const wheelThrottleRef = useRef<number>(0)
+    const [scrollDirection, setScrollDirection] = useState<number>(1)
     
     useEffect(() => { setMounted(true) }, [])
+
+    // Listener nativo no-pasivo para el scroll de la rueda del ratón (mouse wheel)
+    // Previene el desplazamiento vertical del navegador (native scroll) y cambia de tarjeta limpiamente
+    useEffect(() => {
+        const targetEl = bodegaCarouselRef.current
+        if (!targetEl) return
+
+        const handleWheel = (e: WheelEvent) => {
+            e.preventDefault()
+            e.stopPropagation()
+
+            const now = Date.now()
+            if (now - wheelThrottleRef.current < 260) return
+
+            if (Math.abs(e.deltaY) < 10) return
+
+            if (e.deltaY > 0) {
+                setActiveIndex(prev => {
+                    if (prev < carouselBuckets.length - 1) {
+                        wheelThrottleRef.current = now
+                        setScrollDirection(1)
+                        return prev + 1
+                    }
+                    return prev
+                })
+            } else if (e.deltaY < 0) {
+                setActiveIndex(prev => {
+                    if (prev > 0) {
+                        wheelThrottleRef.current = now
+                        setScrollDirection(-1)
+                        return prev - 1
+                    }
+                    return prev
+                })
+            }
+        }
+
+        targetEl.addEventListener('wheel', handleWheel, { passive: false })
+        return () => {
+            targetEl.removeEventListener('wheel', handleWheel)
+        }
+    }, [carouselBuckets.length])
+
+    // Reiniciar siempre el scroll hacia arriba cuando cambie el intervalo para evitar tarjetas cortadas
+    useEffect(() => {
+        if (bodegaPanelRef.current) {
+            bodegaPanelRef.current.scrollTop = 0
+        }
+    }, [activeIndex])
 
     useEffect(() => {
         const onFullscreenChange = () => {
@@ -909,7 +961,7 @@ export default function BodegaPWA() {
                 {!hasAlert ? (
                     <div className="w-full h-full flex flex-col lg:flex-row gap-8 items-stretch justify-center max-w-[1600px] mx-auto animate-in fade-in duration-500 py-4">
                         {/* LADO IZQUIERDO: RITMO DE COCCIÓN (Cabeza y Lengua) */}
-                        <div className="w-full lg:w-3/5 bg-slate-900 border border-slate-800 rounded-3xl p-6 md:p-10 flex flex-col shadow-2xl relative overflow-hidden shrink-0 lg:shrink">
+                        <div ref={bodegaPanelRef} className="w-full lg:w-3/5 bg-slate-900 border border-slate-800 rounded-3xl p-6 md:p-10 flex flex-col shadow-2xl relative overflow-hidden shrink-0 lg:shrink">
                             {/* Decorative glow */}
                             <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 to-indigo-500" />
                             
@@ -932,7 +984,10 @@ export default function BodegaPWA() {
                             <div className="flex items-center justify-between gap-2 w-full mb-4 bg-slate-800/80 p-1.5 rounded-xl border border-slate-700">
                                 <button
                                     onClick={() => {
-                                        if (activeIndex > 0) setActiveIndex(prev => prev - 1)
+                                        if (activeIndex > 0) {
+                                            setScrollDirection(-1)
+                                            setActiveIndex(prev => prev - 1)
+                                        }
                                     }}
                                     disabled={activeIndex === 0}
                                     className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-slate-700 text-white font-bold text-xs shadow-xs disabled:opacity-30 disabled:cursor-not-allowed hover:bg-slate-600 cursor-pointer transition-colors"
@@ -947,9 +1002,12 @@ export default function BodegaPWA() {
 
                                 <button
                                     onClick={() => {
-                                        if (activeIndex < carouselBuckets.length - 2) setActiveIndex(prev => prev + 1)
+                                        if (activeIndex < carouselBuckets.length - 1) {
+                                            setScrollDirection(1)
+                                            setActiveIndex(prev => prev + 1)
+                                        }
                                     }}
-                                    disabled={activeIndex >= carouselBuckets.length - 2}
+                                    disabled={activeIndex >= carouselBuckets.length - 1}
                                     className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-slate-700 text-white font-bold text-xs shadow-xs disabled:opacity-30 disabled:cursor-not-allowed hover:bg-slate-600 cursor-pointer transition-colors"
                                 >
                                     <span>{t('prep.nextBlock')}</span>
@@ -964,14 +1022,8 @@ export default function BodegaPWA() {
                                 </div>
                             ) : (
                                 <div 
-                                    className="flex-1 flex flex-col items-center gap-6 xl:gap-8 overflow-hidden touch-none py-4 px-2 [perspective:1200px]"
-                                    onWheel={(e) => {
-                                        const now = Date.now()
-                                        if (now - wheelThrottleRef.current < 400) return
-                                        wheelThrottleRef.current = now
-                                        if (e.deltaY > 0 && activeIndex < carouselBuckets.length - 2) setActiveIndex(prev => prev + 1)
-                                        if (e.deltaY < 0 && activeIndex > 0) setActiveIndex(prev => prev - 1)
-                                    }}
+                                    ref={bodegaCarouselRef}
+                                    className="flex-1 flex flex-col items-center justify-center gap-6 xl:gap-8 overflow-hidden touch-none py-4 px-2 w-full relative"
                                     onTouchStart={(e) => {
                                         setTouchEnd(null)
                                         setTouchStart(e.targetTouches[0].clientY)
@@ -985,135 +1037,132 @@ export default function BodegaPWA() {
                                         const isSwipeUp = distance > 50
                                         const isSwipeDown = distance < -50
                                         
-                                        if (isSwipeUp && activeIndex < carouselBuckets.length - 2) {
+                                        if (isSwipeUp && activeIndex < carouselBuckets.length - 1) {
+                                            setScrollDirection(1)
                                             setActiveIndex(prev => prev + 1)
                                         }
                                         if (isSwipeDown && activeIndex > 0) {
+                                            setScrollDirection(-1)
                                             setActiveIndex(prev => prev - 1)
                                         }
                                     }}
                                 >
-                                    <AnimatePresence mode="popLayout">
-                                    {carouselBuckets.slice(activeIndex, activeIndex + 2).map((bucket, localIndex) => {
-                                        const isTop = localIndex === 0;
-                                        const isRealCurrent = bucket.isCurrent;
-                                        
+                                    {(() => {
+                                        const currentBucket = carouselBuckets[activeIndex]
+                                        if (!currentBucket) return null
+                                        const isRealCurrent = currentBucket.isCurrent
+
                                         return (
-                                            <motion.div 
-                                                key={bucket.id}
-                                                layout
-                                                initial={{ opacity: 0, rotateX: -60, y: 150, z: -300 }}
-                                                animate={{ opacity: 1, rotateX: 0, y: 0, z: 0 }}
-                                                exit={{ opacity: 0, rotateX: 60, y: -150, z: -300 }}
-                                                transition={{ duration: 0.6, type: 'spring', bounce: 0.2 }}
-                                                className="w-full shrink-0 origin-center select-none"
-                                                style={{ transformStyle: 'preserve-3d' }}
-                                            >
-                                                <div 
-                                                    onClick={() => { if (isTop) setShowInfoModal(true) }}
-                                                    className={`rounded-3xl border border-slate-700 p-6 xl:p-8 shadow-2xl transition-all duration-500 overflow-hidden relative ${
-                                                    isTop 
-                                                        ? 'bg-slate-800/80 shadow-inner cursor-pointer hover:ring-2 hover:ring-blue-500/50' 
-                                                        : 'bg-slate-900/50 border-dashed opacity-60'
-                                                }`}>
-                                                    
-                                                    <div className="flex justify-between items-center mb-6 pb-4 border-b border-slate-700/50">
-                                                        <div className={`font-black tracking-tight flex items-center gap-3 ${isTop ? 'text-blue-400' : 'text-slate-500'}`}>
-                                                            {isRealCurrent && <div className="w-4 h-4 rounded-full bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.8)] animate-pulse" />}
-                                                            <div className="flex flex-col md:flex-row md:items-center gap-1 md:gap-4">
-                                                                <span className="uppercase text-lg md:text-2xl flex items-center gap-2">
-                                                                    {isRealCurrent && isTop ? t('prep.now') : (!isTop && activeIndex === 0 ? t('prep.next') : t('prep.projection'))}
-                                                                    {isTop && <HelpCircle size={20} className="text-blue-500/50" />}
-                                                                </span>
-                                                                <span className={`text-base md:text-xl font-bold [font-feature-settings:'tnum'] ${isTop ? 'opacity-90' : 'opacity-60'}`}>
-                                                                    {bucket.label}
-                                                                </span>
+                                            <AnimatePresence mode="wait" custom={scrollDirection}>
+                                                <motion.div 
+                                                    key={currentBucket.id || activeIndex}
+                                                    custom={scrollDirection}
+                                                    initial={{ opacity: 0, y: scrollDirection > 0 ? 50 : -50, scale: 0.97 }}
+                                                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                                                    exit={{ opacity: 0, y: scrollDirection > 0 ? -50 : 50, scale: 0.97 }}
+                                                    transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+                                                    className="w-full shrink-0 origin-center select-none"
+                                                >
+                                                    <div 
+                                                        onClick={() => { setShowInfoModal(true) }}
+                                                        className="rounded-3xl border border-slate-700 p-6 xl:p-8 shadow-2xl transition-all duration-300 overflow-hidden relative bg-slate-800/80 shadow-inner cursor-pointer hover:ring-2 hover:ring-blue-500/50"
+                                                    >
+                                                        <div className="flex justify-between items-center mb-6 pb-4 border-b border-slate-700/50">
+                                                            <div className="font-black tracking-tight flex items-center gap-3 text-blue-400">
+                                                                {isRealCurrent && <div className="w-4 h-4 rounded-full bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.8)] animate-pulse" />}
+                                                                <div className="flex flex-col md:flex-row md:items-center gap-1 md:gap-4">
+                                                                    <span className="uppercase text-lg md:text-2xl flex items-center gap-2">
+                                                                        {isRealCurrent ? t('prep.now') : t('prep.projection')}
+                                                                        <HelpCircle size={20} className="text-blue-500/50" />
+                                                                    </span>
+                                                                    <span className="text-base md:text-xl font-bold [font-feature-settings:'tnum'] opacity-90">
+                                                                        {currentBucket.label}
+                                                                    </span>
+                                                                </div>
                                                             </div>
                                                         </div>
-                                                    </div>
-                                                                                                   {(() => {
-                                                        const renderMeatCard = (meatKey: string) => {
-                                                            const m = bucket.data.find((d: any) => d.meat_type === meatKey) || { meat_type: meatKey, avg_lbs: 0 };
-                                                            let val = m.avg_lbs * intelligenceAcelerador;
-                                                            let unitLab = 'lbs';
-                                                            let typeLab = m.meat_type;
-                                                            
-                                                            if (m.meat_type === 'CHAMPURRADO') {
-                                                                val = (m.avg_lbs * intelligenceAcelerador) / 20;
-                                                                unitLab = 'galones';
-                                                                typeLab = '☕ CHAMPURRADO';
-                                                            } else if (m.meat_type === 'AGUACATE') {
-                                                                val = (m.avg_lbs * intelligenceAcelerador) / 2;
-                                                                unitLab = 'bolsas';
-                                                                typeLab = 'GUACAMOLE';
-                                                            } else if (m.meat_type === 'FRIJOL MOLIDO') {
-                                                                unitLab = 'lbs';
-                                                                typeLab = 'FRIJOL MOLIDO';
-                                                            } else if (m.meat_type === 'ARROZ') {
-                                                                unitLab = 'lbs';
-                                                                typeLab = 'ARROZ';
-                                                            }
+                                                        {(() => {
+                                                            const renderMeatCard = (meatKey: string) => {
+                                                                const m = currentBucket.data.find((d: any) => d.meat_type === meatKey) || { meat_type: meatKey, avg_lbs: 0 };
+                                                                let val = m.avg_lbs * intelligenceAcelerador;
+                                                                let unitLab = 'lbs';
+                                                                let typeLab = m.meat_type;
+                                                                
+                                                                if (m.meat_type === 'CHAMPURRADO') {
+                                                                    val = (m.avg_lbs * intelligenceAcelerador) / 20;
+                                                                    unitLab = 'galones';
+                                                                    typeLab = '☕ CHAMPURRADO';
+                                                                } else if (m.meat_type === 'AGUACATE') {
+                                                                    val = (m.avg_lbs * intelligenceAcelerador) / 2;
+                                                                    unitLab = 'bolsas';
+                                                                    typeLab = 'GUACAMOLE';
+                                                                } else if (m.meat_type === 'FRIJOL MOLIDO') {
+                                                                    unitLab = 'lbs';
+                                                                    typeLab = 'FRIJOL MOLIDO';
+                                                                } else if (m.meat_type === 'ARROZ') {
+                                                                    unitLab = 'lbs';
+                                                                    typeLab = 'ARROZ';
+                                                                }
 
-                                                            const maxVal = Math.max(1, Math.ceil(val))
+                                                                const maxVal = Math.max(1, Math.ceil(val))
 
-                                                            const intervalStart = normTime(bucket.id || '00:00:00')
-                                                            const manualKey = `${intervalStart}_${m.meat_type}`
-                                                            const manualScheduledLbs = manualWeeklySchedule[manualKey] !== undefined ? manualWeeklySchedule[manualKey] : maxVal
+                                                                const intervalStart = normTime(currentBucket.id || '00:00:00')
+                                                                const manualKey = `${intervalStart}_${m.meat_type}`
+                                                                const manualScheduledLbs = manualWeeklySchedule[manualKey] !== undefined ? manualWeeklySchedule[manualKey] : maxVal
 
-                                                            const isChampurrado = m.meat_type === 'CHAMPURRADO';
+                                                                const isChampurrado = m.meat_type === 'CHAMPURRADO';
+
+                                                                return (
+                                                                    <div key={m.meat_type} className={`rounded-xl md:rounded-2xl flex flex-col items-center justify-center border shadow-md ${
+                                                                        isChampurrado 
+                                                                            ? 'bg-amber-950/30 p-3 md:p-5 border-amber-600/50 shadow-amber-500/10'
+                                                                            : 'bg-slate-950/50 p-3 md:p-5 border-slate-700/50'
+                                                                    }`}>
+                                                                        <span className={`font-black uppercase tracking-widest mb-1 md:mb-2 text-center leading-none ${
+                                                                            isChampurrado ? 'text-base xl:text-xl text-amber-300' : 'text-lg xl:text-2xl text-slate-200'
+                                                                        }`}>{typeLab}</span>
+                                                                        {cardDisplayMode === 'manual' ? (
+                                                                            <div className="flex flex-col items-center justify-center">
+                                                                                <span className={`font-black tracking-tighter flex items-baseline gap-1.5 text-5xl xl:text-7xl ${isChampurrado ? 'text-amber-400' : 'text-purple-400'}`}>
+                                                                                    {manualScheduledLbs} <span className="font-black opacity-60 text-xl xl:text-2xl text-slate-300">{unitLab}</span>
+                                                                                </span>
+                                                                            </div>
+                                                                        ) : cardDisplayMode === 'basic' ? (
+                                                                            <div className="flex flex-col items-center justify-center">
+                                                                                <span className={`font-black tracking-tighter flex items-baseline gap-1.5 text-5xl xl:text-7xl ${isChampurrado ? 'text-amber-200' : 'text-white'}`}>
+                                                                                    {maxVal} <span className="font-black opacity-60 text-xl xl:text-2xl text-slate-300">{unitLab}</span>
+                                                                                </span>
+                                                                            </div>
+                                                                        ) : (
+                                                                            <span className={`font-black tracking-tighter flex items-baseline gap-1.5 text-4xl xl:text-6xl ${isChampurrado ? 'text-amber-200' : 'text-white'}`}>
+                                                                                {val.toFixed(1)} <span className="font-black opacity-60 text-lg xl:text-xl text-slate-400">{unitLab}</span>
+                                                                            </span>
+                                                                        )}
+                                                                    </div>
+                                                                );
+                                                            };
 
                                                             return (
-                                                                <div key={m.meat_type} className={`rounded-xl md:rounded-2xl flex flex-col items-center justify-center border shadow-md ${
-                                                                    isChampurrado 
-                                                                        ? (isTop ? 'bg-amber-950/30 p-3 md:p-5 border-amber-600/50 shadow-amber-500/10' : 'bg-amber-950/20 p-2 md:p-4 border-amber-800/30')
-                                                                        : (isTop ? 'bg-slate-950/50 p-3 md:p-5 border-slate-700/50' : 'bg-slate-950/30 p-2 md:p-4 border-slate-800')
-                                                                }`}>
-                                                                    <span className={`font-black uppercase tracking-widest mb-1 md:mb-2 text-center leading-none ${
-                                                                        isChampurrado
-                                                                            ? (isTop ? 'text-base xl:text-xl text-amber-300' : 'text-sm md:text-base text-amber-400/60')
-                                                                            : (isTop ? 'text-lg xl:text-2xl text-slate-200' : 'text-sm md:text-lg text-slate-400')
-                                                                    }`}>{typeLab}</span>
-                                                                    {cardDisplayMode === 'manual' ? (
-                                                                        <div className="flex flex-col items-center justify-center">
-                                                                            <span className={`font-black tracking-tighter flex items-baseline gap-1.5 ${isTop ? `text-5xl xl:text-7xl ${isChampurrado ? 'text-amber-400' : 'text-purple-400'}` : `text-3xl md:text-4xl ${isChampurrado ? 'text-amber-300' : 'text-purple-300'}`}`}>
-                                                                                {manualScheduledLbs} <span className={`font-black opacity-60 ${isTop ? 'text-xl xl:text-2xl text-slate-300' : 'text-sm md:text-lg text-slate-400'}`}>{unitLab}</span>
-                                                                            </span>
-                                                                        </div>
-                                                                    ) : cardDisplayMode === 'basic' ? (
-                                                                        <div className="flex flex-col items-center justify-center">
-                                                                            <span className={`font-black tracking-tighter flex items-baseline gap-1.5 ${isTop ? `text-5xl xl:text-7xl ${isChampurrado ? 'text-amber-200' : 'text-white'}` : `text-3xl md:text-4xl ${isChampurrado ? 'text-amber-300/70' : 'text-slate-300'}`}`}>
-                                                                                {maxVal} <span className={`font-black opacity-60 ${isTop ? 'text-xl xl:text-2xl text-slate-300' : 'text-sm md:text-lg text-slate-400'}`}>{unitLab}</span>
-                                                                            </span>
-                                                                        </div>
-                                                                    ) : (
-                                                                        <span className={`font-black tracking-tighter flex items-baseline gap-1.5 ${isTop ? `text-4xl xl:text-6xl ${isChampurrado ? 'text-amber-200' : 'text-white'}` : `text-2xl md:text-3xl ${isChampurrado ? 'text-amber-300/70' : 'text-slate-300'}`}`}>
-                                                                            {val.toFixed(1)} <span className={`font-black opacity-60 ${isTop ? 'text-lg xl:text-xl text-slate-400' : 'text-xs md:text-base text-slate-500'}`}>{unitLab}</span>
-                                                                        </span>
-                                                                    )}
+                                                                <div className="flex flex-col gap-3 lg:gap-4">
+                                                                    <div className="grid grid-cols-3 gap-3 lg:gap-4">
+                                                                        {['CABEZA', 'LENGUA', 'CHAMPURRADO'].map(renderMeatCard)}
+                                                                    </div>
+                                                                    <div className="grid grid-cols-3 gap-3 lg:gap-4">
+                                                                        {['AGUACATE', 'FRIJOL MOLIDO', 'ARROZ'].map(renderMeatCard)}
+                                                                    </div>
                                                                 </div>
-                                                            )};
-
-                                                        return (
-                                                            <div className="flex flex-col gap-3 lg:gap-4">
-                                                                <div className="grid grid-cols-3 gap-3 lg:gap-4">
-                                                                    {['CABEZA', 'LENGUA', 'CHAMPURRADO'].map(renderMeatCard)}
-                                                                </div>
-                                                                <div className="grid grid-cols-3 gap-3 lg:gap-4">
-                                                                    {['AGUACATE', 'FRIJOL MOLIDO', 'ARROZ'].map(renderMeatCard)}
-                                                                </div>
-                                                            </div>
-                                                        );
-                                                    })()}
-                                                </div>
-                                            </motion.div>
+                                                            );
+                                                        })()}
+                                                    </div>
+                                                </motion.div>
+                                            </AnimatePresence>
                                         )
-                                    })}
-                                    </AnimatePresence>
+                                    })()}
                                     
                                     {/* Pagination Indicators */}
                                     <div className="absolute top-0 right-0 h-full w-8 flex flex-col items-center justify-center gap-1 opacity-30 z-10 pointer-events-none hidden md:flex">
                                         {carouselBuckets.map((b, i) => (
-                                            <div key={b.id} className={`w-1.5 h-1.5 rounded-full transition-all duration-300 ${i === activeIndex ? 'bg-blue-500 scale-150' : i === activeIndex + 1 ? 'bg-slate-600' : 'bg-slate-800'}`} />
+                                            <div key={b.id || i} className={`w-1.5 h-1.5 rounded-full transition-all duration-300 ${i === activeIndex ? 'bg-blue-500 scale-150' : 'bg-slate-800'}`} />
                                         ))}
                                     </div>
                                 </div>

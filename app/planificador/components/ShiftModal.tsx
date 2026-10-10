@@ -232,7 +232,7 @@ export function ShiftModal({
                 end_time: end.toISOString(),
                 is_open: isOpenShift,
                 notes,
-                status: existing?.status || initialData?.status || 'draft'
+                status: 'draft' // Any shift created or edited via ShiftModal is a draft until published
             }
         })
 

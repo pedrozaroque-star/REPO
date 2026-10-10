@@ -935,12 +935,67 @@ export default function PreparadorPage() {
         })
         return { sortedHours, hourlyMap, dayTotals, grandTotal }
     }
-    // Fullscreen Mode
+    // Fullscreen & Carousel Interaction Refs
     const containerRef = useRef<HTMLDivElement>(null)
+    const grillPanelRef = useRef<HTMLDivElement>(null)
+    const carouselContainerRef = useRef<HTMLDivElement>(null)
     const [isFullscreen, setIsFullscreen] = useState(false)
     const wheelThrottleRef = useRef<number>(0)
+    const [scrollDirection, setScrollDirection] = useState<number>(1)
 
     useEffect(() => { setMounted(true) }, [])
+
+    // Listener nativo no-pasivo para el scroll de la rueda del ratón (mouse wheel)
+    // Previene el desplazamiento vertical del navegador (native scroll) y cambia de tarjeta limpiamente
+    useEffect(() => {
+        const targetEl = carouselContainerRef.current
+        if (!targetEl) return
+
+        const handleWheel = (e: WheelEvent) => {
+            // Evitar que la página o el contenedor se desplacen verticalmente
+            e.preventDefault()
+            e.stopPropagation()
+
+            const now = Date.now()
+            if (now - wheelThrottleRef.current < 260) return
+
+            if (Math.abs(e.deltaY) < 10) return
+
+            if (e.deltaY > 0) {
+                // Rueda hacia abajo: Avanza al siguiente intervalo
+                setActiveIndex(prev => {
+                    if (prev < carouselBuckets.length - 1) {
+                        wheelThrottleRef.current = now
+                        setScrollDirection(1)
+                        return prev + 1
+                    }
+                    return prev
+                })
+            } else if (e.deltaY < 0) {
+                // Rueda hacia arriba: Retrocede al intervalo anterior
+                setActiveIndex(prev => {
+                    if (prev > 0) {
+                        wheelThrottleRef.current = now
+                        setScrollDirection(-1)
+                        return prev - 1
+                    }
+                    return prev
+                })
+            }
+        }
+
+        targetEl.addEventListener('wheel', handleWheel, { passive: false })
+        return () => {
+            targetEl.removeEventListener('wheel', handleWheel)
+        }
+    }, [carouselBuckets.length])
+
+    // Reiniciar siempre el scroll hacia arriba cuando cambie el intervalo para evitar tarjetas cortadas
+    useEffect(() => {
+        if (grillPanelRef.current) {
+            grillPanelRef.current.scrollTop = 0
+        }
+    }, [activeIndex])
 
     // Listen to native fullscreen changes (por si cierran con ESC)
     useEffect(() => {
@@ -1621,7 +1676,7 @@ export default function PreparadorPage() {
             <div className="flex flex-col lg:flex-row flex-1 overflow-hidden min-h-0 pb-16 lg:pb-0">
                 
                 {/* 1. PANEL RITMO DE COCCIÓN / PARRILLA (Visible en móvil si mobileTab === 'parrilla', siempre en desktop) */}
-                <div className={`w-full lg:w-[48%] border-b lg:border-b-0 lg:border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3 sm:p-4 md:p-6 xl:p-8 flex-col shrink-0 lg:shrink overflow-y-auto ${mobileTab === 'parrilla' ? 'flex flex-1' : 'hidden lg:flex'}`}>
+                <div ref={grillPanelRef} className={`w-full lg:w-[48%] border-b lg:border-b-0 lg:border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3 sm:p-4 md:p-6 xl:p-8 flex-col shrink-0 lg:shrink overflow-y-auto lg:overflow-y-hidden ${mobileTab === 'parrilla' ? 'flex flex-1' : 'hidden lg:flex'}`}>
                     
                     {/* Header del Ritmo de Cocción */}
                     <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 sm:gap-3 mb-3 sm:mb-6 bg-slate-50 dark:bg-slate-800/50 p-2.5 sm:p-4 rounded-xl border border-slate-200 dark:border-slate-700">
@@ -1656,7 +1711,10 @@ export default function PreparadorPage() {
                     <div className="flex items-center justify-between gap-2 w-full max-w-lg mx-auto mb-3 bg-slate-100 dark:bg-slate-800/80 p-1.5 rounded-xl border border-slate-200 dark:border-slate-700">
                         <button
                             onClick={() => {
-                                if (activeIndex > 0) setActiveIndex(prev => prev - 1)
+                                if (activeIndex > 0) {
+                                    setScrollDirection(-1)
+                                    setActiveIndex(prev => prev - 1)
+                                }
                             }}
                             disabled={activeIndex === 0}
                             className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-xs shadow-xs disabled:opacity-30 disabled:cursor-not-allowed hover:bg-blue-50 dark:hover:bg-slate-600 cursor-pointer transition-colors"
@@ -1671,9 +1729,12 @@ export default function PreparadorPage() {
 
                         <button
                             onClick={() => {
-                                if (activeIndex < carouselBuckets.length - 2) setActiveIndex(prev => prev + 1)
+                                if (activeIndex < carouselBuckets.length - 1) {
+                                    setScrollDirection(1)
+                                    setActiveIndex(prev => prev + 1)
+                                }
                             }}
-                            disabled={activeIndex >= carouselBuckets.length - 2}
+                            disabled={activeIndex >= carouselBuckets.length - 1}
                             className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-xs shadow-xs disabled:opacity-30 disabled:cursor-not-allowed hover:bg-blue-50 dark:hover:bg-slate-600 cursor-pointer transition-colors"
                         >
                             <span>{t('prep.nextBlock')}</span>
@@ -1688,14 +1749,8 @@ export default function PreparadorPage() {
                         </div>
                     ) : (
                         <div 
-                            className="flex-1 flex flex-col items-center gap-4 sm:gap-6 xl:gap-8 overflow-x-hidden py-1 sm:py-4 px-1 sm:px-2 [perspective:1200px]"
-                            onWheel={(e) => {
-                                const now = Date.now()
-                                if (now - wheelThrottleRef.current < 400) return
-                                wheelThrottleRef.current = now
-                                if (e.deltaY > 0 && activeIndex < carouselBuckets.length - 2) setActiveIndex(prev => prev + 1)
-                                if (e.deltaY < 0 && activeIndex > 0) setActiveIndex(prev => prev - 1)
-                            }}
+                            ref={carouselContainerRef}
+                            className="flex-1 flex flex-col items-center justify-center gap-4 sm:gap-6 xl:gap-8 overflow-hidden py-1 sm:py-4 px-1 sm:px-2 w-full relative"
                             onTouchStart={(e) => {
                                 setTouchEnd(null)
                                 setTouchStart(e.targetTouches[0].clientY)
@@ -1709,193 +1764,192 @@ export default function PreparadorPage() {
                                 const isSwipeUp = distance > 50
                                 const isSwipeDown = distance < -50
                                 
-                                if (isSwipeUp && activeIndex < carouselBuckets.length - 2) {
+                                if (isSwipeUp && activeIndex < carouselBuckets.length - 1) {
+                                    setScrollDirection(1)
                                     setActiveIndex(prev => prev + 1)
                                 }
                                 if (isSwipeDown && activeIndex > 0) {
+                                    setScrollDirection(-1)
                                     setActiveIndex(prev => prev - 1)
                                 }
                             }}
                         >
-                            <AnimatePresence mode="popLayout">
-                            {carouselBuckets.slice(activeIndex, activeIndex + 2).map((bucket, localIndex) => {
-                                const isTop = localIndex === 0;
-                                const isRealCurrent = bucket.isCurrent;
-                                
+                            {(() => {
+                                const currentBucket = carouselBuckets[activeIndex]
+                                if (!currentBucket) return null
+                                const isRealCurrent = currentBucket.isCurrent
+
                                 return (
-                                    <motion.div 
-                                        key={bucket.id}
-                                        layout
-                                        initial={{ opacity: 0, rotateX: -60, y: 150, z: -300 }}
-                                        animate={{ opacity: 1, rotateX: 0, y: 0, z: 0 }}
-                                        exit={{ opacity: 0, rotateX: 60, y: -150, z: -300 }}
-                                        transition={{ duration: 0.6, type: 'spring', bounce: 0.2 }}
-                                        className="w-full max-w-full sm:max-w-[480px] lg:max-w-lg shrink-0 origin-center select-none"
-                                        style={{ transformStyle: 'preserve-3d' }}
-                                    >
-                                        <div 
-                                            onClick={() => { if (isTop && cardDisplayMode === 'advanced') setShowInfoModal(true) }}
-                                            className={`rounded-3xl border border-slate-200/50 dark:border-slate-700/50 p-4 sm:p-6 xl:p-8 shadow-2xl transition-all duration-500 overflow-hidden relative ${
-                                            isTop 
-                                                ? `bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-900/40 dark:to-indigo-900/30 ${cardDisplayMode === 'advanced' ? 'cursor-pointer hover:ring-2 hover:ring-blue-500/50' : ''}` 
-                                                : 'bg-white/95 dark:bg-slate-800/95 backdrop-blur-md scale-[0.98] opacity-90'
-                                        }`}>
-                                            <div className="absolute inset-0 bg-gradient-to-tl from-white/10 to-transparent pointer-events-none" />
-                                            
-                                            <div className="flex justify-between items-center mb-3 sm:mb-6 pb-2.5 sm:pb-4 border-b border-slate-200/50 dark:border-slate-700/50">
-                                                <div className={`font-black tracking-tight flex items-center gap-2 sm:gap-3 ${isTop ? 'text-blue-900 dark:text-blue-300' : 'text-slate-800 dark:text-slate-200'}`}>
-                                                    {isRealCurrent && <div className="w-3 h-3 sm:w-4 sm:h-4 rounded-full bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.8)] animate-pulse shrink-0" />}
-                                                    <div className="flex flex-col sm:flex-row sm:items-center gap-0.5 sm:gap-4">
-                                                        <span className="uppercase text-sm sm:text-xl md:text-2xl flex items-center gap-2 font-black">
-                                                            {bucket.name}
-                                                            {bucket.isPeak && (
-                                                                <span className="text-[10px] sm:text-xs px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-full bg-red-600 text-white font-black animate-pulse shadow-md">
-                                                                    PICO
-                                                                </span>
-                                                            )}
-                                                            {isTop && cardDisplayMode === 'advanced' && <HelpCircle size={18} className="text-blue-500/50 hover:text-blue-500 transition-colors" />}
-                                                        </span>
-                                                        <span className={`text-xs sm:text-lg md:text-2xl font-black lowercase tracking-tighter [font-feature-settings:'tnum'] ${isTop ? 'opacity-90 text-blue-950 dark:text-blue-100' : 'opacity-60'}`}>
-                                                            {bucket.label} {viewMode === 'tramos' ? `(${bucket.duration}h)` : ''}
-                                                        </span>
+                                    <AnimatePresence mode="wait" custom={scrollDirection}>
+                                        <motion.div 
+                                            key={currentBucket.id || activeIndex}
+                                            custom={scrollDirection}
+                                            initial={{ opacity: 0, y: scrollDirection > 0 ? 50 : -50, scale: 0.97 }}
+                                            animate={{ opacity: 1, y: 0, scale: 1 }}
+                                            exit={{ opacity: 0, y: scrollDirection > 0 ? -50 : 50, scale: 0.97 }}
+                                            transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+                                            className="w-full max-w-full sm:max-w-[480px] lg:max-w-lg shrink-0 origin-center select-none"
+                                        >
+                                            <div 
+                                                onClick={() => { if (cardDisplayMode === 'advanced') setShowInfoModal(true) }}
+                                                className={`rounded-3xl border border-slate-200/50 dark:border-slate-700/50 p-4 sm:p-6 xl:p-8 shadow-2xl transition-all duration-300 overflow-hidden relative bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-900/40 dark:to-indigo-900/30 ${cardDisplayMode === 'advanced' ? 'cursor-pointer hover:ring-2 hover:ring-blue-500/50' : ''}`}
+                                            >
+                                                <div className="absolute inset-0 bg-gradient-to-tl from-white/10 to-transparent pointer-events-none" />
+                                                
+                                                <div className="flex justify-between items-center mb-3 sm:mb-6 pb-2.5 sm:pb-4 border-b border-slate-200/50 dark:border-slate-700/50">
+                                                    <div className="font-black tracking-tight flex items-center gap-2 sm:gap-3 text-blue-900 dark:text-blue-300">
+                                                        {isRealCurrent && <div className="w-3 h-3 sm:w-4 sm:h-4 rounded-full bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.8)] animate-pulse shrink-0" />}
+                                                        <div className="flex flex-col sm:flex-row sm:items-center gap-0.5 sm:gap-4">
+                                                            <span className="uppercase text-sm sm:text-xl md:text-2xl flex items-center gap-2 font-black">
+                                                                {currentBucket.name}
+                                                                {currentBucket.isPeak && (
+                                                                    <span className="text-[10px] sm:text-xs px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-full bg-red-600 text-white font-black animate-pulse shadow-md">
+                                                                        PICO
+                                                                    </span>
+                                                                )}
+                                                                {cardDisplayMode === 'advanced' && <HelpCircle size={18} className="text-blue-500/50 hover:text-blue-500 transition-colors" />}
+                                                            </span>
+                                                            <span className="text-xs sm:text-lg md:text-2xl font-black lowercase tracking-tighter [font-feature-settings:'tnum'] opacity-90 text-blue-950 dark:text-blue-100">
+                                                                {currentBucket.label} {viewMode === 'tramos' ? `(${currentBucket.duration}h)` : ''}
+                                                            </span>
+                                                        </div>
                                                     </div>
                                                 </div>
-                                            </div>
-                                            
-                                            <div className="grid grid-cols-2 gap-2 sm:gap-3 xl:gap-4">
-                                                {bucket.data.length > 0 ? bucket.data.map((m: any) => {
-                                                    const projectedLbs = m.avg_lbs * intelligenceAcelerador
-                                                    const displayVal = viewMode === '30min' ? projectedLbs : (projectedLbs / (m.duration || 1))
-                                                    const realVal = m.real_lbs !== undefined ? (viewMode === '30min' ? m.real_lbs : m.real_lbs / (m.elapsed_hours || m.duration || 1)) : undefined
-                                                    const maxTrayLbs = Math.max(1, Math.ceil(displayVal))
+                                                
+                                                <div className="grid grid-cols-2 gap-2 sm:gap-3 xl:gap-4">
+                                                    {currentBucket.data.length > 0 ? currentBucket.data.map((m: any) => {
+                                                        const projectedLbs = m.avg_lbs * intelligenceAcelerador
+                                                        const displayVal = viewMode === '30min' ? projectedLbs : (projectedLbs / (m.duration || 1))
+                                                        const realVal = m.real_lbs !== undefined ? (viewMode === '30min' ? m.real_lbs : m.real_lbs / (m.elapsed_hours || m.duration || 1)) : undefined
+                                                        const maxTrayLbs = Math.max(1, Math.ceil(displayVal))
 
-                                                    const intervalStart = normTime(bucket.id || '00:00:00')
-                                                    const manualKey = `${intervalStart}_${m.meat_type}`
-                                                    const manualScheduledLbs = manualWeeklySchedule[manualKey] !== undefined ? manualWeeklySchedule[manualKey] : maxTrayLbs
+                                                        const intervalStart = normTime(currentBucket.id || '00:00:00')
+                                                        const manualKey = `${intervalStart}_${m.meat_type}`
+                                                        const manualScheduledLbs = manualWeeklySchedule[manualKey] !== undefined ? manualWeeklySchedule[manualKey] : maxTrayLbs
 
-                                                    const overrideKey = `${bucket.id || bucket.label || localIndex}_${m.meat_type}`
-                                                    const hasOverride = manualOverrides[overrideKey] !== undefined
-                                                    const effectiveMaxLbs = hasOverride ? manualOverrides[overrideKey] : maxTrayLbs
+                                                        const overrideKey = `${currentBucket.id || currentBucket.label || activeIndex}_${m.meat_type}`
+                                                        const hasOverride = manualOverrides[overrideKey] !== undefined
+                                                        const effectiveMaxLbs = hasOverride ? manualOverrides[overrideKey] : maxTrayLbs
 
-                                                    return (
-                                                        <div key={m.meat_type} className={`bg-white/60 dark:bg-slate-900/60 p-2 sm:p-3 xl:p-4 rounded-2xl flex flex-col items-center justify-center shadow-sm w-full ${m.meat_type === 'ASADA' ? 'col-span-2 shadow-md border border-blue-200/50 dark:border-blue-800/50 bg-blue-50/50 dark:bg-blue-900/30 py-3 sm:py-4 xl:py-6' : 'border border-slate-100 dark:border-slate-800 py-2.5 sm:py-4 xl:py-5'}`}>
-                                                            <div className="flex items-center gap-1 sm:gap-2 mb-0.5 sm:mb-2">
-                                                                <span className={`uppercase tracking-widest ${m.meat_type === 'ASADA' ? 'text-lg sm:text-2xl md:text-3xl font-black text-blue-900 dark:text-blue-200' : 'text-sm sm:text-xl md:text-2xl font-black text-slate-800 dark:text-slate-200'}`}>{m.meat_type}</span>
-                                                            </div>
-                                                            
-                                                            {cardDisplayMode === 'manual' ? (
-                                                                /* Modo Manual: Programado Semanal */
-                                                                <button 
-                                                                    onClick={() => {
-                                                                        if (isFullscreen) return;
-                                                                        setEditingMeatItem({
-                                                                            key: manualKey,
-                                                                            meatType: m.meat_type,
-                                                                            bucketLabel: bucket.label,
-                                                                            intervalStart: intervalStart,
-                                                                            currentVal: manualScheduledLbs,
-                                                                            isManualMode: true
-                                                                        })
-                                                                        setTempEditValue(manualScheduledLbs)
-                                                                    }}
-                                                                    className={`flex flex-col items-center justify-center py-0.5 sm:py-2 group w-full rounded-2xl transition-all ${isFullscreen ? 'cursor-default' : 'cursor-pointer hover:bg-purple-100/50 dark:hover:bg-purple-900/30'}`}
-                                                                    title={isFullscreen ? undefined : "Clic para fijar meta semanal permanente para este día"}
-                                                                >
-                                                                    <div className="flex items-baseline gap-1 sm:gap-1.5 my-0.5 sm:my-1">
-                                                                        <span className={`font-black tracking-tighter leading-none transition-transform ${isFullscreen ? '' : 'group-hover:scale-105'} ${m.meat_type === 'ASADA' ? 'text-6xl sm:text-7xl md:text-8xl xl:text-9xl text-purple-700 dark:text-purple-400' : 'text-4xl sm:text-6xl md:text-7xl xl:text-8xl text-slate-900 dark:text-white'}`}>
-                                                                            {manualScheduledLbs}
-                                                                        </span>
-                                                                        <span className="text-xl sm:text-3xl md:text-4xl font-black text-slate-400 dark:text-slate-500">lbs</span>
-                                                                    </div>
-                                                                </button>
-                                                            ) : cardDisplayMode === 'basic' ? (
-                                                                /* Modo Básico: Ultra-Simple */
-                                                                <button 
-                                                                    onClick={() => {
-                                                                        if (isFullscreen) return;
-                                                                        setEditingMeatItem({
-                                                                            key: overrideKey,
-                                                                            meatType: m.meat_type,
-                                                                            bucketLabel: bucket.label,
-                                                                            currentVal: effectiveMaxLbs
-                                                                        })
-                                                                        setTempEditValue(effectiveMaxLbs)
-                                                                    }}
-                                                                    className={`flex flex-col items-center justify-center py-0.5 sm:py-2 group w-full rounded-2xl transition-all ${isFullscreen ? 'cursor-default' : 'cursor-pointer hover:bg-slate-100/50 dark:hover:bg-slate-800/50'}`}
-                                                                    title={isFullscreen ? undefined : "Clic para modificar cantidad de libras"}
-                                                                >
-                                                                    <div className="flex items-baseline gap-1 sm:gap-1.5 my-0.5 sm:my-1">
-                                                                        <span className={`font-black tracking-tighter leading-none transition-transform ${isFullscreen ? '' : 'group-hover:scale-105'} ${m.meat_type === 'ASADA' ? 'text-6xl sm:text-7xl md:text-8xl xl:text-9xl text-blue-700 dark:text-blue-400' : 'text-4xl sm:text-6xl md:text-7xl xl:text-8xl text-slate-900 dark:text-white'}`}>
-                                                                            {effectiveMaxLbs}
-                                                                        </span>
-                                                                        <span className="text-xl sm:text-3xl md:text-4xl font-black text-slate-400 dark:text-slate-500">lbs</span>
-                                                                    </div>
-                                                                    {hasOverride && (
-                                                                        <span className="text-[9px] sm:text-[10px] font-black uppercase bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-200 px-2 py-0.5 rounded-full border border-amber-300 dark:border-amber-700 shadow-xs mt-0.5">
-                                                                            ✏️ Modificado
-                                                                        </span>
-                                                                    )}
-                                                                </button>
-                                                            ) : (
-                                                                /* Modo Avanzado: Vista Completa con Proyección, Real y Máximo */
-                                                                <>
-                                                                    <div className="flex w-full items-center justify-center gap-1.5 sm:gap-4">
-                                                                        {/* Projected Column */}
-                                                                        <div className="flex flex-col items-center justify-center leading-none">
-                                                                            <span className={`font-black tracking-tighter leading-none ${m.meat_type === 'ASADA' ? 'text-3xl sm:text-5xl xl:text-6xl text-blue-700 dark:text-blue-400 drop-shadow-sm' : 'text-2xl sm:text-4xl xl:text-5xl text-slate-900 dark:text-white'}`}>
-                                                                                {displayVal.toFixed(1)}
+                                                        return (
+                                                            <div key={m.meat_type} className={`bg-white/60 dark:bg-slate-900/60 p-2 sm:p-3 xl:p-4 rounded-2xl flex flex-col items-center justify-center shadow-sm w-full ${m.meat_type === 'ASADA' ? 'col-span-2 shadow-md border border-blue-200/50 dark:border-blue-800/50 bg-blue-50/50 dark:bg-blue-900/30 py-3 sm:py-4 xl:py-6' : 'border border-slate-100 dark:border-slate-800 py-2.5 sm:py-4 xl:py-5'}`}>
+                                                                <div className="flex items-center gap-1 sm:gap-2 mb-0.5 sm:mb-2">
+                                                                    <span className={`uppercase tracking-widest ${m.meat_type === 'ASADA' ? 'text-lg sm:text-2xl md:text-3xl font-black text-blue-900 dark:text-blue-200' : 'text-sm sm:text-xl md:text-2xl font-black text-slate-800 dark:text-slate-200'}`}>{m.meat_type}</span>
+                                                                </div>
+                                                                
+                                                                {cardDisplayMode === 'manual' ? (
+                                                                    /* Modo Manual: Programado Semanal */
+                                                                    <button 
+                                                                        onClick={() => {
+                                                                            if (isFullscreen) return;
+                                                                            setEditingMeatItem({
+                                                                                key: manualKey,
+                                                                                meatType: m.meat_type,
+                                                                                bucketLabel: currentBucket.label,
+                                                                                intervalStart: intervalStart,
+                                                                                currentVal: manualScheduledLbs,
+                                                                                isManualMode: true
+                                                                            })
+                                                                            setTempEditValue(manualScheduledLbs)
+                                                                        }}
+                                                                        className={`flex flex-col items-center justify-center py-0.5 sm:py-2 group w-full rounded-2xl transition-all ${isFullscreen ? 'cursor-default' : 'cursor-pointer hover:bg-purple-100/50 dark:hover:bg-purple-900/30'}`}
+                                                                        title={isFullscreen ? undefined : "Clic para fijar meta semanal permanente para este día"}
+                                                                    >
+                                                                        <div className="flex items-baseline gap-1 sm:gap-1.5 my-0.5 sm:my-1">
+                                                                            <span className={`font-black tracking-tighter leading-none transition-transform ${isFullscreen ? '' : 'group-hover:scale-105'} ${m.meat_type === 'ASADA' ? 'text-6xl sm:text-7xl md:text-8xl xl:text-9xl text-purple-700 dark:text-purple-400' : 'text-4xl sm:text-6xl md:text-7xl xl:text-8xl text-slate-900 dark:text-white'}`}>
+                                                                                {manualScheduledLbs}
                                                                             </span>
-                                                                            <span className="text-[9px] sm:text-xs md:text-sm font-extrabold text-slate-700 dark:text-slate-200 tracking-wider mt-1 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 sm:px-2.5 sm:py-1 rounded-md border border-slate-200/80 dark:border-slate-700 shadow-sm">
-                                                                                {viewMode === '30min' ? `lbs (proy: ${m.avg_lbs.toFixed(1)})` : `lbs/hr (total: ${projectedLbs.toFixed(1)} lbs)`}
-                                                                            </span>
+                                                                            <span className="text-xl sm:text-3xl md:text-4xl font-black text-slate-400 dark:text-slate-500">lbs</span>
                                                                         </div>
-                                                                        
-                                                                        {/* Real Consumed Column */}
-                                                                        {realVal !== undefined ? (
-                                                                            <>
-                                                                                <div className="h-8 sm:h-16 w-px bg-slate-300/50 dark:bg-slate-700/50"></div>
-                                                                                <div className="flex flex-col items-center justify-center leading-none">
-                                                                                    <span className={`font-black tracking-tighter leading-none text-emerald-600 dark:text-emerald-400 ${m.meat_type === 'ASADA' ? 'text-2xl sm:text-4xl xl:text-5xl' : 'text-xl sm:text-3xl xl:text-4xl'}`}>
-                                                                                        {realVal.toFixed(1)}
-                                                                                    </span>
-                                                                                    <span className="text-[9px] sm:text-xs md:text-sm font-extrabold text-emerald-800 dark:text-emerald-300 tracking-wider mt-1 bg-emerald-100 dark:bg-emerald-900/50 px-1.5 py-0.5 sm:px-2.5 sm:py-1 rounded-md border border-emerald-300 dark:border-emerald-700">
-                                                                                        {viewMode === '30min' ? `${t('prep.real')} lbs` : `${t('prep.real')}/hr (total: ${m.real_lbs.toFixed(1)} lbs)`}
-                                                                                    </span>
-                                                                                </div>
-                                                                            </>
-                                                                        ) : (activeIndex < currentBucketIndex) && (
-                                                                            <>
-                                                                                <div className="h-8 sm:h-16 w-px bg-slate-300/50 dark:bg-slate-700/50"></div>
-                                                                                <div className="flex flex-col items-center justify-center leading-none">
-                                                                                    <span className="text-[9px] sm:text-xs font-extrabold text-amber-700 dark:text-amber-400 tracking-wide mt-1 bg-amber-500/10 px-1.5 py-0.5 rounded-md animate-pulse">
-                                                                                        {t('prep.syncing')}
-                                                                                    </span>
-                                                                                </div>
-                                                                            </>
+                                                                    </button>
+                                                                ) : cardDisplayMode === 'basic' ? (
+                                                                    /* Modo Básico: Ultra-Simple */
+                                                                    <button 
+                                                                        onClick={() => {
+                                                                            if (isFullscreen) return;
+                                                                            setEditingMeatItem({
+                                                                                key: overrideKey,
+                                                                                meatType: m.meat_type,
+                                                                                bucketLabel: currentBucket.label,
+                                                                                currentVal: effectiveMaxLbs
+                                                                            })
+                                                                            setTempEditValue(effectiveMaxLbs)
+                                                                        }}
+                                                                        className={`flex flex-col items-center justify-center py-0.5 sm:py-2 group w-full rounded-2xl transition-all ${isFullscreen ? 'cursor-default' : 'cursor-pointer hover:bg-slate-100/50 dark:hover:bg-slate-800/50'}`}
+                                                                        title={isFullscreen ? undefined : "Clic para modificar cantidad de libras"}
+                                                                    >
+                                                                        <div className="flex items-baseline gap-1 sm:gap-1.5 my-0.5 sm:my-1">
+                                                                            <span className={`font-black tracking-tighter leading-none transition-transform ${isFullscreen ? '' : 'group-hover:scale-105'} ${m.meat_type === 'ASADA' ? 'text-6xl sm:text-7xl md:text-8xl xl:text-9xl text-blue-700 dark:text-blue-400' : 'text-4xl sm:text-6xl md:text-7xl xl:text-8xl text-slate-900 dark:text-white'}`}>
+                                                                                {effectiveMaxLbs}
+                                                                            </span>
+                                                                            <span className="text-xl sm:text-3xl md:text-4xl font-black text-slate-400 dark:text-slate-500">lbs</span>
+                                                                        </div>
+                                                                        {hasOverride && (
+                                                                            <span className="text-[9px] sm:text-[10px] font-black uppercase bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-200 px-2 py-0.5 rounded-full border border-amber-300 dark:border-amber-700 shadow-xs mt-0.5">
+                                                                                ✏️ Modificado
+                                                                            </span>
                                                                         )}
-                                                                    </div>
+                                                                    </button>
+                                                                ) : (
+                                                                    /* Modo Avanzado: Vista Completa con Proyección, Real y Máximo */
+                                                                    <>
+                                                                        <div className="flex w-full items-center justify-center gap-1.5 sm:gap-4">
+                                                                            {/* Projected Column */}
+                                                                            <div className="flex flex-col items-center justify-center leading-none">
+                                                                                <span className={`font-black tracking-tighter leading-none ${m.meat_type === 'ASADA' ? 'text-3xl sm:text-5xl xl:text-6xl text-blue-700 dark:text-blue-400 drop-shadow-sm' : 'text-2xl sm:text-4xl xl:text-5xl text-slate-900 dark:text-white'}`}>
+                                                                                    {displayVal.toFixed(1)}
+                                                                                </span>
+                                                                                <span className="text-[9px] sm:text-xs md:text-sm font-extrabold text-slate-700 dark:text-slate-200 tracking-wider mt-1 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 sm:px-2.5 sm:py-1 rounded-md border border-slate-200/80 dark:border-slate-700 shadow-sm">
+                                                                                    {viewMode === '30min' ? `lbs (proy: ${m.avg_lbs.toFixed(1)})` : `lbs/hr (total: ${projectedLbs.toFixed(1)} lbs)`}
+                                                                                </span>
+                                                                            </div>
+                                                                            
+                                                                            {/* Real Consumed Column */}
+                                                                            {realVal !== undefined ? (
+                                                                                <>
+                                                                                    <div className="h-8 sm:h-16 w-px bg-slate-300/50 dark:bg-slate-700/50"></div>
+                                                                                    <div className="flex flex-col items-center justify-center leading-none">
+                                                                                        <span className={`font-black tracking-tighter leading-none text-emerald-600 dark:text-emerald-400 ${m.meat_type === 'ASADA' ? 'text-2xl sm:text-4xl xl:text-5xl' : 'text-xl sm:text-3xl xl:text-4xl'}`}>
+                                                                                            {realVal.toFixed(1)}
+                                                                                        </span>
+                                                                                        <span className="text-[9px] sm:text-xs md:text-sm font-extrabold text-emerald-800 dark:text-emerald-300 tracking-wider mt-1 bg-emerald-100 dark:bg-emerald-900/50 px-1.5 py-0.5 sm:px-2.5 sm:py-1 rounded-md border border-emerald-300 dark:border-emerald-700">
+                                                                                            {viewMode === '30min' ? `${t('prep.real')} lbs` : `${t('prep.real')}/hr (total: ${m.real_lbs.toFixed(1)} lbs)`}
+                                                                                        </span>
+                                                                                    </div>
+                                                                                </>
+                                                                            ) : (activeIndex < currentBucketIndex) && (
+                                                                                <>
+                                                                                    <div className="h-8 sm:h-16 w-px bg-slate-300/50 dark:bg-slate-700/50"></div>
+                                                                                    <div className="flex flex-col items-center justify-center leading-none">
+                                                                                        <span className="text-[9px] sm:text-xs font-extrabold text-amber-700 dark:text-amber-400 tracking-wide mt-1 bg-amber-500/10 px-1.5 py-0.5 rounded-md animate-pulse">
+                                                                                            {t('prep.syncing')}
+                                                                                        </span>
+                                                                                    </div>
+                                                                                </>
+                                                                            )}
+                                                                        </div>
 
-                                                                    {/* Max Holding Tray Buffer Badge */}
-                                                                    <div className="mt-1.5 sm:mt-3 flex items-center gap-1 bg-amber-500/10 dark:bg-amber-500/20 border border-amber-300 dark:border-amber-700/80 px-2 sm:px-3 py-0.5 sm:py-1 rounded-full text-amber-900 dark:text-amber-200 text-[9px] sm:text-xs font-black shadow-xs">
-                                                                        <span>🔥</span>
-                                                                        <span>{t('prep.maxTray')}: {maxTrayLbs} lbs</span>
-                                                                    </div>
-                                                                </>
-                                                            )}
-                                                        </div>
-                                                    )
-                                                }) : <p className="col-span-2 text-center text-sm font-medium text-slate-400 py-6 opacity-70">{t('prep.noProjectionData')}</p>}
+                                                                        {/* Max Holding Tray Buffer Badge */}
+                                                                        <div className="mt-1.5 sm:mt-3 flex items-center gap-1 bg-amber-500/10 dark:bg-amber-500/20 border border-amber-300 dark:border-amber-700/80 px-2 sm:px-3 py-0.5 sm:py-1 rounded-full text-amber-900 dark:text-amber-200 text-[9px] sm:text-xs font-black shadow-xs">
+                                                                            <span>🔥</span>
+                                                                            <span>{t('prep.maxTray')}: {maxTrayLbs} lbs</span>
+                                                                        </div>
+                                                                    </>
+                                                                )}
+                                                            </div>
+                                                        )
+                                                    }) : <p className="col-span-2 text-center text-sm font-medium text-slate-400 py-6 opacity-70">{t('prep.noProjectionData')}</p>}
+                                                </div>
                                             </div>
-                                        </div>
-                                    </motion.div>
+                                        </motion.div>
+                                    </AnimatePresence>
                                 )
-                            })}
-                            </AnimatePresence>
+                            })()}
                             
                             {/* Indicadores de Paginación */}
                             <div className="absolute top-0 right-0 h-full w-8 flex flex-col items-center justify-center gap-1 opacity-30 z-10 pointer-events-none hidden md:flex">
                                 {carouselBuckets.map((b, i) => (
-                                    <div key={b.id} className={`w-1.5 h-1.5 rounded-full transition-all duration-300 ${i === activeIndex ? 'bg-blue-600 scale-150' : i === activeIndex + 1 ? 'bg-slate-600' : 'bg-slate-300'}`} />
+                                    <div key={b.id || i} className={`w-1.5 h-1.5 rounded-full transition-all duration-300 ${i === activeIndex ? 'bg-blue-600 scale-150' : 'bg-slate-300 dark:bg-slate-700'}`} />
                                 ))}
                             </div>
                         </div>
