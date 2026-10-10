@@ -158,8 +158,8 @@ function formatTimeOnly(timestamp: string | null | undefined): string {
   }
 }
 
-/** Veces que se anuncia una orden al cerrarse con doble tap en el expediter */
-const ANNOUNCE_REPEATS = 2
+/** Veces que se anuncia una orden al cerrarse con doble tap en el expediter / KDS (1 sola vez según instrucción de Carlos) */
+const ANNOUNCE_REPEATS = 1
 /** Recordatorio único (1 vez) si la orden sigue en "Listo para recoger" tras este tiempo (por defecto 90s) */
 const DEFAULT_REMINDER_DELAY_MS = 90_000
 
@@ -1133,8 +1133,7 @@ function OrderReadyBoardContent() {
           }
 
           // 2. Anunciar con la voz seleccionada:
-          // Si es recordatorio, manual o desde tableta -> 1 repetición.
-          // Si es anuncio inicial automático -> ANNOUNCE_REPEATS (2 veces).
+          // Anuncio inicial automático, recordatorio o manual -> ANNOUNCE_REPEATS (1 sola vez).
           const repeats = nextOrder._repeats || (nextOrder._reminder || nextOrder._manualReplay || nextOrder._fromTablet ? 1 : ANNOUNCE_REPEATS)
           await speakOrder(nextOrder, repeats, selectedVoice)
 

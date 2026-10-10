@@ -378,7 +378,18 @@ export default function AccountingPage() {
                         const postPublishDiscrepancy = (packet as any)?.qb_sync_response?.post_publish_discrepancy
                         const hasDiscrepancy = Boolean(postPublishDiscrepancy?.hasDiscrepancy)
                         const isDepositPending = Boolean(packet && Number(packet.cash_deposit || 0) === 0 && Number(packet.expected_cash || 0) > 0 && packet.status !== 'published')
-                        const displayStatus = packet?.status || 'pending'
+                        
+                        const validation = (packet as any)?.qb_sync_response?.validation
+                        const hasOpenOrders = Boolean(
+                          (validation?.hasOpenOrders && (validation?.openOrdersCount ?? 0) > 0) ||
+                          (validation?.openOrders && validation.openOrders.length > 0)
+                        )
+                        const openOrdersCount = validation?.openOrdersCount || validation?.openOrders?.length || 0
+
+                        // Prioritize open_orders status display if packet has open checks in Toast POS and is not yet published
+                        const displayStatus = (packet?.status !== 'published' && hasOpenOrders)
+                          ? 'open_orders'
+                          : (packet?.status || 'pending')
 
                         return (
                           <td key={i} className="px-2 py-3 text-center">
@@ -388,18 +399,25 @@ export default function AccountingPage() {
                                   className={`inline-flex flex-col items-center justify-center px-3 py-1.5 text-xs rounded-xl cursor-pointer transition-all hover:scale-105 relative ${STATUS_STYLES[displayStatus] || STATUS_STYLES.pending}`}
                                   title={hasDiscrepancy 
                                     ? `⚠️ ${t('accounting.late_refund_detected') || 'Reembolso tardío detectado en Toast POS: Dif'} $${postPublishDiscrepancy.diffNet}`
-                                    : isDepositPending
-                                      ? `⚠️ ${t('accounting.blocked_pending_deposit_tooltip') || 'Bloqueado: Depósito de efectivo pendiente en Toast POS'} (-${formatCurrency(packet.expected_cash || 0)})`
-                                      : `${t('accounting.col_net_sales') || 'Venta Neta'}: ${formatCurrency(packet.net_sales || 0)}`}
+                                    : hasOpenOrders
+                                      ? `⚠️ ${openOrdersCount} ${openOrdersCount > 1 ? (t('accounting.status_open_orders_plural') || 'órdenes abiertas detectadas') : (t('accounting.status_open_orders_singular') || 'orden abierta detectada')} en Toast POS`
+                                      : isDepositPending
+                                        ? `⚠️ ${t('accounting.blocked_pending_deposit_tooltip') || 'Bloqueado: Depósito de efectivo pendiente en Toast POS'} (-${formatCurrency(packet.expected_cash || 0)})`
+                                        : `${t('accounting.col_net_sales') || 'Venta Neta'}: ${formatCurrency(packet.net_sales || 0)}`}
                                 >
                                   <div className="flex items-center space-x-1 font-extrabold tracking-wide">
+                                    {displayStatus === 'open_orders' && <AlertTriangle className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 animate-pulse" />}
                                     {displayStatus === 'ready' && <Clock className="w-3.5 h-3.5" />}
                                     {displayStatus === 'reviewed' && <CheckCircle className="w-3.5 h-3.5" />}
                                     {displayStatus === 'published' && <CheckCircle2 className="w-3.5 h-3.5" />}
                                     {displayStatus === 'rejected' && <XCircle className="w-3.5 h-3.5" />}
                                     {displayStatus === 'pending' && <Circle className="w-3.5 h-3.5 text-slate-400" />}
                                     <span>
-                                      {t(`accounting.status_${displayStatus}`) || displayStatus}
+                                      {displayStatus === 'open_orders'
+                                        ? (openOrdersCount > 1 
+                                            ? `${openOrdersCount} ${t('accounting.status_open_orders_plural') || 'Órdenes Abiertas'}`
+                                            : `1 ${t('accounting.status_open_orders_singular') || 'Orden Abierta'}`)
+                                        : (t(`accounting.status_${displayStatus}`) || displayStatus)}
                                     </span>
                                   </div>
                                   <span className="text-[10px] font-mono mt-0.5 opacity-90">

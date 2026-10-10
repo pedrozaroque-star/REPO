@@ -299,6 +299,14 @@ export default function PacketDetailPage() {
   const isDepositPending = Number(packet.cash_deposit || 0) === 0 && Number(packet.expected_cash || 0) > 0
   const isDepositToast = Number(packet.cash_deposit || 0) > 0
 
+  // Open Orders Detection (Step 11 Cohesion Rule)
+  const validation = (packet.qb_sync_response as any)?.validation
+  const hasOpenOrders = Boolean(
+    (validation?.hasOpenOrders && (validation?.openOrdersCount ?? 0) > 0) ||
+    (validation?.openOrders && validation.openOrders.length > 0)
+  )
+  const openOrdersCount = validation?.openOrdersCount || validation?.openOrders?.length || 0
+
   return (
     <div className="w-full mx-auto px-4 md:px-6 py-6 space-y-6 pb-24">
       
@@ -318,6 +326,17 @@ export default function PacketDetailPage() {
           </div>
         </div>
         <div className="flex items-center gap-3">
+          {packet.status !== 'published' && hasOpenOrders && (
+            <Badge className="px-3.5 py-1.5 text-xs font-black bg-amber-500/15 text-amber-800 border-2 border-amber-500/50 dark:bg-amber-950/50 dark:text-amber-200 dark:border-amber-600/70 flex items-center gap-1.5 shadow-sm animate-pulse">
+              <AlertTriangle className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+              <span>{openOrdersCount > 1 ? `${openOrdersCount} ${t('accounting.status_open_orders_plural') || 'Órdenes Abiertas'}` : `1 ${t('accounting.status_open_orders_singular') || 'Orden Abierta'}`}</span>
+            </Badge>
+          )}
+          {packet.status !== 'published' && isDepositPending && (
+            <Badge className="px-3.5 py-1.5 text-xs font-bold bg-amber-50 text-amber-800 border border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800 flex items-center gap-1">
+              <span>⚠️ {t('accounting.badge_deposit_pending') || 'Depósito Pendiente'}</span>
+            </Badge>
+          )}
           <Badge className={`capitalize px-4 py-1.5 text-sm ${getStatusColor(packet.status)}`}>
             {t(`accounting.status_${packet.status}`) || packet.status}
           </Badge>
@@ -372,6 +391,83 @@ export default function PacketDetailPage() {
               </p>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Toast POS Open Orders Notice & Details Table (Step 11 Cohesion Rule) */}
+      {packet.status !== 'published' && hasOpenOrders && (
+        <div className="bg-amber-500/10 border-2 border-amber-500/50 dark:border-amber-500/40 rounded-2xl p-5 shadow-sm space-y-4">
+          <div className="flex items-start gap-4">
+            <div className="p-2.5 bg-amber-500 text-black rounded-xl shrink-0 mt-0.5 shadow-md">
+              <AlertTriangle className="w-5 h-5 stroke-[2.5]" />
+            </div>
+            <div className="space-y-1.5 flex-1">
+              <div className="flex items-center justify-between gap-4 flex-wrap">
+                <h3 className="text-sm font-black tracking-tight text-amber-950 dark:text-amber-200 flex items-center gap-2">
+                  <span>{t('accounting.alert_open_orders_title') || 'Órdenes Abiertas en Toast POS — Registradas en Cuenta 12049'}</span>
+                  <span className="bg-amber-500 text-black text-[11px] font-black px-2.5 py-0.5 rounded-full shadow-sm">
+                    {openOrdersCount} {openOrdersCount > 1 ? (t('accounting.label_orders_count') || 'órdenes detectadas') : 'orden detectada'}
+                  </span>
+                </h3>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleRecalculate}
+                  disabled={actionLoading}
+                  className="text-xs border-amber-500/40 text-amber-800 dark:text-amber-200 hover:bg-amber-500/20"
+                >
+                  {actionLoading ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5 mr-1.5" />}
+                  {t('accounting.check_again_toast') || 'Verificar Nuevamente en Toast POS'}
+                </Button>
+              </div>
+              <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed font-medium">
+                {t('accounting.alert_open_orders_desc')}
+              </p>
+            </div>
+          </div>
+
+          {/* Open Orders Table */}
+          {validation?.openOrders && validation.openOrders.length > 0 && (
+            <div className="overflow-x-auto rounded-xl border border-amber-500/20 bg-white/70 dark:bg-slate-900/70 shadow-inner">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="bg-amber-500/15 text-amber-950 dark:text-amber-200 uppercase font-black tracking-wider border-b border-amber-500/20 text-left">
+                    <th className="py-2 px-3">{t('accounting.col_order_num') || 'Orden #'}</th>
+                    <th className="py-2 px-3">{t('accounting.col_open_time') || 'Hora Apertura'}</th>
+                    <th className="py-2 px-3">{t('accounting.col_server') || 'Cajero / Mesero'}</th>
+                    <th className="py-2 px-3 text-right">{t('accounting.col_order_amount') || 'Total Orden'}</th>
+                    <th className="py-2 px-3">{t('accounting.col_issue') || 'Estado / Detalle'}</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-amber-500/10 font-medium text-slate-800 dark:text-slate-200">
+                  {validation.openOrders.map((ord: any, idx: number) => {
+                    const openedTime = ord.openedDate ? new Date(ord.openedDate).toLocaleTimeString('es-US', { timeZone: 'America/Los_Angeles', hour: '2-digit', minute: '2-digit' }) : '—'
+                    return (
+                      <tr key={ord.orderId || idx} className="hover:bg-amber-500/5 transition-colors">
+                        <td className="py-2 px-3 font-mono font-bold text-amber-700 dark:text-amber-400">
+                          #{ord.orderNumber || ord.orderId?.slice(0, 8)}
+                        </td>
+                        <td className="py-2 px-3 font-mono text-slate-600 dark:text-slate-400">
+                          {openedTime}
+                        </td>
+                        <td className="py-2 px-3 font-semibold">
+                          {ord.serverName || 'Sin asignar'}
+                        </td>
+                        <td className="py-2 px-3 text-right font-mono font-bold text-slate-900 dark:text-white">
+                          {formatCurrency(ord.totalAmount || ord.amount || 0)}
+                        </td>
+                        <td className="py-2 px-3">
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-300 border border-amber-300 dark:border-amber-700">
+                            {ord.reason || ord.status || 'OPEN'}
+                          </span>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
 
