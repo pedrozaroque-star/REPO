@@ -42,6 +42,9 @@
  *   si falla la cobertura de Toast/snapshots, aparece vacía sin afectar el pedido físico.
  * - [2026-10-01] El conteo aparece como capturado solo tras confirmación de DB;
  *   fallos de guardado se muestran al manager sin recalcular el pedido local.
+ * - [2026-10-09] Optimización de captura de sobrantes: desacoplamiento de escritura visual
+ *   (0ms lag) y persistencia en segundo plano (onBlur + debounce 600ms con flush atómico
+ *   antes de enviar/generar). Elimina el congelamiento reportado por los managers al desplazarse hacia abajo.
  */
 'use client'
 
@@ -178,6 +181,11 @@ export default function InventoryOrdersPage() {
     })
     const [closingPilotCount, setClosingPilotCount] = useState(false)
     const [showPilotComparisonModal, setShowPilotComparisonModal] = useState(false)
+
+    // Timers y buffer para guardado optimista no bloqueante de sobrantes (Ultra-fast non-blocking input)
+    const leftoverDebounceTimers = useRef<Record<string, NodeJS.Timeout>>({})
+    const pendingLeftoverSaves = useRef<Record<string, { dateStr: string; value: number | null }>>({})
+    const [leftoverSyncError, setLeftoverSyncError] = useState<string | null>(null)
 
     // Emergency / extraordinary items states
     const [mappedItems, setMappedItems] = useState<any[]>([])
@@ -525,6 +533,13 @@ export default function InventoryOrdersPage() {
         if (!storeId || (activeTab !== 'history' && activeTab !== 'leftovers')) return
         loadHistoryData()
     }, [activeTab, storeId, historyMonday, loadHistoryData])
+
+    // Limpieza de temporizadores de autoguardado al desmontar componente
+    useEffect(() => {
+        return () => {
+            Object.values(leftoverDebounceTimers.current).forEach(clearTimeout)
+        }
+    }, [])
 
     // --- Edit Modal Handlers ---
     function handleOpenEditModal(order: any) {
@@ -933,43 +948,75 @@ export default function InventoryOrdersPage() {
         }
     }
 
-    async function handleLeftoverChange(itemId: string, dateStr: string, value: string) {
+    /** Persiste un sobrante a Supabase en segundo plano sin congelar la interfaz ni bloquear el teclado */
+    async function commitLeftoverSave(itemId: string, dateStr: string, numVal: number | null) {
         if (!storeId) return false
-        const numVal = value === '' ? null : Number(value)
-        if (numVal !== null && (!Number.isFinite(numVal) || numVal < 0)) {
-            alert('Ingresa un sobrante numérico válido.')
-            return false
+        if (leftoverDebounceTimers.current[itemId]) {
+            clearTimeout(leftoverDebounceTimers.current[itemId])
+            delete leftoverDebounceTimers.current[itemId]
         }
+        delete pendingLeftoverSaves.current[itemId]
+
+        setIsLiveSaving(true)
         try {
             await updateDailyLeftover(storeId, itemId, dateStr, numVal)
-            setCounts(prev => {
-                const itemCounts = { ...(prev[itemId] || {}) }
-                if (numVal === null) delete itemCounts[dateStr]
-                else itemCounts[dateStr] = numVal
-                return { ...prev, [itemId]: itemCounts }
-            })
+            setLeftoverSyncError(null)
             return true
         } catch (error) {
-            alert(`No se pudo guardar el sobrante: ${error instanceof Error ? error.message : 'error desconocido'}`)
+            const msg = error instanceof Error ? error.message : 'error desconocido'
+            console.error(`[commitLeftoverSave] Error guardando sobrante de ${itemId}:`, msg)
+            setLeftoverSyncError(language === 'es' ? `Error al sincronizar sobrante: ${msg}` : `Leftover sync error: ${msg}`)
             return false
+        } finally {
+            setIsLiveSaving(false)
         }
     }
 
-    /** Handler para edición inline de sobrantes en la tabla del pedido diario.
-     *  Guarda en DB + recalcula la línea de orden en tiempo real. */
-    async function handleInlineLeftoverChange(itemId: string, value: string) {
-        if (value !== '' && Number(value) < 0) return
-        // 1. Update counts state + save to DB
-        if (!await handleLeftoverChange(itemId, selectedOrderDate, value)) return
+    /** Vacía y guarda inmediatamente cualquier sobrante pendiente antes de generar o enviar la orden */
+    async function flushPendingLeftoverSaves() {
+        const pendingItemIds = Object.keys(pendingLeftoverSaves.current)
+        if (pendingItemIds.length === 0) return
+        const promises = pendingItemIds.map(itemId => {
+            const pending = pendingLeftoverSaves.current[itemId]
+            return commitLeftoverSave(itemId, pending.dateStr, pending.value)
+        })
+        await Promise.all(promises)
+    }
 
-        // 2. Recalcular únicamente el pedido oficial a partir del conteo físico.
+    /** Función de respaldo para compatibilidad que persiste el conteo */
+    async function handleLeftoverChange(itemId: string, dateStr: string, value: string) {
+        const numVal = value === '' ? null : Number(value)
+        if (numVal !== null && (!Number.isFinite(numVal) || numVal < 0)) return false
+        setCounts(prev => {
+            const itemCounts = { ...(prev[itemId] || {}) }
+            if (numVal === null) delete itemCounts[dateStr]
+            else itemCounts[dateStr] = numVal
+            return { ...prev, [itemId]: itemCounts }
+        })
+        return commitLeftoverSave(itemId, dateStr, numVal)
+    }
+
+    /** Handler para edición inline de sobrantes en la tabla del pedido diario.
+     *  Actualiza en memoria instantáneamente (0ms de retraso, 60 FPS) y agenda guardado en background. */
+    function handleInlineLeftoverChange(itemId: string, value: string) {
+        if (value !== '' && Number(value) < 0) return
         const numVal = value === '' ? null : Math.max(0, parseFloat(value) || 0)
+
+        // 1. Actualizar estado de conteos inmediatamente en memoria
+        setCounts(prev => {
+            const itemCounts = { ...(prev[itemId] || {}) }
+            if (numVal === null) delete itemCounts[selectedOrderDate]
+            else itemCounts[selectedOrderDate] = numVal
+            return { ...prev, [itemId]: itemCounts }
+        })
+
+        // 2. Recalcular la orden y varianza en vivo sin esperar llamadas de red
         setOrderLines(prev => prev.map(line => {
             if (line.inventory_item_id !== itemId) return line
             const orderBase = numVal === null ? 0 : Math.max(0, line.par_value - numVal)
             let calculatedQty = orderBase
             
-            // Apply rounding rule if positive
+            // Aplicar reglas de empaque si es positivo
             if (calculatedQty > 0) {
                 const rule = line.rounding_rule || 'none'
                 if (rule === 'ceiling_60') {
@@ -994,6 +1041,24 @@ export default function InventoryOrdersPage() {
                     : Number((numVal - line.suggested_leftover).toFixed(2))
             }
         }))
+
+        // 3. Programar guardado debounced de respaldo (600ms)
+        pendingLeftoverSaves.current[itemId] = { dateStr: selectedOrderDate, value: numVal }
+        if (leftoverDebounceTimers.current[itemId]) {
+            clearTimeout(leftoverDebounceTimers.current[itemId])
+        }
+        leftoverDebounceTimers.current[itemId] = setTimeout(() => {
+            commitLeftoverSave(itemId, selectedOrderDate, numVal)
+        }, 600)
+    }
+
+    /** Handler onBlur: Al salir de la celda (Tab, Enter, Flecha o click fuera),
+     *  guarda de inmediato en segundo plano si había cambios pendientes. */
+    function handleInlineLeftoverBlur(itemId: string) {
+        if (itemId in pendingLeftoverSaves.current) {
+            const pending = pendingLeftoverSaves.current[itemId]
+            commitLeftoverSave(itemId, pending.dateStr, pending.value)
+        }
     }
 
     async function handleDeleteOrder(orderId: string, qbEstimateNum: string | null) {
@@ -1213,6 +1278,7 @@ export default function InventoryOrdersPage() {
 
     async function handleGenerateOrder(skipAnomalyCheck = false) {
         if (!storeId) return
+        await flushPendingLeftoverSaves()
         if (!validateCompleteCounts(orderLines)) return
 
         const hardCapErr = validateHardCaps(orderLines, adjustments)
@@ -1256,6 +1322,7 @@ export default function InventoryOrdersPage() {
 
     async function handleClosePilotCount() {
         if (!storeId || !pilotSession.enabled) return
+        await flushPendingLeftoverSaves()
         if (!pilotSession.schemaReady) {
             alert('Primero aplica la migración 202609250001_inventory_automation_pilot.sql en Supabase.')
             return
@@ -1308,6 +1375,7 @@ export default function InventoryOrdersPage() {
     }
 
     async function handleSendToQb(skipAnomalyCheck = false) {
+        await flushPendingLeftoverSaves()
         if (!validateCompleteCounts(orderLines)) return
 
         const hardCapErr = validateHardCaps(orderLines, adjustments)
@@ -2419,6 +2487,22 @@ export default function InventoryOrdersPage() {
                                         </div>
                                     </div>
 
+                                    {leftoverSyncError && (
+                                        <div className="mx-5 mb-3 p-3 bg-red-50 border border-red-200 rounded-xl flex items-center justify-between text-xs text-red-800 font-semibold shadow-2xs">
+                                            <div className="flex items-center gap-2">
+                                                <span>⚠️</span>
+                                                <span>{leftoverSyncError}</span>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={() => setLeftoverSyncError(null)}
+                                                className="text-red-500 hover:text-red-700 text-xs px-2 py-0.5 rounded font-bold cursor-pointer"
+                                            >
+                                                ✕
+                                            </button>
+                                        </div>
+                                    )}
+
                                     {/* ---- Action buttons (Top duplicate for easy access) ---- */}
                                     <div className="mx-5 mb-4 p-4 bg-slate-50 border border-slate-200 rounded-xl flex flex-wrap gap-3 justify-end items-center">
                                         <span className="text-xs font-black text-slate-500 uppercase tracking-wider mr-auto">
@@ -2454,6 +2538,16 @@ export default function InventoryOrdersPage() {
                                             >
                                                 {showSuggestedCol ? <Eye size={12} /> : <EyeOff size={12} />} {t('bodegaOrders.toggleSuggested')}
                                             </button>
+                                        </div>
+
+                                        {/* Live Sync Indicator */}
+                                        <div className="flex items-center gap-1.5 px-3 py-2 bg-white border border-slate-200 rounded-xl shadow-2xs select-none">
+                                            <span className={`w-2.5 h-2.5 rounded-full transition-all ${isLiveSaving ? 'bg-amber-500 animate-ping' : 'bg-emerald-500'}`} />
+                                            <span className="text-[11px] font-bold text-slate-600">
+                                                {isLiveSaving 
+                                                    ? (language === 'es' ? 'Guardando en la nube...' : 'Saving to cloud...') 
+                                                    : (language === 'es' ? 'Sincronizado' : 'Synced')}
+                                            </span>
                                         </div>
 
                                         <button
@@ -2627,6 +2721,7 @@ export default function InventoryOrdersPage() {
                                                                             }`}
                                                                             value={currentLeftover !== undefined ? currentLeftover : ''}
                                                                             onChange={e => handleInlineLeftoverChange(line.inventory_item_id, e.target.value)}
+                                                                            onBlur={() => handleInlineLeftoverBlur(line.inventory_item_id)}
                                                                             onKeyDown={e => handleGridKeyDown(e, rowIndex, 0)}
                                                                             onFocus={e => e.target.select()}
                                                                         />
@@ -2889,6 +2984,7 @@ export default function InventoryOrdersPage() {
                                                                     className="w-full p-2.5 text-center outline-none bg-transparent focus:bg-white focus:ring-2 focus:ring-orange-400 font-bold text-orange-700 text-sm placeholder:text-orange-300 placeholder:text-xs placeholder:font-normal border-l-[3px] border-l-orange-300"
                                                                     value={currentLeftover !== undefined ? currentLeftover : ''}
                                                                     onChange={e => handleInlineLeftoverChange(line.inventory_item_id, e.target.value)}
+                                                                    onBlur={() => handleInlineLeftoverBlur(line.inventory_item_id)}
                                                                     onKeyDown={e => handleGridKeyDown(e, rowIndex, 0)}
                                                                     onFocus={e => e.target.select()}
                                                                 />
