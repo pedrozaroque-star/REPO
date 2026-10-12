@@ -29,6 +29,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import path from 'path'
 import fs from 'fs'
+import dns from 'dns'
 import { exec } from 'child_process'
 import { syncTacosGavilanWeb } from '@/scripts/sync-web'
 
@@ -118,6 +119,86 @@ export async function GET(
     // Acción para abrir directamente en el navegador del sistema operativo
     if (action === 'launch' || (slug?.length === 1 && slug[0] === 'launch')) {
         return handleLaunch()
+    }
+
+    // Acción para consultar en vivo el estado DNS de tacosgavilan.com
+    if (action === 'dns-status' || (slug?.length === 1 && slug[0] === 'dns-status')) {
+        try {
+            const domain = 'tacosgavilan.com'
+            const [aRecords, cnameRecords, mxRecords, nsRecords] = await Promise.all([
+                dns.promises.resolve4(domain).catch(() => [] as string[]),
+                dns.promises.resolveCname(`www.${domain}`).catch(() => [] as string[]),
+                dns.promises.resolveMx(domain).catch(() => [] as any[]),
+                dns.promises.resolveNs(domain).catch(() => [] as string[])
+            ])
+
+            const isVercel = aRecords.includes('76.76.21.21')
+            const isWpEngine = aRecords.some(ip => ip.startsWith('141.193.')) || cnameRecords.some(c => c.includes('wpengine'))
+            const isMxSafe = mxRecords.some(m => m.exchange && m.exchange.includes('google.com'))
+
+            let hostingDetected = 'Desconocido / En transición'
+            if (isVercel) hostingDetected = 'Vercel (Nuevo Servidor Ultra Rápido)'
+            else if (isWpEngine) hostingDetected = 'WP Engine (Servidor WordPress Anterior)'
+
+            return Response.json({
+                ok: true,
+                domain,
+                aRecords,
+                cnameRecords,
+                mxRecords,
+                nsRecords,
+                isVercel,
+                isWpEngine,
+                isMxSafe,
+                hostingDetected,
+                lastChecked: new Date().toISOString()
+            })
+        } catch (err: any) {
+            return Response.json({ ok: false, error: err.message }, { status: 500 })
+        }
+    }
+
+    // Acción para consultar feedback y leads de contacto recibidos desde la web oficial
+    if (action === 'feedback' || (slug?.length === 1 && slug[0] === 'feedback')) {
+        try {
+            const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://ywwwdcvgfculqmcfkihq.supabase.co'
+            const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
+            
+            const res = await fetch(`${supabaseUrl}/rest/v1/customer_feedback?select=*&order=created_at.desc&limit=30`, {
+                headers: {
+                    'apikey': supabaseKey,
+                    'Authorization': `Bearer ${supabaseKey}`
+                },
+                cache: 'no-store'
+            })
+            
+            if (!res.ok) {
+                const text = await res.text()
+                return Response.json({ ok: false, error: text }, { status: 500 })
+            }
+            
+            const rows = await res.json()
+            return Response.json({ ok: true, data: rows })
+        } catch (err: any) {
+            return Response.json({ ok: false, error: err.message }, { status: 500 })
+        }
+    }
+
+    // Acción para obtener catálogo de medios y recursos de marca del respaldo
+    if (action === 'brand-assets' || (slug?.length === 1 && slug[0] === 'brand-assets')) {
+        const backupMediaDir = 'C:\\Users\\pedro\\Desktop\\tacosgavilan-oficial-backup\\media'
+        const catalogPath = path.join(backupMediaDir, 'media-catalog.json')
+        let catalog = []
+        if (fs.existsSync(catalogPath)) {
+            try {
+                catalog = JSON.parse(fs.readFileSync(catalogPath, 'utf8'))
+            } catch {}
+        }
+        return Response.json({
+            ok: true,
+            totalItems: catalog.length,
+            items: catalog.slice(0, 40)
+        })
     }
 
     const baseDir = resolveBaseDir()

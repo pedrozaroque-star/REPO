@@ -98,6 +98,7 @@ import ProtectedRoute from '@/components/ProtectedRoute'
 import { AVAILABLE_VOICES, VoiceId, isValidVoice, isForbiddenRaulVoice } from '@/lib/order-ready-tts'
 import { getCaliforniaBusinessDate, getCaliforniaShift } from '@/lib/business-date'
 import { STORE_GUID_BY_CODE } from '@/lib/toast-stores'
+import { isDrinkOrDessertOnlyOrder } from '@/lib/order-ready-filter'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
@@ -911,88 +912,50 @@ function OrderReadyBoardContent() {
         // Fallback garantizado: cualquier voz disponible que NO sea Raúl
         const anyNonRaulVoice = voices.find(v => !isForbiddenRaulVoice(v.name)) || null
 
-        if (voiceLanguage === 'bilingual') {
-          const chosenEn = validEnVoice || safeEmergencyFemale || anyNonRaulVoice
-          const chosenEs = validEsVoice || chosenEn || anyNonRaulVoice
+        // REGLA CRÍTICA TACOS GAVILAN: Las órdenes SIEMPRE se anuncian de forma bilingüe (Inglés primero, luego Español)
+        const chosenEn = validEnVoice || safeEmergencyFemale || anyNonRaulVoice
+        const chosenEs = validEsVoice || chosenEn || anyNonRaulVoice
 
-          // Si no hay ninguna voz garantizada no-Raúl en todo el sistema: SILENCIO ABSOLUTO (CERO RAÚL)
-          if (!chosenEn || isForbiddenRaulVoice(chosenEn.name)) {
-            console.warn('[order-ready] Bloqueo anti-Raúl: ninguna voz segura disponible en el navegador.')
-            resolve()
-            return
-          }
-
-          const displayPhrase = `Order #${num} is ready, orden #${num}, ¡ya está!`
-          setActiveSpeech(displayPhrase)
-
-          // Fase 1: Inglés ("Order 141 is ready,")
-          const uttEn = new SpeechSynthesisUtterance(`Order ${num} is ready,`)
-          uttEn.rate = voiceSpeed
-          uttEn.volume = isMuted ? 0 : voiceVolume
-          uttEn.voice = chosenEn
-          uttEn.lang = chosenEn.lang || 'en-US'
-
-          // Fase 2: Español ("orden 141, ¡ya está!")
-          const uttEs = new SpeechSynthesisUtterance(`orden ${num}, ¡ya está!`)
-          uttEs.rate = voiceSpeed
-          uttEs.volume = isMuted ? 0 : voiceVolume
-          if (chosenEs && !isForbiddenRaulVoice(chosenEs.name)) {
-            uttEs.voice = chosenEs
-            uttEs.lang = chosenEs.lang || 'es-MX'
-          } else {
-            uttEs.voice = chosenEn
-            uttEs.lang = chosenEn.lang || 'en-US'
-          }
-
-          safeSpeak(uttEn, () => {
-            setTimeout(() => {
-              safeSpeak(uttEs, () => {
-                setActiveSpeech(null)
-                setTimeout(resolve, 500)
-              })
-            }, 200)
-          })
-        } else if (voiceLanguage === 'en') {
-          const chosen = validEnVoice || safeEmergencyFemale || anyNonRaulVoice
-          if (!chosen || isForbiddenRaulVoice(chosen.name)) {
-            console.warn('[order-ready] Bloqueo anti-Raúl: sin voz segura para inglés.')
-            resolve()
-            return
-          }
-          const phrase = `Order #${num} is ready.`
-          setActiveSpeech(phrase)
-          const utt = new SpeechSynthesisUtterance(`Order ${num} is ready.`)
-          utt.rate = voiceSpeed
-          utt.volume = isMuted ? 0 : voiceVolume
-          utt.voice = chosen
-          utt.lang = chosen.lang || 'en-US'
-          safeSpeak(utt, () => {
-            setActiveSpeech(null)
-            setTimeout(resolve, 500)
-          })
-        } else {
-          // Solo español
-          const chosen = validEsVoice || validEnVoice || safeEmergencyFemale || anyNonRaulVoice
-          if (!chosen || isForbiddenRaulVoice(chosen.name)) {
-            console.warn('[order-ready] Bloqueo anti-Raúl: sin voz segura para español.')
-            resolve()
-            return
-          }
-          const phrase = `Orden #${num}, ¡ya está!`
-          setActiveSpeech(phrase)
-          const utt = new SpeechSynthesisUtterance(`Orden ${num}, ¡ya está!`)
-          utt.rate = voiceSpeed
-          utt.volume = isMuted ? 0 : voiceVolume
-          utt.voice = chosen
-          utt.lang = chosen.lang || 'es-MX'
-          safeSpeak(utt, () => {
-            setActiveSpeech(null)
-            setTimeout(resolve, 500)
-          })
+        // Si no hay ninguna voz garantizada no-Raúl en todo el sistema: SILENCIO ABSOLUTO (CERO RAÚL)
+        if (!chosenEn || isForbiddenRaulVoice(chosenEn.name)) {
+          console.warn('[order-ready] Bloqueo anti-Raúl: ninguna voz segura disponible en el navegador.')
+          resolve()
+          return
         }
+
+        const displayPhrase = `Order #${num} is ready, orden #${num}, ¡ya está!`
+        setActiveSpeech(displayPhrase)
+
+        // Fase 1: Inglés ("Order 141 is ready,")
+        const uttEn = new SpeechSynthesisUtterance(`Order ${num} is ready,`)
+        uttEn.rate = voiceSpeed
+        uttEn.volume = isMuted ? 0 : voiceVolume
+        uttEn.voice = chosenEn
+        uttEn.lang = chosenEn.lang || 'en-US'
+
+        // Fase 2: Español ("orden 141, ¡ya está!")
+        const uttEs = new SpeechSynthesisUtterance(`orden ${num}, ¡ya está!`)
+        uttEs.rate = voiceSpeed
+        uttEs.volume = isMuted ? 0 : voiceVolume
+        if (chosenEs && !isForbiddenRaulVoice(chosenEs.name)) {
+          uttEs.voice = chosenEs
+          uttEs.lang = chosenEs.lang || 'es-MX'
+        } else {
+          uttEs.voice = chosenEn
+          uttEs.lang = chosenEn.lang || 'en-US'
+        }
+
+        safeSpeak(uttEn, () => {
+          setTimeout(() => {
+            safeSpeak(uttEs, () => {
+              setActiveSpeech(null)
+              setTimeout(resolve, 500)
+            })
+          }, 200)
+        })
       })
     },
-    [availableVoices, getBestBrowserVoice, isMuted, voiceVolume, voiceSpeed, voiceLanguage, selectedVoice]
+    [availableVoices, getBestBrowserVoice, isMuted, voiceVolume, voiceSpeed, selectedVoice]
   )
 
   // ── Voz natural (Gemini TTS con 5 opciones de voces de alta fidelidad) ──
@@ -1031,8 +994,9 @@ function OrderReadyBoardContent() {
   }, [selectedVoice])
 
   const clipLangs = useCallback((): Array<'en' | 'es'> => {
-    return voiceLanguage === 'bilingual' ? ['en', 'es'] : [voiceLanguage]
-  }, [voiceLanguage])
+    // REGLA CRÍTICA TACOS GAVILAN: Las órdenes SIEMPRE se emiten en Inglés primero y luego Español
+    return ['en', 'es']
+  }, [])
 
   const playClip = useCallback(
     (url: string): Promise<boolean> =>
@@ -1076,12 +1040,7 @@ function OrderReadyBoardContent() {
       const urls = await Promise.all(langs.map((l) => getClipUrl(l, num, voice)))
       if (urls.some((u) => !u)) return speakOrderBrowser(order, voice)
 
-      const phrase =
-        voiceLanguage === 'bilingual'
-          ? 'Order #' + num + ' is ready, orden #' + num + ', ¡ya está!'
-          : voiceLanguage === 'en'
-            ? 'Order #' + num + ' is ready.'
-            : 'Orden #' + num + ', ¡ya está!'
+      const phrase = 'Order #' + num + ' is ready, orden #' + num + ', ¡ya está!'
 
       for (let rep = 0; rep < repeats; rep++) {
         setActiveSpeech(phrase)
@@ -1100,7 +1059,7 @@ function OrderReadyBoardContent() {
       }
       await new Promise((r) => setTimeout(r, 400))
     },
-    [clipLangs, getClipUrl, playClip, speakOrderBrowser, voiceLanguage, selectedVoice]
+    [clipLangs, getClipUrl, playClip, speakOrderBrowser, selectedVoice]
   )
 
   // Procesador de la cola de audio - Campanilla Ding-Dong + voz natural seleccionada, en orden de cierre
@@ -1470,22 +1429,13 @@ function OrderReadyBoardContent() {
           })
         } else {
           // En ciclos posteriores (pantalla ya abierta y operando en vivo):
-          // Solo se anuncian órdenes recién marcadas como listas capturadas en vivo mientras el módulo está abierto,
-          // con una antigüedad máxima razonable (últimos 3 minutos) para evitar cantar órdenes viejas.
-          const nowTime = Date.now()
-          ready
-            .filter(ord => {
-              if (ord.announced) return false
-              if (announcedIdsRef.current.has(ord.id)) return false
-              const readyTime = Date.parse(ord.ready_at || ord.created_at)
-              if (!isNaN(readyTime) && nowTime - readyTime > 3 * 60 * 1000) {
-                announcedIdsRef.current.add(ord.id)
-                return false
-              }
-              return true
-            })
-            .sort((a, b) => Date.parse(a.ready_at || a.created_at) - Date.parse(b.ready_at || b.created_at))
-            .forEach(ord => enqueueAnnouncement(ord))
+          // REGLA CRÍTICA TACOS GAVILAN: El bump del cocinero en Toast KDS NO debe emitir voz por altavoz.
+          // La voz se emite exclusivamente cuando el preparador toca la orden en su tableta
+          // (evento Realtime broadcast 'call_order') o cuando el usuario hace clic manual para re-anunciar.
+          // Por lo tanto, registramos todas las órdenes listas en announcedIdsRef para garantizar silencio ante bumps de KDS.
+          ready.forEach(ord => {
+            announcedIdsRef.current.add(ord.id)
+          })
         }
       }
     } catch (e: any) {
@@ -2333,28 +2283,23 @@ function OrderReadyBoardContent() {
                 )}
               </div>
 
-              {/* Idioma de los Anuncios */}
+              {/* Idioma de los Anuncios: Bilingüe Permanente */}
               <div className={`mt-3.5 pt-2.5 border-t ${isDark ? 'border-slate-800/80' : 'border-slate-200'}`}>
-                <label className={`text-[11px] font-semibold block mb-1.5 ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
-                  {t('orderReadyBoard.voice_language')}
-                </label>
-                <div className="flex gap-1.5">
-                  {(['es', 'en', 'bilingual'] as const).map((langOption) => (
-                    <button
-                      key={langOption}
-                      type="button"
-                      onClick={() => setVoiceLanguage(langOption)}
-                      className={`flex-1 py-1 px-1.5 rounded-lg text-xs font-bold uppercase tracking-wider border transition ${
-                        voiceLanguage === langOption
-                          ? 'bg-emerald-600 text-white border-emerald-500 shadow-sm'
-                          : isDark
-                            ? 'bg-slate-900 text-slate-400 border-slate-800 hover:bg-slate-800'
-                            : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200'
-                      }`}
-                    >
-                      {langOption === 'es' ? 'ES' : langOption === 'en' ? 'EN' : t('orderReadyBoard.voice_bilingual_short')}
-                    </button>
-                  ))}
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className={`text-[11px] font-semibold block ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
+                    {t('orderReadyBoard.voice_language')}
+                  </label>
+                  <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">
+                    {t('orderReadyBoard.voice_bilingual_always')}
+                  </span>
+                </div>
+                <div className={`text-xs py-2 px-3 rounded-lg font-bold border text-center flex items-center justify-center gap-2 ${
+                  isDark ? 'bg-slate-900 border-emerald-500/40 text-emerald-400' : 'bg-emerald-50 border-emerald-300 text-emerald-700'
+                }`}>
+                  <span>🇺🇸 EN</span>
+                  <span className="text-slate-400 font-normal">+</span>
+                  <span>🇲🇽 ES</span>
+                  <span className="text-[11px] font-medium opacity-80">({t('orderReadyBoard.voice_bilingual_desc')})</span>
                 </div>
               </div>
             </div>
@@ -2830,6 +2775,7 @@ function OrderReadyBoardContent() {
 
         const displayedInProgressOrders = inProgressOrders.filter((order) => {
           if (!isAllowedDining(order)) return false
+          if (isDrinkOrDessertOnlyOrder(order.items_summary)) return false
           return true
         })
 

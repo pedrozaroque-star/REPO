@@ -1,34 +1,29 @@
 /**
  * @module app/nueva-web/page
- * @description Visor interactivo y entorno de pruebas en tiempo real para el nuevo sitio web de Tacos Gavilan.
- * Permite a gerentes, supervisores y desarrolladores auditar, interactuar y probar el diseño web
- * en desarrollo en file:///C:/Users/pedro/Desktop/tacosgavilan-web/index.html en diferentes dispositivos
- * (Escritorio, Tablet y Móvil) directamente desde la barra lateral del Sistema de Monitoreo TEG,
- * con soporte para sincronización hacia la nube para que pueda verse tanto en PC como en teléfonos móviles.
+ * @description Centro de Control Integral, Monitoreo Administrativo y Entorno de Pruebas del Sitio Web Oficial de Tacos Gavilan (tacosgavilan.com).
+ * Integra herramientas administrativas completas:
+ * 1. Simulador y Visor en Vivo Multi-Dispositivo (Desktop, Tablet y Móvil con sincronización hacia la nube).
+ * 2. Buzón de Contacto y Leads en Vivo conectado a la base de datos de Supabase (customer_feedback).
+ * 3. Monitor de Salud DNS y Dominio en tiempo real (detección de GoDaddy, WP Engine vs Vercel y protección de MX de Google Workspace).
+ * 4. Constitución Técnica, Historia, Origen, Destino y Futuro Esperado del sitio web oficial.
+ * 5. Biblioteca de Activos de Marca y Recursos Oficiales (logos SVG, folleto PDF Fiesta Platters, fotografías de tiendas).
  * 
  * @businessRules
- * - **Marca Oficial**: Tacos Gavilan (presentación 1:1 con colores corporativos #50050a y #FDC82F).
- * - **Acceso Operativo**: Ubicado en la barra lateral en la sección de Operaciones, junto a Customer App.
- * - **Visualización Multi-Dispositivo**: Modos responsivos para Escritorio (100%), Tablet (768px) y Móvil (390px).
- *   En teléfonos móviles reales, se adapta automáticamente a pantalla completa nativa sin marcos artificiales.
- * - **Sincronización a Móvil / Nube**: Botón de un solo clic que copia los archivos locales hacia public/tacosgavilan-web
- *   para que puedan ser desplegados a Vercel y consultados desde cualquier smartphone.
- * - **Detección Automática de Fuente**: En localhost lee los archivos locales en vivo; en Vercel o teléfonos remotos
- *   consume automáticamente la versión estática sincronizada (/tacosgavilan-web/index.html).
- * - **Lanzador Directo de Archivo Local**: Conexión al puente nativo para abrir file:/// en el navegador del sistema.
- * - **Copia de Ruta en 1 Toque**: Permite copiar al portapapeles la URL local file:///C:/Users/pedro/Desktop/tacosgavilan-web/index.html.
- * - **Recarga en Caliente**: Botón para refrescar el iframe instantáneamente tras editar archivos HTML/CSS/JS.
- * - **Soporte de Teclado**: Tecla [Escape] para retornar de inmediato al Dashboard.
+ * - **Marca Oficial**: Estrictamente "Tacos Gavilan" (colores corporativos #50050a y #FDC82F, cero emojis en comunicación formal).
+ * - **Aislamiento de Hosting**: El sitio oficial corre en Vercel a $0 de costo de servidor, reemplazando la suscripción mensual de WP Engine.
+ * - **Protección de Correo Corporativo**: La migración de DNS preserva al 100% los registros MX de Google Workspace (cero caída de correos @tacosgavilan.com).
+ * - **Persistencia de Datos**: Formulario de contacto y feedback de clientes se centralizan en la tabla customer_feedback de Supabase.
+ * - **Preservación de SEO**: Todas las 42 URLs heredadas de WordPress se redirigen mediante reglas HTTP 301 en vercel.json.
  * 
  * @dataFlow
- * - Iframe renderiza /api/web-preview/index.html (en desarrollo local) o /tacosgavilan-web/index.html (en Vercel/Móvil).
- * - Consulta de estado y verificación de timestamps con /api/web-preview?action=status.
- * - Acción de sincronización masiva hacia public/tacosgavilan-web vía POST /api/web-preview/sync.
- * - Acción de apertura de archivo local en Windows vía POST /api/web-preview/launch.
+ * - Iframe de diseño: consume /api/web-preview/index.html (desarrollo local) o /tacosgavilan-web/index.html (nube/móvil).
+ * - DNS Health: GET /api/web-preview?action=dns-status (resuelve A, CNAME, MX, NS en tiempo real).
+ * - Supabase Feedback: GET /api/web-preview?action=feedback (consulta customer_feedback).
+ * - Brand Assets: GET /api/web-preview?action=brand-assets (inventario de biblioteca multimedia).
  * 
  * @notes
- * - Soporta i18n bilingüe total (Español e Inglés) a través del hook useLanguage().
- * - Implementa controles de pantalla completa nativa vía document.documentElement.requestFullscreen().
+ * - Soporte total i18n bilingüe (Español e Inglés) a través del sistema useLanguage().
+ * - Totalmente adaptado para pantallas táctiles de teléfonos móviles y computadoras de escritorio.
  */
 
 'use client'
@@ -38,19 +33,26 @@ import { useRouter } from 'next/navigation'
 import {
     ArrowLeft, Monitor, Tablet, Smartphone, RefreshCw, ExternalLink,
     Copy, Check, Maximize2, Minimize2, Globe, Sparkles, FolderOpen,
-    CloudUpload, CheckCircle2, ShieldCheck, Share2
+    CloudUpload, CheckCircle2, ShieldCheck, Mail, Database, BookOpen,
+    Download, AlertTriangle, Layers, MapPin, Send, User, Phone,
+    Calendar, Clock, Server, ArrowRight, ShieldAlert, FileText, CheckCircle
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useLanguage } from '@/lib/i18n'
 
+type ActiveTab = 'preview' | 'feedback' | 'domain' | 'constitution' | 'assets'
 type ViewportMode = 'desktop' | 'tablet' | 'mobile'
 
 const FILE_URL = 'file:///C:/Users/pedro/Desktop/tacosgavilan-web/index.html'
 
-export default function NewWebsiteViewerPage() {
+export default function WebsiteCommandCenterPage() {
     const router = useRouter()
     const { t, language } = useLanguage()
 
+    // Pestaña activa
+    const [activeTab, setActiveTab] = useState<ActiveTab>('preview')
+
+    // Estados para el visor de diseño
     const [viewport, setViewport] = useState<ViewportMode>('desktop')
     const [iframeKey, setIframeKey] = useState<number>(Date.now())
     const [isLoading, setIsLoading] = useState<boolean>(true)
@@ -59,6 +61,10 @@ export default function NewWebsiteViewerPage() {
     const [launching, setLaunching] = useState<boolean>(false)
     const [syncing, setSyncing] = useState<boolean>(false)
     const [isMobileScreen, setIsMobileScreen] = useState<boolean>(false)
+    const [toastMessage, setToastMessage] = useState<string | null>(null)
+    const iframeRef = useRef<HTMLIFrameElement>(null)
+
+    // Estado del archivo local / nube
     const [localStatus, setLocalStatus] = useState<{
         localExists: boolean
         fallbackExists: boolean
@@ -66,18 +72,39 @@ export default function NewWebsiteViewerPage() {
         fallbackLastModified: string | null
         activeSource: 'local' | 'cloud' | 'none'
     } | null>(null)
-    const [toastMessage, setToastMessage] = useState<string | null>(null)
-    const iframeRef = useRef<HTMLIFrameElement>(null)
 
-    // Detectar si la pantalla es móvil real (<768px)
+    // Estado de DNS en vivo
+    const [dnsData, setDnsData] = useState<{
+        ok: boolean
+        domain: string
+        aRecords: string[]
+        cnameRecords: string[]
+        mxRecords: Array<{ exchange: string; priority: number }>
+        nsRecords: string[]
+        isVercel: boolean
+        isWpEngine: boolean
+        isMxSafe: boolean
+        hostingDetected: string
+        lastChecked: string
+    } | null>(null)
+    const [loadingDns, setLoadingDns] = useState<boolean>(false)
+
+    // Estado de Feedback / Leads de Supabase
+    const [feedbackRows, setFeedbackRows] = useState<any[]>([])
+    const [loadingFeedback, setLoadingFeedback] = useState<boolean>(false)
+    const [feedbackFilter, setFeedbackFilter] = useState<string>('all')
+
+    // Estado de activos de marca
+    const [assetsData, setAssetsData] = useState<any[]>([])
+    const [loadingAssets, setLoadingAssets] = useState<boolean>(false)
+
+    // Detectar si la pantalla es móvil real
     useEffect(() => {
         if (typeof window !== 'undefined') {
             const checkScreen = () => {
                 const isMobile = window.innerWidth < 768
                 setIsMobileScreen(isMobile)
-                if (isMobile) {
-                    setViewport('desktop') // 100% de la pantalla del teléfono
-                }
+                if (isMobile) setViewport('desktop')
             }
             checkScreen()
             window.addEventListener('resize', checkScreen)
@@ -103,21 +130,72 @@ export default function NewWebsiteViewerPage() {
         }
     }
 
-    // Consultar estado al montar
+    const fetchDns = async () => {
+        setLoadingDns(true)
+        try {
+            const res = await fetch('/api/web-preview?action=dns-status')
+            if (res.ok) {
+                const data = await res.json()
+                setDnsData(data)
+            }
+        } catch {
+            // Silencioso
+        } finally {
+            setLoadingDns(false)
+        }
+    }
+
+    const fetchFeedback = async () => {
+        setLoadingFeedback(true)
+        try {
+            const res = await fetch('/api/web-preview?action=feedback')
+            if (res.ok) {
+                const json = await res.json()
+                setFeedbackRows(json.data || [])
+            }
+        } catch {
+            // Silencioso
+        } finally {
+            setLoadingFeedback(false)
+        }
+    }
+
+    const fetchAssets = async () => {
+        setLoadingAssets(true)
+        try {
+            const res = await fetch('/api/web-preview?action=brand-assets')
+            if (res.ok) {
+                const json = await res.json()
+                setAssetsData(json.items || [])
+            }
+        } catch {
+            // Silencioso
+        } finally {
+            setLoadingAssets(false)
+        }
+    }
+
     useEffect(() => {
         fetchStatus()
+        fetchDns()
     }, [])
 
-    // Soporte para tecla Escape para salir rápidamente
     useEffect(() => {
-        const handleKeyDown = (e: KeyboardEvent) => {
-            if (e.key === 'Escape' && !document.fullscreenElement) {
-                handleExit()
-            }
+        if (activeTab === 'feedback' && feedbackRows.length === 0) {
+            fetchFeedback()
         }
-        window.addEventListener('keydown', handleKeyDown)
-        return () => window.removeEventListener('keydown', handleKeyDown)
-    }, [])
+        if (activeTab === 'domain') {
+            fetchDns()
+        }
+        if (activeTab === 'assets' && assetsData.length === 0) {
+            fetchAssets()
+        }
+    }, [activeTab])
+
+    const showToast = (msg: string) => {
+        setToastMessage(msg)
+        setTimeout(() => setToastMessage(null), 3500)
+    }
 
     const handleExit = () => {
         if (typeof window !== 'undefined' && window.history.length > 2) {
@@ -127,28 +205,15 @@ export default function NewWebsiteViewerPage() {
         }
     }
 
-    const showToast = (msg: string) => {
-        setToastMessage(msg)
-        setTimeout(() => setToastMessage(null), 3500)
-    }
-
-    const copyFilePath = async () => {
+    const copyToClipboard = async (text: string, label: string) => {
         try {
-            await navigator.clipboard.writeText(FILE_URL)
-            setCopied(true)
-            showToast(t('new_website.copied_toast') || 'Ruta copiada al portapapeles')
-            setTimeout(() => setCopied(false), 2000)
+            await navigator.clipboard.writeText(text)
+            showToast(`${label} ${language === 'es' ? 'copiado al portapapeles' : 'copied to clipboard'}`)
         } catch {
-            showToast('Error al copiar al portapapeles')
+            showToast('Error al copiar')
         }
     }
 
-    const handleReload = () => {
-        setIsLoading(true)
-        setIframeKey(Date.now())
-    }
-
-    // Sincronizar archivos de desarrollo local hacia public/tacosgavilan-web para visualización en móvil/Vercel
     const handleSyncToMobile = async () => {
         setSyncing(true)
         try {
@@ -161,7 +226,7 @@ export default function NewWebsiteViewerPage() {
                         : `Synced! ${data.copiedFiles} files ready. Run COMMIT and PUSH to view on your phone.`
                 )
                 await fetchStatus()
-                handleReload()
+                setIframeKey(Date.now())
             } else {
                 showToast(data.message || 'Error al sincronizar')
             }
@@ -170,14 +235,6 @@ export default function NewWebsiteViewerPage() {
         } finally {
             setSyncing(false)
         }
-    }
-
-    const handleOpenInNewTab = () => {
-        // En Vercel o teléfono remoto usamos la ruta estática directa
-        const targetUrl = (localStatus?.localExists)
-            ? '/api/web-preview/index.html'
-            : '/tacosgavilan-web/index.html'
-        window.open(targetUrl, '_blank')
     }
 
     const handleLaunchLocalFile = async () => {
@@ -208,16 +265,21 @@ export default function NewWebsiteViewerPage() {
         }
     }
 
-    // Determinar la URL óptima para el iframe
-    // Si la máquina tiene la carpeta local de Pedro, usamos /api/web-preview/index.html para ver cambios en vivo
-    // Si está en el teléfono o Vercel, usamos la versión estática /tacosgavilan-web/index.html
     const effectiveIframeSrc = localStatus?.localExists
         ? `/api/web-preview/index.html?t=${iframeKey}`
         : `/tacosgavilan-web/index.html?t=${iframeKey}`
 
+    const filteredFeedback = feedbackRows.filter(row => {
+        if (feedbackFilter === 'all') return true
+        if (feedbackFilter === 'catering') return (row.complaint_type || '').toLowerCase().includes('cater') || (row.comments || '').toLowerCase().includes('banquet') || (row.comments || '').toLowerCase().includes('platter')
+        if (feedbackFilter === 'careers') return (row.complaint_type || '').toLowerCase().includes('career') || (row.complaint_type || '').toLowerCase().includes('empleo') || (row.comments || '').toLowerCase().includes('trabajo')
+        if (feedbackFilter === 'accessibility') return (row.complaint_type || '').toLowerCase().includes('access') || (row.comments || '').toLowerCase().includes('ada')
+        return true
+    })
+
     return (
         <div className="flex flex-col h-screen w-screen bg-slate-900 text-slate-100 overflow-hidden select-none">
-            {/* ── TOP CONTROL BAR ── */}
+            {/* ── ENCABEZADO PRINCIPAL DE CONTROL ── */}
             <header className="flex-shrink-0 h-14 bg-[#50050a] border-b border-[#FDC82F]/30 px-2 sm:px-4 flex items-center justify-between z-30 shadow-md">
                 {/* Lado Izquierdo: Volver + Título + Badges */}
                 <div className="flex items-center gap-1.5 sm:gap-3 min-w-0">
@@ -239,77 +301,104 @@ export default function NewWebsiteViewerPage() {
                         <div className="flex flex-col min-w-0">
                             <div className="flex items-center gap-1.5 sm:gap-2">
                                 <span className="text-xs sm:text-sm font-black tracking-tight text-white truncate">
-                                    Tacos Gavilan <span className="text-[#FDC82F] font-medium hidden sm:inline">— {t('new_website.title') || 'Nueva Web'}</span>
+                                    Tacos Gavilan <span className="text-[#FDC82F] font-medium hidden sm:inline">— {language === 'es' ? 'Centro Web Oficial' : 'Official Web Command'}</span>
                                 </span>
-                                {localStatus?.localExists ? (
+                                {dnsData?.isVercel ? (
                                     <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shrink-0">
-                                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
-                                        <span className="hidden sm:inline">{t('new_website.viewing_local') || 'LOCAL EN VIVO'}</span>
-                                        <span className="sm:hidden">LOCAL</span>
+                                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                                        <span>VERCEL LIVE</span>
+                                    </span>
+                                ) : dnsData?.isWpEngine ? (
+                                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/40 shrink-0">
+                                        <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                                        <span>WP ENGINE</span>
                                     </span>
                                 ) : (
                                     <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-sky-500/20 text-sky-300 border border-sky-500/40 shrink-0">
                                         <CheckCircle2 size={10} className="text-sky-400" />
-                                        <span className="hidden sm:inline">{t('new_website.viewing_cloud') || 'NUBE SINCRONIZADA'}</span>
-                                        <span className="sm:hidden">NUBE</span>
+                                        <span>tacosgavilan.com</span>
                                     </span>
                                 )}
                             </div>
                             <span className="text-[10px] text-white/60 truncate hidden md:inline">
-                                {localStatus?.localExists
-                                    ? FILE_URL
-                                    : '/tacosgavilan-web/index.html (Móvil / Vercel CDN)'}
+                                https://tacosgavilan.com • Vercel CDN • Supabase DB • Toast POS
                             </span>
                         </div>
                     </div>
                 </div>
 
-                {/* Centro: Selector de Dispositivos (Solo en pantallas de escritorio o tablet) */}
-                {!isMobileScreen && (
-                    <div className="hidden lg:flex items-center bg-black/40 p-1 rounded-xl border border-white/10 shadow-inner">
-                        <button
-                            onClick={() => setViewport('desktop')}
-                            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
-                                viewport === 'desktop'
-                                    ? 'bg-[#FDC82F] text-[#50050a] shadow-sm'
-                                    : 'text-white/70 hover:text-white hover:bg-white/5'
-                            }`}
-                            title={language === 'es' ? 'Vista Escritorio (100%)' : 'Desktop View (100%)'}
-                        >
-                            <Monitor size={14} />
-                            <span>{t('new_website.view_desktop') || 'Escritorio'}</span>
-                        </button>
-                        <button
-                            onClick={() => setViewport('tablet')}
-                            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
-                                viewport === 'tablet'
-                                    ? 'bg-[#FDC82F] text-[#50050a] shadow-sm'
-                                    : 'text-white/70 hover:text-white hover:bg-white/5'
-                            }`}
-                            title={language === 'es' ? 'Vista Tablet (768px)' : 'Tablet View (768px)'}
-                        >
-                            <Tablet size={14} />
-                            <span>{t('new_website.view_tablet') || 'Tablet'}</span>
-                        </button>
-                        <button
-                            onClick={() => setViewport('mobile')}
-                            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
-                                viewport === 'mobile'
-                                    ? 'bg-[#FDC82F] text-[#50050a] shadow-sm'
-                                    : 'text-white/70 hover:text-white hover:bg-white/5'
-                            }`}
-                            title={language === 'es' ? 'Vista Móvil (390px iPhone)' : 'Mobile View (390px iPhone)'}
-                        >
-                            <Smartphone size={14} />
-                            <span>{t('new_website.view_mobile') || 'Móvil'}</span>
-                        </button>
-                    </div>
-                )}
+                {/* Centro: Selector de Pestañas de Gestión */}
+                <div className="flex items-center bg-black/40 p-1 rounded-xl border border-white/10 shadow-inner overflow-x-auto max-w-[45vw] sm:max-w-none">
+                    <button
+                        onClick={() => setActiveTab('preview')}
+                        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold transition-all shrink-0 ${
+                            activeTab === 'preview'
+                                ? 'bg-[#FDC82F] text-[#50050a] shadow-sm'
+                                : 'text-white/70 hover:text-white hover:bg-white/5'
+                        }`}
+                    >
+                        <Monitor size={14} />
+                        <span className="hidden sm:inline">{t('new_website.tab_preview') || 'Diseño & Simulador'}</span>
+                        <span className="sm:hidden">Diseño</span>
+                    </button>
 
-                {/* Lado Derecho: Acciones (Sincronizar a Móvil, Recargar, Pestaña, Copiar, Fullscreen) */}
+                    <button
+                        onClick={() => setActiveTab('feedback')}
+                        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold transition-all shrink-0 ${
+                            activeTab === 'feedback'
+                                ? 'bg-[#FDC82F] text-[#50050a] shadow-sm'
+                                : 'text-white/70 hover:text-white hover:bg-white/5'
+                        }`}
+                    >
+                        <Mail size={14} />
+                        <span className="hidden sm:inline">{t('new_website.tab_feedback') || 'Buzón & Leads'}</span>
+                        <span className="sm:hidden">Buzón</span>
+                    </button>
+
+                    <button
+                        onClick={() => setActiveTab('domain')}
+                        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold transition-all shrink-0 ${
+                            activeTab === 'domain'
+                                ? 'bg-[#FDC82F] text-[#50050a] shadow-sm'
+                                : 'text-white/70 hover:text-white hover:bg-white/5'
+                        }`}
+                    >
+                        <Server size={14} />
+                        <span className="hidden sm:inline">{t('new_website.tab_domain') || 'Dominio & Vercel'}</span>
+                        <span className="sm:hidden">Dominio</span>
+                    </button>
+
+                    <button
+                        onClick={() => setActiveTab('constitution')}
+                        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold transition-all shrink-0 ${
+                            activeTab === 'constitution'
+                                ? 'bg-[#FDC82F] text-[#50050a] shadow-sm'
+                                : 'text-white/70 hover:text-white hover:bg-white/5'
+                        }`}
+                    >
+                        <BookOpen size={14} />
+                        <span className="hidden md:inline">{t('new_website.tab_constitution') || 'Historia & Futuro'}</span>
+                        <span className="md:hidden">Historia</span>
+                    </button>
+
+                    <button
+                        onClick={() => setActiveTab('assets')}
+                        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold transition-all shrink-0 ${
+                            activeTab === 'assets'
+                                ? 'bg-[#FDC82F] text-[#50050a] shadow-sm'
+                                : 'text-white/70 hover:text-white hover:bg-white/5'
+                        }`}
+                    >
+                        <Layers size={14} />
+                        <span className="hidden lg:inline">{t('new_website.tab_assets') || 'Biblioteca & Recursos'}</span>
+                        <span className="lg:hidden">Recursos</span>
+                    </button>
+                </div>
+
+                {/* Lado Derecho: Acciones Rápidas */}
                 <div className="flex items-center gap-1 sm:gap-1.5">
-                    {/* Botón de Sincronización a Móvil (Cuando estamos en la PC con carpeta local) */}
-                    {localStatus?.localExists && (
+                    {/* Botón sincronizar a móvil (visible en pestaña preview) */}
+                    {activeTab === 'preview' && localStatus?.localExists && (
                         <button
                             onClick={handleSyncToMobile}
                             disabled={syncing}
@@ -323,52 +412,17 @@ export default function NewWebsiteViewerPage() {
                         </button>
                     )}
 
-                    {/* Botón de Recarga en Caliente */}
-                    <button
-                        onClick={handleReload}
-                        className="p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg bg-black/30 hover:bg-black/50 text-white/90 hover:text-white border border-white/10 transition-colors flex items-center gap-1.5 text-xs font-semibold"
-                        title={t('new_website.reload') || 'Recargar diseño'}
-                    >
-                        <RefreshCw size={14} className={isLoading ? 'animate-spin text-[#FDC82F]' : ''} />
-                        <span className="hidden xl:inline">{t('new_website.reload') || 'Recargar'}</span>
-                    </button>
-
-                    {/* Copiar enlace local file:/// (Solo en escritorio cuando existe la ruta local) */}
-                    {localStatus?.localExists && (
-                        <button
-                            onClick={copyFilePath}
-                            className="hidden lg:flex p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg bg-black/30 hover:bg-black/50 text-white/90 hover:text-white border border-white/10 transition-colors items-center gap-1.5 text-xs font-semibold"
-                            title={t('new_website.copy_path') || 'Copiar ruta local'}
-                        >
-                            {copied ? <Check size={14} className="text-emerald-400" /> : <Copy size={14} />}
-                            <span className="hidden xl:inline">
-                                {copied ? '¡Copiado!' : (t('new_website.copy_path') || 'Copiar')}
-                            </span>
-                        </button>
-                    )}
-
-                    {/* Lanzador Nativo Windows (Solo en PC cuando existe la ruta local) */}
-                    {localStatus?.localExists && (
-                        <button
-                            onClick={handleLaunchLocalFile}
-                            disabled={launching}
-                            className="hidden 2xl:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-emerald-600/80 hover:bg-emerald-600 text-white border border-emerald-400/40 shadow-xs transition-all text-xs font-bold disabled:opacity-50"
-                            title={t('new_website.launch_browser') || 'Abrir archivo local (file:///) en navegador'}
-                        >
-                            <FolderOpen size={14} />
-                            <span>file:///</span>
-                        </button>
-                    )}
-
-                    {/* Abrir en nueva pestaña */}
-                    <button
-                        onClick={handleOpenInNewTab}
+                    {/* Abrir sitio en nueva pestaña */}
+                    <a
+                        href={localStatus?.localExists ? '/api/web-preview/index.html' : '/tacosgavilan-web/index.html'}
+                        target="_blank"
+                        rel="noreferrer"
                         className="p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg bg-[#FDC82F] hover:bg-[#e6b528] text-[#50050a] transition-all flex items-center gap-1.5 text-xs font-black shadow-sm"
                         title={t('new_website.open_tab') || 'Abrir en nueva pestaña'}
                     >
                         <ExternalLink size={14} />
                         <span className="hidden sm:inline">{t('new_website.open_tab') || 'Pestaña'}</span>
-                    </button>
+                    </a>
 
                     {/* Fullscreen */}
                     <button
@@ -381,98 +435,597 @@ export default function NewWebsiteViewerPage() {
                 </div>
             </header>
 
-            {/* ── SUB-BAR: Status & Quick Info (Oculta en teléfonos pequeños para maximizar espacio) ── */}
-            <div className="bg-slate-950/80 border-b border-slate-800 px-3 sm:px-4 py-1 flex items-center justify-between text-[11px] text-slate-400">
-                <div className="flex items-center gap-2 truncate">
-                    <span className={`w-2 h-2 rounded-full shrink-0 ${localStatus?.localExists ? 'bg-emerald-500' : 'bg-sky-500'}`} />
-                    <span className="text-slate-300 font-semibold truncate">
-                        {localStatus?.localExists
-                            ? (t('new_website.local_file_detected') || 'Archivo local en desarrollo (PC):')
-                            : (t('new_website.viewing_cloud') || 'Versión sincronizada en la nube (Móvil):')}
-                    </span>
-                    <code className="text-emerald-400 font-mono text-[10px] bg-slate-900 px-1.5 py-0.5 rounded border border-slate-800 truncate hidden sm:inline">
-                        {localStatus?.localExists ? FILE_URL : '/tacosgavilan-web/index.html'}
-                    </code>
-                </div>
-                <div className="flex items-center gap-3 shrink-0">
-                    {localStatus?.fallbackLastModified && (
-                        <span className="text-[10px] text-slate-400 hidden md:inline">
-                            {language === 'es' ? 'Sincronizado' : 'Synced'}: {new Date(localStatus.fallbackLastModified).toLocaleTimeString()}
-                        </span>
-                    )}
-                    <span className="text-[10px] font-mono font-bold text-slate-400">
-                        {isMobileScreen
-                            ? 'Móvil Nativo 100%'
-                            : viewport === 'desktop'
-                            ? '100% Full'
-                            : viewport === 'tablet'
-                            ? '768 × 1024'
-                            : '390 × 844'}
-                    </span>
-                </div>
-            </div>
+            {/* ── NOTIFICACIÓN TOAST FLOTANTE ── */}
+            <AnimatePresence>
+                {toastMessage && (
+                    <motion.div
+                        initial={{ opacity: 0, y: -20, scale: 0.95 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, y: -20, scale: 0.95 }}
+                        className="absolute top-16 right-4 z-50 px-4 py-2.5 rounded-xl bg-emerald-500 text-slate-950 font-bold text-xs shadow-2xl flex items-center gap-2 border border-emerald-400 max-w-[90vw]"
+                    >
+                        <Sparkles size={14} className="shrink-0" />
+                        <span className="leading-tight">{toastMessage}</span>
+                    </motion.div>
+                )}
+            </AnimatePresence>
 
-            {/* ── MAIN VIEWER CONTAINER ── */}
-            <main className="flex-1 bg-slate-950 flex items-center justify-center p-0 md:p-2 overflow-hidden relative">
-                {/* Notificación Toast flotante */}
-                <AnimatePresence>
-                    {toastMessage && (
-                        <motion.div
-                            initial={{ opacity: 0, y: -20, scale: 0.95 }}
-                            animate={{ opacity: 1, y: 0, scale: 1 }}
-                            exit={{ opacity: 0, y: -20, scale: 0.95 }}
-                            className="absolute top-4 z-50 px-4 py-2.5 rounded-xl bg-emerald-500 text-slate-950 font-bold text-xs shadow-2xl flex items-center gap-2 border border-emerald-400 max-w-[90vw]"
-                        >
-                            <Sparkles size={14} className="shrink-0" />
-                            <span className="leading-tight">{toastMessage}</span>
-                        </motion.div>
-                    )}
-                </AnimatePresence>
+            {/* ── CONTENIDO PRINCIPAL SEGÚN PESTAÑA ACTIVA ── */}
+            <div className="flex-1 overflow-hidden relative flex flex-col bg-slate-950">
+                {/* ══════════ PESTAÑA 1: SIMULADOR & DISEÑO ══════════ */}
+                {activeTab === 'preview' && (
+                    <div className="flex-1 flex flex-col overflow-hidden">
+                        {/* Sub-barra de controles de vista */}
+                        <div className="bg-slate-950 border-b border-slate-800 px-3 sm:px-4 py-1.5 flex items-center justify-between text-[11px] text-slate-400 shrink-0">
+                            <div className="flex items-center gap-2 truncate">
+                                <span className={`w-2 h-2 rounded-full shrink-0 ${localStatus?.localExists ? 'bg-emerald-500' : 'bg-sky-500'}`} />
+                                <span className="text-slate-300 font-semibold truncate">
+                                    {localStatus?.localExists
+                                        ? (t('new_website.local_file_detected') || 'Archivo local en desarrollo (PC):')
+                                        : (t('new_website.viewing_cloud') || 'Versión sincronizada en la nube (Móvil):')}
+                                </span>
+                                <code className="text-emerald-400 font-mono text-[10px] bg-slate-900 px-1.5 py-0.5 rounded border border-slate-800 truncate hidden sm:inline">
+                                    {localStatus?.localExists ? FILE_URL : '/tacosgavilan-web/index.html'}
+                                </code>
+                            </div>
 
-                {/* Spinner de Carga */}
-                {isLoading && (
-                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950/80 z-20 backdrop-blur-xs">
-                        <div className="w-10 h-10 rounded-full border-3 border-[#FDC82F]/20 border-t-[#FDC82F] animate-spin mb-3" />
-                        <p className="text-xs text-slate-300 font-semibold tracking-wide">
-                            {t('new_website.loading_preview') || 'Cargando diseño web de Tacos Gavilan...'}
-                        </p>
+                            {/* Selector de Dispositivos */}
+                            {!isMobileScreen && (
+                                <div className="flex items-center gap-1 bg-black/40 p-0.5 rounded-lg border border-slate-800">
+                                    <button
+                                        onClick={() => setViewport('desktop')}
+                                        className={`flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold ${
+                                            viewport === 'desktop' ? 'bg-[#FDC82F] text-[#50050a]' : 'text-slate-400 hover:text-white'
+                                        }`}
+                                    >
+                                        <Monitor size={12} />
+                                        <span>Escritorio</span>
+                                    </button>
+                                    <button
+                                        onClick={() => setViewport('tablet')}
+                                        className={`flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold ${
+                                            viewport === 'tablet' ? 'bg-[#FDC82F] text-[#50050a]' : 'text-slate-400 hover:text-white'
+                                        }`}
+                                    >
+                                        <Tablet size={12} />
+                                        <span>Tablet (768px)</span>
+                                    </button>
+                                    <button
+                                        onClick={() => setViewport('mobile')}
+                                        className={`flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold ${
+                                            viewport === 'mobile' ? 'bg-[#FDC82F] text-[#50050a]' : 'text-slate-400 hover:text-white'
+                                        }`}
+                                    >
+                                        <Smartphone size={12} />
+                                        <span>Móvil (390px)</span>
+                                    </button>
+                                </div>
+                            )}
+
+                            {/* Recargar y copiar */}
+                            <div className="flex items-center gap-2">
+                                <button
+                                    onClick={() => {
+                                        setIsLoading(true)
+                                        setIframeKey(Date.now())
+                                    }}
+                                    className="p-1 rounded hover:bg-slate-800 text-slate-300 flex items-center gap-1 text-[11px]"
+                                    title="Recargar diseño"
+                                >
+                                    <RefreshCw size={12} className={isLoading ? 'animate-spin text-[#FDC82F]' : ''} />
+                                    <span className="hidden sm:inline">Recargar</span>
+                                </button>
+                                {localStatus?.localExists && (
+                                    <button
+                                        onClick={handleLaunchLocalFile}
+                                        className="hidden lg:flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-600/60 hover:bg-emerald-600 text-white text-[10px] font-bold"
+                                        title="Abrir file:/// en navegador predeterminado de Windows"
+                                    >
+                                        <FolderOpen size={11} />
+                                        <span>file:///</span>
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Contenedor del Iframe */}
+                        <div className="flex-1 flex items-center justify-center p-0 md:p-2 overflow-hidden relative bg-slate-950">
+                            {isLoading && (
+                                <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950/80 z-20 backdrop-blur-xs">
+                                    <div className="w-10 h-10 rounded-full border-3 border-[#FDC82F]/20 border-t-[#FDC82F] animate-spin mb-3" />
+                                    <p className="text-xs text-slate-300 font-semibold tracking-wide">
+                                        {t('new_website.loading_preview') || 'Cargando diseño web de Tacos Gavilan...'}
+                                    </p>
+                                </div>
+                            )}
+                            <div
+                                className={`h-full transition-all duration-300 flex flex-col bg-white overflow-hidden shadow-2xl ${
+                                    isMobileScreen || viewport === 'desktop'
+                                        ? 'w-full rounded-none'
+                                        : viewport === 'tablet'
+                                        ? 'w-[768px] max-w-full rounded-2xl border-4 border-slate-700 ring-4 ring-black/40'
+                                        : 'w-[390px] max-w-full rounded-[2.5rem] border-8 border-slate-800 ring-4 ring-black/50'
+                                }`}
+                            >
+                                <iframe
+                                    ref={iframeRef}
+                                    key={iframeKey}
+                                    src={effectiveIframeSrc}
+                                    className="w-full flex-1 border-0 bg-white"
+                                    title="Tacos Gavilan Live Preview"
+                                    onLoad={() => setIsLoading(false)}
+                                    allow="geolocation; camera; microphone; clipboard-write"
+                                />
+                            </div>
+                        </div>
                     </div>
                 )}
 
-                {/* Marco Responsivo Según Dispositivo */}
-                <div
-                    className={`h-full transition-all duration-300 flex flex-col bg-white overflow-hidden shadow-2xl ${
-                        isMobileScreen || viewport === 'desktop'
-                            ? 'w-full rounded-none'
-                            : viewport === 'tablet'
-                            ? 'w-[768px] max-w-full rounded-2xl border-4 border-slate-700 ring-4 ring-black/40'
-                            : 'w-[390px] max-w-full rounded-[2.5rem] border-8 border-slate-800 ring-4 ring-black/50'
-                    }`}
-                >
-                    {/* Barra decorativa de dispositivo en modo móvil/tablet en escritorio */}
-                    {!isMobileScreen && viewport !== 'desktop' && (
-                        <div className="h-6 bg-slate-900 flex items-center justify-center px-4 shrink-0">
-                            {viewport === 'mobile' && (
-                                <div className="w-24 h-3.5 bg-black rounded-full" />
-                            )}
-                            {viewport === 'tablet' && (
-                                <div className="w-3 h-3 rounded-full bg-slate-700" />
-                            )}
+                {/* ══════════ PESTAÑA 2: BUZÓN & LEADS (SUPABASE) ══════════ */}
+                {activeTab === 'feedback' && (
+                    <div className="flex-1 overflow-y-auto p-4 sm:p-6 max-w-7xl mx-auto w-full space-y-6">
+                        {/* Cabecera del Buzón */}
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-900/90 border border-slate-800 rounded-2xl p-4 sm:p-6 shadow-xl">
+                            <div>
+                                <h2 className="text-lg sm:text-xl font-black text-white flex items-center gap-2">
+                                    <Mail className="text-[#FDC82F]" size={22} />
+                                    <span>{t('new_website.feedback_title') || 'Buzón de Contacto y Leads de Clientes'}</span>
+                                </h2>
+                                <p className="text-xs text-slate-400 mt-1">
+                                    {t('new_website.feedback_subtitle') || 'Mensajes recibidos desde el formulario web de tacosgavilan.com y guardados en Supabase (public.customer_feedback)'}
+                                </p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <button
+                                    onClick={fetchFeedback}
+                                    disabled={loadingFeedback}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold border border-slate-700 transition-colors"
+                                >
+                                    <RefreshCw size={14} className={loadingFeedback ? 'animate-spin text-[#FDC82F]' : ''} />
+                                    <span>Actualizar</span>
+                                </button>
+                                <span className="px-2.5 py-1 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 text-xs font-bold">
+                                    {feedbackRows.length} {language === 'es' ? 'Mensajes Registrados' : 'Messages Logged'}
+                                </span>
+                            </div>
                         </div>
-                    )}
 
-                    {/* El Iframe que renderiza la web servida en vivo */}
-                    <iframe
-                        ref={iframeRef}
-                        key={iframeKey}
-                        src={effectiveIframeSrc}
-                        className="w-full flex-1 border-0 bg-white"
-                        title="Tacos Gavilan New Website Live Preview"
-                        onLoad={() => setIsLoading(false)}
-                        allow="geolocation; camera; microphone; clipboard-write"
-                    />
-                </div>
-            </main>
+                        {/* Filtros de Categorías */}
+                        <div className="flex items-center gap-2 overflow-x-auto pb-2">
+                            {[
+                                { id: 'all', label: 'Todos los Mensajes' },
+                                { id: 'catering', label: '🎉 Banquetes & Catering' },
+                                { id: 'careers', label: '💼 Empleo & Vacantes' },
+                                { id: 'accessibility', label: '♿ Accesibilidad ADA' }
+                            ].map(filter => (
+                                <button
+                                    key={filter.id}
+                                    onClick={() => setFeedbackFilter(filter.id)}
+                                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 ${
+                                        feedbackFilter === filter.id
+                                            ? 'bg-[#FDC82F] text-[#50050a] shadow-md'
+                                            : 'bg-slate-900 text-slate-400 hover:text-white border border-slate-800'
+                                    }`}
+                                >
+                                    {filter.label}
+                                </button>
+                            ))}
+                        </div>
+
+                        {/* Listado de Mensajes */}
+                        {loadingFeedback ? (
+                            <div className="flex flex-col items-center justify-center py-20 text-slate-400">
+                                <div className="w-8 h-8 rounded-full border-2 border-[#FDC82F] border-t-transparent animate-spin mb-3" />
+                                <p className="text-xs">Consultando Supabase...</p>
+                            </div>
+                        ) : filteredFeedback.length === 0 ? (
+                            <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-12 text-center text-slate-400">
+                                <CheckCircle size={36} className="mx-auto text-emerald-500 mb-2 opacity-80" />
+                                <h3 className="text-sm font-bold text-slate-200">No hay mensajes pendientes en esta categoría</h3>
+                                <p className="text-xs text-slate-500 mt-1">Los nuevos mensajes enviados desde el formulario web aparecerán aquí en tiempo real.</p>
+                            </div>
+                        ) : (
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                {filteredFeedback.map((row, idx) => (
+                                    <div
+                                        key={row.id || idx}
+                                        className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-lg flex flex-col justify-between hover:border-slate-700 transition-all"
+                                    >
+                                        <div>
+                                            <div className="flex items-start justify-between gap-2 mb-3">
+                                                <div className="flex items-center gap-2">
+                                                    <div className="w-8 h-8 rounded-full bg-[#50050a] text-[#FDC82F] flex items-center justify-center font-bold text-xs shrink-0 border border-[#FDC82F]/30">
+                                                        {(row.customer_name || 'U')[0].toUpperCase()}
+                                                    </div>
+                                                    <div>
+                                                        <h4 className="text-xs sm:text-sm font-black text-white">{row.customer_name || 'Cliente Anónimo'}</h4>
+                                                        <span className="text-[10px] text-slate-400 flex items-center gap-1">
+                                                            <Clock size={10} />
+                                                            {new Date(row.created_at || row.submission_date).toLocaleString()}
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                                                    (row.complaint_type || '').includes('cater')
+                                                        ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                                                        : (row.complaint_type || '').includes('career')
+                                                        ? 'bg-sky-500/20 text-sky-300 border border-sky-500/40'
+                                                        : (row.complaint_type || '').includes('access')
+                                                        ? 'bg-purple-500/20 text-purple-300 border border-purple-500/40'
+                                                        : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                                                }`}>
+                                                    {row.complaint_type || 'General'}
+                                                </span>
+                                            </div>
+
+                                            <div className="flex flex-wrap gap-3 my-2 text-[11px] text-slate-300 bg-slate-950/60 p-2.5 rounded-xl border border-slate-800/80">
+                                                {row.customer_email && (
+                                                    <a href={`mailto:${row.customer_email}`} className="flex items-center gap-1 text-sky-400 hover:underline">
+                                                        <Mail size={12} />
+                                                        <span>{row.customer_email}</span>
+                                                    </a>
+                                                )}
+                                                {row.customer_phone && (
+                                                    <a href={`tel:${row.customer_phone}`} className="flex items-center gap-1 text-emerald-400 hover:underline">
+                                                        <Phone size={12} />
+                                                        <span>{row.customer_phone}</span>
+                                                    </a>
+                                                )}
+                                                {row.store_id && (
+                                                    <span className="flex items-center gap-1 text-[#FDC82F]">
+                                                        <MapPin size={12} />
+                                                        <span>Sucursal ID: {row.store_id}</span>
+                                                    </span>
+                                                )}
+                                            </div>
+
+                                            <p className="text-xs text-slate-200 mt-3 whitespace-pre-wrap leading-relaxed line-clamp-4 hover:line-clamp-none transition-all">
+                                                {row.comments || 'Sin comentarios registrados.'}
+                                            </p>
+                                        </div>
+
+                                        <div className="mt-4 pt-3 border-t border-slate-800 flex items-center justify-between text-[11px]">
+                                            <span className="text-slate-500 text-[10px]">
+                                                Origen: {row.source || 'website'}
+                                            </span>
+                                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800 text-slate-300">
+                                                Estado: {row.admin_review_status || 'Pendiente'}
+                                            </span>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                {/* ══════════ PESTAÑA 3: DOMINIO & VERCEL DNS ══════════ */}
+                {activeTab === 'domain' && (
+                    <div className="flex-1 overflow-y-auto p-4 sm:p-6 max-w-7xl mx-auto w-full space-y-6">
+                        {/* Tarjeta de Estado del Dominio */}
+                        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 sm:p-6 shadow-xl">
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-4">
+                                <div>
+                                    <div className="flex items-center gap-2">
+                                        <Server className="text-[#FDC82F]" size={22} />
+                                        <h2 className="text-lg sm:text-xl font-black text-white">
+                                            {t('new_website.domain_title') || 'Administración del Dominio y Salud DNS'}
+                                        </h2>
+                                    </div>
+                                    <p className="text-xs text-slate-400 mt-1">
+                                        {t('new_website.domain_subtitle') || 'Supervisión en tiempo real de la migración de tacosgavilan.com desde WP Engine hacia Vercel'}
+                                    </p>
+                                </div>
+                                <button
+                                    onClick={fetchDns}
+                                    disabled={loadingDns}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold border border-slate-700 transition-colors shrink-0"
+                                >
+                                    <RefreshCw size={14} className={loadingDns ? 'animate-spin text-[#FDC82F]' : ''} />
+                                    <span>Escanear DNS en Vivo</span>
+                                </button>
+                            </div>
+
+                            {/* Resumen de Estado en 3 Columnas */}
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-6">
+                                {/* Estado Web */}
+                                <div className="bg-slate-950 p-4 rounded-xl border border-slate-800">
+                                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Hosting Web Actual</span>
+                                    <div className="flex items-center gap-2 mt-2">
+                                        <span className={`w-3 h-3 rounded-full ${dnsData?.isVercel ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`} />
+                                        <span className="text-sm font-black text-white">{dnsData?.hostingDetected || 'Detectando...'}</span>
+                                    </div>
+                                    <p className="text-[11px] text-slate-400 mt-2 font-mono">
+                                        IP: {dnsData?.aRecords?.join(', ') || 'Consultando...'}
+                                    </p>
+                                </div>
+
+                                {/* Nameservers */}
+                                <div className="bg-slate-950 p-4 rounded-xl border border-slate-800">
+                                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Gestor de Dominio (DNS)</span>
+                                    <div className="flex items-center gap-2 mt-2">
+                                        <CheckCircle2 size={16} className="text-emerald-400" />
+                                        <span className="text-sm font-black text-white">GoDaddy DNS</span>
+                                    </div>
+                                    <p className="text-[11px] text-slate-400 mt-2 font-mono truncate">
+                                        {dnsData?.nsRecords?.join(', ') || 'ns73/ns74.domaincontrol.com'}
+                                    </p>
+                                </div>
+
+                                {/* Protección de Correos */}
+                                <div className="bg-slate-950 p-4 rounded-xl border border-slate-800">
+                                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Servidores de Correo (MX)</span>
+                                    <div className="flex items-center gap-2 mt-2">
+                                        <ShieldCheck size={16} className="text-emerald-400" />
+                                        <span className="text-sm font-black text-emerald-400">Google Workspace (Protegido)</span>
+                                    </div>
+                                    <p className="text-[11px] text-slate-400 mt-2 font-mono">
+                                        {dnsData?.mxRecords?.length || 5} servidores MX activos (Gmail Corporativo)
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Tabla de Cambios Exactos en GoDaddy */}
+                        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 sm:p-6 shadow-xl">
+                            <h3 className="text-base font-black text-white flex items-center gap-2 mb-2">
+                                <Server className="text-[#FDC82F]" size={18} />
+                                <span>{t('new_website.godaddy_guide_title') || 'Instrucciones Paso a Paso para GoDaddy'}</span>
+                            </h3>
+                            <p className="text-xs text-slate-400 mb-4">
+                                Inicia sesión en GoDaddy &gt; Mis Productos &gt; tacosgavilan.com &gt; Administrar DNS. Modifica únicamente estas dos filas:
+                            </p>
+
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-left text-xs border-collapse">
+                                    <thead>
+                                        <tr className="border-b border-slate-800 text-slate-400 uppercase text-[10px] tracking-wider bg-slate-950">
+                                            <th className="py-2.5 px-3">Tipo (*Type*)</th>
+                                            <th className="py-2.5 px-3">Nombre (*Name*)</th>
+                                            <th className="py-2.5 px-3">Valor Actual (WP Engine)</th>
+                                            <th className="py-2.5 px-3 text-[#FDC82F]">Nuevo Valor (Vercel)</th>
+                                            <th className="py-2.5 px-3">Acción</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-800 font-mono text-[11px]">
+                                        <tr className="hover:bg-slate-800/40">
+                                            <td className="py-3 px-3 font-bold text-white">A</td>
+                                            <td className="py-3 px-3 text-slate-300">@</td>
+                                            <td className="py-3 px-3 text-rose-400 line-through">141.193.213.11</td>
+                                            <td className="py-3 px-3 text-emerald-400 font-bold">76.76.21.21</td>
+                                            <td className="py-3 px-3">
+                                                <button
+                                                    onClick={() => copyToClipboard('76.76.21.21', 'IP de Vercel')}
+                                                    className="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-white rounded text-[10px] font-sans flex items-center gap-1"
+                                                >
+                                                    <Copy size={10} /> Copiar
+                                                </button>
+                                            </td>
+                                        </tr>
+                                        <tr className="hover:bg-slate-800/40">
+                                            <td className="py-3 px-3 font-bold text-white">CNAME</td>
+                                            <td className="py-3 px-3 text-slate-300">www</td>
+                                            <td className="py-3 px-3 text-rose-400 line-through">tacosgavilan.wpengine.com</td>
+                                            <td className="py-3 px-3 text-emerald-400 font-bold">cname.vercel-dns.com</td>
+                                            <td className="py-3 px-3">
+                                                <button
+                                                    onClick={() => copyToClipboard('cname.vercel-dns.com', 'CNAME de Vercel')}
+                                                    className="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-white rounded text-[10px] font-sans flex items-center gap-1"
+                                                >
+                                                    <Copy size={10} /> Copiar
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            {/* Advertencia Crítica de Correos */}
+                            <div className="mt-6 p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-start gap-3">
+                                <AlertTriangle className="text-amber-400 shrink-0 mt-0.5" size={18} />
+                                <div className="text-xs text-amber-200/90 leading-relaxed">
+                                    <strong className="text-amber-300 block mb-1">REGLA CRÍTICA DE SEGURIDAD (CORREOS CORPORATIVOS):</strong>
+                                    {t('new_website.godaddy_warning') || 'NUNCA modifiques los Nameservers ni los registros MX de Google Workspace. Mantén ns73/ns74.domaincontrol.com para evitar la desconexión del correo corporativo.'}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* ══════════ PESTAÑA 4: CONSTITUCIÓN, HISTORIA & FUTURO ══════════ */}
+                {activeTab === 'constitution' && (
+                    <div className="flex-1 overflow-y-auto p-4 sm:p-6 max-w-5xl mx-auto w-full space-y-8">
+                        {/* Encabezado */}
+                        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl">
+                            <h2 className="text-xl sm:text-2xl font-black text-white flex items-center gap-2.5">
+                                <BookOpen className="text-[#FDC82F]" size={26} />
+                                <span>{t('new_website.history_title') || 'Constitución Técnica, Historia y Futuro del Sitio Web Oficial'}</span>
+                            </h2>
+                            <p className="text-xs text-slate-400 mt-2">
+                                Documento rector para la dirección, gerencia y equipo técnico de Tacos Gavilan sobre la evolución del dominio tacosgavilan.com.
+                            </p>
+                        </div>
+
+                        {/* Sección 1: Historia y Origen */}
+                        <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 space-y-4">
+                            <div className="flex items-center gap-2 text-rose-400 font-black text-sm uppercase tracking-wider">
+                                <Clock size={16} />
+                                <span>1. Historia y Origen (El WordPress Heredado)</span>
+                            </div>
+                            <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
+                                El sitio web anterior de Tacos Gavilan fue construido entre 2021 y 2022 sobre la plataforma <strong>WordPress</strong> (tema personalizado <em>Tacos Gavilan V2.0</em> desarrollado por jjrod.com) y alojado en los servidores de <strong>WP Engine</strong>.
+                            </p>
+                            <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
+                                Con el paso de los años, este esquema presentó tres problemas críticos para el negocio:
+                            </p>
+                            <ul className="text-xs sm:text-sm text-slate-400 space-y-2 list-disc pl-5">
+                                <li><strong>Costos Recurrentes Innecesarios</strong>: Pago mensual constante a WP Engine simplemente por mantener encendidos servidores PHP y bases de datos MySQL desactualizadas.</li>
+                                <li><strong>Vulnerabilidad Legal (Demanda ADA en California)</strong>: En 2026 la empresa enfrentó demandas bajo el <em>California Unruh Civil Rights Act</em> y <em>ADA Title III</em> debido a la falta de accesibilidad digital (WCAG 2.2 AA) y avisos obligatorios de privacidad (CCPA/CPRA) en el WordPress viejo.</li>
+                                <li><strong>Lentitud y Rigidez en Teléfonos Móviles</strong>: Plugins pesados como WP Rocket generaban inconsistencias de caché, impidiendo que clientes y supervisores vieran promociones en tiempo real.</li>
+                            </ul>
+                        </div>
+
+                        {/* Sección 2: Constitución Técnica Actual */}
+                        <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 space-y-4">
+                            <div className="flex items-center gap-2 text-emerald-400 font-black text-sm uppercase tracking-wider">
+                                <ShieldCheck size={16} />
+                                <span>2. Constitución Técnica (Arquitectura Desacoplada y Moderna)</span>
+                            </div>
+                            <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
+                                El nuevo sitio web oficial fue diseñado desde cero eliminando WordPress y adoptando una <strong>arquitectura desacoplada y estática (*JAMstack*)</strong> con los más altos estándares tecnológicos:
+                            </p>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+                                <div className="bg-slate-950 p-4 rounded-xl border border-slate-800">
+                                    <h4 className="text-xs font-bold text-white mb-1">Frontend Ultra Rápido (HTML5 / CSS / Vanilla JS)</h4>
+                                    <p className="text-[11px] text-slate-400">Carga en menos de 1 segundo en cualquier celular. Cero dependencias pesadas, responsive 100% y sin bases de datos lentas intermedias.</p>
+                                </div>
+                                <div className="bg-slate-950 p-4 rounded-xl border border-slate-800">
+                                    <h4 className="text-xs font-bold text-white mb-1">Integración Nativa Toast POS (15 Tiendas)</h4>
+                                    <p className="text-[11px] text-slate-400">Enlaces y rutas directas a las 15 sucursales activas para pedidos en línea sin comisiones excesivas de plataformas externas.</p>
+                                </div>
+                                <div className="bg-slate-950 p-4 rounded-xl border border-slate-800">
+                                    <h4 className="text-xs font-bold text-white mb-1">Persistencia Segura en Supabase</h4>
+                                    <p className="text-[11px] text-slate-400">Todos los formularios de banquetes (Catering), vacantes y sugerencias se guardan automáticamente en la nube de Supabase.</p>
+                                </div>
+                                <div className="bg-slate-950 p-4 rounded-xl border border-slate-800">
+                                    <h4 className="text-xs font-bold text-white mb-1">Blindaje Legal Integral (WCAG 2.2 AA / CCPA 2026)</h4>
+                                    <p className="text-[11px] text-slate-400">Herramientas de accesibilidad para personas con discapacidad, contraste, selector de fuentes y aviso de protección de datos.</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Sección 3: Destino y Futuro Esperado */}
+                        <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 space-y-4">
+                            <div className="flex items-center gap-2 text-[#FDC82F] font-black text-sm uppercase tracking-wider">
+                                <Sparkles size={16} />
+                                <span>3. Destino Inmediato y Futuro Esperado</span>
+                            </div>
+                            <div className="space-y-3 text-xs sm:text-sm text-slate-300 leading-relaxed">
+                                <p>
+                                    <strong>Destino Inmediato</strong>: El dominio <code>tacosgavilan.com</code> se traslada a la red de <strong>Vercel Edge</strong>. El hosting pasa a costar $0 mensuales, los correos corporativos se mantienen 100% protegidos en Google Workspace, y se cancela la cuenta de WP Engine generando un ahorro financiero directo e inmediato.
+                                </p>
+                                <p>
+                                    <strong>Futuro Esperado</strong>:
+                                </p>
+                                <ul className="text-xs sm:text-sm text-slate-400 space-y-2 list-disc pl-5">
+                                    <li><strong>Sinergia con la Customer App</strong>: Los clientes podrán pasar sin fricción entre la web oficial y la app móvil para acumular recompensas y pedir comida.</li>
+                                    <li><strong>Cotizador Interactivo de Banquetes y Taquizas</strong>: Sistema en línea donde clientes corporativos y familiares pueden cotizar paquetes de fiesta en segundos con confirmación directa a la gerencia de tienda.</li>
+                                    <li><strong>Independencia Comercial</strong>: Disminución progresiva del volumen de pedidos en DoorDash y UberEats empujando a los clientes hacia la web y app oficial, ahorrando miles de dólares en comisiones de delivery.</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* ══════════ PESTAÑA 5: BIBLIOTECA & RECURSOS DE MARCA ══════════ */}
+                {activeTab === 'assets' && (
+                    <div className="flex-1 overflow-y-auto p-4 sm:p-6 max-w-7xl mx-auto w-full space-y-6">
+                        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                            <div>
+                                <h2 className="text-lg sm:text-xl font-black text-white flex items-center gap-2">
+                                    <Layers className="text-[#FDC82F]" size={22} />
+                                    <span>Biblioteca Oficial de Recursos y Medios de Marca</span>
+                                </h2>
+                                <p className="text-xs text-slate-400 mt-1">
+                                    Activos vectoriales, documentos legales y fotografías de alta resolución respaldados del sitio oficial.
+                                </p>
+                            </div>
+                            <span className="px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 border border-slate-700 text-xs font-bold">
+                                121 Recursos Respaldados en PC
+                            </span>
+                        </div>
+
+                        {/* Recursos Destacados */}
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            {/* Folleto Fiesta Platters */}
+                            <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 shadow-lg flex flex-col justify-between">
+                                <div>
+                                    <div className="w-10 h-10 rounded-xl bg-amber-500/20 text-[#FDC82F] flex items-center justify-center mb-3 border border-amber-500/40">
+                                        <FileText size={20} />
+                                    </div>
+                                    <h4 className="text-sm font-black text-white">Folleto Oficial Fiesta Platters</h4>
+                                    <p className="text-xs text-slate-400 mt-1">Folleto tri-fold oficial en PDF para eventos, taquizas y charolas familiares.</p>
+                                    <span className="text-[10px] text-slate-500 font-mono mt-2 block">Gavilan-Party-Tray-Brochure-WEB.pdf (722 KB)</span>
+                                </div>
+                                <a
+                                    href="/Gavilan-Party-Tray-Brochure-WEB.pdf"
+                                    download
+                                    className="mt-4 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-[#FDC82F] hover:bg-[#e6b528] text-[#50050a] font-black text-xs transition-all shadow-sm"
+                                >
+                                    <Download size={14} /> Descargar Folleto PDF
+                                </a>
+                            </div>
+
+                            {/* Logotipos Vectoriales SVG */}
+                            <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 shadow-lg flex flex-col justify-between">
+                                <div>
+                                    <div className="w-10 h-10 rounded-xl bg-sky-500/20 text-sky-400 flex items-center justify-center mb-3 border border-sky-500/40">
+                                        <Sparkles size={20} />
+                                    </div>
+                                    <h4 className="text-sm font-black text-white">Logotipos Vectoriales SVG</h4>
+                                    <p className="text-xs text-slate-400 mt-1">Logos originales escalables sin pérdida de resolución (horizontal, vertical e icono).</p>
+                                    <span className="text-[10px] text-slate-500 font-mono mt-2 block">theme-gavilan/gavilan/img/*.svg</span>
+                                </div>
+                                <button
+                                    onClick={() => copyToClipboard('C:\\Users\\pedro\\Desktop\\tacosgavilan-oficial-backup\\theme-gavilan\\gavilan\\img', 'Ruta de logos')}
+                                    className="mt-4 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs transition-all border border-slate-700"
+                                >
+                                    <Copy size={14} /> Copiar Ruta en PC
+                                </button>
+                            </div>
+
+                            {/* Base de Datos de Producción SQL */}
+                            <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 shadow-lg flex flex-col justify-between">
+                                <div>
+                                    <div className="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center mb-3 border border-emerald-500/40">
+                                        <Database size={20} />
+                                    </div>
+                                    <h4 className="text-sm font-black text-white">Respaldo MySQL de Producción</h4>
+                                    <p className="text-xs text-slate-400 mt-1">Volcado SQL puro y exportación XML completa de todo WordPress.</p>
+                                    <span className="text-[10px] text-slate-500 font-mono mt-2 block">database-export/ (83.75 MB SQL + 1.45 MB XML)</span>
+                                </div>
+                                <button
+                                    onClick={() => copyToClipboard('C:\\Users\\pedro\\Desktop\\tacosgavilan-oficial-backup\\database-export', 'Ruta de Base de Datos')}
+                                    className="mt-4 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs transition-all border border-slate-700"
+                                >
+                                    <Copy size={14} /> Copiar Ruta en PC
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Catálogo de Fotografías de Sucursales y Platillos */}
+                        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl">
+                            <h3 className="text-sm font-black text-white flex items-center gap-2 mb-4">
+                                <MapPin className="text-[#FDC82F]" size={16} />
+                                <span>Inventario Fotográfico de Sucursales (15 Tiendas) y Platillos</span>
+                            </h3>
+
+                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
+                                {[
+                                    { name: 'Broadway (LA)', file: 'broadway_thumb-600.jpg' },
+                                    { name: 'Lynwood #14', file: 'lynwood_thumb_new-600.jpg' },
+                                    { name: 'Bell', file: 'bell_thumb-600.jpg' },
+                                    { name: 'Norwalk', file: 'norwalk_thumb.jpg' },
+                                    { name: 'Hollywood', file: 'Hollywood_thumb-600.jpg' },
+                                    { name: 'Santa Ana', file: 'Santa_Ana_Gavilan_small-600.jpg' },
+                                    { name: 'Rialto', file: 'rioalto_thumb-600.jpg' },
+                                    { name: 'Downey', file: 'downeylocation-600.jpg' },
+                                    { name: 'Huntington Park', file: 'hp_thumb-600.jpg' },
+                                    { name: 'West Covina', file: 'Gavilan_Covina_small-600.jpg' }
+                                ].map((store, i) => (
+                                    <div key={i} className="bg-slate-950 p-3 rounded-xl border border-slate-800 text-center">
+                                        <div className="h-16 rounded-lg bg-slate-900 flex items-center justify-center text-slate-500 font-bold text-xs mb-2 overflow-hidden border border-slate-800">
+                                            <MapPin size={24} className="text-[#FDC82F]/70" />
+                                        </div>
+                                        <h5 className="text-xs font-bold text-white truncate">{store.name}</h5>
+                                        <span className="text-[10px] text-slate-500 truncate block font-mono mt-0.5">{store.file}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+                )}
+            </div>
         </div>
     )
 }

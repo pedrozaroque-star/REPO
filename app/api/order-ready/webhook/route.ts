@@ -14,8 +14,9 @@
  * 
  * @notes
  * - Idempotente: procesa duplicados sin duplicar registros en base de datos.
- * - Nunca baja una orden de READY a IN_PROGRESS (carrera entre webhooks tardíos y el sync activo).
- * - `ready_at` usa la hora real del bump (modifiedDate de los platillos) para que el tablero anuncie en orden de cierre.
+ * - Soporta RECALL de Toast KDS: si una orden READY se desmarca en KDS, regresa a IN_PROGRESS para reaparecer en la tableta del preparador.
+ * - KDS bump silencioso: al pasar a READY por KDS, se persiste `announced = true` para evitar anuncios automáticos por altavoz.
+ * - `ready_at` usa la hora real del bump (modifiedDate de los platillos).
  */
 
 import { NextResponse } from 'next/server'
@@ -143,16 +144,24 @@ export async function POST(request: Request) {
     // Si ya existe la orden, actualizarla
     if (existing) {
       const itemsSummary = extractOrderItemsSummary(orderObj)
+      const isRecall = existing.status === 'READY' && status === 'IN_PROGRESS'
+      const isKdsBump = existing.status === 'IN_PROGRESS' && status === 'READY'
+
       const updateData: any = {
-        status: existing.status === 'READY' && status === 'IN_PROGRESS' ? 'READY' : status,
+        status: isRecall ? 'IN_PROGRESS' : isKdsBump ? 'READY' : status,
         dining_option: diningOption
       }
       if (itemsSummary) {
         updateData.items_summary = itemsSummary
       }
-      if (status === 'READY' && existing.status !== 'READY') {
+      if (isKdsBump) {
         updateData.ready_at = evaluation.readyAt || now
-        updateData.announced = false // Activar campanilla y voz bilingüe
+        // Regla de Negocio Tacos Gavilan: El bump en KDS NO emite voz automática por altavoz
+        updateData.announced = true
+      } else if (isRecall) {
+        // RECALL en Toast KDS: vuelve a preparación, se limpia ready_at y reaparece en tableta preparador
+        updateData.ready_at = null
+        updateData.announced = false
       }
       if (customerName) {
         updateData.customer_name = customerName
@@ -166,7 +175,7 @@ export async function POST(request: Request) {
         .update(updateData)
         .eq('id', existing.id)
 
-      return NextResponse.json({ success: true, action: 'updated', orderNumber: existing.order_number, status })
+      return NextResponse.json({ success: true, action: 'updated', orderNumber: existing.order_number, status: updateData.status })
     }
 
     // Si es orden nueva y no tenemos número de orden pero sí GUID, consultar a Toast API
@@ -233,7 +242,7 @@ export async function POST(request: Request) {
         customer_name: customerName,
         status,
         business_date: currentBusinessDate,
-        announced: false,
+        announced: status === 'READY' ? true : false,
         ready_at: status === 'READY' ? (evaluation.readyAt || now) : null,
         items_summary: itemsSummary,
         created_at: evaluation.sentAt || now
@@ -249,7 +258,7 @@ export async function POST(request: Request) {
         customer_name: customerName,
         status,
         business_date: currentBusinessDate,
-        announced: false,
+        announced: status === 'READY' ? true : false,
         ready_at: status === 'READY' ? (evaluation.readyAt || now) : null,
         items_summary: itemsSummary,
         created_at: evaluation.sentAt || now

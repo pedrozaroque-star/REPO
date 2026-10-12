@@ -23,7 +23,7 @@
 
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
-import { syncStoreFromToast, STORE_GUID_BY_CODE } from '@/lib/order-ready-sync'
+import { syncStoreFromToast, STORE_GUID_BY_CODE, isDrinkOrDessertOnlyOrder } from '@/lib/order-ready-sync'
 import { getOrderReadyAccess, canAccessStore } from '@/lib/order-ready-access'
 import { getCaliforniaBusinessDate, getBusinessDayStartMs, getCaliforniaShift } from '@/lib/business-date'
 
@@ -134,7 +134,7 @@ export async function GET(request: Request) {
     const readyOrders = dedupe(rawReady)
     const readyNums = new Set(readyOrders.map(o => `${o.store_code}_${o.business_date}_${o.order_number}`))
     const inProgressOrders = dedupe(rawInProgress).filter(
-      o => !readyNums.has(`${o.store_code}_${o.business_date}_${o.order_number}`)
+      o => !readyNums.has(`${o.store_code}_${o.business_date}_${o.order_number}`) && !isDrinkOrDessertOnlyOrder(o.items_summary)
     )
 
     return NextResponse.json({

@@ -10,13 +10,23 @@
  *   - Buche, Chorizo y Carnitas se cocinan al momento bajo demanda (no requieren pace en parrilla).
  *   - Las capturas manuales de los gerentes se persisten en prep_manual_schedule por día de la semana (1=Lunes ... 7=Domingo).
  *   - Timer de inactividad de 15 segundos regresa al carrusel al bloque de tiempo actual.
- *   - **Pestaña ÓRDENES (Entregador / Expediter / KDS View)**: Muestra en vivo las órdenes listas para recoger ('READY') de la sucursal activa.
- *     Presenta cada comanda como tarjeta de KDS profesional con desglose de platillos (`items_summary`), cantidades y modificadores.
- *     Permite al entregador o taquero tocar la comanda con el dedo para enviar un impulso instantáneo a la PC del Manager (`/order-ready-board`)
- *     para reproducir campanilla Ding-Dong y voz natural bilingüe (Kore / "¡ya está!") sin abandonar la línea de servicio.
+ *   - **Pestaña ÓRDENES (Órdenes en Preparación / Send)**: Muestra las órdenes enviadas por la cajera (`status: 'IN_PROGRESS'`)
+ *     tras completar el cobro (fulfillmentStatus: 'SENT' en Toast).
+ *     Presenta una cuadrícula táctil limpia con números de orden gigantes, canal de venta (`FOR_HERE` / `TOGO`), tiempo transcurrido
+ *     y botón táctil para llamar a la orden por altavoz.
+ *   - **Filtro de Bebidas y Postres**: Las órdenes que SOLO contienen bebidas (horchata, café, sodas, etc.) o postres
+ *     (flan, cheesecake) se atienden directamente en mostrador/caja y NO se muestran en la pantalla de preparación.
+ *   - **Emisión Exclusiva de Voz en PC (Cero Duplicación de Voces)**:
+ *     - La tableta del preparador actúa exclusivamente como terminal de control táctil (Touch & Dispatch).
+ *     - Al tocar una orden, la tableta emite únicamente un sonido sutil de confirmación de interfaz (tick) y envía el impulso en tiempo real (evento `call_order` y POST /api/order-ready/call) al módulo del Manager en PC (`/order-ready-board`).
+ *     - La PC del Manager (`/order-ready-board`), que está conectada al sistema de altavoces del restaurante, es la ÚNICA que reproduce la campanilla Ding-Dong y la locución bilingüe (Inglés + Español), evitando cualquier duplicidad o eco entre dispositivos.
+ *     - Cuando el cocinero borra la orden en el Toast KDS, la orden pasa a `READY` y se retira automáticamente de la tableta del preparador
+ *       SIN emitir voz por los altavoces.
+ *     - Si el cocinero presiona RECALL en el Toast KDS, la orden regresa a `IN_PROGRESS` y reaparece de inmediato en la tableta del preparador.
+ *     - Si el cocinero la vuelve a borrar en KDS, se vuelve a retirar de la tableta.
  * @dataFlow 
  *   - meat_consumption_history -> /api/inventory/preparador-history -> Carousel 3D + Intraday Accelerator.
- *   - order_ready_announcements + Realtime channel ('order-ready-realtime') -> Grid de Órdenes Listas -> POST /api/order-ready/call -> PC Manager.
+ *   - order_ready_announcements + Realtime channel ('order-ready-realtime') -> Grid de Órdenes en Preparación -> POST /api/order-ready/call -> PC Manager.
  */
 'use client'
 
@@ -34,7 +44,7 @@ import { createClient } from '@/lib/supabase-client'
 import { motion, AnimatePresence } from 'framer-motion'
 import { TOAST_STORE_MAP } from '@/lib/toast-stores'
 import { getCaliforniaBusinessDate } from '@/lib/business-date'
-import { isForbiddenRaulVoice } from '@/lib/order-ready-tts'
+import { isDrinkOrDessertOnlyOrder } from '@/lib/order-ready-filter'
         
 
 interface MeatData {
@@ -388,7 +398,6 @@ export default function PreparadorPage() {
     const [callingOrderIds, setCallingOrderIds] = useState<Set<string>>(new Set())
     const [callSuccessOrderIds, setCallSuccessOrderIds] = useState<Set<string>>(new Set())
     const realtimeChannelRef = useRef<any>(null)
-    const tabletAudioCtxRef = useRef<AudioContext | null>(null)
     const [hideDrinks, setHideDrinks] = useState(true)
 
     // Cargar preferencia de ocultar bebidas (activada por defecto para la cocina)
@@ -409,7 +418,7 @@ export default function PreparadorPage() {
         })
     }
 
-    // Consulta de órdenes listas de la sucursal actual (polling silencioso)
+    // Consulta de órdenes en preparación de la sucursal actual (status = IN_PROGRESS / SEND)
     const fetchReadyOrders = async (isManual = false) => {
         if (!storeId || stores.length === 0) return
         const currentStore = stores.find(s => String(s.id) === String(storeId))
@@ -426,21 +435,25 @@ export default function PreparadorPage() {
                 .from('order_ready_announcements')
                 .select('*')
                 .eq('store_code', storeCode)
-                .eq('status', 'READY')
+                .eq('status', 'IN_PROGRESS') // Exclusivo órdenes en preparación (SEND)
                 .eq('business_date', todayLA)
-                .order('ready_at', { ascending: false, nullsFirst: false })
+                .order('created_at', { ascending: true }) // FIFO: las más antiguas primero
                 .limit(60)
 
             if (!error && data) {
                 const now = Date.now()
-                // Descartar órdenes con más de 30 minutos de listas y desduplicar por GUID y por número
+                // Descartar órdenes con más de 60 minutos en preparación y desduplicar por GUID y por número
                 const seenGuids = new Set<string>()
                 const seenNumbers = new Set<string>()
                 const uniqueRecent: any[] = []
 
                 for (const o of data) {
-                    const t = Date.parse(o.ready_at || o.created_at)
-                    if (!isNaN(t) && now - t >= 30 * 60 * 1000) continue
+                    const t = Date.parse(o.created_at)
+                    if (!isNaN(t) && now - t >= 60 * 60 * 1000) continue
+
+                    // REGLA CRÍTICA TACOS GAVILAN: Las órdenes que SOLO tienen bebidas o postres (flan, cheesecake, etc.)
+                    // se despachan en mostrador/caja y NO requieren preparación de cocina ni parrilla por el taquero.
+                    if (isDrinkOrDessertOnlyOrder(o.items_summary)) continue
 
                     const guidKey = o.order_guid ? String(o.order_guid).trim() : null
                     const numKey = `${o.store_code || storeCode}_${o.business_date || todayLA}_${o.order_number}`
@@ -455,7 +468,7 @@ export default function PreparadorPage() {
                 setReadyOrdersList(uniqueRecent)
             }
         } catch (err) {
-            console.warn('Error fetching ready orders on preparador tablet:', err)
+            console.warn('Error fetching prep orders on preparador tablet:', err)
         } finally {
             if (isManual) setLoadingReadyOrders(false)
         }
@@ -492,6 +505,8 @@ export default function PreparadorPage() {
 
         const pollTimer = setInterval(() => {
             fetchReadyOrders(false)
+            // Sincronizar periódicamente con Toast para detectar bumps y recalls aunque el board no esté abierto
+            fetch(`/api/order-ready/orders?storeCode=${storeCode}`).catch(() => {})
         }, 5000)
 
         return () => {
@@ -501,156 +516,18 @@ export default function PreparadorPage() {
         }
     }, [storeId, stores, supabase])
 
-    // Reproductor de Campanilla Ding-Dong armónica (D5 -> A5) en la tableta
-    const playTabletChime = async () => {
+    // Sonido sutil de clic/tick en la tableta para confirmación táctil del toque (sin emitir voz)
+    const playTabletTick = () => {
         try {
-            const AudioCtx = window.AudioContext || (window as any).webkitAudioContext
-            if (!AudioCtx) return
-            if (!tabletAudioCtxRef.current || tabletAudioCtxRef.current.state === 'closed') {
-                tabletAudioCtxRef.current = new AudioCtx()
+            const el = document.getElementById('audio-tick') as HTMLAudioElement | null
+            if (el) {
+                el.currentTime = 0
+                el.play().catch(() => {})
             }
-            const ctx = tabletAudioCtxRef.current
-            if (ctx.state === 'suspended') {
-                await ctx.resume().catch(() => {})
-            }
-            const now = ctx.currentTime
-
-            // Campana 1: D5 (587.33 Hz)
-            const osc1 = ctx.createOscillator()
-            const gain1 = ctx.createGain()
-            osc1.type = 'sine'
-            osc1.frequency.setValueAtTime(587.33, now)
-            gain1.gain.setValueAtTime(0.28, now)
-            gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.5)
-            osc1.connect(gain1)
-            gain1.connect(ctx.destination)
-            osc1.start(now)
-            osc1.stop(now + 0.5)
-
-            // Campana 2: A5 (880 Hz) con leve retraso melódico
-            const osc2 = ctx.createOscillator()
-            const gain2 = ctx.createGain()
-            osc2.type = 'sine'
-            osc2.frequency.setValueAtTime(880, now + 0.16)
-            gain2.gain.setValueAtTime(0.35, now + 0.16)
-            gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.8)
-            osc2.connect(gain2)
-            gain2.connect(ctx.destination)
-            osc2.start(now + 0.16)
-            osc2.stop(now + 0.8)
-
-            await new Promise(r => setTimeout(r, 650))
-        } catch (e) {
-            console.warn('[Preparador] Error en chime:', e)
-        }
+        } catch {}
     }
 
-    // Reproductor de voz femenina natural (WAV en caché de Supabase o síntesis local del navegador)
-    const playTabletOrderVoice = async (orderNumber: string) => {
-        const num = String(parseInt(orderNumber, 10))
-        if (!num || isNaN(Number(num))) return
-
-        // 1. Tocar campanilla Ding-Dong
-        await playTabletChime()
-
-        // 2. Intentar reproducir clip WAV de alta fidelidad desde Supabase Storage vía /api/order-ready/tts
-        let audioPlayed = false
-        try {
-            const controller = new AbortController()
-            const timeoutId = setTimeout(() => controller.abort(), 2200) // 2.2s failover
-            const res = await fetch(`/api/order-ready/tts?n=${num}&lang=es&voice=Kore`, {
-                signal: controller.signal
-            })
-            clearTimeout(timeoutId)
-
-            if (res.ok) {
-                const blob = await res.blob()
-                const audioUrl = URL.createObjectURL(blob)
-                await new Promise<void>((resolve) => {
-                    const audio = new Audio(audioUrl)
-                    audio.volume = 1.0
-                    let done = false
-                    const finish = () => {
-                        if (!done) {
-                            done = true
-                            audio.onended = null
-                            audio.onerror = null
-                            URL.revokeObjectURL(audioUrl)
-                            resolve()
-                        }
-                    }
-                    audio.onended = finish
-                    audio.onerror = finish
-                    setTimeout(finish, 7000)
-                    audio.play().then(() => {
-                        audioPlayed = true
-                    }).catch(finish)
-                })
-            }
-        } catch (e) {
-            // Continúa a fallback de voz local
-        }
-
-        // 3. Fallback de voz del navegador si el archivo no está en caché o la cuota API está en cooldown
-        if (!audioPlayed && typeof window !== 'undefined' && 'speechSynthesis' in window) {
-            await new Promise<void>((resolve) => {
-                let done = false
-                const finish = () => {
-                    if (!done) {
-                        done = true
-                        resolve()
-                    }
-                }
-                setTimeout(finish, 6000) // Watchdog de seguridad
-
-                try {
-                    const synth = window.speechSynthesis
-                    if (synth.paused) synth.resume()
-                    synth.cancel()
-
-                    const allVoices = synth.getVoices().filter(v => !isForbiddenRaulVoice(v.name))
-                    // Buscar mejor voz en español (descartando a Raúl)
-                    let chosen = allVoices.find(v => {
-                        const l = (v.lang || '').toLowerCase()
-                        const n = v.name.toLowerCase()
-                        return (l.startsWith('es') || l.startsWith('spa')) &&
-                               !isForbiddenRaulVoice(v.name) &&
-                               /female|mujer|monica|sabina|paulina|helena|dalia|google/i.test(n)
-                    })
-                    if (!chosen) {
-                        chosen = allVoices.find(v => {
-                            const l = (v.lang || '').toLowerCase()
-                            return (l.startsWith('es') || l.startsWith('spa')) && !isForbiddenRaulVoice(v.name)
-                        })
-                    }
-                    if (!chosen) {
-                        chosen = allVoices.find(v => !isForbiddenRaulVoice(v.name))
-                    }
-
-                    const utt = new SpeechSynthesisUtterance(`Orden ${num}, ¡ya está!`)
-                    utt.rate = 0.95
-                    utt.volume = 1.0
-                    if (chosen) {
-                        utt.voice = chosen
-                        utt.lang = chosen.lang || 'es-MX'
-                        if (/male|david|hombre|guy|mark/i.test(chosen.name)) {
-                            utt.pitch = 1.22 // Tono más cálido/agudo si la única voz del sistema es masculina no-Raúl
-                        }
-                    } else {
-                        utt.lang = 'es-MX'
-                    }
-
-                    utt.onend = finish
-                    utt.onerror = finish
-                    synth.speak(utt)
-                } catch (err) {
-                    finish()
-                }
-            })
-        }
-    }
-
-    // Acción de llamado de orden (impulso táctil enviado a la PC del Manager y voz local en tableta)
+    // Acción de llamado de orden (impulso táctil enviado a la PC del Manager; la voz suena EXCLUSIVAMENTE en la PC)
     const handleCallOrderImpulse = async (order: any) => {
         if (!order || !order.id || callingIdsRef.current.has(order.id)) return
 
@@ -658,16 +535,15 @@ export default function PreparadorPage() {
         setCallingOrderIds(prev => new Set(prev).add(order.id))
         setCallSuccessOrderIds(prev => new Set(prev).add(order.id))
 
-        // Reproducir campanilla Ding-Dong y voz natural en la tableta localmente
-        playTabletOrderVoice(order.order_number).catch((err) => {
-            console.warn('[Preparador] Error en voz de tableta:', err)
-        })
+        // Feedback táctil inmediato: sonido sutil de tick sin emitir voz en la tableta
+        playTabletTick()
 
         const currentStore = stores.find(s => String(s.id) === String(storeId))
         const storeCode = (currentStore?.code || TOAST_STORE_MAP[currentStore?.external_id]?.code || '').toUpperCase()
 
         try {
             // 1. Enviar impulso por WebSocket broadcast si el canal está activo
+            let clientSent = false
             if (realtimeChannelRef.current) {
                 await realtimeChannelRef.current.send({
                     type: 'broadcast',
@@ -680,9 +556,10 @@ export default function PreparadorPage() {
                         store_name: currentStore?.name || storeCode
                     }
                 })
+                clientSent = true
             }
 
-            // 2. Invocar endpoint REST para persistencia en DB y redundancia de broadcast
+            // 2. Invocar endpoint REST para persistencia en DB y redundancia de broadcast (marcando fromClientBroadcast)
             await fetch('/api/order-ready/call', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -692,7 +569,7 @@ export default function PreparadorPage() {
                     storeCode: storeCode,
                     diningOption: order.dining_option,
                     storeName: currentStore?.name || storeCode,
-                    fromClientBroadcast: !!realtimeChannelRef.current
+                    fromClientBroadcast: clientSent
                 })
             })
         } catch (err) {
@@ -2014,7 +1891,7 @@ export default function PreparadorPage() {
                             </div>
                         </div>
                     ) : (
-                        /* VISTA DE ÓRDENES LISTAS PARA RECOGER (ENTREGADOR) */
+                        /* VISTA DE ÓRDENES EN PREPARACIÓN (ENVIADAS POR CAJERA) */
                         <div className="flex-1 flex flex-col overflow-hidden p-2 sm:p-4">
                             {/* Cabecera del Panel de Órdenes */}
                             <div className="flex items-center justify-between gap-2 pb-3 mb-3 border-b border-slate-200 dark:border-slate-800 shrink-0">
@@ -2033,23 +1910,6 @@ export default function PreparadorPage() {
                                 </div>
 
                                 <div className="flex items-center gap-2">
-                                    {/* Botón selector para Ocultar / Mostrar Bebidas en cocina */}
-                                    <button
-                                        type="button"
-                                        onClick={toggleHideDrinks}
-                                        title={hideDrinks ? t('prep.showDrinks') : t('prep.hideDrinks')}
-                                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold text-xs transition-all shadow-xs active:scale-95 cursor-pointer border ${
-                                            hideDrinks
-                                                ? 'bg-amber-50 text-amber-900 border-amber-300 dark:bg-amber-950/60 dark:text-amber-200 dark:border-amber-800'
-                                                : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700'
-                                        }`}
-                                    >
-                                        <CupSoda size={15} className={hideDrinks ? 'text-amber-700 dark:text-amber-300' : 'text-slate-400'} />
-                                        <span className="uppercase tracking-tight text-[11px] sm:text-xs">
-                                            {hideDrinks ? t('prep.drinksHidden') : t('prep.drinksVisible')}
-                                        </span>
-                                    </button>
-
                                     <span className="hidden sm:inline-flex items-center gap-1.5 text-[11px] font-black text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 px-2.5 py-1 rounded-full border border-emerald-300 dark:border-emerald-800">
                                         <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
                                         {t('prep.liveIndicator')}
@@ -2081,213 +1941,110 @@ export default function PreparadorPage() {
                                         </p>
                                     </div>
                                 ) : (
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
+                                    <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-2.5 sm:gap-3.5">
                                         {readyOrdersList.map((order) => {
                                             const isCalling = callingOrderIds.has(order.id)
                                             const isSuccess = callSuccessOrderIds.has(order.id)
                                             
-                                            // Cálculo de tiempo transcurrido
-                                            const readyMs = Date.parse(order.ready_at || order.created_at)
-                                            const elapsedMin = !isNaN(readyMs) ? Math.max(0, Math.floor((Date.now() - readyMs) / 60000)) : 0
+                                            // Cálculo de tiempo transcurrido desde que se cobró/envió la orden
+                                            const orderMs = Date.parse(order.created_at)
+                                            const elapsedMin = !isNaN(orderMs) ? Math.max(0, Math.floor((Date.now() - orderMs) / 60000)) : 0
                                             const isWaitingLong = elapsedMin >= 5 && elapsedMin < 10
                                             const isUrgent = elapsedMin >= 10
                                             const elapsedText = elapsedMin === 0
                                                 ? t('prep.justNow')
                                                 : t('prep.agoMinutes').replace('{m}', String(elapsedMin))
 
-                                            // Parsear los platillos y modificadores de la orden (estilo KDS)
-                                            const items = parseOrderItemsSummary(order.items_summary)
-                                            const foodItems = items.filter(it => !isDrinkItem(it.name))
-                                            const drinkItems = items.filter(it => isDrinkItem(it.name))
-                                            const displayedItems = hideDrinks ? foodItems : items
-                                            const hiddenDrinkCount = drinkItems.reduce((acc, d) => acc + d.quantity, 0)
-                                            const totalFoodCount = foodItems.reduce((sum, it) => sum + it.quantity, 0)
-                                            const totalAllCount = items.reduce((sum, it) => sum + it.quantity, 0)
-
                                             return (
-                                                <div
+                                                <button
                                                     key={order.id}
-                                                    role="button"
-                                                    tabIndex={0}
+                                                    type="button"
                                                     onClick={() => handleCallOrderImpulse(order)}
-                                                    onKeyDown={(e) => {
-                                                        if (e.key === 'Enter' || e.key === ' ') {
-                                                            e.preventDefault()
-                                                            handleCallOrderImpulse(order)
-                                                        }
-                                                    }}
-                                                    className={`group relative rounded-2xl p-4 sm:p-5 text-left transition-all active:scale-[0.99] cursor-pointer flex flex-col justify-between select-none shadow-sm hover:shadow-md border min-h-[220px] ${
+                                                    disabled={isCalling}
+                                                    className={`group relative rounded-2xl p-3 sm:p-4 text-left transition-all active:scale-[0.97] cursor-pointer flex flex-col justify-between select-none shadow-sm hover:shadow-md border-2 ${
                                                         isCalling
-                                                            ? 'ring-4 ring-emerald-500 scale-[0.99] border-emerald-500 bg-emerald-50 dark:bg-emerald-950/80 shadow-lg'
+                                                            ? 'ring-4 ring-emerald-500 scale-[0.98] border-emerald-500 bg-emerald-50 dark:bg-emerald-950/80 shadow-lg'
                                                             : isSuccess
                                                             ? 'border-emerald-500 bg-emerald-50/60 dark:bg-emerald-950/40 shadow-emerald-500/20'
                                                             : isUrgent
-                                                            ? 'border-rose-400 dark:border-rose-700 bg-rose-50/25 dark:bg-rose-950/25 hover:border-rose-500'
+                                                            ? 'border-rose-400 dark:border-rose-700 bg-rose-50/20 dark:bg-rose-950/20 hover:border-rose-500'
                                                             : isWaitingLong
-                                                            ? 'border-amber-300 dark:border-amber-600/70 bg-amber-50/20 dark:bg-amber-950/20 hover:border-amber-400'
+                                                            ? 'border-amber-300 dark:border-amber-600/70 bg-amber-50/15 dark:bg-amber-950/15 hover:border-amber-400'
                                                             : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-emerald-400'
                                                     }`}
                                                 >
-                                                    {/* Header de la tarjeta KDS */}
-                                                    <div className="shrink-0">
-                                                        <div className="flex items-center justify-between gap-1 w-full mb-2">
-                                                            {/* Badge canal de venta */}
-                                                            <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${
-                                                                order.dining_option === 'FOR_HERE'
-                                                                    ? 'bg-emerald-50 text-emerald-800 border border-emerald-200 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800'
-                                                                    : 'bg-blue-50 text-blue-800 border border-blue-200 dark:bg-blue-950/60 dark:text-blue-300 dark:border-blue-800'
-                                                            }`}>
-                                                                {order.dining_option === 'FOR_HERE' ? (
-                                                                    <>
-                                                                        <Utensils size={13} />
-                                                                        <span>{t('orderReadyBoard.for_here_badge')}</span>
-                                                                    </>
-                                                                ) : (
-                                                                    <>
-                                                                        <ShoppingBag size={13} />
-                                                                        <span>{t('orderReadyBoard.to_go_badge')}</span>
-                                                                    </>
-                                                                )}
-                                                            </span>
-
-                                                            {/* Badge tiempo transcurrido */}
-                                                            <span className={`inline-flex items-center gap-1 text-xs px-3 py-1 rounded-full ${
-                                                                isUrgent
-                                                                    ? 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300 animate-pulse font-semibold'
-                                                                    : isWaitingLong
-                                                                    ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 font-semibold'
-                                                                    : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400 font-medium'
-                                                            }`}>
-                                                                <Clock size={13} />
-                                                                <span>{elapsedText}</span>
-                                                            </span>
-                                                        </div>
-
-                                                        {/* Número de orden y conteo de platillos */}
-                                                        <div className="flex items-baseline justify-between gap-2 mt-1 mb-1">
-                                                            <div className="flex items-baseline gap-2.5">
-                                                                <span className={`font-mono font-black text-3xl sm:text-4xl lg:text-[42px] tracking-tight leading-none transition-transform ${
-                                                                    isCalling ? 'scale-105 text-emerald-700 dark:text-emerald-300' : 'text-slate-950 dark:text-white'
-                                                                }`}>
-                                                                    #{order.order_number}
-                                                                </span>
-                                                                {order.customer_name && (
-                                                                    <span className="text-base font-semibold text-slate-500 dark:text-slate-400 truncate max-w-[160px]">
-                                                                        • {order.customer_name}
-                                                                    </span>
-                                                                )}
-                                                            </div>
-
-                                                            {hideDrinks ? (
-                                                                totalFoodCount > 0 ? (
-                                                                    <span className="text-xs sm:text-sm font-semibold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700/60 px-2.5 py-1 rounded-lg shrink-0">
-                                                                        {totalFoodCount === 1 ? t('prep.itemCountSingle') : t('prep.itemsCount').replace('{n}', String(totalFoodCount))}
-                                                                        {hiddenDrinkCount > 0 && (
-                                                                            <span className="text-amber-700 dark:text-amber-400 font-bold ml-1.5">
-                                                                                (+{hiddenDrinkCount} beb.)
-                                                                            </span>
-                                                                        )}
-                                                                    </span>
-                                                                ) : hiddenDrinkCount > 0 ? (
-                                                                    <span className="text-xs sm:text-sm font-semibold text-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/50 border border-amber-300 dark:border-amber-800 px-2.5 py-1 rounded-lg shrink-0 flex items-center gap-1">
-                                                                        <CupSoda size={13} />
-                                                                        <span>{t('prep.onlyDrinks')}</span>
-                                                                    </span>
-                                                                ) : null
+                                                    {/* Header de la tarjeta: Badge canal + Tiempo */}
+                                                    <div className="flex items-center justify-between gap-1 w-full mb-1">
+                                                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-black uppercase tracking-wider ${
+                                                            order.dining_option === 'FOR_HERE'
+                                                                ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-200'
+                                                                : 'bg-blue-100 text-blue-800 dark:bg-blue-900/60 dark:text-blue-200'
+                                                        }`}>
+                                                            {order.dining_option === 'FOR_HERE' ? (
+                                                                <>
+                                                                    <Utensils size={11} />
+                                                                    <span>{t('orderReadyBoard.for_here_badge')}</span>
+                                                                </>
                                                             ) : (
-                                                                totalAllCount > 0 && (
-                                                                    <span className="text-xs sm:text-sm font-semibold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700/60 px-2.5 py-1 rounded-lg shrink-0">
-                                                                        {totalAllCount === 1 ? t('prep.itemCountSingle') : t('prep.itemsCount').replace('{n}', String(totalAllCount))}
-                                                                    </span>
-                                                                )
+                                                                <>
+                                                                    <ShoppingBag size={11} />
+                                                                    <span>{t('orderReadyBoard.to_go_badge')}</span>
+                                                                </>
                                                             )}
-                                                        </div>
+                                                        </span>
 
-                                                        {/* Línea divisoria estilo ticket comanda */}
-                                                        <div className="border-b border-dashed border-slate-200 dark:border-slate-800 my-2.5" />
+                                                        <span className={`inline-flex items-center gap-1 text-[10px] sm:text-xs font-bold ${
+                                                            isUrgent
+                                                                ? 'text-rose-600 dark:text-rose-400 font-black animate-pulse'
+                                                                : isWaitingLong
+                                                                ? 'text-amber-600 dark:text-amber-400 font-black'
+                                                                : 'text-slate-400'
+                                                        }`}>
+                                                            <Clock size={11} />
+                                                            <span>{elapsedText}</span>
+                                                        </span>
                                                     </div>
 
-                                                    {/* Contenido de la orden (Lista Completa de Platillos SIN scroll interno) */}
-                                                    <div className="flex-1 my-2 space-y-2">
-                                                        {displayedItems.length > 0 ? (
-                                                            <>
-                                                                {displayedItems.map((it, itIdx) => (
-                                                                    <div key={itIdx} className="text-left py-1.5 border-b border-slate-100 dark:border-slate-800/60 last:border-0">
-                                                                        <div className="flex items-start gap-2.5">
-                                                                            <span className="font-mono font-bold text-sm sm:text-base px-2.5 py-0.5 rounded-md bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-slate-100 border border-slate-300 dark:border-slate-700 shrink-0 min-w-[34px] text-center shadow-xs">
-                                                                                {it.quantity}x
-                                                                            </span>
-                                                                            <span className="font-semibold text-base sm:text-lg text-slate-900 dark:text-white leading-snug">
-                                                                                {it.name}
-                                                                            </span>
-                                                                        </div>
-                                                                        {it.modifiers && it.modifiers.length > 0 && (
-                                                                            <div className="pl-9 pt-1 space-y-0.5">
-                                                                                {it.modifiers.map((mod, modIdx) => (
-                                                                                    <p key={modIdx} className="text-sm font-medium text-amber-800 dark:text-amber-300 leading-snug flex items-center gap-1.5">
-                                                                                        <span className="text-slate-400 dark:text-slate-500">↳</span>
-                                                                                        <span>{mod}</span>
-                                                                                    </p>
-                                                                                ))}
-                                                                            </div>
-                                                                        )}
-                                                                    </div>
-                                                                ))}
-
-                                                                {hideDrinks && hiddenDrinkCount > 0 && (
-                                                                    <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-50/70 dark:bg-amber-950/40 border border-amber-200/80 dark:border-amber-800/50 text-amber-900 dark:text-amber-200 text-xs font-semibold mt-2">
-                                                                        <CupSoda size={14} className="shrink-0 text-amber-600 dark:text-amber-400" />
-                                                                        <span>{t('prep.hiddenDrinksBadge').replace('{n}', String(hiddenDrinkCount))} (mostrador)</span>
-                                                                    </div>
-                                                                )}
-                                                            </>
-                                                        ) : hideDrinks && hiddenDrinkCount > 0 ? (
-                                                            <div className="h-full min-h-[90px] flex flex-col items-center justify-center text-center p-3 text-amber-800 dark:text-amber-300 bg-amber-50/40 dark:bg-amber-950/20 rounded-xl border border-dashed border-amber-200 dark:border-amber-800/40">
-                                                                <CupSoda size={22} className="mb-1 text-amber-600 dark:text-amber-400 opacity-80" />
-                                                                <span className="text-sm font-bold">{t('prep.onlyDrinks')}</span>
-                                                                <span className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                                                                    {hiddenDrinkCount} {hiddenDrinkCount === 1 ? 'bebida despachada en mostrador' : 'bebidas despachadas en mostrador'}
-                                                                </span>
-                                                            </div>
-                                                        ) : (
-                                                            <div className="h-full min-h-[90px] flex flex-col items-center justify-center text-center p-3 text-slate-400">
-                                                                <UtensilsCrossed size={20} className="mb-1 opacity-50" />
-                                                                <span className="text-sm font-normal">{t('prep.noItemsDetail')}</span>
-                                                            </div>
+                                                    {/* Número de Orden en Gigante */}
+                                                    <div className="my-2 sm:my-3 text-center">
+                                                        <span className={`font-mono font-black text-3xl sm:text-4xl lg:text-3xl xl:text-4xl tracking-tight transition-transform ${
+                                                            isCalling ? 'scale-110 text-emerald-700 dark:text-emerald-300' : 'text-slate-900 dark:text-white'
+                                                        }`}>
+                                                            #{order.order_number}
+                                                        </span>
+                                                        {order.customer_name && (
+                                                            <p className="text-xs font-bold text-slate-500 dark:text-slate-400 truncate max-w-[140px] mx-auto mt-0.5">
+                                                                {order.customer_name}
+                                                            </p>
                                                         )}
                                                     </div>
 
-                                                    {/* Botón de Acción Táctil Inferior (Llamar Orden) */}
-                                                    <div className="pt-3 mt-auto border-t border-slate-100 dark:border-slate-800/80 shrink-0">
-                                                        <div className={`w-full py-3 px-4 rounded-xl flex items-center justify-center gap-2 font-bold text-sm sm:text-base tracking-wide transition-all shadow-sm ${
-                                                            isCalling
-                                                                ? 'bg-emerald-600 text-white animate-pulse shadow-md'
-                                                                : isSuccess
-                                                                ? 'bg-emerald-700 text-white'
-                                                                : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-600/20'
-                                                        }`}>
-                                                            {isCalling ? (
-                                                                <>
-                                                                    <Megaphone size={18} className="animate-bounce" />
-                                                                    <span>{t('prep.callingOrder')}</span>
-                                                                </>
-                                                            ) : isSuccess ? (
-                                                                <>
-                                                                    <CheckCircle2 size={18} />
-                                                                    <span>{t('prep.orderCallSent')}</span>
-                                                                </>
-                                                            ) : (
-                                                                <>
-                                                                    <Volume2 size={18} />
-                                                                    <span>{t('prep.callOrder')}</span>
-                                                                </>
-                                                            )}
-                                                        </div>
-                                                        <p className="text-xs text-center text-slate-400 dark:text-slate-500 mt-1.5 font-normal">
-                                                            {t('prep.tapCardToCall')}
-                                                        </p>
+                                                    {/* Botón de Acción Táctil Inferior */}
+                                                    <div className={`w-full py-2 px-3 rounded-xl flex items-center justify-center gap-1.5 font-black text-xs sm:text-sm tracking-tight transition-all shadow-sm ${
+                                                        isCalling
+                                                            ? 'bg-emerald-600 text-white animate-pulse shadow-md'
+                                                            : isSuccess
+                                                            ? 'bg-emerald-700 text-white'
+                                                            : 'bg-emerald-500 group-hover:bg-emerald-600 text-white'
+                                                    }`}>
+                                                        {isCalling ? (
+                                                            <>
+                                                                <Megaphone size={15} className="animate-bounce" />
+                                                                <span>{t('prep.callingOrder')}</span>
+                                                            </>
+                                                        ) : isSuccess ? (
+                                                            <>
+                                                                <CheckCircle2 size={15} />
+                                                                <span>{t('prep.orderCallSent')}</span>
+                                                            </>
+                                                        ) : (
+                                                            <>
+                                                                <Volume2 size={15} />
+                                                                <span>{t('prep.callOrder')}</span>
+                                                            </>
+                                                        )}
                                                     </div>
-                                                </div>
+                                                </button>
                                             )
                                         })}
                                     </div>

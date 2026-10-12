@@ -6,13 +6,13 @@
  * - **Doble tap del expediter (KDS bump)**: Toast NO dispara webhook cuando el KDS marca los platillos como listos.
  *   Se verificó con datos reales (LA Central #1361: READY en Toast 08:22:33, en BD seguía IN_PROGRESS). Por eso se consulta
  *   `/orders/v2/ordersBulk` (filtrado por fecha de modificación) y se leen los `selections[].fulfillmentStatus`.
- * - **Orden lista**: al menos un platillo no anulado con `fulfillmentStatus = READY`. Las bebidas/flan que no pasan por el KDS
- *   quedan `SENT` para siempre (14 de 107 órdenes de Lynwood son "mixtas"), por lo que exigir "todos READY" dejaría órdenes sin anunciar.
- *   El bump del expediter marca todos los platillos del KDS en el mismo milisegundo.
- * - **Hora real de cierre**: `ready_at` = mayor `modifiedDate` entre los platillos READY (momento real del doble tap), no el momento en
- *   que nos enteramos. Con esto el tablero anuncia en el orden en que se cerraron las órdenes.
- * - **Anuncios viejos en silencio**: si una orden se detecta READY con más de 2 min de antigüedad se guarda con `announced=true`
- *   (evita que al abrir el tablero se anuncien órdenes de hace rato).
+ * - **Silencio en KDS bump**: Al marcarse READY por KDS, se persiste `announced = true`. El bump del KDS NO emite voz automática
+ *   por los altavoces del restaurante. La voz se emite exclusivamente desde la tableta del preparador (`/inventory/preparador`).
+ * - **Sincronización bidireccional y RECALL en KDS**:
+ *   - Al marcarse READY en KDS, la orden sale automáticamente de la tableta del preparador (que solo muestra `status = IN_PROGRESS`).
+ *   - Si el cocinero presiona RECALL en KDS, Toast revierte a SENT -> la orden regresa a `status = IN_PROGRESS` y reaparece de inmediato en la tableta del preparador.
+ *   - Si el cocinero vuelve a borrar la orden en KDS, regresa a READY y se retira de nuevo de la tableta.
+ * - **Hora real de cierre**: `ready_at` = mayor `modifiedDate` entre los platillos READY (momento real del doble tap).
  * - **Día laboral oficial (6:00 AM a 5:59:59 AM)**:
  *   - Toda orden se etiqueta con su `business_date` oficial según la regla de las 6 AM de Tacos Gavilan (medianoche a 5:59 AM cuenta como día anterior).
  *   - Al inicio del nuevo día laboral (6:00 AM), el inicio de ventana de sincronización nunca retrocede antes de las 6:00 AM de hoy,
@@ -21,6 +21,11 @@
  * - **Persistencia KDS / Contenido de Comanda (items_summary)**:
  *   - Extrae los platillos no anulados (`selections`) y sus modificadores de Toast, consolidando platillos idénticos (ej. 9x Taco Asada).
  *   - Persiste en `order_ready_announcements.items_summary` como JSON estructurado para el KDS y la tableta del preparador.
+ *
+ * - **Exclusión de Bebidas y Postres en Pantalla de Preparación (isDrinkOrDessertOnlyOrder)**:
+ *   - Las órdenes compuestas EXCLUSIVAMENTE por bebidas (horchata, sodas, café, aguas, champurrado) o postres (flan, cheesecake)
+ *     se atienden directamente en mostrador/caja y NO deben colocarse en la pantalla de preparación del preparador/parrilla (/inventory/preparador).
+ *   - Si la comanda contiene al menos un platillo de cocina (tacos, burritos, quesadillas, sopes, mulitas, huevos, etc.), SÍ se muestra en cocina.
  *
  * @dataFlow
  * - Board (poll cada 4 s) -> GET /api/order-ready/orders -> syncStoreFromToast() (throttle 5 s por tienda)
@@ -91,6 +96,8 @@ export function extractOrderItemsSummary(order: any): string | null {
   const items = Array.from(map.values())
   return items.length > 0 ? JSON.stringify(items) : null
 }
+
+export * from '@/lib/order-ready-filter'
 
 export interface ToastOrderEvaluation {
   status: OrderReadyStatus
@@ -324,9 +331,19 @@ export async function syncStoreFromToast(storeCode: string, force = false): Prom
             updatePayload.items_summary = itemsSummary
           }
           if (ev.status === 'READY' && row.status === 'IN_PROGRESS') {
+            // Bump en Toast KDS: pasa de IN_PROGRESS a READY.
+            // Regla de Negocio Tacos Gavilan: El bump en KDS NO emite voz automática por altavoz.
+            // Se marca announced = true para silenciar y se actualiza ready_at.
+            // Al cambiar a READY, se retira automáticamente de la tableta del preparador.
             updatePayload.status = 'READY'
             updatePayload.ready_at = ev.readyAt
-            updatePayload.announced = isStale
+            updatePayload.announced = true
+          } else if (ev.status === 'IN_PROGRESS' && row.status === 'READY') {
+            // RECALL en Toast KDS: el cocinero desmarcó la orden en el KDS de Toast.
+            // Vuelve a preparación (IN_PROGRESS), se limpia ready_at y vuelve a aparecer en la tableta del preparador.
+            updatePayload.status = 'IN_PROGRESS'
+            updatePayload.ready_at = null
+            updatePayload.announced = false
           } else if (ev.status === 'COMPLETED' && row.status === 'IN_PROGRESS') {
             updatePayload.status = 'COMPLETED'
           }
@@ -358,7 +375,7 @@ export async function syncStoreFromToast(storeCode: string, force = false): Prom
           customer_name: ord.customer?.firstName || null,
           status: ev.status,
           business_date: bDate,
-          announced: ev.status === 'READY' ? isStale : false,
+          announced: ev.status === 'READY' ? true : false,
           ready_at: ev.status === 'READY' ? ev.readyAt : null,
           items_summary: itemsSummary,
           created_at: orderDate
