@@ -552,6 +552,15 @@ export async function fetchToastAccountingData(
         if (INVALID_PAYMENT_STATUSES.has(String(p.paymentStatus || '').toUpperCase())) continue
 
         const amt = Number(p.amount || 0)
+
+        // Cohesion Parity: Si el pago se capturó en OTRA fecha de negocio (ej. orden de ayer cobrada previamente),
+        // es un depósito cobrado con anterioridad que pertenece a la cuenta 12049 (Deposit Sales Collected & Open Orders),
+        // NO al pago del canal de la fecha comercial de hoy.
+        if (p.paidBusinessDate && String(p.paidBusinessDate) !== businessDate) {
+          depositsCollected += amt
+          continue
+        }
+
         const pType = (p.type || '').toUpperCase()
         const altName = p.otherPayment?.guid ? (altMap[p.otherPayment.guid] || '') : (p.otherPayment?.name || '')
         const pName = (altName || p.displayName || p.paymentInstrument?.displayName || '').toLowerCase()

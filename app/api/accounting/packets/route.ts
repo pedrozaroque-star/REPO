@@ -327,13 +327,13 @@ export async function POST(request: NextRequest) {
         const openOrdersList = toastAccountingResult?.openOrdersList ?? []
 
         const isBalanced = journal.isBalanced
-        // Toast Cash Management Parity: Si el depósito de efectivo aún no ha sido registrado en Toast POS (finalDeposit === 0 y expectedCash > 0),
-        // la póliza se mantiene en 'pending' para bloquear la publicación a QuickBooks hasta que la sucursal registre su depósito.
         const isDepositPending = finalDeposit === 0 && expectedCash > 0
-        const packetStatus = (isBalanced && !isDepositPending) ? 'ready' : 'pending'
+        // Cohesion Parity: Cuando la póliza está balanceada (la línea 51050 Over/Short balancea cualquier diferencia),
+        // el paquete pasa validación y queda en estado 'ready' para publicación a QuickBooks.
+        const packetStatus = isBalanced ? 'ready' : 'pending'
 
         const validationInfo = {
-          passed: isBalanced && !isDepositPending,
+          passed: isBalanced,
           isDepositPending,
           hasOpenOrders,
           openOrdersCount,
@@ -342,9 +342,7 @@ export async function POST(request: NextRequest) {
           checkedAt: new Date().toISOString(),
           message: !isBalanced 
             ? 'Unbalanced Journal Entry' 
-            : isDepositPending
-              ? 'Depósito de efectivo pendiente en Toast POS'
-              : 'Packet was Updated and Passed All Validation',
+            : 'Packet was Updated and Passed All Validation',
           discount_breakdown: toastAccountingResult?.discountBreakdown || {},
           card_breakdown: toastAccountingResult?.cardBreakdown || {},
           sales_gross_by_option: toastAccountingResult?.salesGrossByOption || {},

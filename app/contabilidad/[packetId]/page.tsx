@@ -199,6 +199,32 @@ export default function PacketDetailPage() {
   const [actionLoading, setActionLoading] = useState(false)
   const [publishing, setPublishing] = useState(false)
   const [publishMessage, setPublishMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null)
+  const [editingDeposit, setEditingDeposit] = useState(false)
+  const [depositInput, setDepositInput] = useState('')
+  const [savingDeposit, setSavingDeposit] = useState(false)
+  const [showOpenOrdersDetails, setShowOpenOrdersDetails] = useState(false)
+
+  const handleSaveDeposit = async () => {
+    if (!packet) return
+    setSavingDeposit(true)
+    setPublishMessage(null)
+    try {
+      const res = await fetch(`/api/accounting/packets/${packetId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cash_deposit: parseFloat(depositInput) || 0 })
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Failed to update deposit')
+      setEditingDeposit(false)
+      setPublishMessage({ type: 'success', text: language === 'en' ? 'Bank deposit updated successfully!' : '¡Depósito en banco actualizado exitosamente!' })
+      await fetchPacket()
+    } catch (err: any) {
+      setPublishMessage({ type: 'error', text: err.message || 'Error updating deposit' })
+    } finally {
+      setSavingDeposit(false)
+    }
+  }
   
   useEffect(() => {
     fetchPacket()
@@ -369,95 +395,60 @@ export default function PacketDetailPage() {
         </div>
       )}
 
-      {/* Toast Cash Management Pending Deposit Notice */}
-      {packet.status !== 'published' && isDepositPending && (
-        <div className="bg-amber-500/10 border-2 border-amber-500/40 dark:border-amber-500/30 rounded-2xl p-5 shadow-sm">
-          <div className="flex items-start gap-4">
-            <div className="p-2.5 bg-amber-500 text-black rounded-xl shrink-0 mt-0.5 shadow-md">
-              <AlertTriangle className="w-5 h-5 stroke-[2.5]" />
-            </div>
-            <div className="space-y-1.5 flex-1">
-              <h3 className="text-sm font-black tracking-tight text-amber-950 dark:text-amber-200 flex items-center gap-2">
-                <span>{t('accounting.alert_pending_toast_deposit_title') || 'Depósito Pendiente en Toast POS'}</span>
-                <span className="bg-amber-500 text-black text-[11px] font-black px-2 py-0.5 rounded-full">
-                  Faltante temporal: -{formatCurrency(packet.expected_cash)}
-                </span>
-                <span className="bg-rose-500 text-white text-[11px] font-black px-2.5 py-0.5 rounded-full flex items-center gap-1 shadow-sm">
-                  🚫 {t('accounting.badge_qb_blocked') || 'Publicación a QB Bloqueada'}
-                </span>
-              </h3>
-              <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed font-medium">
-                {t('accounting.alert_pending_toast_deposit_desc')}
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Toast POS Open Orders Notice & Details Table (Step 11 Cohesion Rule) */}
+      {/* Toast POS Open Orders Notice (Step 11 Cohesion Parity - Informational only) */}
       {packet.status !== 'published' && hasOpenOrders && (
-        <div className="bg-amber-500/10 border-2 border-amber-500/50 dark:border-amber-500/40 rounded-2xl p-5 shadow-sm space-y-4">
-          <div className="flex items-start gap-4">
-            <div className="p-2.5 bg-amber-500 text-black rounded-xl shrink-0 mt-0.5 shadow-md">
-              <AlertTriangle className="w-5 h-5 stroke-[2.5]" />
-            </div>
-            <div className="space-y-1.5 flex-1">
-              <div className="flex items-center justify-between gap-4 flex-wrap">
-                <h3 className="text-sm font-black tracking-tight text-amber-950 dark:text-amber-200 flex items-center gap-2">
-                  <span>{t('accounting.alert_open_orders_title') || 'Órdenes Abiertas en Toast POS — Registradas en Cuenta 12049'}</span>
-                  <span className="bg-amber-500 text-black text-[11px] font-black px-2.5 py-0.5 rounded-full shadow-sm">
-                    {openOrdersCount} {openOrdersCount > 1 ? (t('accounting.label_orders_count') || 'órdenes detectadas') : 'orden detectada'}
-                  </span>
-                </h3>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleRecalculate}
-                  disabled={actionLoading}
-                  className="text-xs border-amber-500/40 text-amber-800 dark:text-amber-200 hover:bg-amber-500/20"
-                >
-                  {actionLoading ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5 mr-1.5" />}
-                  {t('accounting.check_again_toast') || 'Verificar Nuevamente en Toast POS'}
-                </Button>
-              </div>
-              <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed font-medium">
-                {t('accounting.alert_open_orders_desc')}
+        <div className="bg-amber-500/5 border border-amber-500/30 dark:border-amber-500/20 rounded-xl p-3 shadow-sm">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div className="flex items-center gap-2">
+              <span className="text-sm">ℹ️</span>
+              <p className="text-xs text-amber-900 dark:text-amber-200 font-medium">
+                <span className="font-bold">{openOrdersCount} {openOrdersCount > 1 ? (t('accounting.label_orders_count') || 'órdenes abiertas detectadas') : 'orden abierta detectada'}</span> en Toast POS — Registradas en cuenta 12049. La póliza está balanceada.
               </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setShowOpenOrdersDetails(!showOpenOrdersDetails)}
+                className="text-xs text-amber-700 dark:text-amber-400 font-bold hover:underline"
+              >
+                {showOpenOrdersDetails ? (language === 'en' ? 'Hide Details' : 'Ocultar Detalle') : (language === 'en' ? 'Show Details' : 'Ver Detalle')}
+              </button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleRecalculate}
+                disabled={actionLoading}
+                className="text-xs h-7 px-2 border-amber-500/40 text-amber-800 dark:text-amber-200 hover:bg-amber-500/20"
+              >
+                {actionLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+              </Button>
             </div>
           </div>
 
-          {/* Open Orders Table */}
-          {validation?.openOrders && validation.openOrders.length > 0 && (
-            <div className="overflow-x-auto rounded-xl border border-amber-500/20 bg-white/70 dark:bg-slate-900/70 shadow-inner">
+          {showOpenOrdersDetails && validation?.openOrders && validation.openOrders.length > 0 && (
+            <div className="mt-3 overflow-x-auto rounded-lg border border-amber-500/20 bg-white/70 dark:bg-slate-900/70">
               <table className="w-full text-xs">
                 <thead>
-                  <tr className="bg-amber-500/15 text-amber-950 dark:text-amber-200 uppercase font-black tracking-wider border-b border-amber-500/20 text-left">
-                    <th className="py-2 px-3">{t('accounting.col_order_num') || 'Orden #'}</th>
-                    <th className="py-2 px-3">{t('accounting.col_open_time') || 'Hora Apertura'}</th>
-                    <th className="py-2 px-3">{t('accounting.col_server') || 'Cajero / Mesero'}</th>
-                    <th className="py-2 px-3 text-right">{t('accounting.col_order_amount') || 'Total Orden'}</th>
-                    <th className="py-2 px-3">{t('accounting.col_issue') || 'Estado / Detalle'}</th>
+                  <tr className="bg-amber-500/15 text-amber-950 dark:text-amber-200 uppercase font-black border-b border-amber-500/20 text-left">
+                    <th className="py-1.5 px-3">{t('accounting.col_order_num') || 'Orden #'}</th>
+                    <th className="py-1.5 px-3">{t('accounting.col_open_time') || 'Hora'}</th>
+                    <th className="py-1.5 px-3">{t('accounting.col_server') || 'Cajero/Mesero'}</th>
+                    <th className="py-1.5 px-3 text-right">{t('accounting.col_order_amount') || 'Total'}</th>
+                    <th className="py-1.5 px-3">{t('accounting.col_issue') || 'Estado'}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-amber-500/10 font-medium text-slate-800 dark:text-slate-200">
                   {validation.openOrders.map((ord: any, idx: number) => {
                     const openedTime = ord.openedDate ? new Date(ord.openedDate).toLocaleTimeString('es-US', { timeZone: 'America/Los_Angeles', hour: '2-digit', minute: '2-digit' }) : '—'
                     return (
-                      <tr key={ord.orderId || idx} className="hover:bg-amber-500/5 transition-colors">
-                        <td className="py-2 px-3 font-mono font-bold text-amber-700 dark:text-amber-400">
+                      <tr key={ord.orderId || idx} className="hover:bg-amber-500/5">
+                        <td className="py-1.5 px-3 font-mono font-bold text-amber-700 dark:text-amber-400">
                           #{ord.orderNumber || ord.orderId?.slice(0, 8)}
                         </td>
-                        <td className="py-2 px-3 font-mono text-slate-600 dark:text-slate-400">
-                          {openedTime}
-                        </td>
-                        <td className="py-2 px-3 font-semibold">
-                          {ord.serverName || 'Sin asignar'}
-                        </td>
-                        <td className="py-2 px-3 text-right font-mono font-bold text-slate-900 dark:text-white">
-                          {formatCurrency(ord.totalAmount || ord.amount || 0)}
-                        </td>
-                        <td className="py-2 px-3">
-                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-300 border border-amber-300 dark:border-amber-700">
+                        <td className="py-1.5 px-3 font-mono text-slate-600 dark:text-slate-400">{openedTime}</td>
+                        <td className="py-1.5 px-3 font-semibold">{ord.serverName || 'Sin asignar'}</td>
+                        <td className="py-1.5 px-3 text-right font-mono font-bold">{formatCurrency(ord.totalAmount || ord.amount || 0)}</td>
+                        <td className="py-1.5 px-3">
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-300">
                             {ord.reason || ord.status || 'OPEN'}
                           </span>
                         </td>
@@ -495,13 +486,11 @@ export default function PacketDetailPage() {
           <Button 
             variant="primary" 
             onClick={handlePublish} 
-            disabled={publishing || !isBalanced || packet.status !== 'ready' || isDepositPending} 
+            disabled={publishing || !isBalanced} 
             title={
-              isDepositPending 
-                ? (t('accounting.blocked_pending_deposit_tooltip') || 'Bloqueado: Depósito de efectivo pendiente en Toast POS')
-                : !isBalanced 
-                  ? (t('accounting.label_unbalanced') || 'La póliza debe estar balanceada para publicar')
-                  : undefined
+              !isBalanced 
+                ? (t('accounting.label_unbalanced') || 'La póliza debe estar balanceada para publicar')
+                : undefined
             }
           >
             {publishing ? (
@@ -556,18 +545,35 @@ export default function PacketDetailPage() {
                   <td className="py-2 text-right font-semibold text-slate-800 dark:text-slate-200">{formatCurrency(packet.total_taxes)}</td>
                   <td className="py-2 text-right font-semibold text-slate-800 dark:text-slate-200">{formatCurrency(packet.total_taxes)}</td>
                 </tr>
-                {Boolean((packet.paid_in || 0) > 0 || packet.journal_lines?.some((l: any) => l.account === '12049')) && (
-                  <tr className="text-emerald-600 dark:text-emerald-400">
-                    <td className="py-2 font-sans font-medium">{t('accounting.label_paid_in') || 'Paid In Total (Deposits Received)'}</td>
-                    <td className="py-2 text-right font-semibold">{formatCurrency(packet.paid_in || packet.journal_lines?.find((l: any) => l.account === '12049')?.credit || 0)}</td>
-                    <td className="py-2 text-right font-semibold">{formatCurrency(packet.paid_in || packet.journal_lines?.find((l: any) => l.account === '12049')?.credit || 0)}</td>
-                  </tr>
-                )}
-                <tr className="font-extrabold text-slate-900 dark:text-white border-t-2 border-slate-200 dark:border-slate-700 text-sm">
-                  <td className="py-2.5 font-sans">{t('accounting.col_total_gross_receipts') || 'Total Gross Receipts'}</td>
-                  <td className="py-2.5 text-right">{formatCurrency(packet.net_sales + packet.total_taxes + (packet.paid_in || packet.journal_lines?.find((l: any) => l.account === '12049')?.credit || 0))}</td>
-                  <td className="py-2.5 text-right">{formatCurrency(packet.net_sales + packet.total_taxes + (packet.paid_in || packet.journal_lines?.find((l: any) => l.account === '12049')?.credit || 0))}</td>
-                </tr>
+                {(() => {
+                  const paidInLine = packet.journal_lines?.find((l: any) => 
+                    l.memo?.toLowerCase().includes('paid in') || 
+                    l.sourceMemo?.toLowerCase().includes('paid in')
+                  )
+                  const paidInAmount = Number(
+                    packet.paid_in ?? 
+                    (packet.qb_sync_response as any)?.validation?.paid_in ?? 
+                    (packet.qb_sync_response as any)?.paidIn ?? 
+                    paidInLine?.credit ?? 
+                    0
+                  )
+                  return (
+                    <>
+                      {paidInAmount > 0 && (
+                        <tr className="text-emerald-600 dark:text-emerald-400">
+                          <td className="py-2 font-sans font-medium">{t('accounting.label_paid_in') || 'Paid In Total (Deposits Received)'}</td>
+                          <td className="py-2 text-right font-semibold">{formatCurrency(paidInAmount)}</td>
+                          <td className="py-2 text-right font-semibold">{formatCurrency(paidInAmount)}</td>
+                        </tr>
+                      )}
+                      <tr className="font-extrabold text-slate-900 dark:text-white border-t-2 border-slate-200 dark:border-slate-700 text-sm">
+                        <td className="py-2.5 font-sans">{t('accounting.col_total_gross_receipts') || 'Total Gross Receipts'}</td>
+                        <td className="py-2.5 text-right">{formatCurrency(packet.net_sales + packet.total_taxes + paidInAmount)}</td>
+                        <td className="py-2.5 text-right">{formatCurrency(packet.net_sales + packet.total_taxes + paidInAmount)}</td>
+                      </tr>
+                    </>
+                  )
+                })()}
               </tbody>
             </table>
           </div>
@@ -758,9 +764,40 @@ export default function PacketDetailPage() {
                   </span>
                 )}
               </div>
-              <span className={`font-mono font-bold text-base ${Number(packet.cash_deposit || 0) > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-500 dark:text-slate-400'}`}>
-                {formatCurrency(packet.cash_deposit)}
-              </span>
+              {editingDeposit ? (
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={depositInput}
+                    onChange={(e) => setDepositInput(e.target.value)}
+                    className="w-28 px-2 py-1 text-right text-sm font-mono border rounded-lg bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white"
+                    placeholder="0.00"
+                    autoFocus
+                  />
+                  <Button size="sm" variant="primary" onClick={handleSaveDeposit} disabled={savingDeposit}>
+                    {savingDeposit ? <Loader2 className="w-3 h-3 animate-spin" /> : '✓'}
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => setEditingDeposit(false)}>✕</Button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <span className={`font-mono font-bold text-base ${Number(packet.cash_deposit || 0) > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-500 dark:text-slate-400'}`}>
+                    {formatCurrency(packet.cash_deposit)}
+                  </span>
+                  {packet.status !== 'published' && (
+                    <button
+                      onClick={() => {
+                        setDepositInput(String(packet.cash_deposit || ''))
+                        setEditingDeposit(true)
+                      }}
+                      className="text-xs text-blue-600 dark:text-blue-400 hover:underline font-semibold"
+                    >
+                      {Number(packet.cash_deposit || 0) > 0 ? (language === 'en' ? 'Edit' : 'Editar') : (language === 'en' ? 'Enter' : 'Ingresar')}
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
             <div className="flex justify-between font-extrabold pt-2 border-t-2 border-slate-200 dark:border-slate-700">
               <span className="text-slate-900 dark:text-white">{t('accounting.label_cash_over_short') || 'Sobrante / (Faltante)'}</span>
@@ -768,16 +805,6 @@ export default function PacketDetailPage() {
                 {formatCurrency(packet.cash_over_short)}
               </span>
             </div>
-            {isDepositPending && (
-              <div className="mt-2 p-2.5 bg-amber-50 dark:bg-amber-950/30 border border-amber-300 dark:border-amber-800/60 rounded-xl">
-                <div className="flex items-start gap-2">
-                  <AlertTriangle className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
-                  <p className="text-[11px] text-amber-900 dark:text-amber-300 leading-snug font-medium">
-                    {t('accounting.alert_pending_toast_deposit_desc')}
-                  </p>
-                </div>
-              </div>
-            )}
           </div>
         </Card>
 
