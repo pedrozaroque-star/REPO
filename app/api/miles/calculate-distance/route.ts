@@ -95,6 +95,24 @@ export async function GET(req: NextRequest) {
     const origInfo = findInfo(normOrig) || findInfo(origin)
     const destInfo = findInfo(normDest) || findInfo(destination)
 
+    // 1. Consultar primero store_distances para devolver la distancia oficial calibrada de carretera
+    const { data: dbDist } = await supabase
+      .from('store_distances')
+      .select('distance_miles, notes')
+      .or(`and(origin_name.eq."${normOrig}",destination_name.eq."${normDest}"),and(origin_name.eq."${origin}",destination_name.eq."${destination}")`)
+      .limit(1)
+
+    if (dbDist && dbDist.length > 0 && Number(dbDist[0].distance_miles) > 0) {
+      return NextResponse.json({
+        success: true,
+        origin,
+        destination,
+        distance_miles: Number(dbDist[0].distance_miles),
+        route_type: 'store_distances_matrix',
+        notes: dbDist[0].notes || 'Matriz oficial de distancias de carretera calibradas'
+      })
+    }
+
     let distanceMiles = 0
     let routeMethod = 'median_traffic_evasion'
     let notes = 'Ruta intermedia balanceada (evasión de tráfico)'
@@ -116,9 +134,9 @@ export async function GET(req: NextRequest) {
         ) {
           const meters = googleData.rows[0].elements[0].distance.value
           const baseMiles = meters / 1609.34
-          distanceMiles = parseFloat((baseMiles * 1.08).toFixed(2))
+          distanceMiles = parseFloat((baseMiles * 1.05).toFixed(2))
           routeMethod = 'google_maps_median_traffic'
-          notes = `Calculado via Google Maps con desvío de tráfico (${baseMiles.toFixed(2)} mi directas)`
+          notes = `Calculado via Google Maps (${baseMiles.toFixed(2)} mi directas)`
         }
       } catch (errGoogle) {
         console.warn('Google Maps Distance Matrix call failed, falling back to Haversine median formula:', errGoogle)
@@ -128,9 +146,9 @@ export async function GET(req: NextRequest) {
     if (distanceMiles <= 0) {
       if (origInfo?.lat && destInfo?.lat) {
         const directMiles = haversineDistanceMiles(origInfo.lat, origInfo.lng, destInfo.lat, destInfo.lng)
-        distanceMiles = parseFloat((directMiles * 1.33).toFixed(2))
-        routeMethod = 'haversine_socal_median_grid'
-        notes = `Calculado por Mapa IA (Desvío de Tráfico 1.33x)`
+        distanceMiles = parseFloat((directMiles * 1.10).toFixed(2))
+        routeMethod = 'haversine_highway_calibrated'
+        notes = `Calculado por Mapa IA (Calibración Carretera 1.10x)`
       } else {
         distanceMiles = 4.5
         routeMethod = 'estimated_default'
