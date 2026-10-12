@@ -85,6 +85,8 @@ interface Packet {
   net_sales: number
   total_taxes: number
   paid_in?: number
+  deferred_gift_cards?: number
+  tips_payable?: number
   
   // Dining options
   dine_in_sales: number
@@ -110,6 +112,7 @@ interface Packet {
   total_credit_cards_gross?: number
   credit_card_deposit?: number
   credit_card_fees?: number
+  credit_card_other_deductions?: number
   cc_gross?: number
   cc_deposit?: number
   cc_fees?: number
@@ -122,6 +125,8 @@ interface Packet {
   expected_cash: number
   cash_deposit: number
   cash_over_short: number
+  cash_payouts_total?: number
+  cash_payouts?: Array<{ amount: number; reason?: string; comment?: string }>
   
   // Journal
   journal_lines: JournalLine[]
@@ -202,7 +207,6 @@ export default function PacketDetailPage() {
   const [editingDeposit, setEditingDeposit] = useState(false)
   const [depositInput, setDepositInput] = useState('')
   const [savingDeposit, setSavingDeposit] = useState(false)
-  const [showOpenOrdersDetails, setShowOpenOrdersDetails] = useState(false)
 
   const handleSaveDeposit = async () => {
     if (!packet) return
@@ -325,14 +329,6 @@ export default function PacketDetailPage() {
   const isDepositPending = Number(packet.cash_deposit || 0) === 0 && Number(packet.expected_cash || 0) > 0
   const isDepositToast = Number(packet.cash_deposit || 0) > 0
 
-  // Open Orders Detection (Step 11 Cohesion Rule)
-  const validation = (packet.qb_sync_response as any)?.validation
-  const hasOpenOrders = Boolean(
-    (validation?.hasOpenOrders && (validation?.openOrdersCount ?? 0) > 0) ||
-    (validation?.openOrders && validation.openOrders.length > 0)
-  )
-  const openOrdersCount = validation?.openOrdersCount || validation?.openOrders?.length || 0
-
   return (
     <div className="w-full mx-auto px-4 md:px-6 py-6 space-y-6 pb-24">
       
@@ -352,17 +348,6 @@ export default function PacketDetailPage() {
           </div>
         </div>
         <div className="flex items-center gap-3">
-          {packet.status !== 'published' && hasOpenOrders && (
-            <Badge className="px-3.5 py-1.5 text-xs font-black bg-amber-500/15 text-amber-800 border-2 border-amber-500/50 dark:bg-amber-950/50 dark:text-amber-200 dark:border-amber-600/70 flex items-center gap-1.5 shadow-sm animate-pulse">
-              <AlertTriangle className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
-              <span>{openOrdersCount > 1 ? `${openOrdersCount} ${t('accounting.status_open_orders_plural') || 'Órdenes Abiertas'}` : `1 ${t('accounting.status_open_orders_singular') || 'Orden Abierta'}`}</span>
-            </Badge>
-          )}
-          {packet.status !== 'published' && isDepositPending && (
-            <Badge className="px-3.5 py-1.5 text-xs font-bold bg-amber-50 text-amber-800 border border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800 flex items-center gap-1">
-              <span>⚠️ {t('accounting.badge_deposit_pending') || 'Depósito Pendiente'}</span>
-            </Badge>
-          )}
           <Badge className={`capitalize px-4 py-1.5 text-sm ${getStatusColor(packet.status)}`}>
             {t(`accounting.status_${packet.status}`) || packet.status}
           </Badge>
@@ -395,72 +380,6 @@ export default function PacketDetailPage() {
         </div>
       )}
 
-      {/* Toast POS Open Orders Notice (Step 11 Cohesion Parity - Informational only) */}
-      {packet.status !== 'published' && hasOpenOrders && (
-        <div className="bg-amber-500/5 border border-amber-500/30 dark:border-amber-500/20 rounded-xl p-3 shadow-sm">
-          <div className="flex items-center justify-between gap-3 flex-wrap">
-            <div className="flex items-center gap-2">
-              <span className="text-sm">ℹ️</span>
-              <p className="text-xs text-amber-900 dark:text-amber-200 font-medium">
-                <span className="font-bold">{openOrdersCount} {openOrdersCount > 1 ? (t('accounting.label_orders_count') || 'órdenes abiertas detectadas') : 'orden abierta detectada'}</span> en Toast POS — Registradas en cuenta 12049. La póliza está balanceada.
-              </p>
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setShowOpenOrdersDetails(!showOpenOrdersDetails)}
-                className="text-xs text-amber-700 dark:text-amber-400 font-bold hover:underline"
-              >
-                {showOpenOrdersDetails ? (language === 'en' ? 'Hide Details' : 'Ocultar Detalle') : (language === 'en' ? 'Show Details' : 'Ver Detalle')}
-              </button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleRecalculate}
-                disabled={actionLoading}
-                className="text-xs h-7 px-2 border-amber-500/40 text-amber-800 dark:text-amber-200 hover:bg-amber-500/20"
-              >
-                {actionLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
-              </Button>
-            </div>
-          </div>
-
-          {showOpenOrdersDetails && validation?.openOrders && validation.openOrders.length > 0 && (
-            <div className="mt-3 overflow-x-auto rounded-lg border border-amber-500/20 bg-white/70 dark:bg-slate-900/70">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="bg-amber-500/15 text-amber-950 dark:text-amber-200 uppercase font-black border-b border-amber-500/20 text-left">
-                    <th className="py-1.5 px-3">{t('accounting.col_order_num') || 'Orden #'}</th>
-                    <th className="py-1.5 px-3">{t('accounting.col_open_time') || 'Hora'}</th>
-                    <th className="py-1.5 px-3">{t('accounting.col_server') || 'Cajero/Mesero'}</th>
-                    <th className="py-1.5 px-3 text-right">{t('accounting.col_order_amount') || 'Total'}</th>
-                    <th className="py-1.5 px-3">{t('accounting.col_issue') || 'Estado'}</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-amber-500/10 font-medium text-slate-800 dark:text-slate-200">
-                  {validation.openOrders.map((ord: any, idx: number) => {
-                    const openedTime = ord.openedDate ? new Date(ord.openedDate).toLocaleTimeString('es-US', { timeZone: 'America/Los_Angeles', hour: '2-digit', minute: '2-digit' }) : '—'
-                    return (
-                      <tr key={ord.orderId || idx} className="hover:bg-amber-500/5">
-                        <td className="py-1.5 px-3 font-mono font-bold text-amber-700 dark:text-amber-400">
-                          #{ord.orderNumber || ord.orderId?.slice(0, 8)}
-                        </td>
-                        <td className="py-1.5 px-3 font-mono text-slate-600 dark:text-slate-400">{openedTime}</td>
-                        <td className="py-1.5 px-3 font-semibold">{ord.serverName || 'Sin asignar'}</td>
-                        <td className="py-1.5 px-3 text-right font-mono font-bold">{formatCurrency(ord.totalAmount || ord.amount || 0)}</td>
-                        <td className="py-1.5 px-3">
-                          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-300">
-                            {ord.reason || ord.status || 'OPEN'}
-                          </span>
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      )}
 
       {publishMessage && (
         <div className={`p-4 rounded-xl flex items-center gap-3 border shadow-sm ${publishMessage.type === 'success' ? 'bg-emerald-50 text-emerald-800 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-200 dark:border-emerald-800/60' : 'bg-rose-50 text-rose-800 border-rose-200 dark:bg-rose-950/40 dark:text-rose-200 dark:border-rose-800/60'}`}>
@@ -557,8 +476,40 @@ export default function PacketDetailPage() {
                     paidInLine?.credit ?? 
                     0
                   )
+                  const giftCardLine = packet.journal_lines?.find((l: any) => 
+                    l.account === '20500' || l.memo?.toLowerCase().includes('gift card')
+                  )
+                  const giftCardsAmount = Number(
+                    packet.deferred_gift_cards ?? 
+                    giftCardLine?.credit ?? 
+                    0
+                  )
+                  const tipsLine = packet.journal_lines?.find((l: any) => 
+                    l.account === '12100' || l.memo?.toLowerCase().includes('tips')
+                  )
+                  const tipsPayableAmount = Number(
+                    packet.tips_payable ?? 
+                    tipsLine?.credit ?? 
+                    0
+                  )
+                  const totalGrossReceipts = Number(packet.net_sales || 0) + Number(packet.total_taxes || 0) + paidInAmount + giftCardsAmount + tipsPayableAmount
+
                   return (
                     <>
+                      {giftCardsAmount > 0 && (
+                        <tr className="text-amber-600 dark:text-amber-400">
+                          <td className="py-2 font-sans font-medium">{t('accounting.label_gift_cards_deferred') || 'Deferred Sales - Gift Cards'}</td>
+                          <td className="py-2 text-right font-semibold">{formatCurrency(giftCardsAmount)}</td>
+                          <td className="py-2 text-right font-semibold">{formatCurrency(giftCardsAmount)}</td>
+                        </tr>
+                      )}
+                      {tipsPayableAmount > 0 && (
+                        <tr className="text-indigo-600 dark:text-indigo-400">
+                          <td className="py-2 font-sans font-medium">{t('accounting.label_tips_payable') || 'Tips/Grat Payable'}</td>
+                          <td className="py-2 text-right font-semibold">{formatCurrency(tipsPayableAmount)}</td>
+                          <td className="py-2 text-right font-semibold">{formatCurrency(tipsPayableAmount)}</td>
+                        </tr>
+                      )}
                       {paidInAmount > 0 && (
                         <tr className="text-emerald-600 dark:text-emerald-400">
                           <td className="py-2 font-sans font-medium">{t('accounting.label_paid_in') || 'Paid In Total (Deposits Received)'}</td>
@@ -568,8 +519,8 @@ export default function PacketDetailPage() {
                       )}
                       <tr className="font-extrabold text-slate-900 dark:text-white border-t-2 border-slate-200 dark:border-slate-700 text-sm">
                         <td className="py-2.5 font-sans">{t('accounting.col_total_gross_receipts') || 'Total Gross Receipts'}</td>
-                        <td className="py-2.5 text-right">{formatCurrency(packet.net_sales + packet.total_taxes + paidInAmount)}</td>
-                        <td className="py-2.5 text-right">{formatCurrency(packet.net_sales + packet.total_taxes + paidInAmount)}</td>
+                        <td className="py-2.5 text-right">{formatCurrency(totalGrossReceipts)}</td>
+                        <td className="py-2.5 text-right">{formatCurrency(totalGrossReceipts)}</td>
                       </tr>
                     </>
                   )
@@ -594,20 +545,47 @@ export default function PacketDetailPage() {
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-mono">
                 {(() => {
                   const grossMap = packet.qb_sync_response?.sales_gross_by_option || {}
+
+                  // Helper para obtener el importe Neto exacto desde journal_lines si no está directamente en packet
+                  const getNetFromJournal = (searchMemos: string[], fallback: number = 0) => {
+                    const line = packet.journal_lines?.find((l: any) => {
+                      const m = (l.memo || '').toLowerCase()
+                      const sm = (l.sourceMemo || '').toLowerCase()
+                      return searchMemos.some(term => m.includes(term.toLowerCase()) || sm.includes(term.toLowerCase()))
+                    })
+                    return line ? Number(line.credit || line.debit || 0) : fallback
+                  }
+
+                  const forHereNet = Number(packet.dine_in_sales ?? getNetFromJournal(['for here'], 0))
+                  const toGoNet = Number(packet.togo_sales ?? getNetFromJournal(['to go'], 0))
+                  const driveThruNet = Number(packet.drive_thru_sales ?? getNetFromJournal(['drive thru'], 0))
+                  const kioskDineInNet = Number(packet.kiosk_dine_in_sales ?? getNetFromJournal(['kiosk dine in'], 0))
+                  const kioskTakeOutNet = Number(packet.kiosk_takeout_sales ?? getNetFromJournal(['kiosk take out'], 0))
+                  const toastOnlineNet = Number(packet.toast_online_sales ?? getNetFromJournal(['toast online'], 0))
+                  const toastDeliveryNet = Number(packet.toast_delivery_sales ?? getNetFromJournal(['toast delivery services', 'toast delivery'], 0))
+                  const deliveryServiceNet = Number(getNetFromJournal(['delivery service'], 0))
+                  const uberDeliveryNet = Number(packet.uber_delivery_sales ?? getNetFromJournal(['uber eats - delivery', 'uber delivery'], 0))
+                  const uberTakeoutNet = Number(packet.uber_takeout_sales ?? getNetFromJournal(['uber eats takeout', 'uber takeout'], 0))
+                  const ddDeliveryNet = Number(packet.doordash_delivery_sales ?? getNetFromJournal(['doordash - delivery', 'doordash delivery'], 0))
+                  const ddTakeoutNet = Number(packet.doordash_takeout_sales ?? getNetFromJournal(['doordash - takeout', 'doordash takeout'], 0))
+                  const ghDeliveryNet = Number(packet.grubhub_sales ?? getNetFromJournal(['grubhub delivery'], 0))
+                  const ghTakeoutNet = Number(getNetFromJournal(['grubhub - takeout', 'grubhub takeout'], 0))
+
                   const rows = [
-                    { name: t('accounting.dining_for_here') || 'For Here', gross: grossMap.forHere ?? packet.dine_in_sales, net: packet.dine_in_sales },
-                    { name: t('accounting.dining_to_go') || 'To Go', gross: grossMap.toGo ?? packet.togo_sales, net: packet.togo_sales },
-                    ...(Number(packet.drive_thru_sales || grossMap.driveThru || 0) > 0 ? [{ name: 'Drive Thru', gross: grossMap.driveThru ?? packet.drive_thru_sales, net: packet.drive_thru_sales }] : []),
-                    ...(Number(packet.kiosk_dine_in_sales || grossMap.kioskDineIn || 0) > 0 ? [{ name: 'Kiosk Dine In', gross: grossMap.kioskDineIn ?? packet.kiosk_dine_in_sales, net: packet.kiosk_dine_in_sales }] : []),
-                    ...(Number(packet.kiosk_takeout_sales || grossMap.kioskTakeOut || 0) > 0 ? [{ name: 'Kiosk Take Out', gross: grossMap.kioskTakeOut ?? packet.kiosk_takeout_sales, net: packet.kiosk_takeout_sales }] : []),
-                    ...(Number(packet.toast_online_sales || grossMap.toastOnline || 0) > 0 ? [{ name: 'Toast Online', gross: grossMap.toastOnline ?? packet.toast_online_sales, net: packet.toast_online_sales }] : []),
-                    ...(Number(packet.toast_delivery_sales || grossMap.toastDelivery || 0) > 0 ? [{ name: 'Toast Delivery', gross: grossMap.toastDelivery ?? packet.toast_delivery_sales, net: packet.toast_delivery_sales }] : []),
-                    { name: 'Uber Eats - Delivery', gross: grossMap.uberDelivery ?? packet.uber_delivery_sales, net: packet.uber_delivery_sales },
-                    ...(Number(packet.uber_takeout_sales || grossMap.uberTakeout || 0) > 0 ? [{ name: 'Uber Eats Takeout', gross: grossMap.uberTakeout ?? packet.uber_takeout_sales, net: packet.uber_takeout_sales }] : []),
-                    { name: 'DoorDash - Delivery', gross: grossMap.doordashDelivery ?? packet.doordash_delivery_sales, net: packet.doordash_delivery_sales },
-                    ...(Number(packet.doordash_takeout_sales || grossMap.doordashTakeout || 0) > 0 ? [{ name: 'DoorDash - Takeout', gross: grossMap.doordashTakeout ?? packet.doordash_takeout_sales, net: packet.doordash_takeout_sales }] : []),
-                    ...(Number(packet.grubhub_sales || grossMap.grubhubDelivery || 0) > 0 ? [{ name: 'GrubHub Delivery', gross: grossMap.grubhubDelivery ?? packet.grubhub_sales, net: packet.grubhub_sales }] : []),
-                    ...(Number(grossMap.grubhubTakeout || 0) > 0 ? [{ name: 'GrubHub Takeout', gross: grossMap.grubhubTakeout, net: grossMap.grubhubTakeout }] : []),
+                    ...(deliveryServiceNet > 0 ? [{ name: 'Delivery Service', gross: deliveryServiceNet, net: deliveryServiceNet }] : []),
+                    { name: 'DoorDash - Delivery', gross: grossMap.doordashDelivery ?? ddDeliveryNet, net: ddDeliveryNet },
+                    ...(ddTakeoutNet > 0 || grossMap.doordashTakeout ? [{ name: 'DoorDash - Takeout', gross: grossMap.doordashTakeout ?? ddTakeoutNet, net: ddTakeoutNet }] : []),
+                    { name: t('accounting.dining_for_here') || 'For Here', gross: grossMap.forHere ?? forHereNet, net: forHereNet },
+                    ...(ghTakeoutNet > 0 || grossMap.grubhubTakeout ? [{ name: 'GrubHub - Takeout', gross: grossMap.grubhubTakeout ?? ghTakeoutNet, net: ghTakeoutNet }] : []),
+                    ...(ghDeliveryNet > 0 || grossMap.grubhubDelivery ? [{ name: 'GrubHub Delivery', gross: grossMap.grubhubDelivery ?? ghDeliveryNet, net: ghDeliveryNet }] : []),
+                    ...(driveThruNet > 0 || grossMap.driveThru ? [{ name: 'Drive Thru', gross: grossMap.driveThru ?? driveThruNet, net: driveThruNet }] : []),
+                    ...(kioskDineInNet > 0 || grossMap.kioskDineIn ? [{ name: 'Kiosk Dine In', gross: grossMap.kioskDineIn ?? kioskDineInNet, net: kioskDineInNet }] : []),
+                    ...(kioskTakeOutNet > 0 || grossMap.kioskTakeOut ? [{ name: 'Kiosk Take Out', gross: grossMap.kioskTakeOut ?? kioskTakeOutNet, net: kioskTakeOutNet }] : []),
+                    { name: t('accounting.dining_to_go') || 'To Go', gross: grossMap.toGo ?? toGoNet, net: toGoNet },
+                    ...(toastDeliveryNet > 0 || grossMap.toastDelivery ? [{ name: 'Toast Delivery Services', gross: grossMap.toastDelivery ?? toastDeliveryNet, net: toastDeliveryNet }] : []),
+                    ...(toastOnlineNet > 0 || grossMap.toastOnline ? [{ name: 'Toast Online', gross: grossMap.toastOnline ?? toastOnlineNet, net: toastOnlineNet }] : []),
+                    { name: 'Uber Eats - Delivery', gross: grossMap.uberDelivery ?? uberDeliveryNet, net: uberDeliveryNet },
+                    ...(uberTakeoutNet > 0 || grossMap.uberTakeout ? [{ name: 'Uber Eats Takeout', gross: grossMap.uberTakeout ?? uberTakeoutNet, net: uberTakeoutNet }] : []),
                   ]
                   return (
                     <>
@@ -745,67 +723,129 @@ export default function PacketDetailPage() {
         {/* 8. Cash Reconciliation Card */}
         <Card>
           <h2 className="text-base font-bold text-slate-900 dark:text-white mb-4">{t('accounting.section_cash') || 'Conciliación de Efectivo'}</h2>
-          <div className="space-y-4 text-sm">
-            <div className="flex justify-between">
-              <span className="text-slate-500 dark:text-slate-400">{t('accounting.label_expected_cash') || 'Efectivo Esperado'}</span>
-              <span className="font-mono font-bold text-slate-800 dark:text-slate-200">{formatCurrency(packet.expected_cash)}</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <span className="text-slate-700 dark:text-slate-300 font-bold">{t('accounting.label_cash_deposit') || 'Depósito en Banco'}</span>
-                {isDepositToast && (
-                  <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 px-2 py-0.5 rounded-md border border-emerald-200 dark:border-emerald-800">
-                    {t('accounting.badge_deposit_toast') || '✓ Toast POS'}
-                  </span>
+          {(() => {
+            const payoutLines = packet.journal_lines?.filter((l: any) => 
+              (l.account === '50006' || l.memo?.toLowerCase().includes('materials and supplies') || l.sourceMemo?.toLowerCase().includes('cash payout')) &&
+              l.debit > 0
+            ) || []
+            const cashPayoutsTotal = Number(
+              (packet.qb_sync_response as any)?.cash_payouts_total ??
+              payoutLines.reduce((sum: number, l: any) => sum + (Number(l.debit) || 0), 0)
+            )
+            const rawExpected = Number(packet.expected_cash || 0)
+            const expectedCashFromSales = Number(
+              (packet.qb_sync_response as any)?.expected_cash_from_sales ??
+              (cashPayoutsTotal > 0 ? rawExpected + cashPayoutsTotal : rawExpected)
+            )
+            const expectedCashDeposit = (packet.qb_sync_response as any)?.expected_cash_deposit !== undefined
+              ? Number((packet.qb_sync_response as any).expected_cash_deposit)
+              : (cashPayoutsTotal > 0 ? Math.round((expectedCashFromSales - cashPayoutsTotal) * 100) / 100 : rawExpected)
+
+            return (
+              <div className="space-y-4 text-sm">
+                {cashPayoutsTotal > 0 ? (
+                  <>
+                    <div className="flex justify-between">
+                      <span className="text-slate-500 dark:text-slate-400">
+                        {language === 'en' ? 'Expected Cash From Sales' : 'Efectivo Esperado de Ventas'}
+                      </span>
+                      <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
+                        {formatCurrency(expectedCashFromSales)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-rose-600 dark:text-rose-400 font-semibold">
+                      <span>{language === 'en' ? 'Cash Payouts' : 'Gastos en Efectivo (Payouts)'}</span>
+                      <span className="font-mono">-{formatCurrency(cashPayoutsTotal)}</span>
+                    </div>
+                    <div className="flex justify-between font-bold text-slate-900 dark:text-white pt-1 border-t border-slate-100 dark:border-slate-800">
+                      <span>{language === 'en' ? 'Expected Cash Deposit' : 'Depósito en Efectivo Esperado'}</span>
+                      <span className="font-mono text-emerald-700 dark:text-emerald-400">{formatCurrency(expectedCashDeposit)}</span>
+                    </div>
+                  </>
+                ) : (
+                  <div className="flex justify-between">
+                    <span className="text-slate-500 dark:text-slate-400">{t('accounting.label_expected_cash') || 'Efectivo Esperado'}</span>
+                    <span className="font-mono font-bold text-slate-800 dark:text-slate-200">{formatCurrency(packet.expected_cash)}</span>
+                  </div>
                 )}
-                {isDepositPending && (
-                  <span className="text-[10px] font-bold text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/60 px-2 py-0.5 rounded-md border border-amber-200 dark:border-amber-800">
-                    {t('accounting.badge_deposit_pending') || '⚠️ Pendiente'}
-                  </span>
-                )}
-              </div>
-              {editingDeposit ? (
-                <div className="flex items-center gap-2">
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={depositInput}
-                    onChange={(e) => setDepositInput(e.target.value)}
-                    className="w-28 px-2 py-1 text-right text-sm font-mono border rounded-lg bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white"
-                    placeholder="0.00"
-                    autoFocus
-                  />
-                  <Button size="sm" variant="primary" onClick={handleSaveDeposit} disabled={savingDeposit}>
-                    {savingDeposit ? <Loader2 className="w-3 h-3 animate-spin" /> : '✓'}
-                  </Button>
-                  <Button size="sm" variant="outline" onClick={() => setEditingDeposit(false)}>✕</Button>
-                </div>
-              ) : (
-                <div className="flex items-center gap-2">
-                  <span className={`font-mono font-bold text-base ${Number(packet.cash_deposit || 0) > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-500 dark:text-slate-400'}`}>
-                    {formatCurrency(packet.cash_deposit)}
-                  </span>
-                  {packet.status !== 'published' && (
-                    <button
-                      onClick={() => {
-                        setDepositInput(String(packet.cash_deposit || ''))
-                        setEditingDeposit(true)
-                      }}
-                      className="text-xs text-blue-600 dark:text-blue-400 hover:underline font-semibold"
-                    >
-                      {Number(packet.cash_deposit || 0) > 0 ? (language === 'en' ? 'Edit' : 'Editar') : (language === 'en' ? 'Enter' : 'Ingresar')}
-                    </button>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-slate-700 dark:text-slate-300 font-bold">{t('accounting.label_cash_deposit') || 'Depósito en Banco'}</span>
+                    {isDepositToast && (
+                      <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 px-2 py-0.5 rounded-md border border-emerald-200 dark:border-emerald-800">
+                        {t('accounting.badge_deposit_toast') || '✓ Toast POS'}
+                      </span>
+                    )}
+                    {isDepositPending && (
+                      <span className="text-[10px] font-bold text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/60 px-2 py-0.5 rounded-md border border-amber-200 dark:border-amber-800">
+                        {t('accounting.badge_deposit_pending') || '⚠️ Pendiente'}
+                      </span>
+                    )}
+                  </div>
+                  {editingDeposit ? (
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={depositInput}
+                        onChange={(e) => setDepositInput(e.target.value)}
+                        className="w-28 px-2 py-1 text-right text-sm font-mono border rounded-lg bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white"
+                        placeholder="0.00"
+                        autoFocus
+                      />
+                      <Button size="sm" variant="primary" onClick={handleSaveDeposit} disabled={savingDeposit}>
+                        {savingDeposit ? <Loader2 className="w-3 h-3 animate-spin" /> : '✓'}
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => setEditingDeposit(false)}>✕</Button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <span className={`font-mono font-bold text-base ${Number(packet.cash_deposit || 0) > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-500 dark:text-slate-400'}`}>
+                        {formatCurrency(packet.cash_deposit)}
+                      </span>
+                      {packet.status !== 'published' && (
+                        <button
+                          onClick={() => {
+                            setDepositInput(String(packet.cash_deposit || ''))
+                            setEditingDeposit(true)
+                          }}
+                          className="text-xs text-blue-600 dark:text-blue-400 hover:underline font-semibold"
+                        >
+                          {Number(packet.cash_deposit || 0) > 0 ? (language === 'en' ? 'Edit' : 'Editar') : (language === 'en' ? 'Enter' : 'Ingresar')}
+                        </button>
+                      )}
+                    </div>
                   )}
                 </div>
-              )}
-            </div>
-            <div className="flex justify-between font-extrabold pt-2 border-t-2 border-slate-200 dark:border-slate-700">
-              <span className="text-slate-900 dark:text-white">{t('accounting.label_cash_over_short') || 'Sobrante / (Faltante)'}</span>
-              <span className={`font-mono text-base ${packet.cash_over_short < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
-                {formatCurrency(packet.cash_over_short)}
-              </span>
-            </div>
-          </div>
+                <div className="flex justify-between font-extrabold pt-2 border-t-2 border-slate-200 dark:border-slate-700">
+                  <span className="text-slate-900 dark:text-white">{t('accounting.label_cash_over_short') || 'Sobrante / (Faltante)'}</span>
+                  <span className={`font-mono text-base ${packet.cash_over_short < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                    {formatCurrency(packet.cash_over_short)}
+                  </span>
+                </div>
+
+                {/* Detalle de Cash Payouts si existen */}
+                {cashPayoutsTotal > 0 && payoutLines.length > 0 && (
+                  <div className="mt-3 p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 text-xs">
+                    <div className="font-bold text-slate-700 dark:text-slate-300 mb-1.5 flex items-center justify-between">
+                      <span>{language === 'en' ? 'Cash Payout Details' : 'Detalle de Gastos en Efectivo'}</span>
+                      <span className="font-mono text-rose-600 dark:text-rose-400 font-bold">-{formatCurrency(cashPayoutsTotal)}</span>
+                    </div>
+                    <div className="divide-y divide-slate-200/60 dark:divide-slate-700/60 font-mono">
+                      {payoutLines.map((pl: any, idx: number) => (
+                        <div key={idx} className="py-1 flex justify-between items-center text-[11px]">
+                          <span className="font-sans text-slate-600 dark:text-slate-400 truncate max-w-[200px]" title={pl.memo}>
+                            {pl.memo || 'COGS-Materials and Supplies'}
+                          </span>
+                          <span className="font-bold text-slate-800 dark:text-slate-200">{formatCurrency(pl.debit)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )
+          })()}
         </Card>
 
         {/* 9. Other Payments Card */}
@@ -863,14 +903,14 @@ export default function PacketDetailPage() {
                   if (openOrdersDebit <= 0) return null
                   return (
                     <tr>
-                      <td className="py-2.5 font-sans font-bold text-amber-700 dark:text-amber-400">
-                        {language === 'en' ? 'Deposit Sales Collected & Open Orders' : 'Órdenes Abiertas y Depósitos Cobrados (12049)'}
+                      <td className="py-2.5 font-sans font-bold text-slate-800 dark:text-slate-200">
+                        {language === 'en' ? 'Deposit Sales Collected & Open Orders' : 'Depósitos Cobrados y Órdenes Abiertas (12049)'}
                       </td>
-                      <td className="py-2.5 text-right font-semibold text-amber-700 dark:text-amber-400">
+                      <td className="py-2.5 text-right font-semibold text-slate-900 dark:text-white">
                         {formatCurrency(openOrdersDebit)}
                       </td>
                       <td className="py-2.5 text-right text-slate-400">$0.00</td>
-                      <td className="py-2.5 text-right font-bold text-amber-700 dark:text-amber-400">
+                      <td className="py-2.5 text-right font-bold text-slate-900 dark:text-white">
                         {formatCurrency(openOrdersDebit)}
                       </td>
                     </tr>
@@ -882,6 +922,7 @@ export default function PacketDetailPage() {
                     {formatCurrency(
                       (packet.credit_card_deposit ?? packet.cc_deposit ?? 0) +
                       (packet.credit_card_fees ?? packet.cc_fees ?? 0) +
+                      Number(packet.credit_card_other_deductions || packet.journal_lines?.find((l: any) => l.memo?.toLowerCase().includes('other deductions') && l.debit > 0)?.debit || 0) +
                       (packet.uber_payment ?? 0) +
                       (packet.doordash_payment ?? 0) +
                       (packet.grubhub_payment ?? 0) +

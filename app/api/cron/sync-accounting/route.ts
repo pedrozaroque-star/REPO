@@ -239,11 +239,15 @@ export async function GET(request: Request) {
             credit_card_deposit: toastData.creditCardDeposit,
             credit_card_fees: toastData.creditCardFees,
             credit_card_other_deductions: toastData.creditCardOtherDeductions,
-            cash_deposits: 0
+            cash_deposits: 0,
+            cash_payouts: toastData.toastCashPayoutsList || [],
+            cash_payouts_total: toastData.cashPayoutsTotal || 0,
           }
 
-          // Calculate Expected Cash first (from gross receipts minus non-cash payments)
-          const expectedCash = calculateExpectedCash(salesPacketData)
+          // Calculate Expected Cash (from gross receipts minus non-cash payments)
+          const expectedCashFromSales = calculateExpectedCash(salesPacketData)
+          const cashPayoutsTotal = salesPacketData.cash_payouts_total || 0
+          const expectedCashDeposit = Math.round((expectedCashFromSales - cashPayoutsTotal) * 100) / 100
 
           // Toast Cash Management Parity:
           // El depósito bancario proviene estrictamente de lo registrado por el gerente en Toast POS Cash Management.
@@ -258,9 +262,7 @@ export async function GET(request: Request) {
           const docNumber = formatDocNumber(storeName.replace(/^Tacos Gavilan\s+/i, '').trim(), targetDate)
 
           const isBalanced = journal.isBalanced
-          // Toast Cash Management Parity: Si el depósito de efectivo aún no ha sido registrado en Toast POS (finalDeposit === 0 y expectedCash > 0),
-          // la póliza se mantiene en 'pending' para bloquear la publicación a QuickBooks hasta que la sucursal registre su depósito.
-          const isDepositPending = finalDeposit === 0 && expectedCash > 0
+          const isDepositPending = finalDeposit === 0 && expectedCashDeposit > 0
           const packetStatus = (isBalanced && !isDepositPending) ? 'ready' : 'pending'
 
           if (isYesterday) {
@@ -313,9 +315,9 @@ export async function GET(request: Request) {
             doordash_payment: salesPacketData.doordash_payment,
             grubhub_payment: salesPacketData.grubhub_payment,
             ebt_amount: salesPacketData.ebt_amount,
-            expected_cash: expectedCash,
+            expected_cash: expectedCashDeposit,
             cash_deposit: salesPacketData.cash_deposits,
-            cash_over_short: Math.round((salesPacketData.cash_deposits - expectedCash) * 100) / 100,
+            cash_over_short: Math.round((salesPacketData.cash_deposits - expectedCashDeposit) * 100) / 100,
             journal_total_debits: journal.totalDebits,
             journal_total_credits: journal.totalCredits,
             journal_lines: journal.lines,
@@ -325,6 +327,10 @@ export async function GET(request: Request) {
               validation: validationInfo,
               deposit_source: depositSource,
               toast_deposits: toastData.toastDepositsList || [],
+              cash_payouts: salesPacketData.cash_payouts || [],
+              cash_payouts_total: cashPayoutsTotal,
+              expected_cash_from_sales: expectedCashFromSales,
+              expected_cash_deposit: expectedCashDeposit,
               sales_gross_by_option: toastData.salesGrossByOption || {},
               discount_breakdown: toastData.discountBreakdown || {},
               card_breakdown: toastData.cardBreakdown || {}

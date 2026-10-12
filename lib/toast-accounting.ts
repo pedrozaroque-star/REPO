@@ -117,6 +117,8 @@ export interface ToastAccountingData {
   toastDepositAmount: number
   hasToastDeposit: boolean
   toastDepositsList: Array<{ guid: string; amount: number; date: string; employee?: string }>
+  cashPayoutsTotal: number
+  toastCashPayoutsList: Array<{ amount: number; reason: string; comment: string; date: string }>
   // Validación de Órdenes Abiertas (Step 11 Cohesion)
   openOrdersCount: number
   outOfBalanceOrdersCount: number
@@ -132,8 +134,8 @@ export async function fetchToastAccountingData(
 ): Promise<ToastAccountingData> {
   const token = await getAuthToken()
 
-  // 1. Obtener Dining Options Map, Alternate Payment Types Map, y Depósitos de Cash Management de Toast POS
-  const [optRes, altRes, depRes] = await Promise.all([
+  // 1. Obtener Dining Options Map, Alternate Payment Types Map, Depósitos y Payouts de Cash Management de Toast POS
+  const [optRes, altRes, depRes, entriesRes, payoutReasonsRes] = await Promise.all([
     fetch(`${TOAST_API_HOST}/config/v2/diningOptions`, {
       headers: {
         Authorization: `Bearer ${token}`,
@@ -147,6 +149,18 @@ export async function fetchToastAccountingData(
       },
     }).catch(() => null),
     fetch(`${TOAST_API_HOST}/cashmgmt/v1/deposits?businessDate=${businessDate}`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Toast-Restaurant-External-ID': storeExternalId,
+      },
+    }).catch(() => null),
+    fetch(`${TOAST_API_HOST}/cashmgmt/v1/entries?businessDate=${businessDate}`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Toast-Restaurant-External-ID': storeExternalId,
+      },
+    }).catch(() => null),
+    fetch(`${TOAST_API_HOST}/config/v2/payoutReasons`, {
       headers: {
         Authorization: `Bearer ${token}`,
         'Toast-Restaurant-External-ID': storeExternalId,
@@ -172,6 +186,15 @@ export async function fetchToastAccountingData(
     }
   }
 
+  // Parsear razones de payouts
+  const payoutReasons = payoutReasonsRes && payoutReasonsRes.ok ? await payoutReasonsRes.json().catch(() => []) : []
+  const payoutReasonMap: Record<string, string> = {}
+  if (Array.isArray(payoutReasons)) {
+    for (const pr of payoutReasons) {
+      if (pr.guid && pr.name) payoutReasonMap[pr.guid] = pr.name
+    }
+  }
+
   // Parsear depósitos registrados en Toast POS (Cash Management)
   let toastDepositAmount = 0
   let hasToastDeposit = false
@@ -188,6 +211,31 @@ export async function fetchToastAccountingData(
           date: d.date,
           employee: d.employee?.guid,
         })
+      }
+    }
+  }
+
+  // Parsear payouts registrados en Toast POS (Cash Management Entries)
+  let cashPayoutsTotal = 0
+  const toastCashPayoutsList: Array<{ amount: number; reason: string; comment: string; date: string }> = []
+  if (entriesRes && entriesRes.ok) {
+    const rawEntries = await entriesRes.json().catch(() => [])
+    if (Array.isArray(rawEntries)) {
+      const payouts = rawEntries.filter((e: any) => e.type === 'PAY_OUT')
+      for (const p of payouts) {
+        const amt = Math.round(Math.abs(Number(p.amount) || 0) * 100) / 100
+        if (amt > 0) {
+          const reasonGuid = p.payoutReason?.guid
+          const reasonName = reasonGuid && payoutReasonMap[reasonGuid] ? payoutReasonMap[reasonGuid] : 'COGS-Materials and Supplies'
+          const comment = (p.reason || '').trim()
+          toastCashPayoutsList.push({
+            amount: amt,
+            reason: reasonName,
+            comment,
+            date: p.date,
+          })
+          cashPayoutsTotal = Math.round((cashPayoutsTotal + amt) * 100) / 100
+        }
       }
     }
   }
@@ -346,9 +394,10 @@ export async function fetchToastAccountingData(
       const isCheckOpen = !isCheckClosed
 
       // Filtrar estrictamente pagos válidos (descartar DENIED, FAILED, VOIDED, OPEN, CANCELLED, etc.)
+      // En Toast POS, check.totalAmount incluye la propina; por tanto, paymentsTotal debe sumar amount + tipAmount
       const paymentsTotal = (check.payments || [])
         .filter((p: any) => !p.voided && !INVALID_PAYMENT_STATUSES.has(String(p.paymentStatus || '').toUpperCase()))
-        .reduce((sum: number, p: any) => sum + (Number(p.amount) || 0), 0)
+        .reduce((sum: number, p: any) => sum + (Number(p.amount) || 0) + (Number(p.tipAmount) || 0), 0)
       const expectedTotal = Number(check.totalAmount ?? check.amount ?? 0)
       const diff = Math.abs(expectedTotal - paymentsTotal)
       const isCheckOutOfBalance = diff > 0.05 && (isCheckClosed || paymentsTotal > 0)
@@ -728,9 +777,12 @@ export async function fetchToastAccountingData(
   toastDelivery = r(toastDelivery)
   tipsPayable = r(tipsPayable)
 
-  // Cohesion: Órdenes abiertas sin cobrar se asignan a "Deposit Sales Collected & Open Orders" (cuenta 12049 en Débito)
+  // Cohesion: Solo cheques genuinamente abiertos y sin cobrar (unpaid) se asignan a "Deposit Sales Collected & Open Orders" (cuenta 12049 en Débito).
+  // Las órdenes que ya están cerradas (CLOSED) no van a la 12049.
   const openOrdersTotalAmount = r(
-    openOrdersList.reduce((sum, o: any) => sum + (Number(o.totalAmount) || 0), 0)
+    openOrdersList
+      .filter((o: any) => o.paymentStatus !== 'CLOSED' && o.status !== 'OUT_OF_BALANCE')
+      .reduce((sum, o: any) => sum + (Number(o.totalAmount) || 0), 0)
   )
   if (openOrdersTotalAmount > 0.009) {
     depositsCollected = r(depositsCollected + openOrdersTotalAmount)
@@ -738,7 +790,8 @@ export async function fetchToastAccountingData(
   depositsCollected = r(depositsCollected)
   paidIn = r(paidIn)
 
-  const netSales = r(forHere + toGo + driveThru + kioskDineIn + kioskTakeOut + toastOnline + toastDelivery + uberDel + uberTake + ddDel + ddTake + ghDel + ghTake)
+  deliveryServiceCharges = r(deliveryServiceCharges)
+  const netSales = r(forHere + toGo + driveThru + kioskDineIn + kioskTakeOut + toastOnline + toastDelivery + uberDel + uberTake + ddDel + ddTake + ghDel + ghTake + deliveryServiceCharges)
   totalTax = r(totalTax)
   marketplaceTax = r(marketplaceTax)
   taxPaidByUber = r(taxPaidByUber)
@@ -747,7 +800,6 @@ export async function fetchToastAccountingData(
 
   deferredSalesGiftCards = r(deferredSalesGiftCards)
   giftCardRedemption = r(giftCardRedemption)
-  deliveryServiceCharges = r(deliveryServiceCharges)
 
   creditCardGross = r(creditCardGross)
   ebtAmount = r(ebtAmount)
@@ -867,6 +919,8 @@ export async function fetchToastAccountingData(
     toastDepositAmount,
     hasToastDeposit,
     toastDepositsList,
+    cashPayoutsTotal,
+    toastCashPayoutsList,
     openOrdersCount,
     outOfBalanceOrdersCount,
     openOrdersList,

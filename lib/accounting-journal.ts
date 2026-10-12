@@ -61,6 +61,8 @@ export interface SalesPacketData {
   credit_card_fees: number;
   credit_card_other_deductions?: number;
   cash_deposits: number;
+  cash_payouts?: Array<{ amount: number; reason?: string; comment?: string }>;
+  cash_payouts_total?: number;
 }
 
 export interface SiteMappingConfig {
@@ -197,10 +199,24 @@ export function generateJournalLines(salesData: SalesPacketData, siteMapping: Si
   }
   addLine(undepositedAcct, 'Deposit To Bank', salesData.cash_deposits, 0, 'Cash Deposits');
 
+  // --- CASH PAYOUTS (Toast POS Cash Management Pay Outs) ---
+  if (salesData.cash_payouts && salesData.cash_payouts.length > 0) {
+    const cogsAcct = siteMapping.cogs_account || '50006';
+    for (const payout of salesData.cash_payouts) {
+      if (payout.amount > 0) {
+        const reasonStr = payout.reason || 'COGS-Materials and Supplies';
+        const commentStr = payout.comment && payout.comment.trim() ? payout.comment.trim() : 'Pay Out Comment Not Entered';
+        addLine(cogsAcct, `${reasonStr} : ${commentStr}`, payout.amount, 0, `Cash Payout: ${reasonStr}`);
+      }
+    }
+  }
+
   // --- CASH OVER / SHORT ---
-  // If actual cash deposit differs from expected cash, balance with cashOverShortAcct
-  const expectedCash = calculateExpectedCash(salesData);
-  const cashDiff = round(salesData.cash_deposits - expectedCash);
+  // If actual cash deposit differs from expected cash deposit (expected cash from sales minus cash payouts), balance with cashOverShortAcct
+  const expectedCashFromSales = calculateExpectedCash(salesData);
+  const cashPayoutsTotal = salesData.cash_payouts_total || (salesData.cash_payouts?.reduce((s, p) => s + (p.amount || 0), 0) || 0);
+  const expectedCashDeposit = round(expectedCashFromSales - cashPayoutsTotal);
+  const cashDiff = round(salesData.cash_deposits - expectedCashDeposit);
 
   if (cashDiff > 0) {
     // Sobrante (Over): Credit
@@ -308,9 +324,10 @@ export function calculateExpectedCash(salesData: SalesPacketData): number {
     (salesData.doordash_takeout_sales || 0) +
     (salesData.doordash_delivery_sales || 0) +
     (salesData.grubhub_delivery_sales || 0) +
-    (salesData.grubhub_takeout_sales || 0)
+    (salesData.grubhub_takeout_sales || 0) +
+    (salesData.delivery_service_charges || 0)
   );
-  const netSales = sumDiningOptions > 0 ? sumDiningOptions : salesData.net_sales;
+  const netSales = sumDiningOptions > 0 ? sumDiningOptions : (salesData.net_sales || 0);
 
   const totalGrossReceipts = round(
     netSales + 
@@ -318,7 +335,6 @@ export function calculateExpectedCash(salesData: SalesPacketData): number {
     (salesData.marketplace_tax || 0) +
     (salesData.tax_paid_by_uber || 0) + 
     (salesData.deferred_gift_cards || 0) + 
-    (salesData.delivery_service_charges || 0) +
     (salesData.tips_payable || 0) +
     (salesData.paid_in || 0)
   );

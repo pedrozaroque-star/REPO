@@ -207,6 +207,8 @@ export async function POST(request: NextRequest) {
               credit_card_fees: toastData.creditCardFees,
               credit_card_other_deductions: toastData.creditCardOtherDeductions,
               cash_deposits: 0,
+              cash_payouts: toastData.toastCashPayoutsList || [],
+              cash_payouts_total: toastData.cashPayoutsTotal || 0,
             }
           } catch (toastErr: any) {
             console.warn(`[Accounting] Granular Toast API fetch failed for ${storeName}, falling back to cache:`, toastErr.message)
@@ -303,8 +305,10 @@ export async function POST(request: NextRequest) {
           continue
         }
 
-        // Calculate Expected Cash first (from gross receipts minus non-cash payments)
-        const expectedCash = calculateExpectedCash(salesPacketData)
+        // Calculate Expected Cash (from gross receipts minus non-cash payments)
+        const expectedCashFromSales = calculateExpectedCash(salesPacketData)
+        const cashPayoutsTotal = salesPacketData.cash_payouts_total || 0
+        const expectedCashDeposit = round(expectedCashFromSales - cashPayoutsTotal)
 
         // Toast Cash Management Parity:
         // El depósito bancario proviene estrictamente de lo registrado por el gerente en Toast POS Cash Management.
@@ -327,7 +331,7 @@ export async function POST(request: NextRequest) {
         const openOrdersList = toastAccountingResult?.openOrdersList ?? []
 
         const isBalanced = journal.isBalanced
-        const isDepositPending = finalDeposit === 0 && expectedCash > 0
+        const isDepositPending = finalDeposit === 0 && expectedCashDeposit > 0
         // Cohesion Parity: Cuando la póliza está balanceada (la línea 51050 Over/Short balancea cualquier diferencia),
         // el paquete pasa validación y queda en estado 'ready' para publicación a QuickBooks.
         const packetStatus = isBalanced ? 'ready' : 'pending'
@@ -350,6 +354,10 @@ export async function POST(request: NextRequest) {
           paid_in: toastAccountingResult?.paidIn || 0,
           deposit_source: depositSource,
           toast_deposits: toastAccountingResult?.toastDepositsList || [],
+          expected_cash_from_sales: expectedCashFromSales,
+          cash_payouts_total: cashPayoutsTotal,
+          cash_payouts: salesPacketData.cash_payouts || [],
+          expected_cash_deposit: expectedCashDeposit,
         }
 
         // Upsert the packet
@@ -380,9 +388,9 @@ export async function POST(request: NextRequest) {
           doordash_payment: salesPacketData.doordash_payment,
           grubhub_payment: salesPacketData.grubhub_payment,
           ebt_amount: salesPacketData.ebt_amount,
-          expected_cash: expectedCash,
+          expected_cash: expectedCashDeposit,
           cash_deposit: salesPacketData.cash_deposits,
-          cash_over_short: Math.round((salesPacketData.cash_deposits - expectedCash) * 100) / 100,
+          cash_over_short: Math.round((salesPacketData.cash_deposits - expectedCashDeposit) * 100) / 100,
           journal_total_debits: journal.totalDebits,
           journal_total_credits: journal.totalCredits,
           journal_lines: journal.lines,
@@ -395,6 +403,10 @@ export async function POST(request: NextRequest) {
             sales_gross_by_option: toastAccountingResult?.salesGrossByOption || {},
             deposit_source: depositSource,
             toast_deposits: toastAccountingResult?.toastDepositsList || [],
+            cash_payouts: salesPacketData.cash_payouts || [],
+            cash_payouts_total: cashPayoutsTotal,
+            expected_cash_from_sales: expectedCashFromSales,
+            expected_cash_deposit: expectedCashDeposit,
           },
           updated_at: new Date().toISOString(),
         }
