@@ -619,6 +619,8 @@ export async function fetchToastAccountingData(
           creditCardOtherDeductions += Number(p.mcaRepaymentAmount || 0)
         }
 
+        const tip = Number(p.tipAmount || 0)
+
         // Redención de Tarjetas de Regalo (Gift Card Redemption -> 20500)
         if (pType === 'GIFT_CARD' || pType.includes('GIFT') || pName.includes('gift card')) {
           giftCardRedemption += amt
@@ -629,7 +631,6 @@ export async function fetchToastAccountingData(
           cashDeposit += amt
         } else if (pType === 'CREDIT') {
           // Cohesion incluye la propina de tarjeta en el depósito y la registra como Tips Payable (12100)
-          const tip = Number(p.tipAmount || 0)
           const fee = Number(p.originalProcessingFee || 0)
           const fullGross = amt + tip
           creditCardGross += fullGross
@@ -648,16 +649,28 @@ export async function fetchToastAccountingData(
           cardBreakdown[cKey].fee = Math.round((cardBreakdown[cKey].fee + fee) * 100) / 100
           cardBreakdown[cKey].deposit = Math.round((cardBreakdown[cKey].gross - cardBreakdown[cKey].fee) * 100) / 100
         } else if (pName.includes('uber') || pName.includes('postmates')) {
-          uberPayment += amt
+          uberPayment += amt + tip
+          if (tip > 0) tipsPayable += tip
         } else if (pName.includes('doordash') || pName.includes('dash')) {
-          doordashPayment += amt
+          doordashPayment += amt + tip
+          if (tip > 0) tipsPayable += tip
         } else if (pName.includes('grub')) {
-          grubhubPayment += amt
+          grubhubPayment += amt + tip
+          if (tip > 0) tipsPayable += tip
         } else if (pType === 'OTHER') {
-          if (optName.includes('uber')) uberPayment += amt
-          else if (optName.includes('doordash')) doordashPayment += amt
-          else if (optName.includes('grub')) grubhubPayment += amt
-          else creditCardGross += amt
+          if (optName.includes('uber')) {
+            uberPayment += amt + tip
+            if (tip > 0) tipsPayable += tip
+          } else if (optName.includes('doordash')) {
+            doordashPayment += amt + tip
+            if (tip > 0) tipsPayable += tip
+          } else if (optName.includes('grub')) {
+            grubhubPayment += amt + tip
+            if (tip > 0) tipsPayable += tip
+          } else {
+            creditCardGross += amt + tip
+            if (tip > 0) tipsPayable += tip
+          }
         }
       }
 
