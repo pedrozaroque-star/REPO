@@ -32,7 +32,7 @@ const VALID_TRANSITIONS: Record<string, string[]> = {
   ready: ['reviewed', 'rejected'],
   reviewed: ['rejected', 'ready'], // Publishing is done via /publish endpoint
   rejected: ['ready'],
-  published: [], // Cannot change from published
+  published: ['ready'], // Re-open published packet (matches Cohesion Re-Open action)
 }
 
 /** Actions that map to sync log action names */
@@ -131,9 +131,13 @@ export async function PATCH(
       }
 
       // Clear review metadata on reopen
-      if (newStatus === 'ready' && packet.status === 'reviewed') {
-        updatePayload.reviewed_at = null
-        updatePayload.reviewed_by = null
+      if (newStatus === 'ready') {
+        if (packet.status === 'reviewed') {
+          updatePayload.reviewed_at = null
+          updatePayload.reviewed_by = null
+        } else if (packet.status === 'published') {
+          updatePayload.published_at = null
+        }
       }
     }
 

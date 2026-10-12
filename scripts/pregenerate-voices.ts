@@ -139,7 +139,10 @@ async function run() {
             shouldStop = true
             break
           }
-          await sleep(3500)
+          const is429 = /429|quota|exhausted/i.test(err.message)
+          const waitTime = is429 ? 48000 : 4000
+          if (is429) console.log(`   ⏳ Esperando ${waitTime / 1000}s para enfriamiento de ventana RPM...`)
+          await sleep(waitTime)
         }
         await sleep(delayMs)
       } else {
@@ -168,7 +171,10 @@ async function run() {
             shouldStop = true
             break
           }
-          await sleep(3500)
+          const is429 = /429|quota|exhausted/i.test(err.message)
+          const waitTime = is429 ? 48000 : 4000
+          if (is429) console.log(`   ⏳ Esperando ${waitTime / 1000}s para enfriamiento de ventana RPM...`)
+          await sleep(waitTime)
         }
         await sleep(delayMs)
       } else {

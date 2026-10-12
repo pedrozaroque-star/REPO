@@ -1941,7 +1941,7 @@ export default function PreparadorPage() {
                                         </p>
                                     </div>
                                 ) : (
-                                    <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-2.5 sm:gap-3.5">
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-2 2xl:grid-cols-3 gap-3.5 sm:gap-5">
                                         {readyOrdersList.map((order) => {
                                             const isCalling = callingOrderIds.has(order.id)
                                             const isSuccess = callSuccessOrderIds.has(order.id)
@@ -1955,13 +1955,24 @@ export default function PreparadorPage() {
                                                 ? t('prep.justNow')
                                                 : t('prep.agoMinutes').replace('{m}', String(elapsedMin))
 
+                                            // Dimensionamiento inteligente según longitud de dígitos para que nunca se desborde
+                                            const orderNumStr = String(order.order_number || '').trim()
+                                            const numLen = orderNumStr.length
+                                            const numSizeClass = numLen <= 2
+                                                ? 'text-6xl sm:text-7xl'
+                                                : numLen === 3
+                                                ? 'text-5xl sm:text-6xl'
+                                                : numLen === 4
+                                                ? 'text-4xl sm:text-5xl'
+                                                : 'text-3xl sm:text-4xl'
+
                                             return (
                                                 <button
                                                     key={order.id}
                                                     type="button"
                                                     onClick={() => handleCallOrderImpulse(order)}
                                                     disabled={isCalling}
-                                                    className={`group relative rounded-2xl p-3 sm:p-4 text-left transition-all active:scale-[0.97] cursor-pointer flex flex-col justify-between select-none shadow-sm hover:shadow-md border-2 ${
+                                                    className={`group relative rounded-2xl sm:rounded-3xl px-3.5 sm:px-4 py-4 sm:py-5 text-left transition-all active:scale-[0.97] cursor-pointer flex flex-col justify-between min-h-[220px] sm:min-h-[250px] select-none shadow-sm hover:shadow-lg border-2 sm:border-3 overflow-hidden ${
                                                         isCalling
                                                             ? 'ring-4 ring-emerald-500 scale-[0.98] border-emerald-500 bg-emerald-50 dark:bg-emerald-950/80 shadow-lg'
                                                             : isSuccess
@@ -1974,73 +1985,74 @@ export default function PreparadorPage() {
                                                     }`}
                                                 >
                                                     {/* Header de la tarjeta: Badge canal + Tiempo */}
-                                                    <div className="flex items-center justify-between gap-1 w-full mb-1">
-                                                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-black uppercase tracking-wider ${
+                                                    <div className="flex items-center justify-between gap-1.5 w-full mb-1">
+                                                        <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-black uppercase tracking-wider whitespace-nowrap shrink-0 ${
                                                             order.dining_option === 'FOR_HERE'
                                                                 ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-200'
                                                                 : 'bg-blue-100 text-blue-800 dark:bg-blue-900/60 dark:text-blue-200'
                                                         }`}>
                                                             {order.dining_option === 'FOR_HERE' ? (
                                                                 <>
-                                                                    <Utensils size={11} />
+                                                                    <Utensils size={13} className="shrink-0" />
                                                                     <span>{t('orderReadyBoard.for_here_badge')}</span>
                                                                 </>
                                                             ) : (
                                                                 <>
-                                                                    <ShoppingBag size={11} />
+                                                                    <ShoppingBag size={13} className="shrink-0" />
                                                                     <span>{t('orderReadyBoard.to_go_badge')}</span>
                                                                 </>
                                                             )}
                                                         </span>
 
-                                                        <span className={`inline-flex items-center gap-1 text-[10px] sm:text-xs font-bold ${
+                                                        <span className={`inline-flex items-center gap-1 text-xs font-bold whitespace-nowrap shrink-0 ${
                                                             isUrgent
                                                                 ? 'text-rose-600 dark:text-rose-400 font-black animate-pulse'
                                                                 : isWaitingLong
                                                                 ? 'text-amber-600 dark:text-amber-400 font-black'
                                                                 : 'text-slate-400'
                                                         }`}>
-                                                            <Clock size={11} />
+                                                            <Clock size={13} className="shrink-0" />
                                                             <span>{elapsedText}</span>
                                                         </span>
                                                     </div>
 
-                                                    {/* Número de Orden en Gigante */}
-                                                    <div className="my-2 sm:my-3 text-center">
-                                                        <span className={`font-mono font-black text-3xl sm:text-4xl lg:text-3xl xl:text-4xl tracking-tight transition-transform ${
-                                                            isCalling ? 'scale-110 text-emerald-700 dark:text-emerald-300' : 'text-slate-900 dark:text-white'
+                                                    {/* Número de Orden Adaptable y sin bold en el símbolo '#' */}
+                                                    <div className="my-2 sm:my-3 text-center flex-1 flex flex-col justify-center items-center w-full px-1 min-w-0 overflow-hidden">
+                                                        <div className={`tracking-tight leading-none transition-transform flex items-baseline justify-center max-w-full ${numSizeClass} ${
+                                                            isCalling ? 'scale-105 text-emerald-700 dark:text-emerald-300' : 'text-slate-900 dark:text-white'
                                                         }`}>
-                                                            #{order.order_number}
-                                                        </span>
+                                                            <span className="font-light text-slate-400 dark:text-slate-500 text-[0.55em] mr-1 select-none font-sans leading-none">#</span>
+                                                            <span className="font-black font-sans tracking-tight truncate leading-none">{orderNumStr}</span>
+                                                        </div>
                                                         {order.customer_name && (
-                                                            <p className="text-xs font-bold text-slate-500 dark:text-slate-400 truncate max-w-[140px] mx-auto mt-0.5">
+                                                            <p className="text-xs sm:text-sm font-bold text-slate-500 dark:text-slate-400 truncate max-w-full mx-auto mt-1 px-1">
                                                                 {order.customer_name}
                                                             </p>
                                                         )}
                                                     </div>
 
                                                     {/* Botón de Acción Táctil Inferior */}
-                                                    <div className={`w-full py-2 px-3 rounded-xl flex items-center justify-center gap-1.5 font-black text-xs sm:text-sm tracking-tight transition-all shadow-sm ${
+                                                    <div className={`w-full py-3 sm:py-3.5 px-3 rounded-xl sm:rounded-2xl flex items-center justify-center gap-2 font-black text-xs sm:text-sm tracking-wide transition-all shadow-sm ${
                                                         isCalling
                                                             ? 'bg-emerald-600 text-white animate-pulse shadow-md'
                                                             : isSuccess
                                                             ? 'bg-emerald-700 text-white'
-                                                            : 'bg-emerald-500 group-hover:bg-emerald-600 text-white'
+                                                            : 'bg-emerald-500 group-hover:bg-emerald-600 text-white active:scale-[0.98]'
                                                     }`}>
                                                         {isCalling ? (
                                                             <>
-                                                                <Megaphone size={15} className="animate-bounce" />
-                                                                <span>{t('prep.callingOrder')}</span>
+                                                                <Megaphone size={17} className="animate-bounce shrink-0" />
+                                                                <span className="truncate">{t('prep.callingOrder')}</span>
                                                             </>
                                                         ) : isSuccess ? (
                                                             <>
-                                                                <CheckCircle2 size={15} />
-                                                                <span>{t('prep.orderCallSent')}</span>
+                                                                <CheckCircle2 size={17} className="shrink-0" />
+                                                                <span className="truncate">{t('prep.orderCallSent')}</span>
                                                             </>
                                                         ) : (
                                                             <>
-                                                                <Volume2 size={15} />
-                                                                <span>{t('prep.callOrder')}</span>
+                                                                <Volume2 size={17} className="shrink-0" />
+                                                                <span className="truncate">{t('prep.callOrder')}</span>
                                                             </>
                                                         )}
                                                     </div>

@@ -21,7 +21,8 @@ import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useLanguage } from '@/lib/i18n'
 import { getQBStoreRefs } from '@/lib/qb-classes-locations'
-import { Loader2, ArrowLeft, Send, RefreshCw, CheckCircle2, AlertTriangle } from 'lucide-react'
+import { Loader2, ArrowLeft, Send, RefreshCw, CheckCircle2, AlertTriangle, Download, Printer, RotateCcw } from 'lucide-react'
+import * as xlsx from 'xlsx'
 
 // Inline UI components matching the standard light/dark app theme
 const Button = ({ children, className = '', variant = 'default', size = 'default', disabled, onClick, ...props }: any) => {
@@ -293,6 +294,61 @@ export default function PacketDetailPage() {
     }
   }
 
+  const handleExportExcel = () => {
+    if (!packet || !packet.journal_lines || packet.journal_lines.length === 0) return
+    
+    // Cohesion exact 6 canonical columns: Account, Debit, Credit, Description, SalesTaxVendorName, SourceMemo
+    const exportRows = packet.journal_lines.map((line: any) => ({
+      Account: line.account,
+      Debit: line.debit > 0 ? Number(line.debit) : 0.0,
+      Credit: line.credit > 0 ? Number(line.credit) : 0.0,
+      Description: line.memo || '',
+      SalesTaxVendorName: '',
+      SourceMemo: line.sourceMemo || '',
+    }))
+
+    const ws = xlsx.utils.json_to_sheet(exportRows, { header: ['Account', 'Debit', 'Credit', 'Description', 'SalesTaxVendorName', 'SourceMemo'] })
+    const wb = xlsx.utils.book_new()
+    xlsx.utils.book_append_sheet(wb, ws, 'Sales Journal')
+    
+    const storeNameClean = (packet.stores?.name || 'Store').replace(/[^a-zA-Z0-9]/g, '_')
+    const fileName = `Poliza_${storeNameClean}_${packet.business_date}.xlsx`
+    xlsx.writeFile(wb, fileName)
+  }
+
+  const handlePrint = () => {
+    window.print()
+  }
+
+  const handleReopen = async () => {
+    if (!packet) return
+    const confirmMsg = language === 'en'
+      ? 'Are you sure you want to reopen this journal entry for editing and review?'
+      : '¿Estás seguro de que deseas reabrir esta póliza para edición y revisión?'
+    if (!window.confirm(confirmMsg)) return
+
+    setActionLoading(true)
+    setPublishMessage(null)
+    try {
+      const res = await fetch(`/api/accounting/packets/${packetId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'ready' })
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Failed to reopen packet')
+      setPublishMessage({
+        type: 'success',
+        text: language === 'en' ? 'Packet reopened successfully!' : '¡Póliza reabierta exitosamente!'
+      })
+      await fetchPacket()
+    } catch (err: any) {
+      setPublishMessage({ type: 'error', text: err.message || 'Error reopening packet' })
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex h-96 items-center justify-center">
@@ -389,7 +445,40 @@ export default function PacketDetailPage() {
       )}
 
       {/* 2. Action Buttons Row */}
-      <div className="flex flex-wrap items-center justify-end gap-3">
+      <div className="flex flex-wrap items-center justify-end gap-3 print:hidden">
+        {/* Export to Excel */}
+        <Button 
+          variant="outline" 
+          onClick={handleExportExcel}
+          title={language === 'en' ? 'Export Journal Entry to Excel (.xlsx)' : 'Exportar Póliza a Excel (.xlsx)'}
+        >
+          <Download className="mr-2 h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+          {t('accounting.btn_export_excel') || 'Exportar a Excel'}
+        </Button>
+
+        {/* Print */}
+        <Button 
+          variant="outline" 
+          onClick={handlePrint}
+          title={language === 'en' ? 'Print or Save as PDF' : 'Imprimir o Guardar como PDF'}
+        >
+          <Printer className="mr-2 h-4 w-4 text-slate-600 dark:text-slate-300" />
+          {t('accounting.btn_print') || 'Imprimir'}
+        </Button>
+
+        {/* Reopen button if published or rejected */}
+        {(packet.status === 'published' || packet.status === 'rejected') && (
+          <Button 
+            variant="outline" 
+            onClick={handleReopen} 
+            disabled={actionLoading}
+            className="text-amber-600 border-amber-300 hover:bg-amber-50 dark:border-amber-700 dark:hover:bg-amber-950/40"
+          >
+            {actionLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RotateCcw className="mr-2 h-4 w-4" />}
+            {t('accounting.btn_reopen') || 'Reabrir Póliza'}
+          </Button>
+        )}
+
         {packet.status !== 'published' && (
           <Button 
             variant="indigo" 
