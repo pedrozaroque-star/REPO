@@ -26,7 +26,7 @@
  *     - Si el cocinero la vuelve a borrar en KDS, se vuelve a retirar de la tableta.
  * @dataFlow 
  *   - meat_consumption_history -> /api/inventory/preparador-history -> Carousel 3D + Intraday Accelerator.
- *   - order_ready_announcements + Realtime channel ('order-ready-prep-[storeCode]') -> Grid de Órdenes en Preparación -> POST /api/order-ready/call -> PC Manager.
+ *   - order_ready_announcements + Realtime channel ('order-ready-realtime') -> Grid de Órdenes en Preparación -> POST /api/order-ready/call -> PC Manager.
  * @notes
  *   - FIX (2026-10-12): Filtro temporal estricto (últimos 60 minutos con .gte('created_at', cutoff)) en la consulta de órdenes en preparación (fetchReadyOrders).
  *     Anteriormente, el acumulado de órdenes históricas IN_PROGRESS (bebidas/no cerradas de la mañana) llenaba el .limit(60) con órdenes de hace horas,
@@ -502,7 +502,7 @@ export default function PreparadorPage() {
         fetchReadyOrders(true)
 
         const channel = supabase
-            .channel(`order-ready-prep-${storeCode}`)
+            .channel('order-ready-realtime')
             .on(
                 'postgres_changes',
                 {

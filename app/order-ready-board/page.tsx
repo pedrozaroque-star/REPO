@@ -55,6 +55,12 @@
  * - ACCESO POR TIENDA: el selector solo lista las tiendas permitidas (GET /api/order-ready/my-stores): admin = todas,
  *   supervisor = su alcance, manager/asistente = solo la suya (selector bloqueado). Una tienda guardada/URL no permitida se
  *   reemplaza por la primera permitida y el servidor responde 403 si se intenta consultar otra.
+ * - CUÁDRUPLE REDUNDANCIA DE AUDIO (2026-10-13): Blindaje absoluto para llamados desde tableta de preparador:
+ *   1) WebSocket Broadcast cliente (canal unificado 'order-ready-realtime').
+ *   2) Server Broadcast (/api/order-ready/call emite siempre por 'order-ready-realtime').
+ *   3) PostgreSQL Replication (escucha cambios en 'announced_at' vía postgres_changes en order_ready_announcements).
+ *   4) Polling Fallback cada 4s (detecta llamadas con announced_at < 8s en fetchOrders).
+ *   Debounce acústico de 6 segundos por orden para evitar duplicidad de sonido entre capas.
  */
 
 'use client'
@@ -118,6 +124,7 @@ interface OrderItem {
   status: 'IN_PROGRESS' | 'READY' | 'COMPLETED'
   ready_at: string | null
   announced: boolean
+  announced_at?: string | null
   items_summary: string | null
   /** Solo cliente: marca un anuncio de recordatorio (no persiste en DB) */
   _reminder?: boolean
@@ -676,7 +683,7 @@ function OrderReadyBoardContent() {
     return () => clearInterval(timer)
   }, [])
 
-  // Inicializar o Desbloquear AudioContext al hacer clic en cualquier lugar
+  // Inicializar o Desbloquear AudioContext al interactuar con la pantalla o teclado
   const unlockAudio = useCallback(() => {
     try {
       if (!audioCtxRef.current) {
@@ -686,13 +693,28 @@ function OrderReadyBoardContent() {
         }
       }
       if (audioCtxRef.current && audioCtxRef.current.state === 'suspended') {
-        audioCtxRef.current.resume()
+        audioCtxRef.current.resume().catch(() => {})
       }
       setAudioUnlocked(true)
     } catch (e) {
       console.warn('Audio unlock error:', e)
     }
   }, [])
+
+  // Desbloquear AudioContext y permisos de sonido del navegador ante cualquier interacción global
+  useEffect(() => {
+    const handleGlobalInteraction = () => {
+      unlockAudio()
+    }
+    window.addEventListener('click', handleGlobalInteraction, { passive: true })
+    window.addEventListener('keydown', handleGlobalInteraction, { passive: true })
+    window.addEventListener('touchstart', handleGlobalInteraction, { passive: true })
+    return () => {
+      window.removeEventListener('click', handleGlobalInteraction)
+      window.removeEventListener('keydown', handleGlobalInteraction)
+      window.removeEventListener('touchstart', handleGlobalInteraction)
+    }
+  }, [unlockAudio])
 
   // Función para sintetizar un Chime de alta fidelidad tipo campanilla ("Ding-Dong")
   const playChime = useCallback((): Promise<void> => {
@@ -1435,6 +1457,28 @@ function OrderReadyBoardContent() {
           // Por lo tanto, registramos todas las órdenes listas en announcedIdsRef para garantizar silencio ante bumps de KDS.
           ready.forEach(ord => {
             announcedIdsRef.current.add(ord.id)
+
+            // Capa 4 de Redundancia (Polling Fallback):
+            // Si el WebSocket y Postgres Changes fallaron o se desconectaron momentáneamente,
+            // el polling periódico cada 4s detecta si una orden fue llamada en los últimos 8 segundos
+            // y dispara el anuncio si aún no ha sonado recientemente.
+            if (ord.announced_at) {
+              const annMs = Date.parse(ord.announced_at)
+              if (!isNaN(annMs) && (Date.now() - annMs) < 8000) {
+                const orderNumStr = String(ord.order_number)
+                const lastCall = lastImpulseTimeRef.current.get(orderNumStr) || 0
+                if (Date.now() - lastCall >= 6000) {
+                  handleImpulseRef.current?.({
+                    order_id: ord.id,
+                    order_number: ord.order_number,
+                    store_code: ord.store_code,
+                    dining_option: ord.dining_option,
+                    store_name: ord.store_name,
+                    called_at: ord.announced_at
+                  })
+                }
+              }
+            }
           })
         }
       }
@@ -1497,8 +1541,26 @@ function OrderReadyBoardContent() {
           table: 'order_ready_announcements'
         },
         (payload) => {
-          const row = (payload.new || payload.old) as OrderItem
+          const newRow = payload.new as any
+          const oldRow = payload.old as any
+          const row = (newRow || oldRow) as OrderItem
           if (row && row.store_code === selectedStore) {
+            // Capa 3 de Redundancia (PostgreSQL Replication Fallback):
+            // Si la llamada fue persistida en base de datos con un announced_at reciente (<15s)
+            // y es nuevo o actualizado, activar el llamado de audio si no sonó previamente por broadcast.
+            if (newRow && newRow.announced_at && newRow.announced_at !== oldRow?.announced_at) {
+              const announcedMs = Date.parse(newRow.announced_at)
+              if (!isNaN(announcedMs) && (Date.now() - announcedMs) < 15000) {
+                handleImpulseRef.current?.({
+                  order_id: newRow.id,
+                  order_number: newRow.order_number,
+                  store_code: newRow.store_code,
+                  dining_option: newRow.dining_option,
+                  store_name: newRow.store_name,
+                  called_at: newRow.announced_at
+                })
+              }
+            }
             fetchOrdersRef.current?.(false)
           }
         }

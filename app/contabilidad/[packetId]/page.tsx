@@ -901,15 +901,35 @@ export default function PacketDetailPage() {
             const rawExpected = Number(packet.expected_cash || 0)
             const expectedCashFromSales = Number(
               (packet.qb_sync_response as any)?.expected_cash_from_sales ??
+              (packet.qb_sync_response as any)?.validation?.expected_cash_from_sales ??
               (cashPayoutsTotal > 0 ? rawExpected + cashPayoutsTotal : rawExpected)
             )
+
+            // Cash In & Cash Out de Toast POS Cash Management
+            const cashInLine = packet.journal_lines?.find((l: any) => l.account === '12100' && l.memo === 'Cash In' && l.credit > 0)
+            const cashOutLine = packet.journal_lines?.find((l: any) => l.account === '12100' && l.memo === 'Cash Out' && l.debit > 0)
+            const cashInAmount = Number(
+              (packet.qb_sync_response as any)?.cash_in ??
+              (packet.qb_sync_response as any)?.validation?.cash_in ??
+              cashInLine?.credit ?? 0
+            )
+            const cashOutAmount = Number(
+              (packet.qb_sync_response as any)?.cash_out ??
+              (packet.qb_sync_response as any)?.validation?.cash_out ??
+              cashOutLine?.debit ?? 0
+            )
+
             const expectedCashDeposit = (packet.qb_sync_response as any)?.expected_cash_deposit !== undefined
               ? Number((packet.qb_sync_response as any).expected_cash_deposit)
-              : (cashPayoutsTotal > 0 ? Math.round((expectedCashFromSales - cashPayoutsTotal) * 100) / 100 : rawExpected)
+              : (cashPayoutsTotal > 0 || cashInAmount > 0 || cashOutAmount > 0
+                  ? Math.round((expectedCashFromSales + cashInAmount - cashOutAmount - cashPayoutsTotal) * 100) / 100
+                  : rawExpected)
+
+            const hasAdjustments = cashPayoutsTotal > 0 || cashInAmount > 0 || cashOutAmount > 0
 
             return (
               <div className="space-y-4 text-sm">
-                {cashPayoutsTotal > 0 ? (
+                {hasAdjustments ? (
                   <>
                     <div className="flex justify-between">
                       <span className="text-slate-500 dark:text-slate-400">
@@ -919,10 +939,24 @@ export default function PacketDetailPage() {
                         {formatCurrency(expectedCashFromSales)}
                       </span>
                     </div>
-                    <div className="flex justify-between text-rose-600 dark:text-rose-400 font-semibold">
-                      <span>{language === 'en' ? 'Cash Payouts' : 'Gastos en Efectivo (Payouts)'}</span>
-                      <span className="font-mono">-{formatCurrency(cashPayoutsTotal)}</span>
-                    </div>
+                    {cashInAmount > 0 && (
+                      <div className="flex justify-between text-emerald-600 dark:text-emerald-400 font-semibold">
+                        <span>{t('accounting.label_cash_in') || 'Cash In'}</span>
+                        <span className="font-mono">+{formatCurrency(cashInAmount)}</span>
+                      </div>
+                    )}
+                    {cashOutAmount > 0 && (
+                      <div className="flex justify-between text-rose-600 dark:text-rose-400 font-semibold">
+                        <span>{t('accounting.label_cash_out') || 'Cash Out'}</span>
+                        <span className="font-mono">-{formatCurrency(cashOutAmount)}</span>
+                      </div>
+                    )}
+                    {cashPayoutsTotal > 0 && (
+                      <div className="flex justify-between text-rose-600 dark:text-rose-400 font-semibold">
+                        <span>{language === 'en' ? 'Cash Payouts' : 'Gastos en Efectivo (Payouts)'}</span>
+                        <span className="font-mono">-{formatCurrency(cashPayoutsTotal)}</span>
+                      </div>
+                    )}
                     <div className="flex justify-between font-bold text-slate-900 dark:text-white pt-1 border-t border-slate-100 dark:border-slate-800">
                       <span>{language === 'en' ? 'Expected Cash Deposit' : 'Depósito en Efectivo Esperado'}</span>
                       <span className="font-mono text-emerald-700 dark:text-emerald-400">{formatCurrency(expectedCashDeposit)}</span>

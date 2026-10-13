@@ -242,12 +242,16 @@ export async function GET(request: Request) {
             cash_deposits: 0,
             cash_payouts: toastData.toastCashPayoutsList || [],
             cash_payouts_total: toastData.cashPayoutsTotal || 0,
+            cash_in: toastData.cashInTotal || 0,
+            cash_out: toastData.cashOutTotal || 0,
           }
 
           // Calculate Expected Cash (from gross receipts minus non-cash payments)
           const expectedCashFromSales = calculateExpectedCash(salesPacketData)
           const cashPayoutsTotal = salesPacketData.cash_payouts_total || 0
-          const expectedCashDeposit = Math.round((expectedCashFromSales - cashPayoutsTotal) * 100) / 100
+          const cashIn = salesPacketData.cash_in || 0
+          const cashOut = salesPacketData.cash_out || 0
+          const expectedCashDeposit = Math.round((expectedCashFromSales + cashIn - cashOut - cashPayoutsTotal) * 100) / 100
 
           // Toast Cash Management Parity:
           // El depósito bancario proviene estrictamente de lo registrado por el gerente en Toast POS Cash Management.
@@ -285,7 +289,11 @@ export async function GET(request: Request) {
               ? 'Unbalanced Journal Entry' 
               : isDepositPending
                 ? 'Depósito de efectivo pendiente en Toast POS'
-                : 'Packet was Updated and Passed All Validation'
+                : 'Packet was Updated and Passed All Validation',
+            cash_in: cashIn,
+            cash_out: cashOut,
+            toast_cash_in: toastData.toastCashInList || [],
+            toast_cash_out: toastData.toastCashOutList || [],
           }
 
           const totalDiscounts = toastData.discountsTotal ?? 0
@@ -329,6 +337,10 @@ export async function GET(request: Request) {
               toast_deposits: toastData.toastDepositsList || [],
               cash_payouts: salesPacketData.cash_payouts || [],
               cash_payouts_total: cashPayoutsTotal,
+              cash_in: cashIn,
+              cash_out: cashOut,
+              toast_cash_in: toastData.toastCashInList || [],
+              toast_cash_out: toastData.toastCashOutList || [],
               expected_cash_from_sales: expectedCashFromSales,
               expected_cash_deposit: expectedCashDeposit,
               sales_gross_by_option: toastData.salesGrossByOption || {},

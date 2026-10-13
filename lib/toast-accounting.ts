@@ -119,6 +119,11 @@ export interface ToastAccountingData {
   toastDepositsList: Array<{ guid: string; amount: number; date: string; employee?: string }>
   cashPayoutsTotal: number
   toastCashPayoutsList: Array<{ amount: number; reason: string; comment: string; date: string }>
+  // Toast Cash In & Cash Out (Entradas y Salidas de Gaveta registradas en Toast POS)
+  cashInTotal: number
+  toastCashInList: Array<{ amount: number; reason: string; comment: string; date: string }>
+  cashOutTotal: number
+  toastCashOutList: Array<{ amount: number; reason: string; comment: string; date: string }>
   // Validación de Órdenes Abiertas (Step 11 Cohesion)
   openOrdersCount: number
   outOfBalanceOrdersCount: number
@@ -215,12 +220,18 @@ export async function fetchToastAccountingData(
     }
   }
 
-  // Parsear payouts registrados en Toast POS (Cash Management Entries)
+  // Parsear payouts, cash in y cash out registrados en Toast POS (Cash Management Entries)
   let cashPayoutsTotal = 0
   const toastCashPayoutsList: Array<{ amount: number; reason: string; comment: string; date: string }> = []
+  let cashInTotal = 0
+  const toastCashInList: Array<{ amount: number; reason: string; comment: string; date: string }> = []
+  let cashOutTotal = 0
+  const toastCashOutList: Array<{ amount: number; reason: string; comment: string; date: string }> = []
+
   if (entriesRes && entriesRes.ok) {
     const rawEntries = await entriesRes.json().catch(() => [])
     if (Array.isArray(rawEntries)) {
+      // 1. Payouts (PAY_OUT)
       const payouts = rawEntries.filter((e: any) => e.type === 'PAY_OUT')
       for (const p of payouts) {
         const amt = Math.round(Math.abs(Number(p.amount) || 0) * 100) / 100
@@ -235,6 +246,38 @@ export async function fetchToastAccountingData(
             date: p.date,
           })
           cashPayoutsTotal = Math.round((cashPayoutsTotal + amt) * 100) / 100
+        }
+      }
+
+      // 2. Cash In (CASH_IN / PAID_IN / PAY_IN)
+      const cashIns = rawEntries.filter((e: any) => e.type === 'CASH_IN' || e.type === 'PAID_IN' || e.type === 'PAY_IN')
+      for (const ci of cashIns) {
+        const amt = Math.round(Math.abs(Number(ci.amount) || 0) * 100) / 100
+        if (amt > 0) {
+          const comment = (ci.reason || '').trim()
+          toastCashInList.push({
+            amount: amt,
+            reason: 'Cash In',
+            comment,
+            date: ci.date,
+          })
+          cashInTotal = Math.round((cashInTotal + amt) * 100) / 100
+        }
+      }
+
+      // 3. Cash Out (CASH_OUT)
+      const cashOuts = rawEntries.filter((e: any) => e.type === 'CASH_OUT')
+      for (const co of cashOuts) {
+        const amt = Math.round(Math.abs(Number(co.amount) || 0) * 100) / 100
+        if (amt > 0) {
+          const comment = (co.reason || '').trim()
+          toastCashOutList.push({
+            amount: amt,
+            reason: 'Cash Out',
+            comment,
+            date: co.date,
+          })
+          cashOutTotal = Math.round((cashOutTotal + amt) * 100) / 100
         }
       }
     }
@@ -934,6 +977,10 @@ export async function fetchToastAccountingData(
     toastDepositsList,
     cashPayoutsTotal,
     toastCashPayoutsList,
+    cashInTotal,
+    toastCashInList,
+    cashOutTotal,
+    toastCashOutList,
     openOrdersCount,
     outOfBalanceOrdersCount,
     openOrdersList,

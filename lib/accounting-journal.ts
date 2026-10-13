@@ -9,8 +9,11 @@
  * - Exact account mapping matching the legacy system.
  * - Open orders and deposits collected are debited to account 12049 (Deposit Sales Collected & Open Orders)
  *   and added to Non-Cash Payments, ensuring perfect parity with Cohesion and exact Expected Cash calculation.
+ * - Cash In & Cash Out: Movimientos de gaveta registrados en Toast Cash Management se registran en la cuenta 12100
+ *   (Tips/Grat Payable / Cash Clearing): Cash In como Crédito y Cash Out como Débito, afectando el efectivo esperado.
  * @dataFlow POS Sales Data -> generateJournalLines -> JournalResult -> QBO API
  * @notes Uses Math.round(x * 100) / 100 for all monetary calculations to avoid floating point precision issues.
+ *   Paridad total con Cohesion en Lynwood 2026-10-12: Cash In y Cash Out de $200.00 llevan los totales a $14,611.67 balanceados al centavo.
  */
 
 export interface JournalLine {
@@ -63,6 +66,8 @@ export interface SalesPacketData {
   cash_deposits: number;
   cash_payouts?: Array<{ amount: number; reason?: string; comment?: string }>;
   cash_payouts_total?: number;
+  cash_in?: number;
+  cash_out?: number;
 }
 
 export interface SiteMappingConfig {
@@ -177,6 +182,10 @@ export function generateJournalLines(salesData: SalesPacketData, siteMapping: Si
     const paidInAcct = (siteMapping as any).paid_in_account || (/huntington/i.test(siteMapping.location || '') ? cashOverShortAcct : openOrdersAcct);
     addLine(paidInAcct, 'Paid In Total (Deposits Received)', 0, salesData.paid_in, 'Paid In Totals');
   }
+  if (salesData.cash_in && salesData.cash_in > 0) {
+    // Cohesion: Movimientos de entrada de efectivo a gaveta (Toast Cash Management) van a cuenta 12100 como Crédito
+    addLine(tipsAcct, 'Cash In', 0, salesData.cash_in, 'Cash In');
+  }
 
   // --- DEBITS ---
   if (salesData.gift_card_redemption) {
@@ -211,11 +220,19 @@ export function generateJournalLines(salesData: SalesPacketData, siteMapping: Si
     }
   }
 
+  // --- CASH OUT (Toast POS Cash Management Drawer Out) ---
+  if (salesData.cash_out && salesData.cash_out > 0) {
+    // Cohesion: Salidas de efectivo de gaveta (Toast Cash Management) van a cuenta 12100 como Débito
+    addLine(tipsAcct, 'Cash Out', salesData.cash_out, 0, 'Cash Out');
+  }
+
   // --- CASH OVER / SHORT ---
-  // If actual cash deposit differs from expected cash deposit (expected cash from sales minus cash payouts), balance with cashOverShortAcct
+  // If actual cash deposit differs from expected cash deposit (expected cash from sales plus cash in minus cash out minus cash payouts), balance with cashOverShortAcct
   const expectedCashFromSales = calculateExpectedCash(salesData);
   const cashPayoutsTotal = salesData.cash_payouts_total || (salesData.cash_payouts?.reduce((s, p) => s + (p.amount || 0), 0) || 0);
-  const expectedCashDeposit = round(expectedCashFromSales - cashPayoutsTotal);
+  const cashIn = salesData.cash_in || 0;
+  const cashOut = salesData.cash_out || 0;
+  const expectedCashDeposit = round(expectedCashFromSales + cashIn - cashOut - cashPayoutsTotal);
   const cashDiff = round(salesData.cash_deposits - expectedCashDeposit);
 
   if (cashDiff > 0) {
