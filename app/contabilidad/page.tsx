@@ -47,20 +47,22 @@ interface Packet {
 // Map status to badge styles matching the standard app palette
 const STATUS_STYLES: Record<string, string> = {
   pending: 'bg-slate-100 text-slate-500 border border-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700',
+  pending_deposit: 'bg-amber-50 text-amber-800 border-2 border-amber-400/60 hover:bg-amber-100 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-600/70 shadow-sm',
+  open_orders: 'bg-rose-50 text-rose-800 border-2 border-rose-400/60 hover:bg-rose-100 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-600/70 shadow-sm',
   ready: 'bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 dark:bg-blue-900/40 dark:text-blue-300 dark:border-blue-800/60 shadow-sm',
-  reviewed: 'bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100 dark:bg-amber-900/40 dark:text-amber-300 dark:border-amber-800/60 shadow-sm',
+  reviewed: 'bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100 dark:bg-indigo-900/40 dark:text-indigo-300 dark:border-indigo-800/60 shadow-sm',
   published: 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 dark:bg-emerald-900/40 dark:text-emerald-300 dark:border-emerald-800/60 shadow-sm',
   rejected: 'bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100 dark:bg-rose-900/40 dark:text-rose-300 dark:border-rose-800/60 shadow-sm',
-  open_orders: 'bg-amber-500/15 text-amber-800 border-2 border-amber-500/50 hover:bg-amber-500/25 dark:bg-amber-950/50 dark:text-amber-200 dark:border-amber-600/70 shadow-sm',
 }
 
 const STATUS_ICONS: Record<string, React.ReactNode> = {
-  pending: <Circle className="w-3.5 h-3.5 mr-1" />,
-  ready: <PlayCircle className="w-3.5 h-3.5 mr-1 text-blue-600 dark:text-blue-400" />,
-  reviewed: <AlertCircle className="w-3.5 h-3.5 mr-1 text-amber-600 dark:text-amber-400" />,
-  published: <CheckCircle2 className="w-3.5 h-3.5 mr-1 text-emerald-600 dark:text-emerald-400" />,
-  rejected: <AlertCircle className="w-3.5 h-3.5 mr-1 text-rose-600 dark:text-rose-400" />,
-  open_orders: <AlertTriangle className="w-3.5 h-3.5 mr-1 text-amber-600 dark:text-amber-400" />,
+  pending: <Circle className="w-3.5 h-3.5 text-slate-400 shrink-0" />,
+  pending_deposit: <AlertCircle className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />,
+  open_orders: <AlertTriangle className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400 shrink-0" />,
+  ready: <Clock className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 shrink-0" />,
+  reviewed: <CheckCircle className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />,
+  published: <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />,
+  rejected: <XCircle className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400 shrink-0" />,
 }
 
 export default function AccountingPage() {
@@ -237,6 +239,30 @@ export default function AccountingPage() {
     return packets.find(p => String(p.store_id) === String(storeId) && p.business_date === dateStr)
   }
 
+  const getEffectiveStatus = (packet: any): string => {
+    if (!packet) return 'pending'
+    if (packet.status === 'published') return 'published'
+    if (packet.status === 'rejected') return 'rejected'
+
+    const val = packet.qb_sync_response?.validation
+    const hasOpenOrders = Boolean(
+      val?.hasOpenOrders ||
+      (val?.openOrdersCount && val.openOrdersCount > 0) ||
+      (val?.outOfBalanceOrdersCount && val.outOfBalanceOrdersCount > 0) ||
+      packet.has_open_orders
+    )
+    if (hasOpenOrders) return 'open_orders'
+
+    const cashDeposit = Number(packet.cash_deposit ?? 0)
+    const expectedCash = Number(packet.expected_cash ?? val?.expected_cash_deposit ?? 0)
+    const isDepositPending = Boolean(val?.isDepositPending || (cashDeposit === 0 && expectedCash > 0))
+    if (isDepositPending) return 'pending_deposit'
+
+    if (packet.status === 'reviewed') return 'reviewed'
+    if (packet.status === 'ready') return 'ready'
+    return packet.status || 'pending'
+  }
+
   const calculateDailyTotal = (dateStr: string) => {
     return packets
       .filter(p => p.business_date === dateStr)
@@ -250,9 +276,6 @@ export default function AccountingPage() {
         <div>
           <div className="flex items-center gap-3 flex-wrap">
             <h1 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">{t('accounting.title')}</h1>
-            <span className="bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-300 text-xs font-bold px-3 py-1 rounded-full border border-amber-200 dark:border-amber-700/60">
-              {t('accounting.info_savings') || 'Ahorro: $5,400 USD/año'}
-            </span>
           </div>
           <p className="text-slate-500 dark:text-slate-400 text-sm mt-1">{t('accounting.subtitle') || 'Conciliación diaria de ventas y publicación a QuickBooks Online'}</p>
         </div>
@@ -377,26 +400,22 @@ export default function AccountingPage() {
                         const packet = getPacketForCell(store.id, dateStr)
                         const postPublishDiscrepancy = (packet as any)?.qb_sync_response?.post_publish_discrepancy
                         const hasDiscrepancy = Boolean(postPublishDiscrepancy?.hasDiscrepancy)
-                        const displayStatus = packet?.status || 'pending'
+                        const effectiveStatus = getEffectiveStatus(packet)
 
                         return (
                           <td key={i} className="px-2 py-3 text-center">
                             {packet ? (
                               <Link href={`/contabilidad/${packet.id}`}>
                                 <div 
-                                  className={`inline-flex flex-col items-center justify-center px-3 py-1.5 text-xs rounded-xl cursor-pointer transition-all hover:scale-105 relative ${STATUS_STYLES[displayStatus] || STATUS_STYLES.pending}`}
+                                  className={`inline-flex flex-col items-center justify-center px-3 py-1.5 text-xs rounded-xl cursor-pointer transition-all hover:scale-105 relative ${STATUS_STYLES[effectiveStatus] || STATUS_STYLES.pending}`}
                                   title={hasDiscrepancy 
                                     ? `⚠️ ${t('accounting.late_refund_detected') || 'Reembolso tardío detectado en Toast POS: Dif'} $${postPublishDiscrepancy.diffNet}`
                                     : `${t('accounting.col_net_sales') || 'Venta Neta'}: ${formatCurrency(packet.net_sales || 0)}`}
                                 >
                                   <div className="flex items-center space-x-1 font-extrabold tracking-wide">
-                                    {displayStatus === 'ready' && <Clock className="w-3.5 h-3.5" />}
-                                    {displayStatus === 'reviewed' && <CheckCircle className="w-3.5 h-3.5" />}
-                                    {displayStatus === 'published' && <CheckCircle2 className="w-3.5 h-3.5" />}
-                                    {displayStatus === 'rejected' && <XCircle className="w-3.5 h-3.5" />}
-                                    {displayStatus === 'pending' && <Circle className="w-3.5 h-3.5 text-slate-400" />}
+                                    {STATUS_ICONS[effectiveStatus] || <Circle className="w-3.5 h-3.5 text-slate-400 shrink-0" />}
                                     <span>
-                                      {t(`accounting.status_${displayStatus}`) || displayStatus}
+                                      {t(`accounting.status_${effectiveStatus}`) || effectiveStatus}
                                     </span>
                                   </div>
                                   <span className="text-[10px] font-mono mt-0.5 opacity-90">
@@ -448,7 +467,10 @@ export default function AccountingPage() {
           <div className="flex items-center gap-4 flex-wrap">
             <span className="font-bold text-slate-800 dark:text-slate-200">{t('accounting.legend_title') || 'Estados:'}</span>
             <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-slate-400"></span> {t('accounting.status_pending') || 'Pendiente'}</span>
+            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-amber-500"></span> {t('accounting.status_pending_deposit') || 'Depósito Pendiente'}</span>
+            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-rose-500"></span> {t('accounting.status_open_orders') || 'Órdenes Abiertas'}</span>
             <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-blue-500"></span> {t('accounting.status_ready_calculated') || 'Listo (Calculado)'}</span>
+            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-indigo-500"></span> {t('accounting.status_reviewed') || 'Revisado'}</span>
             <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span> {t('accounting.status_published') || 'Publicado'}</span>
           </div>
           <div className="text-slate-600 dark:text-slate-400 font-medium">

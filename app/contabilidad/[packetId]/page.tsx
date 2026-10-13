@@ -21,7 +21,7 @@ import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useLanguage } from '@/lib/i18n'
 import { getQBStoreRefs } from '@/lib/qb-classes-locations'
-import { Loader2, ArrowLeft, Send, RefreshCw, CheckCircle2, AlertTriangle, Download, Printer, RotateCcw } from 'lucide-react'
+import { Loader2, ArrowLeft, Send, RefreshCw, CheckCircle2, AlertTriangle, AlertCircle, Download, Printer, RotateCcw } from 'lucide-react'
 import * as xlsx from 'xlsx'
 
 // Inline UI components matching the standard light/dark app theme
@@ -385,6 +385,15 @@ export default function PacketDetailPage() {
   const isDepositPending = Number(packet.cash_deposit || 0) === 0 && Number(packet.expected_cash || 0) > 0
   const isDepositToast = Number(packet.cash_deposit || 0) > 0
 
+  const validation = (packet.qb_sync_response as any)?.validation
+  const hasOpenOrders = Boolean(
+    validation?.hasOpenOrders ||
+    (validation?.openOrdersCount && validation.openOrdersCount > 0) ||
+    (validation?.outOfBalanceOrdersCount && validation.outOfBalanceOrdersCount > 0) ||
+    (packet as any).has_open_orders
+  )
+  const openOrdersList = validation?.openOrders || []
+
   return (
     <div className="w-full mx-auto px-4 md:px-6 py-6 space-y-6 pb-24">
       
@@ -403,12 +412,80 @@ export default function PacketDetailPage() {
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 flex-wrap">
+          {isDepositPending && packet.status !== 'published' && (
+            <Badge className="px-3 py-1 text-xs bg-amber-50 text-amber-800 border-2 border-amber-400/60 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-600/70 font-bold flex items-center gap-1 shadow-sm">
+              <AlertCircle className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+              {t('accounting.status_pending_deposit') || 'Depósito Pendiente'}
+            </Badge>
+          )}
+          {hasOpenOrders && packet.status !== 'published' && (
+            <Badge className="px-3 py-1 text-xs bg-rose-50 text-rose-800 border-2 border-rose-400/60 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-600/70 font-bold flex items-center gap-1 shadow-sm">
+              <AlertTriangle className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" />
+              {t('accounting.status_open_orders') || 'Órdenes Abiertas'}
+            </Badge>
+          )}
           <Badge className={`capitalize px-4 py-1.5 text-sm ${getStatusColor(packet.status)}`}>
             {t(`accounting.status_${packet.status}`) || packet.status}
           </Badge>
         </div>
       </div>
+
+      {/* Open Orders Alert Card (Step 11 Operational Warning) */}
+      {hasOpenOrders && packet.status !== 'published' && (
+        <div className="bg-rose-500/10 border-2 border-rose-500/40 dark:border-rose-500/30 rounded-2xl p-6 shadow-sm">
+          <div className="flex items-start gap-4">
+            <div className="p-3 bg-rose-500 text-white rounded-xl shrink-0 mt-0.5 shadow-md">
+              <AlertTriangle className="w-6 h-6 stroke-[2.5]" />
+            </div>
+            <div className="space-y-3 flex-1">
+              <div className="flex items-center justify-between gap-4 flex-wrap">
+                <h3 className="text-base font-black tracking-tight text-rose-950 dark:text-rose-200 flex items-center gap-2">
+                  <span>{language === 'en' ? '⚠️ Open / Out of Balance Orders in Toast POS' : '⚠️ Órdenes Abiertas o Desbalanceadas en Toast POS'}</span>
+                  <span className="bg-rose-500 text-white text-xs font-black px-2.5 py-0.5 rounded-full">
+                    {validation?.openOrdersCount || openOrdersList.length} {language === 'en' ? 'orders' : 'órdenes'}
+                  </span>
+                </h3>
+              </div>
+              <p className="text-sm text-slate-700 dark:text-slate-300 leading-relaxed font-medium">
+                {language === 'en' 
+                  ? 'There are unclosed tickets or out-of-balance checks in Toast POS for this business date. The variance is automatically assigned to account 12049 (Deposit Sales Collected & Open Orders) so the journal balances.'
+                  : 'Existen tickets sin cerrar o cheques desbalanceados en Toast POS para esta fecha comercial. La diferencia se asigna automáticamente a la cuenta 12049 (Depósitos Cobrados y Órdenes Abiertas) para cuadrar la póliza.'}
+              </p>
+              {openOrdersList.length > 0 && (
+                <div className="mt-2 overflow-x-auto max-h-48 overflow-y-auto rounded-xl border border-rose-200 dark:border-rose-800/60 bg-white/80 dark:bg-slate-900/80">
+                  <table className="w-full text-xs text-left">
+                    <thead className="bg-rose-50 dark:bg-rose-950/50 text-rose-800 dark:text-rose-300 font-bold border-b border-rose-100 dark:border-rose-900">
+                      <tr>
+                        <th className="px-3 py-2"># Orden</th>
+                        <th className="px-3 py-2">Cajero / Mesero</th>
+                        <th className="px-3 py-2">Estado</th>
+                        <th className="px-3 py-2 text-right">Total</th>
+                        <th className="px-3 py-2">Motivo</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-rose-100 dark:divide-rose-900/40 font-mono">
+                      {openOrdersList.map((ord: any, idx: number) => (
+                        <tr key={idx} className="hover:bg-rose-50/50 dark:hover:bg-rose-950/30">
+                          <td className="px-3 py-1.5 font-bold text-slate-800 dark:text-slate-200">{ord.orderNumber}</td>
+                          <td className="px-3 py-1.5 font-sans text-slate-600 dark:text-slate-400">{ord.serverName}</td>
+                          <td className="px-3 py-1.5">
+                            <span className="px-1.5 py-0.5 rounded bg-rose-100 dark:bg-rose-900/60 text-rose-700 dark:text-rose-300 font-semibold text-[10px]">
+                              {ord.status}
+                            </span>
+                          </td>
+                          <td className="px-3 py-1.5 text-right font-bold text-slate-900 dark:text-white">${Number(ord.totalAmount || 0).toFixed(2)}</td>
+                          <td className="px-3 py-1.5 font-sans text-[11px] text-slate-500 dark:text-slate-400 truncate max-w-xs">{ord.reason}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Post-Publish Discrepancy Alert Card */}
       {packet.status === 'published' && packet.qb_sync_response?.post_publish_discrepancy?.hasDiscrepancy && (
