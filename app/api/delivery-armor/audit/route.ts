@@ -1,6 +1,6 @@
 /**
  * @module app/api/delivery-armor/audit/route
- * @description Endpoint de mutación para registrar el progreso del Checklist de Coincidencia (Match 100%), las fotos de evidencia y la entrega al chofer.
+ * @description Endpoint de mutación para registrar cuatro controles rápidos, evidencia según riesgo y la liberación validada al chofer.
  *
  * @businessRules
  *   - Prohíbe columnas generadas en payloads de mutación.
@@ -13,7 +13,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { saveAuditProgress, confirmHandoffToDriver, verifyRonosPin } from '@/lib/delivery-armor'
+import { saveAuditProgress, confirmHandoffToDriver } from '@/lib/delivery-armor'
 
 export async function POST(req: NextRequest) {
   try {
@@ -46,7 +46,19 @@ export async function POST(req: NextRequest) {
       packerRonosName,
       packer_name,
       packerPin,
-      packer_pin
+      packer_pin,
+      quickChecks,
+      quick_checks,
+      expectedBagCount,
+      expected_bag_count,
+      confirmedBagCount,
+      confirmed_bag_count,
+      riskLevel,
+      risk_level,
+      riskReasons,
+      risk_reasons,
+      evidencePolicy,
+      evidence_policy
     } = body
 
     const targetStoreId = Number(storeId || store_id)
@@ -76,7 +88,13 @@ export async function POST(req: NextRequest) {
       photoSealedUrl: photoSealedUrl || photo_sealed_bag_url,
       packerRonosUserId: packerRonosUserId || packer_employee_id ? Number(packerRonosUserId || packer_employee_id) : undefined,
       packerRonosName: packerRonosName || packer_name,
-      packerPin: packerPin || packer_pin
+      packerPin: packerPin || packer_pin,
+      quickChecks: quickChecks || quick_checks || {},
+      expectedBagCount: Number(expectedBagCount || expected_bag_count || 1),
+      confirmedBagCount: Number(confirmedBagCount || confirmed_bag_count || 1),
+      riskLevel: riskLevel || risk_level || 'NORMAL',
+      riskReasons: Array.isArray(riskReasons || risk_reasons) ? (riskReasons || risk_reasons) : [],
+      evidencePolicy: evidencePolicy || evidence_policy || 'NONE'
     })
 
     return NextResponse.json({
@@ -107,43 +125,42 @@ export async function PUT(req: NextRequest) {
       driverName,
       courier_name,
       driverConfirmed,
-      courier_verified
+      courier_verified,
+      verificationMethod,
+      verification_method,
+      courierOrderReference,
+      courier_order_reference,
+      livePickupConfirmed,
+      live_pickup_confirmed
     } = body
 
     const targetOrderGuid = toastOrderGuid || order_guid
     const targetPin = String(handedPin || handoff_pin || '').trim()
-    const targetStoreId = Number(storeId || store_id || 6)
+    const targetStoreId = Number(storeId || store_id)
 
-    if (!targetOrderGuid || !targetPin) {
+    if (!targetOrderGuid || !targetPin || !targetStoreId) {
       return NextResponse.json({
         ok: false,
         error: 'Faltan campos obligatorios para entrega al chofer (orderGuid, PIN).'
       }, { status: 400 })
     }
 
-    let finalUserId = handedByRonosUserId ? Number(handedByRonosUserId) : undefined
-    let finalUserName = handedByRonosName
-
-    // Si no tenemos el ID de RONOS, validarlo en tiempo real con el PIN
-    if (!finalUserId || !finalUserName) {
-      const pinCheck = await verifyRonosPin(targetStoreId, targetPin)
-      if (!pinCheck.valid || !pinCheck.employeeUserId) {
-        return NextResponse.json({
-          ok: false,
-          error: pinCheck.error || 'PIN de colaborador no válido en RONOS para registrar la custodia.'
-        }, { status: 401 })
-      }
-      finalUserId = pinCheck.employeeUserId
-      finalUserName = pinCheck.fullName
+    const targetMethod = verificationMethod || verification_method
+    if (!['DOORDASH_QR', 'PLATFORM_ORDER_ID', 'APP_ORDER_SCREEN'].includes(targetMethod)) {
+      return NextResponse.json({ ok: false, error: 'Método de verificación del chofer inválido.' }, { status: 400 })
     }
 
     const audit = await confirmHandoffToDriver({
       toastOrderGuid: targetOrderGuid,
-      handedByRonosUserId: finalUserId,
-      handedByRonosName: finalUserName || 'Colaborador',
+      storeId: targetStoreId,
+      handedByRonosUserId: Number(handedByRonosUserId || 0),
+      handedByRonosName: handedByRonosName || 'Colaborador',
       handedPin: targetPin,
       driverName: driverName || courier_name,
-      driverConfirmed: driverConfirmed !== undefined ? !!driverConfirmed : !!courier_verified
+      driverConfirmed: driverConfirmed !== undefined ? !!driverConfirmed : !!courier_verified,
+      verificationMethod: targetMethod as 'DOORDASH_QR' | 'PLATFORM_ORDER_ID' | 'APP_ORDER_SCREEN',
+      courierOrderReference: String(courierOrderReference || courier_order_reference || ''),
+      livePickupConfirmed: livePickupConfirmed !== undefined ? !!livePickupConfirmed : !!live_pickup_confirmed
     })
 
     return NextResponse.json({

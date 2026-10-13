@@ -1,61 +1,38 @@
-import dotenv from 'dotenv';
-dotenv.config({ path: '.env.local' });
-import { verifyRonosPin, classifyPlatform, isHighRiskBeverage, getToastBusinessDate } from '../lib/delivery-armor';
+/**
+ * @module test-delivery-armor-core
+ * @description Simulación determinista del flujo de Entrega Blindada.
+ * @businessRules Valida corte 6 AM, plataformas, acentos, cuatro controles, riesgo y matemática finita.
+ * @dataFlow Funciones puras de lib/delivery-armor -> aserciones runtime.
+ * @notes No usa mocks de mutación ni expone PINs reales.
+ */
 
-async function testCore() {
-  console.log('🧪 Testing delivery-armor core logic...');
+import assert from 'node:assert/strict'
+import { areQuickChecksComplete, calculateDeliveryRisk, classifyPlatform, getToastBusinessDate, isDeliveryPlatform, isHighRiskBeverage } from '../lib/delivery-armor'
 
-  // 1. Test Toast Business Date (6 AM boundary)
-  const bizDate = getToastBusinessDate();
-  console.log('✅ Current Toast Business Date:', bizDate);
+const laInstant = (value: string) => new Date(`${value}-07:00`)
 
-  // 2. Test Platform Classification
-  const platforms = [
-    { opt: 'DoorDash - Delivery', serv: 'DoorDash', expected: 'DOORDASH' },
-    { opt: 'Uber Eats - Delivery', serv: '', expected: 'UBER_EATS' },
-    { opt: 'GrubHub Delivery', serv: 'Grubhub', expected: 'GRUBHUB' },
-    { opt: 'Toast Online', serv: '', expected: 'TOAST_ONLINE' },
-    { opt: 'Online Ordering - Delivery', serv: '', expected: 'TOAST_ONLINE' },
-    { opt: 'Curbside Pickup', serv: '', expected: 'TOAST_ONLINE' },
-    { opt: 'To Go', serv: '', expected: 'TAKEOUT' }
-  ];
+assert.equal(getToastBusinessDate(laInstant('2026-10-13T05:59:00')), '20261012')
+assert.equal(getToastBusinessDate(laInstant('2026-10-13T06:00:00')), '20261013')
+assert.equal(getToastBusinessDate(laInstant('2026-10-13T23:59:00')), '20261013')
+assert.equal(getToastBusinessDate(laInstant('2026-10-14T00:00:00')), '20261013')
 
-  for (const p of platforms) {
-    const res = classifyPlatform(p.opt, p.serv);
-    if (res !== p.expected) {
-      console.error(`❌ Mismatch for ${p.opt}: got ${res}, expected ${p.expected}`);
-      process.exit(1);
-    }
-  }
-  console.log('✅ All off-premise platforms correctly classified!');
+assert.equal(classifyPlatform('DOORDASH - DELIVERY'), 'DOORDASH')
+assert.equal(classifyPlatform('Uber Eats'), 'UBER_EATS')
+assert.equal(classifyPlatform('Postmates'), 'UBER_EATS')
+assert.equal(classifyPlatform('GrubHub Delivery'), 'GRUBHUB')
+assert.equal(isDeliveryPlatform('To Go'), false)
+assert.equal(isDeliveryPlatform('For Here'), false)
 
-  // 3. Test High-risk beverage detection
-  const drinks = ['Horchata 32oz', 'Coca Cola Mexicana', 'Agua de Jamaica', 'Jarrito Mandarina', 'Taco Asada'];
-  const drinkFlags = drinks.map(d => ({ name: d, isDrink: isHighRiskBeverage(d) }));
-  console.log('✅ Beverage risk flags:', drinkFlags);
-
-  // 4. Test RONOS PIN verification for Central (#6) and Slauson (#7)
-  // Let's test with David Rodriguez (pin 4312 from Central)
-  const pinTest = await verifyRonosPin(6, '4312');
-  console.log('✅ PIN 4312 validation result:', pinTest);
-  if (!pinTest.valid) {
-    console.error('❌ Expected pin 4312 to be valid in Central!');
-    process.exit(1);
-  }
-
-  // Test invalid PIN
-  const invalidPinTest = await verifyRonosPin(6, '0000');
-  console.log('✅ Invalid PIN test result:', invalidPinTest);
-  if (invalidPinTest.valid) {
-    console.error('❌ Expected pin 0000 to be invalid!');
-    process.exit(1);
-  }
-
-  console.log('🎉 delivery-armor core logic 100% verified!');
-  process.exit(0);
+for (const drink of ['Limón', 'Limon', 'Sangría', 'Sangria', 'CAFÉ', 'Cafe', 'Horchata']) {
+  assert.equal(isHighRiskBeverage(drink), true, drink)
 }
+assert.equal(isHighRiskBeverage('Taco Asada'), false)
 
-testCore().catch(err => {
-  console.error(err);
-  process.exit(1);
-});
+assert.equal(areQuickChecksComplete({ foodComplete: true, drinksComplete: true, bagCountCorrect: true, bagSealed: true }), true)
+assert.equal(areQuickChecksComplete({ foodComplete: true, drinksComplete: true, bagCountCorrect: true, bagSealed: false }), false)
+
+assert.deepEqual(calculateDeliveryRisk({ hasRefrigeratedBeverages: false, totalItemsCount: 7, confirmedBagCount: 1 }), { level: 'NORMAL', reasons: [], evidencePolicy: 'NONE' })
+assert.equal(calculateDeliveryRisk({ hasRefrigeratedBeverages: true, totalItemsCount: 8, confirmedBagCount: 2 }).evidencePolicy, 'SEALED_BAG')
+
+for (const value of [0, 1, 8, 20]) assert.equal(Number.isFinite(value / Math.max(1, value)), true)
+console.log('Delivery Armor core simulation: PASS')

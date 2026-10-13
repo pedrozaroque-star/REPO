@@ -36,6 +36,7 @@
  * - Bebidas Medium/Large For Here y To Go de caja entregan vaso ELDP22 (22 oz) o ELDP32 (32 oz), pero el cliente puede elegir soda Coca-Cola, agua fresca o mezcla. El botón no identifica líquido ni volumen servido. En Drive Thru, TakeOut de plataformas, Delivery y Party Trays sí se identifica sabor y tamaño de la bebida preparada; Viele & Sons continúa manual.
  * - Torta Salchicha consume 2.3 oz de Salchicha Bag por receta (bolsa de 1 lb) y 0.6 oz de mayonesa medida.
  * - Cada Gallon Agua/Agua Fresca vendido consume un Galón Vacío; su caja en catálogo contiene 48 piezas, así que el consumo teórico por venta es 1/48 caja.
+ * - Entrega Blindada nunca autoriza una bolsa por nombre: usa cuatro controles rápidos, bolsas coincidentes y verificación nativa por plataforma; los PIN de RONOS no se exponen en respuestas.
  * - Al explicar consumo teórico de tortillas o sopes vendidos por docena, quantity_per_unit ya expresa piezas por paquete; no se divide otra vez entre 12.
  * - Seguridad Orden Diaria (2026-10-01): escrituras de PAR, sobrantes y borradores requieren sesión y perfil de tienda incluso en desarrollo; un fallo DB de sobrante no equivale a captura. QuickBooks no debe crear otro Estimate si falla la lectura o actualización de uno existente, ni enviar artículos positivos sin mapeo QB. La idempotencia/concurrencia del primer envío y el reemplazo transaccional de borradores aún requieren cierre antes de activar autonomía.
  * - Sitio Web Oficial Tacos Gavilan (tacosgavilan-web): Toast es el procesador transaccional exclusivo (order.online/business/-137616); Slauson Store ID es estrictamente 23989119 (sin colisión con LA Broadway 260769); West Covina canónico 725035; formulario de contacto persiste a customer_feedback con source='website_contact' y mapeo a las 15 tiendas activas. Centro de mando integral en /nueva-web (Diseño & Simulador responsive, Buzón & Leads de Supabase, Dominio & Vercel DNS en vivo, Historia / Origen / Futuro, y Biblioteca de Recursos de marca con 199.9 MB de respaldo de producción) servido por /api/web-preview.
@@ -574,6 +575,18 @@ export const TOOL_DECLARATIONS = [
         limit: { type: 'NUMBER', description: 'Límite de órdenes a consultar (por defecto 20)' }
       }
     }
+  },
+  {
+    name: 'query_delivery_handoffs',
+    description: 'Consultar el resumen operativo de Entrega Blindada sin exponer PINs: pendientes, listas y liberadas, plataforma, verificación y excepciones.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        store_id: { type: 'NUMBER', description: 'ID numérico opcional de sucursal.' },
+        status: { type: 'STRING', description: 'PENDING_MATCH, PACKED_AND_SEALED, DELIVERED o ALL.' },
+        limit: { type: 'NUMBER', description: 'Máximo 50 registros; por defecto 20.' }
+      }
+    }
   }
 ]
 
@@ -623,11 +636,36 @@ export async function executeTool(name: string, args: any): Promise<string> {
       case 'query_order_ready_board': return await queryOrderReadyBoardTool(args)
       case 'query_quickbooks_bills': return await queryQuickbooksBillsTool(args)
       case 'query_mobile_orders': return await queryMobileOrdersTool(args)
+      case 'query_delivery_handoffs': return await queryDeliveryHandoffs(args)
       default: return `Tool "${name}" not found.`
     }
   } catch (e: any) {
     return `Error executing ${name}: ${e.message}`
   }
+}
+
+async function queryDeliveryHandoffs(args: any): Promise<string> {
+  const limit = Math.min(50, Math.max(1, Number(args?.limit) || 20))
+  let query = supabaseAdmin
+    .from('delivery_packing_audits')
+    .select('store_id, toast_display_number, platform, customer_name, status, quick_checks, confirmed_bag_count, risk_level, evidence_policy, courier_verification_method, live_pickup_confirmed, packer_ronos_name, handed_by_ronos_name, packed_at, handed_at')
+    .order('created_at', { ascending: false })
+    .limit(limit)
+
+  if (Number(args?.store_id) > 0) query = query.eq('store_id', Number(args.store_id))
+  if (args?.status && args.status !== 'ALL') query = query.eq('status', String(args.status))
+
+  const { data, error } = await query
+  if (error) throw error
+  const rows = data || []
+  const counts = rows.reduce((acc: Record<string, number>, row: any) => {
+    acc[row.status] = (acc[row.status] || 0) + 1
+    return acc
+  }, {})
+  const detail = rows.map((row: any) =>
+    `- Tienda ${row.store_id} | #${row.toast_display_number} | ${row.platform} | ${row.status} | bolsas ${row.confirmed_bag_count || 1} | verificación ${row.courier_verification_method || 'pendiente'} | recogida en vivo ${row.live_pickup_confirmed ? 'sí' : 'no'}`
+  )
+  return `Entrega Blindada: ${rows.length} registro(s). ${Object.entries(counts).map(([status, count]) => `${status}: ${count}`).join(' | ') || 'Sin actividad'}\n${detail.join('\n')}`
 }
 
 // ── Store map helper (shared) ──

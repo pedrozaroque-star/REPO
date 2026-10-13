@@ -3,13 +3,13 @@
  * @description Módulo central de Blindaje Delivery para Tacos Gavilan.
  *   - Integra Toast API v2 Orders y Dining Options para captura exhaustiva de pedidos off-premise (DoorDash, Uber Eats, Grubhub, Toast Online, Curbside, Takeout).
  *   - Valida la identidad del personal mediante PIN de 4 dígitos sincronizado directamente desde RONOS (Cingular HR), no de Toast.
- *   - Administra el Checklist Interactivo con Candado de Coincidencia (Match 100%) y el Protocolo de Doble Evidencia Fotográfica (Foto 1: Pre-sellado / Foto 2: Post-sellado).
+ *   - Administra cuatro controles operativos rápidos, evidencia proporcional al riesgo y la liberación segura de la bolsa.
  *   - Genera expedientes de disputa (Dispute Dossiers) automáticos con argumentación legal en inglés para DoorDash Merchant Portal y Uber Eats Manager.
  *
  * @businessRules
  *   - El día laboral inicia a las 6:00 AM y termina a las 5:59 AM del día siguiente. El turno PM inicia a las 5:00 PM.
  *   - Protocolo Toast API: NUNCA hardcodear GUIDs de Dining Options; siempre traducir vía getDiningOptionsMap().
- *   - Ninguna orden puede sellarse o fotografiarse en modo sellado sin alcanzar el 100% de coincidencia (Match 100%) en el checklist.
+ *   - Ninguna bolsa se libera sin confirmar platillos, bebidas, cantidad de bolsas, sello y verificación nativa de la plataforma.
  *   - Las bebidas refrigeradas (Horchatas, sodas mexicanas, aguas frescas) son marcadas como ítems de alto riesgo (High Risk) para evitar olvidos.
  *   - La entrega al repartidor requiere validación de app activa y registro del PIN de RONOS del colaborador en turno.
  *
@@ -42,6 +42,17 @@ export type AuditStatus =
   | 'PACKED_AND_SEALED'
   | 'DELIVERED'
   | 'DISPUTED'
+
+export type DeliveryRiskLevel = 'NORMAL' | 'HIGH'
+export type EvidencePolicy = 'NONE' | 'SEALED_BAG'
+export type CourierVerificationMethod = 'DOORDASH_QR' | 'PLATFORM_ORDER_ID' | 'APP_ORDER_SCREEN'
+
+export interface DeliveryQuickChecks {
+  foodComplete: boolean
+  drinksComplete: boolean
+  bagCountCorrect: boolean
+  bagSealed: boolean
+}
 
 export interface OrderItemDetail {
   id: string
@@ -76,7 +87,38 @@ export interface OffPremiseOrder {
     handedByName?: string | null
     handedAt?: string | null
     driverConfirmed?: boolean
+    quickChecks?: DeliveryQuickChecks
+    expectedBagCount?: number
+    confirmedBagCount?: number | null
+    riskLevel?: DeliveryRiskLevel
+    riskReasons?: string[]
+    evidencePolicy?: EvidencePolicy
+    courierVerificationMethod?: CourierVerificationMethod | null
+    courierOrderReference?: string | null
+    livePickupConfirmed?: boolean
   }
+}
+
+export function areQuickChecksComplete(checks: Partial<DeliveryQuickChecks> | null | undefined): boolean {
+  return !!(
+    checks?.foodComplete &&
+    checks?.drinksComplete &&
+    checks?.bagCountCorrect &&
+    checks?.bagSealed
+  )
+}
+
+export function calculateDeliveryRisk(params: {
+  hasRefrigeratedBeverages: boolean
+  totalItemsCount: number
+  confirmedBagCount: number
+}): { level: DeliveryRiskLevel; reasons: string[]; evidencePolicy: EvidencePolicy } {
+  const reasons: string[] = []
+  if (params.hasRefrigeratedBeverages) reasons.push('BEBIDA_REFRIGERADA')
+  if (params.totalItemsCount >= 8) reasons.push('ORDEN_GRANDE')
+  if (params.confirmedBagCount > 1) reasons.push('MULTIPLES_BOLSAS')
+  const level: DeliveryRiskLevel = reasons.length > 0 ? 'HIGH' : 'NORMAL'
+  return { level, reasons, evidencePolicy: level === 'HIGH' ? 'SEALED_BAG' : 'NONE' }
 }
 
 /**
@@ -98,8 +140,8 @@ export async function verifyRonosPin(storeId: number, pin: string): Promise<{
   error?: string
 }> {
   const cleanPin = String(pin || '').trim()
-  if (cleanPin.length < 3) {
-    return { valid: false, error: 'El PIN debe contener al menos 4 dígitos.' }
+  if (!/^\d{4}$/.test(cleanPin)) {
+    return { valid: false, error: 'El PIN debe contener exactamente 4 dígitos.' }
   }
 
   const companyId = getRonosCompanyId(storeId)
@@ -151,7 +193,7 @@ export async function verifyRonosPin(storeId: number, pin: string): Promise<{
  * Detecta si un ítem corresponde a una bebida o producto refrigerado de alto riesgo de olvido
  */
 export function isHighRiskBeverage(name: string): boolean {
-  const n = String(name || '').toLowerCase()
+  const n = String(name || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
   return (
     n.includes('horchata') ||
     n.includes('jamaica') ||
@@ -363,7 +405,7 @@ export async function fetchOffPremiseOrders(storeId: number, targetBusinessDate?
     const items: OrderItemDetail[] = []
     const checks = o.checks || []
 
-    checks.forEach((chk: any) => {
+    checks.forEach((chk: any, checkIndex: number) => {
       const selections = chk.selections || []
       selections.forEach((sel: any, idx: number) => {
         const selName = sel.displayName || sel.itemGroup?.name || 'Artículo'
@@ -380,9 +422,9 @@ export async function fetchOffPremiseOrders(storeId: number, targetBusinessDate?
         }
 
         items.push({
-          id: sel.guid || `item_${idx}_${Date.now()}`,
+          id: sel.guid || `${o.guid}:check_${checkIndex}:item_${idx}`,
           displayName: selName,
-          quantity: Number(sel.quantity || 1),
+          quantity: Number.isFinite(Number(sel.quantity)) ? Math.max(0, Number(sel.quantity)) : 1,
           price: Number(sel.price || 0),
           modifiers: modifiersList,
           isHighRiskDrink: isHighRiskBeverage(selName)
@@ -417,7 +459,16 @@ export async function fetchOffPremiseOrders(storeId: number, targetBusinessDate?
         packedAt: existingAudit.packed_at,
         handedByName: existingAudit.handed_by_ronos_name,
         handedAt: existingAudit.handed_at,
-        driverConfirmed: existingAudit.driver_confirmed
+        driverConfirmed: existingAudit.driver_confirmed,
+        quickChecks: existingAudit.quick_checks || undefined,
+        expectedBagCount: Number(existingAudit.expected_bag_count || 1),
+        confirmedBagCount: existingAudit.confirmed_bag_count == null ? null : Number(existingAudit.confirmed_bag_count),
+        riskLevel: existingAudit.risk_level || 'NORMAL',
+        riskReasons: Array.isArray(existingAudit.risk_reasons) ? existingAudit.risk_reasons : [],
+        evidencePolicy: existingAudit.evidence_policy || 'NONE',
+        courierVerificationMethod: existingAudit.courier_verification_method || null,
+        courierOrderReference: existingAudit.courier_order_reference || null,
+        livePickupConfirmed: !!existingAudit.live_pickup_confirmed
       } : undefined
     })
   }
@@ -452,6 +503,12 @@ export async function saveAuditProgress(params: {
   packerRonosUserId?: number
   packerRonosName?: string
   packerPin?: string
+  quickChecks: DeliveryQuickChecks
+  expectedBagCount: number
+  confirmedBagCount: number
+  riskLevel: DeliveryRiskLevel
+  riskReasons: string[]
+  evidencePolicy: EvidencePolicy
 }): Promise<any> {
   const {
     storeId,
@@ -469,12 +526,34 @@ export async function saveAuditProgress(params: {
     photoSealedUrl,
     packerRonosUserId,
     packerRonosName,
-    packerPin
+    packerPin,
+    quickChecks,
+    expectedBagCount,
+    confirmedBagCount,
+    riskLevel,
+    riskReasons,
+    evidencePolicy
   } = params
 
-  const status: AuditStatus = (photoOpenUrl && photoSealedUrl && matchCompleted)
-    ? 'PACKED_AND_SEALED'
-    : (matchCompleted ? 'MATCHED' : 'PENDING_MATCH')
+  if (!Number.isInteger(expectedBagCount) || expectedBagCount < 1 || expectedBagCount > 20) {
+    throw new Error('La cantidad esperada de bolsas es inválida.')
+  }
+  if (confirmedBagCount !== expectedBagCount) {
+    throw new Error('La cantidad confirmada de bolsas no coincide con la esperada.')
+  }
+  if (!areQuickChecksComplete(quickChecks) || !matchCompleted) {
+    throw new Error('Los cuatro controles rápidos deben estar confirmados antes de dejar lista la orden.')
+  }
+  if (evidencePolicy === 'SEALED_BAG' && !photoSealedUrl) {
+    throw new Error('Esta orden de riesgo requiere una foto de la bolsa sellada con el ticket visible.')
+  }
+  if (!packerPin) throw new Error('Se requiere el PIN del colaborador responsable.')
+  const verifiedPacker = await verifyRonosPin(storeId, packerPin)
+  if (!verifiedPacker.valid || !verifiedPacker.employeeUserId || !verifiedPacker.fullName) {
+    throw new Error(verifiedPacker.error || 'No fue posible validar al colaborador en RONOS.')
+  }
+
+  const status: AuditStatus = 'PACKED_AND_SEALED'
 
   const payload: any = {
     store_id: storeId,
@@ -490,22 +569,30 @@ export async function saveAuditProgress(params: {
     match_completed: matchCompleted,
     photo_open_url: photoOpenUrl || null,
     photo_sealed_url: photoSealedUrl || null,
-    packer_ronos_user_id: packerRonosUserId || null,
-    packer_ronos_name: packerRonosName || null,
-    packer_pin: packerPin || null,
-    packed_at: matchCompleted ? new Date().toISOString() : null,
+    packer_ronos_user_id: verifiedPacker.employeeUserId,
+    packer_ronos_name: verifiedPacker.fullName,
+    packer_pin: null,
+    quick_checks: quickChecks,
+    expected_bag_count: expectedBagCount,
+    confirmed_bag_count: confirmedBagCount,
+    risk_level: riskLevel,
+    risk_reasons: riskReasons,
+    evidence_policy: evidencePolicy,
+    packed_at: new Date().toISOString(),
     status,
     updated_at: new Date().toISOString()
   }
 
-  // Verificar si ya existe registro previo
   const { data: existing } = await supabaseAdmin
     .from('delivery_packing_audits')
-    .select('id')
+    .select('id, status')
     .eq('toast_order_guid', toastOrderGuid)
     .maybeSingle()
 
   if (existing) {
+    if (existing.status === 'DELIVERED') {
+      throw new Error('La orden ya fue liberada al chofer y no puede regresar a empaque.')
+    }
     const { data: updated, error } = await supabaseAdmin
       .from('delivery_packing_audits')
       .update(payload)
@@ -532,28 +619,70 @@ export async function saveAuditProgress(params: {
  */
 export async function confirmHandoffToDriver(params: {
   toastOrderGuid: string
+  storeId: number
   handedByRonosUserId: number
   handedByRonosName: string
   handedPin: string
   driverName?: string
   driverConfirmed: boolean
+  verificationMethod: CourierVerificationMethod
+  courierOrderReference: string
+  livePickupConfirmed: boolean
 }): Promise<any> {
   const {
     toastOrderGuid,
-    handedByRonosUserId,
-    handedByRonosName,
+    storeId,
     handedPin,
     driverName,
-    driverConfirmed
+    driverConfirmed,
+    verificationMethod,
+    courierOrderReference,
+    livePickupConfirmed
   } = params
 
+  const verifiedEmployee = await verifyRonosPin(storeId, handedPin)
+  if (!verifiedEmployee.valid || !verifiedEmployee.employeeUserId || !verifiedEmployee.fullName) {
+    throw new Error(verifiedEmployee.error || 'No fue posible validar al colaborador en RONOS.')
+  }
+  if (!driverConfirmed || !livePickupConfirmed || !courierOrderReference.trim()) {
+    throw new Error('Debe observarse la confirmación en vivo y registrarse la referencia de la orden.')
+  }
+
+  const { data: current, error: currentError } = await supabaseAdmin
+    .from('delivery_packing_audits')
+    .select('id, store_id, status, match_completed, quick_checks, expected_bag_count, confirmed_bag_count, platform, evidence_policy, photo_sealed_url')
+    .eq('toast_order_guid', toastOrderGuid)
+    .maybeSingle()
+
+  if (currentError || !current) throw new Error('La orden no tiene un registro de empaque listo para liberar.')
+  if (Number(current.store_id) !== storeId) throw new Error('La orden no pertenece a la sucursal activa.')
+  if (current.status === 'DELIVERED') throw new Error('La orden ya fue liberada al chofer.')
+  if (current.status !== 'PACKED_AND_SEALED' || !current.match_completed || !areQuickChecksComplete(current.quick_checks)) {
+    throw new Error('La orden todavía no cumple los controles de empaque y sello.')
+  }
+  if (Number(current.expected_bag_count) !== Number(current.confirmed_bag_count)) {
+    throw new Error('La cantidad de bolsas no está confirmada.')
+  }
+  if (current.evidence_policy === 'SEALED_BAG' && !current.photo_sealed_url) {
+    throw new Error('Falta la evidencia requerida para esta orden de riesgo.')
+  }
+  if (current.platform === 'DOORDASH' && verificationMethod !== 'DOORDASH_QR') {
+    throw new Error('DoorDash requiere verificar el QR nativo del ticket en la app del Dasher.')
+  }
+  if (current.platform !== 'DOORDASH' && verificationMethod === 'DOORDASH_QR') {
+    throw new Error('El método QR de DoorDash no corresponde a esta plataforma.')
+  }
+
   const payload = {
-    handed_by_ronos_user_id: handedByRonosUserId,
-    handed_by_ronos_name: handedByRonosName,
-    handed_pin: handedPin,
+    handed_by_ronos_user_id: verifiedEmployee.employeeUserId,
+    handed_by_ronos_name: verifiedEmployee.fullName,
+    handed_pin: null,
     handed_at: new Date().toISOString(),
     driver_name: driverName || 'Repartidor Verificado',
     driver_confirmed: driverConfirmed,
+    courier_verification_method: verificationMethod,
+    courier_order_reference: courierOrderReference.trim().slice(-12),
+    live_pickup_confirmed: livePickupConfirmed,
     status: 'DELIVERED' as AuditStatus,
     updated_at: new Date().toISOString()
   }
@@ -561,7 +690,8 @@ export async function confirmHandoffToDriver(params: {
   const { data: updated, error } = await supabaseAdmin
     .from('delivery_packing_audits')
     .update(payload)
-    .eq('toast_order_guid', toastOrderGuid)
+    .eq('id', current.id)
+    .eq('status', 'PACKED_AND_SEALED')
     .select('*')
     .single()
 
@@ -592,19 +722,17 @@ VERIFIED PACKER: ${audit.packer_ronos_name || 'Staff Employee'} (RONOS ID #${aud
 HANDOFF AGENT: ${audit.handed_by_ronos_name || 'Counter Staff'} (Handoff at: ${audit.handed_at || 'Verified'})
 
 OFFICIAL DISPUTE STATEMENT:
-"This order was prepared strictly to specifications and verified item-by-item against the POS kitchen check. 
-Prior to packaging, photographic proof (Photo 1) was recorded confirming all requested items were complete, correctly prepared, and present. 
-The package was then sealed using tamper-evident destructible security tape and documented (Photo 2) showing the seal 100% intact before custody transfer to the delivery courier. 
-The courier verified and confirmed pickup on their live mobile application. 
-The claim of missing or incorrect items is completely unfounded, fraudulent, or the direct result of unauthorized third-party tampering in transit. 
-We formally request the immediate reversal and reimbursement of this unjust error charge."
+"This order passed the restaurant's four-point release control for prepared items, beverages, bag count, and seal integrity.
+The custody record identifies the responsible restaurant employee and the handoff time.
+Courier verification method: ${audit.courier_verification_method || 'not recorded'}; live pickup confirmation observed: ${audit.live_pickup_confirmed ? 'yes' : 'no'}.
+${audit.photo_sealed_url ? 'A timestamped photograph of the sealed bag and visible ticket is attached.' : 'No photographic evidence is asserted for this order.'}
+We request a review of the error charge against the attached order-level custody evidence."
 
 VERIFIED PACKED ITEMS:
 ${itemsList}
 
-EVIDENCE PHOTOGRAPHS ATTACHED:
-1. Proof of Contents (Pre-Seal): ${audit.photo_open_url || 'Attached'}
-2. Proof of Seal Integrity (Post-Seal): ${audit.photo_sealed_url || 'Attached'}
+AVAILABLE EVIDENCE:
+1. Sealed bag and ticket: ${audit.photo_sealed_url || 'Not captured / not asserted'}
 --------------------------------------------------------------------------------
 `.trim()
 }

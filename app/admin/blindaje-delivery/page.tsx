@@ -1,10 +1,10 @@
 /**
  * @module BovedaDisputasBlindajeDelivery
- * @description Bóveda de Disputas y Auditoría Forense de Entregas para Tacos Gavilan. Permite a gerentes y administradores auditar órdenes empaquetadas, inspeccionar la doble evidencia fotográfica y generar expedientes probatorios legales con 1-click para ganar disputas y revertir contracargos en DoorDash, Uber Eats y Grubhub.
+ * @description Bóveda de Disputas y Auditoría de Entrega Blindada para Tacos Gavilan. Permite revisar controles rápidos, cadena de custodia, verificación del chofer y la evidencia realmente disponible.
  * @businessRules
  * - Horario Laboral de Tacos Gavilan: 6:00 AM a 5:59 AM del siguiente día (Turno PM desde 5:00 PM).
  * - Identificación de Personal: Rastreabilidad estricta mediante el PIN de RONOS del empacador y del colaborador que entrega al chofer.
- * - Doble Evidencia Probatoria: Vincula Foto 1 (Contenido abierto con ticket) y Foto 2 (Bolsa sellada con sello inviolable).
+ * - Evidencia proporcional: Las órdenes de riesgo conservan foto sellada; las normales no cargan trabajo fotográfico obligatorio.
  * - Expediente Legal de Disputa: Redacta y formatea automáticamente la declaración oficial en inglés y español lista para pegar en los portales de DoorDash Merchant Portal y Uber Eats Manager.
  * @dataFlow Supabase `delivery_packing_audits` & `stores` -> API `/api/delivery-armor/disputes` -> BovedaDisputas UI
  * @notes Piloto inicial en Slauson (#7) y LA Central (#6). Estilo adaptado al diseño claro oficial de Tacos Gavilan con soporte de modo oscuro.
@@ -287,7 +287,7 @@ support@tacosgavilan.com`
                 </span>
               </div>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                Tacos Gavilan • Control de Empaque, Doble Evidencia y Protección contra Contracargos
+                Tacos Gavilan • Control de Entrega, Custodia y Protección contra Contracargos
               </p>
             </div>
           </div>
@@ -298,7 +298,7 @@ support@tacosgavilan.com`
               className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold text-xs shadow-md shadow-red-500/20 transition-all active:scale-95"
             >
               <ShoppingBag className="w-4 h-4" />
-              <span>Abrir Mesa de Empaque (Tablet)</span>
+              <span>Abrir Entrega Blindada (Tablet)</span>
               <ArrowUpRight className="w-3.5 h-3.5 opacity-80" />
             </Link>
 

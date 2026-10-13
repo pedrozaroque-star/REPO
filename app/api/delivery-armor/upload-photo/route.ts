@@ -19,26 +19,32 @@ export async function POST(req: NextRequest) {
   try {
     const formData = await req.formData()
     const file = formData.get('file') as File | null
-    const type = (formData.get('type') as string) || 'open' // 'open' | 'sealed'
-    const orderGuid = (formData.get('orderGuid') as string) || 'general'
-    const storeId = (formData.get('storeId') as string) || 'store'
+    const type = (formData.get('type') as string) || 'sealed'
+    const orderGuid = String(formData.get('orderGuid') || '')
+    const storeId = String(formData.get('storeId') || '')
 
     if (!file) {
       return NextResponse.json({ ok: false, error: 'No se envió ningún archivo de imagen.' }, { status: 400 })
+    }
+    if (type !== 'sealed' || !/^\d+$/.test(storeId) || !/^[a-zA-Z0-9-]{8,80}$/.test(orderGuid)) {
+      return NextResponse.json({ ok: false, error: 'Metadatos de evidencia inválidos.' }, { status: 400 })
+    }
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 10 * 1024 * 1024) {
+      return NextResponse.json({ ok: false, error: 'La evidencia debe ser JPG, PNG o WEBP y no exceder 10 MB.' }, { status: 400 })
     }
 
     const arrayBuffer = await file.arrayBuffer()
     const buffer = Buffer.from(arrayBuffer)
 
     // Extensión del archivo
-    const ext = file.name?.split('.').pop() || 'jpg'
+    const ext = file.type === 'image/png' ? 'png' : file.type === 'image/webp' ? 'webp' : 'jpg'
     const filename = `${storeId}/${orderGuid}_${type}_${Date.now()}.${ext}`
 
     const { data: uploadData, error: uploadErr } = await supabaseAdmin.storage
       .from('delivery-evidence')
       .upload(filename, buffer, {
         contentType: file.type || 'image/jpeg',
-        upsert: true
+        upsert: false
       })
 
     if (uploadErr) {
