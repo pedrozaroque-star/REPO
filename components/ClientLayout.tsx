@@ -65,7 +65,8 @@ export default function ClientLayout({
         '/tv', 
         '/procedimientos/imprimir',
         '/inventory/orders/print-sheet',
-        '/admin/compras/viele/print-sheet'
+        '/admin/compras/viele/print-sheet',
+        '/tablet'
     ]
 
     // Dedicated kiosk / TV mode for order-ready-board via query param (?tv=1 or ?kiosk=1)
@@ -79,10 +80,11 @@ export default function ClientLayout({
         }
     }, [pathname])
 
-    const isPublicPage = publicRoutes.some(r => pathname === r || pathname.startsWith(r + '/')) || pathname.startsWith('/mantenimiento/registro') || isDedicatedKiosk
+    const isPublicPage = publicRoutes.some(r => pathname === r || pathname.startsWith(r + '/')) || pathname.startsWith('/mantenimiento/registro') || pathname.startsWith('/tablet') || isDedicatedKiosk
 
     // Full-width routes (large tables, schedules, etc.)
-    const fullWidthRoutes = ['/horarios', '/admin/plantillas', '/order-ready-board']
+    const fullWidthRoutes = ['/horarios', '/admin/plantillas', '/order-ready-board', '/admin/blindaje-delivery/empaque']
+
     const isFullWidth = fullWidthRoutes.some(route => pathname.startsWith(route))
 
     return (
