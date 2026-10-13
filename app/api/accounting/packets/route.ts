@@ -316,8 +316,10 @@ export async function POST(request: NextRequest) {
         // Si aún no está registrado en Toast: queda en $0.00 con estado pendiente.
         const finalDeposit = toastAccountingResult?.hasToastDeposit && toastAccountingResult.toastDepositAmount > 0
           ? toastAccountingResult.toastDepositAmount
-          : 0
-        const depositSource: 'toast' | 'pending' = finalDeposit > 0 ? 'toast' : 'pending'
+          : (existingPacket?.cash_deposit && Number(existingPacket.cash_deposit) > 0 ? Number(existingPacket.cash_deposit) : 0)
+        const depositSource: 'toast' | 'manual' | 'pending' = finalDeposit > 0 
+          ? (toastAccountingResult?.hasToastDeposit && toastAccountingResult.toastDepositAmount > 0 ? 'toast' : 'manual')
+          : 'pending'
         salesPacketData.cash_deposits = finalDeposit
 
         // Generate journal lines

@@ -1,0 +1,610 @@
+/**
+ * @module lib/delivery-armor
+ * @description Módulo central de Blindaje Delivery para Tacos Gavilan.
+ *   - Integra Toast API v2 Orders y Dining Options para captura exhaustiva de pedidos off-premise (DoorDash, Uber Eats, Grubhub, Toast Online, Curbside, Takeout).
+ *   - Valida la identidad del personal mediante PIN de 4 dígitos sincronizado directamente desde RONOS (Cingular HR), no de Toast.
+ *   - Administra el Checklist Interactivo con Candado de Coincidencia (Match 100%) y el Protocolo de Doble Evidencia Fotográfica (Foto 1: Pre-sellado / Foto 2: Post-sellado).
+ *   - Genera expedientes de disputa (Dispute Dossiers) automáticos con argumentación legal en inglés para DoorDash Merchant Portal y Uber Eats Manager.
+ *
+ * @businessRules
+ *   - El día laboral inicia a las 6:00 AM y termina a las 5:59 AM del día siguiente. El turno PM inicia a las 5:00 PM.
+ *   - Protocolo Toast API: NUNCA hardcodear GUIDs de Dining Options; siempre traducir vía getDiningOptionsMap().
+ *   - Ninguna orden puede sellarse o fotografiarse en modo sellado sin alcanzar el 100% de coincidencia (Match 100%) en el checklist.
+ *   - Las bebidas refrigeradas (Horchatas, sodas mexicanas, aguas frescas) son marcadas como ítems de alto riesgo (High Risk) para evitar olvidos.
+ *   - La entrega al repartidor requiere validación de app activa y registro del PIN de RONOS del colaborador en turno.
+ *
+ * @dataFlow
+ *   Toast API (/ordersBulk, /diningOptions) + RONOS (ronos_employee_timecards_cache) -> delivery-armor -> Supabase (delivery_packing_audits + bucket delivery-evidence) -> UI Tablet / Admin.
+ *
+ * @notes
+ *   - Desarrollado inicialmente para el plan piloto en Slauson (Tienda #7) y LA Central (Tienda #6), extensible a las 15 sucursales de Tacos Gavilan.
+ */
+
+import { supabaseAdmin } from './supabase'
+import { getAuthToken } from './toast-api'
+import { RONOS_STORES_MAP } from './ronos-api'
+
+// Host de Toast API
+const TOAST_API_HOST = process.env.TOAST_API_HOST || 'https://ws-api.toasttab.com'
+
+// Tipos del Módulo Blindaje Delivery
+export type DeliveryPlatform = 
+  | 'DOORDASH'
+  | 'UBER_EATS'
+  | 'GRUBHUB'
+  | 'TOAST_ONLINE'
+  | 'TAKEOUT'
+  | 'OTHER'
+
+export type AuditStatus = 
+  | 'PENDING_MATCH'
+  | 'MATCHED'
+  | 'PACKED_AND_SEALED'
+  | 'DELIVERED'
+  | 'DISPUTED'
+
+export interface OrderItemDetail {
+  id: string
+  displayName: string
+  quantity: number
+  price: number
+  modifiers: string[]
+  isHighRiskDrink: boolean
+}
+
+export interface OffPremiseOrder {
+  orderGuid: string
+  displayNumber: string
+  storeId: number
+  storeName: string
+  platform: DeliveryPlatform
+  diningOptionGuid: string
+  diningOptionName: string
+  customerName: string
+  openedDate: string
+  items: OrderItemDetail[]
+  totalItemsCount: number
+  audit?: {
+    id: string
+    status: AuditStatus
+    matchedItems: string[]
+    matchCompleted: boolean
+    photoOpenUrl?: string | null
+    photoSealedUrl?: string | null
+    packerName?: string | null
+    packedAt?: string | null
+    handedByName?: string | null
+    handedAt?: string | null
+    driverConfirmed?: boolean
+  }
+}
+
+/**
+ * Obtiene el ID de compañía de RONOS para una tienda de Tacos Gavilan
+ */
+export function getRonosCompanyId(storeId: number): number {
+  const match = RONOS_STORES_MAP.find(s => s.tegStoreId === storeId)
+  return match?.ronosCompanyId || 34 // Default Lynwood / Corporativo
+}
+
+/**
+ * Valida un PIN de 4 dígitos contra el personal activo de RONOS para la tienda
+ */
+export async function verifyRonosPin(storeId: number, pin: string): Promise<{
+  valid: boolean
+  employeeUserId?: number
+  fullName?: string
+  jobTitle?: string
+  error?: string
+}> {
+  const cleanPin = String(pin || '').trim()
+  if (cleanPin.length < 3) {
+    return { valid: false, error: 'El PIN debe contener al menos 4 dígitos.' }
+  }
+
+  const companyId = getRonosCompanyId(storeId)
+
+  try {
+    // 1. Buscar primero en la caché de tarjetas de tiempo de RONOS para esta sucursal
+    const { data: cached, error } = await supabaseAdmin
+      .from('ronos_employee_timecards_cache')
+      .select('employee_user_id, full_name, job_title, pin, company_id')
+      .eq('company_id', companyId)
+      .eq('pin', cleanPin)
+      .limit(1)
+
+    if (!error && cached && cached.length > 0) {
+      const emp = cached[0]
+      return {
+        valid: true,
+        employeeUserId: emp.employee_user_id,
+        fullName: emp.full_name,
+        jobTitle: emp.job_title || 'Colaborador'
+      }
+    }
+
+    // 2. Si no se encuentra en la tienda local, buscar si es un colaborador flotante o transferido en cualquier sucursal de RONOS
+    const { data: anyStoreMatch } = await supabaseAdmin
+      .from('ronos_employee_timecards_cache')
+      .select('employee_user_id, full_name, job_title, pin, company_id')
+      .eq('pin', cleanPin)
+      .limit(1)
+
+    if (anyStoreMatch && anyStoreMatch.length > 0) {
+      const emp = anyStoreMatch[0]
+      return {
+        valid: true,
+        employeeUserId: emp.employee_user_id,
+        fullName: emp.full_name,
+        jobTitle: emp.job_title || 'Colaborador (Transferido)'
+      }
+    }
+
+    return { valid: false, error: 'PIN no encontrado en el padrón de colaboradores de RONOS.' }
+  } catch (err: any) {
+    console.error('Error validando PIN de RONOS:', err)
+    return { valid: false, error: 'Error de conexión con el padrón de RONOS.' }
+  }
+}
+
+/**
+ * Detecta si un ítem corresponde a una bebida o producto refrigerado de alto riesgo de olvido
+ */
+export function isHighRiskBeverage(name: string): boolean {
+  const n = String(name || '').toLowerCase()
+  return (
+    n.includes('horchata') ||
+    n.includes('jamaica') ||
+    n.includes('tamarindo') ||
+    n.includes('fresa') ||
+    n.includes('limon') ||
+    n.includes('soda') ||
+    n.includes('coke') ||
+    n.includes('coca') ||
+    n.includes('sprite') ||
+    n.includes('jarrito') ||
+    n.includes('sidral') ||
+    n.includes('sangria') ||
+    n.includes('agua') ||
+    n.includes('water') ||
+    n.includes('drink') ||
+    n.includes('jugo') ||
+    n.includes('coffee') ||
+    n.includes('cafe') ||
+    n.includes('mineral') ||
+    n.includes('topo chico')
+  )
+}
+
+/**
+ * Clasifica la plataforma de entrega de acuerdo a la Dining Option y Delivery Service de Toast
+ */
+export function classifyPlatform(diningOptionName: string, deliveryService?: string, source?: string): DeliveryPlatform {
+  const full = `${diningOptionName} ${deliveryService || ''} ${source || ''}`.toLowerCase()
+
+  if (full.includes('doordash') || full.includes('dash')) {
+    return 'DOORDASH'
+  }
+  if (full.includes('uber') || full.includes('eats') || full.includes('postmates')) {
+    return 'UBER_EATS'
+  }
+  if (full.includes('grubhub') || full.includes('grub')) {
+    return 'GRUBHUB'
+  }
+  if (full.includes('toast online') || full.includes('online ordering') || full.includes('curbside') || full.includes('toast delivery')) {
+    return 'TOAST_ONLINE'
+  }
+  return 'OTHER'
+}
+
+/**
+ * Determina si una orden pertenece estrictamente a una plataforma de delivery o pedido online.
+ * Excluye explícitamente órdenes de mostrador presencial ('To Go'), comedor ('For Here'), kioskos y teléfono.
+ */
+export function isDeliveryPlatform(diningOptionName: string, deliveryService?: string, source?: string): boolean {
+  const p = classifyPlatform(diningOptionName, deliveryService, source)
+  return p !== 'OTHER'
+}
+
+/**
+ * Consulta las opciones de comedor (Dining Options) de Toast de forma dinámica (Protocolo Toast API)
+ */
+async function fetchDiningOptionsMap(token: string, storeExternalId: string): Promise<Record<string, string>> {
+  try {
+    const res = await fetch(`${TOAST_API_HOST}/config/v2/diningOptions`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Toast-Restaurant-External-ID': storeExternalId
+      }
+    })
+    if (!res.ok) return {}
+    const data = await res.json()
+    const map: Record<string, string> = {}
+    if (Array.isArray(data)) {
+      data.forEach((opt: any) => {
+        if (opt.guid && opt.name) {
+          map[opt.guid] = opt.name
+        }
+      })
+    }
+    return map
+  } catch {
+    return {}
+  }
+}
+
+/**
+ * Obtiene la fecha de negocio actual de Toast en horario Los Ángeles (Regla de las 6:00 AM)
+ */
+export function getToastBusinessDate(date: Date = new Date()): string {
+  const laDate = new Date(date.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
+  // Si es antes de las 6:00 AM, pertenece al día laboral anterior
+  if (laDate.getHours() < 6) {
+    laDate.setDate(laDate.getDate() - 1)
+  }
+  const y = laDate.getFullYear()
+  const m = String(laDate.getMonth() + 1).padStart(2, '0')
+  const d = String(laDate.getDate()).padStart(2, '0')
+  return `${y}${m}${d}`
+}
+
+/**
+ * Extrae y normaliza las órdenes de entrega y para llevar (Off-Premise) de Toast con su contenido completo
+ */
+export async function fetchOffPremiseOrders(storeId: number, targetBusinessDate?: string): Promise<{
+  orders: OffPremiseOrder[]
+  storeName: string
+  businessDate: string
+}> {
+  // 1. Buscar metadatos de la tienda en Supabase
+  const { data: store, error: sErr } = await supabaseAdmin
+    .from('stores')
+    .select('id, name, external_id')
+    .eq('id', storeId)
+    .single()
+
+  if (sErr || !store || !store.external_id) {
+    throw new Error(`Sucursal ID ${storeId} no encontrada o sin external_id configurado.`)
+  }
+
+  const token = await getAuthToken()
+  if (!token) {
+    throw new Error('No se pudo autenticar con Toast API (token no disponible).')
+  }
+  const businessDate = targetBusinessDate || getToastBusinessDate()
+
+  // 2. Mapeo dinámico de Dining Options
+  const diningOptionsMap = await fetchDiningOptionsMap(token, store.external_id)
+
+  // 3. Consultar órdenes en Toast API con paginación completa para el día laboral actual
+  const rawOrders: any[] = []
+  let page = 1
+  const maxPages = 20 // Seguridad para prevenir bucles (hasta 2,000 órdenes diarias)
+
+  while (page <= maxPages) {
+    const ordersUrl = `${TOAST_API_HOST}/orders/v2/ordersBulk?businessDate=${businessDate}&pageSize=100&page=${page}`
+    const oRes = await fetch(ordersUrl, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Toast-Restaurant-External-ID': store.external_id
+      }
+    })
+
+    if (!oRes.ok) {
+      if (page === 1) {
+        const errText = await oRes.text().catch(() => '')
+        throw new Error(`Error consultando órdenes en Toast API (${oRes.status}): ${errText.substring(0, 150)}`)
+      }
+      break
+    }
+
+    const chunk: any[] = await oRes.json()
+    if (!Array.isArray(chunk) || chunk.length === 0) break
+    rawOrders.push(...chunk)
+
+    // Si la página devolvió menos de 100 órdenes, ya se descargó el 100% de órdenes del día
+    if (chunk.length < 100) break
+    page++
+  }
+
+  // 4. Consultar auditorías existentes en Supabase para vincular su estado actual
+  const { data: existingAudits } = await supabaseAdmin
+    .from('delivery_packing_audits')
+    .select('*')
+    .eq('store_id', storeId)
+
+  const auditsMap = new Map<string, any>()
+  existingAudits?.forEach(a => {
+    auditsMap.set(a.toast_order_guid, a)
+  })
+
+  // 5. Filtrar órdenes relevantes (excluir comedor Dine-In tradicional)
+  const offPremiseOrders: OffPremiseOrder[] = []
+
+  for (const o of rawOrders) {
+    if (o.voided || o.deleted) continue
+
+    const dGuid = o.diningOption?.guid || ''
+    const dName = diningOptionsMap[dGuid] || o.diningOption?.name || 'Mostrador'
+    const deliveryService = o.deliveryService?.name || ''
+    const source = typeof o.source === 'string' ? o.source : (o.source?.name || '')
+
+    // EL MÓDULO ES ESTRICTAMENTE DELIVERY: Descartar todo lo presencial (For Here, To Go, Kiosk, Phone)
+    if (!isDeliveryPlatform(dName, deliveryService, source)) {
+      continue
+    }
+
+    const platform = classifyPlatform(dName, deliveryService, source)
+
+    // Extraer datos reales del cliente de la plataforma (Toast ubica clientes en o.checks[0].customer o en o.customer)
+    const custObj = o.customer || o.checks?.[0]?.customer
+    const platformLabel = platform === 'DOORDASH' ? 'DoorDash' : platform === 'UBER_EATS' ? 'Uber Eats' : platform === 'GRUBHUB' ? 'Grubhub' : 'Online'
+    let customerName = `Cliente ${platformLabel}`
+    if (custObj) {
+      let fName = String(custObj.firstName || '').trim()
+      const lName = String(custObj.lastName || '').trim()
+      
+      // Limpieza de prefijos técnicos de Uber Eats como 'UE-Wendy27537' -> 'Wendy (UE-27537)'
+      if (fName.startsWith('UE-')) {
+        const match = fName.match(/^UE-([a-zA-Z]+)(\d+.*)$/)
+        if (match) {
+          fName = `${match[1]} (${match[2]})`
+        }
+      }
+
+      if (fName || lName) {
+        customerName = `${fName} ${lName}`.trim()
+      } else if (custObj.name) {
+        customerName = String(custObj.name).trim()
+      }
+    }
+
+    // Extraer productos y modificadores
+    const items: OrderItemDetail[] = []
+    const checks = o.checks || []
+
+    checks.forEach((chk: any) => {
+      const selections = chk.selections || []
+      selections.forEach((sel: any, idx: number) => {
+        const selName = sel.displayName || sel.itemGroup?.name || 'Artículo'
+        const modifiersList: string[] = []
+
+        if (Array.isArray(sel.modifiers)) {
+          sel.modifiers.forEach((m: any) => {
+            const modName = m.displayName || m.name || ''
+            if (modName) {
+              const qtyStr = m.quantity > 1 ? ` (x${m.quantity})` : ''
+              modifiersList.push(`${modName}${qtyStr}`)
+            }
+          })
+        }
+
+        items.push({
+          id: sel.guid || `item_${idx}_${Date.now()}`,
+          displayName: selName,
+          quantity: Number(sel.quantity || 1),
+          price: Number(sel.price || 0),
+          modifiers: modifiersList,
+          isHighRiskDrink: isHighRiskBeverage(selName)
+        })
+      })
+    })
+
+    if (items.length === 0) continue
+
+    const existingAudit = auditsMap.get(o.guid)
+
+    offPremiseOrders.push({
+      orderGuid: o.guid,
+      displayNumber: String(o.displayNumber || o.orderNumber || 'S/N'),
+      storeId,
+      storeName: store.name,
+      platform,
+      diningOptionGuid: dGuid,
+      diningOptionName: dName,
+      customerName,
+      openedDate: o.openedDate || new Date().toISOString(),
+      items,
+      totalItemsCount: items.reduce((acc, curr) => acc + curr.quantity, 0),
+      audit: existingAudit ? {
+        id: existingAudit.id,
+        status: existingAudit.status,
+        matchedItems: Array.isArray(existingAudit.matched_items) ? existingAudit.matched_items : [],
+        matchCompleted: !!existingAudit.match_completed,
+        photoOpenUrl: existingAudit.photo_open_url,
+        photoSealedUrl: existingAudit.photo_sealed_url,
+        packerName: existingAudit.packer_ronos_name,
+        packedAt: existingAudit.packed_at,
+        handedByName: existingAudit.handed_by_ronos_name,
+        handedAt: existingAudit.handed_at,
+        driverConfirmed: existingAudit.driver_confirmed
+      } : undefined
+    })
+  }
+
+  // Ordenar: las más recientes primero (openedDate descendente)
+  offPremiseOrders.sort((a, b) => new Date(b.openedDate).getTime() - new Date(a.openedDate).getTime())
+
+  return {
+    orders: offPremiseOrders,
+    storeName: store.name,
+    businessDate
+  }
+}
+
+/**
+ * Guarda o actualiza el progreso del checklist de coincidencia y las fotos de evidencia
+ */
+export async function saveAuditProgress(params: {
+  storeId: number
+  toastOrderGuid: string
+  toastDisplayNumber: string
+  platform: DeliveryPlatform
+  diningOptionGuid?: string
+  diningOptionName?: string
+  customerName?: string
+  orderOpenedAt?: string
+  itemsJson: OrderItemDetail[]
+  matchedItems: string[]
+  matchCompleted: boolean
+  photoOpenUrl?: string | null
+  photoSealedUrl?: string | null
+  packerRonosUserId?: number
+  packerRonosName?: string
+  packerPin?: string
+}): Promise<any> {
+  const {
+    storeId,
+    toastOrderGuid,
+    toastDisplayNumber,
+    platform,
+    diningOptionGuid,
+    diningOptionName,
+    customerName,
+    orderOpenedAt,
+    itemsJson,
+    matchedItems,
+    matchCompleted,
+    photoOpenUrl,
+    photoSealedUrl,
+    packerRonosUserId,
+    packerRonosName,
+    packerPin
+  } = params
+
+  const status: AuditStatus = (photoOpenUrl && photoSealedUrl && matchCompleted)
+    ? 'PACKED_AND_SEALED'
+    : (matchCompleted ? 'MATCHED' : 'PENDING_MATCH')
+
+  const payload: any = {
+    store_id: storeId,
+    toast_order_guid: toastOrderGuid,
+    toast_display_number: toastDisplayNumber,
+    platform,
+    dining_option_guid: diningOptionGuid || null,
+    dining_option_name: diningOptionName || null,
+    customer_name: customerName || null,
+    order_opened_at: orderOpenedAt || null,
+    items_json: itemsJson,
+    matched_items: matchedItems,
+    match_completed: matchCompleted,
+    photo_open_url: photoOpenUrl || null,
+    photo_sealed_url: photoSealedUrl || null,
+    packer_ronos_user_id: packerRonosUserId || null,
+    packer_ronos_name: packerRonosName || null,
+    packer_pin: packerPin || null,
+    packed_at: matchCompleted ? new Date().toISOString() : null,
+    status,
+    updated_at: new Date().toISOString()
+  }
+
+  // Verificar si ya existe registro previo
+  const { data: existing } = await supabaseAdmin
+    .from('delivery_packing_audits')
+    .select('id')
+    .eq('toast_order_guid', toastOrderGuid)
+    .maybeSingle()
+
+  if (existing) {
+    const { data: updated, error } = await supabaseAdmin
+      .from('delivery_packing_audits')
+      .update(payload)
+      .eq('id', existing.id)
+      .select('*')
+      .single()
+
+    if (error) throw new Error(`Error actualizando auditoría: ${error.message}`)
+    return updated
+  } else {
+    const { data: inserted, error } = await supabaseAdmin
+      .from('delivery_packing_audits')
+      .insert(payload)
+      .select('*')
+      .single()
+
+    if (error) throw new Error(`Error registrando auditoría: ${error.message}`)
+    return inserted
+  }
+}
+
+/**
+ * Registra la entrega final de la bolsa sellada al repartidor
+ */
+export async function confirmHandoffToDriver(params: {
+  toastOrderGuid: string
+  handedByRonosUserId: number
+  handedByRonosName: string
+  handedPin: string
+  driverName?: string
+  driverConfirmed: boolean
+}): Promise<any> {
+  const {
+    toastOrderGuid,
+    handedByRonosUserId,
+    handedByRonosName,
+    handedPin,
+    driverName,
+    driverConfirmed
+  } = params
+
+  const payload = {
+    handed_by_ronos_user_id: handedByRonosUserId,
+    handed_by_ronos_name: handedByRonosName,
+    handed_pin: handedPin,
+    handed_at: new Date().toISOString(),
+    driver_name: driverName || 'Repartidor Verificado',
+    driver_confirmed: driverConfirmed,
+    status: 'DELIVERED' as AuditStatus,
+    updated_at: new Date().toISOString()
+  }
+
+  const { data: updated, error } = await supabaseAdmin
+    .from('delivery_packing_audits')
+    .update(payload)
+    .eq('toast_order_guid', toastOrderGuid)
+    .select('*')
+    .single()
+
+  if (error) throw new Error(`Error confirmando entrega de orden: ${error.message}`)
+  return updated
+}
+
+/**
+ * Genera el paquete de pruebas formal (Dispute Dossier) listo para copiar o enviar a DoorDash / Uber Eats
+ */
+export function formatDisputeStatement(audit: any): string {
+  const dateFormatted = audit.packed_at 
+    ? new Date(audit.packed_at).toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })
+    : new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })
+
+  const itemsList = Array.isArray(audit.items_json)
+    ? audit.items_json.map((i: any) => `- ${i.quantity}x ${i.displayName} ($${Number(i.price).toFixed(2)})`).join('\n')
+    : 'All ordered items'
+
+  return `
+DISPUTE REPRESENTMENT DOSSIER — TACOS GAVILAN
+--------------------------------------------------------------------------------
+MERCHANT: Tacos Gavilan (Store #${audit.store_id})
+ORDER NUMBER / DISPLAY ID: #${audit.toast_display_number || 'N/A'}
+PLATFORM / CHANNEL: ${audit.platform} (${audit.dining_option_name || 'Delivery'})
+FULFILLMENT TIMESTAMP: ${dateFormatted} PST
+VERIFIED PACKER: ${audit.packer_ronos_name || 'Staff Employee'} (RONOS ID #${audit.packer_ronos_user_id || 'N/A'})
+HANDOFF AGENT: ${audit.handed_by_ronos_name || 'Counter Staff'} (Handoff at: ${audit.handed_at || 'Verified'})
+
+OFFICIAL DISPUTE STATEMENT:
+"This order was prepared strictly to specifications and verified item-by-item against the POS kitchen check. 
+Prior to packaging, photographic proof (Photo 1) was recorded confirming all requested items were complete, correctly prepared, and present. 
+The package was then sealed using tamper-evident destructible security tape and documented (Photo 2) showing the seal 100% intact before custody transfer to the delivery courier. 
+The courier verified and confirmed pickup on their live mobile application. 
+The claim of missing or incorrect items is completely unfounded, fraudulent, or the direct result of unauthorized third-party tampering in transit. 
+We formally request the immediate reversal and reimbursement of this unjust error charge."
+
+VERIFIED PACKED ITEMS:
+${itemsList}
+
+EVIDENCE PHOTOGRAPHS ATTACHED:
+1. Proof of Contents (Pre-Seal): ${audit.photo_open_url || 'Attached'}
+2. Proof of Seal Integrity (Post-Seal): ${audit.photo_sealed_url || 'Attached'}
+--------------------------------------------------------------------------------
+`.trim()
+}

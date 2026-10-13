@@ -13,7 +13,7 @@ import {
     DollarSign, TrendingUp, Calendar, MessageSquare, CalendarCheck, UserCog,
     Monitor, ChefHat, Zap, X, PanelLeftClose, PanelLeft, RefreshCw,
     Settings, Keyboard, HelpCircle, ExternalLink, Moon, Sun, Globe, Shield,
-    CalendarDays, Sparkles, Info, UserCircle, Menu, Folder, Truck, Timer, Shirt, Car, Calculator, Package, BarChart3, UserCheck, Bell, Receipt, Wrench, Smartphone
+    CalendarDays, Sparkles, Info, UserCircle, Menu, Folder, Truck, Timer, Shirt, Car, Calculator, Package, BarChart3, UserCheck, Bell, Receipt, Wrench, Smartphone, ShieldCheck
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useLanguage } from '@/lib/i18n'
@@ -374,6 +374,16 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                     tooltip: language === 'en'
                         ? 'Intraday 30-min meat cooking pace projection for grill cooks (Proyección de carne a cocinar por bloques)'
                         : 'Proyección intradía de libras de carne a cocinar por bloques de 30 minutos'
+                },
+                {
+                    name: t('items.blindaje_delivery') || 'Blindaje Delivery',
+                    plainName: 'Blindaje Delivery',
+                    path: '/admin/blindaje-delivery',
+                    icon: <ShieldCheck size={20} />,
+                    roles: ['admin', 'manager', 'supervisor', 'asistente'],
+                    tooltip: language === 'en'
+                        ? 'Packing station, dual-photo evidence, driver verification & chargeback dispute vault'
+                        : 'Mesa de empaque, doble foto de evidencia, verificación de chofer y bóveda de contracargos'
                 },
                 {
                     name: t('items.actividades') || 'Actividades',
