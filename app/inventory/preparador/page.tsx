@@ -26,11 +26,17 @@
  *     - Si el cocinero la vuelve a borrar en KDS, se vuelve a retirar de la tableta.
  * @dataFlow 
  *   - meat_consumption_history -> /api/inventory/preparador-history -> Carousel 3D + Intraday Accelerator.
- *   - order_ready_announcements + Realtime channel ('order-ready-realtime') -> Grid de Órdenes en Preparación -> POST /api/order-ready/call -> PC Manager.
+ *   - order_ready_announcements + Realtime channel ('order-ready-prep-[storeCode]') -> Grid de Órdenes en Preparación -> POST /api/order-ready/call -> PC Manager.
+ * @notes
+ *   - FIX (2026-10-12): Filtro temporal estricto (últimos 60 minutos con .gte('created_at', cutoff)) en la consulta de órdenes en preparación (fetchReadyOrders).
+ *     Anteriormente, el acumulado de órdenes históricas IN_PROGRESS (bebidas/no cerradas de la mañana) llenaba el .limit(60) con órdenes de hace horas,
+ *     provocando que las órdenes nuevas recién enviadas no llegaran a la tableta del preparador.
+ *   - FIX: Se optimizó el cliente Supabase con useMemo para prevenir re-suscripciones y render loops continuos.
+ *   - FIX: Persistencia inmediata de tienda seleccionada en localStorage al cambiar de sucursal en el dropdown.
  */
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { useLanguage } from '@/lib/i18n'
 import { 
     BellRing, ChefHat, Clock, AlertTriangle, Send, UtensilsCrossed, PackageOpen, 
@@ -127,7 +133,7 @@ export function isDrinkItem(name: string | null | undefined): boolean {
 export default function PreparadorPage() {
     const { user, loading: authLoading } = useAuth()
     const { t } = useLanguage()
-    const supabase = createClient()
+    const supabase = useMemo(() => createClient(), [])
 
     const [mounted, setMounted] = useState(false)
     const [stores, setStores] = useState<any[]>([])
@@ -158,6 +164,7 @@ export default function PreparadorPage() {
     const effectiveDateRef = useRef<string>(initialToday)
     const lastActivityTimeRef = useRef<number>(Date.now())
     const lastSaveTimeRef = useRef<number>(0)
+    const fetchReadyOrdersRef = useRef<((isManual?: boolean) => Promise<void>) | null>(null)
 
     // User activity tracker (touch/click resets inactivity timer)
     const recordUserActivity = () => {
@@ -204,6 +211,7 @@ export default function PreparadorPage() {
         const handleWakeUp = () => {
             console.log("[Preparador] Screen woke up or tab focused -> Re-checking date & sync...")
             checkDateRollover()
+            fetchReadyOrdersRef.current?.(false)
         }
 
         window.addEventListener('focus', handleWakeUp)
@@ -275,6 +283,7 @@ export default function PreparadorPage() {
         // Clear previous day's real consumptions and force refresh
         setRealMeatData([])
         localStorage.removeItem(`prep_real_meat_${storeId}`)
+        fetchReadyOrdersRef.current?.(true)
         
         // Request wake lock to keep screen active
         try {
@@ -431,25 +440,29 @@ export default function PreparadorPage() {
         }
         try {
             const todayLA = getCaliforniaBusinessDate()
+            // @businessRule Tacos Gavilan: Ventana de consulta activa de los últimos 90 minutos (status = IN_PROGRESS).
+            // Usamos una ventana de tiempo física estricta (created_at >= 90 mins). No restringimos por business_date
+            // para que órdenes activas durante el cambio de jornada (6:00 AM) sigan visibles hasta terminarse o cancelarse.
+            const cutoffTime = new Date(Date.now() - 90 * 60 * 1000).toISOString()
             const { data, error } = await supabase
                 .from('order_ready_announcements')
                 .select('*')
                 .eq('store_code', storeCode)
                 .eq('status', 'IN_PROGRESS') // Exclusivo órdenes en preparación (SEND)
-                .eq('business_date', todayLA)
+                .gte('created_at', cutoffTime)
                 .order('created_at', { ascending: true }) // FIFO: las más antiguas primero
-                .limit(60)
+                .limit(150)
 
             if (!error && data) {
                 const now = Date.now()
-                // Descartar órdenes con más de 60 minutos en preparación y desduplicar por GUID y por número
+                // Descartar órdenes con más de 90 minutos en preparación y desduplicar por GUID y por número
                 const seenGuids = new Set<string>()
                 const seenNumbers = new Set<string>()
                 const uniqueRecent: any[] = []
 
                 for (const o of data) {
                     const t = Date.parse(o.created_at)
-                    if (!isNaN(t) && now - t >= 60 * 60 * 1000) continue
+                    if (!isNaN(t) && now - t >= 90 * 60 * 1000) continue
 
                     // REGLA CRÍTICA TACOS GAVILAN: Las órdenes que SOLO tienen bebidas o postres (flan, cheesecake, etc.)
                     // se despachan en mostrador/caja y NO requieren preparación de cocina ni parrilla por el taquero.
@@ -474,6 +487,11 @@ export default function PreparadorPage() {
         }
     }
 
+    // Mantener referencia actualizada de fetchReadyOrders para centinelas y eventos de pantalla activa
+    useEffect(() => {
+        fetchReadyOrdersRef.current = fetchReadyOrders
+    }, [fetchReadyOrders])
+
     // Suscripción Realtime y Polling para la tableta de órdenes
     useEffect(() => {
         if (!storeId || stores.length === 0) return
@@ -484,7 +502,7 @@ export default function PreparadorPage() {
         fetchReadyOrders(true)
 
         const channel = supabase
-            .channel('order-ready-realtime')
+            .channel(`order-ready-prep-${storeCode}`)
             .on(
                 'postgres_changes',
                 {
@@ -1524,7 +1542,11 @@ export default function PreparadorPage() {
                             return (
                                 <select 
                                     value={storeId} 
-                                    onChange={e => setStoreId(e.target.value)}
+                                    onChange={e => {
+                                        const val = e.target.value
+                                        setStoreId(val)
+                                        try { localStorage.setItem('teg_preparador_store', val) } catch {}
+                                    }}
                                     disabled={!isSuper}
                                     className={`border-none rounded-lg p-2 font-bold focus:ring-2 focus:ring-red-500 outline-none relative z-50 ${!isSuper ? 'bg-slate-200 dark:bg-slate-900 text-slate-500 dark:text-slate-600 cursor-not-allowed' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 cursor-pointer'}`}
                                 >
@@ -1846,7 +1868,10 @@ export default function PreparadorPage() {
                             <UtensilsCrossed size={16} /> {t('prep.foodItems')}
                         </button>
                         <button 
-                            onClick={() => setActiveTab('ordenes')}
+                            onClick={() => {
+                                setActiveTab('ordenes')
+                                fetchReadyOrders(true)
+                            }}
                             className={`flex-1 py-2.5 sm:py-4 font-black flex items-center justify-center gap-1.5 sm:gap-2 rounded-xl transition-all shadow-sm text-xs sm:text-base cursor-pointer
                                 ${activeTab === 'ordenes' ? 'bg-emerald-100 text-emerald-800 border-2 border-emerald-500 dark:bg-emerald-950/50 dark:text-emerald-300' : 'bg-slate-50 text-slate-500 hover:bg-slate-200 border-2 border-transparent dark:bg-slate-800'}`}
                         >
@@ -2276,7 +2301,9 @@ export default function PreparadorPage() {
                                 <select 
                                     value={storeId} 
                                     onChange={e => {
-                                        setStoreId(e.target.value)
+                                        const val = e.target.value
+                                        setStoreId(val)
+                                        try { localStorage.setItem('teg_preparador_store', val) } catch {}
                                         setShowMobileSettingsDrawer(false)
                                     }}
                                     className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-3 font-bold text-sm text-slate-800 dark:text-white outline-none cursor-pointer"
