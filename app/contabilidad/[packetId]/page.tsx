@@ -572,38 +572,28 @@ export default function PacketDetailPage() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         
-        {/* 3. Reconciliation Summary Card */}
+        {/* 3. Reconciliation Summary Card (Gross Sales & Receipts - 1:1 Cohesion) */}
         <Card>
           <h2 className="text-base font-bold text-slate-900 dark:text-white mb-4">{t('accounting.section_summary') || 'Resumen de Conciliación'}</h2>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-slate-500 dark:text-slate-400 border-b border-slate-100 dark:border-slate-800 text-xs uppercase font-bold">
-                  <th className="pb-2 text-left">{t('accounting.col_item') || 'Concepto'}</th>
-                  <th className="pb-2 text-right">{t('accounting.label_gross') || 'Bruto'}</th>
-                  <th className="pb-2 text-right">{t('accounting.label_net') || 'Neto'}</th>
+                  <th className="pb-2 pr-2 text-left">{t('accounting.col_item') || 'Concepto'}</th>
+                  <th className="pb-2 px-2 text-right">{t('accounting.label_gross') || 'Bruto'}</th>
+                  <th className="pb-2 pl-2 text-right">{t('accounting.label_net') || 'Neto'}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-mono">
                 <tr>
-                  <td className="py-2 font-sans text-slate-700 dark:text-slate-300 font-medium">{t('accounting.col_gross_sales') || 'Ventas Brutas'}</td>
-                  <td className="py-2 text-right font-semibold text-slate-800 dark:text-slate-200">{formatCurrency(packet.gross_sales)}</td>
-                  <td className="py-2 text-right font-semibold text-slate-800 dark:text-slate-200">{formatCurrency(packet.gross_sales)}</td>
+                  <td className="py-2 pr-2 font-sans text-slate-700 dark:text-slate-300 font-medium">{t('accounting.col_net_sales') || 'Ventas'}</td>
+                  <td className="py-2 px-2 text-right font-semibold text-slate-800 dark:text-slate-200">{formatCurrency(packet.gross_sales)}</td>
+                  <td className="py-2 pl-2 text-right font-semibold text-slate-800 dark:text-slate-200">{formatCurrency(packet.net_sales)}</td>
                 </tr>
                 <tr className="text-rose-600 dark:text-rose-400">
-                  <td className="py-2 font-sans font-medium">{t('accounting.section_discounts') || 'Descuentos'}</td>
-                  <td className="py-2 text-right font-semibold">-{formatCurrency(packet.total_discounts ?? packet.discounts ?? 0)}</td>
-                  <td className="py-2 text-right font-semibold">-{formatCurrency(packet.total_discounts ?? packet.discounts ?? 0)}</td>
-                </tr>
-                <tr className="font-bold text-slate-900 dark:text-white bg-slate-50/50 dark:bg-slate-800/30">
-                  <td className="py-2 font-sans">{t('accounting.col_net_sales') || 'Ventas Netas'}</td>
-                  <td className="py-2 text-right text-blue-600 dark:text-blue-400">{formatCurrency(packet.net_sales)}</td>
-                  <td className="py-2 text-right text-blue-600 dark:text-blue-400">{formatCurrency(packet.net_sales)}</td>
-                </tr>
-                <tr>
-                  <td className="py-2 font-sans text-slate-700 dark:text-slate-300 font-medium">{t('accounting.col_taxes') || 'Impuestos'}</td>
-                  <td className="py-2 text-right font-semibold text-slate-800 dark:text-slate-200">{formatCurrency(packet.total_taxes)}</td>
-                  <td className="py-2 text-right font-semibold text-slate-800 dark:text-slate-200">{formatCurrency(packet.total_taxes)}</td>
+                  <td className="py-2 pr-2 font-sans font-medium">{t('accounting.section_discounts') || 'Ventas - Descuentos'}</td>
+                  <td className="py-2 px-2 text-right font-semibold">-{formatCurrency(packet.total_discounts ?? packet.discounts ?? 0)}</td>
+                  <td className="py-2 pl-2 text-right font-semibold text-slate-500 dark:text-slate-400">{formatCurrency(0)}</td>
                 </tr>
                 {(() => {
                   const paidInLine = packet.journal_lines?.find((l: any) => 
@@ -635,35 +625,46 @@ export default function PacketDetailPage() {
                     tipsLine?.credit ?? 
                     0
                   )
+                  const netPlusDeferred = Number(packet.net_sales || 0) + giftCardsAmount
                   const totalGrossReceipts = Number(packet.net_sales || 0) + Number(packet.total_taxes || 0) + paidInAmount + giftCardsAmount + tipsPayableAmount
 
                   return (
                     <>
                       {giftCardsAmount > 0 && (
                         <tr className="text-amber-600 dark:text-amber-400">
-                          <td className="py-2 font-sans font-medium">{t('accounting.label_gift_cards_deferred') || 'Deferred Sales - Gift Cards'}</td>
-                          <td className="py-2 text-right font-semibold">{formatCurrency(giftCardsAmount)}</td>
-                          <td className="py-2 text-right font-semibold">{formatCurrency(giftCardsAmount)}</td>
+                          <td className="py-2 pr-2 font-sans font-medium">{t('accounting.label_gift_cards_deferred') || 'Deferred Sales - Gift Cards'}</td>
+                          <td className="py-2 px-2 text-right font-semibold">{formatCurrency(giftCardsAmount)}</td>
+                          <td className="py-2 pl-2 text-right font-semibold">{formatCurrency(giftCardsAmount)}</td>
                         </tr>
                       )}
+                      <tr className="font-bold text-slate-900 dark:text-white bg-slate-50/50 dark:bg-slate-800/30">
+                        <td className="py-2 pr-2 font-sans">Net Sales + Deferred</td>
+                        <td className="py-2 px-2 text-right"></td>
+                        <td className="py-2 pl-2 text-right text-blue-600 dark:text-blue-400">{formatCurrency(netPlusDeferred)}</td>
+                      </tr>
+                      <tr>
+                        <td className="py-2 pr-2 font-sans text-slate-700 dark:text-slate-300 font-medium">{t('accounting.col_taxes') || 'Impuestos'}</td>
+                        <td className="py-2 px-2 text-right font-semibold text-slate-800 dark:text-slate-200">{formatCurrency(packet.total_taxes)}</td>
+                        <td className="py-2 pl-2 text-right font-semibold text-slate-800 dark:text-slate-200">{formatCurrency(packet.total_taxes)}</td>
+                      </tr>
                       {tipsPayableAmount > 0 && (
                         <tr className="text-indigo-600 dark:text-indigo-400">
-                          <td className="py-2 font-sans font-medium">{t('accounting.label_tips_payable') || 'Tips/Grat Payable'}</td>
-                          <td className="py-2 text-right font-semibold">{formatCurrency(tipsPayableAmount)}</td>
-                          <td className="py-2 text-right font-semibold">{formatCurrency(tipsPayableAmount)}</td>
+                          <td className="py-2 pr-2 font-sans font-medium">{t('accounting.label_tips_payable') || 'Tips/Grat Payable'}</td>
+                          <td className="py-2 px-2 text-right font-semibold">{formatCurrency(tipsPayableAmount)}</td>
+                          <td className="py-2 pl-2 text-right font-semibold">{formatCurrency(tipsPayableAmount)}</td>
                         </tr>
                       )}
                       {paidInAmount > 0 && (
                         <tr className="text-emerald-600 dark:text-emerald-400">
-                          <td className="py-2 font-sans font-medium">{t('accounting.label_paid_in') || 'Paid In Total (Deposits Received)'}</td>
-                          <td className="py-2 text-right font-semibold">{formatCurrency(paidInAmount)}</td>
-                          <td className="py-2 text-right font-semibold">{formatCurrency(paidInAmount)}</td>
+                          <td className="py-2 pr-2 font-sans font-medium">{t('accounting.label_paid_in') || 'Paid In Total (Deposits Received)'}</td>
+                          <td className="py-2 px-2 text-right font-semibold">{formatCurrency(paidInAmount)}</td>
+                          <td className="py-2 pl-2 text-right font-semibold">{formatCurrency(paidInAmount)}</td>
                         </tr>
                       )}
                       <tr className="font-extrabold text-slate-900 dark:text-white border-t-2 border-slate-200 dark:border-slate-700 text-sm">
-                        <td className="py-2.5 font-sans">{t('accounting.col_total_gross_receipts') || 'Total Gross Receipts'}</td>
-                        <td className="py-2.5 text-right">{formatCurrency(totalGrossReceipts)}</td>
-                        <td className="py-2.5 text-right">{formatCurrency(totalGrossReceipts)}</td>
+                        <td className="py-2.5 pr-2 font-sans">{t('accounting.col_total_gross_receipts') || 'Total Gross Receipts'}</td>
+                        <td className="py-2.5 px-2 text-right"></td>
+                        <td className="py-2.5 pl-2 text-right">{formatCurrency(totalGrossReceipts)}</td>
                       </tr>
                     </>
                   )
@@ -680,9 +681,9 @@ export default function PacketDetailPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-slate-500 dark:text-slate-400 border-b border-slate-100 dark:border-slate-800 text-xs uppercase font-bold">
-                  <th className="pb-2 text-left">{t('accounting.col_channel_method') || 'Canal'}</th>
-                  <th className="pb-2 text-right">{t('accounting.label_gross') || 'Bruto'}</th>
-                  <th className="pb-2 text-right">{t('accounting.label_net') || 'Neto'}</th>
+                  <th className="pb-2 pr-2 text-left">{t('accounting.col_channel_method') || 'Canal'}</th>
+                  <th className="pb-2 px-2 text-right">{t('accounting.label_gross') || 'Bruto'}</th>
+                  <th className="pb-2 pl-2 text-right">{t('accounting.label_net') || 'Neto'}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-mono">
@@ -725,15 +726,15 @@ export default function PacketDetailPage() {
                     ...(deliveryServiceNet > 0 ? [{ name: 'Delivery Service', gross: deliveryServiceNet, net: deliveryServiceNet }] : []),
                     { name: 'DoorDash - Delivery', gross: grossMap.doordashDelivery ?? ddDeliveryNet, net: ddDeliveryNet },
                     ...(ddTakeoutNet > 0 || grossMap.doordashTakeout ? [{ name: 'DoorDash - Takeout', gross: grossMap.doordashTakeout ?? ddTakeoutNet, net: ddTakeoutNet }] : []),
-                    { name: t('accounting.dining_for_here') || 'For Here', gross: grossMap.forHere ?? forHereNet, net: forHereNet },
-                    ...(ghTakeoutNet > 0 || grossMap.grubhubTakeout ? [{ name: 'Grubhub - Takeout', gross: grossMap.grubhubTakeout ?? ghTakeoutNet, net: ghTakeoutNet }] : []),
+                    { name: 'For Here', gross: grossMap.forHere ?? forHereNet, net: forHereNet },
                     ...(ghDeliveryNet > 0 || grossMap.grubhubDelivery ? [{ name: 'GrubHub Delivery', gross: grossMap.grubhubDelivery ?? ghDeliveryNet, net: ghDeliveryNet }] : []),
+                    ...(ghTakeoutNet > 0 || grossMap.grubhubTakeout ? [{ name: 'Grubhub - Takeout', gross: grossMap.grubhubTakeout ?? ghTakeoutNet, net: ghTakeoutNet }] : []),
                     ...(driveThruNet > 0 || grossMap.driveThru ? [{ name: 'Drive Thru', gross: grossMap.driveThru ?? driveThruNet, net: driveThruNet }] : []),
                     ...(kioskDineInNet > 0 || grossMap.kioskDineIn ? [{ name: 'Kiosk Dine In', gross: grossMap.kioskDineIn ?? kioskDineInNet, net: kioskDineInNet }] : []),
                     ...(kioskTakeOutNet > 0 || grossMap.kioskTakeOut ? [{ name: 'Kiosk Take Out', gross: grossMap.kioskTakeOut ?? kioskTakeOutNet, net: kioskTakeOutNet }] : []),
                     ...(onlineOrderingTakeoutNet > 0 || grossMap.onlineOrderingTakeout ? [{ name: 'Online Ordering - Takeout', gross: grossMap.onlineOrderingTakeout ?? onlineOrderingTakeoutNet, net: onlineOrderingTakeoutNet }] : []),
                     ...(phoneNet > 0 || grossMap.phone ? [{ name: 'Phone', gross: grossMap.phone ?? phoneNet, net: phoneNet }] : []),
-                    { name: t('accounting.dining_to_go') || 'To Go', gross: grossMap.toGo ?? toGoNet, net: toGoNet },
+                    { name: 'To Go', gross: grossMap.toGo ?? toGoNet, net: toGoNet },
                     ...(toastDeliveryNet > 0 || grossMap.toastDelivery ? [{ name: 'Toast Delivery Services', gross: grossMap.toastDelivery ?? toastDeliveryNet, net: toastDeliveryNet }] : []),
                     ...(toastOnlineNet > 0 || grossMap.toastOnline ? [{ name: 'Toast Online', gross: grossMap.toastOnline ?? toastOnlineNet, net: toastOnlineNet }] : []),
                     { name: 'Uber Eats - Delivery', gross: grossMap.uberDelivery ?? uberDeliveryNet, net: uberDeliveryNet },
@@ -743,15 +744,15 @@ export default function PacketDetailPage() {
                     <>
                       {rows.map((r, i) => (
                         <tr key={i}>
-                          <td className="py-2 font-sans text-slate-700 dark:text-slate-300 font-medium">{r.name}</td>
-                          <td className="py-2 text-right font-semibold text-slate-800 dark:text-slate-200">{formatCurrency(r.gross)}</td>
-                          <td className="py-2 text-right font-semibold text-slate-800 dark:text-slate-200">{formatCurrency(r.net)}</td>
+                          <td className="py-2 pr-2 font-sans text-slate-700 dark:text-slate-300 font-medium">{r.name}</td>
+                          <td className="py-2 px-2 text-right font-semibold text-slate-800 dark:text-slate-200">{formatCurrency(r.gross)}</td>
+                          <td className="py-2 pl-2 text-right font-semibold text-slate-800 dark:text-slate-200">{formatCurrency(r.net)}</td>
                         </tr>
                       ))}
                       <tr className="font-extrabold text-blue-600 dark:text-blue-400 border-t-2 border-slate-200 dark:border-slate-700">
-                        <td className="py-2.5 font-sans">{t('accounting.total_net_sales') || 'Total Ventas'}</td>
-                        <td className="py-2.5 text-right">{formatCurrency(packet.gross_sales)}</td>
-                        <td className="py-2.5 text-right">{formatCurrency(packet.net_sales)}</td>
+                        <td className="py-2.5 pr-2 font-sans">{t('accounting.total_net_sales') || 'Total Sales'}</td>
+                        <td className="py-2.5 px-2 text-right">{formatCurrency(packet.gross_sales)}</td>
+                        <td className="py-2.5 pl-2 text-right">{formatCurrency(packet.net_sales)}</td>
                       </tr>
                     </>
                   )
@@ -761,38 +762,36 @@ export default function PacketDetailPage() {
           </div>
         </Card>
 
-        {/* 5. Discount Details Card */}
+        {/* 5. Discount Details Card (1:1 Cohesion Single Amount Column, Alphabetical) */}
         <Card>
           <h2 className="text-base font-bold text-slate-900 dark:text-white mb-4">{t('accounting.section_discounts') || 'Detalle de Descuentos'}</h2>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-slate-500 dark:text-slate-400 border-b border-slate-100 dark:border-slate-800 text-xs uppercase font-bold">
-                  <th className="pb-2 text-left">{t('accounting.col_discount_type') || 'Tipo de Descuento'}</th>
-                  <th className="pb-2 text-right">{t('accounting.label_gross') || 'Bruto'}</th>
-                  <th className="pb-2 text-right">{t('accounting.label_net') || 'Neto'}</th>
+                  <th className="pb-2 pr-2 text-left">{t('accounting.col_discount_type') || 'Tipo de Descuento'}</th>
+                  <th className="pb-2 pl-2 text-right">{language === 'en' ? 'Amount' : 'Monto'}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-mono">
                 {packet.qb_sync_response?.discount_breakdown && Object.keys(packet.qb_sync_response.discount_breakdown).length > 0 ? (
-                  Object.entries(packet.qb_sync_response.discount_breakdown).map(([name, amount], idx) => (
-                    <tr key={idx}>
-                      <td className="py-2 font-sans text-slate-700 dark:text-slate-300 font-medium">{name}</td>
-                      <td className="py-2 text-right font-semibold text-rose-600 dark:text-rose-400">{formatCurrency(amount)}</td>
-                      <td className="py-2 text-right font-semibold text-rose-600 dark:text-rose-400">{formatCurrency(amount)}</td>
-                    </tr>
-                  ))
+                  Object.entries(packet.qb_sync_response.discount_breakdown)
+                    .sort(([a], [b]) => a.localeCompare(b))
+                    .map(([name, amount], idx) => (
+                      <tr key={idx}>
+                        <td className="py-2 pr-2 font-sans text-slate-700 dark:text-slate-300 font-medium">{name}</td>
+                        <td className="py-2 pl-2 text-right font-semibold text-slate-800 dark:text-slate-200">{formatCurrency(amount)}</td>
+                      </tr>
+                    ))
                 ) : (
                   <tr>
-                    <td className="py-2 font-sans text-slate-700 dark:text-slate-300 font-medium">{t('accounting.section_discounts') || 'Descuentos'}</td>
-                    <td className="py-2 text-right font-semibold text-rose-600 dark:text-rose-400">{formatCurrency(packet.total_discounts ?? packet.discounts ?? 0)}</td>
-                    <td className="py-2 text-right font-semibold text-rose-600 dark:text-rose-400">{formatCurrency(packet.total_discounts ?? packet.discounts ?? 0)}</td>
+                    <td className="py-2 pr-2 font-sans text-slate-700 dark:text-slate-300 font-medium">{t('accounting.section_discounts') || 'Descuentos'}</td>
+                    <td className="py-2 pl-2 text-right font-semibold text-slate-800 dark:text-slate-200">{formatCurrency(packet.total_discounts ?? packet.discounts ?? 0)}</td>
                   </tr>
                 )}
-                <tr className="font-extrabold text-rose-600 dark:text-rose-400 border-t-2 border-slate-200 dark:border-slate-700">
-                  <td className="py-2.5 font-sans">{t('accounting.total_discounts_label') || 'Total Descuentos'}</td>
-                  <td className="py-2.5 text-right">{formatCurrency(packet.total_discounts ?? packet.discounts ?? 0)}</td>
-                  <td className="py-2.5 text-right">{formatCurrency(packet.total_discounts ?? packet.discounts ?? 0)}</td>
+                <tr className="font-extrabold text-slate-900 dark:text-white border-t-2 border-slate-200 dark:border-slate-700">
+                  <td className="py-2.5 pr-2 font-sans">{t('accounting.total_discounts_label') || 'Total Discounts'}</td>
+                  <td className="py-2.5 pl-2 text-right">{formatCurrency(packet.total_discounts ?? packet.discounts ?? 0)}</td>
                 </tr>
               </tbody>
             </table>
@@ -804,27 +803,29 @@ export default function PacketDetailPage() {
           <h2 className="text-base font-bold text-slate-900 dark:text-white mb-4">{t('accounting.section_taxes') || 'Detalle de Impuestos'}</h2>
           <div className="space-y-2.5 text-sm">
             <div className="flex justify-between">
-              <span className="text-slate-500 dark:text-slate-400">{t('accounting.tax_sales_tax_local') || 'Sales Tax (Local)'}</span>
-              <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">{formatCurrency(packet.sales_tax)}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-slate-500 dark:text-slate-400">{t('accounting.tax_marketplace_facilitator') || 'Marketplace Facilitator Tax'}</span>
+              <span className="text-slate-500 dark:text-slate-400">Marketplace Facilitator Taxes Not Paid</span>
               <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">{formatCurrency(packet.marketplace_facilitator_tax)}</span>
             </div>
+            <div className="flex justify-between">
+              <span className="text-slate-500 dark:text-slate-400">{t('accounting.tax_sales_tax_local') || 'Sales Tax'}</span>
+              <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">{formatCurrency(packet.sales_tax)}</span>
+            </div>
             <div className="flex justify-between text-slate-500 dark:text-slate-400">
-              <span>{t('accounting.tax_paid_by_uber') || 'Tax Paid by Facilitator (Uber)'}</span>
+              <span>{t('accounting.tax_paid_by_uber') || 'Taxes Paid by Facilitator'}</span>
               <span className="font-mono font-semibold text-slate-700 dark:text-slate-300">{formatCurrency(packet.facilitator_tax_paid)}</span>
             </div>
             <div className="flex justify-between font-extrabold pt-2 border-t-2 border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white text-base">
-              <span>{t('accounting.total_taxes_liability') || 'Total Impuestos'}</span>
+              <span>{t('accounting.total_taxes_liability') || 'Total Tax Liability'}</span>
               <span className="font-mono">{formatCurrency(packet.total_taxes)}</span>
             </div>
           </div>
         </Card>
 
-        {/* 7. Credit Card Payments Card */}
+        {/* 7. Non-Cash Payments Card (1:1 Cohesion Non-Cash Payments) */}
         <Card>
-          <h2 className="text-base font-bold text-slate-900 dark:text-white mb-4">{t('accounting.section_credit_cards') || 'Pagos con Tarjeta de Crédito'}</h2>
+          <h2 className="text-base font-bold text-slate-900 dark:text-white mb-4">
+            {language === 'en' ? 'Non-Cash Payments' : 'Pagos No Efectivo (Non-Cash Payments)'}
+          </h2>
           {(() => {
             const ccOtherDedLine = packet.journal_lines?.find((l: any) => l.sourceMemo === 'Credit Cards: Other Deductions' || l.memo === 'Credit Card Other Deductions')
             const ccOtherDed = Number(
@@ -833,62 +834,89 @@ export default function PacketDetailPage() {
               ccOtherDedLine?.debit ??
               0
             )
-            return packet.qb_sync_response?.card_breakdown && Object.keys(packet.qb_sync_response.card_breakdown).length > 0 ? (
+            const giftCardRedeem = Number(packet.journal_lines?.find((l: any) => l.memo.includes('Gift Card') && l.debit > 0)?.debit || 0)
+            const otherPaymentsGross = Math.round((
+              Number(packet.uber_payment || 0) +
+              Number(packet.doordash_payment || 0) +
+              Number(packet.grubhub_payment || 0) +
+              Number(packet.ebt_amount || 0) +
+              giftCardRedeem
+            ) * 100) / 100
+            const depLine = packet.journal_lines?.find((l: any) => l.account === '12049' || l.memo?.includes('Deposit Sales Collected'))
+            const openOrdersAmt = Number(
+              (packet.qb_sync_response as any)?.validation?.deposits_collected ??
+              (packet.qb_sync_response as any)?.deposits_collected ??
+              (depLine ? (Number(depLine.debit || 0) - Number(depLine.credit || 0)) : 0)
+            )
+            const ccDeposit = Number(packet.credit_card_deposit ?? packet.cc_deposit ?? 0)
+            const ccFees = Number(packet.credit_card_fees ?? packet.cc_fees ?? 0)
+            const totalNonCash = Math.round((ccDeposit + ccFees + ccOtherDed + otherPaymentsGross + openOrdersAmt) * 100) / 100
+
+            const brandOrder = ['VISA', 'MASTERCARD', 'DISCOVER', 'AMEX', 'OTHER']
+            const brandLabel: Record<string, string> = {
+              VISA: 'Visa',
+              MASTERCARD: 'MasterCard',
+              DISCOVER: 'Discover',
+              AMEX: 'American Express',
+              OTHER: 'Other Card',
+            }
+            const cardEntries = Object.entries(packet.qb_sync_response?.card_breakdown || {}).sort(
+              ([a], [b]) => (brandOrder.indexOf(a) === -1 ? 99 : brandOrder.indexOf(a)) - (brandOrder.indexOf(b) === -1 ? 99 : brandOrder.indexOf(b))
+            )
+
+            return (
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="text-slate-500 dark:text-slate-400 border-b border-slate-100 dark:border-slate-800 text-xs uppercase font-bold">
-                      <th className="pb-2 text-left">{t('accounting.col_card_brand') || 'Tipo'}</th>
-                      <th className="pb-2 text-right">{t('accounting.label_gross') || 'Bruto'}</th>
-                      <th className="pb-2 text-right">{t('accounting.col_fee') || 'Comisión'}</th>
-                      <th className="pb-2 text-right">{t('accounting.col_net_deposit') || 'Depósito'}</th>
+                      <th className="pb-2 pr-2 text-left">{t('accounting.col_card_brand') || 'Concepto'}</th>
+                      <th className="pb-2 px-2 text-right">{t('accounting.label_gross') || 'Bruto'}</th>
+                      <th className="pb-2 pl-2 text-right">{t('accounting.col_net_deposit') || 'Depósito'}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-mono">
-                    {Object.entries(packet.qb_sync_response.card_breakdown).map(([brand, bData], idx) => (
+                    {cardEntries.map(([brand, bData], idx) => (
                       <tr key={idx}>
-                        <td className="py-2 font-sans font-semibold text-slate-700 dark:text-slate-300">{brand}</td>
-                        <td className="py-2 text-right font-semibold text-slate-800 dark:text-slate-200">{formatCurrency(bData.gross)}</td>
-                        <td className="py-2 text-right font-semibold text-rose-600 dark:text-rose-400">-{formatCurrency(bData.fee)}</td>
-                        <td className="py-2 text-right font-bold text-blue-600 dark:text-blue-400">{formatCurrency(bData.deposit)}</td>
+                        <td className="py-1.5 pr-2 font-sans font-medium text-slate-700 dark:text-slate-300">{brandLabel[brand] || brand}</td>
+                        <td className="py-1.5 px-2 text-right text-slate-800 dark:text-slate-200">{formatCurrency(bData.gross)}</td>
+                        <td className="py-1.5 pl-2 text-right text-slate-800 dark:text-slate-200">{formatCurrency(bData.deposit)}</td>
                       </tr>
                     ))}
+                    <tr className="font-bold border-t border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white bg-slate-50/50 dark:bg-slate-800/30">
+                      <td className="py-2 pr-2 font-sans">Total Credit Cards</td>
+                      <td className="py-2 px-2 text-right">{formatCurrency(packet.total_credit_cards_gross ?? packet.cc_gross)}</td>
+                      <td className="py-2 pl-2 text-right text-blue-600 dark:text-blue-400">{formatCurrency(ccDeposit)}</td>
+                    </tr>
+                    <tr>
+                      <td className="py-1.5 pr-2 font-sans font-medium text-slate-700 dark:text-slate-300">Credit Card Fees</td>
+                      <td className="py-1.5 px-2 text-right"></td>
+                      <td className="py-1.5 pl-2 text-right text-slate-800 dark:text-slate-200">{formatCurrency(ccFees)}</td>
+                    </tr>
                     {ccOtherDed > 0 && (
                       <tr>
-                        <td className="py-2 font-sans font-semibold text-slate-700 dark:text-slate-300" colSpan={2}>Other Deductions (MCA)</td>
-                        <td className="py-2 text-right font-semibold text-rose-600 dark:text-rose-400">-{formatCurrency(ccOtherDed)}</td>
-                        <td className="py-2 text-right font-bold text-rose-600 dark:text-rose-400">-{formatCurrency(ccOtherDed)}</td>
+                        <td className="py-1.5 pr-2 font-sans font-medium text-slate-700 dark:text-slate-300">Credit Card Other Deductions</td>
+                        <td className="py-1.5 px-2 text-right"></td>
+                        <td className="py-1.5 pl-2 text-right text-slate-800 dark:text-slate-200">{formatCurrency(ccOtherDed)}</td>
+                      </tr>
+                    )}
+                    <tr>
+                      <td className="py-1.5 pr-2 font-sans font-medium text-slate-700 dark:text-slate-300">Other Payments</td>
+                      <td className="py-1.5 px-2 text-right text-slate-800 dark:text-slate-200">{formatCurrency(otherPaymentsGross)}</td>
+                      <td className="py-1.5 pl-2 text-right text-slate-800 dark:text-slate-200">{formatCurrency(otherPaymentsGross)}</td>
+                    </tr>
+                    {Math.abs(openOrdersAmt) >= 0.005 && (
+                      <tr>
+                        <td className="py-1.5 pr-2 font-sans font-medium text-slate-700 dark:text-slate-300">Deposit Sales Collected &amp; Open Orders</td>
+                        <td className="py-1.5 px-2 text-right text-slate-800 dark:text-slate-200">{formatCurrency(Math.abs(openOrdersAmt))}</td>
+                        <td className="py-1.5 pl-2 text-right font-semibold text-slate-800 dark:text-slate-200">{formatCurrency(openOrdersAmt)}</td>
                       </tr>
                     )}
                     <tr className="font-extrabold border-t-2 border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white">
-                      <td className="py-2.5 font-sans">{t('accounting.total_card_payments') || 'Total'}</td>
-                      <td className="py-2.5 text-right">{formatCurrency(packet.total_credit_cards_gross ?? packet.cc_gross)}</td>
-                      <td className="py-2.5 text-right text-rose-600 dark:text-rose-400">-{formatCurrency((packet.credit_card_fees ?? packet.cc_fees ?? 0) + ccOtherDed)}</td>
-                      <td className="py-2.5 text-right text-blue-600 dark:text-blue-400">{formatCurrency(packet.credit_card_deposit ?? packet.cc_deposit)}</td>
+                      <td className="py-2.5 pr-2 font-sans" colSpan={2}>{t('accounting.non_cash_payments_total') || 'Total Non-Cash Payments'}</td>
+                      <td className="py-2.5 pl-2 text-right text-blue-600 dark:text-blue-400">{formatCurrency(totalNonCash)}</td>
                     </tr>
                   </tbody>
                 </table>
-              </div>
-            ) : (
-              <div className="space-y-2.5 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-slate-500 dark:text-slate-400">{t('accounting.cc_gross_total') || 'Total Tarjetas Bruto'}</span>
-                  <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">{formatCurrency(packet.total_credit_cards_gross ?? packet.cc_gross)}</span>
-                </div>
-                <div className="flex justify-between font-bold text-blue-600 dark:text-blue-400">
-                  <span>{t('accounting.cc_net_deposit') || 'Depósito Neto al Banco'}</span>
-                  <span className="font-mono">{formatCurrency(packet.credit_card_deposit ?? packet.cc_deposit)}</span>
-                </div>
-                <div className="flex justify-between text-slate-500 dark:text-slate-400">
-                  <span>{t('accounting.label_fees') || 'Comisiones Bancarias'}</span>
-                  <span className="font-mono font-semibold text-rose-600 dark:text-rose-400">-{formatCurrency(packet.credit_card_fees ?? packet.cc_fees)}</span>
-                </div>
-                {ccOtherDed > 0 && (
-                  <div className="flex justify-between text-slate-500 dark:text-slate-400">
-                    <span>Other Deductions</span>
-                    <span className="font-mono font-semibold text-rose-600 dark:text-rose-400">-{formatCurrency(ccOtherDed)}</span>
-                  </div>
-                )}
               </div>
             )
           })()}
@@ -1039,97 +1067,83 @@ export default function PacketDetailPage() {
           })()}
         </Card>
 
-        {/* 9. Other Payments Card */}
+        {/* 9. Other Payment Details Card (1:1 Cohesion Other Payment Details) */}
         <Card className="col-span-1 md:col-span-2 lg:col-span-3">
-          <h2 className="text-base font-bold text-slate-900 dark:text-white mb-4">{t('accounting.section_other_payments') || 'Cuentas por Cobrar de Aplicaciones, Tarjetas de Regalo y EBT'}</h2>
+          <h2 className="text-base font-bold text-slate-900 dark:text-white mb-4">
+            {language === 'en' ? 'Other Payment Details' : 'Detalle de Otros Pagos (Other Payment Details)'}
+          </h2>
           <div className="overflow-x-auto">
-            <table className="w-full text-sm divide-y divide-slate-100 dark:divide-slate-800">
-              <thead>
-                <tr className="text-left text-slate-500 dark:text-slate-400 text-xs uppercase font-bold">
-                  <th className="pb-2.5">{t('accounting.col_channel_method') || 'Canal / Método'}</th>
-                  <th className="pb-2.5 text-right">{t('accounting.col_gross_amount') || 'Monto Bruto'}</th>
-                  <th className="pb-2.5 text-right">{t('accounting.col_tax_withheld') || 'Impuesto Retenido'}</th>
-                  <th className="pb-2.5 text-right">{t('accounting.col_net_ar') || 'Neto A/R'}</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-mono">
-                <tr>
-                  <td className="py-2.5 font-sans font-bold text-slate-800 dark:text-slate-200">Uber Eats</td>
-                  <td className="py-2.5 text-right font-semibold">{formatCurrency(packet.uber_payment)}</td>
-                  <td className="py-2.5 text-right text-rose-600 dark:text-rose-400 font-semibold">-{formatCurrency(packet.facilitator_tax_paid)}</td>
-                  <td className="py-2.5 text-right font-bold text-slate-900 dark:text-white">{formatCurrency(packet.uber_payment - packet.facilitator_tax_paid)}</td>
-                </tr>
-                <tr>
-                  <td className="py-2.5 font-sans font-bold text-slate-800 dark:text-slate-200">DoorDash</td>
-                  <td className="py-2.5 text-right font-semibold">{formatCurrency(packet.doordash_payment)}</td>
-                  <td className="py-2.5 text-right text-slate-400">$0.00</td>
-                  <td className="py-2.5 text-right font-bold text-slate-900 dark:text-white">{formatCurrency(packet.doordash_payment)}</td>
-                </tr>
-                <tr>
-                  <td className="py-2.5 font-sans font-bold text-slate-800 dark:text-slate-200">GrubHub</td>
-                  <td className="py-2.5 text-right font-semibold">{formatCurrency(packet.grubhub_payment)}</td>
-                  <td className="py-2.5 text-right text-slate-400">$0.00</td>
-                  <td className="py-2.5 text-right font-bold text-slate-900 dark:text-white">{formatCurrency(packet.grubhub_payment)}</td>
-                </tr>
-                <tr>
-                  <td className="py-2.5 font-sans font-bold text-slate-800 dark:text-slate-200">EBT</td>
-                  <td className="py-2.5 text-right font-semibold">{formatCurrency(packet.ebt_amount)}</td>
-                  <td className="py-2.5 text-right text-slate-400">$0.00</td>
-                  <td className="py-2.5 text-right font-bold text-slate-900 dark:text-white">{formatCurrency(packet.ebt_amount)}</td>
-                </tr>
-                {packet.journal_lines?.some((l: any) => l.memo.includes('Gift Card')) && (
-                  <tr>
-                    <td className="py-2.5 font-sans font-bold text-emerald-700 dark:text-emerald-400">{t('accounting.gift_cards_redeemed') || 'Tarjetas de Regalo Canjeadas (Gift Cards)'}</td>
-                    <td className="py-2.5 text-right font-semibold text-emerald-700 dark:text-emerald-400">
-                      {formatCurrency(packet.journal_lines.find((l: any) => l.memo.includes('Gift Card') && l.debit > 0)?.debit || 0)}
-                    </td>
-                    <td className="py-2.5 text-right text-slate-400">$0.00</td>
-                    <td className="py-2.5 text-right font-bold text-emerald-700 dark:text-emerald-400">
-                      {formatCurrency(packet.journal_lines.find((l: any) => l.memo.includes('Gift Card') && l.debit > 0)?.debit || 0)}
-                    </td>
-                  </tr>
-                )}
-                {(() => {
-                  const depLine = packet.journal_lines?.find((l: any) => l.account === '12049' || l.memo?.includes('Deposit Sales Collected'))
-                  const openOrdersAmt = Number((packet.qb_sync_response as any)?.deposits_collected ?? (depLine ? (Number(depLine.debit || 0) - Number(depLine.credit || 0)) : 0))
-                  if (Math.abs(openOrdersAmt) < 0.005) return null
-                  return (
-                    <tr>
-                      <td className="py-2.5 font-sans font-bold text-slate-800 dark:text-slate-200">
-                        {language === 'en' ? 'Deposit Sales Collected & Open Orders' : 'Depósitos Cobrados y Órdenes Abiertas (12049)'}
-                      </td>
-                      <td className="py-2.5 text-right font-semibold text-slate-900 dark:text-white">
-                        {formatCurrency(openOrdersAmt)}
-                      </td>
-                      <td className="py-2.5 text-right text-slate-400">$0.00</td>
-                      <td className="py-2.5 text-right font-bold text-slate-900 dark:text-white">
-                        {formatCurrency(openOrdersAmt)}
-                      </td>
+            {(() => {
+              const giftCardRedeem = Number(packet.journal_lines?.find((l: any) => l.memo.includes('Gift Card') && l.debit > 0)?.debit || 0)
+              const uberGross = Number(packet.uber_payment || 0)
+              const uberTaxPaid = Number(packet.facilitator_tax_paid || 0)
+              const ddGross = Number(packet.doordash_payment || 0)
+              const ghGross = Number(packet.grubhub_payment || 0)
+              const ebtGross = Number(packet.ebt_amount || 0)
+              const totalOtherGross = Math.round((uberGross + ddGross + ghGross + ebtGross + giftCardRedeem) * 100) / 100
+              const totalOtherNet = Math.round((totalOtherGross - uberTaxPaid) * 100) / 100
+
+              return (
+                <table className="w-full text-sm divide-y divide-slate-100 dark:divide-slate-800">
+                  <thead>
+                    <tr className="text-left text-slate-500 dark:text-slate-400 text-xs uppercase font-bold">
+                      <th className="pb-2.5 pr-2">{t('accounting.col_channel_method') || 'Canal / Método'}</th>
+                      <th className="pb-2.5 px-2 text-right">{t('accounting.col_gross_amount') || 'Gross'}</th>
+                      <th className="pb-2.5 px-2 text-right">{t('accounting.col_tax_withheld') || 'Taxes Paid'}</th>
+                      <th className="pb-2.5 pl-2 text-right">{t('accounting.col_net_ar') || 'Net'}</th>
                     </tr>
-                  )
-                })()}
-                <tr className="font-extrabold text-slate-900 dark:text-white border-t-2 border-slate-200 dark:border-slate-700">
-                  <td className="py-2.5 font-sans" colSpan={3}>{t('accounting.non_cash_payments_total') || 'Total Pagos No Efectivo'}</td>
-                  <td className="py-2.5 text-right text-blue-600 dark:text-blue-400">
-                    {(() => {
-                      const depLine = packet.journal_lines?.find((l: any) => l.account === '12049' || l.memo?.includes('Deposit Sales Collected'))
-                      const openOrdersAmt = Number((packet.qb_sync_response as any)?.deposits_collected ?? (depLine ? (Number(depLine.debit || 0) - Number(depLine.credit || 0)) : 0))
-                      return formatCurrency(
-                        (packet.credit_card_deposit ?? packet.cc_deposit ?? 0) +
-                        (packet.credit_card_fees ?? packet.cc_fees ?? 0) +
-                        Number(packet.credit_card_other_deductions || packet.journal_lines?.find((l: any) => l.memo?.toLowerCase().includes('other deductions') && l.debit > 0)?.debit || 0) +
-                        (packet.uber_payment ?? 0) +
-                        (packet.doordash_payment ?? 0) +
-                        (packet.grubhub_payment ?? 0) +
-                        (packet.ebt_amount ?? 0) +
-                        (packet.journal_lines?.find((l: any) => l.memo.includes('Gift Card') && l.debit > 0)?.debit || 0) +
-                        openOrdersAmt
-                      )
-                    })()}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-mono">
+                    {ddGross > 0 && (
+                      <tr>
+                        <td className="py-2.5 pr-2 font-sans font-bold text-slate-800 dark:text-slate-200">DoorDash</td>
+                        <td className="py-2.5 px-2 text-right font-semibold">{formatCurrency(ddGross)}</td>
+                        <td className="py-2.5 px-2 text-right text-slate-400">$0.00</td>
+                        <td className="py-2.5 pl-2 text-right font-bold text-slate-900 dark:text-white">{formatCurrency(ddGross)}</td>
+                      </tr>
+                    )}
+                    {ebtGross > 0 && (
+                      <tr>
+                        <td className="py-2.5 pr-2 font-sans font-bold text-slate-800 dark:text-slate-200">EBT</td>
+                        <td className="py-2.5 px-2 text-right font-semibold">{formatCurrency(ebtGross)}</td>
+                        <td className="py-2.5 px-2 text-right text-slate-400">$0.00</td>
+                        <td className="py-2.5 pl-2 text-right font-bold text-slate-900 dark:text-white">{formatCurrency(ebtGross)}</td>
+                      </tr>
+                    )}
+                    {ghGross > 0 && (
+                      <tr>
+                        <td className="py-2.5 pr-2 font-sans font-bold text-slate-800 dark:text-slate-200">GrubHub</td>
+                        <td className="py-2.5 px-2 text-right font-semibold">{formatCurrency(ghGross)}</td>
+                        <td className="py-2.5 px-2 text-right text-slate-400">$0.00</td>
+                        <td className="py-2.5 pl-2 text-right font-bold text-slate-900 dark:text-white">{formatCurrency(ghGross)}</td>
+                      </tr>
+                    )}
+                    {uberGross > 0 && (
+                      <tr>
+                        <td className="py-2.5 pr-2 font-sans font-bold text-slate-800 dark:text-slate-200">Uber Eats</td>
+                        <td className="py-2.5 px-2 text-right font-semibold">{formatCurrency(uberGross)}</td>
+                        <td className="py-2.5 px-2 text-right text-rose-600 dark:text-rose-400 font-semibold">-{formatCurrency(uberTaxPaid)}</td>
+                        <td className="py-2.5 pl-2 text-right font-bold text-slate-900 dark:text-white">{formatCurrency(uberGross - uberTaxPaid)}</td>
+                      </tr>
+                    )}
+                    {giftCardRedeem > 0 && (
+                      <tr>
+                        <td className="py-2.5 pr-2 font-sans font-bold text-emerald-700 dark:text-emerald-400">{t('accounting.gift_cards_redeemed') || 'Gift Cards'}</td>
+                        <td className="py-2.5 px-2 text-right font-semibold text-emerald-700 dark:text-emerald-400">{formatCurrency(giftCardRedeem)}</td>
+                        <td className="py-2.5 px-2 text-right text-slate-400">$0.00</td>
+                        <td className="py-2.5 pl-2 text-right font-bold text-emerald-700 dark:text-emerald-400">{formatCurrency(giftCardRedeem)}</td>
+                      </tr>
+                    )}
+                    <tr className="font-extrabold text-slate-900 dark:text-white border-t-2 border-slate-200 dark:border-slate-700">
+                      <td className="py-2.5 pr-2 font-sans">Total</td>
+                      <td className="py-2.5 px-2 text-right">{formatCurrency(totalOtherGross)}</td>
+                      <td className="py-2.5 px-2 text-right text-rose-600 dark:text-rose-400">{uberTaxPaid > 0 ? `-${formatCurrency(uberTaxPaid)}` : '$0.00'}</td>
+                      <td className="py-2.5 pl-2 text-right text-blue-600 dark:text-blue-400">{formatCurrency(totalOtherNet)}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              )
+            })()}
           </div>
         </Card>
       </div>

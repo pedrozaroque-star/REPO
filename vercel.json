@@ -62,11 +62,7 @@
         },
         {
             "path": "/api/cron/sync-accounting",
-            "schedule": "30 13 * * *"
-        },
-        {
-            "path": "/api/cron/sync-accounting",
-            "schedule": "30 14 * * *"
+            "schedule": "30 13-19 * * *"
         },
         {
             "path": "/api/cron/sync-meat-history",

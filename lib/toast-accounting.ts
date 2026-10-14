@@ -470,20 +470,10 @@ export async function fetchToastAccountingData(
       const paymentsBaseTotal = validPayments.reduce((sum: number, p: any) => sum + (Number(p.amount) || 0), 0)
       const paymentsWithTipTotal = validPayments.reduce((sum: number, p: any) => sum + (Number(p.amount) || 0) + (Number(p.tipAmount) || 0), 0)
       const expectedTotal = Number(check.totalAmount ?? check.amount ?? 0)
-      const diffBase = Math.abs(expectedTotal - paymentsBaseTotal)
-      const diffWithTip = Math.abs(expectedTotal - paymentsWithTipTotal)
-      const minDiff = Math.min(diffBase, diffWithTip)
-      const isCheckOutOfBalance = minDiff > 0.05 && (isCheckClosed || paymentsBaseTotal > 0)
-      if (isCheckOutOfBalance) {
-        orderHasIssue = true
-        outOfBalanceOrdersCount++
-        checkIssues.push(`Desbalanceada: Esperado $${expectedTotal.toFixed(2)}, Pagado $${paymentsBaseTotal.toFixed(2)}`)
-      } else if (isCheckOpen) {
+      if (isCheckOpen && expectedTotal > 0 && paymentsBaseTotal < expectedTotal - 0.05) {
         // Solo marcar check sin cerrar si realmente quedó abierto con balance pendiente por cobrar
-        if (expectedTotal > 0 && paymentsBaseTotal < expectedTotal - 0.05) {
-          orderHasIssue = true
-          checkIssues.push(`Check sin cerrar (Estado: ${check.paymentStatus || 'OPEN'})`)
-        }
+        orderHasIssue = true
+        checkIssues.push(`Check sin cerrar (Estado: ${check.paymentStatus || 'OPEN'})`)
       }
     }
 
@@ -688,11 +678,12 @@ export async function fetchToastAccountingData(
 
         const amt = Number(p.amount || 0)
 
-        // Cohesion Parity: Si el pago se capturó en OTRA fecha de negocio (ej. orden de ayer cobrada previamente),
-        // es un depósito cobrado con anterioridad que pertenece a la cuenta 12049 (Deposit Sales Collected & Open Orders),
-        // NO al pago del canal de la fecha comercial de hoy.
+        // Cohesion Parity: Si el pago se capturó en OTRA fecha de negocio (ej. orden de hoy pagada previamente o liquidada después),
+        // los cobros positivos pertenecen a la cuenta 12049 (Deposit Sales Collected & Open Orders).
+        // Si es un ajuste negativo de cambio devuelto al día siguiente (ej. Broadway #129 -$0.99 en efectivo el 10/14 para cerrar un sobrepago de tarjeta del 10/13),
+        // NO se suma aquí porque el sobrepago ya se descuenta abajo en chkExcess.
         if (p.paidBusinessDate && String(p.paidBusinessDate) !== businessDate) {
-          depositsCollected += amt
+          if (amt > 0) depositsCollected += amt
           continue
         }
 
@@ -800,6 +791,7 @@ export async function fetchToastAccountingData(
                 if (pp.voided || INVALID_PAYMENT_STATUSES.has(String(pp.paymentStatus || '').toUpperCase())) return
 
                 const pAmt = Number(pp.amount || 0)
+                if (pAmt <= 0) return
                 const pTip = Number(pp.tipAmount || 0)
                 const pT = String(pp.type || '').toUpperCase()
                 const fee = Number(pp.originalProcessingFee || 0)
