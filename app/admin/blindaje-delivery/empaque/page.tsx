@@ -386,7 +386,7 @@ export default function BlindajeDeliveryEmpaquePage() {
     }
   }, [])
 
-  // Campanilla Ding-Dong de dos tonos antes de la voz
+  // Campana aguda y prolongada exclusiva para órdenes Delivery antes de la voz
   const playChime = useCallback((): Promise<void> => {
     return new Promise(async resolve => {
       try {
@@ -401,29 +401,38 @@ export default function BlindajeDeliveryEmpaquePage() {
         }
         const now = ctx.currentTime
 
-        const osc1 = ctx.createOscillator()
-        const gain1 = ctx.createGain()
-        osc1.type = 'sine'
-        osc1.frequency.setValueAtTime(587.33, now)
-        gain1.gain.setValueAtTime(0.3, now)
-        gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.55)
-        osc1.connect(gain1)
-        gain1.connect(ctx.destination)
-        osc1.start(now)
-        osc1.stop(now + 0.55)
+        // Helper para crear parciales armónicos de campana cristalina aguda
+        const strikeBellPartial = (
+          freq: number,
+          startOffset: number,
+          duration: number,
+          peakGain: number,
+          type: OscillatorType = 'sine'
+        ) => {
+          const osc = ctx.createOscillator()
+          const gain = ctx.createGain()
+          osc.type = type
+          osc.frequency.setValueAtTime(freq, now + startOffset)
+          gain.gain.setValueAtTime(0.0001, now + startOffset)
+          gain.gain.linearRampToValueAtTime(peakGain, now + startOffset + 0.015)
+          gain.gain.exponentialRampToValueAtTime(0.0008, now + startOffset + duration)
+          osc.connect(gain)
+          gain.connect(ctx.destination)
+          osc.start(now + startOffset)
+          osc.stop(now + startOffset + duration + 0.02)
+        }
 
-        const osc2 = ctx.createOscillator()
-        const gain2 = ctx.createGain()
-        osc2.type = 'sine'
-        osc2.frequency.setValueAtTime(880, now + 0.16)
-        gain2.gain.setValueAtTime(0.38, now + 0.16)
-        gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.85)
-        osc2.connect(gain2)
-        gain2.connect(ctx.destination)
-        osc2.start(now + 0.16)
-        osc2.stop(now + 0.85)
+        // Toque 1 (Ding agudo brillante - E6 1318.5 Hz + armónicos de campana E7/B7)
+        strikeBellPartial(1318.51, 0.0, 1.35, 0.36, 'sine')
+        strikeBellPartial(2637.02, 0.0, 0.85, 0.16, 'sine')
+        strikeBellPartial(3951.07, 0.0, 0.45, 0.08, 'triangle')
 
-        setTimeout(resolve, 800)
+        // Toque 2 (Dong más agudo y prolongado - A6 1760 Hz + resonancia larga de campana A7/E7)
+        strikeBellPartial(1760.0, 0.28, 1.85, 0.42, 'sine')
+        strikeBellPartial(3520.0, 0.28, 1.25, 0.18, 'sine')
+        strikeBellPartial(2637.02, 0.28, 1.55, 0.12, 'triangle')
+
+        setTimeout(resolve, 1950)
       } catch {
         resolve()
       }
@@ -455,15 +464,15 @@ export default function BlindajeDeliveryEmpaquePage() {
     return job
   }, [])
 
-  // Precargar los 2 clips de sufijo ("Please pack." y "Por favor empacar.") al montar
+  // Precargar los 2 clips de sufijo ("Please pack." y "Favor de empacar.") al montar
   useEffect(() => {
     void getCachedAudioUrl(
       'suffix:en:please-pack',
       '/api/order-ready/announcement-tts?text=Please%20pack.&lang=en&voice=Kore'
     )
     void getCachedAudioUrl(
-      'suffix:es:por-favor-empacar',
-      '/api/order-ready/announcement-tts?text=Por%20favor%20empacar.&lang=es&voice=Kore'
+      'suffix:es:favor-de-empacar',
+      '/api/order-ready/announcement-tts?text=Favor%20de%20empacar.&lang=es&voice=Kore'
     )
   }, [getCachedAudioUrl])
 
@@ -548,7 +557,7 @@ export default function BlindajeDeliveryEmpaquePage() {
       const text =
         lang === 'en'
           ? `Order ${numStr} is ready, please pack.`
-          : `Orden ${numStr} ya está, por favor empacar.`
+          : `Orden ${numStr} ya está, favor de empacar.`
       const utt = new SpeechSynthesisUtterance(text)
       utt.voice = targetVoice
       utt.lang = targetVoice.lang || (lang === 'en' ? 'en-US' : 'es-MX')
@@ -571,12 +580,12 @@ export default function BlindajeDeliveryEmpaquePage() {
     })
   }, [])
 
-  // Reproducir aviso completo: Ding-Dong + "Order #100, is ready! Please pack." + "Orden #100, ¡ya está! Por favor empacar."
+  // Reproducir aviso completo: Campana aguda prolongada + "Order #100, is ready! Please pack." + "Orden #100, ¡ya está! Favor de empacar."
   const speakOrderReadyToPack = useCallback(
     async (targetOrder: Order) => {
       const rawDigits = targetOrder.ticket.replace(/\D/g, '')
       const num = rawDigits && /^\d{1,4}$/.test(rawDigits) ? String(parseInt(rawDigits, 10)) : ''
-      const bannerText = `🔊 Order #${targetOrder.ticket} is ready, please pack • ${targetOrder.platformOrderKey}`
+      const bannerText = `🔊 Order #${targetOrder.ticket} is ready, please pack • Favor de empacar • ${targetOrder.platformOrderKey}`
       setActiveAnnouncement(bannerText)
 
       try {
@@ -597,8 +606,8 @@ export default function BlindajeDeliveryEmpaquePage() {
           ),
           getCachedAudioUrl(`order:es:${num}`, `/api/order-ready/tts?n=${num}&lang=es&voice=Kore`),
           getCachedAudioUrl(
-            'suffix:es:por-favor-empacar',
-            '/api/order-ready/announcement-tts?text=Por%20favor%20empacar.&lang=es&voice=Kore'
+            'suffix:es:favor-de-empacar',
+            '/api/order-ready/announcement-tts?text=Favor%20de%20empacar.&lang=es&voice=Kore'
           )
         ])
 
@@ -612,7 +621,7 @@ export default function BlindajeDeliveryEmpaquePage() {
 
         await new Promise(r => setTimeout(r, 180))
 
-        // 2. Español: "Orden #100, ¡ya está!" + "Por favor empacar."
+        // 2. Español: "Orden #100, ¡ya está!" + "Favor de empacar."
         const okEsOrder = orderEsUrl ? await playClipUrl(orderEsUrl) : false
         if (okEsOrder) {
           if (packEsUrl) await playClipUrl(packEsUrl)

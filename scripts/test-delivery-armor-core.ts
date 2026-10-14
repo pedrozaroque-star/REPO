@@ -247,9 +247,16 @@ assert.equal(
   'Debe reutilizar los audios de órdenes ya descargados en Supabase Storage (/api/order-ready/tts)'
 )
 assert.equal(
-  empaqueSource.includes('Please%20pack.') && empaqueSource.includes('Por%20favor%20empacar.'),
+  empaqueSource.includes('Please%20pack.') && empaqueSource.includes('Favor%20de%20empacar.'),
   true,
-  'Debe anunciar Please pack / Por favor empacar al salir del KDS'
+  'Debe anunciar Please pack / Favor de empacar al salir del KDS'
+)
+assert.equal(
+  empaqueSource.includes('strikeBellPartial(1318.51') &&
+    empaqueSource.includes('strikeBellPartial(1760.0') &&
+    empaqueSource.includes('setTimeout(resolve, 1950)'),
+  true,
+  'La campana de Delivery debe ser más aguda (1318 Hz -> 1760 Hz con armónicos) y más prolongada (~2 segundos)'
 )
 assert.equal(
   empaqueSource.includes("prevStatus === 'IN_KITCHEN'"),
