@@ -46,12 +46,34 @@ export type AuditStatus =
 export type DeliveryRiskLevel = 'NORMAL' | 'HIGH'
 export type EvidencePolicy = 'NONE' | 'SEALED_BAG'
 export type CourierVerificationMethod = 'DOORDASH_QR' | 'PLATFORM_ORDER_ID' | 'APP_ORDER_SCREEN'
+export type KdsPrepStatus = 'IN_KITCHEN' | 'READY'
+
+export interface PlatformOrderIdentity {
+  platformOrderKey: string
+  shortOrderKey: string
+  cleanCustomerName: string
+  maskedCustomerName: string
+  assignedDriverHint?: string | null
+}
+
+export interface KdsTimingInfo {
+  kdsStatus: KdsPrepStatus
+  kdsSentAt: string
+  kdsReadyAt: string | null
+  kdsPrepSeconds: number | null
+}
 
 export interface DeliveryQuickChecks {
   foodComplete: boolean
   drinksComplete: boolean
   bagCountCorrect: boolean
   bagSealed: boolean
+  platformOrderKey?: string
+  shortOrderKey?: string
+  kdsStatus?: KdsPrepStatus
+  kdsSentAt?: string
+  kdsReadyAt?: string | null
+  kdsPrepSeconds?: number | null
 }
 
 export interface OrderItemDetail {
@@ -72,7 +94,16 @@ export interface OffPremiseOrder {
   diningOptionGuid: string
   diningOptionName: string
   customerName: string
+  maskedCustomerName: string
+  platformOrderKey: string
+  shortOrderKey: string
+  assignedDriverHint?: string | null
   openedDate: string
+  kdsStatus: KdsPrepStatus
+  kdsSentAt: string
+  kdsReadyAt: string | null
+  kdsPrepSeconds: number | null
+  isVoided?: boolean
   items: OrderItemDetail[]
   totalItemsCount: number
   audit?: {
@@ -86,6 +117,7 @@ export interface OffPremiseOrder {
     packedAt?: string | null
     handedByName?: string | null
     handedAt?: string | null
+    driverName?: string | null
     driverConfirmed?: boolean
     quickChecks?: DeliveryQuickChecks
     expectedBagCount?: number
@@ -96,6 +128,265 @@ export interface OffPremiseOrder {
     courierVerificationMethod?: CourierVerificationMethod | null
     courierOrderReference?: string | null
     livePickupConfirmed?: boolean
+  }
+}
+
+/**
+ * Enmascara el nombre del cliente (ej. "Aramis P." -> "A••• P.") para impedir entregas por nombre en mostrador
+ */
+export function maskCustomerName(rawName: string): string {
+  const clean = String(rawName || '').trim()
+  if (!clean) return 'C•••'
+  const parts = clean.split(/\s+/).filter(Boolean)
+  const first = parts[0] || 'C'
+  const firstChar = first.charAt(0).toUpperCase()
+  if (parts.length === 1) {
+    return `${firstChar}•••`
+  }
+  const lastInitial = parts[parts.length - 1].charAt(0).toUpperCase()
+  return `${firstChar}••• ${lastInitial}.`
+}
+
+/**
+ * Extrae la Clave Oficial de la Orden de cada plataforma (Uber Eats, DoorDash, Grubhub, Toast) desde Toast API
+ */
+export function extractPlatformOrderIdentity(params: {
+  platform: DeliveryPlatform
+  displayNumber: string
+  tabName?: string | null
+  firstName?: string | null
+  lastName?: string | null
+  fullName?: string | null
+  email?: string | null
+  phone?: string | null
+  deliveryNotes?: string | null
+}): PlatformOrderIdentity {
+  const ticket = String(params.displayNumber || 'S/N').trim()
+  const tab = String(params.tabName || '').trim()
+  const rawFirst = String(params.firstName || '').trim()
+  const rawLast = String(params.lastName || '').trim()
+  const email = String(params.email || '').trim()
+  const phone = String(params.phone || '').trim()
+  const notes = String(params.deliveryNotes || '').trim()
+
+  // Detectar pista de chofer asignado en notas de Uber Eats ("Driver Pin: 31902213 (Jessica)")
+  const driverMatch = notes.match(/Driver Pin:\s*\d+\s*\(([^)]+)\)/i)
+  const assignedDriverHint = driverMatch ? driverMatch[1].trim() : null
+
+  // Limpiar nombre del cliente quitando prefijos y claves pegadas
+  let cleanFirst = rawFirst
+  let ueCodeFromFirst = ''
+  if (cleanFirst.toUpperCase().startsWith('UE-')) {
+    const withoutPrefix = cleanFirst.slice(3).trim()
+    const trailingHex = withoutPrefix.match(/^([a-zA-Z\s.'-]+?)([A-Z0-9]{5})$/i)
+    if (trailingHex) {
+      cleanFirst = trailingHex[1].trim()
+      ueCodeFromFirst = trailingHex[2].toUpperCase()
+    } else {
+      cleanFirst = withoutPrefix
+    }
+  } else if (cleanFirst.toLowerCase().startsWith('pickup-')) {
+    cleanFirst = cleanFirst.slice(7).trim()
+  }
+
+  const platformLabel =
+    params.platform === 'DOORDASH'
+      ? 'DoorDash'
+      : params.platform === 'UBER_EATS'
+      ? 'Uber Eats'
+      : params.platform === 'GRUBHUB'
+      ? 'Grubhub'
+      : 'Online'
+
+  const cleanCustomerName =
+    [cleanFirst, rawLast].filter(Boolean).join(' ').trim() ||
+    String(params.fullName || '').trim() ||
+    `Cliente ${platformLabel}`
+
+  const maskedCustomerName = maskCustomerName(cleanCustomerName)
+
+  if (params.platform === 'UBER_EATS') {
+    const tabMatch = tab.match(/\bUBER[-_\s]*([A-Z0-9]{4,8})\b/i)
+    const emailMatch = email.match(/ubersupport([a-z0-9]{4,8})@/i)
+    const code = (tabMatch?.[1] || ueCodeFromFirst || emailMatch?.[1] || '').toUpperCase()
+    if (code) {
+      return {
+        platformOrderKey: `UBER${code}`,
+        shortOrderKey: code,
+        cleanCustomerName,
+        maskedCustomerName,
+        assignedDriverHint
+      }
+    }
+    return {
+      platformOrderKey: `UBER #${ticket}`,
+      shortOrderKey: `#${ticket}`,
+      cleanCustomerName,
+      maskedCustomerName,
+      assignedDriverHint
+    }
+  }
+
+  if (params.platform === 'DOORDASH') {
+    const tabMatch = tab.match(/^\s*(DD|SF)\s+([a-f0-9]{6,10})\b/i)
+    const emailMatch = email.match(/orders_([a-f0-9]{8})-/i)
+    const prefix = (tabMatch?.[1] || 'DD').toUpperCase()
+    const code = (tabMatch?.[2] || emailMatch?.[1] || '').toUpperCase()
+    if (code) {
+      return {
+        platformOrderKey: `${prefix} ${code}`,
+        shortOrderKey: code,
+        cleanCustomerName,
+        maskedCustomerName,
+        assignedDriverHint
+      }
+    }
+    return {
+      platformOrderKey: `DD #${ticket}`,
+      shortOrderKey: `QR #${ticket}`,
+      cleanCustomerName,
+      maskedCustomerName,
+      assignedDriverHint
+    }
+  }
+
+  if (params.platform === 'GRUBHUB') {
+    const ghMatch = tab.match(/Grubhub\s*#?(\d{6,20})/i)
+    const ghNum = ghMatch?.[1] || ''
+    if (ghNum) {
+      return {
+        platformOrderKey: `GH #${ghNum}`,
+        shortOrderKey: `#${ghNum.slice(-4)}`,
+        cleanCustomerName,
+        maskedCustomerName,
+        assignedDriverHint
+      }
+    }
+    return {
+      platformOrderKey: `GH #${ticket}`,
+      shortOrderKey: `#${ticket}`,
+      cleanCustomerName,
+      maskedCustomerName,
+      assignedDriverHint
+    }
+  }
+
+  const sfOrDdInTab = tab.match(/^\s*(DD|SF)\s+([a-f0-9]{6,10})\b/i)
+  if (sfOrDdInTab) {
+    const prefix = sfOrDdInTab[1].toUpperCase()
+    const code = sfOrDdInTab[2].toUpperCase()
+    return {
+      platformOrderKey: `${prefix} ${code}`,
+      shortOrderKey: code,
+      cleanCustomerName,
+      maskedCustomerName,
+      assignedDriverHint
+    }
+  }
+
+  const digits = phone.replace(/\D/g, '')
+  const last4 = digits.length >= 4 ? digits.slice(-4) : ''
+  return {
+    platformOrderKey: last4 ? `TOAST #${ticket} (${last4})` : `TOAST #${ticket}`,
+    shortOrderKey: last4 ? `#${ticket}•${last4}` : `#${ticket}`,
+    cleanCustomerName,
+    maskedCustomerName,
+    assignedDriverHint
+  }
+}
+
+/**
+ * Calcula el tiempo real de preparación en KDS desde que llega la orden (createdDate/openedDate)
+ * hasta que el cocinero borra la orden del KDS (fulfillmentStatus === 'READY' -> modifiedDate).
+ * Nota operativa: En Toast, las bebidas (Large Piña, Jamaica, Horchata, Champurrado) no van a la pantalla KDS de cocina
+ * y permanecen en 'SENT', mientras que los platillos cambian a 'READY' en el segundo exacto en que el cocinero borra la orden.
+ */
+export function extractKdsTiming(rawOrder: any): KdsTimingInfo {
+  const openedDate = rawOrder?.openedDate || new Date().toISOString()
+  const checks = Array.isArray(rawOrder?.checks) ? rawOrder.checks : []
+  const selections: any[] = []
+  for (const chk of checks) {
+    if (Array.isArray(chk?.selections)) {
+      for (const sel of chk.selections) {
+        if (!sel?.voided) selections.push(sel)
+      }
+    }
+  }
+
+  if (selections.length === 0) {
+    return {
+      kdsStatus: 'READY',
+      kdsSentAt: openedDate,
+      kdsReadyAt: openedDate,
+      kdsPrepSeconds: 0
+    }
+  }
+
+  const createdTimestamps = selections
+    .map(s => (s?.createdDate ? new Date(s.createdDate).getTime() : NaN))
+    .filter(t => Number.isFinite(t) && t > 0)
+
+  const openedMs = new Date(openedDate).getTime()
+  const minCreatedMs = createdTimestamps.length > 0 ? Math.min(...createdTimestamps) : NaN
+  const sentMs =
+    Number.isFinite(openedMs) && Number.isFinite(minCreatedMs)
+      ? Math.max(openedMs, minCreatedMs)
+      : Number.isFinite(minCreatedMs)
+      ? minCreatedMs
+      : Number.isFinite(openedMs)
+      ? openedMs
+      : Date.now()
+
+  const kdsSentAt = new Date(sentMs).toISOString()
+
+  // Separar platillos de cocina vs bebidas de mostrador (las bebidas no pasan por el KDS del cocinero)
+  const foodSelections = selections.filter(s => {
+    const name = s?.displayName || s?.itemGroup?.name || ''
+    return !isHighRiskBeverage(name)
+  })
+
+  // Si la orden es únicamente de bebidas (sin platillos de cocina), pasa directo a la cajera
+  if (foodSelections.length === 0) {
+    return {
+      kdsStatus: 'READY',
+      kdsSentAt,
+      kdsReadyAt: kdsSentAt,
+      kdsPrepSeconds: 0
+    }
+  }
+
+  const readyFoodSelections = foodSelections.filter(
+    s => String(s?.fulfillmentStatus || '').toUpperCase() === 'READY'
+  )
+  const pendingFoodSelections = foodSelections.filter(s => {
+    const st = String(s?.fulfillmentStatus || '').toUpperCase()
+    return st === 'SENT' || st === 'NEW' || st === 'HOLD'
+  })
+
+  // Si aún hay platillos de cocina en SENT/NEW/HOLD y no todos han salido del KDS
+  if (pendingFoodSelections.length > 0 && readyFoodSelections.length < foodSelections.length) {
+    return {
+      kdsStatus: 'IN_KITCHEN',
+      kdsSentAt,
+      kdsReadyAt: null,
+      kdsPrepSeconds: null
+    }
+  }
+
+  const readySource = readyFoodSelections.length > 0 ? readyFoodSelections : foodSelections
+  const modifiedTimestamps = readySource
+    .map(s => (s?.modifiedDate ? new Date(s.modifiedDate).getTime() : NaN))
+    .filter(t => Number.isFinite(t) && t > 0)
+
+  const readyMs = modifiedTimestamps.length > 0 ? Math.max(...modifiedTimestamps) : sentMs
+  const rawPrepSec = Math.round((readyMs - sentMs) / 1000)
+  const kdsPrepSeconds = Number.isFinite(rawPrepSec) ? Math.max(0, Math.min(7200, rawPrepSec)) : 0
+
+  return {
+    kdsStatus: 'READY',
+    kdsSentAt,
+    kdsReadyAt: new Date(Math.max(sentMs, readyMs)).toISOString(),
+    kdsPrepSeconds
   }
 }
 
@@ -190,7 +481,7 @@ export async function verifyRonosPin(storeId: number, pin: string): Promise<{
 }
 
 /**
- * Detecta si un ítem corresponde a una bebida o producto refrigerado de alto riesgo de olvido
+ * Detecta si un ítem corresponde a una bebida o producto refrigerado/líquido que requiere atención de la cajera
  */
 export function isHighRiskBeverage(name: string): boolean {
   const n = String(name || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
@@ -198,14 +489,28 @@ export function isHighRiskBeverage(name: string): boolean {
     n.includes('horchata') ||
     n.includes('jamaica') ||
     n.includes('tamarindo') ||
+    n.includes('pina') ||
+    n.includes('pineapple') ||
     n.includes('fresa') ||
     n.includes('limon') ||
+    n.includes('melon') ||
+    n.includes('sandia') ||
+    n.includes('pepino') ||
+    n.includes('mango') ||
+    n.includes('guayaba') ||
+    n.includes('champurrado') ||
+    n.includes('atole') ||
     n.includes('soda') ||
     n.includes('coke') ||
     n.includes('coca') ||
     n.includes('sprite') ||
+    n.includes('fanta') ||
+    n.includes('squirt') ||
+    n.includes('pepsi') ||
     n.includes('jarrito') ||
     n.includes('sidral') ||
+    n.includes('mundet') ||
+    n.includes('manzanita') ||
     n.includes('sangria') ||
     n.includes('agua') ||
     n.includes('water') ||
@@ -364,7 +669,9 @@ export async function fetchOffPremiseOrders(storeId: number, targetBusinessDate?
   const offPremiseOrders: OffPremiseOrder[] = []
 
   for (const o of rawOrders) {
-    if (o.voided || o.deleted) continue
+    if (o.deleted) continue
+    const existingAudit = auditsMap.get(o.guid)
+    if (o.voided && !existingAudit) continue
 
     const dGuid = o.diningOption?.guid || ''
     const dName = diningOptionsMap[dGuid] || o.diningOption?.name || 'Mostrador'
@@ -378,28 +685,24 @@ export async function fetchOffPremiseOrders(storeId: number, targetBusinessDate?
 
     const platform = classifyPlatform(dName, deliveryService, source)
 
-    // Extraer datos reales del cliente de la plataforma (Toast ubica clientes en o.checks[0].customer o en o.customer)
-    const custObj = o.customer || o.checks?.[0]?.customer
-    const platformLabel = platform === 'DOORDASH' ? 'DoorDash' : platform === 'UBER_EATS' ? 'Uber Eats' : platform === 'GRUBHUB' ? 'Grubhub' : 'Online'
-    let customerName = `Cliente ${platformLabel}`
-    if (custObj) {
-      let fName = String(custObj.firstName || '').trim()
-      const lName = String(custObj.lastName || '').trim()
-      
-      // Limpieza de prefijos técnicos de Uber Eats como 'UE-Wendy27537' -> 'Wendy (UE-27537)'
-      if (fName.startsWith('UE-')) {
-        const match = fName.match(/^UE-([a-zA-Z]+)(\d+.*)$/)
-        if (match) {
-          fName = `${match[1]} (${match[2]})`
-        }
-      }
+    // Extraer datos reales del cliente y la Clave Oficial de la Plataforma desde checks[0].tabName y customer
+    const firstCheck = o.checks?.[0] || {}
+    const custObj = o.customer || firstCheck.customer || {}
+    const displayNumStr = String(o.displayNumber || o.orderNumber || 'S/N')
 
-      if (fName || lName) {
-        customerName = `${fName} ${lName}`.trim()
-      } else if (custObj.name) {
-        customerName = String(custObj.name).trim()
-      }
-    }
+    const identity = extractPlatformOrderIdentity({
+      platform,
+      displayNumber: displayNumStr,
+      tabName: firstCheck.tabName,
+      firstName: custObj.firstName,
+      lastName: custObj.lastName,
+      fullName: custObj.name,
+      email: custObj.email,
+      phone: custObj.phone,
+      deliveryNotes: o.deliveryInfo?.notes
+    })
+
+    const kds = extractKdsTiming(o)
 
     // Extraer productos y modificadores
     const items: OrderItemDetail[] = []
@@ -434,18 +737,25 @@ export async function fetchOffPremiseOrders(storeId: number, targetBusinessDate?
 
     if (items.length === 0) continue
 
-    const existingAudit = auditsMap.get(o.guid)
-
     offPremiseOrders.push({
       orderGuid: o.guid,
-      displayNumber: String(o.displayNumber || o.orderNumber || 'S/N'),
+      displayNumber: displayNumStr,
       storeId,
       storeName: store.name,
       platform,
       diningOptionGuid: dGuid,
       diningOptionName: dName,
-      customerName,
+      customerName: identity.cleanCustomerName,
+      maskedCustomerName: identity.maskedCustomerName,
+      platformOrderKey: identity.platformOrderKey,
+      shortOrderKey: identity.shortOrderKey,
+      assignedDriverHint: identity.assignedDriverHint,
       openedDate: o.openedDate || new Date().toISOString(),
+      kdsStatus: kds.kdsStatus,
+      kdsSentAt: kds.kdsSentAt,
+      kdsReadyAt: kds.kdsReadyAt,
+      kdsPrepSeconds: kds.kdsPrepSeconds,
+      isVoided: !!o.voided,
       items,
       totalItemsCount: items.reduce((acc, curr) => acc + curr.quantity, 0),
       audit: existingAudit ? {
@@ -459,6 +769,7 @@ export async function fetchOffPremiseOrders(storeId: number, targetBusinessDate?
         packedAt: existingAudit.packed_at,
         handedByName: existingAudit.handed_by_ronos_name,
         handedAt: existingAudit.handed_at,
+        driverName: existingAudit.driver_name || null,
         driverConfirmed: existingAudit.driver_confirmed,
         quickChecks: existingAudit.quick_checks || undefined,
         expectedBagCount: Number(existingAudit.expected_bag_count || 1),
@@ -524,8 +835,6 @@ export async function saveAuditProgress(params: {
     matchCompleted,
     photoOpenUrl,
     photoSealedUrl,
-    packerRonosUserId,
-    packerRonosName,
     packerPin,
     quickChecks,
     expectedBagCount,
@@ -542,10 +851,7 @@ export async function saveAuditProgress(params: {
     throw new Error('La cantidad confirmada de bolsas no coincide con la esperada.')
   }
   if (!areQuickChecksComplete(quickChecks) || !matchCompleted) {
-    throw new Error('Los cuatro controles rápidos deben estar confirmados antes de dejar lista la orden.')
-  }
-  if (evidencePolicy === 'SEALED_BAG' && !photoSealedUrl) {
-    throw new Error('Esta orden de riesgo requiere una foto de la bolsa sellada con el ticket visible.')
+    throw new Error('Debe concluirse el sellado de empaque antes de dejar lista la orden.')
   }
   if (!packerPin) throw new Error('Se requiere el PIN del colaborador responsable.')
   const verifiedPacker = await verifyRonosPin(storeId, packerPin)
@@ -654,17 +960,14 @@ export async function confirmHandoffToDriver(params: {
     .eq('toast_order_guid', toastOrderGuid)
     .maybeSingle()
 
-  if (currentError || !current) throw new Error('La orden no tiene un registro de empaque listo para liberar.')
+  if (currentError || !current) throw new Error('Primero debes concluir el sellado de empaque antes de entregar la orden.')
   if (Number(current.store_id) !== storeId) throw new Error('La orden no pertenece a la sucursal activa.')
   if (current.status === 'DELIVERED') throw new Error('La orden ya fue liberada al chofer.')
   if (current.status !== 'PACKED_AND_SEALED' || !current.match_completed || !areQuickChecksComplete(current.quick_checks)) {
-    throw new Error('La orden todavía no cumple los controles de empaque y sello.')
+    throw new Error('Primero debes concluir el sellado de empaque antes de entregar la orden.')
   }
   if (Number(current.expected_bag_count) !== Number(current.confirmed_bag_count)) {
     throw new Error('La cantidad de bolsas no está confirmada.')
-  }
-  if (current.evidence_policy === 'SEALED_BAG' && !current.photo_sealed_url) {
-    throw new Error('Falta la evidencia requerida para esta orden de riesgo.')
   }
   if (current.platform === 'DOORDASH' && verificationMethod !== 'DOORDASH_QR') {
     throw new Error('DoorDash requiere verificar el QR nativo del ticket en la app del Dasher.')
@@ -681,7 +984,7 @@ export async function confirmHandoffToDriver(params: {
     driver_name: driverName || 'Repartidor Verificado',
     driver_confirmed: driverConfirmed,
     courier_verification_method: verificationMethod,
-    courier_order_reference: courierOrderReference.trim().slice(-12),
+    courier_order_reference: courierOrderReference.trim().slice(0, 32),
     live_pickup_confirmed: livePickupConfirmed,
     status: 'DELIVERED' as AuditStatus,
     updated_at: new Date().toISOString()
@@ -711,20 +1014,27 @@ export function formatDisputeStatement(audit: any): string {
     ? audit.items_json.map((i: any) => `- ${i.quantity}x ${i.displayName} ($${Number(i.price).toFixed(2)})`).join('\n')
     : 'All ordered items'
 
+  const platformKey = audit.courier_order_reference || audit.quick_checks?.platformOrderKey || `#${audit.toast_display_number || 'N/A'}`
+  const kdsSeconds = audit.quick_checks?.kdsPrepSeconds
+  const kdsLine = Number.isFinite(Number(kdsSeconds))
+    ? `KITCHEN KDS PREP TIME: ${Math.floor(Number(kdsSeconds) / 60)}m ${Number(kdsSeconds) % 60}s (Cleared by Kitchen before Packing)\n`
+    : ''
+
   return `
 DISPUTE REPRESENTMENT DOSSIER — TACOS GAVILAN
 --------------------------------------------------------------------------------
 MERCHANT: Tacos Gavilan (Store #${audit.store_id})
 ORDER NUMBER / DISPLAY ID: #${audit.toast_display_number || 'N/A'}
+PLATFORM ORDER KEY / CLAVE: ${platformKey}
 PLATFORM / CHANNEL: ${audit.platform} (${audit.dining_option_name || 'Delivery'})
-FULFILLMENT TIMESTAMP: ${dateFormatted} PST
+${kdsLine}FULFILLMENT TIMESTAMP: ${dateFormatted} PST
 VERIFIED PACKER: ${audit.packer_ronos_name || 'Staff Employee'} (RONOS ID #${audit.packer_ronos_user_id || 'N/A'})
 HANDOFF AGENT: ${audit.handed_by_ronos_name || 'Counter Staff'} (Handoff at: ${audit.handed_at || 'Verified'})
 
 OFFICIAL DISPUTE STATEMENT:
 "This order passed the restaurant's four-point release control for prepared items, beverages, bag count, and seal integrity.
 The custody record identifies the responsible restaurant employee and the handoff time.
-Courier verification method: ${audit.courier_verification_method || 'not recorded'}; live pickup confirmation observed: ${audit.live_pickup_confirmed ? 'yes' : 'no'}.
+Courier verification method: ${audit.courier_verification_method || 'not recorded'}; order key verified: ${platformKey}; live pickup confirmation observed: ${audit.live_pickup_confirmed ? 'yes' : 'no'}.
 ${audit.photo_sealed_url ? 'A timestamped photograph of the sealed bag and visible ticket is attached.' : 'No photographic evidence is asserted for this order.'}
 We request a review of the error charge against the attached order-level custody evidence."
 

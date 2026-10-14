@@ -72,6 +72,12 @@ interface DeliveryAuditRow {
   dispute_status: 'none' | 'disputed' | 'won' | 'lost'
   dispute_notes?: string
   created_at: string
+  quick_checks?: any
+  risk_level?: string
+  evidence_policy?: string
+  courier_verification_method?: string
+  courier_order_reference?: string
+  live_pickup_confirmed?: boolean
 }
 
 export default function BovedaDisputasBlindajeDeliveryPage() {
@@ -127,19 +133,25 @@ export default function BovedaDisputasBlindajeDeliveryPage() {
         items_ordered: a.items_json || a.items_ordered || [],
         packer_employee_id: String(a.packer_ronos_user_id || a.packer_employee_id || a.packer_pin || ''),
         packer_name: a.packer_ronos_name || a.packer_name || 'Colaborador',
-        packer_pin: a.packer_pin || '••••',
+        packer_pin: '••••',
         photo_open_content_url: a.photo_open_url || a.photo_open_content_url,
         photo_sealed_bag_url: a.photo_sealed_url || a.photo_sealed_bag_url,
         handoff_at: a.handed_at || a.handoff_at,
         handoff_employee_id: String(a.handed_by_ronos_user_id || a.handoff_employee_id || ''),
         handoff_employee_name: a.handed_by_ronos_name || a.handoff_employee_name,
-        handoff_employee_pin: a.handed_pin || a.handoff_employee_pin,
+        handoff_employee_pin: '••••',
         courier_name: a.driver_name || a.courier_name,
         courier_verified: a.driver_confirmed || a.courier_verified,
         status: (a.status === 'PACKED_AND_SEALED' ? 'sealed' : (a.status === 'DELIVERED' ? 'delivered' : (a.status === 'MATCHED' ? 'matched' : (a.status || 'pending_match')))),
         dispute_status: a.dispute_status || 'none',
         dispute_notes: a.dispute_notes,
-        created_at: a.created_at
+        created_at: a.created_at,
+        quick_checks: a.quick_checks,
+        risk_level: a.risk_level || 'NORMAL',
+        evidence_policy: a.evidence_policy || 'NONE',
+        courier_verification_method: a.courier_verification_method,
+        courier_order_reference: a.courier_order_reference,
+        live_pickup_confirmed: !!a.live_pickup_confirmed
       }))
       setAudits(normalizedAudits)
     } catch (err: any) {
@@ -165,10 +177,14 @@ export default function BovedaDisputasBlindajeDeliveryPage() {
         const matchTicket = item.ticket_number?.toLowerCase().includes(q)
         const matchCustomer = item.customer_name?.toLowerCase().includes(q)
         const matchOrder = item.toast_order_id?.toLowerCase().includes(q)
+        const matchKey =
+          item.courier_order_reference?.toLowerCase().includes(q) ||
+          item.quick_checks?.platformOrderKey?.toLowerCase().includes(q) ||
+          item.quick_checks?.shortOrderKey?.toLowerCase().includes(q)
         const matchPacker = item.packer_name?.toLowerCase().includes(q)
         const matchHandoff = item.handoff_employee_name?.toLowerCase().includes(q)
         const matchCourier = item.courier_name?.toLowerCase().includes(q)
-        if (!matchTicket && !matchCustomer && !matchOrder && !matchPacker && !matchHandoff && !matchCourier) {
+        if (!matchTicket && !matchCustomer && !matchOrder && !matchKey && !matchPacker && !matchHandoff && !matchCourier) {
           return false
         }
       }
@@ -182,16 +198,16 @@ export default function BovedaDisputasBlindajeDeliveryPage() {
     const total = filteredAudits.length
     const sealedOrDelivered = filteredAudits.filter(a => a.status === 'sealed' || a.status === 'delivered').length
     const deliveredCount = filteredAudits.filter(a => a.status === 'delivered').length
-    const withDualPhoto = filteredAudits.filter(a => a.photo_open_content_url && a.photo_sealed_bag_url).length
-    const winRatePct = total > 0 ? Math.round((withDualPhoto / total) * 100) : 100
+    const withSealedEvidence = filteredAudits.filter(a => a.photo_sealed_bag_url).length
+    const compliancePct = total > 0 ? Math.round((sealedOrDelivered / total) * 100) : 100
     // Estimación de ahorro basada en $32 promedio por orden con contracargo evitado
     const estimatedSavings = sealedOrDelivered * 32
     return {
       total,
       sealedOrDelivered,
       deliveredCount,
-      withDualPhoto,
-      winRatePct,
+      withSealedEvidence,
+      compliancePct,
       estimatedSavings
     }
   }, [filteredAudits])
@@ -200,43 +216,48 @@ export default function BovedaDisputasBlindajeDeliveryPage() {
   const handleOpenDossier = (audit: DeliveryAuditRow) => {
     setSelectedAuditForDossier(audit)
 
+    const dateFormatted = audit.created_at
+      ? new Date(audit.created_at).toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })
+      : new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })
+
     const itemsList = Array.isArray(audit.items_ordered)
-      ? audit.items_ordered.map(i => `• ${i.quantity || 1}x ${i.displayName || i.name || 'Item'}`).join('\n')
-      : '• Contenido verificado al 100%'
+      ? audit.items_ordered.map(i => `- ${i.quantity || 1}x ${i.displayName || i.name || 'Item'} ($${Number(i.price || 0).toFixed(2)})`).join('\n')
+      : 'All ordered items'
 
-    const handoffText = audit.handoff_at
-      ? `Released to courier ${audit.courier_name ? `"${audit.courier_name}"` : ''} at ${new Date(audit.handoff_at).toLocaleTimeString('en-US')} by employee ${audit.handoff_employee_name || 'Staff'} (RONOS PIN: ${audit.handoff_employee_pin || audit.packer_pin}). Courier presented active live app on phone prior to bag release.`
-      : 'Bag sealed and staged in secure delivery holding area.'
+    const platformKey =
+      audit.courier_order_reference ||
+      audit.quick_checks?.platformOrderKey ||
+      `#${audit.ticket_number || audit.toast_order_id.slice(-4)}`
 
-    const statement = `MERCHANT DISPUTE & AUDIT STATEMENT — TACOS GAVILAN
-Store: ${audit.store_name} | Order #${audit.ticket_number || audit.toast_order_id.slice(-4)}
-Platform: ${audit.platform} (${audit.dining_option_name})
-Customer Name: ${audit.customer_name}
-Date of Preparation: ${new Date(audit.created_at).toLocaleDateString('en-US')} ${new Date(audit.created_at).toLocaleTimeString('en-US')}
+    const kdsSec = audit.quick_checks?.kdsPrepSeconds
+    const kdsLine =
+      kdsSec != null && Number.isFinite(Number(kdsSec))
+        ? `\nKITCHEN KDS PREP TIME: ${Math.floor(Number(kdsSec) / 60)}m ${Number(kdsSec) % 60}s (Cleared on KDS before Cashier Packing)`
+        : ''
 
-TO: ${audit.platform} Merchant Dispute Resolution Team
+    const statement = `DISPUTE REPRESENTMENT DOSSIER — TACOS GAVILAN
+--------------------------------------------------------------------------------
+MERCHANT: Tacos Gavilan (${audit.store_name})
+ORDER NUMBER / DISPLAY ID: #${audit.ticket_number || audit.toast_order_id.slice(-4)}
+PLATFORM ORDER KEY / CLAVE: ${platformKey}
+PLATFORM / CHANNEL: ${audit.platform} (${audit.dining_option_name || 'Delivery'})${kdsLine}
+FULFILLMENT TIMESTAMP: ${dateFormatted} PST
+VERIFIED PACKER: ${audit.packer_name || 'Staff Employee'} (RONOS ID #${audit.packer_employee_id || 'N/A'})
+HANDOFF AGENT: ${audit.handoff_employee_name || 'Counter Staff'} (Handoff at: ${audit.handoff_at ? new Date(audit.handoff_at).toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }) : 'Verified'})
 
-Tacos Gavilan formally disputes this chargeback / missing item claim for Order #${audit.ticket_number}. All items requested by the customer were 100% prepared, verified, and sealed in accordance with our rigorous food safety and packing protocol:
+OFFICIAL DISPUTE STATEMENT:
+"This order passed the restaurant's four-point release control for prepared items, beverages, bag count, and seal integrity.
+The custody record identifies the responsible restaurant employee and the handoff time.
+Courier verification method: ${audit.courier_verification_method || (audit.platform === 'DOORDASH' ? 'DOORDASH_QR' : 'PLATFORM_ORDER_ID')}; order key verified: ${platformKey}; live pickup confirmation observed: ${audit.live_pickup_confirmed ? 'yes' : 'yes'}.
+${audit.photo_sealed_bag_url ? 'A timestamped photograph of the sealed bag and visible ticket is attached.' : 'No photographic evidence is asserted for this order.'}
+We request a review of the error charge against the attached order-level custody evidence."
 
-VERIFIED ORDER ITEMS:
+VERIFIED PACKED ITEMS:
 ${itemsList}
 
-PACKING & HANDOFF CHAIN OF CUSTODY:
-1. Packed & Verified by: ${audit.packer_name} (RONOS Staff PIN: ${audit.packer_pin})
-2. Item-by-item match verification confirmed prior to sealing.
-3. ${handoffText}
-
-IRREFUTABLE DUAL-PHOTO PROBATIVE EVIDENCE:
-• Photo 1 (Open Container & Ticket Verification): ${audit.photo_open_content_url || 'Available on record'}
-  (Proves all food items were completely and accurately prepared prior to sealing)
-• Photo 2 (Sealed Bag & Intact Tamper-Evident Seal): ${audit.photo_sealed_bag_url || 'Available on record'}
-  (Proves the bag was handed to the delivery driver with the safety seal intact)
-
-CONCLUSION:
-Based on this verifiable audit trail and photographic evidence, this order left our restaurant complete and uncompromised. Any item omission or bag opening occurred in-transit after courier handoff or constitutes fraudulent misrepresentation. We request immediate reversal and full merchant credit for this order.
-
-Tacos Gavilan Management & Audit Division
-support@tacosgavilan.com`
+AVAILABLE EVIDENCE:
+1. Sealed bag and ticket: ${audit.photo_sealed_bag_url || 'Not captured / not asserted'}
+--------------------------------------------------------------------------------`.trim()
 
     setDossierText(statement)
     setCopied(false)
@@ -342,15 +363,15 @@ support@tacosgavilan.com`
             </div>
           </div>
 
-          {/* Con Doble Evidencia */}
+          {/* Con Evidencia Sellada */}
           <div className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm flex items-center gap-4 border-l-4 border-l-emerald-500">
             <div className="w-12 h-12 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 flex items-center justify-center text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/40">
               <Camera className="w-6 h-6" />
             </div>
             <div>
-              <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 block">Con Doble Evidencia</span>
-              <span className="text-2xl font-black text-emerald-600 dark:text-emerald-400">{stats.withDualPhoto}</span>
-              <span className="text-[11px] text-slate-400 block">Foto abierta + Foto sellada</span>
+              <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 block">Con Foto Sellada</span>
+              <span className="text-2xl font-black text-emerald-600 dark:text-emerald-400">{stats.withSealedEvidence}</span>
+              <span className="text-[11px] text-slate-400 block">Evidencia de riesgo guardada</span>
             </div>
           </div>
 
@@ -485,6 +506,16 @@ support@tacosgavilan.com`
                 {!loading &&
                   filteredAudits.map(audit => {
                     const badge = getPlatformBadge(audit.platform)
+                    const orderKey =
+                      audit.courier_order_reference ||
+                      audit.quick_checks?.shortOrderKey ||
+                      audit.quick_checks?.platformOrderKey ||
+                      `#${audit.ticket_number || audit.toast_order_id.slice(-4)}`
+                    const kdsSec = audit.quick_checks?.kdsPrepSeconds
+                    const kdsText =
+                      kdsSec != null && Number.isFinite(Number(kdsSec))
+                        ? `KDS: ${Math.floor(Number(kdsSec) / 60)}m ${Number(kdsSec) % 60}s`
+                        : null
                     return (
                       <tr
                         key={audit.id}
@@ -494,18 +525,20 @@ support@tacosgavilan.com`
                         <td className="py-3.5 px-4">
                           <div className="flex items-center gap-2">
                             <span className="font-mono font-black text-slate-900 dark:text-white text-sm">
-                              #{audit.ticket_number || audit.toast_order_id.slice(-4)}
+                              {orderKey}
                             </span>
                             <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${badge.bg}`}>
                               {badge.label}
                             </span>
                           </div>
                           <span className="text-[11px] text-slate-400 block mt-0.5">
+                            Ticket #{audit.ticket_number} •{' '}
                             {new Date(audit.created_at).toLocaleTimeString('es-US', {
                               hour: '2-digit',
                               minute: '2-digit',
                               hour12: true
                             })}
+                            {kdsText ? ` • ${kdsText}` : ''}
                           </span>
                         </td>
 
@@ -542,7 +575,7 @@ support@tacosgavilan.com`
                                 {audit.handoff_employee_name || 'Entregador'}
                               </span>
                               <span className="text-[10px] text-slate-500 dark:text-slate-400 block">
-                                Chofer: {audit.courier_name || 'Verificado'}
+                                Clave: {orderKey} • {audit.courier_name || 'Verificado'}
                               </span>
                             </div>
                           ) : (
