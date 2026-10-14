@@ -382,8 +382,8 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                     icon: <ShieldCheck size={20} />,
                     roles: ['admin', 'manager', 'supervisor', 'asistente'],
                     tooltip: language === 'en'
-                        ? 'Packing station, dual-photo evidence, driver verification & chargeback dispute vault'
-                        : 'Mesa de empaque, doble foto de evidencia, verificación de chofer y bóveda de contracargos'
+                        ? 'Packing & custody station, KDS voice announcer, and driver handoff verification'
+                        : 'Mesa de empaque, locutor de voz KDS y verificación de entrega a choferes'
                 },
                 {
                     name: t('items.actividades') || 'Actividades',

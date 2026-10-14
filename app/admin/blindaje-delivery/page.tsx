@@ -14,6 +14,7 @@
 
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import Link from 'next/link'
+import { useLanguage } from '@/lib/i18n'
 import {
   ShieldCheck,
   CheckCircle2,
@@ -26,13 +27,6 @@ import {
   ShoppingBag,
   ArrowUpRight
 } from 'lucide-react'
-
-// Sucursales piloto
-const PILOT_STORES = [
-  { id: 0, name: 'Todas las Sucursales' },
-  { id: 7, name: 'Slauson (#7)' },
-  { id: 6, name: 'LA Central (#6)' }
-]
 
 interface DeliveryAuditRow {
   id: string
@@ -69,6 +63,17 @@ interface DeliveryAuditRow {
 }
 
 export default function BovedaDisputasBlindajeDeliveryPage() {
+  const { t } = useLanguage()
+
+  const pilotStores = useMemo(
+    () => [
+      { id: 0, name: t('blindaje_delivery.all_stores') },
+      { id: 7, name: 'Slauson (#7)' },
+      { id: 6, name: 'LA Central (#6)' }
+    ],
+    [t]
+  )
+
   // Filtros
   const [selectedStoreId, setSelectedStoreId] = useState<number>(0)
   const [selectedPlatform, setSelectedPlatform] = useState<string>('ALL')
@@ -92,25 +97,25 @@ export default function BovedaDisputasBlindajeDeliveryPage() {
       const res = await fetch(url.toString())
       if (!res.ok) {
         const errJson = await res.json().catch(() => ({}))
-        throw new Error(errJson.error || `Error ${res.status} al consultar la base de datos.`)
+        throw new Error(errJson.error || t('blindaje_delivery.error_loading_audits'))
       }
       const data = await res.json()
       const rawAudits = data.audits || []
       const normalizedAudits: DeliveryAuditRow[] = rawAudits.map((a: any) => ({
         id: a.id,
         store_id: a.store_id,
-        store_name: a.stores?.name || a.store_name || `Sucursal #${a.store_id}`,
+        store_name: a.stores?.name || a.store_name || `${t('blindaje_delivery.store_fallback')} #${a.store_id}`,
         order_guid: a.toast_order_guid || a.order_guid,
         toast_order_id: a.toast_order_guid || a.toast_order_id,
         ticket_number: a.toast_display_number || a.ticket_number || 'S/N',
         dining_option_name: a.dining_option_name || 'Delivery',
         platform: a.platform || 'OTHER',
-        customer_name: a.customer_name || 'Cliente Delivery',
+        customer_name: a.customer_name || t('blindaje_delivery.default_customer'),
         customer_phone: a.customer_phone,
         opened_at: a.order_opened_at || a.opened_at || a.created_at,
         items_ordered: a.items_json || a.items_ordered || [],
         packer_employee_id: String(a.packer_ronos_user_id || a.packer_employee_id || a.packer_pin || ''),
-        packer_name: a.packer_ronos_name || a.packer_name || 'Colaborador',
+        packer_name: a.packer_ronos_name || a.packer_name || t('blindaje_delivery.default_staff'),
         packer_pin: '••••',
         handoff_at: a.handed_at || a.handoff_at,
         handoff_employee_id: String(a.handed_by_ronos_user_id || a.handoff_employee_id || ''),
@@ -140,11 +145,11 @@ export default function BovedaDisputasBlindajeDeliveryPage() {
       }))
       setAudits(normalizedAudits)
     } catch (err: any) {
-      setError(err.message || 'Error cargando auditorías de empaque.')
+      setError(err.message || t('blindaje_delivery.error_loading_audits'))
     } finally {
       setLoading(false)
     }
-  }, [selectedStoreId])
+  }, [selectedStoreId, t])
 
   useEffect(() => {
     fetchAudits()
@@ -209,7 +214,10 @@ export default function BovedaDisputasBlindajeDeliveryPage() {
       case 'TAKEOUT':
         return { bg: 'bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950/40 dark:text-purple-300 dark:border-purple-800/40', label: 'Takeout' }
       default:
-        return { bg: 'bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700', label: 'Otro' }
+        return {
+          bg: 'bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700',
+          label: t('blindaje_delivery.platform_other')
+        }
     }
   }
 
@@ -225,14 +233,14 @@ export default function BovedaDisputasBlindajeDeliveryPage() {
             <div>
               <div className="flex items-center gap-2.5">
                 <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white flex items-center gap-2">
-                  Blindaje Delivery
+                  {t('blindaje_delivery.title')}
                 </h1>
                 <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800/40">
-                  HISTORIAL DE CUSTODIA
+                  {t('blindaje_delivery.custody_badge')}
                 </span>
               </div>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                Tacos Gavilan • Control de Empaque y Entrega a Repartidores
+                {t('blindaje_delivery.header_subtitle')}
               </p>
             </div>
           </div>
@@ -243,7 +251,7 @@ export default function BovedaDisputasBlindajeDeliveryPage() {
               className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold text-xs shadow-md shadow-red-500/20 transition-all active:scale-95"
             >
               <ShoppingBag className="w-4 h-4" />
-              <span>Abrir Entrega Blindada (Tablet)</span>
+              <span>{t('blindaje_delivery.open_tablet_btn')}</span>
               <ArrowUpRight className="w-3.5 h-3.5 opacity-80" />
             </Link>
 
@@ -251,7 +259,7 @@ export default function BovedaDisputasBlindajeDeliveryPage() {
               onClick={fetchAudits}
               disabled={loading}
               className="p-2.5 rounded-xl bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 transition-all shadow-sm disabled:opacity-50"
-              title="Refrescar auditorías"
+              title={t('blindaje_delivery.refresh_tooltip')}
             >
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin text-red-600' : ''}`} />
             </button>
@@ -264,10 +272,10 @@ export default function BovedaDisputasBlindajeDeliveryPage() {
         <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-2 text-xs text-amber-900 dark:text-amber-300">
           <div className="flex items-center gap-2 font-bold">
             <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
-            <span>PILOTO ACTIVO: SLAUSON (#7) Y LA CENTRAL (#6)</span>
+            <span>{t('blindaje_delivery.pilot_badge')}</span>
           </div>
           <span className="text-amber-700 dark:text-amber-400 font-mono text-[11px]">
-            Horario Laboral: 6:00 AM – 5:59 AM • Turno PM desde 5:00 PM
+            {t('blindaje_delivery.business_hours_label')}
           </span>
         </div>
       </div>
@@ -287,9 +295,11 @@ export default function BovedaDisputasBlindajeDeliveryPage() {
               <ShoppingBag className="w-6 h-6" />
             </div>
             <div>
-              <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 block">Órdenes Blindadas</span>
+              <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 block">
+                {t('blindaje_delivery.kpi_total_title')}
+              </span>
               <span className="text-2xl font-black text-slate-900 dark:text-white">{stats.total}</span>
-              <span className="text-[11px] text-slate-400 block">Con registro en sistema</span>
+              <span className="text-[11px] text-slate-400 block">{t('blindaje_delivery.kpi_total_sub')}</span>
             </div>
           </div>
 
@@ -299,9 +309,11 @@ export default function BovedaDisputasBlindajeDeliveryPage() {
               <CheckCircle2 className="w-6 h-6" />
             </div>
             <div>
-              <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 block">Listas en Estante</span>
+              <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 block">
+                {t('blindaje_delivery.kpi_ready_title')}
+              </span>
               <span className="text-2xl font-black text-emerald-600 dark:text-emerald-400">{stats.sealedCount}</span>
-              <span className="text-[11px] text-slate-400 block">Esperando recolección</span>
+              <span className="text-[11px] text-slate-400 block">{t('blindaje_delivery.kpi_ready_sub')}</span>
             </div>
           </div>
 
@@ -311,9 +323,11 @@ export default function BovedaDisputasBlindajeDeliveryPage() {
               <Truck className="w-6 h-6" />
             </div>
             <div>
-              <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 block">Entregas al Chofer</span>
+              <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 block">
+                {t('blindaje_delivery.kpi_delivered_title')}
+              </span>
               <span className="text-2xl font-black text-blue-600 dark:text-blue-400">{stats.deliveredCount}</span>
-              <span className="text-[11px] text-slate-400 block">Custodia con PIN registrada</span>
+              <span className="text-[11px] text-slate-400 block">{t('blindaje_delivery.kpi_delivered_sub')}</span>
             </div>
           </div>
 
@@ -323,11 +337,13 @@ export default function BovedaDisputasBlindajeDeliveryPage() {
               <AlertTriangle className="w-6 h-6" />
             </div>
             <div>
-              <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 block">No Recogidas (+2h)</span>
+              <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 block">
+                {t('blindaje_delivery.kpi_unclaimed_title')}
+              </span>
               <span className="text-2xl font-black text-orange-600 dark:text-orange-400 font-mono">
                 {stats.unclaimedCount}
               </span>
-              <span className="text-[11px] text-slate-400 block">Cambio automático a las 2 horas</span>
+              <span className="text-[11px] text-slate-400 block">{t('blindaje_delivery.kpi_unclaimed_sub')}</span>
             </div>
           </div>
         </div>
@@ -343,7 +359,7 @@ export default function BovedaDisputasBlindajeDeliveryPage() {
                 onChange={e => setSelectedStoreId(parseInt(e.target.value, 10))}
                 className="bg-transparent text-slate-800 dark:text-slate-200 font-semibold focus:outline-none cursor-pointer"
               >
-                {PILOT_STORES.map(s => (
+                {pilotStores.map(s => (
                   <option key={s.id} value={s.id} className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">
                     {s.name}
                   </option>
@@ -359,7 +375,9 @@ export default function BovedaDisputasBlindajeDeliveryPage() {
                 onChange={e => setSelectedPlatform(e.target.value)}
                 className="bg-transparent text-slate-800 dark:text-slate-200 font-semibold focus:outline-none cursor-pointer"
               >
-                <option value="ALL" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">Todas las Plataformas</option>
+                <option value="ALL" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">
+                  {t('blindaje_delivery.all_platforms')}
+                </option>
                 <option value="DOORDASH" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">DoorDash</option>
                 <option value="UBER_EATS" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">Uber Eats</option>
                 <option value="GRUBHUB" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">Grubhub</option>
@@ -375,10 +393,18 @@ export default function BovedaDisputasBlindajeDeliveryPage() {
                 onChange={e => setSelectedStatus(e.target.value)}
                 className="bg-transparent text-slate-800 dark:text-slate-200 font-semibold focus:outline-none cursor-pointer"
               >
-                <option value="ALL" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">Todos los Estados</option>
-                <option value="sealed" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">Listas en Estante</option>
-                <option value="delivered" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">Entregadas a Chofer</option>
-                <option value="unclaimed" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">No Recogidas (+2h)</option>
+                <option value="ALL" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">
+                  {t('blindaje_delivery.all_statuses')}
+                </option>
+                <option value="sealed" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">
+                  {t('blindaje_delivery.status_filter_sealed')}
+                </option>
+                <option value="delivered" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">
+                  {t('blindaje_delivery.status_filter_delivered')}
+                </option>
+                <option value="unclaimed" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">
+                  {t('blindaje_delivery.status_filter_unclaimed')}
+                </option>
               </select>
             </div>
           </div>
@@ -388,7 +414,7 @@ export default function BovedaDisputasBlindajeDeliveryPage() {
             <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
             <input
               type="text"
-              placeholder="Buscar por Cliente, #Check, Clave, Empacador..."
+              placeholder={t('blindaje_delivery.dashboard_search_placeholder')}
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
               className="w-full pl-9 pr-3.5 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:border-red-500 focus:bg-white dark:focus:bg-slate-900 transition-colors"
@@ -402,12 +428,12 @@ export default function BovedaDisputasBlindajeDeliveryPage() {
             <table className="w-full text-left border-collapse text-xs">
               <thead>
                 <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-800/60 text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider text-[11px]">
-                  <th className="py-3.5 px-4">Ticket / Canal</th>
-                  <th className="py-3.5 px-4">Sucursal</th>
-                  <th className="py-3.5 px-4">Cliente</th>
-                  <th className="py-3.5 px-4">Empacador (RONOS)</th>
-                  <th className="py-3.5 px-4">Custodia Entrega</th>
-                  <th className="py-3.5 px-4">Estado</th>
+                  <th className="py-3.5 px-4">{t('blindaje_delivery.col_ticket_channel')}</th>
+                  <th className="py-3.5 px-4">{t('blindaje_delivery.col_store')}</th>
+                  <th className="py-3.5 px-4">{t('blindaje_delivery.col_customer')}</th>
+                  <th className="py-3.5 px-4">{t('blindaje_delivery.col_packer')}</th>
+                  <th className="py-3.5 px-4">{t('blindaje_delivery.col_handoff_custody')}</th>
+                  <th className="py-3.5 px-4">{t('blindaje_delivery.col_status')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -415,7 +441,7 @@ export default function BovedaDisputasBlindajeDeliveryPage() {
                   <tr>
                     <td colSpan={6} className="py-16 text-center text-slate-500 dark:text-slate-400">
                       <RefreshCw className="w-6 h-6 animate-spin mx-auto text-red-600 mb-2" />
-                      <span className="font-medium">Cargando registros de custodia...</span>
+                      <span className="font-medium">{t('blindaje_delivery.loading_records')}</span>
                     </td>
                   </tr>
                 )}
@@ -424,9 +450,11 @@ export default function BovedaDisputasBlindajeDeliveryPage() {
                   <tr>
                     <td colSpan={6} className="py-16 text-center text-slate-500 dark:text-slate-400">
                       <ShieldCheck className="w-12 h-12 mx-auto text-slate-300 dark:text-slate-700 mb-2.5" />
-                      <p className="text-sm font-bold text-slate-700 dark:text-slate-300">No se encontraron auditorías registradas</p>
+                      <p className="text-sm font-bold text-slate-700 dark:text-slate-300">
+                        {t('blindaje_delivery.empty_audits_title')}
+                      </p>
                       <p className="text-xs text-slate-400 mt-1 max-w-sm mx-auto">
-                        Las órdenes empaquetadas y entregadas en la estación de tableta aparecerán aquí con su cadena de custodia.
+                        {t('blindaje_delivery.empty_audits_desc')}
                       </p>
                     </td>
                   </tr>
@@ -498,19 +526,19 @@ export default function BovedaDisputasBlindajeDeliveryPage() {
                           {audit.status === 'delivered' ? (
                             <div>
                               <span className="font-semibold text-blue-700 dark:text-blue-300 block truncate max-w-[160px]">
-                                {audit.handoff_employee_name || 'Entregador'}
+                                {audit.handoff_employee_name || t('blindaje_delivery.handoff_staff_default')}
                               </span>
                               <span className="text-[10px] text-slate-500 dark:text-slate-400 block">
-                                {audit.courier_name || 'Chofer verificado'}
+                                {audit.courier_name || t('blindaje_delivery.verified_driver')}
                               </span>
                             </div>
                           ) : audit.status === 'unclaimed' ? (
                             <span className="text-[11px] font-bold text-orange-700 dark:text-orange-400">
-                              Sin chofer tras 2+ horas
+                              {t('blindaje_delivery.unclaimed_after_2h')}
                             </span>
                           ) : (
                             <span className="text-[11px] text-slate-400 italic">
-                              Pendiente de chofer
+                              {t('blindaje_delivery.pending_driver')}
                             </span>
                           )}
                         </td>
@@ -519,19 +547,19 @@ export default function BovedaDisputasBlindajeDeliveryPage() {
                         <td className="py-3.5 px-4">
                           {audit.status === 'delivered' ? (
                             <span className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-800/40 flex items-center gap-1.5 w-max">
-                              <Truck className="w-3.5 h-3.5" /> Entregada
+                              <Truck className="w-3.5 h-3.5" /> {t('blindaje_delivery.badge_delivered')}
                             </span>
                           ) : audit.status === 'unclaimed' ? (
                             <span className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-orange-50 text-orange-700 border border-orange-300 dark:bg-orange-950/40 dark:text-orange-300 dark:border-orange-800/40 flex items-center gap-1.5 w-max">
-                              <AlertTriangle className="w-3.5 h-3.5" /> No Recogida (+2h)
+                              <AlertTriangle className="w-3.5 h-3.5" /> {t('blindaje_delivery.badge_unclaimed_2h')}
                             </span>
                           ) : audit.status === 'sealed' ? (
                             <span className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800/40 flex items-center gap-1.5 w-max">
-                              <CheckCircle2 className="w-3.5 h-3.5" /> Lista
+                              <CheckCircle2 className="w-3.5 h-3.5" /> {t('blindaje_delivery.badge_ready')}
                             </span>
                           ) : (
                             <span className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800/40 flex items-center gap-1.5 w-max">
-                              En Cotejo
+                              {t('blindaje_delivery.badge_matching')}
                             </span>
                           )}
                         </td>
@@ -546,3 +574,4 @@ export default function BovedaDisputasBlindajeDeliveryPage() {
     </div>
   )
 }
+

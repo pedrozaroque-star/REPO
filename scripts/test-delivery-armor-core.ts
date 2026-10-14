@@ -257,7 +257,7 @@ assert.equal(
   'Debe detectar automáticamente cuando el cocinero borra la orden del KDS (IN_KITCHEN -> READY)'
 )
 assert.equal(
-  empaqueSource.includes('collisionsByGuid') && empaqueSource.includes('NOMBRE REPETIDO O MUY PARECIDO EN KDS'),
+  empaqueSource.includes('collisionsByGuid') && empaqueSource.includes("t('blindaje_delivery.collision_banner_title')"),
   true,
   'Debe alertar con alto énfasis cuando existan órdenes con nombres iguales o muy parecidos desde KDS'
 )
@@ -272,7 +272,7 @@ assert.equal(
   'No debe mostrar el contenido de artículos de los tickets en ninguna de las dos versiones (vertical u horizontal)'
 )
 assert.equal(
-  empaqueSource.includes('NO RECOGIDA (+2H)') && empaqueSource.includes('isOrderUnclaimedAfter2Hours'),
+  empaqueSource.includes("t('blindaje_delivery.stage_unclaimed')") && empaqueSource.includes('isOrderUnclaimedAfter2Hours'),
   true,
   'Debe cambiar automáticamente el estatus a NO RECOGIDA (+2H) cuando una orden cumple 2 horas o más sin ser recogida por ningún chofer'
 )
@@ -280,6 +280,11 @@ assert.equal(
   empaqueSource.includes('Expedientes') || empaqueSource.includes('href="/admin/blindaje-delivery"'),
   false,
   'El botón de Expedientes fue eliminado totalmente de la tableta de empaque'
+)
+assert.equal(
+  empaqueSource.includes('useLanguage') && empaqueSource.includes("setLanguage(language === 'es' ? 'en' : 'es')"),
+  true,
+  'La tableta de empaque debe estar 100% traducida con useLanguage() e incluir botón de cambio de idioma ES/EN'
 )
 
 const dashboardSource = fs.readFileSync(
@@ -291,6 +296,26 @@ assert.equal(
   false,
   'El botón de Expediente y columna de Evidencia (Fotos) fueron eliminados totalmente del panel'
 )
+assert.equal(
+  dashboardSource.includes('useLanguage') && dashboardSource.includes("t('blindaje_delivery.title')"),
+  true,
+  'El panel administrativo de Blindaje Delivery debe usar useLanguage() para traducción completa ES/EN'
+)
+
+import { dictionaries } from '../lib/i18n'
+const esKeys = Object.keys(dictionaries.es.blindaje_delivery).sort()
+const enKeys = Object.keys(dictionaries.en.blindaje_delivery).sort()
+assert.deepEqual(
+  esKeys,
+  enKeys,
+  'Los diccionarios ES y EN de blindaje_delivery deben tener exactamente las mismas claves (100% paridad bilingüe)'
+)
+assert.equal(
+  esKeys.length >= 115,
+  true,
+  'El diccionario de blindaje_delivery debe cubrir la totalidad de textos del módulo'
+)
 
 console.log('Delivery Armor core simulation: PASS')
+
 

@@ -16,11 +16,13 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useLanguage } from '@/lib/i18n'
 import {
   AlertTriangle,
   CheckCircle2,
   Clock,
   Delete,
+  Globe,
   Lock,
   LogOut,
   Maximize2,
@@ -120,7 +122,10 @@ function isOrderUnclaimedAfter2Hours(order: Order, now: number = Date.now()): bo
   return Number.isFinite(openedAgeMs) && openedAgeMs >= UNCLAIMED_DRIVER_TIMEOUT_MS
 }
 
-function getOrderStageInfo(order: Order): {
+function getOrderStageInfo(
+  order: Order,
+  t: (key: string, options?: Record<string, unknown>) => string
+): {
   stage: OrderStage
   label: string
   badgeClass: string
@@ -131,7 +136,7 @@ function getOrderStageInfo(order: Order): {
   if (order.audit?.status === 'released') {
     return {
       stage: 'ENTREGADA',
-      label: 'ENTREGADA',
+      label: t('blindaje_delivery.stage_delivered'),
       badgeClass: 'bg-slate-200 text-slate-700 border border-slate-300',
       dotClass: 'bg-slate-500',
       cardClass: 'border-slate-200 bg-slate-50 text-slate-600',
@@ -141,7 +146,7 @@ function getOrderStageInfo(order: Order): {
   if (isOrderUnclaimedAfter2Hours(order)) {
     return {
       stage: 'NO_RECOGIDA',
-      label: 'NO RECOGIDA (+2H)',
+      label: t('blindaje_delivery.stage_unclaimed'),
       badgeClass: 'bg-orange-600 text-white border border-orange-700',
       dotClass: 'bg-white',
       cardClass: 'border-orange-400 bg-orange-50/70 text-orange-950',
@@ -151,7 +156,7 @@ function getOrderStageInfo(order: Order): {
   if (order.audit?.status === 'ready') {
     return {
       stage: 'LISTA',
-      label: 'LISTA',
+      label: t('blindaje_delivery.stage_ready'),
       badgeClass: 'bg-emerald-600 text-white border border-emerald-700',
       dotClass: 'bg-emerald-200',
       cardClass: 'border-emerald-400 bg-emerald-50/60',
@@ -161,7 +166,7 @@ function getOrderStageInfo(order: Order): {
   if (order.kdsStatus === 'IN_KITCHEN') {
     return {
       stage: 'PREPARACION',
-      label: 'PREPARACIÓN',
+      label: t('blindaje_delivery.stage_prep'),
       badgeClass: 'bg-amber-500 text-slate-950 border border-amber-600',
       dotClass: 'bg-slate-950 animate-pulse',
       cardClass: 'border-amber-400 bg-amber-50/60',
@@ -170,7 +175,7 @@ function getOrderStageInfo(order: Order): {
   }
   return {
     stage: 'EMPACANDO',
-    label: 'EMPACANDO',
+    label: t('blindaje_delivery.stage_packing'),
     badgeClass: 'bg-blue-600 text-white border border-blue-700',
     dotClass: 'bg-white animate-pulse',
     cardClass: 'border-blue-400 bg-blue-50/60',
@@ -283,10 +288,13 @@ function areCustomerNamesConfusable(
   return { confusable: false, reason: null }
 }
 
-function getCollisionReasonLabel(reason: NameCollisionReason): string {
-  if (reason === 'EXACT_NAME') return 'MISMO NOMBRE EXACTO'
-  if (reason === 'SAME_FIRST_NAME') return 'MISMO NOMBRE (APELLIDO DIFERENTE)'
-  return 'NOMBRE MUY PARECIDO'
+function getCollisionReasonLabel(
+  reason: NameCollisionReason,
+  t: (key: string, options?: Record<string, unknown>) => string
+): string {
+  if (reason === 'EXACT_NAME') return t('blindaje_delivery.collision_exact')
+  if (reason === 'SAME_FIRST_NAME') return t('blindaje_delivery.collision_same_first')
+  return t('blindaje_delivery.collision_similar')
 }
 
 // Determina si una orden sigue activa en el estante (si cumple 2 horas o más sin ser recogida por ningún chofer, cambia automáticamente a NO RECOGIDA (+2H))
@@ -331,6 +339,7 @@ function isForbiddenRaulVoice(voiceName: string | null | undefined): boolean {
 }
 
 export default function BlindajeDeliveryEmpaquePage() {
+  const { t, language, setLanguage } = useLanguage()
   const rootRef = useRef<HTMLElement | null>(null)
   const [storeId, setStoreId] = useState(7)
   const [packer, setPacker] = useState<Packer | null>(null)
@@ -735,7 +744,7 @@ export default function BlindajeDeliveryEmpaquePage() {
         setPacker({
           pin: savedPin,
           name,
-          title: sessionStorage.getItem('blindaje_packer_title') || 'Colaborador',
+          title: sessionStorage.getItem('blindaje_packer_title') || t('blindaje_delivery.default_staff'),
           id,
           storeId,
           expiresAt
@@ -747,7 +756,7 @@ export default function BlindajeDeliveryEmpaquePage() {
     } catch {
       setPacker(null)
     }
-  }, [storeId, logout])
+  }, [storeId, logout, t])
 
   // Reloj de cierre automático de sesión de PIN cada 10 minutos
   useEffect(() => {
@@ -755,7 +764,7 @@ export default function BlindajeDeliveryEmpaquePage() {
     const checkExpiry = () => {
       const left = packer.expiresAt - Date.now()
       if (left <= 0) {
-        logout('La sesión del PIN se cerró automáticamente tras 10 minutos.')
+        logout(t('blindaje_delivery.pin_session_expired'))
       } else {
         setRemainingMs(left)
       }
@@ -763,7 +772,7 @@ export default function BlindajeDeliveryEmpaquePage() {
     checkExpiry()
     const interval = window.setInterval(checkExpiry, 1000)
     return () => window.clearInterval(interval)
-  }, [packer, logout])
+  }, [packer, logout, t])
 
   // Cargar historial de órdenes ya anunciadas en esta sesión por sucursal
   useEffect(() => {
@@ -796,7 +805,7 @@ export default function BlindajeDeliveryEmpaquePage() {
     try {
       const response = await fetch(`/api/delivery-armor/orders?storeId=${storeId}`, { cache: 'no-store' })
       const data = await response.json()
-      if (!response.ok || !data.ok) throw new Error(data.error || 'No se pudieron cargar las órdenes.')
+      if (!response.ok || !data.ok) throw new Error(data.error || t('blindaje_delivery.error_fetch_orders'))
       const next: Order[] = (data.orders || []).map((raw: any) => ({
         guid: raw.orderGuid,
         ticket: raw.displayNumber,
@@ -913,7 +922,7 @@ export default function BlindajeDeliveryEmpaquePage() {
     } finally {
       setLoading(false)
     }
-  }, [storeId, packer, persistAnnouncedGuid, enqueueOrderAnnouncement])
+  }, [storeId, packer, persistAnnouncedGuid, enqueueOrderAnnouncement, t])
 
   // Monitoreo continuo del KDS cada 8 segundos (incluso cuando está en la pantalla de PIN)
   useEffect(() => {
@@ -950,7 +959,7 @@ export default function BlindajeDeliveryEmpaquePage() {
           matches.push({
             order: candidate,
             reason: check.reason,
-            reasonLabel: getCollisionReasonLabel(check.reason)
+            reasonLabel: getCollisionReasonLabel(check.reason, t)
           })
         }
       }
@@ -959,7 +968,7 @@ export default function BlindajeDeliveryEmpaquePage() {
       }
     }
     return map
-  }, [orders])
+  }, [orders, t])
 
   const order = useMemo(() => orders.find(value => value.guid === selected) || null, [orders, selected])
   const bagCount = order ? bags[order.guid] || order.audit?.bags || 1 : 1
@@ -993,7 +1002,7 @@ export default function BlindajeDeliveryEmpaquePage() {
         body: JSON.stringify({ storeId, pin })
       })
       const data = await response.json()
-      if (!response.ok || !data.ok) throw new Error(data.error || 'PIN no válido.')
+      if (!response.ok || !data.ok) throw new Error(data.error || t('blindaje_delivery.error_invalid_pin'))
       const expiresAt = Date.now() + PIN_SESSION_DURATION_MS
       const next: Packer = {
         pin,
@@ -1085,7 +1094,7 @@ export default function BlindajeDeliveryEmpaquePage() {
       })
     })
     const data = await response.json()
-    if (!response.ok || !data.ok) throw new Error(data.error || 'No se pudo confirmar la orden completa y sellada.')
+    if (!response.ok || !data.ok) throw new Error(data.error || t('blindaje_delivery.error_save_packing'))
   }
 
   async function markReady() {
@@ -1096,7 +1105,7 @@ export default function BlindajeDeliveryEmpaquePage() {
     setSuccess(null)
     try {
       await savePackingRecord(order)
-      setSuccess(`Orden completa y sellada: ${order.customer} (Check #${order.ticket})`)
+      setSuccess(`${t('blindaje_delivery.success_packed')}: ${order.customer} (Check #${order.ticket})`)
       await fetchOrders()
     } catch (caught: any) {
       setError(caught.message)
@@ -1111,13 +1120,11 @@ export default function BlindajeDeliveryEmpaquePage() {
     const isPackedForRelease =
       order.audit?.status === 'ready' || (order.audit?.status === 'unclaimed' && order.audit?.bags != null)
     if (!isPackedForRelease) {
-      setError('Primero debes confirmar que la orden esté completa y sellada antes de entregarla.')
+      setError(t('blindaje_delivery.error_confirm_before_release'))
       return
     }
     if (currentCollisions.length > 0 && !collisionAck[order.guid]) {
-      setError(
-        `¡ALERTA DE NOMBRE REPETIDO/PARECIDO! Debes tocar la casilla de verificación confirmando que diferenciaste a "${order.customer}" (#${order.ticket}) antes de entregar.`
-      )
+      setError(t('blindaje_delivery.error_collision_ack_required'))
       return
     }
     setBusy(true)
@@ -1131,7 +1138,7 @@ export default function BlindajeDeliveryEmpaquePage() {
           order_guid: order.guid,
           store_id: storeId,
           handoff_pin: packer.pin,
-          courier_name: order.assignedDriverHint || 'Chofer verificado',
+          courier_name: order.assignedDriverHint || t('blindaje_delivery.verified_driver'),
           courier_verified: true,
           verification_method: order.platform === 'DOORDASH' ? 'DOORDASH_QR' : 'PLATFORM_ORDER_ID',
           courier_order_reference: `${order.customer} (#${order.ticket} • ${order.platformOrderKey})`,
@@ -1139,8 +1146,10 @@ export default function BlindajeDeliveryEmpaquePage() {
         })
       })
       const data = await response.json()
-      if (!response.ok || !data.ok) throw new Error(data.error || 'No se pudo liberar la bolsa.')
-      setSuccess(`Orden de ${order.customer} (#${order.ticket}) entregada por ${data.audit.handed_by_ronos_name}.`)
+      if (!response.ok || !data.ok) throw new Error(data.error || t('blindaje_delivery.error_release_order'))
+      setSuccess(
+        `${t('blindaje_delivery.order_of')} ${order.customer} (#${order.ticket}) ${t('blindaje_delivery.success_released')} ${data.audit.handed_by_ronos_name}.`
+      )
       await fetchOrders()
     } catch (caught: any) {
       setError(caught.message)
@@ -1161,28 +1170,38 @@ export default function BlindajeDeliveryEmpaquePage() {
           onSubmit={login}
           className="w-full max-w-3xl bg-white border border-slate-200 shadow-2xl rounded-[2.5rem] p-6 sm:p-10"
         >
-          <div className="flex items-center justify-between mb-2">
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
             <span className="inline-flex items-center gap-2 text-xs sm:text-sm font-black uppercase tracking-wider text-slate-400">
-              Tacos Gavilan • Estación de Tableta
+              {t('blindaje_delivery.tablet_station_header')}
             </span>
             <div className="flex items-center gap-2">
               <button
                 type="button"
+                onClick={() => setLanguage(language === 'es' ? 'en' : 'es')}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs sm:text-sm font-black"
+              >
+                <Globe className="w-4 h-4 text-red-600" />
+                <span>{language === 'es' ? 'ES | EN' : 'EN | ES'}</span>
+              </button>
+              <button
+                type="button"
                 onClick={() => setIsMuted(prev => !prev)}
-                title={isMuted ? 'Activar voz KDS' : 'Silenciar voz KDS'}
+                title={isMuted ? t('blindaje_delivery.voice_unmute_title') : t('blindaje_delivery.voice_mute_title')}
                 className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-100 text-slate-700 text-xs sm:text-sm font-black"
               >
                 {isMuted ? <VolumeX className="w-4 h-4 text-red-600" /> : <Volume2 className="w-4 h-4 text-emerald-600" />}
-                <span>{isMuted ? 'MUDO' : 'VOZ KDS ACTIVA'}</span>
+                <span>{isMuted ? t('blindaje_delivery.voice_muted') : t('blindaje_delivery.voice_active')}</span>
               </button>
               <button
                 type="button"
                 onClick={() => void ensureFullscreen()}
-                title="Pantalla Completa"
+                title={t('blindaje_delivery.fullscreen_title')}
                 className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-slate-100 text-slate-700 text-xs sm:text-sm font-black"
               >
                 <Maximize2 className="w-4 h-4" />
-                <span>{isFullscreen ? 'FULLSCREEN ACTIVO' : 'PANTALLA COMPLETA'}</span>
+                <span>
+                  {isFullscreen ? t('blindaje_delivery.fullscreen_active') : t('blindaje_delivery.fullscreen_btn')}
+                </span>
               </button>
             </div>
           </div>
@@ -1194,9 +1213,9 @@ export default function BlindajeDeliveryEmpaquePage() {
           )}
 
           <ShieldCheck className="w-16 h-16 sm:w-20 sm:h-20 text-red-600 mx-auto" />
-          <h1 className="text-4xl sm:text-5xl font-black text-center mt-2">Entrega Blindada</h1>
+          <h1 className="text-4xl sm:text-5xl font-black text-center mt-2">{t('blindaje_delivery.station_title')}</h1>
           <p className="text-center text-base sm:text-lg text-slate-500 font-semibold mt-1">
-            Acceso con PIN de RONOS (cierre automático cada 10 min)
+            {t('blindaje_delivery.pin_subtitle')}
           </p>
 
           <select
@@ -1247,7 +1266,7 @@ export default function BlindajeDeliveryEmpaquePage() {
               }}
               className="h-16 sm:h-20 rounded-2xl bg-slate-200 hover:bg-slate-300 text-base sm:text-lg font-black text-slate-700"
             >
-              LIMPIAR
+              {t('blindaje_delivery.keypad_clear')}
             </button>
             <button
               key="0"
@@ -1261,7 +1280,7 @@ export default function BlindajeDeliveryEmpaquePage() {
               type="button"
               onClick={handleKeypadBackspace}
               className="h-16 sm:h-20 rounded-2xl bg-slate-200 hover:bg-slate-300 flex items-center justify-center text-slate-700"
-              title="Borrar"
+              title={t('blindaje_delivery.keypad_delete')}
             >
               <Delete className="w-8 h-8" />
             </button>
@@ -1274,7 +1293,7 @@ export default function BlindajeDeliveryEmpaquePage() {
             disabled={busy || pin.length !== 4}
             className="w-full h-20 rounded-2xl bg-red-600 text-white text-2xl sm:text-3xl font-black mt-5 disabled:opacity-30 shadow-lg"
           >
-            {busy ? 'VALIDANDO…' : 'ENTRAR'}
+            {busy ? t('blindaje_delivery.pin_validating') : t('blindaje_delivery.pin_enter')}
           </button>
         </form>
       </main>
@@ -1293,7 +1312,7 @@ export default function BlindajeDeliveryEmpaquePage() {
           <div className="flex items-center gap-3">
             <ShieldCheck className="w-10 h-10 text-red-600 flex-shrink-0" />
             <div>
-              <h1 className="text-2xl sm:text-3xl font-black leading-none">Entrega Blindada</h1>
+              <h1 className="text-2xl sm:text-3xl font-black leading-none">{t('blindaje_delivery.station_title')}</h1>
               <p className="text-sm sm:text-base font-bold text-slate-500 mt-0.5">
                 {STORES.find(store => store.id === storeId)?.name}
               </p>
@@ -1302,8 +1321,16 @@ export default function BlindajeDeliveryEmpaquePage() {
           <div className="flex items-center gap-2.5">
             <button
               type="button"
+              onClick={() => setLanguage(language === 'es' ? 'en' : 'es')}
+              className="inline-flex items-center gap-1.5 px-3 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-sm font-black"
+            >
+              <Globe className="w-5 h-5 text-red-600" />
+              <span>{language === 'es' ? 'ES | EN' : 'EN | ES'}</span>
+            </button>
+            <button
+              type="button"
               onClick={() => setIsMuted(prev => !prev)}
-              title={isMuted ? 'Activar aviso de voz KDS' : 'Silenciar aviso de voz KDS'}
+              title={isMuted ? t('blindaje_delivery.voice_unmute_title') : t('blindaje_delivery.voice_mute_title')}
               className={`p-3 rounded-xl ${isMuted ? 'bg-red-50 text-red-600' : 'bg-slate-100 text-emerald-700'}`}
             >
               {isMuted ? <VolumeX className="w-6 h-6" /> : <Volume2 className="w-6 h-6" />}
@@ -1311,7 +1338,7 @@ export default function BlindajeDeliveryEmpaquePage() {
             <button
               type="button"
               onClick={() => void ensureFullscreen()}
-              title="Pantalla Completa"
+              title={t('blindaje_delivery.fullscreen_title')}
               className="p-3 rounded-xl bg-slate-100 text-slate-700"
             >
               <Maximize2 className="w-6 h-6" />
@@ -1319,7 +1346,7 @@ export default function BlindajeDeliveryEmpaquePage() {
             <button
               type="button"
               onClick={fetchOrders}
-              title="Actualizar"
+              title={t('blindaje_delivery.refresh_btn')}
               className="p-3 rounded-xl bg-slate-100"
             >
               <RefreshCw className={`w-6 h-6 ${loading ? 'animate-spin' : ''}`} />
@@ -1334,7 +1361,7 @@ export default function BlindajeDeliveryEmpaquePage() {
             <button
               type="button"
               onClick={() => logout()}
-              title="Cerrar sesión PIN (regresa a PIN Fullscreen)"
+              title={t('blindaje_delivery.logout_pin_title')}
               className="p-3 rounded-xl bg-slate-100 text-red-600"
             >
               <LogOut className="w-6 h-6" />
@@ -1372,7 +1399,7 @@ export default function BlindajeDeliveryEmpaquePage() {
               <input
                 value={search}
                 onChange={event => setSearch(event.target.value)}
-                placeholder="Buscar Nombre + Apellido, #Check o clave"
+                placeholder={t('blindaje_delivery.tablet_search_placeholder')}
                 className="w-full h-14 rounded-2xl bg-slate-100 pl-12 pr-4 text-base sm:text-lg font-black placeholder:normal-case"
               />
             </div>
@@ -1382,28 +1409,28 @@ export default function BlindajeDeliveryEmpaquePage() {
               <div className="flex flex-wrap items-center gap-1.5">
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-amber-100 text-amber-950 border border-amber-400">
                   <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
-                  PREPARACIÓN:{' '}
-                  {activeQueueOrders.filter(o => getOrderStageInfo(o).stage === 'PREPARACION').length}
+                  {t('blindaje_delivery.stage_prep')}:{' '}
+                  {activeQueueOrders.filter(o => getOrderStageInfo(o, t).stage === 'PREPARACION').length}
                 </span>
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-blue-100 text-blue-900 border border-blue-400">
                   <span className="w-2 h-2 rounded-full bg-blue-600 animate-pulse" />
-                  EMPACANDO:{' '}
-                  {activeQueueOrders.filter(o => getOrderStageInfo(o).stage === 'EMPACANDO').length}
+                  {t('blindaje_delivery.stage_packing')}:{' '}
+                  {activeQueueOrders.filter(o => getOrderStageInfo(o, t).stage === 'EMPACANDO').length}
                 </span>
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-emerald-100 text-emerald-900 border border-emerald-400">
                   <span className="w-2 h-2 rounded-full bg-emerald-600" />
-                  LISTA:{' '}
-                  {activeQueueOrders.filter(o => getOrderStageInfo(o).stage === 'LISTA').length}
+                  {t('blindaje_delivery.stage_ready')}:{' '}
+                  {activeQueueOrders.filter(o => getOrderStageInfo(o, t).stage === 'LISTA').length}
                 </span>
-                {orders.some(o => getOrderStageInfo(o).stage === 'NO_RECOGIDA') && (
+                {orders.some(o => getOrderStageInfo(o, t).stage === 'NO_RECOGIDA') && (
                   <button
                     type="button"
                     onClick={() => setShowHistory(true)}
                     className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-orange-100 text-orange-950 border border-orange-400 hover:bg-orange-200 transition-colors"
                   >
                     <span className="w-2 h-2 rounded-full bg-orange-600" />
-                    NO RECOGIDA (+2H):{' '}
-                    {orders.filter(o => getOrderStageInfo(o).stage === 'NO_RECOGIDA').length}
+                    {t('blindaje_delivery.stage_unclaimed')}:{' '}
+                    {orders.filter(o => getOrderStageInfo(o, t).stage === 'NO_RECOGIDA').length}
                   </button>
                 )}
               </div>
@@ -1419,15 +1446,15 @@ export default function BlindajeDeliveryEmpaquePage() {
                   }`}
                 >
                   {showHistory
-                    ? 'Ocultar pasadas'
-                    : `Pasadas (${Math.max(0, orders.length - activeQueueOrders.length)})`}
+                    ? t('blindaje_delivery.hide_past_orders')
+                    : `${t('blindaje_delivery.show_past_orders')} (${Math.max(0, orders.length - activeQueueOrders.length)})`}
                 </button>
               ) : null}
             </div>
 
             <div className="flex gap-3 overflow-x-auto pb-1 landscape:flex-col landscape:overflow-x-hidden landscape:overflow-y-auto landscape:max-h-[calc(100vh-250px)] lg:flex-col lg:overflow-x-hidden lg:overflow-y-auto lg:max-h-[calc(100vh-250px)]">
               {visible.map(value => {
-                const stageInfo = getOrderStageInfo(value)
+                const stageInfo = getOrderStageInfo(value, t)
                 const isSelected = selected === value.guid
                 const cardCollisions = collisionsByGuid.get(value.guid) || []
                 const hasCollision = cardCollisions.length > 0
@@ -1458,14 +1485,15 @@ export default function BlindajeDeliveryEmpaquePage() {
                       {value.customer}
                     </strong>
                     <small className="text-slate-700 text-sm font-bold block mt-1 truncate">
-                      #{value.ticket} • Clave: {value.platformOrderKey}
-                      {value.hasDrinks ? ' • CON BEBIDAS' : ''}
+                      #{value.ticket} • {t('blindaje_delivery.key_label')}: {value.platformOrderKey}
+                      {value.hasDrinks ? ` • ${t('blindaje_delivery.with_drinks_badge')}` : ''}
                     </small>
                     {hasCollision && (
                       <div className="mt-2 px-2.5 py-1.5 rounded-xl bg-red-600 text-white text-xs font-black flex items-center gap-1.5 animate-pulse">
                         <AlertTriangle className="w-4 h-4 flex-shrink-0" />
                         <span className="truncate">
-                          ¡OJO NOMBRE IGUAL/PARECIDO! ({cardCollisions.map(c => `${c.order.customer} #${c.order.ticket}`).join(', ')})
+                          {t('blindaje_delivery.card_collision_warning')} (
+                          {cardCollisions.map(c => `${c.order.customer} #${c.order.ticket}`).join(', ')})
                         </span>
                       </div>
                     )}
@@ -1474,7 +1502,7 @@ export default function BlindajeDeliveryEmpaquePage() {
               })}
               {!loading && visible.length === 0 && (
                 <p className="text-center text-slate-500 py-4 text-base font-semibold w-full">
-                  No hay órdenes delivery activas en este momento.
+                  {t('blindaje_delivery.no_active_orders')}
                 </p>
               )}
             </div>
@@ -1486,7 +1514,7 @@ export default function BlindajeDeliveryEmpaquePage() {
               <div className="h-96 bg-white rounded-3xl border grid place-items-center text-center p-8">
                 <div>
                   <ShoppingBag className="w-20 h-20 mx-auto text-slate-300" />
-                  <h2 className="text-3xl font-black mt-3">Selecciona una orden</h2>
+                  <h2 className="text-3xl font-black mt-3">{t('blindaje_delivery.select_order_prompt')}</h2>
                 </div>
               </div>
             ) : (
@@ -1498,10 +1526,10 @@ export default function BlindajeDeliveryEmpaquePage() {
                       <AlertTriangle className="w-9 h-9 flex-shrink-0 animate-bounce" />
                       <div>
                         <h2 className="text-xl sm:text-2xl font-black uppercase tracking-tight leading-tight">
-                          🚨 ¡CUIDADO! NOMBRE REPETIDO O MUY PARECIDO EN KDS
+                          {t('blindaje_delivery.collision_banner_title')}
                         </h2>
                         <p className="text-sm sm:text-base font-bold text-red-100 mt-0.5">
-                          Entró otra orden al sistema con el mismo nombre (aunque el apellido sea distinto) o un nombre muy parecido. ¡Verifica APELLIDO, #CHECK y PLATAFORMA!
+                          {t('blindaje_delivery.collision_banner_desc')}
                         </p>
                       </div>
                     </div>
@@ -1509,21 +1537,22 @@ export default function BlindajeDeliveryEmpaquePage() {
                     <div className="p-4 sm:p-5 grid grid-cols-1 md:grid-cols-2 gap-3">
                       <div className="p-4 rounded-2xl bg-white border-2 border-slate-900">
                         <span className="inline-block text-xs font-black uppercase px-2.5 py-0.5 rounded-md bg-slate-900 text-white">
-                          ESTA ORDEN SELECCIONADA
+                          {t('blindaje_delivery.this_selected_order')}
                         </span>
                         <p className="text-2xl sm:text-3xl font-black text-slate-950 mt-1.5">{order.customer}</p>
                         <p className="text-base font-extrabold text-slate-700 mt-1">
-                          Check #{order.ticket} • {label(order.platform)} • Clave: {order.platformOrderKey}
+                          Check #{order.ticket} • {label(order.platform)} • {t('blindaje_delivery.key_label')}:{' '}
+                          {order.platformOrderKey}
                         </p>
                       </div>
 
                       {currentCollisions.map(match => {
-                        const otherStage = getOrderStageInfo(match.order)
+                        const otherStage = getOrderStageInfo(match.order, t)
                         return (
                           <div key={match.order.guid} className="p-4 rounded-2xl bg-red-100/90 border-2 border-red-500">
                             <div className="flex flex-wrap items-center justify-between gap-2">
                               <span className="inline-block text-xs font-black uppercase px-2.5 py-0.5 rounded-md bg-red-700 text-white">
-                                ⚠️ NO CONFUNDIR CON ({match.reasonLabel})
+                                {t('blindaje_delivery.do_not_confuse_with')} ({match.reasonLabel})
                               </span>
                               <span className={`text-xs font-black px-2 py-0.5 rounded-md ${otherStage.badgeClass}`}>
                                 {otherStage.label}
@@ -1531,7 +1560,8 @@ export default function BlindajeDeliveryEmpaquePage() {
                             </div>
                             <p className="text-2xl sm:text-3xl font-black text-red-950 mt-1.5">{match.order.customer}</p>
                             <p className="text-base font-extrabold text-red-900 mt-1">
-                              Check #{match.order.ticket} • {label(match.order.platform)} • Clave: {match.order.platformOrderKey}
+                              Check #{match.order.ticket} • {label(match.order.platform)} •{' '}
+                              {t('blindaje_delivery.key_label')}: {match.order.platformOrderKey}
                             </p>
                           </div>
                         )
@@ -1546,7 +1576,7 @@ export default function BlindajeDeliveryEmpaquePage() {
                     <div className="flex flex-wrap items-center gap-3">
                       <p className="text-xl sm:text-2xl font-black text-red-600">{label(order.platform)}</p>
                       {(() => {
-                        const currentStage = getOrderStageInfo(order)
+                        const currentStage = getOrderStageInfo(order, t)
                         return (
                           <span
                             className={`inline-flex items-center gap-2 text-sm sm:text-base font-black px-3.5 py-1.5 rounded-xl ${currentStage.badgeClass}`}
@@ -1559,7 +1589,7 @@ export default function BlindajeDeliveryEmpaquePage() {
                       {order.assignedDriverHint && (
                         <span className="inline-flex items-center gap-1.5 text-sm sm:text-base font-black px-3.5 py-1.5 rounded-xl bg-slate-100 text-slate-800 border border-slate-300">
                           <Truck className="w-4 h-4 text-slate-600" />
-                          Chofer asignado: {order.assignedDriverHint}
+                          {t('blindaje_delivery.assigned_driver_label')}: {order.assignedDriverHint}
                         </span>
                       )}
                     </div>
@@ -1567,17 +1597,19 @@ export default function BlindajeDeliveryEmpaquePage() {
                       <span className="inline-flex items-center gap-2 text-sm sm:text-base font-bold text-slate-700 bg-slate-100 px-4 py-1.5 rounded-xl">
                         <Clock className="w-4 h-4" />
                         {order.kdsStatus === 'IN_KITCHEN'
-                          ? 'En cocina KDS'
-                          : `Preparación KDS: ${formatDuration(order.kdsPrepSeconds)}`}
+                          ? t('blindaje_delivery.in_kds_kitchen')
+                          : `${t('blindaje_delivery.kds_prep_time')}: ${formatDuration(order.kdsPrepSeconds)}`}
                       </span>
                       <button
                         type="button"
                         onClick={() => enqueueOrderAnnouncement(order)}
-                        title="Repetir anuncio de voz de esta orden"
+                        title={t('blindaje_delivery.repeat_voice_title')}
                         className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-sm font-black"
                       >
                         <Volume2 className="w-4 h-4" />
-                        <span>Anunciar #{order.ticket}</span>
+                        <span>
+                          {t('blindaje_delivery.announce_btn')} #{order.ticket}
+                        </span>
                       </button>
                     </div>
                   </div>
@@ -1585,7 +1617,7 @@ export default function BlindajeDeliveryEmpaquePage() {
                   <div className="mt-4 flex flex-wrap items-baseline justify-between gap-4">
                     <div>
                       <span className="text-sm font-black uppercase tracking-wider text-slate-400 block">
-                        Cliente (Nombre + Apellido)
+                        {t('blindaje_delivery.customer_full_name_label')}
                       </span>
                       <h2 className="text-5xl sm:text-6xl font-black tracking-tight mt-0.5 text-slate-950">
                         {order.customer}
@@ -1596,26 +1628,26 @@ export default function BlindajeDeliveryEmpaquePage() {
                         Check #{order.ticket}
                       </span>
                       <span className="text-lg sm:text-xl text-slate-600 font-black font-mono block mt-0.5">
-                        Clave: {order.platformOrderKey}
+                        {t('blindaje_delivery.key_label')}: {order.platformOrderKey}
                       </span>
                     </div>
                   </div>
 
                   {order.isVoided && (
                     <div className="mt-4 p-4 rounded-2xl bg-red-50 border border-red-200 text-red-700 text-base sm:text-lg font-black">
-                      ⚠️ ORDEN CANCELADA (VOIDED) EN TOAST
+                      {t('blindaje_delivery.order_voided_alert')}
                     </div>
                   )}
 
-                  {getOrderStageInfo(order).stage === 'NO_RECOGIDA' && (
+                  {getOrderStageInfo(order, t).stage === 'NO_RECOGIDA' && (
                     <div className="mt-4 p-4 rounded-2xl bg-orange-50 border-2 border-orange-500 text-orange-950 text-base sm:text-lg font-black">
-                      ⏱️ ESTATUS AUTOMÁTICO: NO RECOGIDA POR NINGÚN CHOFER EN 2 HORAS O MÁS (+2H)
+                      {t('blindaje_delivery.unclaimed_2h_alert')}
                     </div>
                   )}
 
                   {order.hasDrinks && (
                     <div className="mt-4 inline-block px-4 py-2 rounded-xl bg-slate-100 border-2 border-slate-300 text-slate-900 text-base font-black">
-                      CON BEBIDAS
+                      {t('blindaje_delivery.with_drinks_badge')}
                     </div>
                   )}
                 </section>
@@ -1626,14 +1658,12 @@ export default function BlindajeDeliveryEmpaquePage() {
                   <div className="space-y-4">
                     <div className="flex flex-wrap items-center justify-between gap-4">
                       <div>
-                        <h3 className="text-2xl font-black">1. Confirmar orden completa y sellada</h3>
-                        <p className="text-base text-slate-500 font-medium">
-                          Confirma cantidad de bolsas, que la orden esté completa y sellada.
-                        </p>
+                        <h3 className="text-2xl font-black">{t('blindaje_delivery.step1_title')}</h3>
+                        <p className="text-base text-slate-500 font-medium">{t('blindaje_delivery.step1_desc')}</p>
                       </div>
 
                       <div className="flex items-center gap-3">
-                        <strong className="text-lg font-black">Bolsas:</strong>
+                        <strong className="text-lg font-black">{t('blindaje_delivery.bags_label')}</strong>
                         <button
                           type="button"
                           disabled={order.audit?.status === 'released'}
@@ -1667,16 +1697,21 @@ export default function BlindajeDeliveryEmpaquePage() {
                           disabled={busy}
                           className="w-full h-16 sm:h-20 rounded-2xl bg-slate-950 text-white text-xl sm:text-2xl font-black disabled:opacity-30"
                         >
-                          CONFIRMAR ORDEN COMPLETA Y SELLADA
+                          {t('blindaje_delivery.confirm_complete_sealed_btn')}
                         </button>
                       )}
 
                     {(order.audit?.status === 'ready' ||
                       (order.audit?.status === 'unclaimed' && order.audit?.bags != null)) && (
                       <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-lg font-black flex items-center justify-between">
-                        <span>✓ Orden completa y sellada ({order.customer})</span>
                         <span>
-                          {bagCount} bolsa{bagCount === 1 ? '' : 's'}
+                          {t('blindaje_delivery.order_complete_sealed_done')} ({order.customer})
+                        </span>
+                        <span>
+                          {bagCount}{' '}
+                          {bagCount === 1
+                            ? t('blindaje_delivery.bag_singular')
+                            : t('blindaje_delivery.bag_plural')}
                         </span>
                       </div>
                     )}
@@ -1685,11 +1720,18 @@ export default function BlindajeDeliveryEmpaquePage() {
                   {/* PASO 2: BLINDAR ENTREGA AL CHOFER */}
                   <div className="pt-6 border-t space-y-4">
                     <div>
-                      <h3 className="text-2xl font-black">2. Blindar la entrega</h3>
+                      <h3 className="text-2xl font-black">{t('blindaje_delivery.step2_title')}</h3>
                       <p className="text-base text-slate-600 font-medium mt-0.5">
                         {order.platform === 'DOORDASH'
-                          ? `Verifica Nombre + Apellido (${order.customer}), Check #${order.ticket} y que el Dasher escanee el QR en vivo.`
-                          : `Verifica Nombre + Apellido (${order.customer}), Check #${order.ticket} y Clave ${order.platformOrderKey} en la pantalla del chofer.`}
+                          ? t('blindaje_delivery.step2_desc_doordash', {
+                              customer: order.customer,
+                              ticket: order.ticket
+                            })
+                          : t('blindaje_delivery.step2_desc_other', {
+                              customer: order.customer,
+                              ticket: order.ticket,
+                              key: order.platformOrderKey
+                            })}
                       </p>
                     </div>
 
@@ -1713,7 +1755,8 @@ export default function BlindajeDeliveryEmpaquePage() {
                           className="w-7 h-7 mt-0.5 accent-emerald-600 flex-shrink-0"
                         />
                         <div className="text-base sm:text-lg font-black leading-snug">
-                          ⚠️ CONFIRMO QUE VERIFIQUÉ APELLIDO E INICIAL DE &ldquo;{order.customer}&rdquo; (CHECK #{order.ticket} • {order.platformOrderKey}) Y NO LA ESTOY CONFUNDIENDO CON{' '}
+                          {t('blindaje_delivery.collision_checkbox_prefix')} &ldquo;{order.customer}&rdquo; (CHECK #{order.ticket} •{' '}
+                          {order.platformOrderKey}) {t('blindaje_delivery.collision_checkbox_middle')}{' '}
                           {currentCollisions.map(c => `"${c.order.customer}" (CHECK #${c.order.ticket})`).join(', ')}
                         </div>
                       </button>
@@ -1722,10 +1765,11 @@ export default function BlindajeDeliveryEmpaquePage() {
                     {order.audit?.status === 'released' ? (
                       <div className="p-5 rounded-2xl bg-slate-100 border border-slate-300">
                         <strong className="block text-xl font-black text-slate-900">
-                          ✓ ENTREGADA: {order.customer} (Check #{order.ticket})
+                          {t('blindaje_delivery.delivered_status_prefix')}: {order.customer} (Check #{order.ticket})
                         </strong>
                         <p className="text-base text-slate-600 font-semibold mt-1">
-                          Por {order.audit.handedBy} • {order.audit.driver || 'Chofer verificado'}
+                          {t('blindaje_delivery.by_staff')} {order.audit.handedBy} •{' '}
+                          {order.audit.driver || t('blindaje_delivery.verified_driver')}
                         </p>
                       </div>
                     ) : (
@@ -1749,13 +1793,13 @@ export default function BlindajeDeliveryEmpaquePage() {
                         )}
                         <span>
                           {busy
-                            ? 'PROCESANDO…'
+                            ? t('blindaje_delivery.btn_processing')
                             : order.audit?.status !== 'ready' &&
                               !(order.audit?.status === 'unclaimed' && order.audit?.bags != null)
-                            ? 'PRIMERO CONFIRMA ORDEN COMPLETA Y SELLADA'
+                            ? t('blindaje_delivery.btn_confirm_step1_first')
                             : !isCollisionConfirmed
-                            ? 'TOCA LA CASILLA DE ARRIBA PARA CONFIRMAR APELLIDO Y #CHECK'
-                            : `ENTREGAR ORDEN DE ${order.customer.toUpperCase()} (#${order.ticket})`}
+                            ? t('blindaje_delivery.btn_check_collision_box')
+                            : `${t('blindaje_delivery.btn_release_order_prefix')} ${order.customer.toUpperCase()} (#${order.ticket})`}
                         </span>
                       </button>
                     )}
@@ -1769,3 +1813,4 @@ export default function BlindajeDeliveryEmpaquePage() {
     </main>
   )
 }
+
