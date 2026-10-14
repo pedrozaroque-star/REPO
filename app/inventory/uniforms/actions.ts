@@ -2,19 +2,21 @@
 
 /**
  * @module uniformsActions
- * @description Server actions para la gestión de inventario y venta de uniformes.
+ * @description Server actions para la gestión de inventario, venta de uniformes y sincronización acumulativa con Caja Fuerte.
  * @businessRules 
  * - stores.id es un valor numérico (int), no UUID.
  * - Los supervisores/admins ven todas las tiendas; los gerentes solo las asignadas.
  * - Un empleado nuevo recibe: 6 playeras, 1 gorra, 1 chamarra.
  * - Las transacciones de daño/intercambio deducen inventario pero no tienen costo ($0).
  * - Las ventas parciales se permiten si no hay suficiente stock.
+ * - Sincronización Caja Fuerte <-> Uniformes: El saldo de uniformes en Caja Fuerte (totalInSafe) es acumulativo:
+ *   totalInSafe = último conteo en safe_counts.uniforms_amount + ventas activas (employee_sale / customer_sale) posteriores a safe_counts.counted_at.
  * @dataFlow Cliente -> Server Actions -> Supabase Admin Client -> Base de Datos
  * @notes No se usan mocks, todo interactúa con la base de datos real.
  */
 
 import { getSupabaseAdminClient } from '@/lib/supabase';
-import { getBusinessDate, getDefaultMinStock, parseUniformCategoryAndSize, type UniformCategory, type UniformSize } from './utils';
+import { getBusinessDate, getDefaultMinStock, parseUniformCategoryAndSize, type UniformCategory, type UniformSize, type UniformsSafeBalance } from './utils';
 
 export async function fetchStoresForUser(userRole: string, userStoreIds: string[]): Promise<{id: number, name: string}[]> {
   const supabase = await getSupabaseAdminClient();
@@ -351,7 +353,9 @@ export async function recordUniformSale(payload: {
   let unitPrice = Number(pricing.sale_price) || 0;
 
   // Verify is_free_for_roles: if employee has an exempt role, make it $0 and record as manager_free
-  if (txType !== 'customer_sale' && pricing.is_free_for_roles && Array.isArray(pricing.is_free_for_roles) && pricing.is_free_for_roles.length > 0) {
+  if (txType === 'manager_free') {
+    unitPrice = 0;
+  } else if (txType !== 'customer_sale' && pricing.is_free_for_roles && Array.isArray(pricing.is_free_for_roles) && pricing.is_free_for_roles.length > 0) {
     const jobLower = (payload.employeeJobTitle || '').toLowerCase().trim();
     const isFree = pricing.is_free_for_roles.some((role: string) => {
       const rLower = role.toLowerCase().trim();
@@ -362,6 +366,10 @@ export async function recordUniformSale(payload: {
       unitPrice = 0;
       txType = 'manager_free';
     }
+  }
+
+  if (txType === 'employee_sale' && unitPrice === 0) {
+    txType = 'manager_free';
   }
 
   const { data: stock, error: sErr } = await supabase
@@ -736,13 +744,16 @@ export async function fetchExecutiveDashboard(): Promise<{
   const { data: stores, error: sErr } = await supabase.from('stores').select('id, name').eq('is_active', true);
   if (sErr) throw new Error(sErr.message);
 
-  const { data: stockData, error: stErr } = await supabase.from('uniforms_inventory_stock').select('*');
+  const { data: stockData, error: stErr } = await supabase.from('uniforms_inventory_stock').select('*').limit(10000);
   if (stErr) throw new Error(stErr.message);
 
   const { data: pricingData, error: pErr } = await supabase.from('uniforms_pricing').select('*');
   if (pErr) throw new Error(pErr.message);
 
-  const { data: txData, error: tErr } = await supabase.from('uniforms_transactions').select('*');
+  const { data: txData, error: tErr } = await supabase
+    .from('uniforms_transactions')
+    .select('store_id, transaction_type, total_amount, reason, created_at')
+    .limit(10000);
   if (tErr) throw new Error(tErr.message);
 
   const { count: pendingOrdersCount } = await supabase
@@ -759,7 +770,7 @@ export async function fetchExecutiveDashboard(): Promise<{
 
   const storesData = (stores || []).map((store: any) => {
     const storeStock = (stockData || []).filter((s: any) => s.store_id === store.id);
-    const storeTx = (txData || []).filter((tx: any) => tx.store_id === store.id && !(tx.reason && tx.reason.includes('[ANULADO]')));
+    const storeTx = (txData || []).filter((tx: any) => tx.store_id === store.id && !(tx.reason && tx.reason.includes('[ANULADO')));
 
     const totalItems = storeStock.reduce((sum: number, item: any) => sum + (Number(item.quantity_on_hand) || 0), 0);
     const totalValue = storeStock.reduce((sum: number, item: any) => {
@@ -800,18 +811,108 @@ export async function fetchExecutiveDashboard(): Promise<{
   };
 }
 
-export async function fetchDailySalesTotal(storeId: number, businessDate: string): Promise<number> {
+/**
+ * Calcula el saldo acumulativo exacto de dinero de uniformes en la Caja Fuerte para una tienda:
+ * totalInSafe = último conteo en safe_counts.uniforms_amount + ventas activas (employee_sale / customer_sale) posteriores a safe_counts.counted_at.
+ */
+export async function fetchUniformsSafeBalance(storeId: number, businessDate?: string): Promise<UniformsSafeBalance> {
   const supabase = await getSupabaseAdminClient();
-  const { data, error } = await supabase
-    .from('uniforms_transactions')
-    .select('total_amount')
+  const targetBusinessDate = businessDate || getBusinessDate();
+
+  // 1. Obtener el último conteo de Caja Fuerte registrado para esta tienda
+  const { data: latestSafeCount, error: safeErr } = await supabase
+    .from('safe_counts')
+    .select('id, uniforms_amount, counted_at, created_at, business_date')
     .eq('store_id', storeId)
-    .eq('business_date', businessDate)
-    .in('transaction_type', ['employee_sale', 'customer_sale']);
-    
-  if (error) throw new Error(error.message);
-  
-  return (data || []).reduce((sum: number, tx: any) => sum + (Number(tx.total_amount) || 0), 0);
+    .order('counted_at', { ascending: false })
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (safeErr) throw new Error(safeErr.message);
+
+  const lastSafeCountId = latestSafeCount?.id ? String(latestSafeCount.id) : null;
+  const lastSafeCountAmount = Math.round((Number(latestSafeCount?.uniforms_amount ?? 0)) * 100) / 100;
+  const lastSafeCountDate: string | null = latestSafeCount?.counted_at || latestSafeCount?.created_at || null;
+  const lastSafeCountShift: string | null = latestSafeCount?.business_date || null;
+
+  // 2. Obtener todas las ventas de uniformes (employee_sale y customer_sale) de la tienda
+  const { data: salesTx, error: txErr } = await supabase
+    .from('uniforms_transactions')
+    .select('id, item_category, size, transaction_type, quantity, total_amount, employee_name, reason, business_date, created_at')
+    .eq('store_id', storeId)
+    .in('transaction_type', ['employee_sale', 'customer_sale'])
+    .order('created_at', { ascending: false })
+    .limit(5000);
+
+  if (txErr) throw new Error(txErr.message);
+
+  const activeSales = (salesTx || []).filter((tx: any) => {
+    const isVoided = Boolean(tx.reason && String(tx.reason).includes('[ANULADO'));
+    const amount = Number(tx.total_amount) || 0;
+    return !isVoided && amount > 0;
+  });
+
+  const lastCountTimestamp = lastSafeCountDate ? new Date(lastSafeCountDate).getTime() : null;
+
+  const salesSinceCount = activeSales.filter((tx: any) => {
+    if (lastCountTimestamp === null || isNaN(lastCountTimestamp)) return true;
+    const txTime = new Date(tx.created_at).getTime();
+    return !isNaN(txTime) && txTime > lastCountTimestamp;
+  });
+
+  const todaySales = activeSales.filter((tx: any) => tx.business_date === targetBusinessDate);
+
+  const accumulatedSalesSinceCount = Math.round(
+    salesSinceCount.reduce((sum: number, tx: any) => sum + (Number(tx.total_amount) || 0), 0) * 100
+  ) / 100;
+
+  const salesCountSinceCount = salesSinceCount.reduce(
+    (sum: number, tx: any) => sum + Math.abs(Number(tx.quantity) || 0),
+    0
+  );
+
+  const todaySalesAmount = Math.round(
+    todaySales.reduce((sum: number, tx: any) => sum + (Number(tx.total_amount) || 0), 0) * 100
+  ) / 100;
+
+  const todaySalesCount = todaySales.reduce(
+    (sum: number, tx: any) => sum + Math.abs(Number(tx.quantity) || 0),
+    0
+  );
+
+  const totalInSafe = Math.round((lastSafeCountAmount + accumulatedSalesSinceCount) * 100) / 100;
+
+  const breakdown = salesSinceCount.map((tx: any) => ({
+    category: String(tx.item_category),
+    size: String(tx.size),
+    type: String(tx.transaction_type),
+    quantity: Math.abs(Number(tx.quantity) || 0),
+    amount: Math.round((Number(tx.total_amount) || 0) * 100) / 100,
+    employeeName: tx.employee_name || null,
+    createdAt: String(tx.created_at),
+    businessDate: String(tx.business_date),
+  }));
+
+  return {
+    storeId,
+    businessDate: targetBusinessDate,
+    lastSafeCountId,
+    lastSafeCountAmount,
+    lastSafeCountDate,
+    lastSafeCountShift,
+    accumulatedSalesSinceCount,
+    salesCountSinceCount,
+    todaySalesAmount,
+    todaySalesCount,
+    totalInSafe,
+    breakdown,
+  };
+}
+
+export async function fetchDailySalesTotal(storeId: number, businessDate: string): Promise<number> {
+  const balance = await fetchUniformsSafeBalance(storeId, businessDate);
+  return balance.totalInSafe;
 }
 
 export async function fetchQBEstimateForReception(storeId: number, searchEstimate: string): Promise<{
@@ -1053,10 +1154,26 @@ export async function updateUniformTransactionDetails(payload: {
   userEmail: string
 }): Promise<{ success: boolean }> {
   const supabase = await getSupabaseAdminClient();
-  
+
+  const { data: existingTx, error: fetchErr } = await supabase
+    .from('uniforms_transactions')
+    .select('id, reason')
+    .eq('id', payload.transactionId)
+    .single();
+
+  if (fetchErr || !existingTx) {
+    throw new Error('Transaction not found');
+  }
+
+  if (existingTx.reason && String(existingTx.reason).includes('[ANULADO')) {
+    throw new Error('No se puede editar una transacción anulada');
+  }
+
   const updateData: Record<string, any> = {};
   if (payload.employeeName !== undefined) updateData.employee_name = payload.employeeName.trim();
-  if (payload.reason !== undefined) updateData.reason = payload.reason.trim();
+  if (payload.reason !== undefined) {
+    updateData.reason = payload.reason.trim().replace(/\[ANULADO/gi, '');
+  }
 
   if (Object.keys(updateData).length === 0) {
     return { success: true };
@@ -1088,7 +1205,7 @@ export async function voidUniformTransaction(payload: {
     throw new Error('Transaction not found');
   }
 
-  if (tx.reason && tx.reason.includes('[ANULADO]')) {
+  if (tx.reason && String(tx.reason).includes('[ANULADO')) {
     return { success: false, warning: 'La transacción ya está anulada' };
   }
 
@@ -1121,6 +1238,35 @@ export async function voidUniformTransaction(payload: {
     }, { onConflict: 'store_id, item_category, size' });
 
   if (stockErr) throw new Error(stockErr.message);
+
+  // Si la transacción anulada era una venta en efectivo (employee_sale / customer_sale) que ocurrió
+  // ANTES o DURANTE el último conteo de Caja Fuerte de esta tienda, su efectivo ya había quedado
+  // consolidado en safe_counts.uniforms_amount. Al anularla, descontamos ese monto de la base del
+  // último conteo para que el saldo en Caja Fuerte refleje la devolución inmediatamente.
+  const oldAmount = Math.round((Number(tx.total_amount) || 0) * 100) / 100;
+  if (oldAmount > 0 && (tx.transaction_type === 'employee_sale' || tx.transaction_type === 'customer_sale')) {
+    const { data: latestSafeCount } = await supabase
+      .from('safe_counts')
+      .select('id, uniforms_amount, counted_at, created_at')
+      .eq('store_id', tx.store_id)
+      .order('counted_at', { ascending: false })
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (latestSafeCount) {
+      const countTime = new Date(latestSafeCount.counted_at || latestSafeCount.created_at).getTime();
+      const txTime = new Date(tx.created_at).getTime();
+      if (!isNaN(countTime) && !isNaN(txTime) && txTime <= countTime) {
+        const currentSafeUniforms = Number(latestSafeCount.uniforms_amount) || 0;
+        const adjustedSafeUniforms = Math.max(0, Math.round((currentSafeUniforms - oldAmount) * 100) / 100);
+        await supabase
+          .from('safe_counts')
+          .update({ uniforms_amount: adjustedSafeUniforms })
+          .eq('id', latestSafeCount.id);
+      }
+    }
+  }
 
   const voidTag = `[ANULADO por ${payload.userEmail}]: ${payload.reason.trim()}`;
   const updatedReason = tx.reason ? `${voidTag} (Original: ${tx.reason})` : voidTag;

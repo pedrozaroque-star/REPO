@@ -58,8 +58,27 @@ const MIME_TYPES: Record<string, string> = {
     '.eot': 'application/vnd.ms-fontobject',
     '.mp4': 'video/mp4',
     '.webm': 'video/webm',
+    '.pdf': 'application/pdf',
     '.xml': 'application/xml; charset=utf-8',
     '.txt': 'text/plain; charset=utf-8',
+}
+
+const STORE_ID_TO_NAME: Record<number, string> = {
+    1: 'Rialto',
+    3: 'West Covina',
+    4: 'Azusa',
+    5: 'LA Broadway',
+    6: 'LA Central',
+    7: 'Slauson',
+    8: 'Hollywood',
+    9: 'Santa Ana',
+    10: 'La Puente',
+    11: 'Huntington Park',
+    12: 'Norwalk',
+    13: 'Bell',
+    14: 'Lynwood',
+    15: 'South Gate',
+    16: 'Downey',
 }
 
 function resolveBaseDir(): string | null {
@@ -133,11 +152,12 @@ export async function GET(
             ])
 
             const isVercel = aRecords.includes('76.76.21.21')
+            const isCnameVercel = cnameRecords.some(c => c.includes('vercel-dns.com'))
             const isWpEngine = aRecords.some(ip => ip.startsWith('141.193.')) || cnameRecords.some(c => c.includes('wpengine'))
             const isMxSafe = mxRecords.some(m => m.exchange && m.exchange.includes('google.com'))
 
             let hostingDetected = 'Desconocido / En transición'
-            if (isVercel) hostingDetected = 'Vercel (Nuevo Servidor Ultra Rápido)'
+            if (isVercel) hostingDetected = 'Vercel Edge Network (En Vivo)'
             else if (isWpEngine) hostingDetected = 'WP Engine (Servidor WordPress Anterior)'
 
             return Response.json({
@@ -148,6 +168,7 @@ export async function GET(
                 mxRecords,
                 nsRecords,
                 isVercel,
+                isCnameVercel,
                 isWpEngine,
                 isMxSafe,
                 hostingDetected,
@@ -158,26 +179,31 @@ export async function GET(
         }
     }
 
-    // Acción para consultar feedback y leads de contacto recibidos desde la web oficial
+    // Acción para consultar feedback y leads de contacto recibidos exclusivamente desde la web oficial
     if (action === 'feedback' || (slug?.length === 1 && slug[0] === 'feedback')) {
         try {
             const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://ywwwdcvgfculqmcfkihq.supabase.co'
             const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
-            
-            const res = await fetch(`${supabaseUrl}/rest/v1/customer_feedback?select=*&order=created_at.desc&limit=30`, {
+
+            const queryUrl = `${supabaseUrl}/rest/v1/customer_feedback?select=*&source=in.(website_contact,website_newsletter,website)&order=created_at.desc&limit=50`
+            const res = await fetch(queryUrl, {
                 headers: {
                     'apikey': supabaseKey,
                     'Authorization': `Bearer ${supabaseKey}`
                 },
                 cache: 'no-store'
             })
-            
+
             if (!res.ok) {
                 const text = await res.text()
                 return Response.json({ ok: false, error: text }, { status: 500 })
             }
-            
-            const rows = await res.json()
+
+            const rawRows = await res.json()
+            const rows = (Array.isArray(rawRows) ? rawRows : []).map((r: any) => ({
+                ...r,
+                store_name: r.store_id ? (STORE_ID_TO_NAME[Number(r.store_id)] || `Sucursal #${r.store_id}`) : null
+            }))
             return Response.json({ ok: true, data: rows })
         } catch (err: any) {
             return Response.json({ ok: false, error: err.message }, { status: 500 })

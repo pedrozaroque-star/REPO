@@ -15,9 +15,11 @@
 
 import { NextResponse } from 'next/server'
 import { getSupabaseAdminClient } from '@/lib/supabase'
+import { fetchUniformsSafeBalance } from '@/app/inventory/uniforms/actions'
+import type { UniformsSafeBalance } from '@/app/inventory/uniforms/utils'
 
 // ============================================================================
-// GET — Listar conteos con diferencias
+// GET — Listar conteos con diferencias y sincronización en vivo con Uniformes
 // ============================================================================
 export async function GET(request: Request) {
   const supabase = await getSupabaseAdminClient()
@@ -26,9 +28,9 @@ export async function GET(request: Request) {
   const storeId = searchParams.get('store_id')
   const from = searchParams.get('from')
   const to = searchParams.get('to')
-  const limit = parseInt(searchParams.get('limit') || '100')
+  const limit = parseInt(searchParams.get('limit') || '500')
 
-  // Build query
+  // Build query — order by counted_at DESC, created_at DESC to match fetchUniformsSafeBalance
   let query = supabase
     .from('safe_counts')
     .select(`
@@ -36,8 +38,8 @@ export async function GET(request: Request) {
       store:stores(name),
       user:users(full_name)
     `)
-    .order('business_date', { ascending: false })
     .order('counted_at', { ascending: false })
+    .order('created_at', { ascending: false })
     .limit(limit)
 
   if (storeId && storeId !== 'all') {
@@ -57,6 +59,22 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
+  // Fetch cumulative uniform balance for all unique stores in the result set
+  const uniqueStoreIds = Array.from(
+    new Set((counts || []).map((c: any) => Number(c.store_id)).filter((id: number) => !isNaN(id)))
+  )
+  const balanceEntries = await Promise.all(
+    uniqueStoreIds.map(async (sId) => {
+      try {
+        const bal = await fetchUniformsSafeBalance(sId)
+        return [sId, bal] as const
+      } catch {
+        return [sId, null] as const
+      }
+    })
+  )
+  const storeBalanceMap = new Map<number, UniformsSafeBalance | null>(balanceEntries)
+
   // Calculate differences between consecutive counts per store
   const countsWithDiff = await Promise.all((counts || []).map(async (count: any, index: number, arr: any[]) => {
     // Find the next (older) count for the same store
@@ -68,15 +86,15 @@ export async function GET(request: Request) {
       }
     }
 
-    if (previousTotal === null && from) {
-      // Lookup previous count prior to 'from' range
+    if (previousTotal === null && count.counted_at) {
+      // Lookup previous count strictly older than count.counted_at (handles same-day multiple counts & limit/from cutoffs)
       const { data: prevRecord } = await supabase
         .from('safe_counts')
         .select('grand_total')
         .eq('store_id', count.store_id)
-        .lt('business_date', count.business_date)
-        .order('business_date', { ascending: false })
+        .lt('counted_at', count.counted_at)
         .order('counted_at', { ascending: false })
+        .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle()
 
@@ -85,14 +103,28 @@ export async function GET(request: Request) {
       }
     }
 
-    const currentTotal = parseFloat(count.grand_total)
-    const difference = previousTotal !== null ? currentTotal - previousTotal : null
+    const storeBalance = storeBalanceMap.get(Number(count.store_id)) || null
+    const isLatestForStore = Boolean(storeBalance && String(storeBalance.lastSafeCountId) === String(count.id))
+    const baseUniformsAmount = Math.round((parseFloat(count.uniforms_amount) || 0) * 100) / 100
+    const uniformsSalesSinceCount = isLatestForStore ? (storeBalance?.accumulatedSalesSinceCount || 0) : 0
+    const uniformsSalesCountSince = isLatestForStore ? (storeBalance?.salesCountSinceCount || 0) : 0
+    const liveUniformsAmount = isLatestForStore ? (storeBalance?.totalInSafe ?? baseUniformsAmount) : baseUniformsAmount
+
+    const currentTotal = parseFloat(count.grand_total) || 0
+    const liveGrandTotal = Math.round((currentTotal + uniformsSalesSinceCount) * 100) / 100
+    const difference = previousTotal !== null ? Math.round((liveGrandTotal - previousTotal) * 100) / 100 : null
 
     return {
       ...count,
       difference,
       counted_by_name: count.user?.full_name || 'Unknown',
       store_name: count.store?.name || 'Unknown',
+      is_latest_for_store: isLatestForStore,
+      base_uniforms_amount: baseUniformsAmount,
+      uniforms_sales_since_count: uniformsSalesSinceCount,
+      uniforms_sales_count_since: uniformsSalesCountSince,
+      live_uniforms_amount: liveUniformsAmount,
+      live_grand_total: liveGrandTotal,
     }
   }))
 
@@ -131,27 +163,31 @@ export async function POST(request: Request) {
     counted_at: new Date().toISOString(),
 
     // Bills
-    bills_100: parseInt(body.bills_100) || 0,
-    bills_50: parseInt(body.bills_50) || 0,
-    bills_20: parseInt(body.bills_20) || 0,
-    bills_10: parseInt(body.bills_10) || 0,
-    bills_5: parseInt(body.bills_5) || 0,
-    bills_1: parseInt(body.bills_1) || 0,
+    bills_100: Math.max(0, parseInt(body.bills_100) || 0),
+    bills_50: Math.max(0, parseInt(body.bills_50) || 0),
+    bills_20: Math.max(0, parseInt(body.bills_20) || 0),
+    bills_10: Math.max(0, parseInt(body.bills_10) || 0),
+    bills_5: Math.max(0, parseInt(body.bills_5) || 0),
+    bills_1: Math.max(0, parseInt(body.bills_1) || 0),
 
     // Change (rolls/packs)
-    packs_ones: parseInt(body.packs_ones) || 0,
-    rolls_quarter: parseInt(body.rolls_quarter) || 0,
-    rolls_dime: parseInt(body.rolls_dime) || 0,
-    rolls_nickel: parseInt(body.rolls_nickel) || 0,
-    rolls_penny: parseInt(body.rolls_penny) || 0,
-    loose_change: parseFloat(body.loose_change) || 0,
+    packs_ones: Math.max(0, parseInt(body.packs_ones) || 0),
+    rolls_quarter: Math.max(0, parseInt(body.rolls_quarter) || 0),
+    rolls_dime: Math.max(0, parseInt(body.rolls_dime) || 0),
+    rolls_nickel: Math.max(0, parseInt(body.rolls_nickel) || 0),
+    rolls_penny: Math.max(0, parseInt(body.rolls_penny) || 0),
+    loose_change: Math.max(0, parseFloat(body.loose_change) || 0),
 
     // Drawers
-    num_drawers: parseInt(body.num_drawers) || 1,
-    drawer_stock: parseFloat(body.drawer_stock) || 250.00,
+    num_drawers: body.num_drawers !== undefined && body.num_drawers !== null && body.num_drawers !== ''
+      ? Math.max(0, parseInt(body.num_drawers) || 0)
+      : 1,
+    drawer_stock: body.drawer_stock !== undefined && body.drawer_stock !== null && body.drawer_stock !== ''
+      ? Math.max(0, parseFloat(body.drawer_stock) || 0)
+      : 250.00,
 
     // Uniforms
-    uniforms_amount: parseFloat(body.uniforms_amount) || 0,
+    uniforms_amount: Math.max(0, parseFloat(body.uniforms_amount) || 0),
 
     // Notes
     notes: body.notes || null,

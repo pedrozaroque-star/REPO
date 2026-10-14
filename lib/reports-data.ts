@@ -1771,21 +1771,135 @@ export const PLANNER_SHIFTS_MAP: Record<string, PlannerShift> = {
         "end": "10:00 PM",
         "hours": 8,
         "label": "Intermedio",
-        "store": "Lynwood"
+        "store": "Lynwood",
+        "rawStart": "14:00:00",
+        "rawEnd": "22:00:00"
     },
     "2026-10-03": {
         "start": "2:00 PM",
         "end": "10:00 PM",
         "hours": 8,
         "label": "Intermedio",
-        "store": "Lynwood"
+        "store": "Lynwood",
+        "rawStart": "14:00:00",
+        "rawEnd": "22:00:00"
     },
     "2026-10-04": {
         "start": "2:00 PM",
         "end": "7:00 PM",
         "hours": 5,
         "label": "Custom",
-        "store": "Lynwood"
+        "store": "Lynwood",
+        "rawStart": "14:00:00",
+        "rawEnd": "19:04:00"
+    },
+    "2026-10-05": {
+        "start": "9:00 AM",
+        "end": "5:00 PM",
+        "hours": 8,
+        "label": "Mañana",
+        "store": "Lynwood",
+        "rawStart": "09:00:00",
+        "rawEnd": "17:00:00"
+    },
+    "2026-10-06": {
+        "start": "2:00 PM",
+        "end": "10:00 PM",
+        "hours": 8,
+        "label": "Intermedio",
+        "store": "Lynwood",
+        "rawStart": "14:00:00",
+        "rawEnd": "22:00:00"
+    },
+    "2026-10-07": {
+        "start": "9:00 AM",
+        "end": "5:00 PM",
+        "hours": 8,
+        "label": "Mañana",
+        "store": "Lynwood",
+        "rawStart": "09:00:00",
+        "rawEnd": "17:00:00"
+    },
+    "2026-10-09": {
+        "start": "2:00 PM",
+        "end": "10:00 PM",
+        "hours": 8,
+        "label": "Intermedio",
+        "store": "Lynwood",
+        "rawStart": "14:00:00",
+        "rawEnd": "22:00:00"
+    },
+    "2026-10-10": {
+        "start": "2:00 PM",
+        "end": "10:00 PM",
+        "hours": 8,
+        "label": "Intermedio",
+        "store": "Lynwood",
+        "rawStart": "14:00:00",
+        "rawEnd": "22:00:00"
+    },
+    "2026-10-11": {
+        "start": "2:00 PM",
+        "end": "7:00 PM",
+        "hours": 5,
+        "label": "Custom",
+        "store": "Lynwood",
+        "rawStart": "14:00:00",
+        "rawEnd": "19:04:00"
+    },
+    "2026-10-12": {
+        "start": "9:00 AM",
+        "end": "5:00 PM",
+        "hours": 8,
+        "label": "Mañana",
+        "store": "Lynwood",
+        "rawStart": "09:00:00",
+        "rawEnd": "17:00:00"
+    },
+    "2026-10-13": {
+        "start": "2:00 PM",
+        "end": "10:00 PM",
+        "hours": 8,
+        "label": "Intermedio",
+        "store": "Lynwood",
+        "rawStart": "14:00:00",
+        "rawEnd": "22:00:00"
+    },
+    "2026-10-14": {
+        "start": "9:00 AM",
+        "end": "5:00 PM",
+        "hours": 8,
+        "label": "Mañana",
+        "store": "Lynwood",
+        "rawStart": "09:00:00",
+        "rawEnd": "17:00:00"
+    },
+    "2026-10-16": {
+        "start": "2:00 PM",
+        "end": "10:00 PM",
+        "hours": 8,
+        "label": "Intermedio",
+        "store": "Lynwood",
+        "rawStart": "14:00:00",
+        "rawEnd": "22:00:00"
+    },
+    "2026-10-17": {
+        "start": "2:00 PM",
+        "end": "10:00 PM",
+        "hours": 8,
+        "label": "Intermedio",
+        "store": "Lynwood",
+        "rawStart": "14:00:00",
+        "rawEnd": "22:00:00"
+    },
+    "2026-10-18": {
+        "start": "2:00 PM",
+        "end": "7:00 PM",
+        "hours": 5,
+        "label": "Custom",
+        "store": "Lynwood",
+        "rawStart": "14:00:00",
+        "rawEnd": "19:04:00"
     }
 };
 
@@ -1794,7 +1908,7 @@ export const MONTHLY_REPORTS: Record<'octubre' | 'septiembre' | 'agosto' | 'juli
     "id": "octubre",
     "monthName": "Octubre",
     "monthYear": "Octubre 2026",
-    "totalHours": 65.2,
+    "totalHours": 98.2,
     "totalTasks": 27,
     "completedTasks": 18,
     "inProgressTasks": 5,
@@ -1908,8 +2022,8 @@ export const MONTHLY_REPORTS: Record<'octubre' | 'septiembre' | 'agosto' | 'juli
                 "Crear Bills Sorting",
                 "Web Móvil tacosgavilan.com"
             ],
-            "descEs": "• <strong>Lanzamiento de Aplicación Móvil de Pedidos (/app & /ordenar)</strong>: Creación de las rutas oficiales de pedido móvil para clientes con flujo de checkout de Toast Local, animación de bienvenida 1:1, selector de sucursal con geolocalización y cálculo de tarifas de entrega.<br>• <strong>Tasas Oficiales CDTFA (Octubre 2026) & Impuestos por Sucursal</strong>: Configuración de las tasas impositivas oficiales vigentes del estado de California al 1 de octubre de 2026 para las 15 tiendas de Tacos Gavilan.<br>• <strong>Paridad Toast Cash Management en Contabilidad</strong>: Integración de depósitos en efectivo sincronizados directamente desde Toast Cash Management, simplificando el flujo de trabajo sin aprobaciones redundantes, cálculo de ventas brutas (Gross Sales) y desglose bilingüe.<br>• <strong>Mejoras en Crear Bills y Diseño Web Móvil</strong>: Corrección de error de referencia TDZ en buscador, ordenamiento interactivo de columnas por tienda/fecha y optimización del diseño de tarjetas en la versión móvil de tacosgavilan.com.",
-            "descEn": "• <strong>Customer Mobile Ordering App Launch (/app & /ordenar)</strong>: Built official customer mobile ordering routes featuring Toast Local checkout flow, 1:1 system welcome animation, store GPS selector, and delivery fee calculation rules.<br>• <strong>Official Oct 1 2026 CDTFA Tax Rates by Store</strong>: Programmed updated California CDTFA sales tax rates effective October 1, 2026 across all 15 Tacos Gavilan restaurants.<br>• <strong>Toast Cash Management Parity in Accounting</strong>: Integrated cash deposits directly from Toast Cash Management, establishing a streamlined 1-click workflow without redundant approvals, Gross Sales math, and bilingual breakdowns.<br>• <strong>Crear Bills Improvements & Mobile Web Refinement</strong>: Fixed search TDZ reference bug, added interactive column sorting by store/date, and optimized location cards for mobile viewports on tacosgavilan.com."
+            "descEs": "• <strong>Lanzamiento de Aplicación Móvil de Pedidos (/app & /ordenar)</strong>: Creación de las rutas de pedido móvil para clientes con flujo de checkout nativo, animación de bienvenida 1:1, selector de sucursal con geolocalización y cálculo de tarifas de entrega.<br>• <strong>Tasas Oficiales CDTFA (Octubre 2026) & Impuestos por Sucursal</strong>: Configuración de las tasas impositivas oficiales vigentes del estado de California al 1 de octubre de 2026 para las 15 tiendas de Tacos Gavilan.<br>• <strong>Paridad Toast Cash Management en Contabilidad</strong>: Integración de depósitos en efectivo sincronizados directamente desde Toast Cash Management, simplificando el flujo de trabajo sin aprobaciones redundantes, cálculo de ventas brutas (Gross Sales) y desglose bilingüe.<br>• <strong>Mejoras en Crear Bills y Diseño Web Móvil</strong>: Corrección de error de referencia TDZ en buscador, ordenamiento interactivo de columnas por tienda/fecha y optimización del diseño de tarjetas en la versión móvil de tacosgavilan.com.",
+            "descEn": "• <strong>Customer Mobile Ordering App Launch (/app & /ordenar)</strong>: Built official customer mobile ordering routes featuring native checkout flow, 1:1 system welcome animation, store GPS selector, and delivery fee calculation rules.<br>• <strong>Official Oct 1 2026 CDTFA Tax Rates by Store</strong>: Programmed updated California CDTFA sales tax rates effective October 1, 2026 across all 15 Tacos Gavilan restaurants.<br>• <strong>Toast Cash Management Parity in Accounting</strong>: Integrated cash deposits directly from Toast Cash Management, establishing a streamlined 1-click workflow without redundant approvals, Gross Sales math, and bilingual breakdowns.<br>• <strong>Crear Bills Improvements & Mobile Web Refinement</strong>: Fixed search TDZ reference bug, added interactive column sorting by store/date, and optimized location cards for mobile viewports on tacosgavilan.com."
         },
         {
             "date": "09-Oct-2026",
@@ -1925,50 +2039,121 @@ export const MONTHLY_REPORTS: Record<'octubre' | 'septiembre' | 'agosto' | 'juli
             ],
             "descEs": "• <strong>Splash Animado 3D de Alta Fidelidad a 60 FPS (/app)</strong>: Creación de la pantalla de bienvenida con aceleración por GPU, giro de 2520° en perspectiva tridimensional, aterrizaje frontal perfecto en 2.2 segundos y sincronización del eslogan corporativo con Framer Motion.<br>• <strong>Pulido de Producción y Accesibilidad en tacosgavilan.com</strong>: Optimización visual del encabezado móvil, integración de 3 temas de Google Maps (Estándar, Plateado, Noche), corrección de botones duplicados y enlaces de redes sociales, y acceso directo de previsualización en la barra lateral.<br>• <strong>Regla de Blindaje de Depósitos Toast en Contabilidad</strong>: Bloqueo de publicación en QuickBooks Online cuando el depósito bancario de efectivo de Toast POS aún no ha sido cerrado por gerencia, y alineación de órdenes abiertas con cuenta Cohesion 12049.<br>• <strong>Optimización de Captura de Sobrantes</strong>: Aceleración de la captura de inventario en tienda con interfaz optimista (Optimistic UI) y auto-guardado en segundo plano.<br>• <strong>Desduplicación de Voz en Order Ready Board & Preparador</strong>: Garantía de reproducción de voz una sola vez al dar bump en KDS y bloqueo de rueda de ratón en carrusel de preparador.",
             "descEn": "• <strong>60 FPS High-Fidelity 3D Animated Splash (/app)</strong>: Built GPU-accelerated entrance splash featuring 2520° 3D perspective rotation, 2.2-second landing, and corporate slogan synchronization using Framer Motion.<br>• <strong>Production Polish & Accessibility for tacosgavilan.com</strong>: Refined mobile hero typography, integrated 3 interactive Google Maps themes (Standard, Silver, Night), resolved duplicate menu close buttons, fixed social media URLs, and added direct live preview in AppSidebar.<br>• <strong>Toast Cash Deposit Blocking Rule in Accounting</strong>: Enforced strict QuickBooks publishing lock when Toast POS cash deposits remain pending store manager close, and routed open order variances to Cohesion account 12049.<br>• <strong>Optimistic UI for Leftovers Capture</strong>: Dramatically accelerated store inventory leftovers entry with optimistic React state updates and background auto-save.<br>• <strong>Order Ready Board Voice Deduplication & Prep Wheel Lock</strong>: Enforced single voice announcer callout per KDS bump and blocked accidental mouse wheel scrolling on prep line carousel."
+        },
+        {
+            "date": "10-Oct-2026",
+            "time": "12:28 PM - 8:15 PM",
+            "hours": 8,
+            "badges": [
+                "Web tacosgavilan.com (38 Págs)",
+                "Plan Maestro Migración v4.0",
+                "Tarjetas Tiendas & Horarios 2026",
+                "Favicon TEG & Paridad Bilingüe",
+                "Descarga Voces Gemini TTS",
+                "Lynwood #14"
+            ],
+            "descEs": "• <strong>Unificación Arquitectónica en las 38 Páginas de tacosgavilan.com</strong>: Estandarización del header canónico, cajón de navegación móvil (resolución de bloqueo por atributo inert) y pie de página corporativo con línea 1-800 en las 38 páginas del sitio. Retiro definitivo de las secciones obsoletas Careers/Jobs y Our Story por instrucción directiva de Roberto Velázquez, paridad bilingüe 100% (ES/EN), banner móvil ergonómico de cookies e incorporación del favicon transparente oficial de TEG.<br>• <strong>Reordenamiento de Sucursales por Ventas, Intersecciones Toast y Horarios 2026</strong>: Ordenamiento de las 15 sucursales por volumen real de ventas (encabezando LA Central, Lynwood y LA Broadway). Nomenclatura estandarizada por ciudad e intersección de calles principales extraídas de Toast API sin paréntesis (ej. Los Angeles — Central/Washington, Lynwood — Imperial/Long Beach) con inversión dinámica de color al pasar el cursor. Actualización de horarios 2026 (apertura 10:00 AM salvo Central y Broadway) y nuevo enlace bilingüe HOURS / HORAS en el menú.<br>• <strong>Plan Maestro de Migración v4.0 Auditable (WP Engine → Vercel & Supabase)</strong>: Auditoría del panel de WordPress y diseño del plan técnico v4.0 paso a paso para transferir el dominio oficial y eliminar el costo anual de WP Engine (>$500/año).<br>• <strong>Pipeline de Caché de Voces Gemini TTS</strong>: Generación masiva y almacenamiento persistente de locuciones bilingües de órdenes en Supabase Storage.",
+            "descEn": "• <strong>Architectural Unification Across All 38 Pages of tacosgavilan.com</strong>: Standardized canonical header, mobile navigation drawer (fixing inert lock), and corporate 1-800 footer across all 38 site pages. Permanently removed legacy Careers/Jobs and Our Story sections per Roberto Velazquez's directive, enforced 100% bilingual parity (ES/EN), ergonomic mobile cookie banner, and official transparent TEG favicon.<br>• <strong>Sales-Ranked Store Cards, Toast Cross-Streets & 2026 Hours</strong>: Ranked all 15 locations by sales volume (led by LA Central, Lynwood, and LA Broadway). Standardized store cards by city + Toast API street intersections without parentheses (e.g., Los Angeles — Central/Washington, Lynwood — Imperial/Long Beach) with hover color inversion. Updated 2026 operating hours and added bilingual HOURS / HORAS nav link.<br>• <strong>Auditable Migration Master Plan v4.0 (WP Engine → Vercel & Supabase)</strong>: Audited WordPress admin assets and engineered the v4.0 step-by-step domain transition plan to eliminate WP Engine annual hosting fees (>$500/yr).<br>• <strong>Gemini TTS Voice Cache Pipeline</strong>: Continued batch generation and persistent Supabase Storage caching of bilingual order voice callouts."
+        },
+        {
+            "date": "11-Oct-2026",
+            "time": "—",
+            "hours": 0,
+            "badges": [
+                "Descanso Operativo Dev",
+                "Lynwood #14"
+            ],
+            "descEs": "• <strong>Día de Operación Presencial en Restaurante</strong>: Turno gerencial en tienda Lynwood #14 (2:00 PM - 7:00 PM). Sin sesiones de programación en terminal.",
+            "descEn": "• <strong>In-Store Restaurant Operations Day</strong>: General Manager shift at Lynwood #14 (2:00 PM - 7:00 PM). No terminal coding sessions."
+        },
+        {
+            "date": "12-Oct-2026",
+            "time": "8:56 AM - 11:25 AM & 12:05 PM - 8:57 PM & 10:52 PM - 11:15 PM",
+            "hours": 12.5,
+            "badges": [
+                "Módulo Blindaje Delivery",
+                "PIN RONOS & Mesa Empaque",
+                "Contabilidad Paridad 1:1",
+                "MilesIQ Matriz Distancias",
+                "Preparador Tarjetas & Ventana 90m",
+                "Réplica 1:1 WP Engine Vercel",
+                "Lynwood #14"
+            ],
+            "descEs": "• <strong>Creación del Nuevo Módulo 'Blindaje Delivery' (/blindaje-delivery)</strong>: Diseño conceptual, documento ejecutivo PDF y desarrollo full-stack del sistema para erradicar contracargos (chargebacks), entregas cruzadas y robo de órdenes por repartidores (piloto en Slauson y LA Central). Incluye autenticación por PIN conectada en vivo a RONOS, filtrado exclusivo de canal Delivery desde Toast POS, cotejo táctil de platillos y condimentos, evidencia fotográfica, bóveda de disputas y acoplamiento vertical con tipografía gigante para tableta.<br>• <strong>Contabilidad — Paridad 1:1 en Payouts, Propinas de Plataformas y Extracción Forense Cohesion</strong>: Resolución de observaciones contables (Yasmin/Raquel) logrando cuadre al centavo en Summary Receipts, pagos cross-date, conciliación bancaria y captura de propinas en terceros (GrubHub/Uber/DoorDash) para cierres dominicales. Respaldo integral e ingeniería inversa del portal web de Cohesion (9 pestañas, 30 guías técnicas y matrices XLSX).<br>• <strong>MilesIQ — Auditoría de Kilometraje y Calibración de Distancias en Carretera</strong>: Auditoría forense de los recorridos de septiembre de Stephani Duran y recalibración de la matriz oficial de distancias reales de manejo entre las 15 sucursales, blindando el cálculo de reembolsos.<br>• <strong>Preparador KDS & Order Ready Board</strong>: Visualización exclusiva de órdenes en preparación enviadas por caja (ocultando órdenes de solo bebidas o postres como flan/cheesecake), locución dual obligatoria Inglés + Español centralizada en la PC del comedor, auto-escalado de folios de 4 dígitos (>1000) con símbolo '#' ligero y blindaje nocturno con ventana de 90 minutos.<br>• <strong>Sitio Web tacosgavilan.com — Réplica 1:1 Clásica en Vercel y Rescate de Dominio</strong>: Componente estructurado de horarios con acentos dorados, marquesina dual de ancho completo en footer y despliegue de la réplica estática 1:1 del sitio actual de WP Engine en Vercel (limpiando scripts de Cloudflare) para migración inmediata de dominio.",
+            "descEn": "• <strong>New 'Blindaje Delivery' Module (/blindaje-delivery)</strong>: Conceptual design, executive PDF brief, and full-stack build of the delivery anti-chargeback and driver handoff verification system (piloted at Slauson & LA Central). Features live RONOS employee PIN auth, strict Toast POS Delivery-only filtering, touch condiment/item checklist, photo evidence, dispute vault, and vertical tablet layout with giant typography.<br>• <strong>Accounting — 1:1 Parity in Payouts, 3rd-Party Tips & Cohesion Forensic Backup</strong>: Resolved accounting audit items (Yasmin/Raquel) achieving cent-exact parity in Summary Receipts, cross-date payments, bank reconciliation, and 3rd-party delivery tip capture (GrubHub/Uber/DoorDash) for Sunday closes. Executed full reverse-engineering backup of Cohesion's web portal (9 tabs, 30 help articles, XLSX exports).<br>• <strong>MilesIQ — Mileage Audit & Real Road Distance Matrix Calibration</strong>: Conducted forensic audit of Stephani Duran's September mileage and recalibrated the official inter-store driving distance matrix across all 15 branches.<br>• <strong>Prep Line KDS & Order Ready Board</strong>: Displayed active kitchen-sent orders as clean number cards (filtering out drink/dessert-only tickets like flan/cheesecake), enforced mandatory English + Spanish voice callouts centralized on the dining room PC, auto-scaled 4-digit order numbers (>1000) with light '#', and hardened late-night active queue with a 90-minute window.<br>• <strong>tacosgavilan.com — 1:1 Classic WP Engine Replica on Vercel & Domain Recovery</strong>: Built multi-tier gold-accented store schedule cards, full-width dual-track footer marquee, and deployed a 1:1 static replica of the live WP Engine site on Vercel (stripping foreign Cloudflare scripts) for immediate zero-downtime domain cutover."
+        },
+        {
+            "date": "13-Oct-2026",
+            "time": "8:50 AM - 11:05 AM & 1:29 PM - 9:30 PM",
+            "hours": 10.5,
+            "badges": [
+                "Lanzamiento DNS tacosgavilan.com",
+                "Blindaje Delivery Semáforo & Voz",
+                "Uniformes ↔ Caja Fuerte Sync",
+                "Order Ready Audio 4x Redundancia",
+                "Contabilidad Cash In-Out",
+                "Lynwood #14"
+            ],
+            "descEs": "• <strong>Transición en Vivo del Dominio Oficial tacosgavilan.com con Directivos</strong>: Sesión ejecutiva con los dueños (Roberto y Erick Velázquez) para recuperar el control de la cuenta del dominio, apuntar los registros DNS a Vercel y lanzar oficialmente el nuevo sitio web de Tacos Gavilan con respaldo íntegro del sitio clásico de WP Engine. Actualización de teléfonos oficiales de las 15 sucursales y apertura de Hollywood a las 9:00 AM.<br>• <strong>Blindaje Delivery — Semáforo Operativo, Fullscreen Permanente y Locutor de Empaque</strong>: Evolución del módulo en pruebas de piso: modo Fullscreen permanente desde la pantalla de PIN (sesión de 10 min), semáforo de colores por estado (EN PREPARACIÓN, EMPACANDO, LISTA), locución de voz KDS al pasar la orden al estante de empaque, clave limpia de 5 caracteres en Uber Eats, botón directo 'CONFIRMAR ORDEN COMPLETA Y SELLADA' sin foto obligatoria y alertas por homonimia de clientes.<br>• <strong>Sincronización Bidireccional entre Control de Uniformes y Caja Fuerte</strong>: Integración contable en tiempo real entre ambos módulos (/caja-fuerte y /inventory/uniforms): cada venta de prenda o gorra en Uniformes incrementa y concilia automáticamente el efectivo de uniformes en la bóveda de Caja Fuerte y viceversa.<br>• <strong>Order Ready Board — Blindaje de Audio 4x y Contabilidad Cash In-Out</strong>: Arquitectura de reproducción con cuádruple redundancia para erradicar silenciamientos tras medianoche, estatus efectivos granulares en calendario contable (Ready, Depósito Pendiente, Órdenes Abiertas) y paridad exacta de Cash In-Out.",
+            "descEn": "• <strong>Live DNS Cutover of Official Domain tacosgavilan.com with Ownership</strong>: Working session with company owners (Roberto and Erick Velazquez) to secure domain registrar access, point DNS records to Vercel, and officially launch the new Tacos Gavilan website while preserving a full backup of the legacy WP Engine site. Updated all 15 official store phone numbers and Hollywood's 9:00 AM opening.<br>• <strong>Blindaje Delivery — Status Traffic Light, Permanent Fullscreen & Packing Voice Announcer</strong>: Field-driven upgrades: permanent Fullscreen mode across PIN lock (10-min session) and active operations, 3-state color traffic light (PREPARING, PACKING, READY), KDS voice callout when orders move to the packing shelf, clean 5-char Uber Eats code, 1-tap 'CONFIRM ORDER COMPLETE & SEALED' without mandatory photo, and duplicate customer name alerts.<br>• <strong>Bidirectional Sync Between Uniform Control & Safe Box</strong>: Real-time reconciliation linking /caja-fuerte and /inventory/uniforms so every uniform shirt/hat sale automatically updates and reconciles with the Safe vault uniform cash balance.<br>• <strong>Order Ready 4x Audio Hardening & Accounting Cash In-Out Parity</strong>: Quadruple-redundancy audio playback eliminating post-midnight drop-offs, granular calendar badges (Ready, Pending Deposit, Open Orders), and exact Cash In-Out reconciliation parity."
+        },
+        {
+            "date": "14-Oct-2026",
+            "time": "5:47 AM - 7:35 AM",
+            "hours": 2,
+            "badges": [
+                "Contabilidad Cron 6:30 AM & 12049",
+                "4,000 Audios Kore Web Audio API",
+                "Blindaje Delivery 100% Bilingüe",
+                "Web Modal Tiendas & Fiesta Platter",
+                "Lynwood #14"
+            ],
+            "descEs": "• <strong>Contabilidad — Cron Diario Automático (6:30 AM PST) y Paridad 100% Línea por Línea</strong>: Programación del cron job diario (/api/cron/sync-accounting) en lotes paralelos para generar automáticamente los paquetes de las 15 tiendas al cierre comercial, calibrando el crédito a cuenta 12049 en cheques sobrepagados (Overpaid Check) y el memo de Tip Out contra Cohesion en vivo.<br>• <strong>Order Ready Board — 4,000 Audios Kore Bilingües y Motor Web Audio API</strong>: Culminación de la biblioteca de 4,000 locuciones neuronales Kore (folios 1 al 2,000 en Inglés y Español), motor de reproducción con Web Audio API y deduplicación exacta de toque.<br>• <strong>Blindaje Delivery — Auto-Expiración (+2h), Backfill de Chofer Uber e i18n 100% Bilingüe</strong>: Expiración automática de órdenes no recogidas tras 2 horas, extracción automática del nombre del repartidor de Uber Eats desde Toast API, retiro definitivo de UI de expediente/fotos y traducción 100% bilingüe (ES/EN) con selector de idioma en tableta.<br>• <strong>Sitio Web tacosgavilan.com — Modal de Sucursales, Guía Fiesta Platter y Marcos Dorados</strong>: Presentación de detalles de sucursal en modal interactivo bilingüe, tarjetas de tiendas con marco ámbar-dorado sutil, tabla limpia oficial de Fiesta Platters y ajuste responsivo del footer móvil.<br>• <strong>Evaluación Estratégica de POS Propio</strong>: Análisis de viabilidad y arquitectura para independizar a futuro el ecosistema POS de Toast.",
+            "descEn": "• <strong>Accounting — Automated 6:30 AM PST Daily Cron & 100% Line-by-Line Parity</strong>: Scheduled parallel-batch daily packet generation cron (/api/cron/sync-accounting) for all 15 stores and calibrated overpaid check 12049 credit and Tip Out memo formatting against live Cohesion packets.<br>• <strong>Order Ready Board — 4,000 Bilingual Kore Audios & Web Audio API Engine</strong>: Completed the 4,000-file Kore neural voice library (orders 1–2,000 in EN & ES), Web Audio API low-latency playback engine, and exact tap deduplication.<br>• <strong>Blindaje Delivery — Auto-Expire (+2h), Uber Driver Backfill & 100% Bilingual i18n</strong>: Auto-expiration of unclaimed orders after 2 hours, automatic Uber Eats driver name backfill from Toast API, removal of legacy dossier/photo UI, and complete ES/EN translation with fullscreen tablet language switcher.<br>• <strong>tacosgavilan.com — Interactive Store Details Modal, Fiesta Platter Guide & Golden Frames</strong>: Rendered Store Details as an interactive bilingual modal across Home/Locations, added subtle warm golden-amber card frames, aligned Fiesta Platter breakdown with official brochure, and fixed mobile footer clearance.<br>• <strong>In-House POS Strategic Assessment</strong>: Evaluated feasibility, cost savings, and roadmap for replacing Toast POS hardware and payment processing long-term."
         }
     ],
     "effortSummary": [
         {
-            "name": "Aplicación Móvil & Ordenar en Línea (/app)",
-            "hours": 18.5,
-            "percent": 28.4
+            "name": "Order Ready (4,000 Audios), Preparador KDS & Blindaje Delivery",
+            "hours": 31.5,
+            "percent": 32.1
         },
         {
-            "name": "Order Ready Board & KDS en Vivo",
-            "hours": 18,
-            "percent": 27.6
+            "name": "App Móvil Clientes (/app) & Sitio Web (tacosgavilan.com en Vivo)",
+            "hours": 23.5,
+            "percent": 23.9
         },
         {
-            "name": "Contabilidad, Cohesion & Crear Bills (QBO)",
-            "hours": 14.5,
-            "percent": 22.2
+            "name": "Contabilidad, Paridad 100% Cohesion, Cron & Crear Bills (QBO)",
+            "hours": 21,
+            "percent": 21.4
         },
         {
-            "name": "Sitio Web Corporativo (tacosgavilan.com)",
-            "hours": 8,
-            "percent": 12.3
+            "name": "Inventario, Orden Diaria IA, Uniformes-Caja Fuerte & Viele",
+            "hours": 13.2,
+            "percent": 13.4
         },
         {
-            "name": "Inventario, Viele & Sons y Sobrantes",
-            "hours": 6.2,
-            "percent": 9.5
+            "name": "MilesIQ Supervisores, Evaluación QR, Ventas y Reportes",
+            "hours": 9,
+            "percent": 9.2
         }
     ],
     "parallelActivities": [
         {
             "title": "Turnos Oficiales en Tienda Lynwood #14 (General Manager)",
-            "hours": 37,
-            "desc": "Gestión operativa en tienda física Lynwood #14 de Carlos Velázquez (02-Oct 8h, 03-Oct 8h, 04-Oct 5h, 05-Oct 8h, 06-Oct 8h, 07-Oct 8h, 09-Oct 8h) auditando en piso el flujo de KDS, atención en comedor, cuadraturas de caja y pruebas de prototipo en tableta."
+            "hours": 90,
+            "desc": "Gestión operativa presencial en sucursal Lynwood #14 de Carlos Velázquez (02-Oct 8h, 03-Oct 8h, 04-Oct 5h, 05-Oct 8h, 06-Oct 8h, 07-Oct 8h, 09-Oct 8h, 10-Oct 8h, 11-Oct 5h, 12-Oct 8h, 13-Oct 8h, 14-Oct 8h) supervisando velocidad de línea KDS, mesa de empaque Delivery, comedor, cortes de caja y pruebas en piso."
         },
         {
-            "title": "Monitoreo y Auditoría de APIs en Vivo (Toast POS, QBO, Viele & Sons)",
-            "hours": 12,
-            "desc": "Inspección continua de webhooks de Toast POS, validación de cuotas y latencia en Gemini TTS, sincronización de diarios contables con QuickBooks Online y flujo de órdenes de Viele & Sons."
+            "title": "Monitoreo y Auditoría de APIs en Vivo (Toast POS, QBO, Viele & Sons, RONOS)",
+            "hours": 18,
+            "desc": "Inspección continua de webhooks y órdenes de Toast POS, biblioteca de 4,000 voces Kore en Supabase Storage, cron diario de pólizas (6:30 AM PST) y Bills con QuickBooks Online, autenticación PIN de RONOS y flujo de órdenes Viele & Sons."
         },
         {
-            "title": "Arquitectura de Despliegue, Rendimiento Móvil y Vercel CI/CD",
-            "hours": 8.5,
-            "desc": "Configuración de builds en Vercel, optimización de bundles de Next.js, empaquetado de assets para la app móvil en Expo y preparación para migración DNS de tacosgavilan.com."
+            "title": "Transición DNS tacosgavilan.com en Vivo, Sincronización Web y Vercel CI/CD",
+            "hours": 14,
+            "desc": "Puesta en producción del dominio oficial tacosgavilan.com sobre Vercel junto a los directivos, sincronización de activos web (/nueva-web), builds libres de errores en TypeScript y calibración de tabletas en tienda."
         }
     ],
     "tasks": [
@@ -2096,7 +2281,7 @@ export const MONTHLY_REPORTS: Record<'octubre' | 'septiembre' | 'agosto' | 'juli
             ],
             "status": "completado",
             "statusLabel": "Completado",
-            "audit": "<strong>✓ Completado y Desplegado en Producción (Octubre 2026).</strong> Paridad contable 1:1 con Cohesion ($450/mes de ahorro), integración directa de depósitos de Toast Cash Management, tratamiento de Paid In, y bloqueo automático si falta el depósito en efectivo."
+            "audit": "<strong>✓ Completado y Desplegado en Producción (Octubre 2026).</strong> Paridad contable 1:1 en Payouts, Cash In-Out, propinas de plataformas (GrubHub/Uber/DoorDash) y Summary Receipts, integración directa de depósitos de Toast Cash Management, estatus efectivos granulares en calendario y bloqueo automático ante depósitos pendientes."
         },
         {
             "num": 8,
@@ -2297,8 +2482,8 @@ export const MONTHLY_REPORTS: Record<'octubre' | 'septiembre' | 'agosto' | 'juli
                 "Organizar archivos y distribuirlos a las sucursales."
             ],
             "status": "completado",
-            "statusLabel": "✓ Completado",
-            "audit": "<strong>✓ Completado y Distribuido.</strong> Biblioteca musical de videos MP4 HD entregada a sucursales."
+            "statusLabel": "Completado",
+            "audit": "<strong>✓ Completado y Calibrado (Octubre 2026).</strong> Auditoría forense de recorridos de supervisores y recalibración de la matriz oficial de distancias reales de manejo por carretera entre las 15 sucursales."
         },
         {
             "num": 19,
@@ -2340,7 +2525,7 @@ export const MONTHLY_REPORTS: Record<'octubre' | 'septiembre' | 'agosto' | 'juli
         },
         {
             "num": 21,
-            "title": "21. Order Ready Board & Pantalla de Pedidos",
+            "title": "21. Order Ready Board, Preparador KDS & Blindaje Delivery",
             "category": "Costos & Proveedores",
             "badgeDept": "📊 Finanzas",
             "badgePriority": "🔴 Alta",
@@ -2355,7 +2540,7 @@ export const MONTHLY_REPORTS: Record<'octubre' | 'septiembre' | 'agosto' | 'juli
             ],
             "status": "completado",
             "statusLabel": "Completado",
-            "audit": "<strong>✓ Completado y Lanzado (Octubre 2026).</strong> Sistema de llamado de órdenes listas con voz neuronal femenina ultra-realista Gemini TTS (Español/Inglés) con eslogan \"¡Ya está!\", sincronización de bump en KDS expediter y modo TV pantalla completa."
+            "audit": "<strong>✓ Completado y Lanzado (Octubre 2026).</strong> Sistema de llamado de órdenes listas con voz neuronal Gemini TTS (Inglés + Español obligatorio) con cuádruple redundancia de audio, filtro de bebidas/postres en tableta de Preparador con ventana de 90 min, y nuevo módulo Blindaje Delivery (/blindaje-delivery) con PIN RONOS, mesa de empaque y entrega verificada a repartidores."
         },
         {
             "num": 22,
@@ -2450,7 +2635,7 @@ export const MONTHLY_REPORTS: Record<'octubre' | 'septiembre' | 'agosto' | 'juli
             ],
             "status": "progreso",
             "statusLabel": "En Progreso",
-            "audit": "<strong>⚡ En Progreso Activo (Fase de Producción - Octubre 2026).</strong> Rutas de pedido móvil con checkout Toast Local, splash animado 3D a 60 FPS en Framer Motion, tasas oficiales CDTFA e integración de temas de Google Maps para el sitio web corporativo."
+            "audit": "<strong>⚡ En Progreso Activo (Fase de Producción - Octubre 2026).</strong> Unificación de las 38 páginas de tacosgavilan.com, tarjetas de sucursales ordenadas por ventas con intersecciones Toast API y horarios 2026, réplica estática 1:1 de WP Engine en Vercel lista para cambio de DNS, y splash 3D a 60 FPS en App Clientes."
         },
         {
             "num": 27,
@@ -2477,7 +2662,7 @@ export const MONTHLY_REPORTS: Record<'octubre' | 'septiembre' | 'agosto' | 'juli
     "id": "septiembre",
     "monthName": "Septiembre",
     "monthYear": "Septiembre 2026",
-    "totalHours": 176.9,
+    "totalHours": 195,
     "totalTasks": 27,
     "completedTasks": 19,
     "inProgressTasks": 4,
@@ -3029,89 +3214,131 @@ export const MONTHLY_REPORTS: Record<'octubre' | 'septiembre' | 'agosto' | 'juli
         },
         {
             "date": "25-Sep-2026",
-            "time": "8:57 AM - 11:06 AM & 11:24 AM - 12:48 PM & 5:28 PM - 7:29 PM & 8:31 PM - 8:43 PM",
-            "hours": 5.7,
+            "time": "11:24 AM - 12:48 PM & 5:28 PM - 7:29 PM & 8:31 PM - 8:43 PM",
+            "hours": 3.6,
             "badges": [
-                "Auditoría Personal Lynwood #14",
-                "Informe Ejecutivo Cobertura PDF",
                 "Pedidos Automáticos IA (Codex)",
                 "Carne Cruda vs Cocida",
                 "Compuertas Validación Órdenes",
                 "Simulación Tickets Reales Toast",
                 "Turno Lynwood 2PM-10PM"
             ],
-            "descEs": "• <strong>Auditoría Laboral y Respaldo Operativo Lynwood #14 (Chat df8c49ce) — 2h 09m</strong>: En sesión matutina (8:57 AM - 11:06 AM), recopilación forense de evidencia laboral sobre la gestión de Carlos Velázquez como General Manager. Cruce de datos de reloj de Toast (punches), nómina de Simplify HR y planificador de Supabase, justificando horas extras y turnos extendidos por cobertura de 4 ausencias imprevistas (Kevin Garcia, Luis y Joseph cubriendo en sus días de descanso). Generación del informe ejecutivo formal en PDF en reports/ sin lenguaje punitivo de auditoría.<br>• <strong>Pedidos Automáticos por IA (Codex ID 01a0cf29-cef7-7163-8b3c-df9f0685491c) — 3h 34m Confirmadas</strong>: En sesiones de desarrollo (11:24 AM - 12:48 PM, 5:28 PM - 7:29 PM y 8:31 PM - 8:43 PM; pausa de 7:29 PM a 8:31 PM excluida y sin contar descargas automáticas de tickets), creación de la migración supabase/migrations/202609250001_inventory_automation_pilot.sql. Implementación de los módulos lib/inventory/meat-allocation.ts (conversión exacta de carne cruda a cocida por selección en ticket) y lib/inventory/order-count-validation.ts (compuertas de validación de conteo para evitar duplicación de tickets). Ejecución de simulaciones con tickets reales de días anteriores de Toast POS verificando que el consumo teórico coincida con el inventario sin afectar la base operativa.<br>• <strong>Turno Presencial Lynwood #14</strong>: Turno de Gerente General en Lynwood #14 (2:00 PM - 10:00 PM, 8.0h) registrado en el Planificador de Supabase.",
-            "descEn": "• <strong>Labor Audit & Operational Defense Lynwood #14 (Chat df8c49ce) — 2h 09m</strong>: In morning session (8:57 AM - 11:06 AM), compiled forensic labor evidence supporting Carlos Velázquez's leadership as General Manager. Triangulated Toast clock punches, Simplify HR payroll, and Supabase schedules to justify overtime and extended shifts covering 4 unexpected employee absences (Kevin Garcia, Luis, and Joseph covering on scheduled days off). Compiled formal executive PDF in reports/ removing punitive audit labels.<br>• <strong>AI Automated Ordering Engine (Codex ID 01a0cf29-cef7-7163-8b3c-df9f0685491c) — 3h 34m Confirmed</strong>: In dev sessions (11:24 AM - 12:48 PM, 5:28 PM - 7:29 PM, and 8:31 PM - 8:43 PM; 7:29 PM - 8:31 PM pause excluded, background ticket downloads excluded), authored migration supabase/migrations/202609250001_inventory_automation_pilot.sql. Built lib/inventory/meat-allocation.ts (raw-to-cooked meat conversion per check selection) and lib/inventory/order-count-validation.ts (order count gates preventing double ticket processing). Replayed real Toast checks to verify theoretical deductions against store ledgers without mutating live inventory.<br>• <strong>Lynwood #14 Manager Shift</strong>: In-store General Manager shift at Lynwood #14 (2:00 PM - 10:00 PM, 8.0h) logged in Supabase schedules."
+            "descEs": "• <strong>Pedidos Automáticos por IA (Codex ID 01a0cf29-cef7-7163-8b3c-df9f0685491c) — 3h 34m Confirmadas</strong>: En sesiones de desarrollo (11:24 AM - 12:48 PM, 5:28 PM - 7:29 PM y 8:31 PM - 8:43 PM; pausa de 7:29 PM a 8:31 PM excluida y sin contar descargas automáticas de tickets), creación de la migración supabase/migrations/202609250001_inventory_automation_pilot.sql. Implementación de los módulos lib/inventory/meat-allocation.ts (conversión exacta de carne cruda a cocida por selección en ticket) y lib/inventory/order-count-validation.ts (compuertas de validación de conteo para evitar duplicación de tickets). Ejecución de simulaciones con tickets reales de días anteriores de Toast POS verificando que el consumo teórico coincida con el inventario sin afectar la base operativa.<br>• <strong>Turno Presencial Lynwood #14</strong>: Turno de Gerente General en Lynwood #14 (2:00 PM - 10:00 PM, 8.0h) registrado en el Planificador de Supabase.",
+            "descEn": "• <strong>AI Automated Ordering Engine (Codex ID 01a0cf29-cef7-7163-8b3c-df9f0685491c) — 3h 34m Confirmed</strong>: In dev sessions (11:24 AM - 12:48 PM, 5:28 PM - 7:29 PM, and 8:31 PM - 8:43 PM; 7:29 PM - 8:31 PM pause excluded, background ticket downloads excluded), authored migration supabase/migrations/202609250001_inventory_automation_pilot.sql. Built lib/inventory/meat-allocation.ts (raw-to-cooked meat conversion per check selection) and lib/inventory/order-count-validation.ts (order count gates preventing double ticket processing). Replayed real Toast checks to verify theoretical deductions against store ledgers without mutating live inventory.<br>• <strong>Lynwood #14 Manager Shift</strong>: In-store General Manager shift at Lynwood #14 (2:00 PM - 10:00 PM, 8.0h) logged in Supabase schedules."
         },
         {
             "date": "26-Sep-2026",
-            "time": "9:05 AM - 12:00 PM & 2:24 PM - 3:04 PM & 4:30 PM - 5:48 PM",
-            "hours": 4.9,
+            "time": "9:05 AM - 12:00 PM & 2:24 PM - 3:04 PM & 4:30 PM - 5:48 PM & 8:20 PM - 8:35 PM",
+            "hours": 5.2,
             "badges": [
                 "Pedidos Automáticos IA (Codex)",
                 "Backtest Multitienda 15 Sucursales",
                 "Party Trays Reingeniería",
                 "Viele Manual Operativo PDF",
+                "Blindaje Captura Orden Diaria",
                 "Sincronización Turnos Lynwood",
-                "Consolidación Horas Multi-Chat",
                 "Turno Lynwood 2PM-10PM"
             ],
-            "descEs": "• <strong>Pedidos Automáticos por IA (Codex ID 01a0cf29-cef7-7163-8b3c-df9f0685491c) — 2h 55m Confirmadas</strong>: En sesión matutina (9:05 AM - 12:00 PM), ejecución del backtest integral multitienda sobre las 15 sucursales (scripts/backtest-inventory-pilot-all-stores.cjs) validando el motor de deducción de recetas y empaques contra miles de tickets reales. Reingeniería matemática de recetas virtuales de charolas de fiesta (Party Trays para 15 a 40 personas en lib/inventory/party-tray-guidelines.ts) y verificación de blindaje de Supabase mediante archivos comprimidos locales.<br>• <strong>Viele & Sons: Manual Operativo en PDF & PAR en Tiendas (Chat 0881a7ea) — 40 min</strong>: En sesión vespertina (2:24 PM - 3:04 PM), inspección profunda del módulo en producción. Generación del manual formal public/docs/Manual_Operativo_Viele_and_Sons_Tacos_Gavilan.pdf (estilo corporativo sin emojis, flujo de 3 pasos con énfasis en el Paso 1 obligatorio de revisar y guardar el PAR de tienda, y contacto de soporte técnico de Carlos Velázquez 424-319-5019).<br>• <strong>Sincronización de Turnos Lynwood & Conciliación Multi-Chat (Chat 72f704bf) — 1h 18m</strong>: Sincronización de los 245 turnos de Supabase en scripts/carlos_planner_shifts_by_date.json corrigiendo la etiqueta del 21 de septiembre a Turno Lynwood 12PM-8PM en la barra Gantt 24h. Conciliación forense y acumulativa de 14h 10m de la tarea Codex y todas las sesiones multi-chat del 21 al 26 de septiembre, actualización de scripts/september_full_data.json, recompilación de lib/reports-data.ts y reporte ejecutivo previo a commit.<br>• <strong>Turno Presencial Lynwood #14</strong>: Turno de Gerente General en Lynwood #14 (2:00 PM - 10:00 PM, 8.0h) registrado en el Planificador de Supabase.",
-            "descEn": "• <strong>AI Automated Ordering Engine (Codex ID 01a0cf29-cef7-7163-8b3c-df9f0685491c) — 2h 55m Confirmed</strong>: In morning session (9:05 AM - 12:00 PM), executed multi-store backtest across all 15 branches (scripts/backtest-inventory-pilot-all-stores.cjs) validating recipe and packaging deduction against thousands of historical Toast tickets. Re-engineered dynamic virtual recipes for Party Trays (15 to 40 persons in lib/inventory/party-tray-guidelines.ts) and verified Supabase quota shielding via local archives.<br>• <strong>Viele & Sons: Operational Manual PDF & Store PAR Verification (Chat 0881a7ea) — 40 min</strong>: In afternoon session (2:24 PM - 3:04 PM), conducted production health check. Generated formal manual public/docs/Manual_Operativo_Viele_and_Sons_Tacos_Gavilan.pdf (clean corporate zero-emoji design, 3-step workflow emphasizing mandatory Step 1 PAR review/saving, and Carlos Velázquez support contact 424-319-5019).<br>• <strong>Lynwood Shifts Synchronization & Multi-Chat Consolidation (Chat 72f704bf) — 1h 18m</strong>: Synchronized all 245 Supabase shifts in scripts/carlos_planner_shifts_by_date.json, correcting September 21 to Lynwood Shift 12PM-8PM on the 24h Gantt bar. Reconciled 14h 10m Codex task and all multi-chat development sessions from Sep 21 to Sep 26, updated scripts/september_full_data.json, recompiled lib/reports-data.ts, and prepared executive summary prior to commit.<br>• <strong>Lynwood #14 Manager Shift</strong>: In-store General Manager shift at Lynwood #14 (2:00 PM - 10:00 PM, 8.0h) logged in Supabase schedules."
+            "descEs": "• <strong>Pedidos Automáticos por IA (Codex ID 01a0cf29-cef7-7163-8b3c-df9f0685491c) — 2h 55m Confirmadas</strong>: En sesión matutina (9:05 AM - 12:00 PM), ejecución del backtest integral multitienda sobre las 15 sucursales (scripts/backtest-inventory-pilot-all-stores.cjs) validando el motor de deducción de recetas y empaques contra miles de tickets reales. Reingeniería matemática de recetas virtuales de charolas de fiesta (Party Trays para 15 a 40 personas en lib/inventory/party-tray-guidelines.ts) y verificación de blindaje de Supabase mediante archivos comprimidos locales.<br>• <strong>Viele & Sons: Manual Operativo en PDF & PAR en Tiendas (Chat 0881a7ea) — 40 min</strong>: En sesión vespertina (2:24 PM - 3:04 PM), inspección profunda del módulo en producción. Generación del manual formal public/docs/Manual_Operativo_Viele_and_Sons_Tacos_Gavilan.pdf (estilo corporativo sin emojis, flujo de 3 pasos con énfasis en el Paso 1 obligatorio de revisar y guardar el PAR de tienda, y contacto de soporte técnico de Carlos Velázquez 424-319-5019).<br>• <strong>Sincronización de Turnos Lynwood & Conciliación Multi-Chat (Chat 72f704bf) — 1h 18m</strong>: Sincronización de los 245 turnos de Supabase en scripts/carlos_planner_shifts_by_date.json corrigiendo la etiqueta del 21 de septiembre a Turno Lynwood 12PM-8PM en la barra Gantt 24h. Conciliación forense y acumulativa de 14h 10m de la tarea Codex y todas las sesiones multi-chat del 21 al 26 de septiembre, actualización de scripts/september_full_data.json, recompilación de lib/reports-data.ts y reporte ejecutivo previo a commit.<br>• <strong>Turno Presencial Lynwood #14</strong>: Turno de Gerente General en Lynwood #14 (2:00 PM - 10:00 PM, 8.0h) registrado en el Planificador de Supabase.<br>• <strong>Blindaje de Captura en Orden Diaria (/inventory/orders)</strong>: En sesión nocturna (8:20 PM - 8:35 PM, chat 377a59e9), diseño e implementación de validaciones de triple capa contra errores humanos de tecleo en sobrantes y ajustes manuales (ej. capturar 55 en lugar de 5 o cantidades negativas/disparadas), con alertas visuales en vivo y modal pre-flight de confirmación antes de generar orden o enviar a QuickBooks.",
+            "descEn": "• <strong>AI Automated Ordering Engine (Codex ID 01a0cf29-cef7-7163-8b3c-df9f0685491c) — 2h 55m Confirmed</strong>: In morning session (9:05 AM - 12:00 PM), executed multi-store backtest across all 15 branches (scripts/backtest-inventory-pilot-all-stores.cjs) validating recipe and packaging deduction against thousands of historical Toast tickets. Re-engineered dynamic virtual recipes for Party Trays (15 to 40 persons in lib/inventory/party-tray-guidelines.ts) and verified Supabase quota shielding via local archives.<br>• <strong>Viele & Sons: Operational Manual PDF & Store PAR Verification (Chat 0881a7ea) — 40 min</strong>: In afternoon session (2:24 PM - 3:04 PM), conducted production health check. Generated formal manual public/docs/Manual_Operativo_Viele_and_Sons_Tacos_Gavilan.pdf (clean corporate zero-emoji design, 3-step workflow emphasizing mandatory Step 1 PAR review/saving, and Carlos Velázquez support contact 424-319-5019).<br>• <strong>Lynwood Shifts Synchronization & Multi-Chat Consolidation (Chat 72f704bf) — 1h 18m</strong>: Synchronized all 245 Supabase shifts in scripts/carlos_planner_shifts_by_date.json, correcting September 21 to Lynwood Shift 12PM-8PM on the 24h Gantt bar. Reconciled 14h 10m Codex task and all multi-chat development sessions from Sep 21 to Sep 26, updated scripts/september_full_data.json, recompiled lib/reports-data.ts, and prepared executive summary prior to commit.<br>• <strong>Lynwood #14 Manager Shift</strong>: In-store General Manager shift at Lynwood #14 (2:00 PM - 10:00 PM, 8.0h) logged in Supabase schedules.<br>• <strong>Daily Order Capture Safeguards (/inventory/orders)</strong>: In evening session (8:20 PM - 8:35 PM, chat 377a59e9), designed and implemented triple-layer input validation against human data entry mistakes in leftovers and manual adjustments (e.g., typing 55 instead of 5 or negative/runaway quantities), featuring live visual warning badges and a pre-flight anomaly review modal prior to order generation or QuickBooks submission."
+        },
+        {
+            "date": "27-Sep-2026",
+            "time": "3:35 AM - 3:56 AM & 4:27 AM - 4:35 AM & 8:45 AM - 1:00 PM & 2:09 PM - 9:01 PM",
+            "hours": 11.5,
+            "badges": [
+                "Viele & Sons Print Sheet 4 Páginas Carta",
+                "Cron Diario 6:00 AM PDT Viele",
+                "Modal Compacto & Captura en Blanco Viele",
+                "Sincronización Order Guides 15 Tiendas",
+                "Piloto Orden Diaria Automática & Recetas UI",
+                "Backtest 3-4 Meses & Comparativa PMIX vs Tickets",
+                "Centinela Auditoría Grubhub",
+                "Turno Lynwood 2PM-7PM"
+            ],
+            "descEs": "• <strong>Viele & Sons: Calibración de Hoja de Conteo Imprimible (4 Páginas Carta), Cron Diario 6:00 AM y Captura Limpia</strong>: En sesiones de madrugada y mañana (chat 0881a7ea, commits f1c95e5, 3add46d, fd9b3a2, 5de2cf7, 3c29c0d), calibración exacta de la vista de impresión (/admin/compras/viele/print-sheet) a 4 páginas tamaño Carta con miniaturas ampliadas de 35x35px, navegación en la misma pestaña y respeto estricto del orden personalizado Drag & Drop de cada gerente. Programación del cronjob diario a las 6:00 AM PDT (/api/cron/sync-supplier-prices) con registro obligatorio en activity_logs. Adaptación responsiva del modal de confirmación de envío para monitores compactos de oficina, inicio de captura limpia con celdas de sobrantes en blanco (sugerido y totales en $0.00 hasta capturar) y sincronización global de Order Guides de las 15 sucursales.<br>• <strong>Automatización de Orden Diaria & Calibración de Recetas en UI (Chat 44100834)</strong>: Integración del traspaso técnico de Codex y calibración de recetas maestras en la interfaz (incorporación de aguacate y crema en Super Burrito y Super Quesadilla). Ejecución de simulaciones retrospectivas de 3 y 4 meses completos, comparativa forense entre el endpoint PMIX y los tickets descargados localmente, y auditoría paralela con 6 subagentes especializados sobre el motor de consumo teórico y colchón de seguridad anti-desabasto.<br>• <strong>Centinela Automatizado de Grubhub & Análisis de Labor Lynwood</strong>: En sesión de madrugada (chat 43319138), auditoría línea por línea con 3 subagentes de app/api/cron/audit-grubhub/route.ts y lib/grubhub-audit-sentinel.ts. En sesión vespertina (chat f59a6005), análisis comparativo del comportamiento de labor y ventas de lunes a jueves (9:00 AM a 5:00 PM) de los últimos 2 meses para Lynwood #14.<br>• <strong>Turno Presencial Lynwood #14</strong>: Turno de Gerente General en Lynwood #14 (2:00 PM - 7:00 PM, 5.0h) registrado en el Planificador de Supabase.",
+            "descEn": "• <strong>Viele & Sons: 4-Page Letter Print Sheet Calibration, 6:00 AM Daily Cron & Blank Leftover Start</strong>: In early morning and morning sessions (chat 0881a7ea, commits f1c95e5, 3add46d, fd9b3a2, 5de2cf7, 3c29c0d), calibrated the printable counting sheet (/admin/compras/viele/print-sheet) to fit 4 US Letter pages with enlarged 35x35px product thumbnails, same-tab navigation, and 1:1 alignment with each manager's custom Drag & Drop sequence. Scheduled daily 6:00 AM PDT execution for /api/cron/sync-supplier-prices with mandatory failure logging in activity_logs. Adapted checkout confirmation modal for compact office monitors, initialized new worksheets with blank leftover cells (keeping suggested order and totals at $0.00 until counted), and synced Order Guides across all 15 branches.<br>• <strong>Daily Order Automation & UI Recipe Calibration (Chat 44100834)</strong>: Integrated full Codex handoff and calibrated master UI recipes (adding avocado and sour cream to Super Burrito and Super Quesadilla). Executed 3-month and 4-month retrospective backtests, compared PMIX endpoint aggregations against locally archived raw Toast tickets, and coordinated 6 specialized subagents to audit theoretical consumption and safety buffer logic.<br>• <strong>Automated Grubhub Audit Sentinel & Lynwood Weekday Labor Analysis</strong>: In early morning session (chat 43319138), conducted line-by-line audit with 3 subagents across app/api/cron/audit-grubhub/route.ts and lib/grubhub-audit-sentinel.ts. In afternoon session (chat f59a6005), analyzed Monday–Thursday (9:00 AM – 5:00 PM) labor and sales performance across the past 2 months for Lynwood #14.<br>• <strong>Lynwood #14 Manager Shift</strong>: In-store General Manager shift at Lynwood #14 (2:00 PM - 7:00 PM, 5.0h) logged in Supabase schedules."
+        },
+        {
+            "date": "28-Sep-2026",
+            "time": "7:04 AM - 7:15 AM & 1:47 PM - 2:18 PM & 2:54 PM - 3:05 PM",
+            "hours": 0.9,
+            "badges": [
+                "Viele & Sons Customer PO en Blanco",
+                "Auditoría Módulo Actividades (4 Subagentes)",
+                "Cuadre Teórico vs Físico Orden Diaria",
+                "Turno Lynwood 12PM-8PM"
+            ],
+            "descEs": "• <strong>Viele & Sons: Campo Customer PO en Blanco por Defecto (Commit c8a2ccb)</strong>: En sesión vespertina (chat 0881a7ea), atención inmediata al requerimiento del representante de Viele & Sons eliminando el envío automático del código \"AFV\" en el campo Customer PO durante el checkout, dejándolo en blanco por defecto y conservando los códigos como opciones voluntarias.<br>• <strong>Auditoría Preliminar Línea por Línea del Módulo de Actividades (Chat 7f8d96b2)</strong>: Despliegue de 4 subagentes especializados en paralelo para auditar ProceduresTimeline.tsx, CatalogoTab.tsx, ChecklistMode.tsx, ReportesChecklistTab.tsx, AsignacionDiariaTab.tsx y ConfigurarPosicionesTab.tsx desde la perspectiva técnica y de experiencia de usuario.<br>• <strong>Revisión de Cuadre Teórico vs Físico & Turno Presencial Lynwood #14</strong>: Revisión matutina de criterios de paridad teórico-física en Orden Diaria (chat 44100834) y cobertura de turno presencial como General Manager en Lynwood #14 (12:00 PM - 8:00 PM, 8.0h).",
+            "descEn": "• <strong>Viele & Sons: Blank Default Customer PO Field (Commit c8a2ccb)</strong>: In afternoon session (chat 0881a7ea), immediately addressed feedback from Viele & Sons representative by removing automatic \"AFV\" population in the checkout Customer PO field, sending it blank by default while keeping buyer codes as optional selections.<br>• <strong>Line-by-Line Activities Module Preliminary Audit (Chat 7f8d96b2)</strong>: Deployed 4 parallel specialized subagents to audit ProceduresTimeline.tsx, CatalogoTab.tsx, ChecklistMode.tsx, ReportesChecklistTab.tsx, AsignacionDiariaTab.tsx, and ConfigurarPosicionesTab.tsx from both technical and user-experience perspectives.<br>• <strong>Theoretical vs Physical Parity Review & Lynwood #14 Shift</strong>: Morning review of theoretical-to-physical reconciliation criteria in Daily Orders (chat 44100834) and in-store General Manager shift at Lynwood #14 (12:00 PM - 8:00 PM, 8.0h)."
+        },
+        {
+            "date": "29-Sep-2026",
+            "time": "2:03 PM - 4:38 PM & 6:01 PM - 6:51 PM",
+            "hours": 3.4,
+            "badges": [
+                "Preparador Adaptación Móvil Nativa",
+                "Auditoría Multitienda Actividades (11 Subagentes)",
+                "Desfase Dinámico Apertura/Cierre por Tienda",
+                "Viele & Sons Fix Imágenes DX900GE/MUFO",
+                "Auditoría Retardos RONOS & Simplify HR",
+                "Turno Lynwood 3PM-10PM"
+            ],
+            "descEs": "• <strong>Módulo Preparador: Adaptación Móvil Nativa & Limpieza de Controles (Commit fe0cc47)</strong>: En sesión vespertina (chat e3075bb9), rediseño de la experiencia en teléfonos inteligentes (< lg) para /inventory/preparador con barra de navegación inferior fija (Parrilla, Insumos, Resumen), encabezado compacto, steppers rápidos de intervalo y eliminación del botón redundante \"Sincronizar Turno\" unificando la acción en \"Despertar Tableta\".<br>• <strong>Módulo de Actividades: Auditoría Profunda de Aislamiento Multitienda y Reglas de Horario (Chat 7f8d96b2)</strong>: Despliegue de 11 subagentes especializados para preparar la apertura del módulo a las 15 sucursales. Definición de reglas operativas con gerencia: catálogo y secuencia unificados con desfase dinámico de apertura (1 hora antes de abrir puertas al público) y cierre (1 hora después de cerrar puertas al público), manteniendo fijo el cambio de turno a las 5:00 PM y calibrando permisos por rol (Admin/Supervisor vs Manager).<br>• <strong>Viele & Sons: Corrección de Imágenes DX900GE y MUFO (Commits ace5086, a732d25)</strong>: Corrección del intercambio de fotografías entre los artículos 17 (DX900GE) y 18 (MUFO.jpg) en archivos estáticos y base de datos de producción.<br>• <strong>Auditoría Forense de Retardos en RONOS y Notas en Simplify HR (Chat abc9e2a6)</strong>: Análisis de ponchadas de agosto y septiembre en Lynwood #14 identificando entradas con más de 3 minutos de retraso y verificación de documentación disciplinaria en perfiles de Simplify HR.<br>• <strong>Turno Presencial Lynwood #14</strong>: Turno de Gerente General en Lynwood #14 (3:00 PM - 10:00 PM, 7.0h) registrado en el Planificador de Supabase.",
+            "descEn": "• <strong>Prep Line Module: Native Mobile Adaptation & Control Streamlining (Commit fe0cc47)</strong>: In afternoon session (chat e3075bb9), redesigned smartphone UX (< lg) for /inventory/preparador featuring a fixed bottom navigation bar (Grill, Prep Items, Summary), compact header, quick interval steppers, and removal of the redundant \"Sync Shift\" button in favor of \"Wake Tablet\".<br>• <strong>Activities Module: Deep Multi-Store Isolation Audit & Dynamic Store Hours (Chat 7f8d96b2)</strong>: Coordinated 11 specialized subagents to prepare the module for chain-wide rollout across all 15 branches. Established business rules: unified catalog and task order with dynamic store opening offsets (1 hour prior to customer door opening) and closing offsets (1 hour after customer door closing), fixed 5:00 PM shift change tasks, and role-based permission boundaries.<br>• <strong>Viele & Sons: DX900GE & MUFO Image Swap Fix (Commits ace5086, a732d25)</strong>: Corrected swapped product images between items 17 (DX900GE) and 18 (MUFO.jpg) in static assets and Supabase.<br>• <strong>RONOS Late Clock-In Audit & Simplify HR Disciplinary Notes Check (Chat abc9e2a6)</strong>: Audited August and September timecards for Lynwood #14 identifying clock-ins exceeding the 3-minute grace period and cross-checked disciplinary documentation in Simplify HR.<br>• <strong>Lynwood #14 Manager Shift</strong>: In-store General Manager shift at Lynwood #14 (3:00 PM - 10:00 PM, 7.0h) logged in Supabase schedules."
+        },
+        {
+            "date": "30-Sep-2026",
+            "time": "9:08 AM - 12:00 PM & 12:56 PM - 1:10 PM & 3:52 PM - 4:52 PM",
+            "hours": 4.1,
+            "badges": [
+                "Actividades Remediación 19 Bugs & Permisos",
+                "Restauración Asignaciones Slauson & Lynwood",
+                "Planificador Móvil, Contacto 1-Tap & Multidía",
+                "Drive-Thru Fullscreen Leaderboard TV",
+                "Resumen Ejecutivo Bilingüe Grubhub",
+                "Turno Lynwood 9AM-5PM"
+            ],
+            "descEs": "• <strong>Módulo de Actividades: Remediación de 19 Hallazgos y Restauración de Asignaciones (Commits 5779735, a3a8002, ac94682)</strong>: En sesiones matutina y vespertina (chat 7f8d96b2), corrección integral de 19 bugs detectados en auditoría (autenticación JWT, aislamiento de tienda, zona horaria America/Los_Angeles y permisos de manager). Resolución inmediata del bloqueo de lectura en endpoints GET y carga de personal en Pestaña 3, restaurando intactas todas las asignaciones de estaciones capturadas por los gerentes de Slauson (Jesús Ramos, 37+ registros/día) y Lynwood.<br>• <strong>Módulo Planificador (/planificador): Mejoras Móviles, Contacto en 1 Toque y Captura Multidía (Commit 9b38a57)</strong>: En sesión matutina con 15 subagentes (chat 52ae7a77), auditoría competitiva frente a 7shifts e implementación de selector de días fijo al deslizar en móvil (sticky day strip), ficha interactiva de contacto de empleado al tocar su nombre y selector de días múltiples en ShiftModal para asignar el mismo turno a varios días de la semana sin copiar manualmente.<br>• <strong>Módulo Drive-Thru (/drive-thru): Modo Leaderboard Pantalla Completa TV y Navegación Directa (Commits df3c936, ae4325a, 32f1484, dcc2cfa, 42e1193)</strong>: En sesión matutina (chat ea592e3c), creación del modo Fullscreen para el Leaderboard de las 6 tiendas con Drive-Thru, auto-ajuste proporcional al 100% del ancho y alto de pantalla sin scroll vertical, tipografía ampliada, persistencia de pantalla completa entre pestañas y clic directo en tienda para consultar sus órdenes.<br>• <strong>Informe Bilingüe de Integración Grubhub & Turno Presencial Lynwood #14</strong>: En sesión vespertina (chat 43319138), compilación y envío por correo del resumen ejecutivo bilingüe (ES/EN) del comunicado original de Grubhub y su análisis técnico. Cobertura de turno presencial como General Manager en Lynwood #14 (9:00 AM - 5:00 PM, 8.0h • Mañana).",
+            "descEn": "• <strong>Activities Module: 19-Bug Forensic Remediation & Station Assignment Restoration (Commits 5779735, a3a8002, ac94682)</strong>: In morning and afternoon sessions (chat 7f8d96b2), resolved 19 audit findings (JWT auth, store isolation, America/Los_Angeles timezone safety, and manager permissions). Fixed GET endpoint read restrictions and employee loading in Tab 3, restoring 100% of station assignments captured by Slauson (Jesús Ramos, 37+ records/day) and Lynwood managers.<br>• <strong>Schedule Planner (/planificador): Mobile UX Overhaul, 1-Tap Contact Sheet & Multi-Day Shift Modal (Commit 9b38a57)</strong>: In morning session with 15 subagents (chat 52ae7a77), benchmarked against 7shifts and implemented a sticky mobile day selector bar, interactive employee contact sheet on name tap, and multi-day batch assignment in ShiftModal to apply the same schedule across multiple weekdays simultaneously.<br>• <strong>Drive-Thru Module (/drive-thru): Fullscreen TV Leaderboard & Click-to-Lookup (Commits df3c936, ae4325a, 32f1484, dcc2cfa, 42e1193)</strong>: In morning session (chat ea592e3c), built Fullscreen TV Leaderboard mode displaying all 6 Drive-Thru locations without scrolling, scaled-up typography, cross-tab fullscreen persistence, and 1-click store navigation to order lookup.<br>• <strong>Bilingual Grubhub Integration Executive Summary & Lynwood #14 Shift</strong>: In afternoon session (chat 43319138), compiled and emailed the bilingual (ES/EN) executive summary of the original Grubhub notice and technical analysis. Completed in-store General Manager shift at Lynwood #14 (9:00 AM - 5:00 PM, 8.0h • Morning)."
         }
     ],
     "effortSummary": [
         {
             "module": "Módulo de Compras Viele & Sons & Tech Packs",
-            "hours": 53.17
+            "hours": 56.6
         },
         {
-            "module": "Control de Horarios y Cobertura (/horarios) & Auditoría RONOS",
-            "hours": 29.95
+            "module": "Control de Horarios y Cobertura (/horarios), Planificador & Auditoría RONOS",
+            "hours": 30.2
         },
         {
-            "module": "Ecosistema TV KDS, Gavilan Mix & Curación Musical",
-            "hours": 21.55
+            "module": "Automatización de Recetas, Consumo por Ticket & Pedidos IA (Piloto de Inventario)",
+            "hours": 23
+        },
+        {
+            "module": "Ecosistema TV KDS, Drive-Thru Leaderboard, Preparador Móvil & Gavilan Mix",
+            "hours": 24.3
         },
         {
             "module": "Módulo de Contabilidad (Reemplazo Cohesion) & QuickBooks",
             "hours": 18
         },
         {
-            "module": "Automatización de Recetas, Consumo por Ticket & Pedidos IA (Piloto de Inventario)",
-            "hours": 14.17
+            "module": "Motor de Proyecciones V3.1, Eventos, Clima & Reconexión Descansos",
+            "hours": 15.2
         },
         {
-            "module": "Motor de Proyecciones de Ventas (Forecast V3.1), Event Intelligence & Descansos",
-            "hours": 10.7
+            "module": "Módulo de Actividades (/actividades), Checklists Operativos & Aislamiento Multitienda",
+            "hours": 11.7
         },
         {
-            "module": "Reporte de Actividades TSX, Gantt & Planificador Lynwood",
-            "hours": 8.7
+            "module": "Estado de Resultados P&L Multi-Sucursal (/admin/pnl) & Varianza AvT ($ Pérdida)",
+            "hours": 8.5
         },
         {
-            "module": "Auditoría Técnica Restaurant365 (P&L, Commissary & AvT)",
-            "hours": 7.75
-        },
-        {
-            "module": "Infraestructura, Centinela Supabase/Vercel & Alertas Email",
-            "hours": 5.57
-        },
-        {
-            "module": "Soporte IA Conversacional, Changelog Modal & Versionado UI (v2.10.4)",
-            "hours": 3.25
-        },
-        {
-            "module": "Auditoría Forense de Tareas y Roadmap Canónico",
-            "hours": 1.5
-        },
-        {
-            "module": "Blindaje de Caché Food Cost Multitienda & Cron In-Process",
-            "hours": 1.25
-        },
-        {
-            "module": "Barra Lateral, Finanzas & Módulo Miles Raquel",
-            "hours": 1.25
+            "module": "Auditoría de Salud del Sistema, Blindaje Food Cost & Reportes TSX",
+            "hours": 7.5
         }
     ],
     "parallelActivities": [

@@ -20,20 +20,42 @@ export interface VersionMilestone {
 }
 
 export const SYSTEM_VERSION = {
-    version: 'v2.12.0',
-    versionNumber: '2.12.0',
+    version: 'v2.13.0',
+    versionNumber: '2.13.0',
     releaseMonthEs: 'Octubre 2026',
     releaseMonthEn: 'October 2026',
     stage: 'Producción',
     stageEn: 'Production',
     year: '2026',
-    labelEs: 'Octubre 2026 • SM TEG v2.12.0',
-    labelEn: 'October 2026 • SM TEG v2.12.0',
+    labelEs: 'Octubre 2026 • SM TEG v2.13.0',
+    labelEn: 'October 2026 • SM TEG v2.13.0',
     brand: 'SM TEG',
-    lastUpdated: '2026-10-09'
+    lastUpdated: '2026-10-14'
 } as const;
 
 export const VERSION_HISTORY: readonly VersionMilestone[] = [
+    {
+        version: 'v2.13.0',
+        date: '14-Oct-2026',
+        titleEs: 'Blindaje Delivery KDS & 100% Bilingüe (/blindaje-delivery), 4,000 Audios Kore Pre-Generados, Sincronización Uniformes ↔ Caja Fuerte, Cron Contable 6:30 AM y Corte DNS en Vivo de tacosgavilan.com',
+        titleEn: 'Blindaje Delivery KDS & 100% Bilingual (/blindaje-delivery), 4,000 Pre-Generated Kore Audios, Uniforms ↔ Safe Box Sync, 6:30 AM Accounting Cron & Live tacosgavilan.com DNS Cutover',
+        highlightsEs: [
+            'Módulo Blindaje Delivery (/admin/blindaje-delivery, /admin/blindaje-delivery/empaque y /tablet/blindaje-delivery) en Slauson y LA Central: semáforo KDS de 3 estados + auto-expiración a 2h (UNCLAIMED_2H), extracción automática de chofer en Uber Eats, alerta anti-colisión de nombres, locutor bilingüe al salir de KDS y traducción 100% ES/EN',
+            'Banco completo de 4,000 archivos de voz bilingües pre-generados (#1 al #2000 EN/ES con voz oficial Kore en Supabase Storage), reproducción Web Audio API anti-bloqueo de autoplay y cuádruple redundancia con deduplicación exacta de toque en Order Ready Board (/order-ready-board)',
+            'Sincronización bidireccional acumulativa en tiempo real entre Control de Uniformes (/inventory/uniforms) y Caja Fuerte (/caja-fuerte): cada venta de playera ($7), gorra ($1) o chamarra ($20) actualiza al instante el saldo de efectivo de uniformes en bóveda, con edición y anulación para Supervisores/Admins',
+            'Paridad contable 1:1 en Contabilidad (/contabilidad): cron diario automatizado a las 6:30 AM y 7:30 AM PT (/api/cron/sync-accounting), cheques sobrepagados por descuento post-pago en crédito 12049, pagos de fechas cruzadas, Cash In-Out / Tip Out y propinas de plataformas en cierres dominicales',
+            'Corte de DNS en vivo de tacosgavilan.com hacia Vercel Edge Network (76.76.21.21), redirección canónica 308, preservación en 4 capas del respaldo clásico de WordPress y Centro de Mando Web (/nueva-web) con 5 pestañas operativas',
+            'Auditoría forense en MilesIQ con recalibración de la matriz oficial de distancias reales de manejo por carretera entre las 15 sucursales y actualización del Reporte Ejecutivo de Actividades (/admin/reporte-actividades) consolidando 98.2 horas de ingeniería y 90.0 horas de turnos gerenciales en Lynwood #14 (1 al 14 de Octubre 2026)'
+        ],
+        highlightsEn: [
+            'Blindaje Delivery module (/admin/blindaje-delivery, /admin/blindaje-delivery/empaque & /tablet/blindaje-delivery) at Slauson & LA Central: 3-state KDS traffic light + 2h auto-expiration (UNCLAIMED_2H), automatic Uber Eats driver name backfill, name collision guard, bilingual KDS bump voice callout, and 100% ES/EN translation',
+            'Complete bank of 4,000 pre-generated bilingual voice files (#1 to #2000 EN/ES with official Kore voice in Supabase Storage), Web Audio API playback preventing browser autoplay blocks, and 4x redundancy with exact tap deduplication in Order Ready Board (/order-ready-board)',
+            'Real-time cumulative bidirectional synchronization between Uniforms Control (/inventory/uniforms) and Safe Box (/caja-fuerte): every shirt ($7), cap ($1), or jacket ($20) sale immediately increments safe uniform cash balance, with Supervisor/Admin edit and void capabilities',
+            '1:1 accounting parity in Accounting (/contabilidad): automated daily cron at 6:30 AM & 7:30 AM PT (/api/cron/sync-accounting), overpaid post-discount checks credited to 12049, cross-date payments, Cash In-Out / Tip Out, and 3rd-party delivery tips on Sunday closes',
+            'Live DNS cutover of tacosgavilan.com to Vercel Edge Network (76.76.21.21), canonical 308 redirect, 4-layer preservation of classic WordPress backup, and 5-tab Website Command Center (/nueva-web)',
+            'Forensic MilesIQ road distance matrix recalibration across all 15 stores and updated Executive Activity Report (/admin/reporte-actividades) consolidating 98.2 engineering hours and 90.0 General Manager shift hours at Lynwood #14 (October 1–14, 2026)'
+        ]
+    },
     {
         version: 'v2.12.0',
         date: '09-Oct-2026',
@@ -60,22 +82,22 @@ export const VERSION_HISTORY: readonly VersionMilestone[] = [
     },
     {
         version: 'v2.11.0',
-        date: '26-Sep-2026',
-        titleEs: 'Piloto de Automatización de Inventarios y Pedidos IA, Manual Viele & Sons PDF, Resiliencia TV KDS y Respaldo Lynwood #14',
-        titleEn: 'AI Inventory & Automated Ordering Pilot, Viele & Sons PDF Manual, TV KDS Resilience & Lynwood #14 Defense',
+        date: '30-Sep-2026',
+        titleEs: 'Piloto de Automatización de Pedidos IA, Calibración Viele & Sons 4 Páginas, Blindaje de Actividades (19 Fixes), Planificador Móvil y Drive-Thru TV',
+        titleEn: 'AI Automated Ordering Pilot, Viele & Sons 4-Page Calibration, Activities Hardening (19 Fixes), Mobile Planner & Drive-Thru TV',
         highlightsEs: [
-            'Arquitectura del motor de pedidos inteligentes por IA (Codex ID 01a0cf29-cef7-7163-8b3c-df9f0685491c, 14h 10m): deducción de empaques por canal (Dine-In, Takeout, Delivery), 5 migraciones en Supabase y snapshots de consumo real de tickets Toast',
-            'Publicación del Manual Operativo formal de Viele & Sons en PDF (public/docs/Manual_Operativo_Viele_and_Sons_Tacos_Gavilan.pdf) con flujo de 3 pasos, énfasis crítico en revisión de PAR y soporte corporativo',
-            'Resiliencia del reproductor Windows (.exe) de GAVILAN MIX con búfer local de 10+ videos, soporte de discos secundarios (E:) y auto-recuperación ante cortes de energía en tienda',
-            'Informe ejecutivo de cobertura laboral y análisis forense de ponchadas/nómina para Lynwood #14 justificando horas de cobertura ante ausencias imprevistas',
-            'Sincronización integral de los 245 turnos de Supabase en el Planificador (corrigiendo turno del 21 de septiembre a 12PM-8PM en Gantt 24h) y conciliación mensual acumulando 176.90 horas'
+            'Arquitectura del motor de pedidos inteligentes por IA y Orden Diaria: deducción de empaques por canal (Dine-In, Takeout, Delivery), calibración de recetas de tortillas/aguas frescas y cruce PMIX vs tickets locales',
+            'Calibración de hoja física Viele & Sons a 4 páginas exactas tamaño Carta, cron matutino de las 6:00 AM (/api/cron/viele-daily-setup), sincronización de 15 Order Guides, corrección visual DX900GE/MUFO y Manual Operativo en PDF',
+            'Remediación integral de 19 hallazgos en el módulo de Actividades (aislamiento estricto por tienda, offset dinámico de apertura/cierre y restauración de asignaciones de estaciones en Slauson #1 y Lynwood #14)',
+            'Rediseño móvil del Planificador de Horarios (1-tap para llamadas/WhatsApp y selección multi-día en ShiftModal), adaptación nativa del Preparador y Modo TV Leaderboard en Drive-Thru con buscador de tickets',
+            'Resiliencia del reproductor Windows (.exe) de GAVILAN MIX y cierre mensual de Septiembre 2026 acumulando 195.00 horas de ingeniería y 154.00 horas de turnos gerenciales en Lynwood #14'
         ],
         highlightsEn: [
-            'AI automated ordering engine architecture (Codex ID 01a0cf29-cef7-7163-8b3c-df9f0685491c, 14h 10m): channel packaging deduction rules (Dine-In, Takeout, Delivery), 5 Supabase migrations, and Toast ticket consumption snapshots',
-            'Published official Viele & Sons Operational Manual in PDF (public/docs/Manual_Operativo_Viele_and_Sons_Tacos_Gavilan.pdf) featuring 3-step store workflow, mandatory PAR audit, and executive support',
-            'Hardened GAVILAN MIX standalone Windows (.exe) player with 10+ video offline buffer pool, secondary drive support (E: drive), and zero-friction recovery after store power outages',
-            'Executive labor coverage report and forensic punch/payroll analysis for Lynwood #14 supporting Carlos Velázquez against employee absence friction',
-            'Full synchronization of 245 Supabase shifts (fixing September 21 to 12PM-8PM on 24h Gantt bar) and cumulative monthly reconciliation reaching 176.90 engineering hours'
+            'AI automated ordering and Daily Order engine architecture: channel packaging deduction rules (Dine-In, Takeout, Delivery), tortilla/agua fresca recipe calibration, and PMIX vs local ticket parity checks',
+            'Viele & Sons physical count sheet calibrated to 4 exact Letter pages, 6:00 AM daily cron (/api/cron/viele-daily-setup), 15-store Order Guide sync, DX900GE/MUFO image swap fix, and official PDF Operational Manual',
+            'Comprehensive 19-bug remediation in the Activities module (strict store_id isolation, dynamic opening/closing time offsets, and restored station assignments for Slauson #1 and Lynwood #14)',
+            'Mobile UX redesign for Schedule Planner (1-tap Call/WhatsApp contact sheet and multi-day selection in ShiftModal), native mobile Prep Line adaptation, and Drive-Thru Fullscreen TV Leaderboard with ticket lookup',
+            'Hardened GAVILAN MIX standalone Windows (.exe) player and closed September 2026 monthly reconciliation at 195.00 engineering hours and 154.00 managerial shift hours at Lynwood #14'
         ]
     },
     {

@@ -89,6 +89,30 @@ export interface ExecutiveDashboardData {
     }
 }
 
+export interface UniformsSafeBalance {
+    storeId: number
+    businessDate: string
+    lastSafeCountId: string | null
+    lastSafeCountAmount: number
+    lastSafeCountDate: string | null
+    lastSafeCountShift: string | null
+    accumulatedSalesSinceCount: number
+    salesCountSinceCount: number
+    todaySalesAmount: number
+    todaySalesCount: number
+    totalInSafe: number
+    breakdown: Array<{
+        category: string
+        size: string
+        type: string
+        quantity: number
+        amount: number
+        employeeName: string | null
+        createdAt: string
+        businessDate: string
+    }>
+}
+
 export const SIZES_BY_CATEGORY: Record<string, UniformSize[]> = {
     shirt_red: ['XS', 'S', 'M', 'L', 'XL', '2XL', '3XL'],
     shirt_shift_leader: ['XS', 'S', 'M', 'L', 'XL', '2XL', '3XL'],
@@ -252,16 +276,29 @@ export function formatCurrency(amount: number): string {
     }).format(amount)
 }
 
-export function getBusinessDate(): string {
-    const now = new Date()
-    // If it's before 6AM, it counts as yesterday's business date
-    if (now.getHours() < 6) {
-        now.setDate(now.getDate() - 1)
+export function getBusinessDate(referenceDate: Date = new Date()): string {
+    const formatter = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'America/Los_Angeles',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        hour12: false
+    })
+    const parts = formatter.formatToParts(referenceDate)
+    const getPart = (type: string) => parts.find(p => p.type === type)?.value || '0'
+
+    const year = parseInt(getPart('year'), 10)
+    const month = parseInt(getPart('month'), 10)
+    const day = parseInt(getPart('day'), 10)
+    const hour = parseInt(getPart('hour'), 10) % 24
+
+    // En Tacos Gavilan el día laboral empieza a las 6:00 AM y termina a las 5:59 AM del día siguiente
+    const laDate = new Date(Date.UTC(year, month - 1, day))
+    if (hour < 6) {
+        laDate.setUTCDate(laDate.getUTCDate() - 1)
     }
-    
-    const year = now.getFullYear()
-    const month = String(now.getMonth() + 1).padStart(2, '0')
-    const day = String(now.getDate()).padStart(2, '0')
-    
-    return `${year}-${month}-${day}`
+
+    return laDate.toISOString().split('T')[0]
 }
+

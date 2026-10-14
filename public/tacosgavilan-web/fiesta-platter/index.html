@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>Fiesta Platter & Catering | Tacos Gavilan</title>
+    <meta name="description" content="Authentic Mexican food catering and Party Platters for large groups, birthdays, and family events. Same-day pickup available across Southern California. Order online!">
+    <link rel="canonical" href="https://tacosgavilan.com/fiesta-platter/">
+        <!-- Favicon & Brand Icons (Transparent TEG Logo) -->
+    <link rel="icon" type="image/png" href="/logo.png?v=5">
+    <link rel="icon" type="image/png" sizes="32x32" href="/img/favicon-32x32.png?v=5">
+    <link rel="icon" type="image/png" sizes="16x16" href="/img/favicon-16x16.png?v=5">
+    <link rel="shortcut icon" href="/favicon.ico?v=5">
+    <link rel="apple-touch-icon" sizes="180x180" href="/img/apple-touch-icon.png?v=5">
+<link rel="manifest" href="../manifest.webmanifest">
+    <meta name="theme-color" content="#DA291C">
+
+    <!-- Open Graph -->
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="Tacos Gavilan">
+    <meta property="og:title" content="Fiesta Platter & Catering | Tacos Gavilan">
+    <meta property="og:description" content="Mexican food catering for large groups, birthdays, and family gatherings. Party platters for 15-40 people with same-day ordering.">
+    <meta property="og:url" content="https://tacosgavilan.com/fiesta-platter/">
+    <meta property="og:image" content="https://tacosgavilan.com/img/og-tacos-gavilan-1200x630.jpg">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta property="og:image:type" content="image/jpeg">
+
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="Fiesta Platter & Catering | Tacos Gavilan">
+    <meta name="twitter:description" content="Mexican food catering for large groups, birthdays, and family gatherings. Party platters for 15-40 people with same-day ordering.">
+    <meta name="twitter:image" content="https://tacosgavilan.com/img/og-tacos-gavilan-1200x630.jpg">
+
+    <!-- Marketing & Analytics Pixels -->
+    <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
+    new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
+    j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
+    'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
+    })(window,document,'script','dataLayer','GTM-WW2N58Z');</script>
+
+    <link rel="stylesheet" href="../css/style.css?v=28">
+    <link rel="stylesheet" href="../css/compliance-a11y.css?v=28">
+    <style>
+        .page-content-wrapper {
+            padding-top: calc(var(--header-height, 70px) + 2rem);
+            padding-bottom: 4rem;
+            min-height: 80vh;
+        }
+        .catering-container {
+            max-width: 1140px;
+            margin: 0 auto;
+            padding: 0 1.5rem;
+        }
+        .catering-hero-banner {
+            background: linear-gradient(135deg, rgba(218, 41, 28, 0.9), rgba(18, 16, 14, 0.95)), url('../img/front-page/gav-home-desktop-hero-party-@1.jpg') center/cover;
+            border: 1px solid rgba(255, 199, 44, 0.3);
+            border-radius: var(--radius-lg, 16px);
+            padding: 3.5rem 2rem;
+            text-align: center;
+            margin-bottom: 3rem;
+            box-shadow: 0 12px 40px rgba(0,0,0,0.5);
+        }
+        .catering-hero-title {
+            font-size: clamp(2rem, 5vw, 3rem);
+            color: #ffffff;
+            font-family: var(--ff-heading, sans-serif);
+            margin: 0 0 1rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        .catering-hero-title span {
+            color: var(--clr-gold, #FFC72C);
+        }
+        .catering-hero-lead {
+            font-size: 1.15rem;
+            color: rgba(255, 255, 255, 0.9);
+            max-width: 800px;
+            margin: 0 auto 1.75rem;
+            line-height: 1.6;
+        }
+        .brochure-cta-box {
+            display: flex;
+            gap: 1rem;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+        .btn-download-pdf {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.6rem;
+            background: var(--clr-gold, #FFC72C);
+            color: #000000;
+            padding: 0.9rem 1.75rem;
+            border-radius: 8px;
+            font-weight: 700;
+            font-size: 1rem;
+            text-transform: uppercase;
+            transition: transform 0.2s, background 0.2s;
+        }
+        .btn-download-pdf:hover {
+            background: #e5b324;
+            transform: translateY(-2px);
+        }
+        .btn-order-toast {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.6rem;
+            background: var(--clr-red, #DA291C);
+            color: #ffffff;
+            padding: 0.9rem 1.75rem;
+            border-radius: 8px;
+            font-weight: 700;
+            font-size: 1rem;
+            text-transform: uppercase;
+            transition: transform 0.2s, background 0.2s;
+        }
+        .btn-order-toast:hover {
+            background: #b91c1c;
+            transform: translateY(-2px);
+        }
+        .packages-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1.5rem;
+            margin: 2.5rem 0;
+        }
+        .package-card {
+            background: rgba(22, 20, 18, 0.95);
+            border: 1px solid rgba(255, 199, 44, 0.2);
+            border-radius: 12px;
+            padding: 2rem 1.5rem;
+            text-align: center;
+            transition: border-color 0.2s, transform 0.2s;
+        }
+        .package-card:hover {
+            border-color: var(--clr-gold, #FFC72C);
+            transform: translateY(-4px);
+        }
+        .package-size {
+            font-size: 1.6rem;
+            font-weight: 800;
+            color: var(--clr-gold, #FFC72C);
+            font-family: var(--ff-heading, sans-serif);
+            margin: 0 0 0.5rem;
+        }
+        .package-desc {
+            font-size: 0.95rem;
+            color: rgba(255, 255, 255, 0.8);
+            line-height: 1.5;
+            margin-bottom: 1.25rem;
+        }
+        .steps-container {
+            background: rgba(22, 20, 18, 0.9);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 16px;
+            padding: 2.5rem 2rem;
+            margin: 3rem 0;
+        }
+        .steps-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 1.5rem;
+            margin-top: 1.5rem;
+        }
+        .step-item {
+            text-align: center;
+            padding: 1rem;
+        }
+        .step-number {
+            width: 44px;
+            height: 44px;
+            background: var(--clr-red, #DA291C);
+            color: #ffffff;
+            font-weight: 800;
+            font-size: 1.2rem;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 0.75rem;
+        }
+        .step-item h4 {
+            font-size: 1.05rem;
+            color: #ffffff;
+            margin: 0 0 0.25rem;
+        }
+        .step-item p {
+            font-size: 0.85rem;
+            color: rgba(255, 255, 255, 0.7);
+            margin: 0;
+        }
+        .preview-images-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1.5rem;
+            margin-top: 2rem;
+        }
+        @media (max-width: 768px) {
+            .preview-images-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+        .preview-image-box {
+            border-radius: 12px;
+            overflow: hidden;
+            border: 1px solid rgba(255, 199, 44, 0.2);
+            background: #000;
+        }
+        .preview-image-box img {
+            width: 100%;
+            height: auto;
+            display: block;
+        }
+    </style>
+</head>
+
+<body>
+    <noscript><iframe src="https://www.googletagmanager.com/ns.html?id=GTM-WW2N58Z" height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
+
+            <header class="header scrolled" id="header">
+        <div class="scroll-progress" id="scroll-progress" aria-hidden="true"></div>
+        <div class="container header-container">
+            <!-- Logo (left) -->
+            <a href="../" class="logo" aria-label="Tacos Gavilan Home">
+                <img src="../img/logo.webp" alt="Tacos Gavilan Logo" width="160" height="48">
+            </a>
+
+            <!-- Main Navigation (center / Mobile Drawer) -->
+            <nav class="nav" id="mobile-navigation" aria-label="Main Navigation" aria-hidden="true">
+                <div class="nav-drawer-header">
+                    <img src="../img/logo.webp" alt="Tacos Gavilan" class="nav-drawer-logo nav-drawer-logo-img" width="140" height="42">
+                    <button class="nav-drawer-close" id="nav-drawer-close" aria-label="Close navigation menu" type="button">
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                    </button>
+                </div>
+                <ul class="nav-list">
+                    <li><a href="../" class="nav-link" data-i18n="nav.home" data-en="Home" data-es="Inicio">Home</a></li>
+                    <li><a href="../menu/" class="nav-link" data-i18n="nav.menu" data-en="Menu" data-es="Menú">Menu</a></li>
+                    <li><a href="../locations/" class="nav-link" data-i18n="nav.locations" data-en="Locations" data-es="Ubicaciones">Locations</a></li>
+                    <li><a href="./" class="nav-link active" aria-current="page" data-i18n="nav.catering" data-en="Fiesta Platter" data-es="Fiesta Platter">Fiesta Platter</a></li>
+                    <li><a href="../contact/" class="nav-link" data-i18n="nav.contact" data-en="Contact" data-es="Contacto">Contact</a></li>
+                    <li><a href="../blog/" class="nav-link" data-i18n="nav.blog" data-en="Blog" data-es="Blog">Blog</a></li>
+                    <li><a href="../locations/" class="nav-link" data-i18n="nav.hours" data-en="Hours" data-es="Horas">Hours</a></li>
+                </ul>
+                <div class="nav-drawer-footer">
+                    <a href="https://order.online/business/-137616" target="_blank" rel="noopener noreferrer" class="btn btn-primary btn-drawer-order btn-drawer-cta">
+                        <span data-i18n="hero.orderBtn" data-en="Order Online" data-es="Ordenar en Línea">Order Online</span>
+                    </a>
+                    <div class="drawer-hours-badge">
+                        <span class="hours-dot" aria-hidden="true"></span>
+                        <span data-i18n="locations.hoursBadge" data-en="15 Southern California Locations" data-es="15 Sucursales en el Sur de California">15 Southern California Locations</span>
+                    </div>
+                </div>
+            </nav>
+
+            <!-- Header Actions (right) -->
+            <div class="header-actions">
+                <button id="lang-toggle" class="lang-toggle" aria-label="Switch language to Spanish" type="button">ES</button>
+                <a href="https://order.online/business/-137616" target="_blank" rel="noopener noreferrer" class="btn btn-primary btn-header-cta">
+                    <span data-i18n="nav.order" data-en="Order Now" data-es="Ordenar">Order Now</span>
+                </a>
+                <button class="mobile-menu-toggle" id="mobile-menu-toggle" aria-label="Open navigation menu" aria-expanded="false" aria-controls="mobile-navigation" type="button">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <main class="page-content-wrapper" id="main-content">
+        <div class="catering-container">
+            
+            <!-- Hero Banner -->
+            <div class="catering-hero-banner">
+                <span class="section-tag" style="background: var(--clr-gold, #FFC72C); color: #000; font-weight: 800; padding: 0.3rem 0.8rem; border-radius: 4px; display: inline-block; margin-bottom: 1rem;" data-i18n="fiesta.badge">CATERING & BANQUETS</span>
+                <h1 class="catering-hero-title" data-i18n="fiesta.heroTitle">Our Famous <span>Fiesta Platter</span></h1>
+                <p class="catering-hero-lead" data-i18n="fiesta.heroLead">Authentic Mexican taquiza catering made simple! Same-day ordering is available for pickup at all 15 locations. Order as little as 1 hour in advance for group sizes from 15 to 40 people.</p>
+                <div class="brochure-cta-box">
+                    <a href="https://order.online/business/-137616" target="_blank" rel="noopener noreferrer" class="btn-order-toast">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="21" r="1"></circle><circle cx="20" cy="21" r="1"></circle><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"></path></svg>
+                        <span data-i18n="fiesta.orderToastBtn">Order Online on Toast</span>
+                    </a>
+                </div>
+            </div>
+
+            <!-- Package Options -->
+            <div class="text-center">
+                <h2 style="font-size: 1.8rem; color: #ffffff; margin-bottom: 0.5rem;" data-i18n="fiesta.packagesTitle">Catering Packages by Group Size</h2>
+                <p style="color: rgba(255,255,255,0.7); max-width: 600px; margin: 0 auto;" data-i18n="fiesta.packagesSubtitle">Each package includes your choice of meats, fresh hand-made tortillas, rice, beans, salsas, cilantro, onion, limes, and utensils.</p>
+            </div>
+
+            <div class="packages-grid">
+                <div class="package-card">
+                    <div class="package-size" data-i18n="fiesta.pkg15Title">15 – 20 People</div>
+                    <p class="package-desc" data-i18n="fiesta.pkg15Desc">Ideal for small office lunches, birthday celebrations, and family dinners.</p>
+                    <a href="https://order.online/business/-137616" target="_blank" class="btn btn-secondary btn-sm" style="width: 100%;"><span data-i18n="fiesta.orderBtn">Order on Toast</span></a>
+                </div>
+
+                <div class="package-card">
+                    <div class="package-size" data-i18n="fiesta.pkg20Title">20 – 25 People</div>
+                    <p class="package-desc" data-i18n="fiesta.pkg20Desc">Generous portions featuring 2 meat varieties, traditional sides, and chips.</p>
+                    <a href="https://order.online/business/-137616" target="_blank" class="btn btn-secondary btn-sm" style="width: 100%;"><span data-i18n="fiesta.orderBtn">Order on Toast</span></a>
+                </div>
+
+                <div class="package-card">
+                    <div class="package-size" data-i18n="fiesta.pkg25Title">25 – 30 People</div>
+                    <p class="package-desc" data-i18n="fiesta.pkg25Desc">Perfect for milestone gatherings, quinceañeras, and team celebrations.</p>
+                    <a href="https://order.online/business/-137616" target="_blank" class="btn btn-secondary btn-sm" style="width: 100%;"><span data-i18n="fiesta.orderBtn">Order on Toast</span></a>
+                </div>
+
+                <div class="package-card">
+                    <div class="package-size" data-i18n="fiesta.pkg30Title">30 – 40 People</div>
+                    <p class="package-desc" data-i18n="fiesta.pkg30Desc">Our ultimate crowd-pleaser with expanded meat portions and full salsa bar sides.</p>
+                    <a href="https://order.online/business/-137616" target="_blank" class="btn btn-secondary btn-sm" style="width: 100%;"><span data-i18n="fiesta.orderBtn">Order on Toast</span></a>
+                </div>
+            </div>
+
+            <!-- 5 Easy Steps to Order -->
+            <div class="steps-container">
+                <h2 class="text-center" style="font-size: 1.6rem; color: var(--clr-gold, #FFC72C); margin-top: 0;" data-i18n="fiesta.stepsH2">5 Easy Steps to Order Your Taquiza</h2>
+                <div class="steps-grid">
+                    <div class="step-item">
+                        <div class="step-number">1</div>
+                        <h4 data-i18n="fiesta.s1Title">Choose Store</h4>
+                        <p data-i18n="fiesta.s1Desc">Select your nearest Tacos Gavilan location for pickup.</p>
+                    </div>
+                    <div class="step-item">
+                        <div class="step-number">2</div>
+                        <h4 data-i18n="fiesta.s2Title">Group Size</h4>
+                        <p data-i18n="fiesta.s2Desc">Pick the package that matches your guest count (15 to 40+).</p>
+                    </div>
+                    <div class="step-item">
+                        <div class="step-number">3</div>
+                        <h4 data-i18n="fiesta.s3Title">Choose Meats</h4>
+                        <p data-i18n="fiesta.s3Desc">Select Asada, Al Pastor, Pollo, Carnitas, or Cabeza.</p>
+                    </div>
+                    <div class="step-item">
+                        <div class="step-number">4</div>
+                        <h4 data-i18n="fiesta.s4Title">Pick Up</h4>
+                        <p data-i18n="fiesta.s4Desc">Hot, freshly prepared food ready in as little as 1 hour.</p>
+                    </div>
+                    <div class="step-item">
+                        <div class="step-number">5</div>
+                        <h4 data-i18n="fiesta.s5Title">¡Disfruta!</h4>
+                        <p data-i18n="fiesta.s5Desc">Authentic street taco experience at your event!</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- What's Included Showcase -->
+            <div style="margin-top: 3.5rem; background: rgba(22, 20, 18, 0.95); border: 1px solid rgba(255, 199, 44, 0.25); border-radius: 16px; padding: 3rem 2rem;">
+                <div class="text-center" style="margin-bottom: 2rem;">
+                    <span style="background: var(--clr-gold, #FFC72C); color: #000; font-weight: 800; font-size: 0.85rem; padding: 0.25rem 0.75rem; border-radius: 4px; display: inline-block; margin-bottom: 0.75rem; letter-spacing: 0.05em;" data-i18n="fiesta.incTag">EVERYTHING INCLUDED</span>
+                    <h2 style="font-size: clamp(1.6rem, 3.5vw, 2.2rem); color: #ffffff; margin: 0 0 0.5rem; font-family: var(--ff-heading, sans-serif);" data-i18n="fiesta.incTitle">What Comes With Every Fiesta Platter</h2>
+                    <p style="color: rgba(255, 255, 255, 0.75); max-width: 650px; margin: 0 auto; line-height: 1.6;" data-i18n="fiesta.incSubtitle">Each banquet package is freshly prepared hot to order with generous portions of our traditional specialties.</p>
+                </div>
+
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1.5rem; margin-bottom: 2.5rem;">
+                    <div style="background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; padding: 1.5rem;">
+                        <h4 style="color: var(--clr-gold, #FFC72C); margin: 0 0 0.5rem; font-size: 1.1rem;" data-i18n="fiesta.boxMeatsH">Fresh Grilled Meats</h4>
+                        <p style="color: rgba(255, 255, 255, 0.8); margin: 0; font-size: 0.9rem; line-height: 1.5;" data-i18n="fiesta.boxMeatsP">Your choice of Carne Asada, Al Pastor, Pollo, Carnitas, or Cabeza prepared right off the grill.</p>
+                    </div>
+                    <div style="background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; padding: 1.5rem;">
+                        <h4 style="color: var(--clr-gold, #FFC72C); margin: 0 0 0.5rem; font-size: 1.1rem;" data-i18n="fiesta.boxSidesH">Authentic Sides</h4>
+                        <p style="color: rgba(255, 255, 255, 0.8); margin: 0; font-size: 0.9rem; line-height: 1.5;" data-i18n="fiesta.boxSidesP">Traditional Mexican rice, slow-cooked refried beans, and freshly fried crispy tortilla chips.</p>
+                    </div>
+                    <div style="background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; padding: 1.5rem;">
+                        <h4 style="color: var(--clr-gold, #FFC72C); margin: 0 0 0.5rem; font-size: 1.1rem;" data-i18n="fiesta.boxSalsasH">Fresh Salsas &amp; Garnishes</h4>
+                        <p style="color: rgba(255, 255, 255, 0.8); margin: 0; font-size: 0.9rem; line-height: 1.5;" data-i18n="fiesta.boxSalsasP">Signature red &amp; green salsas, diced white onions, fresh cilantro, lime wedges, and warm tortillas.</p>
+                    </div>
+                    <div style="background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; padding: 1.5rem;">
+                        <h4 style="color: var(--clr-gold, #FFC72C); margin: 0 0 0.5rem; font-size: 1.1rem;" data-i18n="fiesta.boxDrinksH">Aguas Frescas &amp; Utensils</h4>
+                        <p style="color: rgba(255, 255, 255, 0.8); margin: 0; font-size: 0.9rem; line-height: 1.5;" data-i18n="fiesta.boxDrinksP">Made-from-scratch Horchata or Jamaica, complete with plates, napkins, and serving tongs.</p>
+                    </div>
+                </div>
+
+                <div style="display: flex; justify-content: center; align-items: center; width: 100%; margin: 0 auto; text-align: center;">
+                    <img src="../img/party-tray-dark.webp" alt="Tacos Gavilan Fiesta Platter spread with fresh meats, tortillas, rice, and beans" style="max-width: 100%; height: auto; border-radius: 12px; border: 1px solid rgba(255, 199, 44, 0.3); box-shadow: 0 8px 30px rgba(0,0,0,0.6); display: block; margin: 0 auto;" loading="lazy" width="800" height="533">
+                </div>
+            </div>
+
+            <!-- Online Ordering Exclusively Banner -->
+            <div style="margin-top: 3rem; text-align: center; padding: 2.5rem 2rem; background: linear-gradient(135deg, rgba(218, 41, 28, 0.15), rgba(22, 20, 18, 0.95)); border-radius: 16px; border: 1px solid rgba(218, 41, 28, 0.4);">
+                <h3 style="color: var(--clr-gold, #FFC72C); font-size: clamp(1.4rem, 3vw, 1.8rem); margin: 0 0 0.75rem;" data-i18n="fiesta.exclusiveH3">Online Ordering Exclusively</h3>
+                <p style="color: rgba(255, 255, 255, 0.9); max-width: 700px; margin: 0 auto 1.75rem; line-height: 1.6; font-size: 1.05rem;" data-i18n="fiesta.exclusiveP">To guarantee fast preparation and accurate scheduling, all catering and Fiesta Platter orders are placed exclusively through our official online ordering platform. Select your nearest restaurant, configure your party size, and schedule pickup directly.</p>
+                <div style="display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap;">
+                    <a href="https://order.online/business/-137616" target="_blank" rel="noopener noreferrer" class="btn btn-primary" style="display: inline-flex; align-items: center; gap: 0.6rem; padding: 0.9rem 2rem; font-weight: 700; text-transform: uppercase; font-size: 1rem;">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="21" r="1"></circle><circle cx="20" cy="21" r="1"></circle><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"></path></svg>
+                        Order Online on Toast
+                    </a>
+                    <a href="../contact/" class="btn btn-secondary" style="display: inline-flex; align-items: center; gap: 0.6rem; padding: 0.9rem 1.75rem; font-weight: 600;">
+                        <span data-i18n="fiesta.contactBtn">Questions? Contact Us</span>
+                    </a>
+                </div>
+            </div>
+
+        </div>
+    </main>
+
+    <!-- ========================================
+         FOOTER (Canonical Tacos Gavilan Component)
+         ======================================== -->
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-grid">
+                <!-- Brand & Description -->
+                <div class="footer-brand">
+                    <img src="../img/logo.webp" alt="Tacos Gavilan" class="footer-logo" loading="lazy" width="160" height="48">
+                    <p data-i18n="footer.desc">Authentic Mexican food serving Southern California since 1992. From our family to yours — Ya está.</p>
+                    <!-- Social Links -->
+                    <div class="footer-social" aria-label="Footer Social Links">
+                        <a href="https://www.facebook.com/TacosElGavilan/" target="_blank" rel="noopener noreferrer" aria-label="Tacos Gavilan on Facebook" class="footer-social-link">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>
+                        </a>
+                        <a href="https://www.instagram.com/tacosgavilan/" target="_blank" rel="noopener noreferrer" aria-label="Tacos Gavilan on Instagram" class="footer-social-link">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zM12 0C8.741 0 8.333.014 7.053.072 2.695.272.273 2.69.073 7.052.014 8.333 0 8.741 0 12c0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98C8.333 23.986 8.741 24 12 24c3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98C15.668.014 15.259 0 12 0zm0 5.838a6.162 6.162 0 100 12.324 6.162 6.162 0 000-12.324zM12 16a4 4 0 110-8 4 4 0 010 8zm6.406-11.845a1.44 1.44 0 100 2.881 1.44 1.44 0 000-2.881z"/></svg>
+                        </a>
+                        <a href="https://www.tiktok.com/@tacos.gavilan" target="_blank" rel="noopener noreferrer" aria-label="Tacos Gavilan on TikTok" class="footer-social-link">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.57-.26-1.1-.59-1.62-.93-.01 2.92.01 5.84-.02 8.75-.08 1.4-.54 2.79-1.35 3.94-1.31 1.92-3.58 3.17-5.91 3.21-1.43.08-2.86-.31-4.08-1.03-2.02-1.19-3.44-3.37-3.65-5.71-.02-.5-.03-1-.01-1.49.18-1.9 1.12-3.72 2.58-4.96 1.66-1.44 3.98-2.13 6.15-1.72.02 1.48-.04 2.96-.04 4.44-.99-.32-2.15-.23-3.02.37-.63.41-1.11 1.04-1.36 1.75-.21.51-.15 1.07-.14 1.61.24 1.64 1.82 3.02 3.5 2.87 1.12-.01 2.19-.66 2.77-1.61.19-.33.4-.67.41-1.06.1-1.79.06-3.57.07-5.36.01-4.03-.01-8.05.02-12.07z"/></svg>
+                        </a>
+                        <a href="https://www.youtube.com/channel/UCrEA_8rVxr7hcIvf-Hy6bMg" target="_blank" rel="noopener noreferrer" aria-label="Tacos Gavilan on YouTube" class="footer-social-link">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M23.498 6.186a3.016 3.016 0 00-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 00.502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 002.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 002.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>
+                        </a>
+                    </div>
+                </div>
+
+                <!-- Quick Links -->
+                <div class="footer-links">
+                    <h4 data-i18n="footer.quickLinks">Quick Links</h4>
+                    <ul>
+                        <li><a href="../menu/" data-i18n="nav.menu">Menu</a></li>
+                        <li><a href="./" data-i18n="nav.catering">Fiesta Platter</a></li>
+                        <li><a href="../locations/" data-i18n="nav.locations">Locations</a></li>
+                        <li><a href="../contact/" data-i18n="nav.contact">Contact Us</a></li>
+                    </ul>
+                </div>
+
+                <!-- Resources & Archive -->
+                <div class="footer-links footer-archive">
+                    <h4 data-i18n="footer.resourcesHeading">Resources &amp; Archive</h4>
+                    <ul>
+                        <li><a href="./" data-i18n="footer.fiestaPlatters">Fiesta Platters</a></li>
+                        <li><a href="../menu/" data-i18n="footer.fullMenu">Full Menu Page</a></li>
+                        <li><a href="../locations/" data-i18n="footer.allLocations">15 Store Locations</a></li>
+                        <li><a href="../blog/" data-i18n="footer.blog">Official Gavilan Blog</a></li>
+                    </ul>
+                </div>
+
+                <!-- Hours & Contact Info -->
+                <div class="footer-info">
+                    <h4 data-i18n="footer.hoursHeading">HOURS</h4>
+                    <p data-i18n="footer.hoursText">Hours vary by location.<br><strong>Check your nearest restaurant.</strong></p>
+                    <h4 style="margin-top: 1.25rem;" data-i18n="footer.contactHeading">CONTACT</h4>
+                    <p><a href="../locations/" data-i18n="footer.allLocations">15 Store Locations &rarr;</a></p>
+                    <p><a href="mailto:info@tacosgavilan.com">info@tacosgavilan.com</a></p>
+                </div>
+            </div>
+        </div>
+        <!-- Footer Marquee -->
+        <div class="footer-marquee" aria-hidden="true">
+            <div class="footer-marquee-track">
+                <div class="footer-marquee-set">
+                    <img src="../img/tagline.webp" alt="Ya está." loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../img/logo.webp" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../img/tagline.webp" alt="Ya está." loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../img/logo.webp" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../img/tagline.webp" alt="Ya está." loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../img/logo.webp" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../img/tagline.webp" alt="Ya está." loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../img/logo.webp" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../img/tagline.webp" alt="Ya está." loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../img/logo.webp" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../img/tagline.webp" alt="Ya está." loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../img/logo.webp" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../img/tagline.webp" alt="Ya está." loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../img/logo.webp" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../img/tagline.webp" alt="Ya está." loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../img/logo.webp" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
+                    <span>·</span>
+                </div>
+                <div class="footer-marquee-set" aria-hidden="true">
+                    <img src="../img/tagline.webp" alt="Ya está." loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../img/logo.webp" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../img/tagline.webp" alt="Ya está." loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../img/logo.webp" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../img/tagline.webp" alt="Ya está." loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../img/logo.webp" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../img/tagline.webp" alt="Ya está." loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../img/logo.webp" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../img/tagline.webp" alt="Ya está." loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../img/logo.webp" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../img/tagline.webp" alt="Ya está." loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../img/logo.webp" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../img/tagline.webp" alt="Ya está." loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../img/logo.webp" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../img/tagline.webp" alt="Ya está." loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../img/logo.webp" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
+                    <span>·</span>
+                </div>
+            </div>
+        </div>
+        <!-- Footer Bottom -->
+        <div class="footer-bottom">
+            <div class="container footer-bottom-content">
+                <p>&copy; <span id="year"></span> Tacos Gavilan. All rights reserved.</p>
+                <div class="footer-legal-links">
+                    <a href="../privacy/" id="open-privacy-btn" data-i18n="footer.privacy">Privacy Policy</a>
+                    <span class="legal-dot" aria-hidden="true">·</span>
+                    <a href="../terms/" id="open-terms-btn" data-i18n="footer.terms">Terms of Use</a>
+                    <span class="legal-dot" aria-hidden="true">·</span>
+                    <a href="../accessibility/" id="open-accessibility-btn" data-i18n="footer.accessibility">Accessibility</a>
+                    <span class="legal-dot" aria-hidden="true">·</span>
+                    <a href="../privacy-choices/" id="open-cookie-settings-btn" data-i18n="footer.cookieSettings">Privacy Choices</a>
+                    <span class="legal-dot" aria-hidden="true">·</span>
+                    <button type="button" id="footer-dns-btn" class="footer-legal-btn" style="background:none;border:none;color:inherit;cursor:pointer;font-size:inherit;font-family:inherit;padding:0;text-decoration:none;" data-i18n="footer.dns">Do Not Sell or Share My Personal Information</button>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <button id="tg-a11y-trigger" aria-label="Accessibility Menu / Menú de Accesibilidad" title="Accessibility Menu / Menú de Accesibilidad">
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M12 2c1.1 0 2 .9 2 2s-.9 2-2 2-2-.9-2-2 .9-2 2-2zm9 7h-6v13h-2v-6h-2v6H9V9H3V7h18v2z"/>
+        </svg>
+    </button>
+
+    <script src="../js/main.js?v=28" defer></script>
+    <script src="../js/compliance-a11y.js?v=28" defer></script>
+</body>
+</html>

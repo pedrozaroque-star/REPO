@@ -49,27 +49,27 @@ export async function PUT(
   if (body.business_date !== undefined) updateData.business_date = body.business_date
 
   // Bills
-  if (body.bills_100 !== undefined) updateData.bills_100 = parseInt(body.bills_100) || 0
-  if (body.bills_50 !== undefined) updateData.bills_50 = parseInt(body.bills_50) || 0
-  if (body.bills_20 !== undefined) updateData.bills_20 = parseInt(body.bills_20) || 0
-  if (body.bills_10 !== undefined) updateData.bills_10 = parseInt(body.bills_10) || 0
-  if (body.bills_5 !== undefined) updateData.bills_5 = parseInt(body.bills_5) || 0
-  if (body.bills_1 !== undefined) updateData.bills_1 = parseInt(body.bills_1) || 0
+  if (body.bills_100 !== undefined) updateData.bills_100 = Math.max(0, parseInt(body.bills_100) || 0)
+  if (body.bills_50 !== undefined) updateData.bills_50 = Math.max(0, parseInt(body.bills_50) || 0)
+  if (body.bills_20 !== undefined) updateData.bills_20 = Math.max(0, parseInt(body.bills_20) || 0)
+  if (body.bills_10 !== undefined) updateData.bills_10 = Math.max(0, parseInt(body.bills_10) || 0)
+  if (body.bills_5 !== undefined) updateData.bills_5 = Math.max(0, parseInt(body.bills_5) || 0)
+  if (body.bills_1 !== undefined) updateData.bills_1 = Math.max(0, parseInt(body.bills_1) || 0)
 
   // Change
-  if (body.packs_ones !== undefined) updateData.packs_ones = parseInt(body.packs_ones) || 0
-  if (body.rolls_quarter !== undefined) updateData.rolls_quarter = parseInt(body.rolls_quarter) || 0
-  if (body.rolls_dime !== undefined) updateData.rolls_dime = parseInt(body.rolls_dime) || 0
-  if (body.rolls_nickel !== undefined) updateData.rolls_nickel = parseInt(body.rolls_nickel) || 0
-  if (body.rolls_penny !== undefined) updateData.rolls_penny = parseInt(body.rolls_penny) || 0
-  if (body.loose_change !== undefined) updateData.loose_change = parseFloat(body.loose_change) || 0
+  if (body.packs_ones !== undefined) updateData.packs_ones = Math.max(0, parseInt(body.packs_ones) || 0)
+  if (body.rolls_quarter !== undefined) updateData.rolls_quarter = Math.max(0, parseInt(body.rolls_quarter) || 0)
+  if (body.rolls_dime !== undefined) updateData.rolls_dime = Math.max(0, parseInt(body.rolls_dime) || 0)
+  if (body.rolls_nickel !== undefined) updateData.rolls_nickel = Math.max(0, parseInt(body.rolls_nickel) || 0)
+  if (body.rolls_penny !== undefined) updateData.rolls_penny = Math.max(0, parseInt(body.rolls_penny) || 0)
+  if (body.loose_change !== undefined) updateData.loose_change = Math.max(0, parseFloat(body.loose_change) || 0)
 
   // Drawers
-  if (body.num_drawers !== undefined) updateData.num_drawers = parseInt(body.num_drawers) || 1
-  if (body.drawer_stock !== undefined) updateData.drawer_stock = parseFloat(body.drawer_stock) || 250.00
+  if (body.num_drawers !== undefined) updateData.num_drawers = Math.max(0, parseInt(body.num_drawers) || 0)
+  if (body.drawer_stock !== undefined) updateData.drawer_stock = Math.max(0, parseFloat(body.drawer_stock) || 0)
 
   // Uniforms
-  if (body.uniforms_amount !== undefined) updateData.uniforms_amount = parseFloat(body.uniforms_amount) || 0
+  if (body.uniforms_amount !== undefined) updateData.uniforms_amount = Math.max(0, parseFloat(body.uniforms_amount) || 0)
 
   // Notes
   if (body.notes !== undefined) updateData.notes = body.notes || null

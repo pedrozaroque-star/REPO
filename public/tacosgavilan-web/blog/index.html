@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>Blog &amp; News | Tacos Gavilan Stories, Recipes &amp; Community</title>
+    <meta name="description" content="Official blog of Tacos Gavilan. Read our history since 1992, Mexican culinary traditions, holiday catering guides, and community initiatives in Southern California.">
+    <link rel="canonical" href="https://tacosgavilan.com/blog/">
+        <!-- Favicon & Brand Icons (Transparent TEG Logo) -->
+    <link rel="icon" type="image/png" href="/logo.png?v=5">
+    <link rel="icon" type="image/png" sizes="32x32" href="/img/favicon-32x32.png?v=5">
+    <link rel="icon" type="image/png" sizes="16x16" href="/img/favicon-16x16.png?v=5">
+    <link rel="shortcut icon" href="/favicon.ico?v=5">
+    <link rel="apple-touch-icon" sizes="180x180" href="/img/apple-touch-icon.png?v=5">
+<link rel="manifest" href="../manifest.webmanifest">
+    <meta name="theme-color" content="#DA291C">
+
+    <!-- Open Graph -->
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="Tacos Gavilan">
+    <meta property="og:title" content="Blog &amp; News | Tacos Gavilan Stories, Recipes &amp; Community">
+    <meta property="og:description" content="Discover the stories, culinary traditions, and community events of Tacos Gavilan across 15 Southern California locations.">
+    <meta property="og:url" content="https://tacosgavilan.com/blog/">
+    <meta property="og:image" content="https://tacosgavilan.com/img/og-tacos-gavilan-1200x630.jpg">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta property="og:image:type" content="image/jpeg">
+
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="Blog &amp; News | Tacos Gavilan">
+    <meta name="twitter:description" content="Discover the stories, culinary traditions, and community events of Tacos Gavilan across 15 Southern California locations.">
+    <meta name="twitter:image" content="https://tacosgavilan.com/img/og-tacos-gavilan-1200x630.jpg">
+
+    <!-- Google Tag Manager -->
+    <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
+    new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
+    j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
+    'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
+    })(window,document,'script','dataLayer','GTM-WW2N58Z');</script>
+
+    <link rel="stylesheet" href="../css/style.css?v=28">
+    <link rel="stylesheet" href="../css/compliance-a11y.css?v=28">
+    <style>
+        .page-content-wrapper {
+            padding-top: calc(var(--header-height, 70px) + 2rem);
+            padding-bottom: 4rem;
+            min-height: 80vh;
+        }
+        .blog-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 1.5rem;
+        }
+        .blog-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+            gap: 2rem;
+            margin-top: 2.5rem;
+        }
+        @media (max-width: 600px) {
+            .blog-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+        .blog-card {
+            background: rgba(22, 20, 18, 0.95);
+            border: 1px solid rgba(255, 199, 44, 0.2);
+            border-radius: var(--radius-lg, 16px);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
+        }
+        .blog-card:hover {
+            transform: translateY(-5px);
+            border-color: var(--clr-gold, #FFC72C);
+            box-shadow: 0 12px 36px rgba(0,0,0,0.5);
+        }
+        .blog-card-media {
+            width: 100%;
+            height: 220px;
+            overflow: hidden;
+            background: #111;
+            position: relative;
+        }
+        .blog-card-media img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transition: transform 0.4s ease;
+        }
+        .blog-card:hover .blog-card-media img {
+            transform: scale(1.05);
+        }
+        .blog-card-category {
+            position: absolute;
+            top: 1rem;
+            left: 1rem;
+            background: var(--clr-red, #DA291C);
+            color: #ffffff;
+            font-size: 0.75rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            padding: 0.35rem 0.75rem;
+            border-radius: 20px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+        }
+        .blog-card-content {
+            padding: 1.75rem 1.5rem;
+            display: flex;
+            flex-direction: column;
+            flex-grow: 1;
+        }
+        .blog-card-meta {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            font-size: 0.85rem;
+            color: rgba(255, 255, 255, 0.6);
+            margin-bottom: 0.75rem;
+        }
+        .blog-card-title {
+            font-size: 1.3rem;
+            font-family: var(--ff-heading, sans-serif);
+            color: #ffffff;
+            margin: 0 0 0.85rem;
+            line-height: 1.35;
+        }
+        .blog-card-title a {
+            color: #ffffff;
+            text-decoration: none;
+            transition: color 0.2s;
+        }
+        .blog-card-title a:hover {
+            color: var(--clr-gold, #FFC72C);
+        }
+        .blog-card-excerpt {
+            font-size: 0.95rem;
+            line-height: 1.6;
+            color: rgba(255, 255, 255, 0.75);
+            margin: 0 0 1.5rem;
+            flex-grow: 1;
+        }
+        .blog-card-footer {
+            margin-top: auto;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            padding-top: 1rem;
+        }
+        .blog-read-link {
+            color: var(--clr-gold, #FFC72C);
+            font-weight: 700;
+            font-size: 0.95rem;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+            transition: gap 0.2s;
+        }
+        .blog-read-link:hover {
+            gap: 0.7rem;
+        }
+    </style>
+
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "Blog",
+      "@id": "https://tacosgavilan.com/blog/#blog",
+      "url": "https://tacosgavilan.com/blog/",
+      "name": "Tacos Gavilan Official Blog",
+      "description": "Stories, recipes, traditions, and community events from Tacos Gavilan in Southern California.",
+      "publisher": {
+        "@type": "Organization",
+        "name": "Tacos Gavilan",
+        "logo": {
+          "@type": "ImageObject",
+          "url": "https://tacosgavilan.com/img/gavilan-logo-hor.svg"
+        }
+      }
+    }
+    </script>
+</head>
+
+<body>
+    <noscript><iframe src="https://www.googletagmanager.com/ns.html?id=GTM-WW2N58Z"
+    height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
+
+            <header class="header scrolled" id="header">
+        <div class="scroll-progress" id="scroll-progress" aria-hidden="true"></div>
+        <div class="container header-container">
+            <!-- Logo (left) -->
+            <a href="../" class="logo" aria-label="Tacos Gavilan Home">
+                <img src="../img/logo.webp" alt="Tacos Gavilan Logo" width="160" height="48">
+            </a>
+
+            <!-- Main Navigation (center / Mobile Drawer) -->
+            <nav class="nav" id="mobile-navigation" aria-label="Main Navigation" aria-hidden="true">
+                <div class="nav-drawer-header">
+                    <img src="../img/logo.webp" alt="Tacos Gavilan" class="nav-drawer-logo nav-drawer-logo-img" width="140" height="42">
+                    <button class="nav-drawer-close" id="nav-drawer-close" aria-label="Close navigation menu" type="button">
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                    </button>
+                </div>
+                <ul class="nav-list">
+                    <li><a href="../" class="nav-link" data-i18n="nav.home" data-en="Home" data-es="Inicio">Home</a></li>
+                    <li><a href="../menu/" class="nav-link" data-i18n="nav.menu" data-en="Menu" data-es="Menú">Menu</a></li>
+                    <li><a href="../locations/" class="nav-link" data-i18n="nav.locations" data-en="Locations" data-es="Ubicaciones">Locations</a></li>
+                    <li><a href="../fiesta-platter/" class="nav-link" data-i18n="nav.catering" data-en="Fiesta Platter" data-es="Fiesta Platter">Fiesta Platter</a></li>
+                    <li><a href="../contact/" class="nav-link" data-i18n="nav.contact" data-en="Contact" data-es="Contacto">Contact</a></li>
+                    <li><a href="./" class="nav-link active" aria-current="page" data-i18n="nav.blog" data-en="Blog" data-es="Blog">Blog</a></li>
+                    <li><a href="../locations/" class="nav-link" data-i18n="nav.hours" data-en="Hours" data-es="Horas">Hours</a></li>
+                </ul>
+                <div class="nav-drawer-footer">
+                    <a href="https://order.online/business/-137616" target="_blank" rel="noopener noreferrer" class="btn btn-primary btn-drawer-order btn-drawer-cta">
+                        <span data-i18n="hero.orderBtn" data-en="Order Online" data-es="Ordenar en Línea">Order Online</span>
+                    </a>
+                    <div class="drawer-hours-badge">
+                        <span class="hours-dot" aria-hidden="true"></span>
+                        <span data-i18n="locations.hoursBadge" data-en="15 Southern California Locations" data-es="15 Sucursales en el Sur de California">15 Southern California Locations</span>
+                    </div>
+                </div>
+            </nav>
+
+            <!-- Header Actions (right) -->
+            <div class="header-actions">
+                <button id="lang-toggle" class="lang-toggle" aria-label="Switch language to Spanish" type="button">ES</button>
+                <a href="https://order.online/business/-137616" target="_blank" rel="noopener noreferrer" class="btn btn-primary btn-header-cta">
+                    <span data-i18n="nav.order" data-en="Order Now" data-es="Ordenar">Order Now</span>
+                </a>
+                <button class="mobile-menu-toggle" id="mobile-menu-toggle" aria-label="Open navigation menu" aria-expanded="false" aria-controls="mobile-navigation" type="button">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    
+
+    <main class="page-content-wrapper" id="main-content">
+        <div class="blog-container">
+            <div class="section-header" style="text-align: center; margin-bottom: 2rem;">
+                <span class="section-tag" data-i18n="blog.tag">Stories &amp; News</span>
+                <h1 class="section-title" data-i18n="blog.title">Tacos Gavilan Blog</h1>
+                <p class="section-desc" style="max-width: 680px; margin: 0 auto;" data-i18n="blog.lead">
+                    Explore our culinary roots, authentic recipes, holiday fiesta catering guides, and community initiatives in Southern California.
+                </p>
+            </div>
+
+            <div class="blog-grid">
+                
+                <article class="blog-card">
+                    <div class="blog-card-media">
+                        <img src="../img/blog/Tacos.jpg" alt="The Best Champurrado Near Me" loading="lazy" decoding="async">
+                        <span class="blog-card-category" data-i18n="blog.catTraditions">Culinary Traditions</span>
+                    </div>
+                    <div class="blog-card-content">
+                        <div class="blog-card-meta">
+                            <time datetime="2022-01-26T20:43:49">January 26, 2022</time>
+                            <span>&bull;</span>
+                            <span><span data-i18n="blog.read4Min">4 min read</span></span>
+                        </div>
+                        <h2 class="blog-card-title"><a href="./best-champurrado-near-me/" data-i18n="blog.post1Title">The Best Champurrado Near Me</a></h2>
+                        <p class="blog-card-excerpt" data-i18n="blog.post1Desc">
+                            During a chilly night, nothing beats peak coziness with a warm cup of authentic Mexican champurrado. Discover the history and where to find the best champurrado in Southern California.
+                        </p>
+                        <div class="blog-card-footer">
+                            <a href="./best-champurrado-near-me/" class="blog-read-link" aria-label="Read The Best Champurrado Near Me"><span data-i18n="blog.readArticle">Read Article &rarr;</span></a>
+                        </div>
+                    </div>
+                </article>
+                
+                <article class="blog-card">
+                    <div class="blog-card-media">
+                        <img src="../img/blog/Mexico-Celebrates-with-a-Taquiza.png" alt="Mexico Celebrates with a Taquiza" loading="lazy" decoding="async">
+                        <span class="blog-card-category" data-i18n="blog.catCatering">Culture & Catering</span>
+                    </div>
+                    <div class="blog-card-content">
+                        <div class="blog-card-meta">
+                            <time datetime="2022-01-21T04:36:21">January 21, 2022</time>
+                            <span>&bull;</span>
+                            <span><span data-i18n="blog.read5Min">5 min read</span></span>
+                        </div>
+                        <h2 class="blog-card-title"><a href="./mexico-celebrates-with-a-taquiza/" data-i18n="blog.post2Title">Mexico Celebrates with a Taquiza</a></h2>
+                        <p class="blog-card-excerpt" data-i18n="blog.post2Desc">
+                            Taquiza, also known as a taco party, is a highlight of gatherings, celebrations, holidays, and family in the Mexican tradition. Learn how the Taquiza tradition is reborn in Los Angeles.
+                        </p>
+                        <div class="blog-card-footer">
+                            <a href="./mexico-celebrates-with-a-taquiza/" class="blog-read-link" aria-label="Read Mexico Celebrates with a Taquiza"><span data-i18n="blog.readArticle">Read Article &rarr;</span></a>
+                        </div>
+                    </div>
+                </article>
+                
+                <article class="blog-card">
+                    <div class="blog-card-media">
+                        <img src="../img/blog/Location.jpg" alt="History of Tacos Gavilan" loading="lazy" decoding="async">
+                        <span class="blog-card-category" data-i18n="blog.catStory">Our Story</span>
+                    </div>
+                    <div class="blog-card-content">
+                        <div class="blog-card-meta">
+                            <time datetime="2021-11-30T17:11:49">November 30, 2021</time>
+                            <span>&bull;</span>
+                            <span><span data-i18n="blog.read4Min">4 min read</span></span>
+                        </div>
+                        <h2 class="blog-card-title"><a href="./history-of-tacos-gavilan/" data-i18n="blog.post3Title">History of Tacos Gavilan</a></h2>
+                        <p class="blog-card-excerpt" data-i18n="blog.post3Desc">
+                            Founded on the corner of Gage & Main in Los Angeles in 1992, Tacos Gavilan has grown into a beloved Southern California fast-casual Mexican food icon across 15 locations.
+                        </p>
+                        <div class="blog-card-footer">
+                            <a href="./history-of-tacos-gavilan/" class="blog-read-link" aria-label="Read History of Tacos Gavilan"><span data-i18n="blog.readArticle">Read Article &rarr;</span></a>
+                        </div>
+                    </div>
+                </article>
+                
+                <article class="blog-card">
+                    <div class="blog-card-media">
+                        <img src="../img/blog/Packing-Food.jpg" alt="Tacos Gavilan Thanksgiving Fiesta Platter Is Here" loading="lazy" decoding="async">
+                        <span class="blog-card-category" data-i18n="blog.catHoliday">Holiday Catering</span>
+                    </div>
+                    <div class="blog-card-content">
+                        <div class="blog-card-meta">
+                            <time datetime="2021-11-19T23:39:20">November 19, 2021</time>
+                            <span>&bull;</span>
+                            <span><span data-i18n="blog.read5Min">5 min read</span></span>
+                        </div>
+                        <h2 class="blog-card-title"><a href="./tacos-gavilan-thanksgiving-fiesta-platter/" data-i18n="blog.post5Title">Tacos Gavilan Thanksgiving Fiesta Platter Is Here</a></h2>
+                        <p class="blog-card-excerpt" data-i18n="blog.post5Desc">
+                            Tacos for Thanksgiving? Take the stress out of holiday cooking with all-inclusive homestyle taco Fiesta Platters, perfect for family feasts, pre-game snacks, and holiday gatherings.
+                        </p>
+                        <div class="blog-card-footer">
+                            <a href="./tacos-gavilan-thanksgiving-fiesta-platter/" class="blog-read-link" aria-label="Read Tacos Gavilan Thanksgiving Fiesta Platter Is Here"><span data-i18n="blog.readArticle">Read Article &rarr;</span></a>
+                        </div>
+                    </div>
+                </article>
+                
+                <article class="blog-card">
+                    <div class="blog-card-media">
+                        <img src="../img/blog/Visiting-Tacos.jpg" alt="Top 5 Mexican Foods To Try In Azusa, CA" loading="lazy" decoding="async">
+                        <span class="blog-card-category" data-i18n="blog.catLocal">Local Guides</span>
+                    </div>
+                    <div class="blog-card-content">
+                        <div class="blog-card-meta">
+                            <time datetime="2021-11-17T02:40:54">November 17, 2021</time>
+                            <span>&bull;</span>
+                            <span><span data-i18n="blog.read3Min">3 min read</span></span>
+                        </div>
+                        <h2 class="blog-card-title"><a href="./top-5-mexican-foods-to-try-in-azusa/" data-i18n="blog.post6Title">Top 5 Mexican Foods To Try In Azusa, CA</a></h2>
+                        <p class="blog-card-excerpt" data-i18n="blog.post6Desc">
+                            Exploring Mexican cuisine in Azusa? Here are the top 5 authentic Mexican dishes you need to try at Tacos Gavilan on Arrow Hwy, from sizzling Carne Asada to traditional Al Pastor.
+                        </p>
+                        <div class="blog-card-footer">
+                            <a href="./top-5-mexican-foods-to-try-in-azusa/" class="blog-read-link" aria-label="Read Top 5 Mexican Foods To Try In Azusa, CA"><span data-i18n="blog.readArticle">Read Article &rarr;</span></a>
+                        </div>
+                    </div>
+                </article>
+                
+                <article class="blog-card">
+                    <div class="blog-card-media">
+                        <img src="../img/blog/MG_7533.jpg" alt="First Annual Taco Eating Contest Celebrates Hispanic Heritage Month" loading="lazy" decoding="async">
+                        <span class="blog-card-category" data-i18n="blog.catGivingBack">Community & Giving Back</span>
+                    </div>
+                    <div class="blog-card-content">
+                        <div class="blog-card-meta">
+                            <time datetime="2021-11-08T01:50:00">November 8, 2021</time>
+                            <span>&bull;</span>
+                            <span><span data-i18n="blog.read5Min">5 min read</span></span>
+                        </div>
+                        <h2 class="blog-card-title"><a href="./first-annual-taco-eating-contest-celebrates-hispanic-heritage-month/" data-i18n="blog.post4Title">First Annual Taco Eating Contest Celebrates Hispanic Heritage Month</a></h2>
+                        <p class="blog-card-excerpt" data-i18n="blog.post4Desc">
+                            Tacos Gavilan partnered with South Central non-profit A Place Called Home and LAFC goalkeeper Pablo Sisniega to host an unforgettable community taco eating contest with $1,500 grand prizes.
+                        </p>
+                        <div class="blog-card-footer">
+                            <a href="./first-annual-taco-eating-contest-celebrates-hispanic-heritage-month/" class="blog-read-link" aria-label="Read First Annual Taco Eating Contest Celebrates Hispanic Heritage Month"><span data-i18n="blog.readArticle">Read Article &rarr;</span></a>
+                        </div>
+                    </div>
+                </article>
+                
+                <article class="blog-card">
+                    <div class="blog-card-media">
+                        <img src="../img/blog/MG_3095.jpg" alt="Discovering The Best Tacos In Los Angeles" loading="lazy" decoding="async">
+                        <span class="blog-card-category" data-i18n="blog.catReviews">Food Reviews</span>
+                    </div>
+                    <div class="blog-card-content">
+                        <div class="blog-card-meta">
+                            <time datetime="2021-08-21T02:50:11">August 21, 2021</time>
+                            <span>&bull;</span>
+                            <span><span data-i18n="blog.read4Min">4 min read</span></span>
+                        </div>
+                        <h2 class="blog-card-title"><a href="./discovering-the-best-tacos-in-los-angeles/" data-i18n="blog.post7Title">Discovering The Best Tacos In Los Angeles</a></h2>
+                        <p class="blog-card-excerpt" data-i18n="blog.post7Desc">
+                            A food critic reviews how Tacos Gavilan revolutionized the authentic street taco in Los Angeles with fresh, never-frozen carne asada, generational recipes, and welcoming service.
+                        </p>
+                        <div class="blog-card-footer">
+                            <a href="./discovering-the-best-tacos-in-los-angeles/" class="blog-read-link" aria-label="Read Discovering The Best Tacos In Los Angeles"><span data-i18n="blog.readArticle">Read Article &rarr;</span></a>
+                        </div>
+                    </div>
+                </article>
+                
+            </div>
+        </div>
+    </main>
+
+    <footer class="footer">
+        <div class="footer-container">
+            <div class="footer-grid">
+                <div class="footer-col">
+                    <img src="../img/gavilan-logo-hor.svg" alt="Tacos Gavilan" width="160" height="42" class="footer-logo">
+                    <p class="footer-text" data-i18n="footer.aboutText">
+                        Authentic Mexican food serving Southern California since 1992. High quality recipes prepared fresh daily across 15 locations.
+                    </p>
+                </div>
+                <div class="footer-col">
+                    <h4 class="footer-heading" data-i18n="footer.quickLinks">Quick Links</h4>
+                    <ul class="footer-links">
+                        <li><a href="../menu/" data-i18n="nav.menu">Menu</a></li>
+                        <li><a href="../locations/" data-i18n="nav.locations">Locations</a></li>
+                        <li><a href="../fiesta-platter/" data-i18n="nav.catering">Fiesta Platter</a></li>
+                        <li><a href="../contact/" data-i18n="nav.contact">Contact Us</a></li>
+                        <li><a href="./" data-i18n="nav.blog">Blog</a></li>
+                    </ul>
+                </div>
+                <div class="footer-col">
+                    <h4 class="footer-heading" data-i18n="footer.legal">Legal &amp; Privacy</h4>
+                    <ul class="footer-links">
+                        <li><a href="../privacy/" data-i18n="footer.privacy">Privacy Policy</a></li>
+                        <li><a href="../terms/" data-i18n="footer.terms">Terms of Use</a></li>
+                        <li><a href="../accessibility/" data-i18n="footer.accessibility">Accessibility Statement</a></li>
+                        <li><a href="../privacy-choices/" data-i18n="footer.privacyChoices">Do Not Sell My Info</a></li>
+                    </ul>
+                </div>
+                <div class="footer-col">
+                    <h4 class="footer-heading" data-i18n="footer.contactHeading">Contact &amp; Support</h4>
+                    <p class="footer-text"><a href="mailto:info@tacosgavilan.com" style="color: var(--clr-gold, #FFC72C);">info@tacosgavilan.com</a></p>
+                    <p class="footer-text" data-i18n="footer.storePhoneDesc">15 Locations across Southern California</p>
+                    <p class="footer-text"><a href="../locations/" style="color: var(--clr-gold, #FFC72C);" data-i18n="footer.findStore">Find Your Store &rarr;</a></p>
+                </div>
+            </div>
+            <div class="footer-bottom">
+                <p data-i18n="footer.copyright">&copy; 2026 Tacos Gavilan. All rights reserved.</p>
+            </div>
+        </div>
+    </footer>
+
+    <button id="tg-a11y-trigger" aria-label="Accessibility Menu / Menú de Accesibilidad" title="Accessibility Menu / Menú de Accesibilidad">
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M12 2c1.1 0 2 .9 2 2s-.9 2-2 2-2-.9-2-2 .9-2 2-2zm9 7h-6v13h-2v-6h-2v6H9V9H3V7h18v2z"/>
+        </svg>
+    </button>
+
+    <script src="../js/main.js?v=28" defer></script>
+    <script src="../js/compliance-a11y.js?v=28" defer></script>
+</body>
+</html>

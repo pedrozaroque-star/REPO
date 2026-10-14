@@ -1,5 +1,5 @@
 {
-  "totalHours": 65.2,
+  "totalHours": 98.2,
   "rows": [
     {
       "date": "01-Oct-2026",
@@ -109,8 +109,8 @@
         "Crear Bills Sorting",
         "Web Móvil tacosgavilan.com"
       ],
-      "descEs": "• <strong>Lanzamiento de Aplicación Móvil de Pedidos (/app & /ordenar)</strong>: Creación de las rutas oficiales de pedido móvil para clientes con flujo de checkout de Toast Local, animación de bienvenida 1:1, selector de sucursal con geolocalización y cálculo de tarifas de entrega.<br>• <strong>Tasas Oficiales CDTFA (Octubre 2026) & Impuestos por Sucursal</strong>: Configuración de las tasas impositivas oficiales vigentes del estado de California al 1 de octubre de 2026 para las 15 tiendas de Tacos Gavilan.<br>• <strong>Paridad Toast Cash Management en Contabilidad</strong>: Integración de depósitos en efectivo sincronizados directamente desde Toast Cash Management, simplificando el flujo de trabajo sin aprobaciones redundantes, cálculo de ventas brutas (Gross Sales) y desglose bilingüe.<br>• <strong>Mejoras en Crear Bills y Diseño Web Móvil</strong>: Corrección de error de referencia TDZ en buscador, ordenamiento interactivo de columnas por tienda/fecha y optimización del diseño de tarjetas en la versión móvil de tacosgavilan.com.",
-      "descEn": "• <strong>Customer Mobile Ordering App Launch (/app & /ordenar)</strong>: Built official customer mobile ordering routes featuring Toast Local checkout flow, 1:1 system welcome animation, store GPS selector, and delivery fee calculation rules.<br>• <strong>Official Oct 1 2026 CDTFA Tax Rates by Store</strong>: Programmed updated California CDTFA sales tax rates effective October 1, 2026 across all 15 Tacos Gavilan restaurants.<br>• <strong>Toast Cash Management Parity in Accounting</strong>: Integrated cash deposits directly from Toast Cash Management, establishing a streamlined 1-click workflow without redundant approvals, Gross Sales math, and bilingual breakdowns.<br>• <strong>Crear Bills Improvements & Mobile Web Refinement</strong>: Fixed search TDZ reference bug, added interactive column sorting by store/date, and optimized location cards for mobile viewports on tacosgavilan.com."
+      "descEs": "• <strong>Lanzamiento de Aplicación Móvil de Pedidos (/app & /ordenar)</strong>: Creación de las rutas de pedido móvil para clientes con flujo de checkout nativo, animación de bienvenida 1:1, selector de sucursal con geolocalización y cálculo de tarifas de entrega.<br>• <strong>Tasas Oficiales CDTFA (Octubre 2026) & Impuestos por Sucursal</strong>: Configuración de las tasas impositivas oficiales vigentes del estado de California al 1 de octubre de 2026 para las 15 tiendas de Tacos Gavilan.<br>• <strong>Paridad Toast Cash Management en Contabilidad</strong>: Integración de depósitos en efectivo sincronizados directamente desde Toast Cash Management, simplificando el flujo de trabajo sin aprobaciones redundantes, cálculo de ventas brutas (Gross Sales) y desglose bilingüe.<br>• <strong>Mejoras en Crear Bills y Diseño Web Móvil</strong>: Corrección de error de referencia TDZ en buscador, ordenamiento interactivo de columnas por tienda/fecha y optimización del diseño de tarjetas en la versión móvil de tacosgavilan.com.",
+      "descEn": "• <strong>Customer Mobile Ordering App Launch (/app & /ordenar)</strong>: Built official customer mobile ordering routes featuring native checkout flow, 1:1 system welcome animation, store GPS selector, and delivery fee calculation rules.<br>• <strong>Official Oct 1 2026 CDTFA Tax Rates by Store</strong>: Programmed updated California CDTFA sales tax rates effective October 1, 2026 across all 15 Tacos Gavilan restaurants.<br>• <strong>Toast Cash Management Parity in Accounting</strong>: Integrated cash deposits directly from Toast Cash Management, establishing a streamlined 1-click workflow without redundant approvals, Gross Sales math, and bilingual breakdowns.<br>• <strong>Crear Bills Improvements & Mobile Web Refinement</strong>: Fixed search TDZ reference bug, added interactive column sorting by store/date, and optimized location cards for mobile viewports on tacosgavilan.com."
     },
     {
       "date": "09-Oct-2026",
@@ -126,33 +126,104 @@
       ],
       "descEs": "• <strong>Splash Animado 3D de Alta Fidelidad a 60 FPS (/app)</strong>: Creación de la pantalla de bienvenida con aceleración por GPU, giro de 2520° en perspectiva tridimensional, aterrizaje frontal perfecto en 2.2 segundos y sincronización del eslogan corporativo con Framer Motion.<br>• <strong>Pulido de Producción y Accesibilidad en tacosgavilan.com</strong>: Optimización visual del encabezado móvil, integración de 3 temas de Google Maps (Estándar, Plateado, Noche), corrección de botones duplicados y enlaces de redes sociales, y acceso directo de previsualización en la barra lateral.<br>• <strong>Regla de Blindaje de Depósitos Toast en Contabilidad</strong>: Bloqueo de publicación en QuickBooks Online cuando el depósito bancario de efectivo de Toast POS aún no ha sido cerrado por gerencia, y alineación de órdenes abiertas con cuenta Cohesion 12049.<br>• <strong>Optimización de Captura de Sobrantes</strong>: Aceleración de la captura de inventario en tienda con interfaz optimista (Optimistic UI) y auto-guardado en segundo plano.<br>• <strong>Desduplicación de Voz en Order Ready Board & Preparador</strong>: Garantía de reproducción de voz una sola vez al dar bump en KDS y bloqueo de rueda de ratón en carrusel de preparador.",
       "descEn": "• <strong>60 FPS High-Fidelity 3D Animated Splash (/app)</strong>: Built GPU-accelerated entrance splash featuring 2520° 3D perspective rotation, 2.2-second landing, and corporate slogan synchronization using Framer Motion.<br>• <strong>Production Polish & Accessibility for tacosgavilan.com</strong>: Refined mobile hero typography, integrated 3 interactive Google Maps themes (Standard, Silver, Night), resolved duplicate menu close buttons, fixed social media URLs, and added direct live preview in AppSidebar.<br>• <strong>Toast Cash Deposit Blocking Rule in Accounting</strong>: Enforced strict QuickBooks publishing lock when Toast POS cash deposits remain pending store manager close, and routed open order variances to Cohesion account 12049.<br>• <strong>Optimistic UI for Leftovers Capture</strong>: Dramatically accelerated store inventory leftovers entry with optimistic React state updates and background auto-save.<br>• <strong>Order Ready Board Voice Deduplication & Prep Wheel Lock</strong>: Enforced single voice announcer callout per KDS bump and blocked accidental mouse wheel scrolling on prep line carousel."
+    },
+    {
+      "date": "10-Oct-2026",
+      "time": "12:28 PM - 8:15 PM",
+      "hours": 8.0,
+      "badges": [
+        "Web tacosgavilan.com (38 Págs)",
+        "Plan Maestro Migración v4.0",
+        "Tarjetas Tiendas & Horarios 2026",
+        "Favicon TEG & Paridad Bilingüe",
+        "Descarga Voces Gemini TTS",
+        "Lynwood #14"
+      ],
+      "descEs": "• <strong>Unificación Arquitectónica en las 38 Páginas de tacosgavilan.com</strong>: Estandarización del header canónico, cajón de navegación móvil (resolución de bloqueo por atributo inert) y pie de página corporativo con línea 1-800 en las 38 páginas del sitio. Retiro definitivo de las secciones obsoletas Careers/Jobs y Our Story por instrucción directiva de Roberto Velázquez, paridad bilingüe 100% (ES/EN), banner móvil ergonómico de cookies e incorporación del favicon transparente oficial de TEG.<br>• <strong>Reordenamiento de Sucursales por Ventas, Intersecciones Toast y Horarios 2026</strong>: Ordenamiento de las 15 sucursales por volumen real de ventas (encabezando LA Central, Lynwood y LA Broadway). Nomenclatura estandarizada por ciudad e intersección de calles principales extraídas de Toast API sin paréntesis (ej. Los Angeles — Central/Washington, Lynwood — Imperial/Long Beach) con inversión dinámica de color al pasar el cursor. Actualización de horarios 2026 (apertura 10:00 AM salvo Central y Broadway) y nuevo enlace bilingüe HOURS / HORAS en el menú.<br>• <strong>Plan Maestro de Migración v4.0 Auditable (WP Engine → Vercel & Supabase)</strong>: Auditoría del panel de WordPress y diseño del plan técnico v4.0 paso a paso para transferir el dominio oficial y eliminar el costo anual de WP Engine (>$500/año).<br>• <strong>Pipeline de Caché de Voces Gemini TTS</strong>: Generación masiva y almacenamiento persistente de locuciones bilingües de órdenes en Supabase Storage.",
+      "descEn": "• <strong>Architectural Unification Across All 38 Pages of tacosgavilan.com</strong>: Standardized canonical header, mobile navigation drawer (fixing inert lock), and corporate 1-800 footer across all 38 site pages. Permanently removed legacy Careers/Jobs and Our Story sections per Roberto Velazquez's directive, enforced 100% bilingual parity (ES/EN), ergonomic mobile cookie banner, and official transparent TEG favicon.<br>• <strong>Sales-Ranked Store Cards, Toast Cross-Streets & 2026 Hours</strong>: Ranked all 15 locations by sales volume (led by LA Central, Lynwood, and LA Broadway). Standardized store cards by city + Toast API street intersections without parentheses (e.g., Los Angeles — Central/Washington, Lynwood — Imperial/Long Beach) with hover color inversion. Updated 2026 operating hours and added bilingual HOURS / HORAS nav link.<br>• <strong>Auditable Migration Master Plan v4.0 (WP Engine → Vercel & Supabase)</strong>: Audited WordPress admin assets and engineered the v4.0 step-by-step domain transition plan to eliminate WP Engine annual hosting fees (>$500/yr).<br>• <strong>Gemini TTS Voice Cache Pipeline</strong>: Continued batch generation and persistent Supabase Storage caching of bilingual order voice callouts."
+    },
+    {
+      "date": "11-Oct-2026",
+      "time": "—",
+      "hours": 0.0,
+      "badges": [
+        "Descanso Operativo Dev",
+        "Lynwood #14"
+      ],
+      "descEs": "• <strong>Día de Operación Presencial en Restaurante</strong>: Turno gerencial en tienda Lynwood #14 (2:00 PM - 7:00 PM). Sin sesiones de programación en terminal.",
+      "descEn": "• <strong>In-Store Restaurant Operations Day</strong>: General Manager shift at Lynwood #14 (2:00 PM - 7:00 PM). No terminal coding sessions."
+    },
+    {
+      "date": "12-Oct-2026",
+      "time": "8:56 AM - 11:25 AM & 12:05 PM - 8:57 PM & 10:52 PM - 11:15 PM",
+      "hours": 12.5,
+      "badges": [
+        "Módulo Blindaje Delivery",
+        "PIN RONOS & Mesa Empaque",
+        "Contabilidad Paridad 1:1",
+        "MilesIQ Matriz Distancias",
+        "Preparador Tarjetas & Ventana 90m",
+        "Réplica 1:1 WP Engine Vercel",
+        "Lynwood #14"
+      ],
+      "descEs": "• <strong>Creación del Nuevo Módulo 'Blindaje Delivery' (/blindaje-delivery)</strong>: Diseño conceptual, documento ejecutivo PDF y desarrollo full-stack del sistema para erradicar contracargos (chargebacks), entregas cruzadas y robo de órdenes por repartidores (piloto en Slauson y LA Central). Incluye autenticación por PIN conectada en vivo a RONOS, filtrado exclusivo de canal Delivery desde Toast POS, cotejo táctil de platillos y condimentos, evidencia fotográfica, bóveda de disputas y acoplamiento vertical con tipografía gigante para tableta.<br>• <strong>Contabilidad — Paridad 1:1 en Payouts, Propinas de Plataformas y Extracción Forense Cohesion</strong>: Resolución de observaciones contables (Yasmin/Raquel) logrando cuadre al centavo en Summary Receipts, pagos cross-date, conciliación bancaria y captura de propinas en terceros (GrubHub/Uber/DoorDash) para cierres dominicales. Respaldo integral e ingeniería inversa del portal web de Cohesion (9 pestañas, 30 guías técnicas y matrices XLSX).<br>• <strong>MilesIQ — Auditoría de Kilometraje y Calibración de Distancias en Carretera</strong>: Auditoría forense de los recorridos de septiembre de Stephani Duran y recalibración de la matriz oficial de distancias reales de manejo entre las 15 sucursales, blindando el cálculo de reembolsos.<br>• <strong>Preparador KDS & Order Ready Board</strong>: Visualización exclusiva de órdenes en preparación enviadas por caja (ocultando órdenes de solo bebidas o postres como flan/cheesecake), locución dual obligatoria Inglés + Español centralizada en la PC del comedor, auto-escalado de folios de 4 dígitos (>1000) con símbolo '#' ligero y blindaje nocturno con ventana de 90 minutos.<br>• <strong>Sitio Web tacosgavilan.com — Réplica 1:1 Clásica en Vercel y Rescate de Dominio</strong>: Componente estructurado de horarios con acentos dorados, marquesina dual de ancho completo en footer y despliegue de la réplica estática 1:1 del sitio actual de WP Engine en Vercel (limpiando scripts de Cloudflare) para migración inmediata de dominio.",
+      "descEn": "• <strong>New 'Blindaje Delivery' Module (/blindaje-delivery)</strong>: Conceptual design, executive PDF brief, and full-stack build of the delivery anti-chargeback and driver handoff verification system (piloted at Slauson & LA Central). Features live RONOS employee PIN auth, strict Toast POS Delivery-only filtering, touch condiment/item checklist, photo evidence, dispute vault, and vertical tablet layout with giant typography.<br>• <strong>Accounting — 1:1 Parity in Payouts, 3rd-Party Tips & Cohesion Forensic Backup</strong>: Resolved accounting audit items (Yasmin/Raquel) achieving cent-exact parity in Summary Receipts, cross-date payments, bank reconciliation, and 3rd-party delivery tip capture (GrubHub/Uber/DoorDash) for Sunday closes. Executed full reverse-engineering backup of Cohesion's web portal (9 tabs, 30 help articles, XLSX exports).<br>• <strong>MilesIQ — Mileage Audit & Real Road Distance Matrix Calibration</strong>: Conducted forensic audit of Stephani Duran's September mileage and recalibrated the official inter-store driving distance matrix across all 15 branches.<br>• <strong>Prep Line KDS & Order Ready Board</strong>: Displayed active kitchen-sent orders as clean number cards (filtering out drink/dessert-only tickets like flan/cheesecake), enforced mandatory English + Spanish voice callouts centralized on the dining room PC, auto-scaled 4-digit order numbers (>1000) with light '#', and hardened late-night active queue with a 90-minute window.<br>• <strong>tacosgavilan.com — 1:1 Classic WP Engine Replica on Vercel & Domain Recovery</strong>: Built multi-tier gold-accented store schedule cards, full-width dual-track footer marquee, and deployed a 1:1 static replica of the live WP Engine site on Vercel (stripping foreign Cloudflare scripts) for immediate zero-downtime domain cutover."
+    },
+    {
+      "date": "13-Oct-2026",
+      "time": "8:50 AM - 11:05 AM & 1:29 PM - 9:30 PM",
+      "hours": 10.5,
+      "badges": [
+        "Lanzamiento DNS tacosgavilan.com",
+        "Blindaje Delivery Semáforo & Voz",
+        "Uniformes ↔ Caja Fuerte Sync",
+        "Order Ready Audio 4x Redundancia",
+        "Contabilidad Cash In-Out",
+        "Lynwood #14"
+      ],
+      "descEs": "• <strong>Transición en Vivo del Dominio Oficial tacosgavilan.com con Directivos</strong>: Sesión ejecutiva con los dueños (Roberto y Erick Velázquez) para recuperar el control de la cuenta del dominio, apuntar los registros DNS a Vercel y lanzar oficialmente el nuevo sitio web de Tacos Gavilan con respaldo íntegro del sitio clásico de WP Engine. Actualización de teléfonos oficiales de las 15 sucursales y apertura de Hollywood a las 9:00 AM.<br>• <strong>Blindaje Delivery — Semáforo Operativo, Fullscreen Permanente y Locutor de Empaque</strong>: Evolución del módulo en pruebas de piso: modo Fullscreen permanente desde la pantalla de PIN (sesión de 10 min), semáforo de colores por estado (EN PREPARACIÓN, EMPACANDO, LISTA), locución de voz KDS al pasar la orden al estante de empaque, clave limpia de 5 caracteres en Uber Eats, botón directo 'CONFIRMAR ORDEN COMPLETA Y SELLADA' sin foto obligatoria y alertas por homonimia de clientes.<br>• <strong>Sincronización Bidireccional entre Control de Uniformes y Caja Fuerte</strong>: Integración contable en tiempo real entre ambos módulos (/caja-fuerte y /inventory/uniforms): cada venta de prenda o gorra en Uniformes incrementa y concilia automáticamente el efectivo de uniformes en la bóveda de Caja Fuerte y viceversa.<br>• <strong>Order Ready Board — Blindaje de Audio 4x y Contabilidad Cash In-Out</strong>: Arquitectura de reproducción con cuádruple redundancia para erradicar silenciamientos tras medianoche, estatus efectivos granulares en calendario contable (Ready, Depósito Pendiente, Órdenes Abiertas) y paridad exacta de Cash In-Out.",
+      "descEn": "• <strong>Live DNS Cutover of Official Domain tacosgavilan.com with Ownership</strong>: Working session with company owners (Roberto and Erick Velazquez) to secure domain registrar access, point DNS records to Vercel, and officially launch the new Tacos Gavilan website while preserving a full backup of the legacy WP Engine site. Updated all 15 official store phone numbers and Hollywood's 9:00 AM opening.<br>• <strong>Blindaje Delivery — Status Traffic Light, Permanent Fullscreen & Packing Voice Announcer</strong>: Field-driven upgrades: permanent Fullscreen mode across PIN lock (10-min session) and active operations, 3-state color traffic light (PREPARING, PACKING, READY), KDS voice callout when orders move to the packing shelf, clean 5-char Uber Eats code, 1-tap 'CONFIRM ORDER COMPLETE & SEALED' without mandatory photo, and duplicate customer name alerts.<br>• <strong>Bidirectional Sync Between Uniform Control & Safe Box</strong>: Real-time reconciliation linking /caja-fuerte and /inventory/uniforms so every uniform shirt/hat sale automatically updates and reconciles with the Safe vault uniform cash balance.<br>• <strong>Order Ready 4x Audio Hardening & Accounting Cash In-Out Parity</strong>: Quadruple-redundancy audio playback eliminating post-midnight drop-offs, granular calendar badges (Ready, Pending Deposit, Open Orders), and exact Cash In-Out reconciliation parity."
+    },
+    {
+      "date": "14-Oct-2026",
+      "time": "5:47 AM - 7:35 AM",
+      "hours": 2.0,
+      "badges": [
+        "Contabilidad Cron 6:30 AM & 12049",
+        "4,000 Audios Kore Web Audio API",
+        "Blindaje Delivery 100% Bilingüe",
+        "Web Modal Tiendas & Fiesta Platter",
+        "Lynwood #14"
+      ],
+      "descEs": "• <strong>Contabilidad — Cron Diario Automático (6:30 AM PST) y Paridad 100% Línea por Línea</strong>: Programación del cron job diario (/api/cron/sync-accounting) en lotes paralelos para generar automáticamente los paquetes de las 15 tiendas al cierre comercial, calibrando el crédito a cuenta 12049 en cheques sobrepagados (Overpaid Check) y el memo de Tip Out contra Cohesion en vivo.<br>• <strong>Order Ready Board — 4,000 Audios Kore Bilingües y Motor Web Audio API</strong>: Culminación de la biblioteca de 4,000 locuciones neuronales Kore (folios 1 al 2,000 en Inglés y Español), motor de reproducción con Web Audio API y deduplicación exacta de toque.<br>• <strong>Blindaje Delivery — Auto-Expiración (+2h), Backfill de Chofer Uber e i18n 100% Bilingüe</strong>: Expiración automática de órdenes no recogidas tras 2 horas, extracción automática del nombre del repartidor de Uber Eats desde Toast API, retiro definitivo de UI de expediente/fotos y traducción 100% bilingüe (ES/EN) con selector de idioma en tableta.<br>• <strong>Sitio Web tacosgavilan.com — Modal de Sucursales, Guía Fiesta Platter y Marcos Dorados</strong>: Presentación de detalles de sucursal en modal interactivo bilingüe, tarjetas de tiendas con marco ámbar-dorado sutil, tabla limpia oficial de Fiesta Platters y ajuste responsivo del footer móvil.<br>• <strong>Evaluación Estratégica de POS Propio</strong>: Análisis de viabilidad y arquitectura para independizar a futuro el ecosistema POS de Toast.",
+      "descEn": "• <strong>Accounting — Automated 6:30 AM PST Daily Cron & 100% Line-by-Line Parity</strong>: Scheduled parallel-batch daily packet generation cron (/api/cron/sync-accounting) for all 15 stores and calibrated overpaid check 12049 credit and Tip Out memo formatting against live Cohesion packets.<br>• <strong>Order Ready Board — 4,000 Bilingual Kore Audios & Web Audio API Engine</strong>: Completed the 4,000-file Kore neural voice library (orders 1–2,000 in EN & ES), Web Audio API low-latency playback engine, and exact tap deduplication.<br>• <strong>Blindaje Delivery — Auto-Expire (+2h), Uber Driver Backfill & 100% Bilingual i18n</strong>: Auto-expiration of unclaimed orders after 2 hours, automatic Uber Eats driver name backfill from Toast API, removal of legacy dossier/photo UI, and complete ES/EN translation with fullscreen tablet language switcher.<br>• <strong>tacosgavilan.com — Interactive Store Details Modal, Fiesta Platter Guide & Golden Frames</strong>: Rendered Store Details as an interactive bilingual modal across Home/Locations, added subtle warm golden-amber card frames, aligned Fiesta Platter breakdown with official brochure, and fixed mobile footer clearance.<br>• <strong>In-House POS Strategic Assessment</strong>: Evaluated feasibility, cost savings, and roadmap for replacing Toast POS hardware and payment processing long-term."
     }
   ],
   "effort": [
-    { "name": "Aplicación Móvil & Ordenar en Línea (/app)", "hours": 18.5, "percent": 28.4 },
-    { "name": "Order Ready Board & KDS en Vivo", "hours": 18.0, "percent": 27.6 },
-    { "name": "Contabilidad, Cohesion & Crear Bills (QBO)", "hours": 14.5, "percent": 22.2 },
-    { "name": "Sitio Web Corporativo (tacosgavilan.com)", "hours": 8.0, "percent": 12.3 },
-    { "name": "Inventario, Viele & Sons y Sobrantes", "hours": 6.2, "percent": 9.5 }
+    { "name": "Order Ready (4,000 Audios), Preparador KDS & Blindaje Delivery", "hours": 31.5, "percent": 32.1 },
+    { "name": "App Móvil Clientes (/app) & Sitio Web (tacosgavilan.com en Vivo)", "hours": 23.5, "percent": 23.9 },
+    { "name": "Contabilidad, Paridad 100% Cohesion, Cron & Crear Bills (QBO)", "hours": 21.0, "percent": 21.4 },
+    { "name": "Inventario, Orden Diaria IA, Uniformes-Caja Fuerte & Viele", "hours": 13.2, "percent": 13.4 },
+    { "name": "MilesIQ Supervisores, Evaluación QR, Ventas y Reportes", "hours": 9.0, "percent": 9.2 }
   ],
   "parallelActivities": [
     {
       "title": "Turnos Oficiales en Tienda Lynwood #14 (General Manager)",
-      "hours": 37.0,
-      "descEs": "Gestión operativa en tienda física Lynwood #14 de Carlos Velázquez (02-Oct 8h, 03-Oct 8h, 04-Oct 5h, 05-Oct 8h, 06-Oct 8h, 07-Oct 8h, 09-Oct 8h) auditando en piso el flujo de KDS, atención en comedor, cuadraturas de caja y pruebas de prototipo en tableta.",
-      "descEn": "On-site restaurant operations at Lynwood #14 store for Carlos Velázquez (Oct 2 8h, Oct 3 8h, Oct 4 5h, Oct 5 8h, Oct 6 8h, Oct 7 8h, Oct 9 8h) auditing on the floor KDS line speed, dining room pickup, cash drawers, and tablet prototype testing."
+      "hours": 90.0,
+      "descEs": "Gestión operativa presencial en sucursal Lynwood #14 de Carlos Velázquez (02-Oct 8h, 03-Oct 8h, 04-Oct 5h, 05-Oct 8h, 06-Oct 8h, 07-Oct 8h, 09-Oct 8h, 10-Oct 8h, 11-Oct 5h, 12-Oct 8h, 13-Oct 8h, 14-Oct 8h) supervisando velocidad de línea KDS, mesa de empaque Delivery, comedor, cortes de caja y pruebas en piso.",
+      "descEn": "On-site General Manager store operations at Lynwood #14 for Carlos Velázquez (Oct 2 8h, Oct 3 8h, Oct 4 5h, Oct 5 8h, Oct 6 8h, Oct 7 8h, Oct 9 8h, Oct 10 8h, Oct 11 5h, Oct 12 8h, Oct 13 8h, Oct 14 8h) overseeing KDS line speed, Delivery packing station, dining room pickup, cash drawers, and live tablet testing."
     },
     {
-      "title": "Monitoreo y Auditoría de APIs en Vivo (Toast POS, QBO, Viele & Sons)",
-      "hours": 12.0,
-      "descEs": "Inspección continua de webhooks de Toast POS, validación de cuotas y latencia en Gemini TTS, sincronización de diarios contables con QuickBooks Online y flujo de órdenes de Viele & Sons.",
-      "descEn": "Continuous monitoring of Toast POS webhooks, Gemini TTS latency and 429 quota handling, QuickBooks Online journal sync, and Viele & Sons order transmission pipelines."
+      "title": "Monitoreo y Auditoría de APIs en Vivo (Toast POS, QBO, Viele & Sons, RONOS)",
+      "hours": 18.0,
+      "descEs": "Inspección continua de webhooks y órdenes de Toast POS, biblioteca de 4,000 voces Kore en Supabase Storage, cron diario de pólizas (6:30 AM PST) y Bills con QuickBooks Online, autenticación PIN de RONOS y flujo de órdenes Viele & Sons.",
+      "descEn": "Continuous live monitoring of Toast POS webhooks and orders, 4,000 Kore voice assets in Supabase Storage, 6:30 AM PST daily accounting cron & QuickBooks Bill sync, RONOS PIN authentication, and Viele & Sons order pipelines."
     },
     {
-      "title": "Arquitectura de Despliegue, Rendimiento Móvil y Vercel CI/CD",
-      "hours": 8.5,
-      "descEs": "Configuración de builds en Vercel, optimización de bundles de Next.js, empaquetado de assets para la app móvil en Expo y preparación para migración DNS de tacosgavilan.com.",
-      "descEn": "Vercel cloud build configuration, Next.js bundle optimization, asset packaging for Expo mobile app, and DNS migration readiness for tacosgavilan.com."
+      "title": "Transición DNS tacosgavilan.com en Vivo, Sincronización Web y Vercel CI/CD",
+      "hours": 14.0,
+      "descEs": "Puesta en producción del dominio oficial tacosgavilan.com sobre Vercel junto a los directivos, sincronización de activos web (/nueva-web), builds libres de errores en TypeScript y calibración de tabletas en tienda.",
+      "descEn": "Live production DNS cutover of official tacosgavilan.com domain on Vercel with company directors, web asset sync (/nueva-web), zero-error TypeScript builds, and in-store tablet calibration."
     }
   ]
 }

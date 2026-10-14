@@ -1213,35 +1213,50 @@ async function queryTicketPackaging(args: { store_name: string; business_date: s
 
 // ── 9. Feedback ──
 async function queryFeedback(args: any): Promise<string> {
+  const { idToName } = await getStoreMaps()
   const parts: string[] = []
 
-  // Customer feedback / Google reviews
+  // Customer feedback / Google reviews / Website contact & newsletter leads
   if (!args.source || args.source !== 'internal') {
-    const { data } = await supabaseAdmin.from('customer_feedback')
-      .select('store_name, rating, nps_score, comments, source, submission_date')
-      .gte('submission_date', args.start_date).lte('submission_date', args.end_date)
-      .order('submission_date', { ascending: false }).limit(50)
+    let q = supabaseAdmin.from('customer_feedback')
+      .select('id, store_id, customer_name, customer_email, overall_rating, nps_score, complaint_type, comments, source, submission_date, admin_review_status, created_at')
+      .order('submission_date', { ascending: false })
+      .order('created_at', { ascending: false })
+
+    if (args.start_date) q = q.gte('submission_date', args.start_date)
+    if (args.end_date) q = q.lte('submission_date', args.end_date)
+    if (args.source && args.source !== 'all') q = q.eq('source', args.source)
+
+    const { data } = await q.limit(50)
 
     if (data?.length) {
-      const avg = (data.reduce((s, r) => s + (Number(r.rating) || 0), 0) / data.length).toFixed(1)
-      const lines = data.slice(0, 15).map(r => `[${r.submission_date}] ${clean(r.store_name)} ★${r.rating} (${r.source || 'google'}): ${(r.comments || '').slice(0, 100)}`)
-      parts.push(`Customer Reviews (${data.length}): Avg ${avg}★\n${lines.join('\n')}`)
+      const rated = data.filter(r => r.overall_rating != null)
+      const avg = rated.length ? (rated.reduce((s, r) => s + (Number(r.overall_rating) || 0), 0) / rated.length).toFixed(1) : 'N/A'
+      const lines = data.slice(0, 20).map(r => {
+        const storeName = idToName[r.store_id] || `Store #${r.store_id || '?'}`
+        const ratingBadge = r.overall_rating != null ? `★${r.overall_rating}` : (r.complaint_type || 'lead')
+        return `[${r.submission_date}] ${clean(storeName)} | ${r.customer_name || 'Guest'} (${r.source || 'web'}) [${ratingBadge}]: ${(r.comments || '').slice(0, 120)}`
+      })
+      parts.push(`Customer Feedback & Web Leads (${data.length}): Avg Rating ${avg}★\n${lines.join('\n')}`)
     }
   }
 
   // Internal feedback
   if (!args.source || args.source !== 'google') {
-    const { data } = await supabaseAdmin.from('system_feedback')
+    let q = supabaseAdmin.from('system_feedback')
       .select('id, category, message, status, created_at')
-      .gte('created_at', args.start_date).lte('created_at', args.end_date)
-      .order('created_at', { ascending: false }).limit(30)
+      .order('created_at', { ascending: false })
+    if (args.start_date) q = q.gte('created_at', args.start_date)
+    if (args.end_date) q = q.lte('created_at', args.end_date)
+
+    const { data } = await q.limit(30)
 
     if (data?.length) {
       parts.push(`Internal Feedback (${data.length}): ${data.map(f => `[${f.category || '?'}] ${(f.message || '').slice(0, 80)}`).join('\n')}`)
     }
   }
 
-  return parts.length ? parts.join('\n\n') : `No feedback for ${args.start_date} to ${args.end_date}.`
+  return parts.length ? parts.join('\n\n') : `No feedback for ${args.start_date || 'all'} to ${args.end_date || 'now'}.`
 }
 
 // ── 10. Stores ──
@@ -1984,10 +1999,11 @@ async function querySafeCounts(args: any): Promise<string> {
   const { idToName } = await getStoreMaps()
   let query = supabaseAdmin
     .from('safe_counts')
-    .select('id, store_id, business_date, grand_total, bills_total, coins_total, drawers_total, uniforms_amount, notes, counted_at')
+    .select('id, store_id, business_date, grand_total, bills_total, coins_total, loose_change, drawers_total, uniforms_amount, notes, counted_at, created_at')
     .gte('business_date', args.start_date)
     .lte('business_date', args.end_date)
-    .order('business_date', { ascending: false })
+    .order('counted_at', { ascending: false })
+    .order('created_at', { ascending: false })
 
   if (args.store_name) {
     const storeIds = await getStoreIdsByName(args.store_name)
@@ -1998,11 +2014,32 @@ async function querySafeCounts(args: any): Promise<string> {
   if (error) return `Error: ${error.message}`
   if (!data?.length) return `No safe counts found from ${args.start_date} to ${args.end_date}.`
 
+  const { fetchUniformsSafeBalance } = await import('@/app/inventory/uniforms/actions')
+  const uniqueStoreIds = Array.from(new Set(data.map((r: any) => Number(r.store_id)).filter((n: number) => !isNaN(n))))
+  const balanceEntries = await Promise.all(
+    uniqueStoreIds.map(async (sId) => {
+      try {
+        return [sId, await fetchUniformsSafeBalance(sId)] as const
+      } catch {
+        return [sId, null] as const
+      }
+    })
+  )
+  const balanceMap = new Map(balanceEntries)
+
   let grand = 0
   const lines = data.map(r => {
-    grand += Number(r.grand_total) || 0
+    const bal = balanceMap.get(Number(r.store_id))
+    const isLatest = Boolean(bal && String(bal.lastSafeCountId) === String(r.id))
+    const addedUniforms = isLatest ? (bal?.accumulatedSalesSinceCount || 0) : 0
+    const liveUniforms = isLatest ? (bal?.totalInSafe ?? (Number(r.uniforms_amount) || 0)) : (Number(r.uniforms_amount) || 0)
+    const liveTotal = (Number(r.grand_total) || 0) + addedUniforms
+    grand += liveTotal
     const storeName = idToName[r.store_id] || `Store #${r.store_id}`
-    return `${r.business_date} | ${storeName} | Total: ${fmt$(Number(r.grand_total) || 0)} (Bills: ${fmt$(Number(r.bills_total) || 0)}, Coins: ${fmt$(Number(r.coins_total) || 0)}, Drawers: ${fmt$(Number(r.drawers_total) || 0)}, Uniforms: ${fmt$(Number(r.uniforms_amount) || 0)}) | Notes: ${r.notes || 'None'}`
+    const uniformsLabel = addedUniforms > 0
+      ? `${fmt$(liveUniforms)} [Base: ${fmt$(Number(r.uniforms_amount) || 0)} + Ventas Uniformes: ${fmt$(addedUniforms)}]`
+      : fmt$(liveUniforms)
+    return `${r.business_date} | ${storeName} | Total: ${fmt$(liveTotal)} (Bills: ${fmt$(Number(r.bills_total) || 0)}, Coins: ${fmt$((Number(r.coins_total) || 0) + (Number(r.loose_change) || 0))}, Drawers: ${fmt$(Number(r.drawers_total) || 0)}, Uniforms: ${uniformsLabel}) | Notes: ${r.notes || 'None'}`
   })
 
   return `--- Safe Counts ---\nTotal records: ${data.length}\nGrand total sum: ${fmt$(grand)}\n\n${lines.join('\n')}`
@@ -2080,9 +2117,10 @@ async function queryExecutiveUniformsDashboard(args: any): Promise<string> {
     .gte('business_date', args.start_date)
     .lte('business_date', args.end_date)
     
+  let matchedStoreIds: number[] = []
   if (args.store_name) {
-    const storeIds = await getStoreIdsByName(args.store_name)
-    if (storeIds.length) query = query.in('store_id', storeIds)
+    matchedStoreIds = await getStoreIdsByName(args.store_name)
+    if (matchedStoreIds.length) query = query.in('store_id', matchedStoreIds)
   }
 
   const { data: tx, error: txError } = await query
@@ -2095,7 +2133,7 @@ async function queryExecutiveUniformsDashboard(args: any): Promise<string> {
   
   ;(tx || []).forEach(t => {
     const amount = Number(t.total_amount) || 0
-    const isVoided = amount === 0 && (t.reason || '').includes('[ANULADO]')
+    const isVoided = (t.reason || '').includes('[ANULADO')
     if (isVoided) return
 
     if (t.transaction_type === 'employee_sale' || t.transaction_type === 'customer_sale') {
@@ -2108,12 +2146,24 @@ async function queryExecutiveUniformsDashboard(args: any): Promise<string> {
       itemsFree += qty
     }
   })
+
+  let safeSummary = ''
+  if (matchedStoreIds.length === 1) {
+    try {
+      const { fetchUniformsSafeBalance } = await import('@/app/inventory/uniforms/actions')
+      const bal = await fetchUniformsSafeBalance(Number(matchedStoreIds[0]))
+      safeSummary = `\n🔒 **Dinero de Uniformes en Caja Fuerte (Acumulado Actual)**: ${fmt$(bal.totalInSafe)} (Conteo Base Caja Fuerte: ${fmt$(bal.lastSafeCountAmount)} + Ventas Sumadas Desde Conteo: ${fmt$(bal.accumulatedSalesSinceCount)} | Ventas Hoy: ${fmt$(bal.todaySalesAmount)})\n`
+    } catch {
+      // ignore
+    }
+  }
   
   const scopeHeader = args.store_name ? ` para **${args.store_name}**` : ''
   return `Uniforms Executive Dashboard${scopeHeader} (${args.start_date} to ${args.end_date}):\n\n` +
-         `💰 **Sales Revenue**: ${fmt$(totalSales)} (${itemsSold} items sold)\n` +
-         `👕 **Free Uniforms Value**: ${fmt$(totalFree)} (${itemsFree} items given)\n` +
-         `\nTo investigate cash discrepancies, recommend comparing this with the Safe Counts report for the same period.`
+         `💰 **Sales Revenue (Period)**: ${fmt$(totalSales)} (${itemsSold} items sold)\n` +
+         `👕 **Free Uniforms Value**: ${fmt$(totalFree)} (${itemsFree} items given)` +
+         safeSummary +
+         `\nTo investigate cash discrepancies, compare this with the Safe Counts report for the same period.`
 }
 
 // ── 20. Prep Pace (Preparador) ──

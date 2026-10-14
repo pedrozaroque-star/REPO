@@ -7,7 +7,7 @@
  * @businessRules
  *   1. Toast POS is exclusive for food orders; this endpoint handles brand, catering, careers, and accessibility inquiries.
  *   2. Fail-Closed Guarantee: Never return HTTP 200 without verified database persistence in Supabase.
- *   3. If Supabase configuration or network fails, return 503 CONTACT_SERVICE_UNAVAILABLE with office phone fallback (310) 870-7009.
+ *   3. If Supabase configuration or network fails, return 503 CONTACT_SERVICE_UNAVAILABLE with email fallback info@tacosgavilan.com.
  *   4. Strictly whitelist topics and store names to prevent injection or corruption of customer_feedback records.
  *   5. Each warm serverless instance limits an IP to 5 submissions per 10-minute window; this is defense in depth,
  *      not a distributed global rate limit.
@@ -17,7 +17,7 @@
  *
  * @notes
  *   - Verified against live Supabase schema for public.customer_feedback (references stores.id).
- *   - Corporate headquarters (Lynwood, store_id: 14) serves as default anchor when no specific store is chosen.
+ *   - Default fallback store_id: 14 (Lynwood) when no specific store is chosen.
  *   - Expired in-memory rate-limit entries are periodically purged to bound memory use in warm instances.
  */
 
@@ -85,8 +85,19 @@ const STORE_NAME_TO_ID = {
     'West Covina': 3,
     'Azusa': 4,
     'LA Broadway': 5,
+    'Los Angeles Broadway': 5,
+    'Los Angeles (Vernon/Broadway)': 5,
+    'Los Angeles Vernon/Broadway': 5,
     'LA Central': 6,
+    'Los Angeles Central': 6,
+    'Los Angeles Central (Central/Washington)': 6,
+    'Los Angeles (Central/Washington)': 6,
+    'Los Angeles Central/Washington': 6,
+    'Los Angeles Central Central/Washington': 6,
     'Slauson': 7,
+    'Los Angeles Slauson': 7,
+    'Los Angeles (Slauson/Broadway)': 7,
+    'Los Angeles Slauson/Broadway': 7,
     'Hollywood': 8,
     'Santa Ana': 9,
     'La Puente': 10,
@@ -128,7 +139,7 @@ module.exports = async function handler(req, res) {
         res.setHeader('Retry-After', '600');
         return res.status(429).json({
             ok: false,
-            error: 'Too many requests. Please wait a few minutes before sending another message or call us at (310) 870-7009.'
+            error: 'Too many requests. Please wait a few minutes before sending another message or email us at info@tacosgavilan.com.'
         });
     }
 
@@ -157,7 +168,7 @@ module.exports = async function handler(req, res) {
         body = body || {};
 
         // 5. Honeypot Anti-Spam Check
-        if (body.b_company_website || body.b_website || body.b_name) {
+        if (body.b_company_website || body.b_website || body.b_name || body.b_company) {
             // Silently discard spam submission; do not write to DB
             return res.status(200).json({
                 ok: true,
@@ -169,7 +180,18 @@ module.exports = async function handler(req, res) {
         const name = sanitizeText(body.name);
         const email = sanitizeText(body.email);
         const phone = sanitizeText(body.phone);
-        const rawReason = sanitizeText(body.reason).toLowerCase() || 'general';
+        const rawReasonInput = sanitizeText(body.reason || body.subject || body.type).toLowerCase();
+        const REASON_ALIASES = {
+            'general inquiry': 'general',
+            'corporate / general inquiry': 'general',
+            'catering & party trays': 'catering',
+            'catering & fiesta platters': 'catering',
+            'customer feedback': 'feedback',
+            'customer feedback & guest experience': 'feedback',
+            'corporate / media': 'other',
+            'corporate & media': 'other'
+        };
+        const rawReason = REASON_ALIASES[rawReasonInput] || rawReasonInput || 'general';
         const rawStore = sanitizeText(body.store);
         const message = sanitizeText(body.message);
 
@@ -231,11 +253,11 @@ module.exports = async function handler(req, res) {
             return res.status(503).json({
                 ok: false,
                 code: 'CONTACT_SERVICE_UNAVAILABLE',
-                error: 'Contact service is temporarily unavailable. Please call our corporate office at (310) 870-7009.'
+                error: 'Contact service is temporarily unavailable. Please contact us via email at info@tacosgavilan.com.'
             });
         }
 
-        // Resolve store_id (default to Lynwood HQ: 14 if store is not specified)
+        // Resolve store_id (default to Lynwood: 14 if store is not specified)
         const storeId = rawStore ? STORE_NAME_TO_ID[rawStore] : 14;
         const ua = (req.headers['user-agent'] || '').slice(0, 200);
 
@@ -270,7 +292,7 @@ module.exports = async function handler(req, res) {
             console.error('[api/contact] Supabase write failed:', dbRes.status, dbError);
             return res.status(500).json({
                 ok: false,
-                error: 'Unable to save your message right now. Please try again or call our office at (310) 870-7009.'
+                error: 'Unable to save your message right now. Please try again or contact us at info@tacosgavilan.com.'
             });
         }
 
@@ -279,7 +301,7 @@ module.exports = async function handler(req, res) {
             console.error('[api/contact] Supabase returned empty representation:', insertedRows);
             return res.status(500).json({
                 ok: false,
-                error: 'Message could not be verified in our records. Please call (310) 870-7009.'
+                error: 'Message could not be verified in our records. Please contact us at info@tacosgavilan.com.'
             });
         }
 
@@ -296,7 +318,7 @@ module.exports = async function handler(req, res) {
         console.error('[api/contact] Unhandled exception:', err);
         return res.status(500).json({
             ok: false,
-            error: 'An unexpected server error occurred. Please try again or call (310) 870-7009.'
+            error: 'An unexpected server error occurred. Please try again or email info@tacosgavilan.com.'
         });
     }
 };

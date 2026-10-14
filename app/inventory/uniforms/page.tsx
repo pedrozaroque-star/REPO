@@ -14,6 +14,7 @@ import {
   saveManualAudit, recordUniformSale, recordNewHirePackage,
   recordDamageExchange, fetchTransactionHistory, fetchEmployeeKardex,
   fetchExecutiveDashboard, updateUniformPricing, fetchDailySalesTotal,
+  fetchUniformsSafeBalance,
   confirmOrderReception, resetInitialCount, fetchQBEstimateForReception,
   fetchRecentStoreEstimates, fetchEmployeesForStore,
   updateUniformTransactionDetails, voidUniformTransaction,
@@ -24,7 +25,7 @@ import {
   CATEGORY_GROUPS, PricingRecord, StockItem, UniformTransaction,
   ExecutiveDashboardData, getBusinessDate, formatCurrency, getCategoryDisplayName,
   getTransactionTypeLabel, ALL_CATEGORIES, ExecutiveStoreData, TransactionType,
-  getDefaultMinStock, DEFAULT_MIN_STOCK
+  getDefaultMinStock, DEFAULT_MIN_STOCK, UniformsSafeBalance
 } from './utils';
 
 /**
@@ -35,6 +36,8 @@ import {
  * - Primera vez en una tienda muestra el Asistente de Conteo Inicial (Setup Wizard).
  * - 4 pestañas: Stock y Auditoría, Ventas y Entregas, Recepción de Órdenes, Historial y Kardex.
  * - Permite reiniciar el conteo inicial con confirmación explícita.
+ * - Sincronización acumulativa en tiempo real con Caja Fuerte:
+ *   El dinero de uniformes en Caja Fuerte es la suma del último conteo en safe_counts.uniforms_amount más cada venta activa posterior.
  * @dataFlow Cliente (React) <-> Server Actions <-> Supabase DB
  * @notes i18n 100% bilingüe (es/en) usando useLanguage().
  */
@@ -61,6 +64,7 @@ function UniformsContent() {
   const [needsSetup, setNeedsSetup] = useState(false);
   const [stockData, setStockData] = useState<StockItem[]>([]);
   const [pricingData, setPricingData] = useState<PricingRecord[]>([]);
+  const [safeBalance, setSafeBalance] = useState<UniformsSafeBalance | null>(null);
   
   const [toast, setToast] = useState<{message: string, type: 'success' | 'error' | 'warning'} | null>(null);
 
@@ -134,15 +138,28 @@ function UniformsContent() {
     }
   }, [isExecutive, accessibleStores, selectedStoreId]);
 
-  // Load stock when selectedStoreId changes
+  const refreshSafeBalance = async (sId: number) => {
+    try {
+      const bal = await fetchUniformsSafeBalance(sId, getBusinessDate());
+      setSafeBalance(bal);
+    } catch {
+      // Keep existing balance on transient error
+    }
+  };
+
+  // Load stock and cumulative safe balance when selectedStoreId changes
   useEffect(() => {
     const loadStoreStock = async () => {
       if (!selectedStoreId) return;
       
       try {
         setLoading(true);
-        const stock = await fetchUniformsStock(selectedStoreId);
+        const [stock, bal] = await Promise.all([
+          fetchUniformsStock(selectedStoreId),
+          fetchUniformsSafeBalance(selectedStoreId, getBusinessDate()).catch(() => null),
+        ]);
         setStockData(stock);
+        setSafeBalance(bal);
         
         if (stock.length === 0) {
           setNeedsSetup(true);
@@ -158,11 +175,19 @@ function UniformsContent() {
     loadStoreStock();
   }, [selectedStoreId, t]);
 
+  // Refresh safe balance when switching tabs to ensure live sync with Caja Fuerte
+  useEffect(() => {
+    if (selectedStoreId) {
+      refreshSafeBalance(selectedStoreId);
+    }
+  }, [activeTab, selectedStoreId]);
+
   const handleSetupComplete = async () => {
     if (selectedStoreId) {
       const stock = await fetchUniformsStock(selectedStoreId);
       setStockData(stock);
       setNeedsSetup(false);
+      refreshSafeBalance(selectedStoreId);
     }
   };
 
@@ -199,8 +224,27 @@ function UniformsContent() {
             </p>
           </div>
 
-          {/* Store Display (Single store for Managers / Asistentes) or Selector (for Admins / Supervisors) */}
-          <div className="flex items-center gap-3">
+          {/* Store Display / Selector + Live Caja Fuerte Uniforms Balance */}
+          <div className="flex flex-wrap items-center gap-3">
+            {safeBalance && (
+              <div className="flex items-center gap-2.5 px-4 py-2 bg-purple-50 dark:bg-purple-900/30 border border-purple-200 dark:border-purple-800 rounded-xl shadow-sm">
+                <DollarSign className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+                <div className="flex flex-col text-left">
+                  <span className="text-[10px] uppercase tracking-wider font-extrabold text-purple-600 dark:text-purple-400">
+                    {t('uniforms.kpi.today_safe_sales')}
+                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-black text-sm text-purple-950 dark:text-purple-100">
+                      {formatCurrency(safeBalance.totalInSafe)}
+                    </span>
+                    <span className="text-[11px] text-purple-700 dark:text-purple-300 opacity-85">
+                      ({formatCurrency(safeBalance.lastSafeCountAmount)} + {formatCurrency(safeBalance.accumulatedSalesSinceCount)})
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {isExecutive || accessibleStores.length > 1 ? (
               <div className="flex items-center gap-2">
                 <Building className="w-5 h-5 text-gray-400" />
@@ -300,9 +344,11 @@ function UniformsContent() {
                       storeId={selectedStoreId}
                       stockData={stockData}
                       pricingData={pricingData}
+                      safeBalance={safeBalance}
                       showToast={showToast}
                       onTransactionComplete={() => {
                         fetchUniformsStock(selectedStoreId).then(setStockData);
+                        refreshSafeBalance(selectedStoreId);
                       }}
                     />
                   )}
@@ -321,6 +367,7 @@ function UniformsContent() {
                       showToast={showToast} 
                       onTransactionComplete={() => {
                         fetchUniformsStock(selectedStoreId).then(setStockData);
+                        refreshSafeBalance(selectedStoreId);
                       }} 
                     />
                   )}
@@ -1378,7 +1425,7 @@ function ReorderModal({ onClose, lowStockItems }: { onClose: () => void, lowStoc
   );
 }
 
-function TabSalesAndIssues({ storeId, stockData, pricingData, showToast, onTransactionComplete }: any) {
+function TabSalesAndIssues({ storeId, stockData, pricingData, safeBalance: parentSafeBalance, showToast, onTransactionComplete }: any) {
   const { user } = useAuth();
   const { t, language } = useLanguage();
   const [empName, setEmpName] = useState('');
@@ -1494,19 +1541,29 @@ function TabSalesAndIssues({ storeId, stockData, pricingData, showToast, onTrans
   const selectedEmp = employeeList.find(x => x.id === selectedEmpId);
   const selectedJobTitle = selectedEmp?.job_title || '';
 
-  const [todaySalesTotal, setTodaySalesTotal] = useState<number>(0);
+  const [localSafeBalance, setLocalSafeBalance] = useState<UniformsSafeBalance | null>(parentSafeBalance || null);
+  const safeBalance: UniformsSafeBalance | null = parentSafeBalance || localSafeBalance;
+  const todaySalesTotal = safeBalance?.totalInSafe ?? 0;
 
   const loadTodaySales = () => {
     if (storeId) {
-      fetchDailySalesTotal(storeId, getBusinessDate())
-        .then(setTodaySalesTotal)
-        .catch(() => setTodaySalesTotal(0));
+      fetchUniformsSafeBalance(storeId, getBusinessDate())
+        .then(bal => {
+          setLocalSafeBalance(bal);
+        })
+        .catch(() => {
+          // Keep existing balance on transient error
+        });
     }
   };
 
   useEffect(() => {
-    loadTodaySales();
-  }, [storeId]);
+    if (parentSafeBalance) {
+      setLocalSafeBalance(parentSafeBalance);
+    } else {
+      loadTodaySales();
+    }
+  }, [storeId, parentSafeBalance]);
 
   const isExempt = useMemo(() => {
     if (txType === 'customer_sale' || isCustomNameMode) return false;
@@ -1594,7 +1651,7 @@ function TabSalesAndIssues({ storeId, stockData, pricingData, showToast, onTrans
            setSubmitting(false);
            return;
         }
-        await recordUniformSale({ 
+        const saleRes = await recordUniformSale({ 
           storeId, 
           userEmail: user?.email || '',
           employeeName: empName,
@@ -1607,6 +1664,15 @@ function TabSalesAndIssues({ storeId, stockData, pricingData, showToast, onTrans
           quantity: saleQty,
           businessDate: getBusinessDate()
         });
+        if (!saleRes.success) {
+          showToast(t('uniforms.toast.no_stock'), 'error');
+          onTransactionComplete();
+          setSubmitting(false);
+          return;
+        }
+        if (saleRes.warning) {
+          showToast(t('uniforms.sales.partial_delivery_warning'), 'warning');
+        }
       } else if (txType === 'new_hire') {
         // Enforce strict stock limit validation before submitting
         if (pkgShirtQty > pkgShirtStock) {
@@ -2187,9 +2253,56 @@ function TabSalesAndIssues({ storeId, stockData, pricingData, showToast, onTrans
               ) : '$0.00'}
             </p>
           </div>
-          <div className="pt-3 border-t border-white/20">
-            <h3 className="text-xs uppercase tracking-wider font-semibold opacity-80 mb-1">{t('uniforms.kpi.today_safe_sales')}</h3>
-            <p className="text-2xl font-bold text-emerald-200">{formatCurrency(todaySalesTotal)}</p>
+
+          <div className="pt-3 border-t border-white/20 space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="text-xs uppercase tracking-wider font-semibold opacity-90">{t('uniforms.kpi.today_safe_sales')}</h3>
+              <span className="text-[10px] font-bold bg-white/20 px-2 py-0.5 rounded-full">
+                {t('uniforms.kpi.safe_synced_badge')}
+              </span>
+            </div>
+            <p className="text-3xl font-black text-emerald-200">
+              {formatCurrency(safeBalance?.totalInSafe ?? todaySalesTotal)}
+            </p>
+
+            {safeBalance && (
+              <div className="bg-black/20 rounded-xl p-3 space-y-2 text-xs">
+                <div className="flex items-center justify-between">
+                  <span className="opacity-80">{t('uniforms.kpi.safe_last_count')}:</span>
+                  <span className="font-bold">
+                    {formatCurrency(safeBalance.lastSafeCountAmount)}
+                    {safeBalance.lastSafeCountDate && (
+                      <span className="opacity-70 ml-1">
+                        ({new Date(safeBalance.lastSafeCountDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'America/Los_Angeles' })})
+                      </span>
+                    )}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-emerald-200">
+                  <span className="opacity-90">{t('uniforms.kpi.safe_sales_since')}:</span>
+                  <span className="font-bold">
+                    +{formatCurrency(safeBalance.accumulatedSalesSinceCount)} ({safeBalance.salesCountSinceCount})
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-purple-200 pt-1 border-t border-white/10">
+                  <span className="opacity-90">{t('uniforms.kpi.safe_today_sales')}:</span>
+                  <span className="font-bold">
+                    {formatCurrency(safeBalance.todaySalesAmount)} ({safeBalance.todaySalesCount})
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {(txType === 'sale' || txType === 'customer_sale') && !isExempt && currentPrice > 0 && (
+              <div className="pt-2 border-t border-white/20 flex items-center justify-between bg-emerald-500/20 rounded-xl px-3 py-2">
+                <span className="text-xs font-semibold text-emerald-100">
+                  {t('uniforms.kpi.safe_projected_after_sale')}:
+                </span>
+                <span className="text-base font-black text-white">
+                  {formatCurrency((safeBalance?.totalInSafe ?? todaySalesTotal) + currentPrice)}
+                </span>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -2841,6 +2954,7 @@ function TabHistoryAndKardex({ storeId, showToast, onTransactionComplete }: any)
       showToast(t('uniforms.history.edit_success'), 'success');
       setEditingTx(null);
       await refreshHistory();
+      if (onTransactionComplete) onTransactionComplete();
     } catch (err) {
       showToast(t('uniforms.toast.error'), 'error');
     } finally {
@@ -2948,7 +3062,7 @@ function TabHistoryAndKardex({ storeId, showToast, onTransactionComplete }: any)
                   </tr>
                 ) : (
                   history.map(tx => {
-                    const isVoided = tx.reason && tx.reason.includes('[ANULADO]');
+                    const isVoided = Boolean(tx.reason && String(tx.reason).includes('[ANULADO'));
                     return (
                       <tr key={tx.id} className={`hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors ${isVoided ? 'opacity-60 bg-red-50/30 dark:bg-red-950/10' : ''}`}>
                         <td className="p-4 text-sm text-gray-500">

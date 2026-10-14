@@ -2,8 +2,9 @@ const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 
-// Evaluate the base data from build-authentic-accurate-reports.js
-const buildScript = fs.readFileSync('scripts/build-authentic-accurate-reports.js', 'utf-8');
+// Evaluate the base data from build-authentic-accurate-reports.js (without writing HTML or launching Puppeteer)
+const rawBuildScript = fs.readFileSync('scripts/build-authentic-accurate-reports.js', 'utf-8');
+const buildScript = rawBuildScript.split('// WRITE REPORTS')[0];
 
 // Create a sandbox execution to obtain all variables
 const moduleObj = { exports: {} };
@@ -42,12 +43,16 @@ const octoberTasks = septemberTasks.map(t => {
     } else if (t.num === 7) {
         task.status = 'completado';
         task.statusLabel = 'Completado';
-        task.audit = '<strong>✓ Completado y Desplegado en Producción (Octubre 2026).</strong> Paridad contable 1:1 con Cohesion ($450/mes de ahorro), integración directa de depósitos de Toast Cash Management, tratamiento de Paid In, y bloqueo automático si falta el depósito en efectivo.';
+        task.audit = '<strong>✓ Completado y Desplegado en Producción (Octubre 2026).</strong> Paridad contable 1:1 en Payouts, Cash In-Out, propinas de plataformas (GrubHub/Uber/DoorDash) y Summary Receipts, integración directa de depósitos de Toast Cash Management, estatus efectivos granulares en calendario y bloqueo automático ante depósitos pendientes.';
+    } else if (t.num === 18) {
+        task.status = 'completado';
+        task.statusLabel = 'Completado';
+        task.audit = '<strong>✓ Completado y Calibrado (Octubre 2026).</strong> Auditoría forense de recorridos de supervisores y recalibración de la matriz oficial de distancias reales de manejo por carretera entre las 15 sucursales.';
     } else if (t.num === 21) {
         task.status = 'completado';
         task.statusLabel = 'Completado';
-        task.title = '21. Order Ready Board & Pantalla de Pedidos';
-        task.audit = '<strong>✓ Completado y Lanzado (Octubre 2026).</strong> Sistema de llamado de órdenes listas con voz neuronal femenina ultra-realista Gemini TTS (Español/Inglés) con eslogan \"¡Ya está!\", sincronización de bump en KDS expediter y modo TV pantalla completa.';
+        task.title = '21. Order Ready Board, Preparador KDS & Blindaje Delivery';
+        task.audit = '<strong>✓ Completado y Lanzado (Octubre 2026).</strong> Sistema de llamado de órdenes listas con voz neuronal Gemini TTS (Inglés + Español obligatorio) con cuádruple redundancia de audio, filtro de bebidas/postres en tableta de Preparador con ventana de 90 min, y nuevo módulo Blindaje Delivery (/blindaje-delivery) con PIN RONOS, mesa de empaque y entrega verificada a repartidores.';
     } else if (t.num === 24) {
         task.status = 'completado';
         task.statusLabel = 'Completado';
@@ -62,7 +67,7 @@ const octoberTasks = septemberTasks.map(t => {
         task.status = 'progreso';
         task.statusLabel = 'En Progreso';
         task.title = '26. App Móvil de Clientes (/app) & tacosgavilan.com';
-        task.audit = '<strong>⚡ En Progreso Activo (Fase de Producción - Octubre 2026).</strong> Rutas de pedido móvil con checkout Toast Local, splash animado 3D a 60 FPS en Framer Motion, tasas oficiales CDTFA e integración de temas de Google Maps para el sitio web corporativo.';
+        task.audit = '<strong>⚡ En Progreso Activo (Fase de Producción - Octubre 2026).</strong> Unificación de las 38 páginas de tacosgavilan.com, tarjetas de sucursales ordenadas por ventas con intersecciones Toast API y horarios 2026, réplica estática 1:1 de WP Engine en Vercel lista para cambio de DNS, y splash 3D a 60 FPS en App Clientes.';
     }
     return task;
 });

@@ -1,0 +1,888 @@
+/**
+ * @file compliance-a11y.css
+ * @description California CCPA/CPRA Cookie Consent & ADA Title III / WCAG 2.2 AA Handicap Accessibility Suite Stylesheet
+ * @brand Tacos Gavilan (Strictly official, zero emojis)
+ */
+
+/* ==========================================================================
+   1. ACCESSIBILITY FLOATING BUTTON (TRIGGER) - MIDDLE RIGHT
+   ========================================================================== */
+#tg-a11y-trigger {
+    position: fixed;
+    top: 50%;
+    right: 18px;
+    transform: translateY(-50%);
+    width: 52px;
+    height: 52px;
+    background: #0d1117;
+    border: 2px solid #f4c430;
+    border-radius: 50%;
+    color: #f4c430;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    box-shadow: 0 4px 18px rgba(0, 0, 0, 0.5), 0 0 10px rgba(244, 196, 48, 0.35);
+    z-index: 999980;
+    transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.2s, box-shadow 0.2s;
+    outline: none;
+    padding: 0;
+    margin: 0;
+}
+
+#tg-a11y-trigger:hover,
+#tg-a11y-trigger:focus-visible {
+    transform: translateY(-50%) scale(1.1);
+    background: #1a202c;
+    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.6), 0 0 16px rgba(244, 196, 48, 0.6);
+    outline: 3px solid #f4c430;
+    outline-offset: 3px;
+}
+
+#tg-a11y-trigger svg {
+    width: 28px;
+    height: 28px;
+    fill: currentColor;
+    pointer-events: none;
+}
+
+/* Badge for active accessibility features count */
+#tg-a11y-badge {
+    position: absolute;
+    top: -4px;
+    right: -4px;
+    background: #d62828;
+    color: #ffffff;
+    font-size: 11px;
+    font-weight: 800;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    border: 2px solid #0d1117;
+}
+
+/* ==========================================================================
+   2. ACCESSIBILITY FLYOUT PANEL - MIDDLE RIGHT
+   ========================================================================== */
+#tg-a11y-panel {
+    position: fixed;
+    top: 50%;
+    right: 80px;
+    transform: translateY(-50%);
+    width: 370px;
+    max-width: calc(100vw - 36px);
+    max-height: min(85vh, 680px);
+    background: #12141a;
+    border: 1px solid rgba(244, 196, 48, 0.4);
+    border-radius: 18px;
+    box-shadow: 0 18px 50px rgba(0, 0, 0, 0.75), 0 0 20px rgba(244, 196, 48, 0.15);
+    color: #f0f3f6;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    z-index: 999990;
+    display: none;
+    flex-direction: column;
+    overflow: hidden;
+    animation: tgSlideRight 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+#tg-a11y-panel.is-open {
+    display: flex;
+}
+
+@keyframes tgSlideRight {
+    from {
+        opacity: 0;
+        transform: translateY(-50%) translateX(20px) scale(0.96);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(-50%) translateX(0) scale(1);
+    }
+}
+
+.tg-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px;
+    background: #1a1d26;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.tg-panel-title {
+    font-size: 15px;
+    font-weight: 700;
+    color: #f4c430;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0;
+}
+
+.tg-panel-title svg {
+    width: 20px;
+    height: 20px;
+    fill: currentColor;
+}
+
+.tg-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.tg-lang-btn {
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(244, 196, 48, 0.4);
+    color: #f4c430;
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background 0.2s;
+    font-family: inherit;
+}
+
+.tg-lang-btn:hover {
+    background: rgba(244, 196, 48, 0.15);
+}
+
+.tg-close-btn {
+    background: transparent;
+    border: none;
+    color: #a0aec0;
+    font-size: 20px;
+    cursor: pointer;
+    line-height: 1;
+    padding: 4px;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.tg-close-btn:hover,
+.tg-close-btn:focus-visible {
+    color: #ffffff;
+    background: rgba(255, 255, 255, 0.1);
+    outline: 2px solid #f4c430;
+}
+
+.tg-panel-body {
+    padding: 16px 20px;
+    overflow-y: auto;
+    max-height: calc(100vh - 240px);
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.tg-section-label {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #8b949e;
+    margin: 0 0 8px 0;
+}
+
+.tg-grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+}
+
+.tg-tool-btn {
+    background: #1c212c;
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    border-radius: 10px;
+    color: #e6edf3;
+    padding: 12px 10px;
+    font-size: 12px;
+    font-weight: 600;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    cursor: pointer;
+    transition: all 0.18s ease;
+    text-align: center;
+    line-height: 1.25;
+    font-family: inherit;
+}
+
+.tg-tool-btn:hover {
+    background: #252c3b;
+    border-color: rgba(244, 196, 48, 0.4);
+    color: #ffffff;
+}
+
+.tg-tool-btn:focus-visible {
+    outline: 3px solid #f4c430;
+    outline-offset: 2px;
+}
+
+.tg-tool-btn.is-active {
+    background: #232b38;
+    border-color: #f4c430;
+    color: #f4c430;
+    box-shadow: inset 0 0 0 1px #f4c430, 0 2px 8px rgba(244, 196, 48, 0.2);
+}
+
+.tg-tool-btn svg {
+    width: 20px;
+    height: 20px;
+    fill: currentColor;
+    flex-shrink: 0;
+}
+
+.tg-panel-footer {
+    padding: 14px 20px;
+    background: #161a22;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.tg-reset-btn {
+    background: transparent;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: #c9d1d9;
+    padding: 8px 14px;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-family: inherit;
+}
+
+.tg-reset-btn:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: #ffffff;
+}
+
+.tg-statement-link {
+    font-size: 11px;
+    color: #f4c430;
+    text-decoration: underline;
+    cursor: pointer;
+    background: none;
+    border: none;
+    padding: 0;
+    font-family: inherit;
+}
+
+/* ==========================================================================
+   3. ACCESSIBILITY MODIFIER CLASSES ON <html>
+   ========================================================================== */
+
+/* High Contrast: Black background, High Contrast Yellow / White text */
+html.tg-high-contrast {
+    background: #000000 !important;
+    color: #ffff00 !important;
+}
+html.tg-high-contrast body,
+html.tg-high-contrast header,
+html.tg-high-contrast footer,
+html.tg-high-contrast section,
+html.tg-high-contrast div:not(#tg-a11y-panel):not(#tg-cookie-banner):not(#tg-cookie-modal):not(#tg-statement-modal) {
+    background-color: #000000 !important;
+    color: #ffff00 !important;
+    border-color: #ffff00 !important;
+}
+html.tg-high-contrast h1,
+html.tg-high-contrast h2,
+html.tg-high-contrast h3,
+html.tg-high-contrast h4,
+html.tg-high-contrast h5,
+html.tg-high-contrast h6,
+html.tg-high-contrast p,
+html.tg-high-contrast span:not(.tg-badge):not(#tg-a11y-badge),
+html.tg-high-contrast li {
+    color: #ffff00 !important;
+}
+html.tg-high-contrast a:not(#tg-cookie-banner a):not(#tg-cookie-modal a),
+html.tg-high-contrast button:not(.tg-tool-btn):not(.tg-close-btn):not(.tg-reset-btn):not(.tg-lang-btn):not(.tg-btn-primary):not(.tg-btn-secondary):not(.tg-btn-dns):not(#tg-a11y-trigger) {
+    color: #00ffff !important;
+    text-decoration: underline 2px !important;
+}
+
+/* Invert Colors */
+html.tg-invert-colors {
+    filter: invert(100%) hue-rotate(180deg) !important;
+}
+html.tg-invert-colors img,
+html.tg-invert-colors video,
+html.tg-invert-colors iframe,
+html.tg-invert-colors #tg-a11y-trigger,
+html.tg-invert-colors #tg-a11y-panel,
+html.tg-invert-colors #tg-cookie-banner,
+html.tg-invert-colors #tg-cookie-modal,
+html.tg-invert-colors #tg-statement-modal {
+    filter: invert(100%) hue-rotate(180deg) !important;
+}
+
+/* Monochromatic / Grayscale */
+html.tg-grayscale {
+    filter: grayscale(100%) !important;
+}
+
+/* Font Sizing */
+html.tg-font-large body {
+    font-size: 118% !important;
+}
+html.tg-font-xlarge body {
+    font-size: 135% !important;
+}
+
+/* Text & Line Spacing */
+html.tg-text-spacing body,
+html.tg-text-spacing p,
+html.tg-text-spacing a,
+html.tg-text-spacing li,
+html.tg-text-spacing h1,
+html.tg-text-spacing h2,
+html.tg-text-spacing h3 {
+    letter-spacing: 0.12em !important;
+    word-spacing: 0.16em !important;
+    line-height: 1.85 !important;
+}
+
+/* Dyslexia-Friendly Font */
+html.tg-dyslexic-font,
+html.tg-dyslexic-font body,
+html.tg-dyslexic-font p,
+html.tg-dyslexic-font h1,
+html.tg-dyslexic-font h2,
+html.tg-dyslexic-font h3,
+html.tg-dyslexic-font a,
+html.tg-dyslexic-font span {
+    font-family: 'OpenDyslexic', 'Comic Sans MS', -apple-system, sans-serif !important;
+}
+
+/* Highlight All Links */
+html.tg-highlight-links a:not(.tg-tool-btn):not(.tg-statement-link):not(#tg-cookie-banner a):not(#tg-cookie-modal a),
+html.tg-highlight-links button:not(.tg-tool-btn):not(#tg-a11y-trigger):not(.tg-close-btn):not(.tg-reset-btn):not(.tg-lang-btn):not(.tg-btn-primary):not(.tg-btn-secondary):not(.tg-btn-dns):not(#tg-save-prefs-btn) {
+    background-color: #ffff00 !important;
+    color: #000000 !important;
+    text-decoration: underline 3px !important;
+    font-weight: 800 !important;
+    outline: 2px solid #000000 !important;
+    padding: 2px 4px !important;
+    border-radius: 3px !important;
+}
+
+/* Big Cursor */
+html.tg-big-cursor,
+html.tg-big-cursor * {
+    cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='48' viewBox='0 0 24 24'%3E%3Cpath fill='%23000' stroke='%23fff' stroke-width='1.5' d='M5 2l12 11.5-5.5 1 3.5 7-3 1.5-3.5-7L5 19V2z'/%3E%3C/svg%3E"), auto !important;
+}
+
+/* Stop Animations */
+html.tg-stop-animations *,
+html.tg-stop-animations *::before,
+html.tg-stop-animations *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+}
+
+/* Reading Guide Line */
+.tg-reading-guide-line {
+    position: fixed;
+    left: 0;
+    width: 100vw;
+    height: 18px;
+    background: rgba(244, 196, 48, 0.45);
+    pointer-events: none;
+    z-index: 9999999;
+    border-top: 2px solid #f4c430;
+    border-bottom: 2px solid #f4c430;
+    display: none;
+    transform: translateY(-50%);
+}
+
+.tg-reading-guide-line.is-active {
+    display: block;
+}
+
+/* Screen Reader Speech Synthesis Active Highlight */
+.tg-speech-active {
+    outline: 3px solid #f4c430 !important;
+    outline-offset: 3px !important;
+    background-color: rgba(244, 196, 48, 0.15) !important;
+    border-radius: 4px !important;
+    transition: outline 0.15s ease, background-color 0.15s ease !important;
+}
+
+/* Floating Audio Announcement Bar when Screen Reader Mode is Active */
+#tg-speech-bar {
+    position: fixed;
+    bottom: 24px;
+    right: 80px;
+    background: #12141a;
+    border: 2px solid #f4c430;
+    border-radius: 9999px;
+    padding: 8px 18px;
+    display: none;
+    align-items: center;
+    gap: 12px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.75), 0 0 15px rgba(244, 196, 48, 0.3);
+    z-index: 999985;
+    color: #ffffff;
+    font-size: 13px;
+    font-weight: 700;
+    font-family: inherit;
+    animation: tgSlideRight 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+#tg-speech-bar.is-visible {
+    display: flex;
+}
+
+#tg-speech-bar button {
+    background: transparent;
+    border: none;
+    color: #f4c430;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2px;
+    border-radius: 4px;
+    transition: transform 0.15s;
+}
+
+#tg-speech-bar button:hover {
+    transform: scale(1.15);
+}
+
+@media (max-width: 768px) {
+    #tg-speech-bar {
+        bottom: 80px;
+        right: 14px;
+        left: 14px;
+        justify-content: space-between;
+    }
+}
+
+/* ==========================================================================
+   4. CALIFORNIA CCPA/CPRA COOKIE CONSENT BANNER
+   ========================================================================== */
+#tg-cookie-banner {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: rgba(14, 16, 22, 0.98);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border-top: 1px solid rgba(244, 196, 48, 0.4);
+    box-shadow: 0 -8px 36px rgba(0, 0, 0, 0.65);
+    color: #ffffff;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    z-index: 999970;
+    padding: 20px 24px;
+    display: none;
+    animation: tgBannerFadeIn 0.3s ease-out forwards;
+}
+
+#tg-cookie-banner.is-visible {
+    display: block;
+}
+
+@keyframes tgBannerFadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.tg-banner-container {
+    max-width: 1200px;
+    margin: 0 auto;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+}
+
+.tg-banner-content {
+    flex: 1 1 540px;
+}
+
+.tg-banner-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(244, 196, 48, 0.15);
+    border: 1px solid #f4c430;
+    color: #f4c430;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    padding: 3px 10px;
+    border-radius: 9999px;
+    margin-bottom: 8px;
+}
+
+.tg-banner-text {
+    font-size: 13.5px;
+    line-height: 1.55;
+    color: #d1d5db;
+    margin: 0;
+}
+
+.tg-banner-text a {
+    color: #f4c430;
+    text-decoration: underline;
+    font-weight: 600;
+}
+
+.tg-banner-actions {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.tg-btn-primary {
+    background: #d62828;
+    color: #ffffff;
+    border: 2px solid #d62828;
+    border-radius: 9999px;
+    padding: 10px 22px;
+    font-size: 13.5px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-family: inherit;
+}
+
+.tg-btn-primary:hover {
+    background: #b71c1c;
+    border-color: #b71c1c;
+    box-shadow: 0 4px 14px rgba(214, 40, 40, 0.4);
+}
+
+.tg-btn-secondary {
+    background: rgba(255, 255, 255, 0.08);
+    color: #ffffff;
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    border-radius: 9999px;
+    padding: 10px 20px;
+    font-size: 13.5px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-family: inherit;
+}
+
+.tg-btn-secondary:hover {
+    background: rgba(255, 255, 255, 0.16);
+    border-color: rgba(255, 255, 255, 0.4);
+}
+
+.tg-btn-dns {
+    background: transparent;
+    color: #f4c430;
+    border: 1px dashed rgba(244, 196, 48, 0.6);
+    border-radius: 9999px;
+    padding: 10px 18px;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.2s;
+    font-family: inherit;
+}
+
+.tg-btn-dns:hover {
+    background: rgba(244, 196, 48, 0.15);
+    border-color: #f4c430;
+}
+
+/* ==========================================================================
+   5. CCPA PREFERENCE CENTER MODAL & STATEMENT MODAL
+   ========================================================================== */
+#tg-cookie-modal,
+#tg-statement-modal,
+.tg-modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.82);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    z-index: 999999;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+#tg-cookie-modal.is-open {
+    display: flex;
+}
+
+.tg-modal-box {
+    background: #12141a;
+    border: 1px solid rgba(244, 196, 48, 0.4);
+    border-radius: 20px;
+    width: 620px;
+    max-width: 100%;
+    max-height: 90vh;
+    overflow-y: auto;
+    color: #ffffff;
+    box-shadow: 0 24px 64px rgba(0, 0, 0, 0.85);
+    display: flex;
+    flex-direction: column;
+}
+
+.tg-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 20px 24px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    background: #181c24;
+}
+
+.tg-modal-title {
+    font-size: 18px;
+    font-weight: 800;
+    color: #f4c430;
+    margin: 0;
+}
+
+.tg-modal-body {
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.tg-modal-lead {
+    font-size: 13.5px;
+    line-height: 1.55;
+    color: #d1d5db;
+    margin: 0;
+}
+
+.tg-cookie-category {
+    background: #181c25;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 14px;
+    padding: 16px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    transition: border-color 0.2s;
+}
+
+.tg-cookie-category:hover {
+    border-color: rgba(244, 196, 48, 0.3);
+}
+
+.tg-cat-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.tg-cat-title {
+    margin: 0 !important;
+    font-size: 15px !important;
+    font-weight: 700 !important;
+    color: #ffffff !important;
+    line-height: 1.3 !important;
+}
+
+.tg-cat-desc {
+    margin: 0 !important;
+    font-size: 12.5px !important;
+    line-height: 1.45 !important;
+    color: #9ca3af !important;
+}
+
+.tg-badge-always {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    background: rgba(244, 196, 48, 0.15);
+    color: #f4c430;
+    border: 1px solid rgba(244, 196, 48, 0.4);
+    padding: 2px 8px;
+    border-radius: 9999px;
+    margin-left: 8px;
+    vertical-align: middle;
+}
+
+.tg-dns-block {
+    border-color: rgba(244, 196, 48, 0.4) !important;
+    background: rgba(244, 196, 48, 0.06) !important;
+}
+
+.tg-dns-block .tg-cat-title {
+    color: #f4c430 !important;
+}
+
+/* Toggle Switch */
+.tg-switch {
+    position: relative;
+    display: inline-block;
+    width: 48px;
+    height: 26px;
+    flex-shrink: 0;
+}
+
+.tg-switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.tg-slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: #374151;
+    transition: 0.25s;
+    border-radius: 34px;
+}
+
+.tg-slider:before {
+    position: absolute;
+    content: "";
+    height: 20px;
+    width: 20px;
+    left: 3px;
+    bottom: 3px;
+    background-color: white;
+    transition: 0.25s;
+    border-radius: 50%;
+}
+
+.tg-switch input:checked + .tg-slider {
+    background-color: #f4c430;
+}
+
+.tg-switch input:checked + .tg-slider:before {
+    transform: translateX(22px);
+    background-color: #12141a;
+}
+
+.tg-switch input:disabled + .tg-slider {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
+.tg-modal-footer {
+    padding: 18px 24px;
+    background: #181c24;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 12px;
+}
+
+/* ==========================================================================
+   6. RESPONSIVE BREAKPOINTS (MOBILE & TABLET)
+   ========================================================================== */
+@media (max-width: 768px) {
+    #tg-a11y-trigger {
+        top: 50%;
+        right: 12px;
+        transform: translateY(-50%);
+        width: 48px;
+        height: 48px;
+    }
+
+    #tg-a11y-panel {
+        top: 50%;
+        left: 12px;
+        right: 12px;
+        width: auto;
+        transform: translateY(-50%);
+        max-height: 85vh;
+    }
+
+    #tg-cookie-banner {
+        padding: 14px 16px max(14px, env(safe-area-inset-bottom, 14px));
+        max-height: 82vh;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+        box-sizing: border-box;
+    }
+
+    .tg-banner-actions {
+        width: 100%;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+        box-sizing: border-box;
+    }
+
+    .tg-banner-actions button {
+        width: 100%;
+        min-width: 0;
+        min-height: 44px;
+        padding: 10px 8px;
+        font-size: 13px;
+        box-sizing: border-box;
+        text-align: center;
+        justify-content: center;
+        display: flex;
+        align-items: center;
+    }
+
+    .tg-banner-actions #tg-btn-accept-all {
+        grid-column: 1 / -1;
+        order: 1;
+        font-weight: 700;
+        font-size: 14.5px;
+    }
+
+    .tg-banner-actions #tg-btn-reject-all {
+        grid-column: 1;
+        order: 2;
+    }
+
+    .tg-banner-actions #tg-btn-prefs {
+        grid-column: 2;
+        order: 3;
+    }
+
+    .tg-banner-actions #tg-btn-dns {
+        grid-column: 1 / -1;
+        order: 4;
+        font-size: 12.5px;
+    }
+}

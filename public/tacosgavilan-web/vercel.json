@@ -1,17 +1,227 @@
 {
   "version": 2,
   "cleanUrls": true,
-  "trailingSlash": false,
+  "trailingSlash": true,
   "redirects": [
     {
-      "source": "/:path*",
+      "source": "/(.*)",
       "has": [
         {
           "type": "host",
           "value": "www.tacosgavilan.com"
         }
       ],
-      "destination": "https://tacosgavilan.com/:path*",
+      "destination": "https://tacosgavilan.com/$1",
+      "permanent": true
+    },
+    {
+      "source": "/careers/:path*/",
+      "destination": "/contact/",
+      "permanent": false
+    },
+    {
+      "source": "/careers/:path*",
+      "destination": "/contact/",
+      "permanent": false
+    },
+    {
+      "source": "/careers/",
+      "destination": "/contact/",
+      "permanent": false
+    },
+    {
+      "source": "/careers",
+      "destination": "/contact/",
+      "permanent": false
+    },
+    {
+      "source": "/fiesta-platter/fiesta-platter-pdf/",
+      "destination": "/Gavilan-Party-Tray-Brochure-WEB.pdf",
+      "permanent": true
+    },
+    {
+      "source": "/fiestaplatter-2/",
+      "destination": "/fiesta-platter/",
+      "permanent": true
+    },
+    {
+      "source": "/party-platter/",
+      "destination": "/fiesta-platter/",
+      "permanent": true
+    },
+    {
+      "source": "/10-off-fiesta-platters/",
+      "destination": "/fiesta-platter/",
+      "permanent": true
+    },
+    {
+      "source": "/taco-party-platter-for-large-group-catering/",
+      "destination": "/fiesta-platter/",
+      "permanent": true
+    },
+    {
+      "source": "/same-day-taquizas-catering/",
+      "destination": "/fiesta-platter/",
+      "permanent": true
+    },
+    {
+      "source": "/taquiza/",
+      "destination": "/fiesta-platter/",
+      "permanent": true
+    },
+    {
+      "source": "/game-day-go-super/",
+      "destination": "/fiesta-platter/",
+      "permanent": true
+    },
+    {
+      "source": "/stores/los-angeles-broadway/",
+      "destination": "/locations/la-broadway/",
+      "permanent": true
+    },
+    {
+      "source": "/stores/los-angeles-broadway",
+      "destination": "/locations/la-broadway/",
+      "permanent": true
+    },
+    {
+      "source": "/stores/los-angeles-central/",
+      "destination": "/locations/la-central/",
+      "permanent": true
+    },
+    {
+      "source": "/stores/los-angeles-central",
+      "destination": "/locations/la-central/",
+      "permanent": true
+    },
+    {
+      "source": "/locations/los-angeles-broadway/",
+      "destination": "/locations/la-broadway/",
+      "permanent": true
+    },
+    {
+      "source": "/locations/los-angeles-central/",
+      "destination": "/locations/la-central/",
+      "permanent": true
+    },
+    {
+      "source": "/stores/:slug/",
+      "destination": "/locations/:slug/",
+      "permanent": true
+    },
+    {
+      "source": "/locs/",
+      "destination": "/locations/",
+      "permanent": true
+    },
+    {
+      "source": "/best-tacos-near-me/",
+      "destination": "/locations/",
+      "permanent": true
+    },
+    {
+      "source": "/open-late/",
+      "destination": "/locations/",
+      "permanent": true
+    },
+    {
+      "source": "/open-late-fast-food/",
+      "destination": "/locations/",
+      "permanent": true
+    },
+    {
+      "source": "/mexican-fast-food/",
+      "destination": "/menu/",
+      "permanent": true
+    },
+    {
+      "source": "/order-mexican-food-for-dinner/",
+      "destination": "/menu/",
+      "permanent": true
+    },
+    {
+      "source": "/order-mexican-takeout-online/",
+      "destination": "/menu/",
+      "permanent": true
+    },
+    {
+      "source": "/los-angeles-best-mexican-food-tacos-near-me/",
+      "destination": "/menu/",
+      "permanent": true
+    },
+    {
+      "source": "/order-online/",
+      "destination": "https://order.online/business/-137616",
+      "permanent": true
+    },
+    {
+      "source": "/privacy-policy/",
+      "destination": "/privacy/",
+      "permanent": true
+    },
+    {
+      "source": "/terms-and-conditions/",
+      "destination": "/terms/",
+      "permanent": true
+    },
+    {
+      "source": "/accessibility-statement/",
+      "destination": "/accessibility/",
+      "permanent": true
+    },
+    {
+      "source": "/best-champurrado-near-me/",
+      "destination": "/blog/best-champurrado-near-me/",
+      "permanent": true
+    },
+    {
+      "source": "/mexico-celebrates-with-a-taquiza/",
+      "destination": "/blog/mexico-celebrates-with-a-taquiza/",
+      "permanent": true
+    },
+    {
+      "source": "/history-of-tacos-gavilan/",
+      "destination": "/blog/history-of-tacos-gavilan/",
+      "permanent": true
+    },
+    {
+      "source": "/tacos-gavilan-thanksgiving-fiesta-platter/",
+      "destination": "/blog/tacos-gavilan-thanksgiving-fiesta-platter/",
+      "permanent": true
+    },
+    {
+      "source": "/top-5-mexican-foods-to-try-in-azusa/",
+      "destination": "/blog/top-5-mexican-foods-to-try-in-azusa/",
+      "permanent": true
+    },
+    {
+      "source": "/first-annual-taco-eating-contest-celebrates-hispanic-heritage-month/",
+      "destination": "/blog/first-annual-taco-eating-contest-celebrates-hispanic-heritage-month/",
+      "permanent": true
+    },
+    {
+      "source": "/discovering-the-best-tacos-in-los-angeles/",
+      "destination": "/blog/discovering-the-best-tacos-in-los-angeles/",
+      "permanent": true
+    },
+    {
+      "source": "/privacy.html",
+      "destination": "/privacy/",
+      "permanent": true
+    },
+    {
+      "source": "/terms.html",
+      "destination": "/terms/",
+      "permanent": true
+    },
+    {
+      "source": "/accessibility.html",
+      "destination": "/accessibility/",
+      "permanent": true
+    },
+    {
+      "source": "/privacy-choices.html",
+      "destination": "/privacy-choices/",
       "permanent": true
     }
   ],
@@ -37,7 +247,7 @@
         },
         {
           "key": "Content-Security-Policy",
-          "value": "default-src 'self'; script-src 'self' 'unsafe-inline' https://maps.googleapis.com https://maps.gstatic.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https://maps.gstatic.com https://maps.googleapis.com https://*.googleapis.com https://*.ggpht.com https://order.online; connect-src 'self' https://maps.googleapis.com https://*.googleapis.com https://*.supabase.co https://order.online; frame-src 'none'; frame-ancestors 'none'; object-src 'none'; base-uri 'self';"
+          "value": "default-src 'self'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://www.google-analytics.com https://connect.facebook.net https://analytics.tiktok.com https://maps.googleapis.com https://maps.gstatic.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https://www.google-analytics.com https://www.googletagmanager.com https://www.facebook.com https://analytics.tiktok.com https://maps.gstatic.com https://maps.googleapis.com https://*.googleapis.com https://*.ggpht.com https://*.basemaps.cartocdn.com https://images.unsplash.com https://order.online; connect-src 'self' https://www.google-analytics.com https://analytics.google.com https://www.googletagmanager.com https://connect.facebook.net https://analytics.tiktok.com https://maps.googleapis.com https://*.googleapis.com https://*.basemaps.cartocdn.com https://ipapi.co https://*.supabase.co https://order.online; frame-src 'self' https://www.googletagmanager.com; frame-ancestors 'self'; object-src 'none'; base-uri 'self';"
         }
       ]
     },

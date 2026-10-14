@@ -82,6 +82,7 @@ export default function WebsiteCommandCenterPage() {
         mxRecords: Array<{ exchange: string; priority: number }>
         nsRecords: string[]
         isVercel: boolean
+        isCnameVercel?: boolean
         isWpEngine: boolean
         isMxSafe: boolean
         hostingDetected: string
@@ -271,9 +272,13 @@ export default function WebsiteCommandCenterPage() {
 
     const filteredFeedback = feedbackRows.filter(row => {
         if (feedbackFilter === 'all') return true
-        if (feedbackFilter === 'catering') return (row.complaint_type || '').toLowerCase().includes('cater') || (row.comments || '').toLowerCase().includes('banquet') || (row.comments || '').toLowerCase().includes('platter')
-        if (feedbackFilter === 'careers') return (row.complaint_type || '').toLowerCase().includes('career') || (row.complaint_type || '').toLowerCase().includes('empleo') || (row.comments || '').toLowerCase().includes('trabajo')
-        if (feedbackFilter === 'accessibility') return (row.complaint_type || '').toLowerCase().includes('access') || (row.comments || '').toLowerCase().includes('ada')
+        const typeStr = (row.complaint_type || '').toLowerCase()
+        const commentStr = (row.comments || '').toLowerCase()
+        const sourceStr = (row.source || '').toLowerCase()
+        if (feedbackFilter === 'catering') return typeStr.includes('cater') || commentStr.includes('banquet') || commentStr.includes('platter')
+        if (feedbackFilter === 'feedback') return typeStr.includes('feedback') || typeStr.includes('general') || typeStr.includes('other')
+        if (feedbackFilter === 'newsletter') return sourceStr.includes('newsletter') || typeStr.includes('newsletter')
+        if (feedbackFilter === 'accessibility') return typeStr.includes('access') || commentStr.includes('ada')
         return true
     })
 
@@ -301,7 +306,7 @@ export default function WebsiteCommandCenterPage() {
                         <div className="flex flex-col min-w-0">
                             <div className="flex items-center gap-1.5 sm:gap-2">
                                 <span className="text-xs sm:text-sm font-black tracking-tight text-white truncate">
-                                    Tacos Gavilan <span className="text-[#FDC82F] font-medium hidden sm:inline">— {language === 'es' ? 'Centro Web Oficial' : 'Official Web Command'}</span>
+                                    Tacos Gavilan <span className="text-[#FDC82F] font-medium hidden sm:inline">— {t('new_website.official_web_command') || 'Centro Web Oficial'}</span>
                                 </span>
                                 {dnsData?.isVercel ? (
                                     <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shrink-0">
@@ -339,7 +344,7 @@ export default function WebsiteCommandCenterPage() {
                     >
                         <Monitor size={14} />
                         <span className="hidden sm:inline">{t('new_website.tab_preview') || 'Diseño & Simulador'}</span>
-                        <span className="sm:hidden">Diseño</span>
+                        <span className="sm:hidden">{t('new_website.tab_preview_short') || 'Diseño'}</span>
                     </button>
 
                     <button
@@ -352,7 +357,7 @@ export default function WebsiteCommandCenterPage() {
                     >
                         <Mail size={14} />
                         <span className="hidden sm:inline">{t('new_website.tab_feedback') || 'Buzón & Leads'}</span>
-                        <span className="sm:hidden">Buzón</span>
+                        <span className="sm:hidden">{t('new_website.tab_feedback_short') || 'Buzón'}</span>
                     </button>
 
                     <button
@@ -365,7 +370,7 @@ export default function WebsiteCommandCenterPage() {
                     >
                         <Server size={14} />
                         <span className="hidden sm:inline">{t('new_website.tab_domain') || 'Dominio & Vercel'}</span>
-                        <span className="sm:hidden">Dominio</span>
+                        <span className="sm:hidden">{t('new_website.tab_domain_short') || 'Dominio'}</span>
                     </button>
 
                     <button
@@ -378,7 +383,7 @@ export default function WebsiteCommandCenterPage() {
                     >
                         <BookOpen size={14} />
                         <span className="hidden md:inline">{t('new_website.tab_constitution') || 'Historia & Futuro'}</span>
-                        <span className="md:hidden">Historia</span>
+                        <span className="md:hidden">{t('new_website.tab_constitution_short') || 'Historia'}</span>
                     </button>
 
                     <button
@@ -391,7 +396,7 @@ export default function WebsiteCommandCenterPage() {
                     >
                         <Layers size={14} />
                         <span className="hidden lg:inline">{t('new_website.tab_assets') || 'Biblioteca & Recursos'}</span>
-                        <span className="lg:hidden">Recursos</span>
+                        <span className="lg:hidden">{t('new_website.tab_assets_short') || 'Recursos'}</span>
                     </button>
                 </div>
 
@@ -479,7 +484,7 @@ export default function WebsiteCommandCenterPage() {
                                         }`}
                                     >
                                         <Monitor size={12} />
-                                        <span>Escritorio</span>
+                                        <span>{t('new_website.view_desktop') || 'Escritorio'}</span>
                                     </button>
                                     <button
                                         onClick={() => setViewport('tablet')}
@@ -488,7 +493,7 @@ export default function WebsiteCommandCenterPage() {
                                         }`}
                                     >
                                         <Tablet size={12} />
-                                        <span>Tablet (768px)</span>
+                                        <span>{t('new_website.view_tablet') || 'Tablet (768px)'}</span>
                                     </button>
                                     <button
                                         onClick={() => setViewport('mobile')}
@@ -497,7 +502,7 @@ export default function WebsiteCommandCenterPage() {
                                         }`}
                                     >
                                         <Smartphone size={12} />
-                                        <span>Móvil (390px)</span>
+                                        <span>{t('new_website.view_mobile') || 'Móvil (390px)'}</span>
                                     </button>
                                 </div>
                             )}
@@ -510,16 +515,16 @@ export default function WebsiteCommandCenterPage() {
                                         setIframeKey(Date.now())
                                     }}
                                     className="p-1 rounded hover:bg-slate-800 text-slate-300 flex items-center gap-1 text-[11px]"
-                                    title="Recargar diseño"
+                                    title={t('new_website.reload') || 'Recargar'}
                                 >
                                     <RefreshCw size={12} className={isLoading ? 'animate-spin text-[#FDC82F]' : ''} />
-                                    <span className="hidden sm:inline">Recargar</span>
+                                    <span className="hidden sm:inline">{t('new_website.reload') || 'Recargar'}</span>
                                 </button>
                                 {localStatus?.localExists && (
                                     <button
                                         onClick={handleLaunchLocalFile}
                                         className="hidden lg:flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-600/60 hover:bg-emerald-600 text-white text-[10px] font-bold"
-                                        title="Abrir file:/// en navegador predeterminado de Windows"
+                                        title={t('new_website.launch_browser') || 'Abrir file:/// en navegador predeterminado'}
                                     >
                                         <FolderOpen size={11} />
                                         <span>file:///</span>
@@ -569,7 +574,7 @@ export default function WebsiteCommandCenterPage() {
                             <div>
                                 <h2 className="text-lg sm:text-xl font-black text-white flex items-center gap-2">
                                     <Mail className="text-[#FDC82F]" size={22} />
-                                    <span>{t('new_website.feedback_title') || 'Buzón de Contacto y Leads de Clientes'}</span>
+                                    <span>{t('new_website.feedback_title') || 'Buzón de Contacto y Leads Web Oficial'}</span>
                                 </h2>
                                 <p className="text-xs text-slate-400 mt-1">
                                     {t('new_website.feedback_subtitle') || 'Mensajes recibidos desde el formulario web de tacosgavilan.com y guardados en Supabase (public.customer_feedback)'}
@@ -582,10 +587,10 @@ export default function WebsiteCommandCenterPage() {
                                     className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold border border-slate-700 transition-colors"
                                 >
                                     <RefreshCw size={14} className={loadingFeedback ? 'animate-spin text-[#FDC82F]' : ''} />
-                                    <span>Actualizar</span>
+                                    <span>{t('new_website.refresh') || 'Actualizar'}</span>
                                 </button>
                                 <span className="px-2.5 py-1 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 text-xs font-bold">
-                                    {feedbackRows.length} {language === 'es' ? 'Mensajes Registrados' : 'Messages Logged'}
+                                    {feedbackRows.length} {t('new_website.messages_logged') || 'Mensajes Web Registrados'}
                                 </span>
                             </div>
                         </div>
@@ -593,10 +598,11 @@ export default function WebsiteCommandCenterPage() {
                         {/* Filtros de Categorías */}
                         <div className="flex items-center gap-2 overflow-x-auto pb-2">
                             {[
-                                { id: 'all', label: 'Todos los Mensajes' },
-                                { id: 'catering', label: '🎉 Banquetes & Catering' },
-                                { id: 'careers', label: '💼 Empleo & Vacantes' },
-                                { id: 'accessibility', label: '♿ Accesibilidad ADA' }
+                                { id: 'all', label: t('new_website.filter_all') || 'Todos los Mensajes' },
+                                { id: 'catering', label: t('new_website.filter_catering') || 'Banquetes & Catering' },
+                                { id: 'feedback', label: t('new_website.filter_feedback') || 'Comentarios & Servicio' },
+                                { id: 'newsletter', label: t('new_website.filter_newsletter') || 'Newsletter & Suscripciones' },
+                                { id: 'accessibility', label: t('new_website.filter_accessibility') || 'Accesibilidad ADA' }
                             ].map(filter => (
                                 <button
                                     key={filter.id}
@@ -616,13 +622,13 @@ export default function WebsiteCommandCenterPage() {
                         {loadingFeedback ? (
                             <div className="flex flex-col items-center justify-center py-20 text-slate-400">
                                 <div className="w-8 h-8 rounded-full border-2 border-[#FDC82F] border-t-transparent animate-spin mb-3" />
-                                <p className="text-xs">Consultando Supabase...</p>
+                                <p className="text-xs">{t('new_website.querying_supabase') || 'Consultando Supabase...'}</p>
                             </div>
                         ) : filteredFeedback.length === 0 ? (
                             <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-12 text-center text-slate-400">
                                 <CheckCircle size={36} className="mx-auto text-emerald-500 mb-2 opacity-80" />
-                                <h3 className="text-sm font-bold text-slate-200">No hay mensajes pendientes en esta categoría</h3>
-                                <p className="text-xs text-slate-500 mt-1">Los nuevos mensajes enviados desde el formulario web aparecerán aquí en tiempo real.</p>
+                                <h3 className="text-sm font-bold text-slate-200">{t('new_website.empty_category_title') || 'No hay mensajes registrados en esta categoría'}</h3>
+                                <p className="text-xs text-slate-500 mt-1">{t('new_website.empty_category_desc') || 'Los nuevos mensajes enviados desde el formulario web oficial aparecerán aquí en tiempo real.'}</p>
                             </div>
                         ) : (
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -638,7 +644,7 @@ export default function WebsiteCommandCenterPage() {
                                                         {(row.customer_name || 'U')[0].toUpperCase()}
                                                     </div>
                                                     <div>
-                                                        <h4 className="text-xs sm:text-sm font-black text-white">{row.customer_name || 'Cliente Anónimo'}</h4>
+                                                        <h4 className="text-xs sm:text-sm font-black text-white">{row.customer_name || (t('new_website.anonymous_customer') || 'Cliente Anónimo')}</h4>
                                                         <span className="text-[10px] text-slate-400 flex items-center gap-1">
                                                             <Clock size={10} />
                                                             {new Date(row.created_at || row.submission_date).toLocaleString()}
@@ -646,11 +652,11 @@ export default function WebsiteCommandCenterPage() {
                                                     </div>
                                                 </div>
                                                 <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
-                                                    (row.complaint_type || '').includes('cater')
+                                                    (row.complaint_type || '').toLowerCase().includes('cater')
                                                         ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
-                                                        : (row.complaint_type || '').includes('career')
+                                                        : (row.complaint_type || '').toLowerCase().includes('newsletter')
                                                         ? 'bg-sky-500/20 text-sky-300 border border-sky-500/40'
-                                                        : (row.complaint_type || '').includes('access')
+                                                        : (row.complaint_type || '').toLowerCase().includes('access')
                                                         ? 'bg-purple-500/20 text-purple-300 border border-purple-500/40'
                                                         : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
                                                 }`}>
@@ -672,24 +678,24 @@ export default function WebsiteCommandCenterPage() {
                                                     </a>
                                                 )}
                                                 {row.store_id && (
-                                                    <span className="flex items-center gap-1 text-[#FDC82F]">
+                                                    <span className="flex items-center gap-1 text-[#FDC82F] font-semibold">
                                                         <MapPin size={12} />
-                                                        <span>Sucursal ID: {row.store_id}</span>
+                                                        <span>{t('new_website.store_label') || 'Sucursal'}: {row.store_name ? `${row.store_name} (#${row.store_id})` : `#${row.store_id}`}</span>
                                                     </span>
                                                 )}
                                             </div>
 
                                             <p className="text-xs text-slate-200 mt-3 whitespace-pre-wrap leading-relaxed line-clamp-4 hover:line-clamp-none transition-all">
-                                                {row.comments || 'Sin comentarios registrados.'}
+                                                {row.comments || (t('new_website.no_comments') || 'Sin comentarios registrados.')}
                                             </p>
                                         </div>
 
                                         <div className="mt-4 pt-3 border-t border-slate-800 flex items-center justify-between text-[11px]">
                                             <span className="text-slate-500 text-[10px]">
-                                                Origen: {row.source || 'website'}
+                                                {t('new_website.source_label') || 'Origen'}: {row.source || 'website_contact'}
                                             </span>
                                             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800 text-slate-300">
-                                                Estado: {row.admin_review_status || 'Pendiente'}
+                                                {t('new_website.status_label') || 'Estado'}: {row.admin_review_status || (t('new_website.status_pending') || 'Pendiente')}
                                             </span>
                                         </div>
                                     </div>
@@ -702,6 +708,21 @@ export default function WebsiteCommandCenterPage() {
                 {/* ══════════ PESTAÑA 3: DOMINIO & VERCEL DNS ══════════ */}
                 {activeTab === 'domain' && (
                     <div className="flex-1 overflow-y-auto p-4 sm:p-6 max-w-7xl mx-auto w-full space-y-6">
+                        {/* Banner de Estado de Corte DNS en Producción */}
+                        {dnsData?.isVercel && (
+                            <div className="bg-emerald-950/60 border border-emerald-500/40 rounded-2xl p-4 sm:p-5 shadow-xl flex items-start gap-3">
+                                <CheckCircle2 className="text-emerald-400 shrink-0 mt-0.5" size={22} />
+                                <div>
+                                    <h3 className="text-xs sm:text-sm font-black text-emerald-300 uppercase tracking-wider">
+                                        {t('new_website.cutover_completed_badge') || 'CORTE DE DNS COMPLETADO Y EN VIVO EN VERCEL EDGE'}
+                                    </h3>
+                                    <p className="text-xs text-emerald-100/80 mt-1 leading-relaxed">
+                                        {t('new_website.cutover_completed_desc') || 'El dominio raíz tacosgavilan.com (76.76.21.21) y el subdominio www.tacosgavilan.com (cname.vercel-dns.com) ya operan en producción sobre Vercel Edge con SSL activo y redirección canónica 308.'}
+                                    </p>
+                                </div>
+                            </div>
+                        )}
+
                         {/* Tarjeta de Estado del Dominio */}
                         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 sm:p-6 shadow-xl">
                             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-4">
@@ -713,7 +734,7 @@ export default function WebsiteCommandCenterPage() {
                                         </h2>
                                     </div>
                                     <p className="text-xs text-slate-400 mt-1">
-                                        {t('new_website.domain_subtitle') || 'Supervisión en tiempo real de la migración de tacosgavilan.com desde WP Engine hacia Vercel'}
+                                        {t('new_website.domain_subtitle') || 'Supervisión en tiempo real del dominio oficial tacosgavilan.com en Vercel Edge Network'}
                                     </p>
                                 </div>
                                 <button
@@ -722,27 +743,39 @@ export default function WebsiteCommandCenterPage() {
                                     className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold border border-slate-700 transition-colors shrink-0"
                                 >
                                     <RefreshCw size={14} className={loadingDns ? 'animate-spin text-[#FDC82F]' : ''} />
-                                    <span>Escanear DNS en Vivo</span>
+                                    <span>{t('new_website.scan_dns_live') || 'Escanear DNS en Vivo'}</span>
                                 </button>
                             </div>
 
-                            {/* Resumen de Estado en 3 Columnas */}
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-6">
-                                {/* Estado Web */}
+                            {/* Resumen de Estado en 4 Columnas */}
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mt-6">
+                                {/* Estado Web (Registro A) */}
                                 <div className="bg-slate-950 p-4 rounded-xl border border-slate-800">
-                                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Hosting Web Actual</span>
+                                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{t('new_website.current_hosting_label') || 'Hosting Web Actual'}</span>
                                     <div className="flex items-center gap-2 mt-2">
                                         <span className={`w-3 h-3 rounded-full ${dnsData?.isVercel ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`} />
-                                        <span className="text-sm font-black text-white">{dnsData?.hostingDetected || 'Detectando...'}</span>
+                                        <span className="text-sm font-black text-white">{dnsData?.hostingDetected || (t('new_website.detecting') || 'Detectando...')}</span>
                                     </div>
                                     <p className="text-[11px] text-slate-400 mt-2 font-mono">
-                                        IP: {dnsData?.aRecords?.join(', ') || 'Consultando...'}
+                                        A (@): {dnsData?.aRecords?.join(', ') || (t('new_website.querying') || 'Consultando...')}
+                                    </p>
+                                </div>
+
+                                {/* Subdominio www (CNAME) */}
+                                <div className="bg-slate-950 p-4 rounded-xl border border-slate-800">
+                                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{t('new_website.cname_www_label') || 'Subdominio www (CNAME)'}</span>
+                                    <div className="flex items-center gap-2 mt-2">
+                                        <CheckCircle2 size={16} className={dnsData?.cnameRecords?.length ? 'text-emerald-400' : 'text-amber-400'} />
+                                        <span className="text-sm font-black text-white">www.tacosgavilan.com</span>
+                                    </div>
+                                    <p className="text-[11px] text-emerald-400 mt-2 font-mono truncate">
+                                        {dnsData?.cnameRecords?.join(', ') || 'cname.vercel-dns.com'}
                                     </p>
                                 </div>
 
                                 {/* Nameservers */}
                                 <div className="bg-slate-950 p-4 rounded-xl border border-slate-800">
-                                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Gestor de Dominio (DNS)</span>
+                                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{t('new_website.dns_manager_label') || 'Gestor de Dominio (DNS)'}</span>
                                     <div className="flex items-center gap-2 mt-2">
                                         <CheckCircle2 size={16} className="text-emerald-400" />
                                         <span className="text-sm font-black text-white">GoDaddy DNS</span>
@@ -754,37 +787,37 @@ export default function WebsiteCommandCenterPage() {
 
                                 {/* Protección de Correos */}
                                 <div className="bg-slate-950 p-4 rounded-xl border border-slate-800">
-                                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Servidores de Correo (MX)</span>
+                                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{t('new_website.mx_servers_label') || 'Servidores de Correo (MX)'}</span>
                                     <div className="flex items-center gap-2 mt-2">
                                         <ShieldCheck size={16} className="text-emerald-400" />
-                                        <span className="text-sm font-black text-emerald-400">Google Workspace (Protegido)</span>
+                                        <span className="text-sm font-black text-emerald-400">{t('new_website.mx_protected_status') || 'Google Workspace (Protegido)'}</span>
                                     </div>
                                     <p className="text-[11px] text-slate-400 mt-2 font-mono">
-                                        {dnsData?.mxRecords?.length || 5} servidores MX activos (Gmail Corporativo)
+                                        {dnsData?.mxRecords?.length || 5} {t('new_website.mx_active_count') || 'servidores MX activos (Gmail Corporativo)'}
                                     </p>
                                 </div>
                             </div>
                         </div>
 
-                        {/* Tabla de Cambios Exactos en GoDaddy */}
+                        {/* Tabla de Registros DNS en GoDaddy */}
                         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 sm:p-6 shadow-xl">
                             <h3 className="text-base font-black text-white flex items-center gap-2 mb-2">
                                 <Server className="text-[#FDC82F]" size={18} />
-                                <span>{t('new_website.godaddy_guide_title') || 'Instrucciones Paso a Paso para GoDaddy'}</span>
+                                <span>{t('new_website.godaddy_guide_title') || 'Configuración DNS en GoDaddy (Vercel Edge)'}</span>
                             </h3>
                             <p className="text-xs text-slate-400 mb-4">
-                                Inicia sesión en GoDaddy &gt; Mis Productos &gt; tacosgavilan.com &gt; Administrar DNS. Modifica únicamente estas dos filas:
+                                {t('new_website.godaddy_table_subtitle_live') || 'Registros DNS configurados en GoDaddy apuntando a Vercel Edge Network sin afectar Google Workspace:'}
                             </p>
 
                             <div className="overflow-x-auto">
                                 <table className="w-full text-left text-xs border-collapse">
                                     <thead>
                                         <tr className="border-b border-slate-800 text-slate-400 uppercase text-[10px] tracking-wider bg-slate-950">
-                                            <th className="py-2.5 px-3">Tipo (*Type*)</th>
-                                            <th className="py-2.5 px-3">Nombre (*Name*)</th>
-                                            <th className="py-2.5 px-3">Valor Actual (WP Engine)</th>
-                                            <th className="py-2.5 px-3 text-[#FDC82F]">Nuevo Valor (Vercel)</th>
-                                            <th className="py-2.5 px-3">Acción</th>
+                                            <th className="py-2.5 px-3">{t('new_website.col_type') || 'Tipo (Type)'}</th>
+                                            <th className="py-2.5 px-3">{t('new_website.col_name') || 'Nombre (Name)'}</th>
+                                            <th className="py-2.5 px-3">{t('new_website.col_old_value') || 'Valor Anterior (WP Engine)'}</th>
+                                            <th className="py-2.5 px-3 text-[#FDC82F]">{t('new_website.col_active_value') || 'Valor en Vercel'}</th>
+                                            <th className="py-2.5 px-3">{t('new_website.col_status') || 'Estado / Acción'}</th>
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-slate-800 font-mono text-[11px]">
@@ -793,12 +826,17 @@ export default function WebsiteCommandCenterPage() {
                                             <td className="py-3 px-3 text-slate-300">@</td>
                                             <td className="py-3 px-3 text-rose-400 line-through">141.193.213.11</td>
                                             <td className="py-3 px-3 text-emerald-400 font-bold">76.76.21.21</td>
-                                            <td className="py-3 px-3">
+                                            <td className="py-3 px-3 flex items-center gap-2">
+                                                {dnsData?.isVercel && (
+                                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-sans font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                                                        <CheckCircle2 size={10} /> {t('new_website.verified_badge') || 'Activo en Vivo'}
+                                                    </span>
+                                                )}
                                                 <button
                                                     onClick={() => copyToClipboard('76.76.21.21', 'IP de Vercel')}
                                                     className="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-white rounded text-[10px] font-sans flex items-center gap-1"
                                                 >
-                                                    <Copy size={10} /> Copiar
+                                                    <Copy size={10} /> {t('new_website.copy_btn') || 'Copiar'}
                                                 </button>
                                             </td>
                                         </tr>
@@ -807,12 +845,17 @@ export default function WebsiteCommandCenterPage() {
                                             <td className="py-3 px-3 text-slate-300">www</td>
                                             <td className="py-3 px-3 text-rose-400 line-through">tacosgavilan.wpengine.com</td>
                                             <td className="py-3 px-3 text-emerald-400 font-bold">cname.vercel-dns.com</td>
-                                            <td className="py-3 px-3">
+                                            <td className="py-3 px-3 flex items-center gap-2">
+                                                {(dnsData?.isCnameVercel || dnsData?.isVercel) && (
+                                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-sans font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                                                        <CheckCircle2 size={10} /> {t('new_website.verified_badge') || 'Activo en Vivo'}
+                                                    </span>
+                                                )}
                                                 <button
                                                     onClick={() => copyToClipboard('cname.vercel-dns.com', 'CNAME de Vercel')}
                                                     className="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-white rounded text-[10px] font-sans flex items-center gap-1"
                                                 >
-                                                    <Copy size={10} /> Copiar
+                                                    <Copy size={10} /> {t('new_website.copy_btn') || 'Copiar'}
                                                 </button>
                                             </td>
                                         </tr>
@@ -824,7 +867,7 @@ export default function WebsiteCommandCenterPage() {
                             <div className="mt-6 p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-start gap-3">
                                 <AlertTriangle className="text-amber-400 shrink-0 mt-0.5" size={18} />
                                 <div className="text-xs text-amber-200/90 leading-relaxed">
-                                    <strong className="text-amber-300 block mb-1">REGLA CRÍTICA DE SEGURIDAD (CORREOS CORPORATIVOS):</strong>
+                                    <strong className="text-amber-300 block mb-1">{t('new_website.critical_email_rule_title') || 'REGLA CRÍTICA DE SEGURIDAD (CORREOS CORPORATIVOS):'}</strong>
                                     {t('new_website.godaddy_warning') || 'NUNCA modifiques los Nameservers ni los registros MX de Google Workspace. Mantén ns73/ns74.domaincontrol.com para evitar la desconexión del correo corporativo.'}
                                 </div>
                             </div>
@@ -842,7 +885,7 @@ export default function WebsiteCommandCenterPage() {
                                 <span>{t('new_website.history_title') || 'Constitución Técnica, Historia y Futuro del Sitio Web Oficial'}</span>
                             </h2>
                             <p className="text-xs text-slate-400 mt-2">
-                                Documento rector para la dirección, gerencia y equipo técnico de Tacos Gavilan sobre la evolución del dominio tacosgavilan.com.
+                                {t('new_website.history_subtitle') || 'Documento rector para la dirección, gerencia y equipo técnico de Tacos Gavilan sobre la evolución del dominio tacosgavilan.com.'}
                             </p>
                         </div>
 
@@ -850,7 +893,7 @@ export default function WebsiteCommandCenterPage() {
                         <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 space-y-4">
                             <div className="flex items-center gap-2 text-rose-400 font-black text-sm uppercase tracking-wider">
                                 <Clock size={16} />
-                                <span>1. Historia y Origen (El WordPress Heredado)</span>
+                                <span>{t('new_website.sec1_title') || '1. Historia y Origen (El WordPress Heredado)'}</span>
                             </div>
                             <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
                                 El sitio web anterior de Tacos Gavilan fue construido entre 2021 y 2022 sobre la plataforma <strong>WordPress</strong> (tema personalizado <em>Tacos Gavilan V2.0</em> desarrollado por jjrod.com) y alojado en los servidores de <strong>WP Engine</strong>.
@@ -869,7 +912,7 @@ export default function WebsiteCommandCenterPage() {
                         <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 space-y-4">
                             <div className="flex items-center gap-2 text-emerald-400 font-black text-sm uppercase tracking-wider">
                                 <ShieldCheck size={16} />
-                                <span>2. Constitución Técnica (Arquitectura Desacoplada y Moderna)</span>
+                                <span>{t('new_website.sec2_title') || '2. Constitución Técnica (Arquitectura Desacoplada y Moderna)'}</span>
                             </div>
                             <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
                                 El nuevo sitio web oficial fue diseñado desde cero eliminando WordPress y adoptando una <strong>arquitectura desacoplada y estática (*JAMstack*)</strong> con los más altos estándares tecnológicos:
@@ -885,7 +928,7 @@ export default function WebsiteCommandCenterPage() {
                                 </div>
                                 <div className="bg-slate-950 p-4 rounded-xl border border-slate-800">
                                     <h4 className="text-xs font-bold text-white mb-1">Persistencia Segura en Supabase</h4>
-                                    <p className="text-[11px] text-slate-400">Todos los formularios de banquetes (Catering), vacantes y sugerencias se guardan automáticamente en la nube de Supabase.</p>
+                                    <p className="text-[11px] text-slate-400">Todos los formularios de banquetes (Catering), servicio al cliente y newsletter se guardan automáticamente en la nube de Supabase.</p>
                                 </div>
                                 <div className="bg-slate-950 p-4 rounded-xl border border-slate-800">
                                     <h4 className="text-xs font-bold text-white mb-1">Blindaje Legal Integral (WCAG 2.2 AA / CCPA 2026)</h4>
@@ -894,18 +937,18 @@ export default function WebsiteCommandCenterPage() {
                             </div>
                         </div>
 
-                        {/* Sección 3: Destino y Futuro Esperado */}
+                        {/* Sección 3: Estado en Producción y Futuro Esperado */}
                         <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 space-y-4">
                             <div className="flex items-center gap-2 text-[#FDC82F] font-black text-sm uppercase tracking-wider">
                                 <Sparkles size={16} />
-                                <span>3. Destino Inmediato y Futuro Esperado</span>
+                                <span>{t('new_website.sec3_title') || '3. Estado en Producción y Futuro Estratégico'}</span>
                             </div>
                             <div className="space-y-3 text-xs sm:text-sm text-slate-300 leading-relaxed">
-                                <p>
-                                    <strong>Destino Inmediato</strong>: El dominio <code>tacosgavilan.com</code> se traslada a la red de <strong>Vercel Edge</strong>. El hosting pasa a costar $0 mensuales, los correos corporativos se mantienen 100% protegidos en Google Workspace, y se cancela la cuenta de WP Engine generando un ahorro financiero directo e inmediato.
+                                <p className="p-3.5 rounded-xl bg-emerald-950/50 border border-emerald-500/30 text-emerald-100">
+                                    {t('new_website.sec3_live_status') || 'Estado Actual en Producción (Completado): El dominio oficial tacosgavilan.com ya opera al 100% en la red global de Vercel Edge (76.76.21.21) con certificado SSL/TLS activo, redirecciones 301/308 para las 42 URLs históricas, costo de servidor de $0 mensuales, correos corporativos (@tacosgavilan.com) intactos en Google Workspace, y 4 capas de respaldo del WordPress clásico (incluyendo https://tacosgavilan-sitio-anterior-backup.vercel.app y la rama classic-wordpress-backup).'}
                                 </p>
                                 <p>
-                                    <strong>Futuro Esperado</strong>:
+                                    <strong>Futuro Estratégico</strong>:
                                 </p>
                                 <ul className="text-xs sm:text-sm text-slate-400 space-y-2 list-disc pl-5">
                                     <li><strong>Sinergia con la Customer App</strong>: Los clientes podrán pasar sin fricción entre la web oficial y la app móvil para acumular recompensas y pedir comida.</li>
@@ -924,14 +967,14 @@ export default function WebsiteCommandCenterPage() {
                             <div>
                                 <h2 className="text-lg sm:text-xl font-black text-white flex items-center gap-2">
                                     <Layers className="text-[#FDC82F]" size={22} />
-                                    <span>Biblioteca Oficial de Recursos y Medios de Marca</span>
+                                    <span>{t('new_website.assets_title') || 'Biblioteca Oficial de Recursos y Medios de Marca'}</span>
                                 </h2>
                                 <p className="text-xs text-slate-400 mt-1">
-                                    Activos vectoriales, documentos legales y fotografías de alta resolución respaldados del sitio oficial.
+                                    {t('new_website.assets_subtitle') || 'Activos vectoriales, documentos legales, folleto PDF Fiesta Platters y fotografías de alta resolución de las 15 sucursales.'}
                                 </p>
                             </div>
                             <span className="px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 border border-slate-700 text-xs font-bold">
-                                121 Recursos Respaldados en PC
+                                {assetsData.length > 0 ? assetsData.length : 121} {t('new_website.assets_backed_up_badge') || 'Recursos Respaldados en PC'}
                             </span>
                         </div>
 
@@ -943,8 +986,8 @@ export default function WebsiteCommandCenterPage() {
                                     <div className="w-10 h-10 rounded-xl bg-amber-500/20 text-[#FDC82F] flex items-center justify-center mb-3 border border-amber-500/40">
                                         <FileText size={20} />
                                     </div>
-                                    <h4 className="text-sm font-black text-white">Folleto Oficial Fiesta Platters</h4>
-                                    <p className="text-xs text-slate-400 mt-1">Folleto tri-fold oficial en PDF para eventos, taquizas y charolas familiares.</p>
+                                    <h4 className="text-sm font-black text-white">{t('new_website.brochure_title') || 'Folleto Oficial Fiesta Platters'}</h4>
+                                    <p className="text-xs text-slate-400 mt-1">{t('new_website.brochure_desc') || 'Folleto tri-fold oficial en PDF para eventos, taquizas y charolas familiares (activo en producción y local).'}</p>
                                     <span className="text-[10px] text-slate-500 font-mono mt-2 block">Gavilan-Party-Tray-Brochure-WEB.pdf (722 KB)</span>
                                 </div>
                                 <a
@@ -952,7 +995,7 @@ export default function WebsiteCommandCenterPage() {
                                     download
                                     className="mt-4 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-[#FDC82F] hover:bg-[#e6b528] text-[#50050a] font-black text-xs transition-all shadow-sm"
                                 >
-                                    <Download size={14} /> Descargar Folleto PDF
+                                    <Download size={14} /> {t('new_website.download_brochure') || 'Descargar Folleto PDF'}
                                 </a>
                             </div>
 
@@ -962,60 +1005,81 @@ export default function WebsiteCommandCenterPage() {
                                     <div className="w-10 h-10 rounded-xl bg-sky-500/20 text-sky-400 flex items-center justify-center mb-3 border border-sky-500/40">
                                         <Sparkles size={20} />
                                     </div>
-                                    <h4 className="text-sm font-black text-white">Logotipos Vectoriales SVG</h4>
-                                    <p className="text-xs text-slate-400 mt-1">Logos originales escalables sin pérdida de resolución (horizontal, vertical e icono).</p>
+                                    <h4 className="text-sm font-black text-white">{t('new_website.svg_logos_title') || 'Logotipos Vectoriales SVG'}</h4>
+                                    <p className="text-xs text-slate-400 mt-1">{t('new_website.svg_logos_desc') || 'Logos originales escalables sin pérdida de resolución (horizontal, vertical e icono).'}</p>
                                     <span className="text-[10px] text-slate-500 font-mono mt-2 block">theme-gavilan/gavilan/img/*.svg</span>
                                 </div>
                                 <button
                                     onClick={() => copyToClipboard('C:\\Users\\pedro\\Desktop\\tacosgavilan-oficial-backup\\theme-gavilan\\gavilan\\img', 'Ruta de logos')}
                                     className="mt-4 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs transition-all border border-slate-700"
                                 >
-                                    <Copy size={14} /> Copiar Ruta en PC
+                                    <Copy size={14} /> {t('new_website.copy_pc_path') || 'Copiar Ruta en PC'}
                                 </button>
                             </div>
 
-                            {/* Base de Datos de Producción SQL */}
+                            {/* Base de Datos de Producción SQL y Espejo Clásico */}
                             <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 shadow-lg flex flex-col justify-between">
                                 <div>
                                     <div className="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center mb-3 border border-emerald-500/40">
                                         <Database size={20} />
                                     </div>
-                                    <h4 className="text-sm font-black text-white">Respaldo MySQL de Producción</h4>
-                                    <p className="text-xs text-slate-400 mt-1">Volcado SQL puro y exportación XML completa de todo WordPress.</p>
+                                    <h4 className="text-sm font-black text-white">{t('new_website.mysql_backup_title') || 'Respaldo MySQL y Espejo Clásico'}</h4>
+                                    <p className="text-xs text-slate-400 mt-1">{t('new_website.mysql_backup_desc') || 'Volcado SQL puro (83.75 MB), exportación XML de WordPress y sitio clásico de respaldo en Vercel.'}</p>
                                     <span className="text-[10px] text-slate-500 font-mono mt-2 block">database-export/ (83.75 MB SQL + 1.45 MB XML)</span>
                                 </div>
-                                <button
-                                    onClick={() => copyToClipboard('C:\\Users\\pedro\\Desktop\\tacosgavilan-oficial-backup\\database-export', 'Ruta de Base de Datos')}
-                                    className="mt-4 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs transition-all border border-slate-700"
-                                >
-                                    <Copy size={14} /> Copiar Ruta en PC
-                                </button>
+                                <div className="mt-4 flex items-center gap-2">
+                                    <button
+                                        onClick={() => copyToClipboard('C:\\Users\\pedro\\Desktop\\tacosgavilan-oficial-backup\\database-export', 'Ruta de Base de Datos')}
+                                        className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs transition-all border border-slate-700"
+                                    >
+                                        <Copy size={14} /> {t('new_website.copy_pc_path') || 'Copiar Ruta en PC'}
+                                    </button>
+                                    <a
+                                        href="https://tacosgavilan-sitio-anterior-backup.vercel.app"
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="px-3 py-2 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 font-bold text-xs flex items-center gap-1 transition-all"
+                                        title="Abrir espejo clásico WordPress en vivo"
+                                    >
+                                        <ExternalLink size={13} /> WP Backup
+                                    </a>
+                                </div>
                             </div>
                         </div>
 
-                        {/* Catálogo de Fotografías de Sucursales y Platillos */}
+                        {/* Catálogo de Fotografías de las 15 Sucursales Oficiales */}
                         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl">
                             <h3 className="text-sm font-black text-white flex items-center gap-2 mb-4">
                                 <MapPin className="text-[#FDC82F]" size={16} />
-                                <span>Inventario Fotográfico de Sucursales (15 Tiendas) y Platillos</span>
+                                <span>{t('new_website.store_photos_title') || 'Inventario Fotográfico de Sucursales (15 Tiendas Oficiales)'}</span>
                             </h3>
 
                             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
                                 {[
-                                    { name: 'Broadway (LA)', file: 'broadway_thumb-600.jpg' },
-                                    { name: 'Lynwood #14', file: 'lynwood_thumb_new-600.jpg' },
-                                    { name: 'Bell', file: 'bell_thumb-600.jpg' },
-                                    { name: 'Norwalk', file: 'norwalk_thumb.jpg' },
-                                    { name: 'Hollywood', file: 'Hollywood_thumb-600.jpg' },
-                                    { name: 'Santa Ana', file: 'Santa_Ana_Gavilan_small-600.jpg' },
-                                    { name: 'Rialto', file: 'rioalto_thumb-600.jpg' },
-                                    { name: 'Downey', file: 'downeylocation-600.jpg' },
-                                    { name: 'Huntington Park', file: 'hp_thumb-600.jpg' },
-                                    { name: 'West Covina', file: 'Gavilan_Covina_small-600.jpg' }
+                                    { name: 'Rialto (#1)', file: 'rialto-hero.webp' },
+                                    { name: 'West Covina (#3)', file: 'west-covina-hero.webp' },
+                                    { name: 'Azusa (#4)', file: 'azusa-hero.webp' },
+                                    { name: 'LA Broadway (#5)', file: 'la-broadway-hero.webp' },
+                                    { name: 'LA Central (#6)', file: 'la-central-hero.webp' },
+                                    { name: 'Slauson (#7)', file: 'slauson-hero.webp' },
+                                    { name: 'Hollywood (#8)', file: 'hollywood-hero.webp' },
+                                    { name: 'Santa Ana (#9)', file: 'santa-ana-hero.webp' },
+                                    { name: 'La Puente (#10)', file: 'la-puente-hero.webp' },
+                                    { name: 'Huntington Park (#11)', file: 'huntington-park-hero.webp' },
+                                    { name: 'Norwalk (#12)', file: 'norwalk-hero.webp' },
+                                    { name: 'Bell (#13)', file: 'bell-hero.webp' },
+                                    { name: 'Lynwood (#14)', file: 'lynwood-hero.webp' },
+                                    { name: 'South Gate (#15)', file: 'south-gate-hero.webp' },
+                                    { name: 'Downey (#16)', file: 'downey-hero.webp' }
                                 ].map((store, i) => (
                                     <div key={i} className="bg-slate-950 p-3 rounded-xl border border-slate-800 text-center">
-                                        <div className="h-16 rounded-lg bg-slate-900 flex items-center justify-center text-slate-500 font-bold text-xs mb-2 overflow-hidden border border-slate-800">
-                                            <MapPin size={24} className="text-[#FDC82F]/70" />
+                                        <div className="h-16 rounded-lg bg-slate-900 flex items-center justify-center text-slate-500 font-bold text-xs mb-2 overflow-hidden border border-slate-800 relative">
+                                            <img
+                                                src={`/tacosgavilan-web/img/locations/${store.file}`}
+                                                alt={store.name}
+                                                className="w-full h-full object-cover opacity-85 hover:opacity-100 transition-opacity"
+                                                loading="lazy"
+                                            />
                                         </div>
                                         <h5 className="text-xs font-bold text-white truncate">{store.name}</h5>
                                         <span className="text-[10px] text-slate-500 truncate block font-mono mt-0.5">{store.file}</span>

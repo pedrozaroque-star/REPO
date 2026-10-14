@@ -1,0 +1,1128 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>Locations & Hours | Tacos Gavilan - 15 Stores Across Southern California</title>
+    <meta name="description" content="Find your nearest Tacos Gavilan! Explore our 15 locations across Los Angeles and Orange County. Check hours, get directions, and order online for pickup.">
+    <link rel="canonical" href="https://tacosgavilan.com/locations/">
+        <!-- Favicon & Brand Icons (Transparent TEG Logo) -->
+    <link rel="icon" type="image/png" href="/logo.png?v=5">
+    <link rel="icon" type="image/png" sizes="32x32" href="/img/favicon-32x32.png?v=5">
+    <link rel="icon" type="image/png" sizes="16x16" href="/img/favicon-16x16.png?v=5">
+    <link rel="shortcut icon" href="/favicon.ico?v=5">
+    <link rel="apple-touch-icon" sizes="180x180" href="/img/apple-touch-icon.png?v=5">
+<link rel="manifest" href="../manifest.webmanifest">
+    <meta name="theme-color" content="#DA291C">
+
+    <!-- Open Graph -->
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="Tacos Gavilan">
+    <meta property="og:title" content="Locations & Hours | Tacos Gavilan - 15 Stores in Southern California">
+    <meta property="og:description" content="Find your nearest Tacos Gavilan. 15 locations across Los Angeles, Orange County, and the Inland Empire. Open late with drive-thru service!">
+    <meta property="og:url" content="https://tacosgavilan.com/locations/">
+    <meta property="og:image" content="https://tacosgavilan.com/img/og-tacos-gavilan-1200x630.jpg">
+
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="Locations & Hours | Tacos Gavilan">
+    <meta name="twitter:description" content="Find your nearest Tacos Gavilan. 15 locations across Southern California. Open late with drive-thru service!">
+    <meta name="twitter:image" content="https://tacosgavilan.com/img/og-tacos-gavilan-1200x630.jpg">
+
+    <!-- Marketing & Analytics Pixels -->
+    <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
+    new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
+    j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
+    'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
+    })(window,document,'script','dataLayer','GTM-WW2N58Z');</script>
+    <link rel="stylesheet" href="../css/style.css?v=29">
+    <link rel="stylesheet" href="../css/compliance-a11y.css?v=29">
+    <style>
+        .page-content-wrapper {
+            padding-top: calc(var(--header-height, 70px) + 2rem);
+            padding-bottom: 4rem;
+            min-height: 80vh;
+        }
+        .locations-page-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 1.5rem;
+        }
+        .locations-map-card {
+            background: rgba(22, 20, 18, 0.95);
+            border: 1px solid rgba(255, 199, 44, 0.25);
+            border-radius: 16px;
+            overflow: hidden;
+            margin-bottom: 3rem;
+            box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6);
+            display: flex;
+            flex-direction: column;
+        }
+        .locations-map-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 1rem 1.5rem;
+            background: rgba(18, 16, 14, 0.98);
+            border-bottom: 1px solid rgba(255, 199, 44, 0.2);
+            gap: 1rem;
+            flex-wrap: wrap;
+        }
+        .locations-map-title {
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+            color: #ffffff;
+        }
+        .locations-map-title svg {
+            color: var(--clr-gold, #FFC72C);
+            flex-shrink: 0;
+        }
+        .locations-map-title h2 {
+            font-family: var(--ff-heading);
+            font-size: 1.15rem;
+            font-weight: 700;
+            color: #ffffff;
+            margin: 0;
+        }
+        .locations-map-actions {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+        }
+        .locations-map-card .map-theme-switcher {
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+        }
+        .locations-map-card .map-theme-btn {
+            color: #d1d5db;
+        }
+        .locations-map-card .map-theme-btn:hover {
+            color: #ffffff;
+            background: rgba(255, 255, 255, 0.1);
+        }
+        .locations-map-card .map-theme-btn.is-active {
+            background: var(--clr-red, #DA291C);
+            color: #ffffff;
+            box-shadow: 0 2px 8px rgba(218, 41, 28, 0.4);
+        }
+        .locations-map-card .map-btn {
+            background: rgba(255, 255, 255, 0.08);
+            color: #ffffff;
+            border: 1px solid rgba(255, 199, 44, 0.3);
+        }
+        .locations-map-card .map-btn:hover {
+            background: var(--clr-gold, #FFC72C);
+            color: #000000;
+            border-color: var(--clr-gold, #FFC72C);
+        }
+        .locations-map-card .map-nearest-info {
+            background: rgba(255, 199, 44, 0.12);
+            border: 1px solid rgba(255, 199, 44, 0.3);
+            color: var(--clr-gold, #FFC72C);
+        }
+        .locations-map-card .gavilan-map {
+            width: 100%;
+            height: 480px;
+            min-height: 400px;
+            background: #1a1a1a;
+        }
+        @media (max-width: 768px) {
+            .locations-map-header {
+                flex-direction: column;
+                align-items: stretch;
+                padding: 0.85rem 1rem;
+                gap: 0.75rem;
+            }
+            .locations-map-actions {
+                width: 100%;
+                justify-content: space-between;
+            }
+            .locations-map-actions .map-theme-switcher {
+                flex: 1;
+            }
+            .locations-map-card .gavilan-map {
+                height: 380px;
+            }
+        }
+        @media (max-width: 480px) {
+            .locations-map-card .gavilan-map {
+                height: 320px;
+            }
+        }
+        .store-search-bar {
+            display: flex;
+            gap: 1rem;
+            max-width: 600px;
+            margin: 0 auto 2.5rem;
+        }
+        .store-search-input {
+            flex: 1;
+            padding: 0.85rem 1.25rem;
+            background: rgba(0, 0, 0, 0.6);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 8px;
+            color: #ffffff;
+            font-size: 1rem;
+        }
+        .store-search-input:focus {
+            outline: none;
+            border-color: var(--clr-gold, #FFC72C);
+        }
+        .locations-grid-layout {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+            gap: 2rem;
+        }
+        .store-card {
+            background: rgba(22, 20, 18, 0.95);
+            border: 1px solid rgba(255, 199, 44, 0.2);
+            border-radius: 14px;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            transition: transform 0.2s, border-color 0.2s;
+        }
+        .store-card:hover {
+            transform: translateY(-4px);
+            border-color: var(--clr-gold, #FFC72C);
+        }
+        .store-card-thumb {
+            width: 100%;
+            height: 160px;
+            object-fit: cover;
+            background: #2a2a2a;
+        }
+        .store-card-body {
+            padding: 1.5rem;
+            display: flex;
+            flex-direction: column;
+            flex: 1;
+        }
+        .store-card-name {
+            margin: 0 0 0.5rem;
+            font-family: var(--ff-heading, sans-serif);
+        }
+        .store-card-name-link {
+            display: flex;
+            flex-direction: column;
+            gap: 0.2rem;
+            color: inherit;
+            text-decoration: none;
+        }
+        .store-card-city {
+            display: block;
+            font-size: 1.35rem;
+            font-weight: 800;
+            color: #ffffff;
+            line-height: 1.2;
+            letter-spacing: -0.01em;
+            transition: color 0.2s ease;
+        }
+        .store-card-cross-streets {
+            display: block;
+            font-size: 0.95rem;
+            font-weight: 700;
+            color: var(--clr-gold, #FFC72C);
+            letter-spacing: 0.02em;
+            line-height: 1.3;
+            transition: color 0.2s ease;
+        }
+        .store-card:hover .store-card-city,
+        .store-card-name-link:hover .store-card-city,
+        .store-card-name-link:focus-visible .store-card-city {
+            color: var(--clr-gold, #FFC72C);
+        }
+        .store-card:hover .store-card-cross-streets,
+        .store-card-name-link:hover .store-card-cross-streets,
+        .store-card-name-link:focus-visible .store-card-cross-streets {
+            color: #ffffff;
+        }
+        .store-card-address {
+            font-size: 0.95rem;
+            color: rgba(255, 255, 255, 0.75);
+            line-height: 1.5;
+            margin-bottom: 0.75rem;
+        }
+        /* -------------------------------------------------------------
+           Store Card Hours Component (Structured, Balanced, Readable)
+           ------------------------------------------------------------- */
+        .store-card-schedule {
+            background: rgba(0, 0, 0, 0.45);
+            border: 1px solid rgba(255, 199, 44, 0.18);
+            border-radius: 10px;
+            padding: 0.65rem 0.85rem;
+            margin: 0.65rem 0 1.2rem 0;
+            display: flex;
+            flex-direction: column;
+            gap: 0.4rem;
+        }
+        .schedule-header {
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+            font-size: 0.7rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--clr-gold, #FFC72C);
+            padding-bottom: 0.35rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        }
+        .schedule-header-icon {
+            stroke: var(--clr-gold, #FFC72C);
+            flex-shrink: 0;
+        }
+        .schedule-rows {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            min-height: 56px;
+            gap: 0.28rem;
+        }
+        .schedule-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.82rem;
+            line-height: 1.35;
+        }
+        .schedule-day {
+            color: rgba(255, 255, 255, 0.82);
+            font-weight: 500;
+            white-space: nowrap;
+        }
+        .schedule-time {
+            color: #ffffff;
+            font-weight: 700;
+            font-variant-numeric: tabular-nums;
+            letter-spacing: 0.01em;
+            white-space: nowrap;
+            text-align: right;
+        }
+        .schedule-row-highlight .schedule-time {
+            color: var(--clr-gold, #FFC72C);
+        }
+        .store-card-actions {
+            margin-top: auto;
+            display: flex;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+        }
+        .btn-store-order {
+            flex: 1;
+            text-align: center;
+            padding: 0.75rem 1rem;
+            background: var(--clr-red, #DA291C);
+            color: #ffffff;
+            border-radius: 6px;
+            font-weight: 700;
+            font-size: 0.9rem;
+            text-transform: uppercase;
+        }
+        .btn-store-order:hover {
+            background: #b91c1c;
+        }
+        .btn-store-details {
+            padding: 0.75rem 1rem;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            color: #ffffff;
+            border-radius: 6px;
+            font-weight: 600;
+            font-size: 0.9rem;
+        }
+        .btn-store-details:hover {
+            border-color: var(--clr-gold, #FFC72C);
+            color: var(--clr-gold, #FFC72C);
+        }
+    </style>
+</head>
+
+<body>
+    <noscript><iframe src="https://www.googletagmanager.com/ns.html?id=GTM-WW2N58Z" height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
+
+            <header class="header scrolled" id="header">
+        <div class="scroll-progress" id="scroll-progress" aria-hidden="true"></div>
+        <div class="container header-container">
+            <!-- Logo (left) -->
+            <a href="../" class="logo" aria-label="Tacos Gavilan Home">
+                <img src="../img/logo.webp" alt="Tacos Gavilan Logo" width="160" height="48">
+            </a>
+
+            <!-- Main Navigation (center / Mobile Drawer) -->
+            <nav class="nav" id="mobile-navigation" aria-label="Main Navigation" aria-hidden="true">
+                <div class="nav-drawer-header">
+                    <img src="../img/logo.webp" alt="Tacos Gavilan" class="nav-drawer-logo nav-drawer-logo-img" width="140" height="42">
+                    <button class="nav-drawer-close" id="nav-drawer-close" aria-label="Close navigation menu" type="button">
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                    </button>
+                </div>
+                <ul class="nav-list">
+                    <li><a href="../" class="nav-link" data-i18n="nav.home" data-en="Home" data-es="Inicio">Home</a></li>
+                    <li><a href="../menu/" class="nav-link" data-i18n="nav.menu" data-en="Menu" data-es="Menú">Menu</a></li>
+                    <li><a href="./" class="nav-link active" aria-current="page" data-i18n="nav.locations" data-en="Locations" data-es="Ubicaciones">Locations</a></li>
+                    <li><a href="../fiesta-platter/" class="nav-link" data-i18n="nav.catering" data-en="Fiesta Platter" data-es="Fiesta Platter">Fiesta Platter</a></li>
+                    <li><a href="../contact/" class="nav-link" data-i18n="nav.contact" data-en="Contact" data-es="Contacto">Contact</a></li>
+                    <li><a href="../blog/" class="nav-link" data-i18n="nav.blog" data-en="Blog" data-es="Blog">Blog</a></li>
+                    <li><a href="./#locations-list" class="nav-link" data-i18n="nav.hours" data-en="Hours" data-es="Horas">Hours</a></li>
+                </ul>
+                <div class="nav-drawer-footer">
+                    <a href="https://order.online/business/-137616" target="_blank" rel="noopener noreferrer" class="btn btn-primary btn-drawer-order btn-drawer-cta">
+                        <span data-i18n="hero.orderBtn" data-en="Order Online" data-es="Ordenar en Línea">Order Online</span>
+                    </a>
+                    <div class="drawer-hours-badge">
+                        <span class="hours-dot" aria-hidden="true"></span>
+                        <span data-i18n="locations.hoursBadge" data-en="15 Southern California Locations" data-es="15 Sucursales en el Sur de California">15 Southern California Locations</span>
+                    </div>
+                </div>
+            </nav>
+
+            <!-- Header Actions (right) -->
+            <div class="header-actions">
+                <button id="lang-toggle" class="lang-toggle" aria-label="Switch language to Spanish" type="button">ES</button>
+                <a href="https://order.online/business/-137616" target="_blank" rel="noopener noreferrer" class="btn btn-primary btn-header-cta">
+                    <span data-i18n="nav.order" data-en="Order Now" data-es="Ordenar">Order Now</span>
+                </a>
+                <button class="mobile-menu-toggle" id="mobile-menu-toggle" aria-label="Open navigation menu" aria-expanded="false" aria-controls="mobile-navigation" type="button">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <main class="page-content-wrapper" id="main-content">
+        <div class="locations-page-container">
+            <div class="text-center" style="margin-bottom: 2.5rem;">
+                <span class="section-tag" data-i18n="locations.tag">15 SOUTHERN CALIFORNIA RESTAURANTS</span>
+                <h1 class="section-title" data-i18n="locations.title">Find Your Nearest Tacos Gavilan</h1>
+            </div>
+
+            <!-- Interactive Embedded Map -->
+            <div class="locations-map-card fade-in-up">
+                <div class="locations-map-header">
+                    <div class="locations-map-title">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>
+                        <h2 data-i18n="locations.mapTitle" data-en="Interactive Store Locator" data-es="Localizador Interactivo de Sucursales">Interactive Store Locator</h2>
+                    </div>
+                    <div class="locations-map-actions">
+                        <div class="map-theme-switcher" role="radiogroup" aria-label="Map theme">
+                            <button type="button" class="map-theme-btn is-active" data-theme="dark" role="radio" aria-checked="true">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+                                <span data-i18n="map.themeDark" data-en="Dark" data-es="Oscuro">Dark</span>
+                            </button>
+                            <button type="button" class="map-theme-btn" data-theme="light" role="radio" aria-checked="false">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+                                <span data-i18n="map.themeLight" data-en="Light" data-es="Claro">Light</span>
+                            </button>
+                            <button type="button" class="map-theme-btn" data-theme="satellite" role="radio" aria-checked="false">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
+                                <span data-i18n="map.themeSatellite" data-en="Satellite" data-es="Satélite">Satellite</span>
+                            </button>
+                        </div>
+                        <button class="map-btn map-btn-locate" id="map-locate-btn" type="button">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg>
+                            <span data-i18n="map.findMe" data-en="Find Me" data-es="Ubicarme">Find Me</span>
+                        </button>
+                        <div class="map-nearest-info" id="map-nearest-info" style="display:none;">
+                            <svg class="map-nearest-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+                            <span class="map-nearest-text" id="map-nearest-text"></span>
+                        </div>
+                    </div>
+                </div>
+                <div id="gavilan-map" class="gavilan-map" role="region" aria-label="Interactive Map of Tacos Gavilan Locations"></div>
+            </div>
+
+            <!-- 15 Location Cards Grid (Ranked by Sales Volume) -->
+            <div class="locations-grid-layout" id="locations-list">
+                
+                <!-- 1. Los Angeles Central Central/Washington -->
+                <div class="store-card" data-store="la-central">
+                    <img src="../img/Central_Gavilan_small-600.jpg" alt="Tacos Gavilan Los Angeles Central/Washington" class="store-card-thumb" loading="lazy">
+                    <div class="store-card-body">
+                        <h2 class="store-card-name">
+                            <a href="./la-central/" class="store-card-name-link">
+                                <span class="store-card-city">Los Angeles</span>
+                                <span class="store-card-cross-streets">Central/Washington</span>
+                            </a>
+                        </h2>
+                        <div class="store-card-schedule">
+                            <div class="schedule-header">
+                                <svg class="schedule-header-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                                <span class="schedule-header-title" data-en="Hours" data-es="Horarios">Hours</span>
+                            </div>
+                            <div class="schedule-rows">
+                                <div class="schedule-row">
+                                    <span class="schedule-day" data-en="Sun – Wed" data-es="Dom – Mié">Sun – Wed</span>
+                                    <span class="schedule-time">8:00 AM – 2:00 AM</span>
+                                </div>
+                                <div class="schedule-row">
+                                    <span class="schedule-day" data-en="Thursday" data-es="Jueves">Thursday</span>
+                                    <span class="schedule-time">8:00 AM – 3:00 AM</span>
+                                </div>
+                                <div class="schedule-row schedule-row-highlight">
+                                    <span class="schedule-day" data-en="Fri – Sat" data-es="Vie – Sáb">Fri – Sat</span>
+                                    <span class="schedule-time">8:00 AM – 4:00 AM</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="store-card-actions">
+                            <a href="https://order.online/store/tacos-gavilan-los-angeles-260847/?hideModal=true&pickup=true" target="_blank" rel="noopener noreferrer" class="btn-store-order"><span data-i18n="locations.orderBtn">Order Now</span></a>
+                            <a href="./la-central/" class="btn-store-details"><span data-i18n="locations.detailsBtn">Details</span></a>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 2. Lynwood -->
+                <div class="store-card" data-store="lynwood">
+                    <img src="../img/lynwood_thumb_new-600.jpg" alt="Tacos Gavilan Lynwood Imperial/Long Beach" class="store-card-thumb" loading="lazy">
+                    <div class="store-card-body">
+                        <h2 class="store-card-name">
+                            <a href="./lynwood/" class="store-card-name-link">
+                                <span class="store-card-city">Lynwood</span>
+                                <span class="store-card-cross-streets">Imperial/Long Beach</span>
+                            </a>
+                        </h2>
+                        <div class="store-card-schedule">
+                            <div class="schedule-header">
+                                <svg class="schedule-header-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                                <span class="schedule-header-title" data-en="Hours" data-es="Horarios">Hours</span>
+                            </div>
+                            <div class="schedule-rows">
+                                <div class="schedule-row">
+                                    <span class="schedule-day" data-en="Sun – Wed" data-es="Dom – Mié">Sun – Wed</span>
+                                    <span class="schedule-time">10:00 AM – 1:00 AM</span>
+                                </div>
+                                <div class="schedule-row">
+                                    <span class="schedule-day" data-en="Thursday" data-es="Jueves">Thursday</span>
+                                    <span class="schedule-time">10:00 AM – 2:00 AM</span>
+                                </div>
+                                <div class="schedule-row schedule-row-highlight">
+                                    <span class="schedule-day" data-en="Fri – Sat" data-es="Vie – Sáb">Fri – Sat</span>
+                                    <span class="schedule-time">10:00 AM – 3:00 AM</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="store-card-actions">
+                            <a href="https://order.online/store/tacos-gavilan-lynwood-727877/?hideModal=true&pickup=true" target="_blank" rel="noopener noreferrer" class="btn-store-order"><span data-i18n="locations.orderBtn">Order Now</span></a>
+                            <a href="./lynwood/" class="btn-store-details"><span data-i18n="locations.detailsBtn">Details</span></a>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 3. Los Angeles Broadway -->
+                <div class="store-card" data-store="la-broadway">
+                    <img src="../img/broadway_thumb-600.jpg" alt="Tacos Gavilan Los Angeles Vernon/Broadway" class="store-card-thumb" loading="lazy">
+                    <div class="store-card-body">
+                        <h2 class="store-card-name">
+                            <a href="./la-broadway/" class="store-card-name-link">
+                                <span class="store-card-city">Los Angeles</span>
+                                <span class="store-card-cross-streets">Vernon/Broadway</span>
+                            </a>
+                        </h2>
+                        <div class="store-card-schedule">
+                            <div class="schedule-header">
+                                <svg class="schedule-header-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                                <span class="schedule-header-title" data-en="Hours" data-es="Horarios">Hours</span>
+                            </div>
+                            <div class="schedule-rows">
+                                <div class="schedule-row">
+                                    <span class="schedule-day" data-en="Mon – Wed" data-es="Lun – Mié">Mon – Wed</span>
+                                    <span class="schedule-time">8:00 AM – 1:00 AM</span>
+                                </div>
+                                <div class="schedule-row">
+                                    <span class="schedule-day" data-en="Thu &amp; Sun" data-es="Jue y Dom">Thu &amp; Sun</span>
+                                    <span class="schedule-time">8:00 AM – 2:00 AM</span>
+                                </div>
+                                <div class="schedule-row schedule-row-highlight">
+                                    <span class="schedule-day" data-en="Fri – Sat" data-es="Vie – Sáb">Fri – Sat</span>
+                                    <span class="schedule-time">8:00 AM – 4:00 AM</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="store-card-actions">
+                            <a href="https://order.online/store/tacos-gavilan-los-angeles-260769/?hideModal=true&pickup=true" target="_blank" rel="noopener noreferrer" class="btn-store-order"><span data-i18n="locations.orderBtn">Order Now</span></a>
+                            <a href="./la-broadway/" class="btn-store-details"><span data-i18n="locations.detailsBtn">Details</span></a>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 4. Norwalk -->
+                <div class="store-card" data-store="norwalk">
+                    <img src="../img/norwalk_thumb.jpg" alt="Tacos Gavilan Norwalk Rosecrans/Studebaker" class="store-card-thumb" loading="lazy">
+                    <div class="store-card-body">
+                        <h2 class="store-card-name">
+                            <a href="./norwalk/" class="store-card-name-link">
+                                <span class="store-card-city">Norwalk</span>
+                                <span class="store-card-cross-streets">Rosecrans/Studebaker</span>
+                            </a>
+                        </h2>
+                        <div class="store-card-schedule">
+                            <div class="schedule-header">
+                                <svg class="schedule-header-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                                <span class="schedule-header-title" data-en="Hours" data-es="Horarios">Hours</span>
+                            </div>
+                            <div class="schedule-rows">
+                                <div class="schedule-row">
+                                    <span class="schedule-day" data-en="Sun – Thu" data-es="Dom – Jue">Sun – Thu</span>
+                                    <span class="schedule-time">10:00 AM – 1:00 AM</span>
+                                </div>
+                                <div class="schedule-row schedule-row-highlight">
+                                    <span class="schedule-day" data-en="Fri – Sat" data-es="Vie – Sáb">Fri – Sat</span>
+                                    <span class="schedule-time">10:00 AM – 3:00 AM</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="store-card-actions">
+                            <a href="https://order.online/store/tacos-gavilan-norwalk-1327857/?hideModal=true&pickup=true" target="_blank" rel="noopener noreferrer" class="btn-store-order"><span data-i18n="locations.orderBtn">Order Now</span></a>
+                            <a href="./norwalk/" class="btn-store-details"><span data-i18n="locations.detailsBtn">Details</span></a>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 5. Los Angeles Slauson/Broadway -->
+                <div class="store-card" data-store="slauson">
+                    <img src="../img/broadway_thumb-600.jpg" alt="Tacos Gavilan Los Angeles Slauson/Broadway" class="store-card-thumb" loading="lazy">
+                    <div class="store-card-body">
+                        <h2 class="store-card-name">
+                            <a href="./slauson/" class="store-card-name-link">
+                                <span class="store-card-city">Los Angeles</span>
+                                <span class="store-card-cross-streets">Slauson/Broadway</span>
+                            </a>
+                        </h2>
+                        <div class="store-card-schedule">
+                            <div class="schedule-header">
+                                <svg class="schedule-header-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                                <span class="schedule-header-title" data-en="Hours" data-es="Horarios">Hours</span>
+                            </div>
+                            <div class="schedule-rows">
+                                <div class="schedule-row">
+                                    <span class="schedule-day" data-en="Sun – Thu" data-es="Dom – Jue">Sun – Thu</span>
+                                    <span class="schedule-time">10:00 AM – 1:00 AM</span>
+                                </div>
+                                <div class="schedule-row schedule-row-highlight">
+                                    <span class="schedule-day" data-en="Fri – Sat" data-es="Vie – Sáb">Fri – Sat</span>
+                                    <span class="schedule-time">10:00 AM – 3:00 AM</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="store-card-actions">
+                            <a href="https://order.online/store/tacos-gavilan-slauson-broadway-23989119/?hideModal=true&pickup=true" target="_blank" rel="noopener noreferrer" class="btn-store-order"><span data-i18n="locations.orderBtn">Order Now</span></a>
+                            <a href="./slauson/" class="btn-store-details"><span data-i18n="locations.detailsBtn">Details</span></a>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 6. Rialto -->
+                <div class="store-card" data-store="rialto">
+                    <img src="../img/rioalto_thumb-600.jpg" alt="Tacos Gavilan Rialto Baseline/Riverside" class="store-card-thumb" loading="lazy">
+                    <div class="store-card-body">
+                        <h2 class="store-card-name">
+                            <a href="./rialto/" class="store-card-name-link">
+                                <span class="store-card-city">Rialto</span>
+                                <span class="store-card-cross-streets">Baseline/Riverside</span>
+                            </a>
+                        </h2>
+                        <div class="store-card-schedule">
+                            <div class="schedule-header">
+                                <svg class="schedule-header-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                                <span class="schedule-header-title" data-en="Hours" data-es="Horarios">Hours</span>
+                            </div>
+                            <div class="schedule-rows">
+                                <div class="schedule-row">
+                                    <span class="schedule-day" data-en="Sun – Thu" data-es="Dom – Jue">Sun – Thu</span>
+                                    <span class="schedule-time">10:00 AM – 12:00 AM</span>
+                                </div>
+                                <div class="schedule-row schedule-row-highlight">
+                                    <span class="schedule-day" data-en="Fri – Sat" data-es="Vie – Sáb">Fri – Sat</span>
+                                    <span class="schedule-time">10:00 AM – 2:00 AM</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="store-card-actions">
+                            <a href="https://order.online/store/tacos-gavilan-rialto-841931/?hideModal=true&pickup=true" target="_blank" rel="noopener noreferrer" class="btn-store-order"><span data-i18n="locations.orderBtn">Order Now</span></a>
+                            <a href="./rialto/" class="btn-store-details"><span data-i18n="locations.detailsBtn">Details</span></a>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 7. West Covina -->
+                <div class="store-card" data-store="west-covina">
+                    <img src="../img/azusa_thumb-600.jpg" alt="Tacos Gavilan West Covina 10 FWY/Azusa" class="store-card-thumb" loading="lazy">
+                    <div class="store-card-body">
+                        <h2 class="store-card-name">
+                            <a href="./west-covina/" class="store-card-name-link">
+                                <span class="store-card-city">West Covina</span>
+                                <span class="store-card-cross-streets">10 FWY/Azusa</span>
+                            </a>
+                        </h2>
+                        <div class="store-card-schedule">
+                            <div class="schedule-header">
+                                <svg class="schedule-header-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                                <span class="schedule-header-title" data-en="Hours" data-es="Horarios">Hours</span>
+                            </div>
+                            <div class="schedule-rows">
+                                <div class="schedule-row">
+                                    <span class="schedule-day" data-en="Sun – Thu" data-es="Dom – Jue">Sun – Thu</span>
+                                    <span class="schedule-time">10:00 AM – 1:00 AM</span>
+                                </div>
+                                <div class="schedule-row schedule-row-highlight">
+                                    <span class="schedule-day" data-en="Fri – Sat" data-es="Vie – Sáb">Fri – Sat</span>
+                                    <span class="schedule-time">10:00 AM – 3:00 AM</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="store-card-actions">
+                            <a href="https://order.online/store/tacos-gavilan-west-covina-725035/?hideModal=true&pickup=true" target="_blank" rel="noopener noreferrer" class="btn-store-order"><span data-i18n="locations.orderBtn">Order Now</span></a>
+                            <a href="./west-covina/" class="btn-store-details"><span data-i18n="locations.detailsBtn">Details</span></a>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 8. South Gate -->
+                <div class="store-card" data-store="south-gate">
+                    <img src="../img/south_gate_thumb-600.jpg" alt="Tacos Gavilan South Gate Firestone/Garfield" class="store-card-thumb" loading="lazy">
+                    <div class="store-card-body">
+                        <h2 class="store-card-name">
+                            <a href="./south-gate/" class="store-card-name-link">
+                                <span class="store-card-city">South Gate</span>
+                                <span class="store-card-cross-streets">Firestone/Garfield</span>
+                            </a>
+                        </h2>
+                        <div class="store-card-schedule">
+                            <div class="schedule-header">
+                                <svg class="schedule-header-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                                <span class="schedule-header-title" data-en="Hours" data-es="Horarios">Hours</span>
+                            </div>
+                            <div class="schedule-rows">
+                                <div class="schedule-row">
+                                    <span class="schedule-day" data-en="Sun – Thu" data-es="Dom – Jue">Sun – Thu</span>
+                                    <span class="schedule-time">10:00 AM – 12:00 AM</span>
+                                </div>
+                                <div class="schedule-row schedule-row-highlight">
+                                    <span class="schedule-day" data-en="Fri – Sat" data-es="Vie – Sáb">Fri – Sat</span>
+                                    <span class="schedule-time">10:00 AM – 3:00 AM</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="store-card-actions">
+                            <a href="https://order.online/store/tacos-gavilan-south-gate-846517/?hideModal=true&pickup=true" target="_blank" rel="noopener noreferrer" class="btn-store-order"><span data-i18n="locations.orderBtn">Order Now</span></a>
+                            <a href="./south-gate/" class="btn-store-details"><span data-i18n="locations.detailsBtn">Details</span></a>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 9. Downey -->
+                <div class="store-card" data-store="downey">
+                    <img src="../img/downeylocation-600.jpg" alt="Tacos Gavilan Downey Florence/Paramount" class="store-card-thumb" loading="lazy">
+                    <div class="store-card-body">
+                        <h2 class="store-card-name">
+                            <a href="./downey/" class="store-card-name-link">
+                                <span class="store-card-city">Downey</span>
+                                <span class="store-card-cross-streets">Florence/Paramount</span>
+                            </a>
+                        </h2>
+                        <div class="store-card-schedule">
+                            <div class="schedule-header">
+                                <svg class="schedule-header-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                                <span class="schedule-header-title" data-en="Hours" data-es="Horarios">Hours</span>
+                            </div>
+                            <div class="schedule-rows">
+                                <div class="schedule-row">
+                                    <span class="schedule-day" data-en="Sun – Wed" data-es="Dom – Mié">Sun – Wed</span>
+                                    <span class="schedule-time">10:00 AM – 12:00 AM</span>
+                                </div>
+                                <div class="schedule-row">
+                                    <span class="schedule-day" data-en="Thursday" data-es="Jueves">Thursday</span>
+                                    <span class="schedule-time">10:00 AM – 1:00 AM</span>
+                                </div>
+                                <div class="schedule-row schedule-row-highlight">
+                                    <span class="schedule-day" data-en="Fri – Sat" data-es="Vie – Sáb">Fri – Sat</span>
+                                    <span class="schedule-time">10:00 AM – 3:00 AM</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="store-card-actions">
+                            <a href="https://order.online/store/tacos-gavilan-downey-302620/?hideModal=true&pickup=true" target="_blank" rel="noopener noreferrer" class="btn-store-order"><span data-i18n="locations.orderBtn">Order Now</span></a>
+                            <a href="./downey/" class="btn-store-details"><span data-i18n="locations.detailsBtn">Details</span></a>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 10. Hollywood -->
+                <div class="store-card" data-store="hollywood">
+                    <img src="../img/Hollywood_thumb-600.jpg" alt="Tacos Gavilan Hollywood Sunset/La Brea" class="store-card-thumb" loading="lazy">
+                    <div class="store-card-body">
+                        <h2 class="store-card-name">
+                            <a href="./hollywood/" class="store-card-name-link">
+                                <span class="store-card-city">Hollywood</span>
+                                <span class="store-card-cross-streets">Sunset/La Brea</span>
+                            </a>
+                        </h2>
+                        <div class="store-card-schedule">
+                            <div class="schedule-header">
+                                <svg class="schedule-header-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                                <span class="schedule-header-title" data-en="Hours" data-es="Horarios">Hours</span>
+                            </div>
+                            <div class="schedule-rows">
+                                <div class="schedule-row">
+                                    <span class="schedule-day" data-en="Sun – Thu" data-es="Dom – Jue">Sun – Thu</span>
+                                    <span class="schedule-time">10:00 AM – 12:00 AM</span>
+                                </div>
+                                <div class="schedule-row schedule-row-highlight">
+                                    <span class="schedule-day" data-en="Fri – Sat" data-es="Vie – Sáb">Fri – Sat</span>
+                                    <span class="schedule-time">10:00 AM – 3:00 AM</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="store-card-actions">
+                            <a href="https://order.online/store/tacos-gavilan-los-angeles-551916/?hideModal=true&pickup=true" target="_blank" rel="noopener noreferrer" class="btn-store-order"><span data-i18n="locations.orderBtn">Order Now</span></a>
+                            <a href="./hollywood/" class="btn-store-details"><span data-i18n="locations.detailsBtn">Details</span></a>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 11. Santa Ana -->
+                <div class="store-card" data-store="santa-ana">
+                    <img src="../img/Santa_Ana_Gavilan_small-600.jpg" alt="Tacos Gavilan Santa Ana 17th/Grand" class="store-card-thumb" loading="lazy">
+                    <div class="store-card-body">
+                        <h2 class="store-card-name">
+                            <a href="./santa-ana/" class="store-card-name-link">
+                                <span class="store-card-city">Santa Ana</span>
+                                <span class="store-card-cross-streets">17th/Grand</span>
+                            </a>
+                        </h2>
+                        <div class="store-card-schedule">
+                            <div class="schedule-header">
+                                <svg class="schedule-header-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                                <span class="schedule-header-title" data-en="Hours" data-es="Horarios">Hours</span>
+                            </div>
+                            <div class="schedule-rows">
+                                <div class="schedule-row">
+                                    <span class="schedule-day" data-en="Sun – Thu" data-es="Dom – Jue">Sun – Thu</span>
+                                    <span class="schedule-time">10:00 AM – 12:00 AM</span>
+                                </div>
+                                <div class="schedule-row schedule-row-highlight">
+                                    <span class="schedule-day" data-en="Fri – Sat" data-es="Vie – Sáb">Fri – Sat</span>
+                                    <span class="schedule-time">10:00 AM – 2:00 AM</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="store-card-actions">
+                            <a href="https://order.online/store/tacos-gavilan-santa-ana-724574/?hideModal=true&pickup=true" target="_blank" rel="noopener noreferrer" class="btn-store-order"><span data-i18n="locations.orderBtn">Order Now</span></a>
+                            <a href="./santa-ana/" class="btn-store-details"><span data-i18n="locations.detailsBtn">Details</span></a>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 12. Huntington Park -->
+                <div class="store-card" data-store="huntington-park">
+                    <img src="../img/hp_thumb-600.jpg" alt="Tacos Gavilan Huntington Park Florence/Santa Fe" class="store-card-thumb" loading="lazy">
+                    <div class="store-card-body">
+                        <h2 class="store-card-name">
+                            <a href="./huntington-park/" class="store-card-name-link">
+                                <span class="store-card-city">Huntington Park</span>
+                                <span class="store-card-cross-streets">Florence/Santa Fe</span>
+                            </a>
+                        </h2>
+                        <div class="store-card-schedule">
+                            <div class="schedule-header">
+                                <svg class="schedule-header-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                                <span class="schedule-header-title" data-en="Hours" data-es="Horarios">Hours</span>
+                            </div>
+                            <div class="schedule-rows">
+                                <div class="schedule-row">
+                                    <span class="schedule-day" data-en="Sun – Wed" data-es="Dom – Mié">Sun – Wed</span>
+                                    <span class="schedule-time">10:00 AM – 12:00 AM</span>
+                                </div>
+                                <div class="schedule-row">
+                                    <span class="schedule-day" data-en="Thursday" data-es="Jueves">Thursday</span>
+                                    <span class="schedule-time">10:00 AM – 1:00 AM</span>
+                                </div>
+                                <div class="schedule-row schedule-row-highlight">
+                                    <span class="schedule-day" data-en="Fri – Sat" data-es="Vie – Sáb">Fri – Sat</span>
+                                    <span class="schedule-time">10:00 AM – 3:00 AM</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="store-card-actions">
+                            <a href="https://order.online/store/tacos-gavilan-huntington-park-260849/?hideModal=true&pickup=true" target="_blank" rel="noopener noreferrer" class="btn-store-order"><span data-i18n="locations.orderBtn">Order Now</span></a>
+                            <a href="./huntington-park/" class="btn-store-details"><span data-i18n="locations.detailsBtn">Details</span></a>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 13. La Puente -->
+                <div class="store-card" data-store="la-puente">
+                    <img src="../img/Gavilan-Location-Thumbs-La_Puente.jpg" alt="Tacos Gavilan La Puente 605 FWY/Valley" class="store-card-thumb" loading="lazy">
+                    <div class="store-card-body">
+                        <h2 class="store-card-name">
+                            <a href="./la-puente/" class="store-card-name-link">
+                                <span class="store-card-city">La Puente</span>
+                                <span class="store-card-cross-streets">605 FWY/Valley</span>
+                            </a>
+                        </h2>
+                        <div class="store-card-schedule">
+                            <div class="schedule-header">
+                                <svg class="schedule-header-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                                <span class="schedule-header-title" data-en="Hours" data-es="Horarios">Hours</span>
+                            </div>
+                            <div class="schedule-rows">
+                                <div class="schedule-row">
+                                    <span class="schedule-day" data-en="Sun – Thu" data-es="Dom – Jue">Sun – Thu</span>
+                                    <span class="schedule-time">10:00 AM – 12:00 AM</span>
+                                </div>
+                                <div class="schedule-row schedule-row-highlight">
+                                    <span class="schedule-day" data-en="Fri – Sat" data-es="Vie – Sáb">Fri – Sat</span>
+                                    <span class="schedule-time">10:00 AM – 2:00 AM</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="store-card-actions">
+                            <a href="https://order.online/store/tacos-gavilan-la-puente-963464/?hideModal=true&pickup=true" target="_blank" rel="noopener noreferrer" class="btn-store-order"><span data-i18n="locations.orderBtn">Order Now</span></a>
+                            <a href="./la-puente/" class="btn-store-details"><span data-i18n="locations.detailsBtn">Details</span></a>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 14. Azusa -->
+                <div class="store-card" data-store="azusa">
+                    <img src="../img/azusa_thumb-600.jpg" alt="Tacos Gavilan Azusa Azusa/Arrow" class="store-card-thumb" loading="lazy">
+                    <div class="store-card-body">
+                        <h2 class="store-card-name">
+                            <a href="./azusa/" class="store-card-name-link">
+                                <span class="store-card-city">Azusa</span>
+                                <span class="store-card-cross-streets">Azusa/Arrow</span>
+                            </a>
+                        </h2>
+                        <div class="store-card-schedule">
+                            <div class="schedule-header">
+                                <svg class="schedule-header-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                                <span class="schedule-header-title" data-en="Hours" data-es="Horarios">Hours</span>
+                            </div>
+                            <div class="schedule-rows">
+                                <div class="schedule-row">
+                                    <span class="schedule-day" data-en="Sun – Thu" data-es="Dom – Jue">Sun – Thu</span>
+                                    <span class="schedule-time">10:00 AM – 11:00 PM</span>
+                                </div>
+                                <div class="schedule-row schedule-row-highlight">
+                                    <span class="schedule-day" data-en="Fri – Sat" data-es="Vie – Sáb">Fri – Sat</span>
+                                    <span class="schedule-time">10:00 AM – 12:00 AM</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="store-card-actions">
+                            <a href="https://order.online/store/tacos-gavilan-azusa-718169/?hideModal=true&pickup=true" target="_blank" rel="noopener noreferrer" class="btn-store-order"><span data-i18n="locations.orderBtn">Order Now</span></a>
+                            <a href="./azusa/" class="btn-store-details"><span data-i18n="locations.detailsBtn">Details</span></a>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 15. Bell -->
+                <div class="store-card" data-store="bell">
+                    <img src="../img/bell_thumb-600.jpg" alt="Tacos Gavilan Bell Florence/Atlantic" class="store-card-thumb" loading="lazy">
+                    <div class="store-card-body">
+                        <h2 class="store-card-name">
+                            <a href="./bell/" class="store-card-name-link">
+                                <span class="store-card-city">Bell</span>
+                                <span class="store-card-cross-streets">Florence/Atlantic</span>
+                            </a>
+                        </h2>
+                        <div class="store-card-schedule">
+                            <div class="schedule-header">
+                                <svg class="schedule-header-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                                <span class="schedule-header-title" data-en="Hours" data-es="Horarios">Hours</span>
+                            </div>
+                            <div class="schedule-rows">
+                                <div class="schedule-row">
+                                    <span class="schedule-day" data-en="Sun – Thu" data-es="Dom – Jue">Sun – Thu</span>
+                                    <span class="schedule-time">10:00 AM – 12:00 AM</span>
+                                </div>
+                                <div class="schedule-row schedule-row-highlight">
+                                    <span class="schedule-day" data-en="Fri – Sat" data-es="Vie – Sáb">Fri – Sat</span>
+                                    <span class="schedule-time">10:00 AM – 2:00 AM</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="store-card-actions">
+                            <a href="https://order.online/store/tacos-gavilan-bell-260912/?hideModal=true&pickup=true" target="_blank" rel="noopener noreferrer" class="btn-store-order"><span data-i18n="locations.orderBtn">Order Now</span></a>
+                            <a href="./bell/" class="btn-store-details"><span data-i18n="locations.detailsBtn">Details</span></a>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </main>
+
+    <!-- ========================================
+         FOOTER (Canonical Tacos Gavilan Component)
+         ======================================== -->
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-grid">
+                <!-- Brand & Description -->
+                <div class="footer-brand">
+                    <img src="../img/logo.webp" alt="Tacos Gavilan" class="footer-logo" loading="lazy" width="160" height="48">
+                    <p data-i18n="footer.desc">Authentic Mexican food serving Southern California since 1992. From our family to yours — Ya está.</p>
+                    <!-- Social Links -->
+                    <div class="footer-social" aria-label="Footer Social Links">
+                        <a href="https://www.facebook.com/TacosElGavilan/" target="_blank" rel="noopener noreferrer" aria-label="Tacos Gavilan on Facebook" class="footer-social-link">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>
+                        </a>
+                        <a href="https://www.instagram.com/tacosgavilan/" target="_blank" rel="noopener noreferrer" aria-label="Tacos Gavilan on Instagram" class="footer-social-link">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zM12 0C8.741 0 8.333.014 7.053.072 2.695.272.273 2.69.073 7.052.014 8.333 0 8.741 0 12c0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98C8.333 23.986 8.741 24 12 24c3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98C15.668.014 15.259 0 12 0zm0 5.838a6.162 6.162 0 100 12.324 6.162 6.162 0 000-12.324zM12 16a4 4 0 110-8 4 4 0 010 8zm6.406-11.845a1.44 1.44 0 100 2.881 1.44 1.44 0 000-2.881z"/></svg>
+                        </a>
+                        <a href="https://www.tiktok.com/@tacos.gavilan" target="_blank" rel="noopener noreferrer" aria-label="Tacos Gavilan on TikTok" class="footer-social-link">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.57-.26-1.1-.59-1.62-.93-.01 2.92.01 5.84-.02 8.75-.08 1.4-.54 2.79-1.35 3.94-1.31 1.92-3.58 3.17-5.91 3.21-1.43.08-2.86-.31-4.08-1.03-2.02-1.19-3.44-3.37-3.65-5.71-.02-.5-.03-1-.01-1.49.18-1.9 1.12-3.72 2.58-4.96 1.66-1.44 3.98-2.13 6.15-1.72.02 1.48-.04 2.96-.04 4.44-.99-.32-2.15-.23-3.02.37-.63.41-1.11 1.04-1.36 1.75-.21.51-.15 1.07-.14 1.61.24 1.64 1.82 3.02 3.5 2.87 1.12-.01 2.19-.66 2.77-1.61.19-.33.4-.67.41-1.06.1-1.79.06-3.57.07-5.36.01-4.03-.01-8.05.02-12.07z"/></svg>
+                        </a>
+                        <a href="https://www.youtube.com/channel/UCrEA_8rVxr7hcIvf-Hy6bMg" target="_blank" rel="noopener noreferrer" aria-label="Tacos Gavilan on YouTube" class="footer-social-link">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M23.498 6.186a3.016 3.016 0 00-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 00.502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 002.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 002.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>
+                        </a>
+                    </div>
+                </div>
+
+                <!-- Quick Links -->
+                <div class="footer-links">
+                    <h4 data-i18n="footer.quickLinks">Quick Links</h4>
+                    <ul>
+                        <li><a href="../menu/" data-i18n="nav.menu">Menu</a></li>
+                        <li><a href="../fiesta-platter/" data-i18n="nav.catering">Fiesta Platter</a></li>
+                        <li><a href="./" data-i18n="nav.locations">Locations</a></li>
+                        <li><a href="../contact/" data-i18n="nav.contact">Contact Us</a></li>
+                    </ul>
+                </div>
+
+                <!-- Resources & Archive -->
+                <div class="footer-links footer-archive">
+                    <h4 data-i18n="footer.resourcesHeading">Resources &amp; Archive</h4>
+                    <ul>
+                        <li><a href="../fiesta-platter/" data-i18n="footer.fiestaPlatters">Fiesta Platters</a></li>
+                        <li><a href="../menu/" data-i18n="footer.fullMenu">Full Menu Page</a></li>
+                        <li><a href="./" data-i18n="footer.allLocations">15 Store Locations</a></li>
+                        <li><a href="../blog/" data-i18n="footer.blog">Official Gavilan Blog</a></li>
+                    </ul>
+                </div>
+
+                <!-- Hours & Contact Info -->
+                <div class="footer-info">
+                    <h4 data-i18n="footer.hoursHeading">HOURS</h4>
+                    <p data-i18n="footer.hoursText">Hours vary by location.<br><strong>Check your nearest restaurant.</strong></p>
+                    <h4 style="margin-top: 1.25rem;" data-i18n="footer.contactHeading">CONTACT</h4>
+                    <p><a href="./" data-i18n="footer.allLocations">15 Store Locations &rarr;</a></p>
+                    <p><a href="mailto:info@tacosgavilan.com">info@tacosgavilan.com</a></p>
+                </div>
+            </div>
+        </div>
+        <!-- Footer Marquee -->
+        <div class="footer-marquee" aria-hidden="true">
+            <div class="footer-marquee-track">
+                <div class="footer-marquee-set">
+                    <img src="../img/tagline.webp" alt="Ya está." loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../img/logo.webp" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../img/tagline.webp" alt="Ya está." loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../img/logo.webp" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../img/tagline.webp" alt="Ya está." loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../img/logo.webp" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../img/tagline.webp" alt="Ya está." loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../img/logo.webp" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../img/tagline.webp" alt="Ya está." loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../img/logo.webp" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../img/tagline.webp" alt="Ya está." loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../img/logo.webp" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../img/tagline.webp" alt="Ya está." loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../img/logo.webp" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../img/tagline.webp" alt="Ya está." loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../img/logo.webp" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../img/tagline.webp" alt="Ya está." loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../img/logo.webp" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
+                    <span>·</span>
+                </div>
+                <div class="footer-marquee-set" aria-hidden="true">
+                    <img src="../img/tagline.webp" alt="Ya está." loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../img/logo.webp" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../img/tagline.webp" alt="Ya está." loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../img/logo.webp" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../img/tagline.webp" alt="Ya está." loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../img/logo.webp" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../img/tagline.webp" alt="Ya está." loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../img/logo.webp" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../img/tagline.webp" alt="Ya está." loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../img/logo.webp" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../img/tagline.webp" alt="Ya está." loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../img/logo.webp" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../img/tagline.webp" alt="Ya está." loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../img/logo.webp" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../img/tagline.webp" alt="Ya está." loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../img/logo.webp" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../img/tagline.webp" alt="Ya está." loading="lazy" width="100" height="28">
+                    <span>·</span>
+                    <img src="../img/logo.webp" alt="Tacos Gavilan" loading="lazy" width="100" height="28">
+                    <span>·</span>
+                </div>
+            </div>
+        </div>
+        <!-- Footer Bottom -->
+        <div class="footer-bottom">
+            <div class="container footer-bottom-content">
+                <p>&copy; <span id="year"></span> Tacos Gavilan. All rights reserved.</p>
+                <div class="footer-legal-links">
+                    <a href="../privacy/" id="open-privacy-btn" data-i18n="footer.privacy">Privacy Policy</a>
+                    <span class="legal-dot" aria-hidden="true">·</span>
+                    <a href="../terms/" id="open-terms-btn" data-i18n="footer.terms">Terms of Use</a>
+                    <span class="legal-dot" aria-hidden="true">·</span>
+                    <a href="../accessibility/" id="open-accessibility-btn" data-i18n="footer.accessibility">Accessibility</a>
+                    <span class="legal-dot" aria-hidden="true">·</span>
+                    <a href="../privacy-choices/" id="open-cookie-settings-btn" data-i18n="footer.cookieSettings">Privacy Choices</a>
+                    <span class="legal-dot" aria-hidden="true">·</span>
+                    <button type="button" id="footer-dns-btn" class="footer-legal-btn" style="background:none;border:none;color:inherit;cursor:pointer;font-size:inherit;font-family:inherit;padding:0;text-decoration:none;" data-i18n="footer.dns">Do Not Sell or Share My Personal Information</button>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <button id="tg-a11y-trigger" aria-label="Accessibility Menu / Menú de Accesibilidad" title="Accessibility Menu / Menú de Accesibilidad">
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M12 2c1.1 0 2 .9 2 2s-.9 2-2 2-2-.9-2-2 .9-2 2-2zm9 7h-6v13h-2v-6h-2v6H9V9H3V7h18v2z"/>
+        </svg>
+    </button>
+    <script src="../js/main.js?v=28" defer></script>
+    <script src="../js/compliance-a11y.js?v=28" defer></script>
+</body>
+</html>

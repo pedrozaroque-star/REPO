@@ -13,10 +13,30 @@ import fs from 'fs'
 const SOURCE_DIR = 'C:\\Users\\pedro\\Desktop\\tacosgavilan-web'
 const TARGET_DIR = path.join(process.cwd(), 'public', 'tacosgavilan-web')
 
-const DIRS_TO_COPY = ['api', 'css', 'data', 'img', 'js', 'locations']
+const DIRS_TO_COPY = [
+    'accessibility',
+    'api',
+    'blog',
+    'contact',
+    'css',
+    'data',
+    'fiesta-platter',
+    'img',
+    'js',
+    'locations',
+    'menu',
+    'privacy',
+    'privacy-choices',
+    'terms'
+]
 const FILES_TO_COPY = [
     'index.html',
     '404.html',
+    'accessibility.html',
+    'privacy.html',
+    'privacy-choices.html',
+    'terms.html',
+    'Gavilan-Party-Tray-Brochure-WEB.pdf',
     'manifest.webmanifest',
     'robots.txt',
     'sitemap.xml',

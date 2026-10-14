@@ -117,11 +117,17 @@ export interface SafeCountFormData {
   notes: string
 }
 
-/** Conteo con diferencia calculada vs conteo anterior */
+/** Conteo con diferencia calculada vs conteo anterior y sincronización en vivo con Uniformes */
 export interface SafeCountWithDiff extends SafeCount {
   difference: number | null  // grand_total actual - grand_total anterior
   counted_by_name?: string
   store_name?: string
+  is_latest_for_store?: boolean
+  base_uniforms_amount?: number
+  uniforms_sales_since_count?: number
+  uniforms_sales_count_since?: number
+  live_uniforms_amount?: number
+  live_grand_total?: number
 }
 
 // ============================================================================

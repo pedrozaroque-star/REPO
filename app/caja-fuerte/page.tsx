@@ -58,6 +58,16 @@ const getBusinessDate = (): string => {
   return laDateStr
 }
 
+const getThirtyDaysAgoDate = (): string => {
+  const bDate = getBusinessDate()
+  const [y, m, d] = bDate.split('-').map(Number)
+  const past = new Date(y, m - 1, d - 30)
+  const py = past.getFullYear()
+  const pm = String(past.getMonth() + 1).padStart(2, '0')
+  const pd = String(past.getDate()).padStart(2, '0')
+  return `${py}-${pm}-${pd}`
+}
+
 const formatCurrency = (val: number): string =>
   val.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
 
@@ -288,15 +298,27 @@ function CajaFuerteContent() {
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
   
-  const [reconciliationData, setReconciliationData] = useState<{ totalCollected: number; transactionCount: number; breakdown?: string; } | null>(null)
+  const [reconciliationData, setReconciliationData] = useState<{
+    totalCollected: number
+    totalInSafe?: number
+    lastSafeCountAmount?: number
+    lastSafeCountDate?: string | null
+    accumulatedSalesSinceCount?: number
+    salesCountSinceCount?: number
+    todaySalesAmount?: number
+    todaySalesCount?: number
+    transactionCount: number
+    breakdown?: any
+  } | null>(null)
   const [reconciliationLoading, setReconciliationLoading] = useState(false)
+  const [reconciliationRefreshKey, setReconciliationRefreshKey] = useState(0)
   const [manualOverride, setManualOverride] = useState(false)
   const manualOverrideRef = React.useRef(manualOverride)
   manualOverrideRef.current = manualOverride
 
   // History state
   const [historyStoreId, setHistoryStoreId] = useState<string>('all')
-  const [historyFrom, setHistoryFrom] = useState<string>(getBusinessDate())
+  const [historyFrom, setHistoryFrom] = useState<string>(getThirtyDaysAgoDate())
   const [historyTo, setHistoryTo] = useState<string>(getBusinessDate())
   const [historyData, setHistoryData] = useState<SafeCountWithDiff[]>([])
   const [historyLoading, setHistoryLoading] = useState(false)
@@ -353,10 +375,13 @@ function CajaFuerteContent() {
     fetchStores()
   }, [])
 
-  // Fetch uniforms reconciliation
+  // Fetch uniforms reconciliation (cumulative balance: last safe count + sales since count)
   useEffect(() => {
     if (!form.store_id || !form.business_date) {
       setReconciliationData(null)
+      if (!manualOverrideRef.current) {
+        setForm(prev => ({ ...prev, uniforms_amount: 0 }))
+      }
       return
     }
     let isCancelled = false
@@ -370,8 +395,9 @@ function CajaFuerteContent() {
         if (res.ok && !isCancelled) {
           const data = await res.json()
           setReconciliationData(data)
-          if (data.totalCollected !== undefined && !manualOverrideRef.current) {
-            setForm(prev => ({ ...prev, uniforms_amount: data.totalCollected }))
+          const syncedAmount = data.totalInSafe !== undefined ? data.totalInSafe : data.totalCollected
+          if (syncedAmount !== undefined && !manualOverrideRef.current) {
+            setForm(prev => ({ ...prev, uniforms_amount: syncedAmount }))
           }
         }
       } catch (err) {
@@ -386,7 +412,7 @@ function CajaFuerteContent() {
     return () => {
       isCancelled = true
     }
-  }, [form.store_id, form.business_date])
+  }, [form.store_id, form.business_date, reconciliationRefreshKey])
 
   // Auto-select store for manager
   useEffect(() => {
@@ -404,17 +430,23 @@ function CajaFuerteContent() {
 
   // ─── Form handlers ───
   const updateField = useCallback(<K extends keyof SafeCountFormData>(field: K, value: SafeCountFormData[K]) => {
+    if (field === 'store_id') {
+      setManualOverride(false)
+      manualOverrideRef.current = false
+    }
     setForm(prev => ({ ...prev, [field]: value }))
   }, [])
 
   const resetForm = useCallback(() => {
     setManualOverride(false)
+    manualOverrideRef.current = false
     setReconciliationData(null)
     setForm({
       ...defaultForm,
       store_id: isManager && accessibleStores.length === 1 ? accessibleStores[0].id.toString() : '',
       business_date: getBusinessDate(),
     })
+    setReconciliationRefreshKey(k => k + 1)
   }, [isManager, accessibleStores])
 
   // ─── Submit ───
@@ -490,6 +522,7 @@ function CajaFuerteContent() {
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       setToast({ message: t('safe.deleted'), type: 'success' })
       fetchHistory()
+      setReconciliationRefreshKey(k => k + 1)
     } catch (err: any) {
       setToast({ message: `${t('safe.error')}: ${err.message}`, type: 'error' })
     }
@@ -515,7 +548,8 @@ function CajaFuerteContent() {
       loose_change: record.loose_change || 0,
       num_drawers: record.num_drawers || 1,
       drawer_stock: record.drawer_stock || DEFAULT_DRAWER_STOCK,
-      uniforms_amount: record.uniforms_amount || 0,
+      // Importante: editar siempre la base original del conteo (base_uniforms_amount) para evitar duplicar ventas posteriores
+      uniforms_amount: record.base_uniforms_amount ?? record.uniforms_amount ?? 0,
       notes: record.notes || '',
     })
   }, [])
@@ -542,6 +576,7 @@ function CajaFuerteContent() {
       setToast({ message: t('safe.updated'), type: 'success' })
       setEditingRecord(null)
       fetchHistory()
+      setReconciliationRefreshKey(k => k + 1)
     } catch (err: any) {
       console.error('[CajaFuerte] Edit error:', err)
       setToast({ message: `${t('safe.error')}: ${err.message}`, type: 'error' })
@@ -564,17 +599,19 @@ function CajaFuerteContent() {
     const rows = historyData.map(r => {
       const storeName = r.store_name || r.store?.name || '-'
       const userName = r.counted_by_name || r.user?.full_name || '-'
+      const uniformsVal = r.live_uniforms_amount ?? r.uniforms_amount
+      const grandTotalVal = r.live_grand_total ?? r.grand_total
       return [
         ...(includeStore ? [`"${storeName.replace(/"/g, '""')}"`] : []),
         r.business_date,
-        new Date(r.counted_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+        new Date(r.counted_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Los_Angeles' }),
         `"${userName.replace(/"/g, '""')}"`,
-        r.bills_total?.toFixed(2),
-        (r.coins_total + r.loose_change)?.toFixed(2),
-        r.drawers_total?.toFixed(2),
-        r.uniforms_amount?.toFixed(2),
-        r.grand_total?.toFixed(2),
-        r.difference !== null && r.difference !== undefined ? r.difference.toFixed(2) : '-',
+        (Number(r.bills_total) || 0).toFixed(2),
+        ((Number(r.coins_total) || 0) + (Number(r.loose_change) || 0)).toFixed(2),
+        (Number(r.drawers_total) || 0).toFixed(2),
+        (Number(uniformsVal) || 0).toFixed(2),
+        (Number(grandTotalVal) || 0).toFixed(2),
+        r.difference !== null && r.difference !== undefined ? Number(r.difference).toFixed(2) : '-',
       ]
     })
 
@@ -590,7 +627,7 @@ function CajaFuerteContent() {
 
   // ─── Store name lookup ───
   const storeNameById = useCallback((id: string): string => {
-    const s = stores.find(s => s.id === id)
+    const s = stores.find(s => s.id.toString() === id.toString())
     return s ? formatStoreName(s.name) : id
   }, [stores])
 
@@ -880,6 +917,7 @@ function CajaFuerteContent() {
                         type="number"
                         min={0}
                         step={0.01}
+                        placeholder="0.00"
                         value={form.uniforms_amount || ''}
                         onChange={(e) => {
                           setManualOverride(true)
@@ -889,6 +927,7 @@ function CajaFuerteContent() {
                           border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 
                           text-gray-900 dark:text-white focus:outline-none focus:ring-2 
                           focus:ring-purple-500 focus:border-purple-500 transition-all
+                          placeholder:text-gray-300 dark:placeholder:text-gray-600
                           [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                         inputMode="decimal"
                       />
@@ -901,28 +940,42 @@ function CajaFuerteContent() {
                       {t('safe.reconciliation_querying')}
                     </div>
                   ) : (reconciliationData && reconciliationData.totalCollected !== undefined) ? (
-                    <div className="flex flex-col gap-1">
-                      <div className="flex items-center gap-2 text-sm">
-                        <span className="text-gray-600 dark:text-gray-300 bg-purple-100 dark:bg-purple-900/40 px-2 py-1 rounded-md border border-purple-200 dark:border-purple-700/50">
-                          {t('safe.reconciliation_module_sales')} <strong>{formatCurrency(reconciliationData.totalCollected)}</strong>
+                    <div className="flex flex-col gap-2 flex-1">
+                      <div className="flex flex-wrap items-center gap-2 text-sm">
+                        <span className="text-gray-700 dark:text-gray-200 bg-purple-100 dark:bg-purple-900/40 px-3 py-1 rounded-lg border border-purple-200 dark:border-purple-700/50 font-medium">
+                          {t('safe.reconciliation_module_sales')} <strong className="text-purple-700 dark:text-purple-300 font-black">{formatCurrency(reconciliationData.totalInSafe ?? reconciliationData.totalCollected)}</strong>
                         </span>
                         {manualOverride && (
                           <button
                             onClick={() => {
                               setManualOverride(false)
-                              setForm(prev => ({ ...prev, uniforms_amount: reconciliationData.totalCollected }))
+                              manualOverrideRef.current = false
+                              setForm(prev => ({ ...prev, uniforms_amount: reconciliationData.totalInSafe ?? reconciliationData.totalCollected }))
                             }}
-                            className="text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 px-2 py-1 rounded-md transition-colors"
+                            className="text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 px-2.5 py-1 rounded-lg transition-colors shadow-sm"
                           >
                             {t('safe.reconciliation_apply_module')}
                           </button>
                         )}
                       </div>
-                      {reconciliationData.breakdown && (
-                        <span className="text-xs text-gray-500 dark:text-gray-400">
-                          {reconciliationData.breakdown}
+                      <div className="flex flex-wrap items-center gap-2 text-xs">
+                        <span className="px-2 py-0.5 rounded bg-gray-100 dark:bg-gray-700/60 text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-gray-600">
+                          {t('safe.reconciliation_last_count')} <strong>{formatCurrency(reconciliationData.lastSafeCountAmount ?? 0)}</strong>
+                          {reconciliationData.lastSafeCountDate && (
+                            <span className="opacity-70 ml-1">
+                              ({new Date(reconciliationData.lastSafeCountDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'America/Los_Angeles' })})
+                            </span>
+                          )}
                         </span>
-                      )}
+                        <span className="px-2 py-0.5 rounded bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-700/50">
+                          {t('safe.reconciliation_sales_since')} <strong>+{formatCurrency(reconciliationData.accumulatedSalesSinceCount ?? 0)}</strong>
+                          <span className="opacity-75 ml-1">({reconciliationData.salesCountSinceCount ?? 0})</span>
+                        </span>
+                        <span className="px-2 py-0.5 rounded bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-700/50">
+                          {t('safe.reconciliation_today_sales')} <strong>{formatCurrency(reconciliationData.todaySalesAmount ?? 0)}</strong>
+                          <span className="opacity-75 ml-1">({reconciliationData.todaySalesCount ?? 0})</span>
+                        </span>
+                      </div>
                     </div>
                   ) : null}
                 </div>
@@ -967,7 +1020,7 @@ function CajaFuerteContent() {
                       <div className="text-xs sm:text-sm font-bold text-white">{formatCurrency(drawersTotal)}</div>
                     </div>
                     <div className="bg-white/10 rounded-lg py-1.5 px-1">
-                      <div className="text-[10px] sm:text-xs text-white/60 uppercase tracking-wide">Uniforms</div>
+                      <div className="text-[10px] sm:text-xs text-white/60 uppercase tracking-wide">{t('safe.uniforms')}</div>
                       <div className="text-xs sm:text-sm font-bold text-white">{formatCurrency(form.uniforms_amount)}</div>
                     </div>
                   </div>
@@ -1143,7 +1196,7 @@ function CajaFuerteContent() {
                           <th className="text-right py-3 px-4 font-semibold text-gray-600 dark:text-gray-400">{t('safe.bills')}</th>
                           <th className="text-right py-3 px-4 font-semibold text-gray-600 dark:text-gray-400">{t('safe.change')}</th>
                           <th className="text-right py-3 px-4 font-semibold text-gray-600 dark:text-gray-400">{t('safe.drawers')}</th>
-                          <th className="text-right py-3 px-4 font-semibold text-gray-600 dark:text-gray-400">Uniforms</th>
+                          <th className="text-right py-3 px-4 font-semibold text-gray-600 dark:text-gray-400">{t('safe.uniforms')}</th>
                           <th className="text-right py-3 px-4 font-semibold text-gray-600 dark:text-gray-400">{t('safe.total')}</th>
                           <th className="text-right py-3 px-4 font-semibold text-gray-600 dark:text-gray-400">{t('safe.difference')}</th>
                           {isAdmin && (
@@ -1172,7 +1225,7 @@ function CajaFuerteContent() {
                             >
                               <td className="py-3 px-4 font-medium text-gray-900 dark:text-white">{row.business_date}</td>
                               <td className="py-3 px-4 text-gray-600 dark:text-gray-400">
-                                {new Date(row.counted_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                                {new Date(row.counted_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Los_Angeles' })}
                               </td>
                               {historyStoreId === 'all' && (
                                 <td className="py-3 px-4 text-gray-600 dark:text-gray-400">
@@ -1183,19 +1236,33 @@ function CajaFuerteContent() {
                                 {row.counted_by_name || row.user?.full_name || '-'}
                               </td>
                               <td className="py-3 px-4 text-right font-medium text-gray-800 dark:text-gray-200">
-                                {formatCurrency(row.bills_total)}
+                                {formatCurrency(Number(row.bills_total) || 0)}
                               </td>
                               <td className="py-3 px-4 text-right font-medium text-gray-800 dark:text-gray-200">
-                                {formatCurrency(row.coins_total + row.loose_change)}
+                                {formatCurrency((Number(row.coins_total) || 0) + (Number(row.loose_change) || 0))}
                               </td>
                               <td className="py-3 px-4 text-right font-medium text-gray-800 dark:text-gray-200">
-                                {formatCurrency(row.drawers_total)}
+                                {formatCurrency(Number(row.drawers_total) || 0)}
                               </td>
                               <td className="py-3 px-4 text-right font-medium text-gray-800 dark:text-gray-200">
-                                {formatCurrency(row.uniforms_amount)}
+                                <div className="flex flex-col items-end">
+                                  <span>{formatCurrency(row.live_uniforms_amount ?? row.uniforms_amount)}</span>
+                                  {row.is_latest_for_store && (row.uniforms_sales_since_count ?? 0) > 0 && (
+                                    <span className="text-[10px] font-bold text-purple-600 dark:text-purple-400 bg-purple-100 dark:bg-purple-900/40 px-1.5 py-0.5 rounded mt-0.5">
+                                      +{formatCurrency(row.uniforms_sales_since_count || 0)} {t('safe.reconciliation_live_badge')}
+                                    </span>
+                                  )}
+                                </div>
                               </td>
                               <td className="py-3 px-4 text-right font-bold text-gray-900 dark:text-white">
-                                {formatCurrency(row.grand_total)}
+                                <div className="flex flex-col items-end">
+                                  <span>{formatCurrency(row.live_grand_total ?? row.grand_total)}</span>
+                                  {row.is_latest_for_store && (row.uniforms_sales_since_count ?? 0) > 0 && (
+                                    <span className="text-[10px] font-normal text-gray-400 dark:text-gray-500">
+                                      ({formatCurrency(row.grand_total)})
+                                    </span>
+                                  )}
+                                </div>
                               </td>
                               <td className={`py-3 px-4 text-right font-bold ${diffColor}`}>
                                 {diff === null || diff === undefined
@@ -1278,7 +1345,7 @@ function CajaFuerteContent() {
                               {t('safe.edit_title')}
                             </h3>
                             <p className="text-xs text-gray-500 dark:text-gray-400">
-                              {editingRecord.counted_by_name || editingRecord.user?.full_name || '-'} • {new Date(editingRecord.counted_at).toLocaleString()}
+                              {editingRecord.counted_by_name || editingRecord.user?.full_name || '-'} • {new Date(editingRecord.counted_at).toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })}
                             </p>
                           </div>
                         </div>
@@ -1378,14 +1445,14 @@ function CajaFuerteContent() {
                             </div>
                             <div className="flex items-center justify-between gap-4 py-2">
                               <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                                {t('safe.num_drawers')} ($250 c/u)
+                                {t('safe.num_drawers')} ({formatCurrency(editForm.drawer_stock)} {t('safe.per_drawer')})
                               </span>
                               <input
                                 type="number"
                                 min={1}
                                 max={10}
                                 value={editForm.num_drawers}
-                                onChange={(e) => setEditForm(p => ({ ...p, num_drawers: Math.max(1, parseInt(e.target.value) || 1) }))}
+                                onChange={(e) => setEditForm(p => ({ ...p, num_drawers: Math.min(10, Math.max(1, parseInt(e.target.value) || 1)) }))}
                                 className="w-20 h-11 text-center font-bold border-2 border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 rounded-xl text-gray-900 dark:text-white"
                               />
                             </div>
@@ -1398,7 +1465,7 @@ function CajaFuerteContent() {
                                 <Shirt className="w-4 h-4" /> {t('safe.uniforms_section')}
                               </h4>
                               <span className="font-bold text-purple-600 dark:text-purple-400 text-sm">
-                                {formatCurrency(editForm.uniforms_amount)}
+                                {formatCurrency(editForm.uniforms_amount + (editingRecord.is_latest_for_store ? (editingRecord.uniforms_sales_since_count || 0) : 0))}
                               </span>
                             </div>
                             <div className="relative py-2">
@@ -1407,11 +1474,22 @@ function CajaFuerteContent() {
                                 type="number"
                                 min={0}
                                 step={0.01}
+                                placeholder="0.00"
                                 value={editForm.uniforms_amount || ''}
                                 onChange={(e) => setEditForm(p => ({ ...p, uniforms_amount: Math.max(0, parseFloat(e.target.value) || 0) }))}
-                                className="w-full h-11 pl-8 pr-3 font-semibold rounded-xl border-2 border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                                className="w-full h-11 pl-8 pr-3 font-semibold rounded-xl border-2 border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder:text-gray-300 dark:placeholder:text-gray-600"
                               />
                             </div>
+                            {editingRecord.is_latest_for_store && (editingRecord.uniforms_sales_since_count ?? 0) > 0 && (
+                              <div className="mt-1 flex flex-wrap items-center justify-between gap-2 text-xs text-purple-700 dark:text-purple-300 bg-purple-100/70 dark:bg-purple-900/30 px-2.5 py-1.5 rounded-lg border border-purple-200/70 dark:border-purple-700/40">
+                                <span>
+                                  {t('safe.reconciliation_sales_since')} <strong>+{formatCurrency(editingRecord.uniforms_sales_since_count || 0)}</strong>
+                                </span>
+                                <span className="font-bold">
+                                  {t('safe.reconciliation_live_badge')}: {formatCurrency(editForm.uniforms_amount + (editingRecord.uniforms_sales_since_count || 0))}
+                                </span>
+                              </div>
+                            )}
                           </div>
                         </div>
 
@@ -1432,7 +1510,16 @@ function CajaFuerteContent() {
                         {/* Grand Total Summary in Modal */}
                         <div className="p-4 rounded-xl bg-gradient-to-r from-amber-500 via-emerald-600 to-teal-600 text-white shadow-lg flex items-center justify-between">
                           <span className="font-bold text-base">{t('safe.grand_total')}</span>
-                          <span className="text-2xl font-extrabold">{formatCurrency(editGrandTotal)}</span>
+                          <div className="flex flex-col items-end">
+                            <span className="text-2xl font-extrabold">
+                              {formatCurrency(editGrandTotal + (editingRecord.is_latest_for_store ? (editingRecord.uniforms_sales_since_count || 0) : 0))}
+                            </span>
+                            {editingRecord.is_latest_for_store && (editingRecord.uniforms_sales_since_count ?? 0) > 0 && (
+                              <span className="text-xs text-white/80">
+                                ({formatCurrency(editGrandTotal)})
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </div>
 
