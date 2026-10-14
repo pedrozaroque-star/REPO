@@ -36,9 +36,6 @@ const BUCKET = 'order-ready-tts'
 const DEFAULT_VOICE: VoiceId = 'Kore'
 const CACHE_VERSION = 'v4'
 const MODELS = [
-  'gemini-3.8-flash-tts',
-  'gemini-3.8-flash-lite-tts',
-  'gemini-3.1-flash-tts-preview',
   'gemini-2.5-flash-preview-tts',
   'gemini-2.5-pro-preview-tts'
 ]
@@ -275,18 +272,27 @@ async function generateWithGemini(n: string, lang: TtsLang, voice: VoiceId): Pro
   return generateTextWithGemini(textToSpeak, lang, voice, stylePrompt)
 }
 
-export async function getOrderReadySpeech(n: string, lang: TtsLang, voice: VoiceId = DEFAULT_VOICE): Promise<Buffer> {
+export async function getOrderReadySpeechWithMeta(
+  n: string,
+  lang: TtsLang,
+  voice: VoiceId = DEFAULT_VOICE
+): Promise<{ wav: Buffer; isFallback: boolean }> {
   const num = String(parseInt(n, 10))
   const selectedVoice = isValidVoice(voice) ? voice : DEFAULT_VOICE
   const path = `${CACHE_VERSION}/${selectedVoice}/${lang}/${num}.wav`
 
-  // 1. Intentar caché v3 en Storage
+  // 1. Intentar caché v4 en Storage
   const hit = await supabaseAdmin.storage.from(BUCKET).download(path)
-  if (hit.data) return Buffer.from(await hit.data.arrayBuffer())
+  if (hit.data) {
+    return { wav: Buffer.from(await hit.data.arrayBuffer()), isFallback: false }
+  }
 
   const existing = inflight.get(path)
-  if (existing) return existing
+  if (existing) {
+    return { wav: await existing, isFallback: false }
+  }
 
+  let usedFallback = false
   const job = (async () => {
     try {
       const wav = await generateWithGemini(num, lang, selectedVoice)
@@ -302,6 +308,7 @@ export async function getOrderReadySpeech(n: string, lang: TtsLang, voice: Voice
         const korePath = `${CACHE_VERSION}/${DEFAULT_VOICE}/${lang}/${num}.wav`
         const koreHit = await supabaseAdmin.storage.from(BUCKET).download(korePath)
         if (koreHit.data) {
+          usedFallback = true
           console.warn(`[order-ready-tts] Fallback a voz oficial ${DEFAULT_VOICE} para #${num} (${lang})`)
           return Buffer.from(await koreHit.data.arrayBuffer())
         }
@@ -312,10 +319,16 @@ export async function getOrderReadySpeech(n: string, lang: TtsLang, voice: Voice
 
   inflight.set(path, job)
   try {
-    return await job
+    const wav = await job
+    return { wav, isFallback: usedFallback }
   } finally {
     inflight.delete(path)
   }
+}
+
+export async function getOrderReadySpeech(n: string, lang: TtsLang, voice: VoiceId = DEFAULT_VOICE): Promise<Buffer> {
+  const { wav } = await getOrderReadySpeechWithMeta(n, lang, voice)
+  return wav
 }
 
 /**

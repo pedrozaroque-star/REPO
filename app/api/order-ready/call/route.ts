@@ -51,18 +51,28 @@ export async function POST(request: Request) {
     try {
       const isUuid = typeof orderId === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(orderId)
       if (isUuid) {
-        await supabaseAdmin
+        const { error: updErr } = await supabaseAdmin
           .from('order_ready_announcements')
           .update({ announced_at: nowIso })
           .eq('id', orderId)
+        if (updErr) console.warn('Advertencia actualizando announced_at por UUID:', updErr.message)
       } else {
-        await supabaseAdmin
+        const { data: latestRow } = await supabaseAdmin
           .from('order_ready_announcements')
-          .update({ announced_at: nowIso })
+          .select('id')
           .eq('store_code', normalizedStoreCode)
           .eq('order_number', String(orderNumber))
           .order('created_at', { ascending: false })
           .limit(1)
+          .maybeSingle()
+
+        if (latestRow?.id) {
+          const { error: updErr } = await supabaseAdmin
+            .from('order_ready_announcements')
+            .update({ announced_at: nowIso })
+            .eq('id', latestRow.id)
+          if (updErr) console.warn('Advertencia actualizando announced_at por order_number:', updErr.message)
+        }
       }
     } catch (dbErr) {
       console.warn('Advertencia actualizando announced_at en DB:', dbErr)

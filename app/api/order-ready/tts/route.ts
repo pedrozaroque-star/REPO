@@ -14,7 +14,7 @@
  */
 
 import { NextResponse } from 'next/server'
-import { getOrderReadySpeech, isValidTtsRequest, VoiceId } from '@/lib/order-ready-tts'
+import { getOrderReadySpeechWithMeta, isValidTtsRequest, VoiceId } from '@/lib/order-ready-tts'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 30
@@ -30,13 +30,15 @@ export async function GET(request: Request) {
   }
 
   try {
-    const wav = await getOrderReadySpeech(n, lang as 'en' | 'es', voice)
+    const { wav, isFallback } = await getOrderReadySpeechWithMeta(n, lang as 'en' | 'es', voice)
     return new Response(new Uint8Array(wav), {
       status: 200,
       headers: {
         'Content-Type': 'audio/wav',
         'Content-Length': String(wav.length),
-        'Cache-Control': 'public, max-age=31536000, s-maxage=31536000, immutable'
+        'Cache-Control': isFallback
+          ? 'no-store'
+          : 'public, max-age=31536000, s-maxage=31536000, immutable'
       }
     })
   } catch (err: any) {

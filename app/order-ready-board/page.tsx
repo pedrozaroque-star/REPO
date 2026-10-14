@@ -245,8 +245,11 @@ function OrderReadyBoardContent() {
   const [businessDate, setBusinessDate] = useState<string>(() => getCaliforniaBusinessDate())
   const [shift, setShift] = useState<'AM' | 'PM'>(() => getCaliforniaShift())
   const [replayingId, setReplayingId] = useState<string | null>(null)
+  const [replayingOrderNum, setReplayingOrderNum] = useState<string | null>(null)
   const [tabletCalledOrderId, setTabletCalledOrderId] = useState<string | null>(null)
+  const [tabletCalledOrderNum, setTabletCalledOrderNum] = useState<string | null>(null)
   const readyOrdersRef = useRef<OrderItem[]>([])
+  const inProgressOrdersRef = useRef<OrderItem[]>([])
   const handleImpulseRef = useRef<((data: any) => void | Promise<void>) | null>(null)
   const [orderDetailData, setOrderDetailData] = useState<{
     loading: boolean
@@ -465,6 +468,16 @@ function OrderReadyBoardContent() {
     currentlyPlayingOrderRef.current = null
     isPlayingRef.current = false
     setActiveSpeech(null)
+    setReplayingId(null)
+    setReplayingOrderNum(null)
+    setTabletCalledOrderId(null)
+    setTabletCalledOrderNum(null)
+    lastImpulseTimeRef.current.clear()
+    lastAnnouncedAtMsRef.current.clear()
+    announcedIdsRef.current.clear()
+    readyIdsRef.current.clear()
+    readyOrdersRef.current = []
+    inProgressOrdersRef.current = []
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       try {
         window.speechSynthesis.cancel()
@@ -637,7 +650,7 @@ function OrderReadyBoardContent() {
         const v = window.speechSynthesis.getVoices()
         if (v && v.length > 0) {
           // FILTRO RAÍZ ABSOLUTO: Descartar inmediatamente a Microsoft Raúl y todas sus variantes
-          const safeVoices = v.filter((voice) => !isForbiddenRaulVoice(voice.name))
+          const safeVoices = v.filter((voice) => !isForbiddenRaulVoice(voice.name, voice.voiceURI))
           setAvailableVoices(safeVoices)
         }
       }
@@ -649,6 +662,27 @@ function OrderReadyBoardContent() {
     }
   }, [])
 
+  // Limpieza integral de estado y referencias al cruzar la frontera de las 6:00 AM (nuevo día laboral)
+  const resetForNewBusinessDay = useCallback((newBDate: string) => {
+    businessDateRef.current = newBDate
+    setBusinessDate(newBDate)
+    announcedIdsRef.current.clear()
+    readyIdsRef.current.clear()
+    lastImpulseTimeRef.current.clear()
+    lastAnnouncedAtMsRef.current.clear()
+    remindedOrderIdsRef.current.clear()
+    reminderTimersRef.current.forEach((timer) => clearTimeout(timer))
+    reminderTimersRef.current.clear()
+    activeStoreRef.current = null
+    audioQueueRef.current = []
+    readyOrdersRef.current = []
+    inProgressOrdersRef.current = []
+    setTabletCalledOrderId(null)
+    setTabletCalledOrderNum(null)
+    setReadyOrders([])
+    setInProgressOrders([])
+  }, [])
+
   // Reloj local en vivo con centinela automático de cambio de día laboral (6:00 AM)
   useEffect(() => {
     const updateTime = () => {
@@ -656,6 +690,7 @@ function OrderReadyBoardContent() {
       setNowMs(now.getTime())
       setCurrentTime(
         now.toLocaleTimeString('en-US', {
+          timeZone: 'America/Los_Angeles',
           hour: '2-digit',
           minute: '2-digit',
           second: '2-digit',
@@ -667,14 +702,7 @@ function OrderReadyBoardContent() {
       const currentBDate = getCaliforniaBusinessDate(now)
       const currentShift = getCaliforniaShift(now)
       if (businessDateRef.current && currentBDate !== businessDateRef.current) {
-        businessDateRef.current = currentBDate
-        setBusinessDate(currentBDate)
-        announcedIdsRef.current.clear()
-        readyIdsRef.current.clear()
-        activeStoreRef.current = null
-        audioQueueRef.current = []
-        setReadyOrders([])
-        setInProgressOrders([])
+        resetForNewBusinessDay(currentBDate)
         fetchOrdersRef.current?.(true)
       }
       setShift(currentShift)
@@ -682,7 +710,7 @@ function OrderReadyBoardContent() {
     updateTime()
     const timer = setInterval(updateTime, 1000)
     return () => clearInterval(timer)
-  }, [])
+  }, [resetForNewBusinessDay])
 
   // Inicializar o Desbloquear AudioContext al interactuar con la pantalla o teclado
   const unlockAudio = useCallback(() => {
@@ -1189,6 +1217,7 @@ function OrderReadyBoardContent() {
         currentlyPlayingOrderRef.current = nextOrder
         if (nextOrder._manualReplay || nextOrder._fromTablet) {
           setReplayingId(nextOrder.id)
+          setReplayingOrderNum(String(nextOrder.order_number))
         }
 
         try {
@@ -1243,11 +1272,9 @@ function OrderReadyBoardContent() {
         }
       }
     } finally {
-      if (currentlyPlayingOrderRef.current?.order_number) {
-        lastImpulseTimeRef.current.set(String(currentlyPlayingOrderRef.current.order_number), Date.now())
-      }
       currentlyPlayingOrderRef.current = null
       setReplayingId(null)
+      setReplayingOrderNum(null)
       // Breve pausa acústica (400ms) entre órdenes para que el comensal distinga un llamado de otro sin encimarse
       await new Promise((r) => setTimeout(r, 400))
       isPlayingRef.current = false
@@ -1517,8 +1544,12 @@ function OrderReadyBoardContent() {
 
       if (data.success) {
         if (data.businessDate) {
-          setBusinessDate(data.businessDate)
-          businessDateRef.current = data.businessDate
+          if (businessDateRef.current && data.businessDate !== businessDateRef.current) {
+            resetForNewBusinessDay(data.businessDate)
+          } else {
+            setBusinessDate(data.businessDate)
+            businessDateRef.current = data.businessDate
+          }
         }
         if (data.shift) {
           setShift(data.shift)
@@ -1530,6 +1561,7 @@ function OrderReadyBoardContent() {
         setReadyOrders(ready)
         readyOrdersRef.current = ready
         setInProgressOrders(inProgress)
+        inProgressOrdersRef.current = inProgress
         readyIdsRef.current = new Set(ready.map(o => o.id))
 
         const isFirstFetchForStore = activeStoreRef.current !== selectedStore
@@ -1537,11 +1569,20 @@ function OrderReadyBoardContent() {
         if (isFirstFetchForStore) {
           // Primera carga al abrir el módulo o al cambiar de tienda:
           // Se muestran en pantalla todas las órdenes que ya estaban en la fila, pero en SILENCIO.
-          // Registramos los IDs en announcedIdsRef para que la cola de audio NO anuncie en avalancha
-          // órdenes que ya estaban listas antes de ingresar a la vista.
+          // Registramos los IDs en announcedIdsRef y los timestamps preexistentes en lastAnnouncedAtMsRef
+          // para que la cola de audio NO anuncie en avalancha órdenes que ya estaban listas o habían sido llamadas antes de ingresar.
           activeStoreRef.current = selectedStore
           ready.forEach(ord => {
             announcedIdsRef.current.add(ord.id)
+          })
+          ;[...ready, ...inProgress].forEach(ord => {
+            if (ord.announced_at) {
+              const annMs = Date.parse(ord.announced_at)
+              if (!isNaN(annMs)) {
+                const storeKey = `${String(ord.store_code || selectedStore).toUpperCase()}:${ord.order_number}`
+                lastAnnouncedAtMsRef.current.set(storeKey, annMs)
+              }
+            }
           })
         } else {
           // En ciclos posteriores (pantalla ya abierta y operando en vivo):
@@ -1551,21 +1592,25 @@ function OrderReadyBoardContent() {
           // Por lo tanto, registramos todas las órdenes listas en announcedIdsRef para garantizar silencio ante bumps de KDS.
           ready.forEach(ord => {
             announcedIdsRef.current.add(ord.id)
+          })
 
-            // Capa 4 de Redundancia (Polling Fallback):
-            // Si el WebSocket y Postgres Changes fallaron o se desconectaron momentáneamente,
-            // el polling periódico cada 4s detecta si una orden fue llamada en los últimos 10 segundos
-            // y dispara el anuncio ÚNICAMENTE si ese impulso no ha sonado ya por las Capas 1-3.
+          // Capa 4 de Redundancia (Polling Fallback):
+          // Si el WebSocket y Postgres Changes fallaron o se desconectaron momentáneamente,
+          // el polling periódico cada 4s detecta si una orden (en READY o en IN_PROGRESS) fue llamada en los últimos 10 segundos
+          // y dispara el anuncio ÚNICAMENTE si ese impulso no ha sonado ya por las Capas 1-3.
+          ;[...ready, ...inProgress].forEach(ord => {
             if (ord.announced_at) {
               const annMs = Date.parse(ord.announced_at)
               if (!isNaN(annMs) && (Date.now() - annMs) < 10000) {
-                const orderNumStr = String(ord.order_number)
-                const lastCall = lastImpulseTimeRef.current.get(orderNumStr) || 0
-                const lastAnnMs = lastAnnouncedAtMsRef.current.get(orderNumStr) || 0
-                const isRecentCall = lastCall > 0 && (Date.now() - lastCall) < 15000
-                const isSameTap = lastAnnMs > 0 && Math.abs(annMs - lastAnnMs) < 10000
-                if (isRecentCall || isSameTap) {
-                  lastAnnouncedAtMsRef.current.set(orderNumStr, annMs)
+                const storeKey = `${String(ord.store_code || selectedStore).toUpperCase()}:${ord.order_number}`
+                const lastCall = lastImpulseTimeRef.current.get(storeKey) || 0
+                const lastAnnMs = lastAnnouncedAtMsRef.current.get(storeKey) || 0
+                const isSameTap = lastAnnMs > 0 && Math.abs(annMs - lastAnnMs) < 2500
+                const isRecentCall = lastCall > 0 && (Date.now() - lastCall) < 6000
+                if (isSameTap || isRecentCall) {
+                  if (isRecentCall && (lastAnnMs === 0 || Math.abs(annMs - lastAnnMs) < 5000)) {
+                    lastAnnouncedAtMsRef.current.set(storeKey, annMs)
+                  }
                 } else {
                   handleImpulseRef.current?.({
                     order_id: ord.id,
@@ -1593,7 +1638,7 @@ function OrderReadyBoardContent() {
       setIsLoading(false)
       setIsSyncing(false)
     }
-  }, [selectedStore, storeOk, enqueueAnnouncement])
+  }, [selectedStore, storeOk, enqueueAnnouncement, resetForNewBusinessDay])
 
   // Mantener referencia actual de fetchOrders para el centinela de las 6:00 AM
   useEffect(() => {
@@ -1650,13 +1695,15 @@ function OrderReadyBoardContent() {
             if (newRow && newRow.announced_at) {
               const announcedMs = Date.parse(newRow.announced_at)
               if (!isNaN(announcedMs) && (Date.now() - announcedMs) < 10000) {
-                const orderNumStr = String(newRow.order_number)
-                const lastCall = lastImpulseTimeRef.current.get(orderNumStr) || 0
-                const lastAnnMs = lastAnnouncedAtMsRef.current.get(orderNumStr) || 0
-                const isRecentCall = lastCall > 0 && (Date.now() - lastCall) < 15000
-                const isSameTap = lastAnnMs > 0 && Math.abs(announcedMs - lastAnnMs) < 10000
-                if (isRecentCall || isSameTap) {
-                  lastAnnouncedAtMsRef.current.set(orderNumStr, announcedMs)
+                const storeKey = `${String(newRow.store_code || selectedStore).toUpperCase()}:${newRow.order_number}`
+                const lastCall = lastImpulseTimeRef.current.get(storeKey) || 0
+                const lastAnnMs = lastAnnouncedAtMsRef.current.get(storeKey) || 0
+                const isSameTap = lastAnnMs > 0 && Math.abs(announcedMs - lastAnnMs) < 2500
+                const isRecentCall = lastCall > 0 && (Date.now() - lastCall) < 6000
+                if (isSameTap || isRecentCall) {
+                  if (isRecentCall && (lastAnnMs === 0 || Math.abs(announcedMs - lastAnnMs) < 5000)) {
+                    lastAnnouncedAtMsRef.current.set(storeKey, announcedMs)
+                  }
                 } else {
                   handleImpulseRef.current?.({
                     order_id: newRow.id,
@@ -1795,7 +1842,7 @@ function OrderReadyBoardContent() {
       loading: true,
       checkId: order.order_number,
       storeName: order.store_name || selectedStore,
-      cajeraName: order.dining_option === 'DRIVE_THRU' ? 'Drive-Thru' : 'Caja'
+      cajeraName: order.dining_option === 'DRIVE_THRU' ? 'Drive-Thru' : t('orderReadyBoard.receipt_cashier_fallback')
     })
 
     if (!orderGuid || !storeId) {
@@ -1830,7 +1877,13 @@ function OrderReadyBoardContent() {
   const handleReplayVoice = useCallback(
     (order: OrderItem) => {
       unlockAudio()
-      const alreadyInQueue = audioQueueRef.current.some((item) => item.id === order.id)
+      const orderNumStr = String(order.order_number)
+      if (currentlyPlayingOrderRef.current && (currentlyPlayingOrderRef.current.id === order.id || String(currentlyPlayingOrderRef.current.order_number) === orderNumStr)) {
+        return
+      }
+      const alreadyInQueue = audioQueueRef.current.some(
+        (item) => item.id === order.id || String(item.order_number) === orderNumStr
+      )
       if (!alreadyInQueue) {
         const replayItem: OrderItem = {
           ...order,
@@ -1855,17 +1908,20 @@ function OrderReadyBoardContent() {
 
       const now = Date.now()
       const orderNumStr = String(data.order_number)
+      const normStore = String(data.store_code || selectedStore).toUpperCase()
+      const storeKey = `${normStore}:${orderNumStr}`
       const incomingCalledMs = data.called_at ? Date.parse(data.called_at) : NaN
 
-      // 1. Debounce acústico de 15 segundos por orden y deduplicación por timestamp de llamado (called_at)
-      // Garantiza que las Capas 2, 3 y 4 jamás repitan por segunda vez un llamado que ya sonó en la Capa 1.
-      const lastCallTime = lastImpulseTimeRef.current.get(orderNumStr) || 0
-      const lastAnnMs = lastAnnouncedAtMsRef.current.get(orderNumStr) || 0
-      const isRecentCall = lastCallTime > 0 && (now - lastCallTime) < 15000
-      const isSameTap = !isNaN(incomingCalledMs) && lastAnnMs > 0 && Math.abs(incomingCalledMs - lastAnnMs) < 10000
-      if (isRecentCall || isSameTap) {
-        if (!isNaN(incomingCalledMs)) {
-          lastAnnouncedAtMsRef.current.set(orderNumStr, incomingCalledMs)
+      // 1. Deduplicación exacta por timestamp de toque (called_at) y debounce acústico de 6 segundos por tienda+orden.
+      // Garantiza que las Capas 2, 3 y 4 jamás repitan por segunda vez un llamado que ya sonó en la Capa 1,
+      // permitiendo a la vez que el preparador vuelva a llamar deliberadamente la misma orden pasados >= 6 segundos.
+      const lastCallTime = lastImpulseTimeRef.current.get(storeKey) || 0
+      const lastAnnMs = lastAnnouncedAtMsRef.current.get(storeKey) || 0
+      const isSameTap = !isNaN(incomingCalledMs) && lastAnnMs > 0 && Math.abs(incomingCalledMs - lastAnnMs) < 2500
+      const isRecentCall = lastCallTime > 0 && (now - lastCallTime) < 6000
+      if (isSameTap || isRecentCall) {
+        if (isRecentCall && !isNaN(incomingCalledMs) && (lastAnnMs === 0 || Math.abs(incomingCalledMs - lastAnnMs) < 5000)) {
+          lastAnnouncedAtMsRef.current.set(storeKey, incomingCalledMs)
         }
         console.log(`[OrderReadyBoard] Impulso duplicado ignorado por debounce para orden #${orderNumStr}`)
         return
@@ -1877,10 +1933,14 @@ function OrderReadyBoardContent() {
         return
       }
 
-      // Buscar la orden en el listado actual en memoria o construir un objeto representativo
-      const found = readyOrdersRef.current.find(
-        (o) => (data.order_id && o.id === data.order_id) || String(o.order_number) === orderNumStr
-      )
+      // Buscar la orden en el listado actual en memoria (tanto READY como IN_PROGRESS) o construir un objeto representativo
+      const found =
+        readyOrdersRef.current.find(
+          (o) => (data.order_id && o.id === data.order_id) || String(o.order_number) === orderNumStr
+        ) ||
+        inProgressOrdersRef.current.find(
+          (o) => (data.order_id && o.id === data.order_id) || String(o.order_number) === orderNumStr
+        )
 
       const targetOrder: OrderItem = found || {
         id: data.order_id || `tablet-${data.order_number}-${Date.now()}`,
@@ -1896,18 +1956,20 @@ function OrderReadyBoardContent() {
         items_summary: null
       }
 
-      // Destacar visualmente la orden en el tablero del manager (borde ámbar y badge pulsante)
+      // Destacar visualmente la orden en el tablero del manager (borde ámbar y badge pulsante por ID y número)
       setTabletCalledOrderId(targetOrder.id)
+      setTabletCalledOrderNum(orderNumStr)
       setTimeout(() => {
         setTabletCalledOrderId((prev) => (prev === targetOrder.id ? null : prev))
+        setTabletCalledOrderNum((prev) => (prev === orderNumStr ? null : prev))
       }, 7000)
 
       const alreadyInQueue = audioQueueRef.current.some(
         (item) => item.id === targetOrder.id || (String(item.order_number) === orderNumStr && (item._fromTablet || item._manualReplay))
       )
       if (!alreadyInQueue) {
-        lastImpulseTimeRef.current.set(orderNumStr, now)
-        lastAnnouncedAtMsRef.current.set(orderNumStr, !isNaN(incomingCalledMs) ? incomingCalledMs : now)
+        lastImpulseTimeRef.current.set(storeKey, now)
+        lastAnnouncedAtMsRef.current.set(storeKey, !isNaN(incomingCalledMs) ? incomingCalledMs : now)
         const impulseItem: OrderItem = {
           ...targetOrder,
           _fromTablet: true,
@@ -1920,7 +1982,7 @@ function OrderReadyBoardContent() {
         }
       }
     },
-    [unlockAudio, processAudioQueue]
+    [unlockAudio, processAudioQueue, selectedStore]
   )
 
   useEffect(() => {
@@ -3027,11 +3089,14 @@ function OrderReadyBoardContent() {
                     const sosClass = getSosBadgeClasses(sosColor)
                     const readyTimeStr = formatTimeOnly(order.ready_at)
 
+                    const isTabletCalled = tabletCalledOrderId === order.id || tabletCalledOrderNum === String(order.order_number)
+                    const isOrderReplaying = replayingId === order.id || replayingOrderNum === String(order.order_number)
+
                     return (
                       <div
                         key={order.id}
                         className={`rounded-2xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 transform hover:scale-[1.01] transition-all animate-in fade-in zoom-in-95 duration-300 relative ${
-                          tabletCalledOrderId === order.id
+                          isTabletCalled
                             ? 'ring-4 ring-amber-400 dark:ring-amber-500 scale-[1.02] shadow-2xl shadow-amber-500/40 border-amber-400'
                             : ''
                         } ${
@@ -3086,7 +3151,7 @@ function OrderReadyBoardContent() {
                         }`}>
                           <div className="text-left sm:text-right">
                             <div className="flex items-center sm:justify-end gap-2 flex-wrap">
-                              {tabletCalledOrderId === order.id && (
+                              {isTabletCalled && (
                                 <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-black uppercase tracking-wider bg-amber-500 text-slate-950 animate-pulse shadow-md">
                                   <Megaphone className="w-3 h-3 animate-bounce" />
                                   {t('orderReadyBoard.called_from_prep')}
@@ -3120,13 +3185,13 @@ function OrderReadyBoardContent() {
                             <button
                               type="button"
                               onClick={() => handleReplayVoice(order)}
-                              disabled={replayingId === order.id}
+                              disabled={isOrderReplaying}
                               title={t('orderReadyBoard.replay_tooltip').replace('{order}', order.order_number)}
                               className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm border border-emerald-400/40 transition active:scale-95 disabled:opacity-50 cursor-pointer"
                             >
-                              <Volume2 className={`w-3.5 h-3.5 ${replayingId === order.id ? 'animate-bounce text-amber-300' : ''}`} />
+                              <Volume2 className={`w-3.5 h-3.5 ${isOrderReplaying ? 'animate-bounce text-amber-300' : ''}`} />
                               <span>
-                                {replayingId === order.id ? t('orderReadyBoard.replaying') : t('orderReadyBoard.replay_voice')}
+                                {isOrderReplaying ? t('orderReadyBoard.replaying') : t('orderReadyBoard.replay_voice')}
                               </span>
                             </button>
 
@@ -3206,11 +3271,16 @@ function OrderReadyBoardContent() {
                     const sosColor = getColorForDuration(elapsedSeconds)
                     const sosClass = getSosBadgeClasses(sosColor)
                     const sentTimeStr = formatTimeOnly(order.created_at)
+                    const isInProgressTabletCalled = tabletCalledOrderId === order.id || tabletCalledOrderNum === String(order.order_number)
 
                     return (
                       <div
                         key={order.id}
                         className={`rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition ${
+                          isInProgressTabletCalled
+                            ? 'ring-4 ring-amber-400 dark:ring-amber-500 scale-[1.01] shadow-2xl shadow-amber-500/40 border-amber-400'
+                            : ''
+                        } ${
                           isDark
                             ? 'bg-slate-900/90 border border-slate-800/80 hover:border-slate-700 shadow text-slate-200'
                             : 'bg-slate-50/90 border border-slate-200 hover:bg-slate-100/80 shadow-sm text-slate-800'
@@ -3258,14 +3328,22 @@ function OrderReadyBoardContent() {
                           isDark ? 'border-slate-800' : 'border-slate-200'
                         }`}>
                           <div className="text-left sm:text-right">
-                            <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold ${
-                              isDark
-                                ? 'text-slate-400 bg-slate-800/80 border border-slate-700/60'
-                                : 'text-slate-700 bg-slate-200/80 border border-slate-300'
-                            }`}>
-                              <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping" />
-                              {t('orderReadyBoard.almost_ready')}
-                            </span>
+                            <div className="flex items-center sm:justify-end gap-2 flex-wrap">
+                              {isInProgressTabletCalled && (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-black uppercase tracking-wider bg-amber-500 text-slate-950 animate-pulse shadow-md">
+                                  <Megaphone className="w-3 h-3 animate-bounce" />
+                                  {t('orderReadyBoard.called_from_prep')}
+                                </span>
+                              )}
+                              <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold ${
+                                isDark
+                                  ? 'text-slate-400 bg-slate-800/80 border border-slate-700/60'
+                                  : 'text-slate-700 bg-slate-200/80 border border-slate-300'
+                              }`}>
+                                <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping" />
+                                {t('orderReadyBoard.almost_ready')}
+                              </span>
+                            </div>
                             {sentTimeStr && (
                               <p className={`text-[11px] font-medium mt-1 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
                                 {t('orderReadyBoard.sent_at_time').replace('{time}', sentTimeStr)}
@@ -3360,7 +3438,7 @@ function OrderReadyBoardContent() {
                     <div className="mt-1">
                       {t('orderReadyBoard.cashier')}:{' '}
                       <span className="font-bold">
-                        {orderDetailData.cajeraName || orderDetailData.data.server?.name || t('orderReadyBoard.automatic')}
+                        {orderDetailData.data.server?.name || orderDetailData.cajeraName || t('orderReadyBoard.automatic')}
                       </span>
                     </div>
                   </div>

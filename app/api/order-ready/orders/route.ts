@@ -86,7 +86,7 @@ export async function GET(request: Request) {
         (o: any) => o.status === 'READY' && !o.announced
       )
       if (needsVerify) {
-        await syncStoreFromToast(storeCode, false)
+        await syncStoreFromToast(storeCode, true)
         const again = await fetchRows()
         orders = again.data
         error = again.error

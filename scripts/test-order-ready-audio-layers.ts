@@ -9,7 +9,7 @@
  */
 
 import { supabaseAdmin } from '../lib/supabase'
-import { getOrderReadySpeech } from '../lib/order-ready-tts'
+import { getOrderReadySpeech, isForbiddenRaulVoice } from '../lib/order-ready-tts'
 
 function getCaliforniaBusinessDate(d: Date = new Date()): string {
   const parts = new Intl.DateTimeFormat('en-US', {
@@ -110,9 +110,9 @@ async function runSimulation() {
   )
 
   // ──────────────────────────────────────────────────────────────────────────
-  // TEST 2: Prueba de Audio Neuronal Gemini TTS (Bilingüe #166 y #742)
+  // TEST 2: Prueba de Audio Neuronal Gemini TTS (Bilingüe #166, #2000 y Filtro Anti-Raúl)
   // ──────────────────────────────────────────────────────────────────────────
-  console.log('\n--- TEST 2: Síntesis Neuronal Gemini TTS (Inglés + Español #166) ---')
+  console.log('\n--- TEST 2: Síntesis Neuronal Gemini TTS (Inglés + Español #166, #2000 y Filtro Anti-Raúl) ---')
   const testNumber = '166'
   const t0 = Date.now()
 
@@ -129,6 +129,25 @@ async function runSimulation() {
   assert(
     wavEs && wavEs.length > 500 && wavEs.subarray(0, 4).toString('ascii') === 'RIFF',
     `Clip #166 en español leído de Storage en ${timeEs}ms (WAV válido, tamaño: ${wavEs?.length} bytes)`
+  )
+
+  const [wav2000En, wav2000Es] = await Promise.all([
+    getOrderReadySpeech('2000', 'en', 'Kore'),
+    getOrderReadySpeech('2000', 'es', 'Kore')
+  ])
+  assert(
+    wav2000En.length > 500 && wav2000Es.length > 500 && wav2000Es.subarray(0, 4).toString('ascii') === 'RIFF',
+    `Clip límite #2000 bilingüe (EN: ${wav2000En.length}B, ES: ${wav2000Es.length}B) presente y válido en Storage v4/Kore`
+  )
+
+  const raulBlocked =
+    isForbiddenRaulVoice('Microsoft Raul - Spanish (Mexico)') &&
+    isForbiddenRaulVoice('Microsoft Raúl Online (Natural)') &&
+    isForbiddenRaulVoice('Desktop Spanish', 'urn:moz-tts:sapi:Microsoft%20Raul%20-%20Spanish%20(Mexico)?es-MX') &&
+    !isForbiddenRaulVoice('Microsoft Sabina - Spanish (Mexico)')
+  assert(
+    raulBlocked,
+    'Filtro Anti-Raúl bloquea el 100% de variantes (Raul, Raúl, voiceURI SAPI) y permite voces femeninas válidas'
   )
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -250,20 +269,21 @@ async function runSimulation() {
   const lastAnnouncedAtMap = new Map<string, number>()
   let audioPlayCalls = 0
 
-  function simulateHandleImpulse(orderNumber: string, layerName: string, simulatedTime: number, calledAtMs?: number) {
-    const last = lastImpulseMap.get(orderNumber) || 0
-    const lastAnn = lastAnnouncedAtMap.get(orderNumber) || 0
-    const isRecentCall = last > 0 && (simulatedTime - last) < 15000
-    const isSameTap = calledAtMs !== undefined && lastAnn > 0 && Math.abs(calledAtMs - lastAnn) < 10000
-    if (isRecentCall || isSameTap) {
-      if (calledAtMs !== undefined) {
-        lastAnnouncedAtMap.set(orderNumber, calledAtMs)
+  function simulateHandleImpulse(orderNumber: string, layerName: string, simulatedTime: number, calledAtMs?: number, storeCode = 'SLAUSON') {
+    const storeKey = `${storeCode}:${orderNumber}`
+    const last = lastImpulseMap.get(storeKey) || 0
+    const lastAnn = lastAnnouncedAtMap.get(storeKey) || 0
+    const isSameTap = calledAtMs !== undefined && lastAnn > 0 && Math.abs(calledAtMs - lastAnn) < 2500
+    const isRecentCall = last > 0 && (simulatedTime - last) < 6000
+    if (isSameTap || isRecentCall) {
+      if (isRecentCall && calledAtMs !== undefined && (lastAnn === 0 || Math.abs(calledAtMs - lastAnn) < 5000)) {
+        lastAnnouncedAtMap.set(storeKey, calledAtMs)
       }
       // Debounced
       return false
     }
-    lastImpulseMap.set(orderNumber, simulatedTime)
-    lastAnnouncedAtMap.set(orderNumber, calledAtMs ?? simulatedTime)
+    lastImpulseMap.set(storeKey, simulatedTime)
+    lastAnnouncedAtMap.set(storeKey, calledAtMs ?? simulatedTime)
     audioPlayCalls++
     return true
   }
@@ -284,9 +304,8 @@ async function runSimulation() {
 
   // Escenario B: Capa 1 falla (desconexión de tablet), Capa 2 rescata el audio
   const tFail1 = 20000
-  const l1Fail = false // simulamos fallo de L1
-  const l2Recovered = simulateHandleImpulse('142', 'Layer 2 (Server WS)', tFail1 + 100)
-  const l3Blocked = simulateHandleImpulse('142', 'Layer 3 (Postgres Changes)', tFail1 + 250)
+  const l2Recovered = simulateHandleImpulse('142', 'Layer 2 (Server WS)', tFail1 + 100, tFail1)
+  const l3Blocked = simulateHandleImpulse('142', 'Layer 3 (Postgres Changes)', tFail1 + 250, tFail1)
 
   assert(
     l2Recovered === true && l3Blocked === false && audioPlayCalls === 2,
@@ -295,8 +314,8 @@ async function runSimulation() {
 
   // Escenario C: Capa 1 y 2 fallan (red de broadcast caída), Capa 3 (Postgres Changes) rescata el audio
   const tFail2 = 30000
-  const l3Recovered = simulateHandleImpulse('143', 'Layer 3 (Postgres Changes)', tFail2 + 350)
-  const l4Blocked = simulateHandleImpulse('143', 'Layer 4 (Polling Fallback)', tFail2 + 4000)
+  const l3Recovered = simulateHandleImpulse('143', 'Layer 3 (Postgres Changes)', tFail2 + 350, tFail2)
+  const l4Blocked = simulateHandleImpulse('143', 'Layer 4 (Polling Fallback)', tFail2 + 4000, tFail2)
 
   assert(
     l3Recovered === true && l4Blocked === false && audioPlayCalls === 3,
@@ -305,11 +324,31 @@ async function runSimulation() {
 
   // Escenario D: Capa 1, 2 y 3 fallan (Reconexión completa de sockets), Capa 4 (Polling) rescata el audio
   const tFail3 = 40000
-  const l4Recovered = simulateHandleImpulse('144', 'Layer 4 (Polling)', tFail3 + 3000)
+  const l4Recovered = simulateHandleImpulse('144', 'Layer 4 (Polling)', tFail3 + 3000, tFail3)
 
   assert(
     l4Recovered === true && audioPlayCalls === 4,
     'Escenario D: Si la conexión Realtime está suspendida por inactividad, la Capa 4 (Polling a 4s) rescata el audio'
+  )
+
+  // Escenario E: Re-llamado deliberado del preparador tras 8 segundos (nuevo called_at) sí se reproduce sin bloqueo de 20s
+  const tRecall = tStart + 8000
+  const deliberateRecallFired = simulateHandleImpulse('141', 'Layer 1 (Re-call deliberado 8s después)', tRecall, tRecall)
+  const deliberateRecallDup = simulateHandleImpulse('141', 'Layer 4 (Polling del re-call)', tRecall + 4000, tRecall)
+
+  assert(
+    deliberateRecallFired === true && deliberateRecallDup === false && audioPlayCalls === 5,
+    'Escenario E: Re-llamado deliberado del preparador tras >= 6s con nuevo timestamp suena de inmediato y una sola vez'
+  )
+
+  // Escenario F: Aislamiento multi-tienda (LYNWOOD #141 y DOWNEY #141 al mismo instante no se bloquean entre sí)
+  const tMultiStore = 60000
+  const lynwoodFired = simulateHandleImpulse('141', 'Layer 1 (LYNWOOD)', tMultiStore, tMultiStore, 'LYNWOOD')
+  const downeyFired = simulateHandleImpulse('141', 'Layer 1 (DOWNEY)', tMultiStore + 200, tMultiStore + 200, 'DOWNEY')
+
+  assert(
+    lynwoodFired === true && downeyFired === true && audioPlayCalls === 7,
+    'Escenario F: Aislamiento multi-tienda por llave compuesta (storeCode:orderNumber) evita bloqueos cruzados'
   )
 
   console.log('\n======================================================================')
