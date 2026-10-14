@@ -112,6 +112,75 @@ const label = (platform: Platform) =>
     ? 'Toast Delivery'
     : 'Delivery'
 
+type OrderStage = 'PREPARACION' | 'EMPACANDO' | 'LISTA' | 'ENTREGADA'
+
+function getOrderStageInfo(order: Order): {
+  stage: OrderStage
+  label: string
+  badgeClass: string
+  dotClass: string
+  cardClass: string
+  cardSelectedClass: string
+} {
+  if (order.audit?.status === 'released') {
+    return {
+      stage: 'ENTREGADA',
+      label: 'ENTREGADA',
+      badgeClass: 'bg-slate-200 text-slate-700 border border-slate-300',
+      dotClass: 'bg-slate-500',
+      cardClass: 'border-slate-200 bg-slate-50 text-slate-600',
+      cardSelectedClass: 'border-slate-700 bg-slate-100 ring-4 ring-slate-400/30'
+    }
+  }
+  if (order.audit?.status === 'ready') {
+    return {
+      stage: 'LISTA',
+      label: 'LISTA',
+      badgeClass: 'bg-emerald-600 text-white border border-emerald-700',
+      dotClass: 'bg-emerald-200',
+      cardClass: 'border-emerald-400 bg-emerald-50/60',
+      cardSelectedClass: 'border-emerald-600 bg-emerald-50 ring-4 ring-emerald-500/25'
+    }
+  }
+  if (order.kdsStatus === 'IN_KITCHEN') {
+    return {
+      stage: 'PREPARACION',
+      label: 'PREPARACIÓN',
+      badgeClass: 'bg-amber-500 text-slate-950 border border-amber-600',
+      dotClass: 'bg-slate-950 animate-pulse',
+      cardClass: 'border-amber-400 bg-amber-50/60',
+      cardSelectedClass: 'border-amber-600 bg-amber-50 ring-4 ring-amber-500/25'
+    }
+  }
+  return {
+    stage: 'EMPACANDO',
+    label: 'EMPACANDO',
+    badgeClass: 'bg-blue-600 text-white border border-blue-700',
+    dotClass: 'bg-white animate-pulse',
+    cardClass: 'border-blue-400 bg-blue-50/60',
+    cardSelectedClass: 'border-blue-600 bg-blue-50 ring-4 ring-blue-500/25'
+  }
+}
+
+// Determina si una orden sigue activa en el estante (excluye órdenes viejas del día que ya se llevó el repartidor antes de usar la tableta)
+function isOrderCurrentlyActive(order: Order): boolean {
+  if (order.audit?.status === 'released') return false
+  const now = Date.now()
+  const openedAgeMs = now - new Date(order.openedAt).getTime()
+  const readyAgeMs = order.kdsReadyAt ? now - new Date(order.kdsReadyAt).getTime() : openedAgeMs
+
+  // 1. Si ya fue empacada y sellada en la tableta (LISTA), mantener en estante hasta 60 min esperando al chofer
+  if (order.audit?.status === 'ready') {
+    return readyAgeMs <= 60 * 60 * 1000
+  }
+  // 2. Si el cocinero aún la tiene en pantalla KDS (PREPARACIÓN), mantener hasta 60 min
+  if (order.kdsStatus === 'IN_KITCHEN') {
+    return openedAgeMs <= 60 * 60 * 1000
+  }
+  // 3. Si salió del KDS y no se ha empacado (EMPACANDO), ventana activa de 20 minutos en el estante
+  return readyAgeMs <= 20 * 60 * 1000
+}
+
 function formatDuration(seconds: number | null | undefined): string {
   if (seconds == null || !Number.isFinite(seconds) || seconds < 0) return '--'
   const mins = Math.floor(seconds / 60)
@@ -150,6 +219,7 @@ export default function BlindajeDeliveryEmpaquePage() {
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [isMuted, setIsMuted] = useState(false)
   const [activeAnnouncement, setActiveAnnouncement] = useState<string | null>(null)
+  const [showHistory, setShowHistory] = useState(false)
 
   // Referencias del motor de audio y rastreo de KDS
   const audioCtxRef = useRef<AudioContext | null>(null)
@@ -697,12 +767,13 @@ export default function BlindajeDeliveryEmpaquePage() {
       setSelected(current => {
         if (newlyReadyOrders.length > 0) {
           const currentObj = next.find(o => o.guid === current)
-          if (!currentObj || currentObj.audit?.status === 'released') {
+          if (!currentObj || currentObj.audit?.status === 'released' || !isOrderCurrentlyActive(currentObj)) {
             return newlyReadyOrders[0].guid
           }
         }
-        if (current && next.some(o => o.guid === current)) return current
-        const firstActive = next.find(o => o.audit?.status !== 'released')
+        const currentObj = current ? next.find(o => o.guid === current) : null
+        if (currentObj && isOrderCurrentlyActive(currentObj)) return current
+        const firstActive = next.find(o => isOrderCurrentlyActive(o))
         return firstActive?.guid || next[0]?.guid || null
       })
     } catch (caught: any) {
@@ -718,6 +789,11 @@ export default function BlindajeDeliveryEmpaquePage() {
     const timer = window.setInterval(fetchOrders, KDS_POLL_INTERVAL_MS)
     return () => window.clearInterval(timer)
   }, [fetchOrders])
+
+  const activeQueueOrders = useMemo(
+    () => (showHistory ? orders : orders.filter(isOrderCurrentlyActive)),
+    [orders, showHistory]
+  )
 
   const order = useMemo(() => orders.find(value => value.guid === selected) || null, [orders, selected])
   const bagCount = order ? bags[order.guid] || order.audit?.bags || 1 : 1
@@ -741,14 +817,14 @@ export default function BlindajeDeliveryEmpaquePage() {
 
   const visible = useMemo(() => {
     const q = search.trim().toLowerCase()
-    if (!q) return orders
+    if (!q) return activeQueueOrders
     if (blockedByName) return []
     return orders.filter(value =>
       `${value.platformOrderKey} UBER${value.platformOrderKey} ${value.shortOrderKey} #${value.ticket} ${value.ticket} ${label(value.platform)}`
         .toLowerCase()
         .includes(q)
     )
-  }, [orders, search, blockedByName])
+  }, [orders, activeQueueOrders, search, blockedByName])
 
   async function login(event: React.FormEvent) {
     event.preventDefault()
@@ -1134,42 +1210,83 @@ export default function BlindajeDeliveryEmpaquePage() {
             </div>
           )}
 
-          <div className="flex gap-3 overflow-x-auto pb-1">
-            {visible.map(value => (
+          {/* LEYENDA Y CONTADORES POR ESTATUS CON COLORES */}
+          <div className="flex flex-wrap items-center justify-between gap-2 text-xs sm:text-sm font-black">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-amber-100 text-amber-950 border border-amber-400">
+                <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse" />
+                PREPARACIÓN (KDS):{' '}
+                {activeQueueOrders.filter(o => getOrderStageInfo(o).stage === 'PREPARACION').length}
+              </span>
+              <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-blue-100 text-blue-900 border border-blue-400">
+                <span className="w-2.5 h-2.5 rounded-full bg-blue-600 animate-pulse" />
+                EMPACANDO (Estante):{' '}
+                {activeQueueOrders.filter(o => getOrderStageInfo(o).stage === 'EMPACANDO').length}
+              </span>
+              <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-emerald-100 text-emerald-900 border border-emerald-400">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-600" />
+                LISTA (Sellada):{' '}
+                {activeQueueOrders.filter(o => getOrderStageInfo(o).stage === 'LISTA').length}
+              </span>
+            </div>
+
+            {orders.length > activeQueueOrders.length || showHistory ? (
               <button
-                key={value.guid}
                 type="button"
-                onClick={() => {
-                  void ensureFullscreen()
-                  setSelected(value.guid)
-                  setError(null)
-                  setSuccess(null)
-                }}
-                className={`min-w-[225px] sm:min-w-[255px] p-4 rounded-2xl border-2 text-left flex-shrink-0 transition-colors ${
-                  selected === value.guid ? 'border-red-600 bg-red-50/40' : 'border-slate-200 bg-white'
+                onClick={() => setShowHistory(prev => !prev)}
+                className={`px-3 py-1.5 rounded-xl border text-xs sm:text-sm font-black transition-colors ${
+                  showHistory
+                    ? 'bg-slate-900 text-white border-slate-900'
+                    : 'bg-slate-100 text-slate-600 border-slate-300 hover:bg-slate-200'
                 }`}
               >
-                <div className="flex justify-between items-center gap-2">
-                  <span className="text-sm font-extrabold text-slate-500">{label(value.platform)}</span>
-                  <span className="text-xs font-black px-2.5 py-1 rounded-lg bg-slate-100 text-slate-700">
-                    {value.audit?.status === 'released'
-                      ? 'LIBERADA'
-                      : value.audit?.status === 'ready'
-                      ? 'LISTA'
-                      : 'EMPAQUE'}
-                  </span>
-                </div>
-                <strong className="block text-2xl font-black font-mono mt-1.5 truncate">
-                  {value.platformOrderKey}
-                </strong>
-                <small className="text-slate-600 text-sm font-bold block mt-1">
-                  #{value.ticket} • {value.itemCount} art.{value.hasDrinks ? ' • CON BEBIDAS' : ''}
-                </small>
+                {showHistory
+                  ? 'Ocultar órdenes pasadas'
+                  : `Ver pasadas del día (${Math.max(0, orders.length - activeQueueOrders.length)})`}
               </button>
-            ))}
+            ) : null}
+          </div>
+
+          <div className="flex gap-3 overflow-x-auto pb-1">
+            {visible.map(value => {
+              const stageInfo = getOrderStageInfo(value)
+              const isSelected = selected === value.guid
+              return (
+                <button
+                  key={value.guid}
+                  type="button"
+                  onClick={() => {
+                    void ensureFullscreen()
+                    setSelected(value.guid)
+                    setError(null)
+                    setSuccess(null)
+                  }}
+                  className={`min-w-[235px] sm:min-w-[265px] p-4 rounded-2xl border-2 text-left flex-shrink-0 transition-all ${
+                    isSelected ? stageInfo.cardSelectedClass : stageInfo.cardClass
+                  }`}
+                >
+                  <div className="flex justify-between items-center gap-2">
+                    <span className="text-sm font-extrabold text-slate-700">{label(value.platform)}</span>
+                    <span
+                      className={`inline-flex items-center gap-1.5 text-xs font-black px-2.5 py-1 rounded-lg ${stageInfo.badgeClass}`}
+                    >
+                      <span className={`w-2 h-2 rounded-full ${stageInfo.dotClass}`} />
+                      {stageInfo.label}
+                    </span>
+                  </div>
+                  <strong className="block text-2xl font-black font-mono mt-1.5 truncate text-slate-950">
+                    {value.platformOrderKey}
+                  </strong>
+                  <small className="text-slate-700 text-sm font-bold block mt-1 truncate">
+                    #{value.ticket} • {value.itemCount} art.{value.hasDrinks ? ' • CON BEBIDAS' : ''}
+                    {value.assignedDriverHint ? ` • Chofer: ${value.assignedDriverHint}` : ''}
+                  </small>
+                </button>
+              )
+            })}
             {!loading && visible.length === 0 && !blockedByName && (
               <p className="text-center text-slate-500 py-4 text-base font-semibold w-full">
-                No hay órdenes delivery activas con esa clave.
+                No hay órdenes delivery activas en este momento.
               </p>
             )}
           </div>
@@ -1197,10 +1314,29 @@ export default function BlindajeDeliveryEmpaquePage() {
           </div>
         ) : (
           <div className="space-y-4">
-            {/* 2. CABEZAL LIMPIO CON LA CLAVE ÚNICA DE LA ORDEN Y TIEMPO KDS */}
+            {/* 2. CABEZAL LIMPIO CON LA CLAVE ÚNICA DE LA ORDEN, ESTATUS POR COLOR Y TIEMPO KDS */}
             <section className="bg-white border rounded-3xl p-6 sm:p-7 shadow-sm">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-xl sm:text-2xl font-black text-red-600">{label(order.platform)}</p>
+                <div className="flex flex-wrap items-center gap-3">
+                  <p className="text-xl sm:text-2xl font-black text-red-600">{label(order.platform)}</p>
+                  {(() => {
+                    const currentStage = getOrderStageInfo(order)
+                    return (
+                      <span
+                        className={`inline-flex items-center gap-2 text-sm sm:text-base font-black px-3.5 py-1.5 rounded-xl ${currentStage.badgeClass}`}
+                      >
+                        <span className={`w-2.5 h-2.5 rounded-full ${currentStage.dotClass}`} />
+                        {currentStage.label}
+                      </span>
+                    )
+                  })()}
+                  {order.assignedDriverHint && (
+                    <span className="inline-flex items-center gap-1.5 text-sm sm:text-base font-black px-3.5 py-1.5 rounded-xl bg-slate-100 text-slate-800 border border-slate-300">
+                      <Truck className="w-4 h-4 text-slate-600" />
+                      Chofer: {order.assignedDriverHint}
+                    </span>
+                  )}
+                </div>
                 <div className="flex items-center gap-2">
                   <span className="inline-flex items-center gap-2 text-sm sm:text-base font-bold text-slate-700 bg-slate-100 px-4 py-1.5 rounded-xl">
                     <Clock className="w-4 h-4" />

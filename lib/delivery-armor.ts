@@ -553,10 +553,19 @@ export function isDeliveryPlatform(diningOptionName: string, deliveryService?: s
   return p !== 'OTHER'
 }
 
+const diningOptionsCache = new Map<string, { at: number; map: Record<string, string> }>()
+const toastRawOrdersCache = new Map<string, { at: number; orders: any[] }>()
+const toastRawOrdersInflight = new Map<string, Promise<any[]>>()
+const TOAST_RAW_CACHE_TTL_MS = 5000 // 5 segundos para evitar 429 en Toast API y responder al instante tras confirmar empaque
+
 /**
  * Consulta las opciones de comedor (Dining Options) de Toast de forma dinámica (Protocolo Toast API)
  */
 async function fetchDiningOptionsMap(token: string, storeExternalId: string): Promise<Record<string, string>> {
+  const cached = diningOptionsCache.get(storeExternalId)
+  if (cached && Date.now() - cached.at < 30 * 60 * 1000) {
+    return cached.map
+  }
   try {
     const res = await fetch(`${TOAST_API_HOST}/config/v2/diningOptions`, {
       headers: {
@@ -564,7 +573,7 @@ async function fetchDiningOptionsMap(token: string, storeExternalId: string): Pr
         'Toast-Restaurant-External-ID': storeExternalId
       }
     })
-    if (!res.ok) return {}
+    if (!res.ok) return cached?.map || {}
     const data = await res.json()
     const map: Record<string, string> = {}
     if (Array.isArray(data)) {
@@ -574,9 +583,12 @@ async function fetchDiningOptionsMap(token: string, storeExternalId: string): Pr
         }
       })
     }
+    if (Object.keys(map).length > 0) {
+      diningOptionsCache.set(storeExternalId, { at: Date.now(), map })
+    }
     return map
   } catch {
-    return {}
+    return cached?.map || {}
   }
 }
 
@@ -623,36 +635,57 @@ export async function fetchOffPremiseOrders(storeId: number, targetBusinessDate?
   // 2. Mapeo dinámico de Dining Options
   const diningOptionsMap = await fetchDiningOptionsMap(token, store.external_id)
 
-  // 3. Consultar órdenes en Toast API con paginación completa para el día laboral actual
-  const rawOrders: any[] = []
-  let page = 1
-  const maxPages = 20 // Seguridad para prevenir bucles (hasta 2,000 órdenes diarias)
+  // 3. Consultar órdenes en Toast API con caché de 5s y protección contra 429 Too Many Requests
+  const cacheKey = `${store.external_id}:${businessDate}`
+  const nowMs = Date.now()
+  const cachedRaw = toastRawOrdersCache.get(cacheKey)
 
-  while (page <= maxPages) {
-    const ordersUrl = `${TOAST_API_HOST}/orders/v2/ordersBulk?businessDate=${businessDate}&pageSize=100&page=${page}`
-    const oRes = await fetch(ordersUrl, {
-      cache: 'no-store',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Toast-Restaurant-External-ID': store.external_id
-      }
-    })
+  let rawOrders: any[] = []
+  if (cachedRaw && nowMs - cachedRaw.at < TOAST_RAW_CACHE_TTL_MS) {
+    rawOrders = cachedRaw.orders
+  } else {
+    let inflightJob = toastRawOrdersInflight.get(cacheKey)
+    if (!inflightJob) {
+      inflightJob = (async () => {
+        const fetched: any[] = []
+        let page = 1
+        const maxPages = 20
+        while (page <= maxPages) {
+          const ordersUrl = `${TOAST_API_HOST}/orders/v2/ordersBulk?businessDate=${businessDate}&pageSize=100&page=${page}`
+          const oRes = await fetch(ordersUrl, {
+            cache: 'no-store',
+            headers: {
+              Authorization: `Bearer ${token}`,
+              'Toast-Restaurant-External-ID': store.external_id
+            }
+          })
 
-    if (!oRes.ok) {
-      if (page === 1) {
-        const errText = await oRes.text().catch(() => '')
-        throw new Error(`Error consultando órdenes en Toast API (${oRes.status}): ${errText.substring(0, 150)}`)
-      }
-      break
+          if (!oRes.ok) {
+            if (page === 1) {
+              if (cachedRaw?.orders?.length) {
+                return cachedRaw.orders
+              }
+              const errText = await oRes.text().catch(() => '')
+              throw new Error(`Error consultando órdenes en Toast API (${oRes.status}): ${errText.substring(0, 150)}`)
+            }
+            break
+          }
+
+          const chunk: any[] = await oRes.json()
+          if (!Array.isArray(chunk) || chunk.length === 0) break
+          fetched.push(...chunk)
+
+          if (chunk.length < 100) break
+          page++
+        }
+        toastRawOrdersCache.set(cacheKey, { at: Date.now(), orders: fetched })
+        return fetched
+      })().finally(() => {
+        toastRawOrdersInflight.delete(cacheKey)
+      })
+      toastRawOrdersInflight.set(cacheKey, inflightJob)
     }
-
-    const chunk: any[] = await oRes.json()
-    if (!Array.isArray(chunk) || chunk.length === 0) break
-    rawOrders.push(...chunk)
-
-    // Si la página devolvió menos de 100 órdenes, ya se descargó el 100% de órdenes del día
-    if (chunk.length < 100) break
-    page++
+    rawOrders = await inflightJob
   }
 
   // 4. Consultar auditorías existentes en Supabase para vincular su estado actual
