@@ -151,4 +151,25 @@ assert.equal(kdsTiming.kdsStatus, 'READY')
 assert.equal(kdsTiming.kdsPrepSeconds, 172)
 
 for (const value of [0, 1, 8, 20]) assert.equal(Number.isFinite(value / Math.max(1, value)), true)
+
+// Prueba de contrato Fullscreen en tableta (PIN, Login, Operación y Retorno a PIN)
+import fs from 'node:fs'
+import path from 'node:path'
+
+const clientLayoutSource = fs.readFileSync(path.join(process.cwd(), 'components', 'ClientLayout.tsx'), 'utf8')
+assert.equal(
+  clientLayoutSource.includes("'/admin/blindaje-delivery/empaque'"),
+  true,
+  'ClientLayout debe incluir /admin/blindaje-delivery/empaque en publicRoutes para ocultar barras y mostrar pantalla completa'
+)
+
+const empaqueSource = fs.readFileSync(
+  path.join(process.cwd(), 'app', 'admin', 'blindaje-delivery', 'empaque', 'page.tsx'),
+  'utf8'
+)
+assert.equal(empaqueSource.includes('requestFullscreen'), true, 'Debe invocar requestFullscreen nativo')
+assert.equal(empaqueSource.includes('ensureFullscreen'), true, 'Debe mantener fullscreen en PIN, login y logout')
+assert.equal(empaqueSource.includes('fixed inset-0 z-[100] w-screen h-screen'), true, 'Debe ocupar 100% de la pantalla')
+assert.equal(empaqueSource.includes('max-w-2xl'), false, 'No debe restringir el ancho a max-w-2xl en la tableta')
+
 console.log('Delivery Armor core simulation: PASS')

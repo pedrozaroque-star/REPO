@@ -66,6 +66,7 @@ export default function ClientLayout({
         '/procedimientos/imprimir',
         '/inventory/orders/print-sheet',
         '/admin/compras/viele/print-sheet',
+        '/admin/blindaje-delivery/empaque',
         '/tablet'
     ]
 
