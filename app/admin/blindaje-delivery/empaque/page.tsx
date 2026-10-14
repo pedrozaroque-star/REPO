@@ -4,10 +4,10 @@
  * @businessRules
  *   - Siempre en modo Fullscreen (tanto al pedir PIN, al iniciar sesión con PIN, durante la operación y al cerrarse/expirar la sesión de PIN).
  *   - Acceso con PIN de 4 dígitos de RONOS con cierre automático de sesión cada 10 minutos.
- *   - Nunca se busca ni se entrega por nombre del cliente; la llave única es la Clave Oficial de cada plataforma (Uber Eats: UBERxxxxx, DoorDash: DD xxxxxxxx + QR, Grubhub: GH #..., Toast: #Ticket).
+ *   - Nunca se busca ni se entrega por nombre del cliente; la llave única es la Clave Oficial de cada plataforma (Uber Eats: 5 caracteres ej. 60A07, DoorDash: DD xxxxxxxx + QR, Grubhub: GH #..., Toast: #Ticket).
  *   - Mide automáticamente el tiempo de preparación en cocina desde que llega al KDS hasta que el cocinero borra la orden (READY).
  *   - Cuando el cocinero borra la orden delivery del KDS (pasa de IN_KITCHEN a READY para el estante de empaque), la tableta reproduce automáticamente el aviso de voz ("Order #100, is ready! Please pack. / Orden #100, ¡ya está! Por favor empacar.") reutilizando los audios de órdenes precargados en Supabase Storage.
- *   - Flujo directo sin ruido visual: 1. Concluir sellado de empaque (obligatorio, foto opcional) -> 2. Blindar la entrega.
+ *   - Flujo directo sin pasos innecesarios: 1. CONFIRMAR ORDEN COMPLETA Y SELLADA -> 2. Blindar la entrega.
  * @dataFlow Toast -> /api/delivery-armor/orders -> tableta vertical fullscreen + locutor KDS (/api/order-ready/tts + /api/order-ready/announcement-tts) -> /api/delivery-armor/audit -> Supabase.
  * @notes Piloto Slauson (#7) y LA Central (#6).
  */
@@ -18,7 +18,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import {
   AlertTriangle,
-  Camera,
   CheckCircle2,
   Clock,
   Delete,
@@ -144,7 +143,6 @@ export default function BlindajeDeliveryEmpaquePage() {
   const [selected, setSelected] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [bags, setBags] = useState<Record<string, number>>({})
-  const [photos, setPhotos] = useState<Record<string, string>>({})
   const [busy, setBusy] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -723,14 +721,13 @@ export default function BlindajeDeliveryEmpaquePage() {
 
   const order = useMemo(() => orders.find(value => value.guid === selected) || null, [orders, selected])
   const bagCount = order ? bags[order.guid] || order.audit?.bags || 1 : 1
-  const sealedPhoto = order ? photos[order.guid] || order.audit?.sealedPhoto || '' : ''
 
   // Bloqueo de búsqueda por nombre del cliente: solo permite buscar por Clave Única o #Ticket
   const blockedByName = useMemo(() => {
     const q = search.trim().toLowerCase()
     if (!q) return false
     const matchesKey = orders.some(o =>
-      `${o.platformOrderKey} ${o.shortOrderKey} #${o.ticket} ${o.ticket} ${label(o.platform)}`
+      `${o.platformOrderKey} UBER${o.platformOrderKey} ${o.shortOrderKey} #${o.ticket} ${o.ticket} ${label(o.platform)}`
         .toLowerCase()
         .includes(q)
     )
@@ -747,7 +744,7 @@ export default function BlindajeDeliveryEmpaquePage() {
     if (!q) return orders
     if (blockedByName) return []
     return orders.filter(value =>
-      `${value.platformOrderKey} ${value.shortOrderKey} #${value.ticket} ${value.ticket} ${label(value.platform)}`
+      `${value.platformOrderKey} UBER${value.platformOrderKey} ${value.shortOrderKey} #${value.ticket} ${value.ticket} ${label(value.platform)}`
         .toLowerCase()
         .includes(q)
     )
@@ -804,10 +801,9 @@ export default function BlindajeDeliveryEmpaquePage() {
     setPin(prev => prev.slice(0, -1))
   }
 
-  async function savePackingRecord(targetOrder: Order, photoUrlOverride?: string) {
+  async function savePackingRecord(targetOrder: Order) {
     if (!packer) return
     const currentBags = bags[targetOrder.guid] || targetOrder.audit?.bags || 1
-    const currentPhoto = photoUrlOverride ?? photos[targetOrder.guid] ?? targetOrder.audit?.sealedPhoto ?? ''
     const currentReasons = [
       targetOrder.hasDrinks ? 'con bebidas' : '',
       targetOrder.itemCount >= 8 ? '8+ artículos' : '',
@@ -836,7 +832,7 @@ export default function BlindajeDeliveryEmpaquePage() {
         })),
         matchedItems: ['CONTROL:foodComplete', 'CONTROL:drinksComplete', 'CONTROL:bagCountCorrect', 'CONTROL:bagSealed'],
         matchCompleted: true,
-        photo_sealed_bag_url: currentPhoto || null,
+        photo_sealed_bag_url: targetOrder.audit?.sealedPhoto || null,
         packer_pin: packer.pin,
         quick_checks: {
           ...COMPLETED_CHECKS,
@@ -851,41 +847,11 @@ export default function BlindajeDeliveryEmpaquePage() {
         confirmed_bag_count: currentBags,
         risk_level: isHighRisk ? 'HIGH' : 'NORMAL',
         risk_reasons: currentReasons,
-        evidence_policy: isHighRisk ? 'SEALED_BAG' : 'NONE'
+        evidence_policy: 'NONE'
       })
     })
     const data = await response.json()
-    if (!response.ok || !data.ok) throw new Error(data.error || 'No se pudo terminar el empaque.')
-  }
-
-  async function upload(event: React.ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0]
-    if (!file || !order) return
-    setBusy(true)
-    setError(null)
-    setSuccess(null)
-    try {
-      const form = new FormData()
-      form.append('file', file)
-      form.append('type', 'sealed')
-      form.append('orderGuid', order.guid)
-      form.append('storeId', String(storeId))
-      const response = await fetch('/api/delivery-armor/upload-photo', { method: 'POST', body: form })
-      const data = await response.json()
-      if (!response.ok || !data.ok) throw new Error(data.error || 'No se pudo subir la foto.')
-      setPhotos(previous => ({ ...previous, [order.guid]: data.publicUrl }))
-      if (order.audit?.status !== 'released') {
-        await savePackingRecord(order, data.publicUrl)
-        setSuccess(`Empaque terminado: ${order.platformOrderKey}`)
-        await fetchOrders()
-      }
-      void ensureFullscreen()
-    } catch (caught: any) {
-      setError(caught.message)
-    } finally {
-      setBusy(false)
-      event.target.value = ''
-    }
+    if (!response.ok || !data.ok) throw new Error(data.error || 'No se pudo confirmar la orden completa y sellada.')
   }
 
   async function markReady() {
@@ -896,7 +862,7 @@ export default function BlindajeDeliveryEmpaquePage() {
     setSuccess(null)
     try {
       await savePackingRecord(order)
-      setSuccess(`Sellado de empaque concluido: ${order.platformOrderKey}`)
+      setSuccess(`Orden completa y sellada: ${order.platformOrderKey}`)
       await fetchOrders()
     } catch (caught: any) {
       setError(caught.message)
@@ -909,7 +875,7 @@ export default function BlindajeDeliveryEmpaquePage() {
     if (!order || !packer) return
     void ensureFullscreen()
     if (order.audit?.status !== 'ready') {
-      setError('Primero debes concluir el sellado de empaque antes de entregar la orden.')
+      setError('Primero debes confirmar que la orden esté completa y sellada antes de entregarla.')
       return
     }
     setBusy(true)
@@ -1157,7 +1123,7 @@ export default function BlindajeDeliveryEmpaquePage() {
             <input
               value={search}
               onChange={event => setSearch(event.target.value)}
-              placeholder="Buscar por clave de orden (ej. UBERB5BCB, DD 04BBB1A4, #42)"
+              placeholder="Buscar por clave de orden (ej. 60A07, DD 1F29FEC6, #559)"
               className="w-full h-14 rounded-2xl bg-slate-100 pl-12 pr-4 text-lg sm:text-xl font-black uppercase placeholder:normal-case"
             />
           </div>
@@ -1318,15 +1284,15 @@ export default function BlindajeDeliveryEmpaquePage() {
               </div>
             </section>
 
-            {/* 3. CONCLUIR SELLADO DE EMPAQUE Y BLINDAR LA ENTREGA */}
+            {/* 3. CONFIRMAR ORDEN COMPLETA Y SELLADA + BLINDAR LA ENTREGA */}
             <section className="bg-white border rounded-3xl p-6 sm:p-7 shadow-sm space-y-6">
-              {/* PASO 1: CONCLUIR SELLADO DE EMPAQUE (OBLIGATORIO) */}
+              {/* PASO 1: CONFIRMAR ORDEN COMPLETA Y SELLADA (OBLIGATORIO) */}
               <div className="space-y-4">
                 <div className="flex flex-wrap items-center justify-between gap-4">
                   <div>
-                    <h3 className="text-2xl font-black">1. Concluir sellado de empaque</h3>
+                    <h3 className="text-2xl font-black">1. Confirmar orden completa y sellada</h3>
                     <p className="text-base text-slate-500 font-medium">
-                      Confirma cantidad de bolsas y sello. La fotografía es opcional.
+                      Confirma cantidad de bolsas, que la orden esté completa y sellada.
                     </p>
                   </div>
 
@@ -1356,36 +1322,6 @@ export default function BlindajeDeliveryEmpaquePage() {
                   </div>
                 </div>
 
-                <label
-                  className={`min-h-24 rounded-2xl border-2 border-dashed grid place-items-center cursor-pointer ${
-                    sealedPhoto ? 'border-emerald-500 bg-emerald-50' : 'border-slate-300 bg-slate-50'
-                  }`}
-                >
-                  {sealedPhoto ? (
-                    <div className="text-center py-3">
-                      <CheckCircle2 className="mx-auto text-emerald-600 w-8 h-8" />
-                      <strong className="text-base sm:text-lg block mt-1">
-                        Foto de bolsa sellada guardada
-                      </strong>
-                    </div>
-                  ) : (
-                    <div className="text-center py-3">
-                      <Camera className="mx-auto w-8 h-8 text-slate-600" />
-                      <strong className="text-base sm:text-lg block mt-1">
-                        Foto de bolsa sellada + ticket (Opcional)
-                      </strong>
-                    </div>
-                  )}
-                  <input
-                    type="file"
-                    disabled={order.audit?.status === 'released'}
-                    accept="image/jpeg,image/png,image/webp"
-                    capture="environment"
-                    className="hidden"
-                    onChange={upload}
-                  />
-                </label>
-
                 {order.audit?.status !== 'released' && order.audit?.status !== 'ready' && (
                   <button
                     type="button"
@@ -1393,13 +1329,13 @@ export default function BlindajeDeliveryEmpaquePage() {
                     disabled={busy}
                     className="w-full h-16 sm:h-20 rounded-2xl bg-slate-950 text-white text-xl sm:text-2xl font-black disabled:opacity-30"
                   >
-                    CONCLUIR SELLADO DE EMPAQUE
+                    CONFIRMAR ORDEN COMPLETA Y SELLADA
                   </button>
                 )}
 
                 {order.audit?.status === 'ready' && (
                   <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-lg font-black flex items-center justify-between">
-                    <span>✓ Sellado de empaque concluido</span>
+                    <span>✓ Orden completa y sellada</span>
                     <span>
                       {bagCount} bolsa{bagCount === 1 ? '' : 's'}
                     </span>
@@ -1443,7 +1379,7 @@ export default function BlindajeDeliveryEmpaquePage() {
                       {busy
                         ? 'PROCESANDO…'
                         : order.audit?.status !== 'ready'
-                        ? 'PRIMERO CONCLUYE EL SELLADO DE EMPAQUE'
+                        ? 'PRIMERO CONFIRMA ORDEN COMPLETA Y SELLADA'
                         : `CONFIRMAR CLAVE ${order.platformOrderKey} Y ENTREGAR`}
                     </span>
                   </button>

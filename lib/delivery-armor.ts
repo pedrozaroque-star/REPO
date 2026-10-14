@@ -211,7 +211,7 @@ export function extractPlatformOrderIdentity(params: {
     const code = (tabMatch?.[1] || ueCodeFromFirst || emailMatch?.[1] || '').toUpperCase()
     if (code) {
       return {
-        platformOrderKey: `UBER${code}`,
+        platformOrderKey: code,
         shortOrderKey: code,
         cleanCustomerName,
         maskedCustomerName,
@@ -219,7 +219,7 @@ export function extractPlatformOrderIdentity(params: {
       }
     }
     return {
-      platformOrderKey: `UBER #${ticket}`,
+      platformOrderKey: `#${ticket}`,
       shortOrderKey: `#${ticket}`,
       cleanCustomerName,
       maskedCustomerName,

@@ -57,7 +57,7 @@ const ueIdentity = extractPlatformOrderIdentity({
   deliveryNotes: 'Driver Pin: 31902213 (Jessica)'
 })
 assert.equal(ueIdentity.shortOrderKey, '414DB')
-assert.equal(ueIdentity.platformOrderKey, 'UBER414DB')
+assert.equal(ueIdentity.platformOrderKey, '414DB')
 assert.equal(ueIdentity.cleanCustomerName, 'Aramis P.')
 assert.equal(ueIdentity.maskedCustomerName, 'A••• P.')
 assert.equal(ueIdentity.assignedDriverHint, 'Jessica')
@@ -82,7 +82,7 @@ const ghIdentity = extractPlatformOrderIdentity({
 assert.equal(ghIdentity.shortOrderKey, '#0292')
 assert.equal(ghIdentity.platformOrderKey, 'GH #838534995740292')
 
-// Ejemplos reales de tickets físicos (Slauson #42, Hollywood #92 y #849, Downey #538, KDS #353)
+// Ejemplos reales de tickets físicos (Slauson #42, Slauson #559, Hollywood #92 y #849, Downey #538, KDS #353)
 const ueTakeout42 = extractPlatformOrderIdentity({
   platform: classifyPlatform('Uber Eats Takeout'),
   displayNumber: '42',
@@ -90,9 +90,20 @@ const ueTakeout42 = extractPlatformOrderIdentity({
   firstName: 'UE-MonseB5BCB',
   lastName: 'R.'
 })
-assert.equal(ueTakeout42.platformOrderKey, 'UBERB5BCB')
+assert.equal(ueTakeout42.platformOrderKey, 'B5BCB')
 assert.equal(ueTakeout42.shortOrderKey, 'B5BCB')
 assert.equal(ueTakeout42.cleanCustomerName, 'Monse R.')
+
+const ueSlauson559 = extractPlatformOrderIdentity({
+  platform: 'UBER_EATS',
+  displayNumber: '559',
+  tabName: 'UBER60A07 Jovita G.',
+  firstName: 'UE-Jovita60A07',
+  lastName: 'G.'
+})
+assert.equal(ueSlauson559.platformOrderKey, '60A07')
+assert.equal(ueSlauson559.shortOrderKey, '60A07')
+assert.equal(ueSlauson559.cleanCustomerName, 'Jovita G.')
 
 const ddHollywood92 = extractPlatformOrderIdentity({
   platform: 'DOORDASH',
@@ -132,7 +143,7 @@ const ueVoided353 = extractPlatformOrderIdentity({
   firstName: 'Jerry',
   lastName: 'B.'
 })
-assert.equal(ueVoided353.platformOrderKey, 'UBERF2201')
+assert.equal(ueVoided353.platformOrderKey, 'F2201')
 assert.equal(ueVoided353.shortOrderKey, 'F2201')
 
 // Prueba de cronómetro KDS (ignora bebidas en SENT cuando los platillos ya están en READY)
