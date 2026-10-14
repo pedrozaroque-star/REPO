@@ -130,21 +130,23 @@ async function run() {
           totalAudioSuccess++
           consecutiveErrors = 0
           existingEs.add(num)
+          await sleep(delayMs)
         } catch (err: any) {
           console.log(`❌ Error: ${err.message}`)
           totalAudioFailed++
           consecutiveErrors++
-          if (consecutiveErrors >= 3) {
-            console.warn(`\n⚠️ 3 errores consecutivos. Pausando el lote de forma segura para proteger la cuota.`)
+          if (consecutiveErrors >= 6) {
+            console.warn(`\n⚠️ 6 errores consecutivos. Pausando el lote de forma segura para proteger la cuota.`)
             shouldStop = true
             break
           }
           const is429 = /429|quota|exhausted/i.test(err.message)
-          const waitTime = is429 ? 48000 : 4000
-          if (is429) console.log(`   ⏳ Esperando ${waitTime / 1000}s para enfriamiento de ventana RPM...`)
+          const waitTime = is429 ? 62000 : 5000
+          if (is429) console.log(`   ⏳ Esperando ${waitTime / 1000}s para enfriamiento completo de ventana RPM...`)
           await sleep(waitTime)
+          idx-- // Reintentar la misma orden
+          continue
         }
-        await sleep(delayMs)
       } else {
         console.log(`  ${progressPrefix} ES ya existe en Supabase -> Saltado ✅`)
       }
@@ -162,21 +164,23 @@ async function run() {
           totalAudioSuccess++
           consecutiveErrors = 0
           existingEn.add(num)
+          await sleep(delayMs)
         } catch (err: any) {
           console.log(`❌ Error: ${err.message}`)
           totalAudioFailed++
           consecutiveErrors++
-          if (consecutiveErrors >= 3) {
-            console.warn(`\n⚠️ 3 errores consecutivos. Pausando el lote de forma segura para proteger la cuota.`)
+          if (consecutiveErrors >= 6) {
+            console.warn(`\n⚠️ 6 errores consecutivos. Pausando el lote de forma segura para proteger la cuota.`)
             shouldStop = true
             break
           }
           const is429 = /429|quota|exhausted/i.test(err.message)
-          const waitTime = is429 ? 48000 : 4000
-          if (is429) console.log(`   ⏳ Esperando ${waitTime / 1000}s para enfriamiento de ventana RPM...`)
+          const waitTime = is429 ? 62000 : 5000
+          if (is429) console.log(`   ⏳ Esperando ${waitTime / 1000}s para enfriamiento completo de ventana RPM...`)
           await sleep(waitTime)
+          idx-- // Reintentar la misma orden (ES ya quedó en existingEs, así que solo reintentará EN)
+          continue
         }
-        await sleep(delayMs)
       } else {
         console.log(`  ${progressPrefix} EN ya existe en Supabase -> Saltado ✅`)
       }

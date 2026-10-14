@@ -615,6 +615,7 @@ function OrderReadyBoardContent() {
   const isPlayingRef = useRef<boolean>(false)
   const currentlyPlayingOrderRef = useRef<OrderItem | null>(null)
   const lastImpulseTimeRef = useRef<Map<string, number>>(new Map())
+  const lastAnnouncedAtMsRef = useRef<Map<string, number>>(new Map())
   const remindedOrderIdsRef = useRef<Set<string>>(new Set())
   // Ids ya encolados/anunciados en este dispositivo (evita repetir el anuncio mientras el PATCH aún no llega)
   const announcedIdsRef = useRef<Set<string>>(new Set())
@@ -845,7 +846,7 @@ function OrderReadyBoardContent() {
   // RESPALDO: voz del navegador (speechSynthesis). Solo se usa si el TTS neuronal no está disponible.
   // PROHIBICIÓN ESTRICTA: RAÚL NUNCA DEBE HABLAR BAJO NINGUNA CIRCUNSTANCIA.
   const speakOrderBrowser = useCallback(
-    (order: OrderItem, voiceId: VoiceId = selectedVoice): Promise<void> => {
+    (order: OrderItem, voiceId: VoiceId = selectedVoice, onlyLang?: 'en' | 'es'): Promise<void> => {
       return new Promise((originalResolve) => {
         let settled = false
         const resolve = () => {
@@ -882,7 +883,7 @@ function OrderReadyBoardContent() {
         }) || null
 
         // Helper seguro de emisión: Si la voz es Raúl o no tiene voz asignada explícitamente, NUNCA EMITIR
-        const safeSpeak = (utt: SpeechSynthesisUtterance, onEndCallback: () => void) => {
+        const safeSpeak = (utt: SpeechSynthesisUtterance, onEndCallback: () => void, cancelExisting = false) => {
           // 1. REGLA CRÍTICA: Bloquear si no hay voz explícita (para evitar que Windows SAPI use la voz default Raúl)
           if (!utt.voice) {
             console.warn('[order-ready] Bloqueo de seguridad: intento de emitir sin voz asignada explícitamente (bloqueado para evitar Raúl).')
@@ -921,7 +922,9 @@ function OrderReadyBoardContent() {
           try {
             const synth = window.speechSynthesis
             if (synth.paused) synth.resume()
-            synth.cancel()
+            if (cancelExisting && (synth.speaking || synth.pending)) {
+              synth.cancel()
+            }
             synth.speak(utt)
           } catch (e) {
             console.warn('[order-ready] Error en speechSynthesis.speak:', e)
@@ -961,10 +964,26 @@ function OrderReadyBoardContent() {
         uttEs.volume = isMuted ? 0 : voiceVolume
         if (chosenEs && !isForbiddenRaulVoice(chosenEs.name)) {
           uttEs.voice = chosenEs
-          uttEs.lang = chosenEs.lang || 'es-MX'
+          uttEs.lang = validEsVoice?.lang || 'es-MX'
         } else {
           uttEs.voice = chosenEn
-          uttEs.lang = chosenEn.lang || 'en-US'
+          uttEs.lang = 'es-MX'
+        }
+
+        if (onlyLang === 'en') {
+          safeSpeak(uttEn, () => {
+            setActiveSpeech(null)
+            setTimeout(resolve, 300)
+          }, true)
+          return
+        }
+
+        if (onlyLang === 'es') {
+          safeSpeak(uttEs, () => {
+            setActiveSpeech(null)
+            setTimeout(resolve, 300)
+          }, true)
+          return
         }
 
         safeSpeak(uttEn, () => {
@@ -972,9 +991,9 @@ function OrderReadyBoardContent() {
             safeSpeak(uttEs, () => {
               setActiveSpeech(null)
               setTimeout(resolve, 500)
-            })
+            }, false)
           }, 200)
-        })
+        }, true)
       })
     },
     [availableVoices, getBestBrowserVoice, isMuted, voiceVolume, voiceSpeed, selectedVoice]
@@ -982,30 +1001,39 @@ function OrderReadyBoardContent() {
 
   // ── Voz natural (Gemini TTS con 5 opciones de voces de alta fidelidad) ──
   const getClipUrl = useCallback((lang: 'en' | 'es', num: string, voiceOverride?: VoiceId): Promise<string | null> => {
-    if (Date.now() < ttsFailUntilRef.current) return Promise.resolve(null)
     const voice = voiceOverride || selectedVoice
     const key = `${voice}:${lang}:${num}`
     const cached = clipCacheRef.current.get(key)
     if (cached) return cached
 
     const job = (async (): Promise<string | null> => {
-      try {
-        const res = await fetch(`/api/order-ready/tts?n=${num}&lang=${lang}&voice=${voice}`, {
-          signal: AbortSignal.timeout(6000)
-        })
-        if (!res.ok) throw new Error('tts ' + res.status)
-        return URL.createObjectURL(await res.blob())
-      } catch (e) {
-        console.warn('TTS no disponible, se usará la voz del navegador:', e)
-        clipCacheRef.current.delete(key)
-        ttsFailUntilRef.current = Date.now() + 3000 // breve espera de 3s antes de reintentar
-        return null
+      const voicesToTry: VoiceId[] = voice === 'Kore' ? ['Kore'] : [voice, 'Kore']
+      for (const candidateVoice of voicesToTry) {
+        for (let attempt = 0; attempt < 2; attempt++) {
+          try {
+            const res = await fetch(`/api/order-ready/tts?n=${num}&lang=${lang}&voice=${candidateVoice}`, {
+              signal: AbortSignal.timeout(9000)
+            })
+            if (!res.ok) throw new Error('tts ' + res.status)
+            const blob = await res.blob()
+            if (blob.size < 1000) throw new Error('tts empty blob')
+            return URL.createObjectURL(blob)
+          } catch (e) {
+            if (attempt === 0) {
+              await new Promise((r) => setTimeout(r, 350))
+            } else {
+              console.warn(`[order-ready] TTS intento fallido (${candidateVoice}:${lang}:${num}):`, e)
+            }
+          }
+        }
       }
+      clipCacheRef.current.delete(key)
+      return null
     })()
     clipCacheRef.current.set(key, job)
 
     // Límite de memoria: descartar el clip más antiguo
-    if (clipCacheRef.current.size > 300) {
+    if (clipCacheRef.current.size > 400) {
       const oldest = clipCacheRef.current.keys().next().value
       if (oldest) {
         clipCacheRef.current.get(oldest)?.then((u) => { if (u) URL.revokeObjectURL(u) })
@@ -1022,35 +1050,86 @@ function OrderReadyBoardContent() {
 
   const playClip = useCallback(
     (url: string): Promise<boolean> =>
-      new Promise((resolve) => {
-        const audio = new Audio(url)
-        audio.volume = isMuted ? 0 : Math.min(1, Math.max(0, voiceVolume))
+      new Promise(async (resolve) => {
         let done = false
         const finish = (ok: boolean) => {
           if (!done) {
             done = true
-            // Liberar el elemento de audio (importante en turnos largos / PCs viejas)
-            audio.onended = null
-            audio.onerror = null
-            try {
-              audio.removeAttribute('src')
-              audio.load()
-            } catch {}
             resolve(ok)
           }
         }
-        audio.onended = () => finish(true)
-        audio.onerror = () => finish(false)
-        setTimeout(() => {
-          if (!done) audio.pause()
+
+        const targetVol = isMuted ? 0 : Math.min(1, Math.max(0, voiceVolume))
+
+        // 1. Motor Primario: Web Audio API (usa el mismo AudioContext permanentemente desbloqueado del Chime Ding-Dong).
+        // Esto garantiza que el segundo clip (Español) NUNCA sea bloqueado por políticas de autoplay de HTMLAudioElement.
+        try {
+          if (!audioCtxRef.current) {
+            unlockAudio()
+          }
+          const ctx = audioCtxRef.current
+          if (ctx) {
+            if (ctx.state === 'suspended') {
+              await ctx.resume().catch(() => {})
+            }
+            const res = await fetch(url)
+            if (res.ok) {
+              const arrayBuf = await res.arrayBuffer()
+              if (arrayBuf.byteLength > 44) {
+                const audioBuffer = await ctx.decodeAudioData(arrayBuf.slice(0))
+                const source = ctx.createBufferSource()
+                const gainNode = ctx.createGain()
+                source.buffer = audioBuffer
+                gainNode.gain.setValueAtTime(targetVol, ctx.currentTime)
+                source.connect(gainNode)
+                gainNode.connect(ctx.destination)
+                const timer = setTimeout(() => {
+                  try { source.stop() } catch {}
+                  finish(false)
+                }, 15000)
+                source.onended = () => {
+                  clearTimeout(timer)
+                  finish(true)
+                }
+                source.start(0)
+                return
+              }
+            }
+          }
+        } catch (webAudioErr) {
+          console.warn('[order-ready] Fallback de WebAudio a HTMLAudioElement:', webAudioErr)
+        }
+
+        // 2. Motor Secundario de Respaldo: HTMLAudioElement
+        try {
+          const audio = new Audio(url)
+          audio.volume = targetVol
+          const cleanupAndFinish = (ok: boolean) => {
+            if (!done) {
+              audio.onended = null
+              audio.onerror = null
+              try {
+                audio.removeAttribute('src')
+                audio.load()
+              } catch {}
+              finish(ok)
+            }
+          }
+          audio.onended = () => cleanupAndFinish(true)
+          audio.onerror = () => cleanupAndFinish(false)
+          setTimeout(() => {
+            if (!done) audio.pause()
+            cleanupAndFinish(false)
+          }, 15000)
+          audio.play().catch(() => cleanupAndFinish(false))
+        } catch {
           finish(false)
-        }, 15000)
-        audio.play().catch(() => finish(false))
+        }
       }),
-    [isMuted, voiceVolume]
+    [isMuted, voiceVolume, unlockAudio]
   )
 
-  // Anuncia la orden con la voz natural seleccionada; si no hay TTS, cae a la voz del navegador
+  // Anuncia la orden con la voz natural seleccionada; si falla algún idioma individual, reintenta y respalda ese idioma sin omitir el español
   const speakOrder = useCallback(
     async (order: OrderItem, repeats: number = 1, voiceOverride?: VoiceId): Promise<void> => {
       const voice = voiceOverride || selectedVoice
@@ -1060,19 +1139,31 @@ function OrderReadyBoardContent() {
       const num = String(parseInt(order.order_number, 10))
       const langs = clipLangs()
       const urls = await Promise.all(langs.map((l) => getClipUrl(l, num, voice)))
-      if (urls.some((u) => !u)) return speakOrderBrowser(order, voice)
+      if (urls.every((u) => !u)) return speakOrderBrowser(order, voice)
 
       const phrase = 'Order #' + num + ' is ready, orden #' + num + ', ¡ya está!'
 
       for (let rep = 0; rep < repeats; rep++) {
         setActiveSpeech(phrase)
-        for (let i = 0; i < urls.length; i++) {
-          const ok = await playClip(urls[i] as string)
+        for (let i = 0; i < langs.length; i++) {
+          const lang = langs[i]
+          let clipUrl = urls[i]
+          let ok = clipUrl ? await playClip(clipUrl) : false
+
+          // Si el clip de este idioma (ej. Español) falló o su blob URL expiró, limpiar caché y reintentar con Kore oficial
           if (!ok) {
-            setActiveSpeech(null)
-            // Si ni siquiera sonó el primer clip de la primera vuelta, usar el respaldo
-            if (i === 0 && rep === 0) return speakOrderBrowser(order, voice)
-            return
+            clipCacheRef.current.delete(`${voice}:${lang}:${num}`)
+            clipCacheRef.current.delete(`Kore:${lang}:${num}`)
+            clipUrl = await getClipUrl(lang, num, 'Kore')
+            if (clipUrl) {
+              urls[i] = clipUrl
+              ok = await playClip(clipUrl)
+            }
+          }
+
+          // Si aún así no pudo reproducirse el clip neuronal de este idioma, respaldar ese idioma específico con el navegador (NUNCA dejar mudo el español)
+          if (!ok) {
+            await speakOrderBrowser(order, voice, lang)
           }
         }
         setActiveSpeech(null)
@@ -1152,6 +1243,9 @@ function OrderReadyBoardContent() {
         }
       }
     } finally {
+      if (currentlyPlayingOrderRef.current?.order_number) {
+        lastImpulseTimeRef.current.set(String(currentlyPlayingOrderRef.current.order_number), Date.now())
+      }
       currentlyPlayingOrderRef.current = null
       setReplayingId(null)
       // Breve pausa acústica (400ms) entre órdenes para que el comensal distinga un llamado de otro sin encimarse
@@ -1460,14 +1554,19 @@ function OrderReadyBoardContent() {
 
             // Capa 4 de Redundancia (Polling Fallback):
             // Si el WebSocket y Postgres Changes fallaron o se desconectaron momentáneamente,
-            // el polling periódico cada 4s detecta si una orden fue llamada en los últimos 8 segundos
-            // y dispara el anuncio si aún no ha sonado recientemente.
+            // el polling periódico cada 4s detecta si una orden fue llamada en los últimos 10 segundos
+            // y dispara el anuncio ÚNICAMENTE si ese impulso no ha sonado ya por las Capas 1-3.
             if (ord.announced_at) {
               const annMs = Date.parse(ord.announced_at)
-              if (!isNaN(annMs) && (Date.now() - annMs) < 8000) {
+              if (!isNaN(annMs) && (Date.now() - annMs) < 10000) {
                 const orderNumStr = String(ord.order_number)
                 const lastCall = lastImpulseTimeRef.current.get(orderNumStr) || 0
-                if (Date.now() - lastCall >= 6000) {
+                const lastAnnMs = lastAnnouncedAtMsRef.current.get(orderNumStr) || 0
+                const isRecentCall = lastCall > 0 && (Date.now() - lastCall) < 15000
+                const isSameTap = lastAnnMs > 0 && Math.abs(annMs - lastAnnMs) < 10000
+                if (isRecentCall || isSameTap) {
+                  lastAnnouncedAtMsRef.current.set(orderNumStr, annMs)
+                } else {
                   handleImpulseRef.current?.({
                     order_id: ord.id,
                     order_number: ord.order_number,
@@ -1546,19 +1645,28 @@ function OrderReadyBoardContent() {
           const row = (newRow || oldRow) as OrderItem
           if (row && row.store_code === selectedStore) {
             // Capa 3 de Redundancia (PostgreSQL Replication Fallback):
-            // Si la llamada fue persistida en base de datos con un announced_at reciente (<15s)
-            // y es nuevo o actualizado, activar el llamado de audio si no sonó previamente por broadcast.
-            if (newRow && newRow.announced_at && newRow.announced_at !== oldRow?.announced_at) {
+            // Si la llamada fue persistida en base de datos con un announced_at reciente (<10s)
+            // y ese impulso aún no ha sido reproducido por las Capas 1 o 2, activar el llamado.
+            if (newRow && newRow.announced_at) {
               const announcedMs = Date.parse(newRow.announced_at)
-              if (!isNaN(announcedMs) && (Date.now() - announcedMs) < 15000) {
-                handleImpulseRef.current?.({
-                  order_id: newRow.id,
-                  order_number: newRow.order_number,
-                  store_code: newRow.store_code,
-                  dining_option: newRow.dining_option,
-                  store_name: newRow.store_name,
-                  called_at: newRow.announced_at
-                })
+              if (!isNaN(announcedMs) && (Date.now() - announcedMs) < 10000) {
+                const orderNumStr = String(newRow.order_number)
+                const lastCall = lastImpulseTimeRef.current.get(orderNumStr) || 0
+                const lastAnnMs = lastAnnouncedAtMsRef.current.get(orderNumStr) || 0
+                const isRecentCall = lastCall > 0 && (Date.now() - lastCall) < 15000
+                const isSameTap = lastAnnMs > 0 && Math.abs(announcedMs - lastAnnMs) < 10000
+                if (isRecentCall || isSameTap) {
+                  lastAnnouncedAtMsRef.current.set(orderNumStr, announcedMs)
+                } else {
+                  handleImpulseRef.current?.({
+                    order_id: newRow.id,
+                    order_number: newRow.order_number,
+                    store_code: newRow.store_code,
+                    dining_option: newRow.dining_option,
+                    store_name: newRow.store_name,
+                    called_at: newRow.announced_at
+                  })
+                }
               }
             }
             fetchOrdersRef.current?.(false)
@@ -1742,16 +1850,24 @@ function OrderReadyBoardContent() {
   // Impulso recibido en tiempo real desde la tableta del preparador (entregador de cocina)
   // Regla de Negocio Tacos Gavilan: Encolar de manera unificada para esperar su turno si ya hay otro audio sonando
   const handleImpulseCallFromTablet = useCallback(
-    (data: { order_id?: string; order_number: string; store_code: string; dining_option?: string; store_name?: string }) => {
+    (data: { order_id?: string; order_number: string; store_code: string; dining_option?: string; store_name?: string; called_at?: string }) => {
       unlockAudio()
 
       const now = Date.now()
       const orderNumStr = String(data.order_number)
+      const incomingCalledMs = data.called_at ? Date.parse(data.called_at) : NaN
 
-      // 1. Debounce acústico de 6 segundos por orden para evitar ráfagas dobles de websocket o dobles clics
+      // 1. Debounce acústico de 15 segundos por orden y deduplicación por timestamp de llamado (called_at)
+      // Garantiza que las Capas 2, 3 y 4 jamás repitan por segunda vez un llamado que ya sonó en la Capa 1.
       const lastCallTime = lastImpulseTimeRef.current.get(orderNumStr) || 0
-      if (now - lastCallTime < 6000) {
-        console.log(`[OrderReadyBoard] Impulso ignorado por debounce (<6s) para orden #${orderNumStr}`)
+      const lastAnnMs = lastAnnouncedAtMsRef.current.get(orderNumStr) || 0
+      const isRecentCall = lastCallTime > 0 && (now - lastCallTime) < 15000
+      const isSameTap = !isNaN(incomingCalledMs) && lastAnnMs > 0 && Math.abs(incomingCalledMs - lastAnnMs) < 10000
+      if (isRecentCall || isSameTap) {
+        if (!isNaN(incomingCalledMs)) {
+          lastAnnouncedAtMsRef.current.set(orderNumStr, incomingCalledMs)
+        }
+        console.log(`[OrderReadyBoard] Impulso duplicado ignorado por debounce para orden #${orderNumStr}`)
         return
       }
 
@@ -1791,6 +1907,7 @@ function OrderReadyBoardContent() {
       )
       if (!alreadyInQueue) {
         lastImpulseTimeRef.current.set(orderNumStr, now)
+        lastAnnouncedAtMsRef.current.set(orderNumStr, !isNaN(incomingCalledMs) ? incomingCalledMs : now)
         const impulseItem: OrderItem = {
           ...targetOrder,
           _fromTablet: true,

@@ -37,7 +37,10 @@ const DEFAULT_VOICE: VoiceId = 'Kore'
 const CACHE_VERSION = 'v4'
 const MODELS = [
   'gemini-3.8-flash-tts',
-  'gemini-3.8-flash-lite-tts'
+  'gemini-3.8-flash-lite-tts',
+  'gemini-3.1-flash-tts-preview',
+  'gemini-2.5-flash-preview-tts',
+  'gemini-2.5-pro-preview-tts'
 ]
 
 export type TtsLang = 'en' | 'es'
@@ -173,15 +176,21 @@ async function generateTextWithGemini(
 
   for (const key of rotatedKeys) {
     let allModels429 = true
-    let keyDailyExhausted = false
+    let dailyExhaustedModels = 0
 
     for (const model of MODELS) {
+      const kmKey = `${key}:${model}`
+      if ((keyBlockedUntil.get(kmKey) || 0) > Date.now()) {
+        dailyExhaustedModels++
+        continue
+      }
+
       for (let attempt = 0; attempt < 2; attempt++) {
         try {
           const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
             method: 'POST',
             headers: { 'x-goog-api-key': key, 'Content-Type': 'application/json' },
-            signal: AbortSignal.timeout(8000),
+            signal: AbortSignal.timeout(18000),
             body: JSON.stringify({
               contents: [{
                 role: 'user',
@@ -223,8 +232,9 @@ async function generateTextWithGemini(
             const errText = await res.text()
             lastErr = `${model} (key ...${key.slice(-4)}): ${res.status} ${errText.slice(0, 160)}`
             if (res.status === 429 || /quota|exceeded/i.test(errText)) {
-              if (/per_day|per_model_per_day|free_tier_requests|Please retry in [0-9]+h/i.test(errText)) {
-                keyDailyExhausted = true
+              if (/PerDay|per_day|per_model_per_day|limit:\s*0|Please retry in [0-9]+h/i.test(errText)) {
+                dailyExhaustedModels++
+                keyBlockedUntil.set(kmKey, Date.now() + 90 * 60 * 1000)
               }
               break
             } else {
@@ -246,7 +256,8 @@ async function generateTextWithGemini(
     }
 
     if (allModels429) {
-      // Si la cuota diaria está agotada, enfriar por 4 horas para no reintentarla inútilmente. Si es solo RPM, enfriar 45s.
+      // Solo bloquear por 4 horas si TODOS los modelos agotaron su cuota diaria. Si al menos un modelo solo tuvo límite por minuto (RPM), enfriar 45s.
+      const keyDailyExhausted = dailyExhaustedModels >= MODELS.length
       const blockDuration = keyDailyExhausted ? 4 * 60 * 60 * 1000 : 45 * 1000
       keyBlockedUntil.set(key, Date.now() + blockDuration)
     }
@@ -277,14 +288,26 @@ export async function getOrderReadySpeech(n: string, lang: TtsLang, voice: Voice
   if (existing) return existing
 
   const job = (async () => {
-    const wav = await generateWithGemini(num, lang, selectedVoice)
     try {
-      await ensureBucket()
-      await supabaseAdmin.storage.from(BUCKET).upload(path, wav, { contentType: 'audio/wav', upsert: true })
-    } catch (e) {
-      console.warn('[order-ready-tts] no se pudo cachear en Storage:', e)
+      const wav = await generateWithGemini(num, lang, selectedVoice)
+      try {
+        await ensureBucket()
+        await supabaseAdmin.storage.from(BUCKET).upload(path, wav, { contentType: 'audio/wav', upsert: true })
+      } catch (e) {
+        console.warn('[order-ready-tts] no se pudo cachear en Storage:', e)
+      }
+      return wav
+    } catch (genErr) {
+      if (selectedVoice !== DEFAULT_VOICE) {
+        const korePath = `${CACHE_VERSION}/${DEFAULT_VOICE}/${lang}/${num}.wav`
+        const koreHit = await supabaseAdmin.storage.from(BUCKET).download(korePath)
+        if (koreHit.data) {
+          console.warn(`[order-ready-tts] Fallback a voz oficial ${DEFAULT_VOICE} para #${num} (${lang})`)
+          return Buffer.from(await koreHit.data.arrayBuffer())
+        }
+      }
+      throw genErr
     }
-    return wav
   })()
 
   inflight.set(path, job)

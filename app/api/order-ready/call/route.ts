@@ -29,12 +29,13 @@ interface CallOrderPayload {
   diningOption?: string
   storeName?: string
   fromClientBroadcast?: boolean
+  calledAt?: string
 }
 
 export async function POST(request: Request) {
   try {
     const body: CallOrderPayload = await request.json()
-    const { orderId, orderNumber, storeCode, diningOption, storeName, fromClientBroadcast } = body
+    const { orderId, orderNumber, storeCode, diningOption, storeName, calledAt } = body
 
     if (!orderNumber || !storeCode) {
       return NextResponse.json(
@@ -44,7 +45,7 @@ export async function POST(request: Request) {
     }
 
     const normalizedStoreCode = storeCode.toUpperCase()
-    const nowIso = new Date().toISOString()
+    const nowIso = calledAt && !isNaN(Date.parse(calledAt)) ? new Date(calledAt).toISOString() : new Date().toISOString()
 
     // 1. Actualizar el registro en Supabase para auditoría, trazabilidad y réplica DB
     try {

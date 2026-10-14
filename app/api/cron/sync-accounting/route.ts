@@ -1,11 +1,11 @@
 /**
  * @module api/cron/sync-accounting
  * @description Automated Sentinel for Daily Sales Reconciliation (Rolling 7-Day Window).
- * Runs daily at 6:15 AM PST (13:15 UTC) — right after the 6:00 AM business day cutoff.
+ * Runs daily at 6:10 AM America/Los_Angeles (10 13 * * * PDT and 10 14 * * * PST) — right after the 6:00 AM business day cutoff.
  * 
  * @businessRules
  * - Business day starts at 6:00 AM and ends at 5:59 AM the next day (America/Los_Angeles).
- * - Generates daily sales packets for yesterday (which closed at 5:59 AM) across all 15 stores.
+ * - Generates daily sales packets for yesterday (which closed at 5:59 AM) across all 15 stores in parallel batches of 5.
  * - Validates Step 11 (Cohesion rule): checks for open orders or unclosed checks in Toast POS.
  *   If clean: sets status to 'ready' (green) for Raquel's 1-click publishing.
  *   If open orders exist: sets status to 'pending' with detailed issue logs.
@@ -18,7 +18,7 @@
  *     adjusting entry option.
  * 
  * @dataFlow
- * Cron trigger at 6:15 AM → fetch site mappings → Toast POS API v2 / sales_daily_cache → generateJournalLines
+ * Cron trigger at 6:10 AM → fetch site mappings → Toast POS API v2 / sales_daily_cache → generateJournalLines
  * → upsert accounting_sales_packets → log to accounting_sync_logs
  * 
  * @notes
@@ -105,265 +105,295 @@ export async function GET(request: Request) {
       errors: [] as any[]
     }
 
-    // 3. Process each date in the 7-day window
+    // 3. Process each date in the 7-day window (Yesterday FIRST with priority, in parallel batches of 5 stores)
+    const BATCH_SIZE = 5
+
     for (const targetDate of rollingDates) {
       const isYesterday = targetDate === yesterdayStr
+      // Time-budget guard: never let rolling audit of older days risk a 300s Vercel timeout
+      if (!isYesterday && Date.now() - startTime > 230000) {
+        console.log(`⏱️ [sync-accounting] Presupuesto de tiempo alcanzado (${Math.round((Date.now() - startTime) / 1000)}s). Deteniendo auditoría histórica en ${targetDate}.`)
+        break
+      }
+
       const targetDateYMD = targetDate.replace(/-/g, '')
 
-      for (const mapping of mappings) {
-        const store = mapping.stores as any
-        const storeName = store?.name || `Tienda ${mapping.store_id}`
-        const extId = store?.external_id
+      for (let b = 0; b < mappings.length; b += BATCH_SIZE) {
+        const batch = mappings.slice(b, b + BATCH_SIZE)
+        await Promise.all(
+          batch.map(async (mapping) => {
+            const store = mapping.stores as any
+            const storeName = store?.name || `Tienda ${mapping.store_id}`
+            const extId = store?.external_id
 
-        if (!extId) {
-          stats.errors.push({ store: storeName, date: targetDate, error: 'Sin Toast external_id' })
-          continue
-        }
+            if (!extId) {
+              stats.errors.push({ store: storeName, date: targetDate, error: 'Sin Toast external_id' })
+              return
+            }
 
-        try {
-          // Check existing packet
-          const { data: existingPacket } = await supabaseAdmin
-            .from('accounting_sales_packets')
-            .select('*')
-            .eq('store_id', mapping.store_id)
-            .eq('business_date', targetDate)
-            .maybeSingle()
+            try {
+              // Check existing packet
+              const { data: existingPacket } = await supabaseAdmin
+                .from('accounting_sales_packets')
+                .select('*')
+                .eq('store_id', mapping.store_id)
+                .eq('business_date', targetDate)
+                .maybeSingle()
 
-          // If packet was already published, run post-publish audit to detect late refunds/adjustments in Toast
-          if (existingPacket && existingPacket.status === 'published') {
-            // Fetch live Toast data to check if refunds or adjustments happened post-publishing
-            const liveToast = await fetchToastAccountingData(extId, targetDateYMD)
-            const publishedNet = Number(existingPacket.net_sales || 0)
-            const liveNet = liveToast.netSales
-            const diffNet = Math.round(Math.abs(liveNet - publishedNet) * 100) / 100
+              // If packet was already published, run post-publish audit to detect late refunds/adjustments in Toast
+              if (existingPacket && existingPacket.status === 'published') {
+                const liveToast = await fetchToastAccountingData(extId, targetDateYMD)
+                const publishedNet = Number(existingPacket.net_sales || 0)
+                const liveNet = liveToast.netSales
+                const diffNet = Math.round(Math.abs(liveNet - publishedNet) * 100) / 100
 
-            if (diffNet > 0.05) {
-              stats.postPublishDiscrepanciesDetected++
-              const alertDetail = {
-                store: storeName,
-                date: targetDate,
-                docNumber: existingPacket.qb_doc_number,
-                publishedNet,
-                liveToastNet: liveNet,
-                diffNet,
-                detectedAt: new Date().toISOString()
-              }
-              stats.discrepancyAlerts.push(alertDetail)
+                if (diffNet > 0.05) {
+                  stats.postPublishDiscrepanciesDetected++
+                  const alertDetail = {
+                    store: storeName,
+                    date: targetDate,
+                    docNumber: existingPacket.qb_doc_number,
+                    publishedNet,
+                    liveToastNet: liveNet,
+                    diffNet,
+                    detectedAt: new Date().toISOString()
+                  }
+                  stats.discrepancyAlerts.push(alertDetail)
 
-              // Record discrepancy on packet without overwriting QB status
-              const updatedQbResponse = {
-                ...(existingPacket.qb_sync_response || {}),
-                post_publish_discrepancy: {
-                  hasDiscrepancy: true,
-                  detectedAt: new Date().toISOString(),
-                  publishedNet,
-                  liveToastNet: liveNet,
-                  diffNet,
-                  liveToastTaxes: liveToast.totalTaxes,
-                  publishedTaxes: Number(existingPacket.total_taxes || 0)
+                  const updatedQbResponse = {
+                    ...(existingPacket.qb_sync_response || {}),
+                    post_publish_discrepancy: {
+                      hasDiscrepancy: true,
+                      detectedAt: new Date().toISOString(),
+                      publishedNet,
+                      liveToastNet: liveNet,
+                      diffNet,
+                      liveToastTaxes: liveToast.totalTaxes,
+                      publishedTaxes: Number(existingPacket.total_taxes || 0)
+                    }
+                  }
+
+                  await supabaseAdmin
+                    .from('accounting_sales_packets')
+                    .update({
+                      qb_sync_response: updatedQbResponse,
+                      notes: `[AUDIT_ALERT] Discrepancia post-publicación en Toast POS: Diferencia de $${diffNet.toFixed(2)} (Publicado: $${publishedNet.toFixed(2)} vs Toast actual: $${liveNet.toFixed(2)}).`
+                    })
+                    .eq('id', existingPacket.id)
+
+                  console.log(`⚠️ [sync-accounting] Discrepancia post-publicación en ${storeName} (${targetDate}): Diff $${diffNet.toFixed(2)}`)
                 }
+                return
+              }
+
+              // For yesterday OR older unpublished packets: fetch fresh Toast data and calculate
+              const toastData = await fetchToastAccountingData(extId, targetDateYMD)
+
+              // Step 11 Open Orders Rule
+              const hasOpenOrders = toastData.hasOpenOrders || (toastData.openOrdersCount > 0)
+
+              const siteConfig: SiteMappingConfig = {
+                location: mapping.qb_location || storeName,
+                className: mapping.qb_class || storeName,
+                bank_account: mapping.bank_account_number || '10000',
+                sales_tax_rate_name: mapping.sales_tax_rate_name || mapping.qb_location || storeName,
+                sales_dine_in_account: mapping.sales_dine_in_account,
+                sales_uber_account: mapping.sales_uber_account,
+                sales_doordash_account: mapping.sales_doordash_account,
+                sales_grubhub_account: mapping.sales_grubhub_account,
+                sales_tax_account: mapping.sales_tax_account,
+                ar_uber_account: mapping.ar_uber_account,
+                ar_doordash_account: mapping.ar_doordash_account,
+                ar_grubhub_account: mapping.ar_grubhub_account,
+                ar_postmates_account: mapping.ar_postmates_account,
+                cc_fees_account: mapping.cc_fees_account,
+                undeposited_funds_account: mapping.undeposited_funds_account,
+                cash_over_short_account: mapping.cash_over_short_account,
+                gift_card_account: mapping.gift_card_account,
+                open_orders_account: mapping.open_orders_account,
+                paid_in_account: (mapping as any).paid_in_account,
+                cash_on_hand_account: mapping.cash_on_hand_account,
+                tips_account: mapping.tips_account,
+                cogs_account: mapping.cogs_account,
+                alt_memos: (mapping as any).alt_memos || {},
+                line_class_overrides: (mapping as any).line_class_overrides || {},
+              }
+
+              const salesPacketData: SalesPacketData = {
+                net_sales: toastData.netSales,
+                total_taxes: toastData.totalTaxes,
+                for_here_sales: toastData.forHereSales,
+                to_go_sales: toastData.toGoSales,
+                phone_sales: toastData.phoneSales,
+                curbside_sales: toastData.curbsideSales,
+                drive_thru_sales: toastData.driveThruSales,
+                kiosk_dine_in_sales: toastData.kioskDineInSales,
+                kiosk_takeout_sales: toastData.kioskTakeOutSales,
+                toast_online_sales: toastData.toastOnlineSales,
+                online_ordering_takeout_sales: toastData.onlineOrderingTakeoutSales,
+                toast_delivery_sales: toastData.toastDeliverySales,
+                tips_payable: toastData.tipsPayable,
+                deposits_collected: toastData.depositsCollected,
+                paid_in: toastData.paidIn,
+                uber_delivery_sales: toastData.uberDeliverySales,
+                uber_takeout_sales: toastData.uberTakeoutSales,
+                doordash_takeout_sales: toastData.doordashTakeoutSales,
+                doordash_delivery_sales: toastData.doordashDeliverySales,
+                grubhub_delivery_sales: toastData.grubhubDeliverySales,
+                grubhub_takeout_sales: toastData.grubhubTakeoutSales,
+                deferred_gift_cards: toastData.deferredSalesGiftCards,
+                gift_card_redemption: toastData.giftCardRedemption,
+                delivery_service_charges: toastData.deliveryServiceCharges,
+                tax_paid_by_uber: toastData.taxPaidByUber,
+                sales_tax: toastData.salesTax,
+                marketplace_tax: toastData.marketplaceTax,
+                ebt_amount: toastData.ebtAmount,
+                uber_payment: toastData.uberPayment,
+                doordash_payment: toastData.doordashPayment,
+                grubhub_payment: toastData.grubhubPayment,
+                credit_card_deposit: toastData.creditCardDeposit,
+                credit_card_fees: toastData.creditCardFees,
+                credit_card_other_deductions: toastData.creditCardOtherDeductions,
+                cash_deposits: 0,
+                cash_payouts: toastData.toastCashPayoutsList || [],
+                cash_payouts_total: toastData.cashPayoutsTotal || 0,
+                cash_in: toastData.cashInTotal || 0,
+                cash_out: toastData.cashOutTotal || 0,
+                tip_out: toastData.tipOutTotal || 0,
+              }
+
+              // Calculate Expected Cash (from gross receipts minus non-cash payments)
+              const expectedCashFromSales = calculateExpectedCash(salesPacketData)
+              const cashPayoutsTotal = salesPacketData.cash_payouts_total || 0
+              const cashIn = salesPacketData.cash_in || 0
+              const cashOut = salesPacketData.cash_out || 0
+              const tipOut = salesPacketData.tip_out || 0
+              const expectedCashDeposit = Math.round((expectedCashFromSales + cashIn - cashOut - tipOut - cashPayoutsTotal) * 100) / 100
+
+              // Toast Cash Management Parity:
+              // El depósito bancario proviene estrictamente de lo registrado por el gerente en Toast POS Cash Management.
+              const finalDeposit = toastData?.hasToastDeposit && toastData.toastDepositAmount > 0
+                ? toastData.toastDepositAmount
+                : 0
+              const depositSource: 'toast' | 'pending' = finalDeposit > 0 ? 'toast' : 'pending'
+              salesPacketData.cash_deposits = finalDeposit
+              const journal = generateJournalLines(salesPacketData, siteConfig)
+              const docNumber = formatDocNumber(storeName.replace(/^Tacos Gavilan\s+/i, '').trim(), targetDate)
+
+              const isBalanced = journal.isBalanced
+              const isDepositPending = finalDeposit === 0 && expectedCashDeposit > 0
+              const packetStatus = isBalanced ? 'ready' : 'pending'
+
+              if (isYesterday) {
+                stats.yesterdayGenerated++
+                if (packetStatus === 'ready') stats.yesterdayCleanReady++
+                else stats.yesterdayBlockedStep11++
+              } else if (existingPacket && existingPacket.status !== 'published') {
+                stats.olderPacketsRecalculated++
+              }
+
+              const validationInfo = {
+                passed: isBalanced,
+                isDepositPending,
+                hasOpenOrders,
+                openOrdersCount: toastData.openOrdersCount || 0,
+                outOfBalanceOrdersCount: toastData.outOfBalanceOrdersCount || 0,
+                openOrders: toastData.openOrdersList || [],
+                checkedAt: new Date().toISOString(),
+                message: !isBalanced 
+                  ? 'Unbalanced Journal Entry' 
+                  : 'Packet was Updated and Passed All Validation',
+                discount_breakdown: toastData.discountBreakdown || {},
+                card_breakdown: toastData.cardBreakdown || {},
+                sales_gross_by_option: toastData.salesGrossByOption || {},
+                deposits_collected: toastData.depositsCollected || 0,
+                paid_in: toastData.paidIn || 0,
+                credit_card_other_deductions: salesPacketData.credit_card_other_deductions || 0,
+                deposit_source: depositSource,
+                toast_deposits: toastData.toastDepositsList || [],
+                expected_cash_from_sales: expectedCashFromSales,
+                cash_in: cashIn,
+                cash_out: cashOut,
+                tip_out: tipOut,
+                toast_cash_in: toastData.toastCashInList || [],
+                toast_cash_out: toastData.toastCashOutList || [],
+                toast_tip_out: toastData.toastTipOutList || [],
+                cash_payouts_total: cashPayoutsTotal,
+                cash_payouts: salesPacketData.cash_payouts || [],
+                expected_cash_deposit: expectedCashDeposit,
+              }
+
+              const totalDiscounts = toastData.discountsTotal ?? 0
+              const grossSalesAmount = Math.round(((salesPacketData.net_sales || 0) + totalDiscounts) * 100) / 100
+              const packetData = {
+                store_id: mapping.store_id,
+                business_date: targetDate,
+                status: packetStatus,
+                dine_in_sales: salesPacketData.for_here_sales,
+                togo_sales: salesPacketData.to_go_sales,
+                uber_delivery_sales: salesPacketData.uber_delivery_sales,
+                uber_takeout_sales: salesPacketData.uber_takeout_sales,
+                doordash_delivery_sales: salesPacketData.doordash_delivery_sales,
+                doordash_takeout_sales: salesPacketData.doordash_takeout_sales,
+                grubhub_sales: Math.round(((salesPacketData.grubhub_delivery_sales || 0) + (salesPacketData.grubhub_takeout_sales || 0)) * 100) / 100,
+                gross_sales: grossSalesAmount,
+                net_sales: salesPacketData.net_sales,
+                total_discounts: totalDiscounts,
+                sales_tax: salesPacketData.sales_tax,
+                marketplace_facilitator_tax: salesPacketData.marketplace_tax,
+                facilitator_tax_paid: salesPacketData.tax_paid_by_uber,
+                total_taxes: salesPacketData.total_taxes,
+                total_credit_cards_gross: Math.round((salesPacketData.credit_card_deposit + salesPacketData.credit_card_fees + (salesPacketData.credit_card_other_deductions || 0)) * 100) / 100,
+                credit_card_deposit: salesPacketData.credit_card_deposit,
+                credit_card_fees: salesPacketData.credit_card_fees,
+                uber_payment: salesPacketData.uber_payment,
+                doordash_payment: salesPacketData.doordash_payment,
+                grubhub_payment: salesPacketData.grubhub_payment,
+                ebt_amount: salesPacketData.ebt_amount,
+                expected_cash: expectedCashDeposit,
+                cash_deposit: salesPacketData.cash_deposits,
+                cash_over_short: Math.round((salesPacketData.cash_deposits - expectedCashDeposit) * 100) / 100,
+                journal_total_debits: journal.totalDebits,
+                journal_total_credits: journal.totalCredits,
+                journal_lines: journal.lines,
+                qb_doc_number: docNumber,
+                notes: validationInfo.message,
+                qb_sync_response: {
+                  validation: validationInfo,
+                  deposit_source: depositSource,
+                  toast_deposits: toastData.toastDepositsList || [],
+                  cash_payouts: salesPacketData.cash_payouts || [],
+                  cash_payouts_total: cashPayoutsTotal,
+                  cash_in: cashIn,
+                  cash_out: cashOut,
+                  tip_out: tipOut,
+                  toast_cash_in: toastData.toastCashInList || [],
+                  toast_cash_out: toastData.toastCashOutList || [],
+                  toast_tip_out: toastData.toastTipOutList || [],
+                  expected_cash_from_sales: expectedCashFromSales,
+                  expected_cash_deposit: expectedCashDeposit,
+                  sales_gross_by_option: toastData.salesGrossByOption || {},
+                  discount_breakdown: toastData.discountBreakdown || {},
+                  card_breakdown: toastData.cardBreakdown || {},
+                  credit_card_other_deductions: salesPacketData.credit_card_other_deductions || 0,
+                },
+                updated_at: new Date().toISOString()
+              }
+
+              if (existingPacket && existingPacket.status === 'published') {
+                return
               }
 
               await supabaseAdmin
                 .from('accounting_sales_packets')
-                .update({
-                  qb_sync_response: updatedQbResponse,
-                  notes: `[AUDIT_ALERT] Discrepancia post-publicación en Toast POS: Diferencia de $${diffNet.toFixed(2)} (Publicado: $${publishedNet.toFixed(2)} vs Toast actual: $${liveNet.toFixed(2)}).`
-                })
-                .eq('id', existingPacket.id)
+                .upsert(packetData, { onConflict: 'store_id, business_date' })
 
-              console.log(`⚠️ [sync-accounting] Discrepancia post-publicación en ${storeName} (${targetDate}): Diff $${diffNet.toFixed(2)}`)
+            } catch (storeErr: any) {
+              console.error(`[sync-accounting] Error en ${storeName} (${targetDate}):`, storeErr.message)
+              stats.errors.push({ store: storeName, date: targetDate, error: storeErr.message })
             }
-            continue
-          }
-
-          // For yesterday OR older unpublished packets: fetch fresh Toast data and calculate
-          const toastData = await fetchToastAccountingData(extId, targetDateYMD)
-
-          // Step 11 Open Orders Rule
-          const hasOpenOrders = toastData.hasOpenOrders || (toastData.openOrdersCount > 0)
-
-          const siteConfig: SiteMappingConfig = {
-            location: mapping.qb_location || storeName,
-            className: mapping.qb_class || storeName,
-            bank_account: mapping.bank_account_number || '10000',
-            sales_tax_rate_name: mapping.sales_tax_rate_name || mapping.qb_location || storeName,
-            sales_dine_in_account: mapping.sales_dine_in_account,
-            sales_uber_account: mapping.sales_uber_account,
-            sales_doordash_account: mapping.sales_doordash_account,
-            sales_grubhub_account: mapping.sales_grubhub_account,
-            sales_tax_account: mapping.sales_tax_account,
-            ar_uber_account: mapping.ar_uber_account,
-            ar_doordash_account: mapping.ar_doordash_account,
-            ar_grubhub_account: mapping.ar_grubhub_account,
-            ar_postmates_account: mapping.ar_postmates_account,
-            cc_fees_account: mapping.cc_fees_account,
-            undeposited_funds_account: mapping.undeposited_funds_account,
-            cash_over_short_account: mapping.cash_over_short_account,
-            gift_card_account: mapping.gift_card_account,
-            open_orders_account: mapping.open_orders_account,
-            cash_on_hand_account: mapping.cash_on_hand_account,
-            tips_account: mapping.tips_account,
-            cogs_account: mapping.cogs_account,
-          }
-
-          const salesPacketData: SalesPacketData = {
-            net_sales: toastData.netSales,
-            total_taxes: toastData.totalTaxes,
-            for_here_sales: toastData.forHereSales,
-            to_go_sales: toastData.toGoSales,
-            drive_thru_sales: toastData.driveThruSales,
-            kiosk_dine_in_sales: toastData.kioskDineInSales,
-            kiosk_takeout_sales: toastData.kioskTakeOutSales,
-            toast_online_sales: toastData.toastOnlineSales,
-            toast_delivery_sales: toastData.toastDeliverySales,
-            tips_payable: toastData.tipsPayable,
-            deposits_collected: toastData.depositsCollected,
-            paid_in: toastData.paidIn,
-            uber_delivery_sales: toastData.uberDeliverySales,
-            uber_takeout_sales: toastData.uberTakeoutSales,
-            doordash_takeout_sales: toastData.doordashTakeoutSales,
-            doordash_delivery_sales: toastData.doordashDeliverySales,
-            grubhub_delivery_sales: toastData.grubhubDeliverySales,
-            grubhub_takeout_sales: toastData.grubhubTakeoutSales,
-            deferred_gift_cards: toastData.deferredSalesGiftCards,
-            gift_card_redemption: toastData.giftCardRedemption,
-            delivery_service_charges: toastData.deliveryServiceCharges,
-            tax_paid_by_uber: toastData.taxPaidByUber,
-            sales_tax: toastData.salesTax,
-            marketplace_tax: toastData.marketplaceTax,
-            ebt_amount: toastData.ebtAmount,
-            uber_payment: toastData.uberPayment,
-            doordash_payment: toastData.doordashPayment,
-            grubhub_payment: toastData.grubhubPayment,
-            credit_card_deposit: toastData.creditCardDeposit,
-            credit_card_fees: toastData.creditCardFees,
-            credit_card_other_deductions: toastData.creditCardOtherDeductions,
-            cash_deposits: 0,
-            cash_payouts: toastData.toastCashPayoutsList || [],
-            cash_payouts_total: toastData.cashPayoutsTotal || 0,
-            cash_in: toastData.cashInTotal || 0,
-            cash_out: toastData.cashOutTotal || 0,
-          }
-
-          // Calculate Expected Cash (from gross receipts minus non-cash payments)
-          const expectedCashFromSales = calculateExpectedCash(salesPacketData)
-          const cashPayoutsTotal = salesPacketData.cash_payouts_total || 0
-          const cashIn = salesPacketData.cash_in || 0
-          const cashOut = salesPacketData.cash_out || 0
-          const expectedCashDeposit = Math.round((expectedCashFromSales + cashIn - cashOut - cashPayoutsTotal) * 100) / 100
-
-          // Toast Cash Management Parity:
-          // El depósito bancario proviene estrictamente de lo registrado por el gerente en Toast POS Cash Management.
-          // Si ya está registrado en Toast: se toma el monto real.
-          // Si aún no está registrado en Toast: queda en $0.00 con estado pendiente.
-          const finalDeposit = toastData?.hasToastDeposit && toastData.toastDepositAmount > 0
-            ? toastData.toastDepositAmount
-            : 0
-          const depositSource: 'toast' | 'pending' = finalDeposit > 0 ? 'toast' : 'pending'
-          salesPacketData.cash_deposits = finalDeposit
-          const journal = generateJournalLines(salesPacketData, siteConfig)
-          const docNumber = formatDocNumber(storeName.replace(/^Tacos Gavilan\s+/i, '').trim(), targetDate)
-
-          const isBalanced = journal.isBalanced
-          const isDepositPending = finalDeposit === 0 && expectedCashDeposit > 0
-          const packetStatus = (isBalanced && !isDepositPending) ? 'ready' : 'pending'
-
-          if (isYesterday) {
-            stats.yesterdayGenerated++
-            if (packetStatus === 'ready') stats.yesterdayCleanReady++
-            else stats.yesterdayBlockedStep11++
-          } else if (existingPacket && existingPacket.status !== 'published') {
-            stats.olderPacketsRecalculated++
-          }
-
-          const validationInfo = {
-            passed: isBalanced && !isDepositPending,
-            isDepositPending,
-            hasOpenOrders,
-            openOrdersCount: toastData.openOrdersCount || 0,
-            outOfBalanceOrdersCount: toastData.outOfBalanceOrdersCount || 0,
-            openOrders: toastData.openOrdersList || [],
-            checkedAt: new Date().toISOString(),
-            message: !isBalanced 
-              ? 'Unbalanced Journal Entry' 
-              : isDepositPending
-                ? 'Depósito de efectivo pendiente en Toast POS'
-                : 'Packet was Updated and Passed All Validation',
-            cash_in: cashIn,
-            cash_out: cashOut,
-            toast_cash_in: toastData.toastCashInList || [],
-            toast_cash_out: toastData.toastCashOutList || [],
-          }
-
-          const totalDiscounts = toastData.discountsTotal ?? 0
-          const grossSalesAmount = Math.round(((salesPacketData.net_sales || 0) + totalDiscounts) * 100) / 100
-          const packetData = {
-            store_id: mapping.store_id,
-            business_date: targetDate,
-            status: packetStatus,
-            dine_in_sales: salesPacketData.for_here_sales,
-            togo_sales: salesPacketData.to_go_sales,
-            uber_delivery_sales: salesPacketData.uber_delivery_sales,
-            uber_takeout_sales: salesPacketData.uber_takeout_sales,
-            doordash_delivery_sales: salesPacketData.doordash_delivery_sales,
-            doordash_takeout_sales: salesPacketData.doordash_takeout_sales,
-            grubhub_sales: Math.round(((salesPacketData.grubhub_delivery_sales || 0) + (salesPacketData.grubhub_takeout_sales || 0)) * 100) / 100,
-            gross_sales: grossSalesAmount,
-            net_sales: salesPacketData.net_sales,
-            total_discounts: totalDiscounts,
-            sales_tax: salesPacketData.sales_tax,
-            marketplace_facilitator_tax: salesPacketData.marketplace_tax,
-            facilitator_tax_paid: salesPacketData.tax_paid_by_uber,
-            total_taxes: salesPacketData.total_taxes,
-            total_credit_cards_gross: Math.round((salesPacketData.credit_card_deposit + salesPacketData.credit_card_fees + (salesPacketData.credit_card_other_deductions || 0)) * 100) / 100,
-            credit_card_deposit: salesPacketData.credit_card_deposit,
-            credit_card_fees: salesPacketData.credit_card_fees,
-            uber_payment: salesPacketData.uber_payment,
-            doordash_payment: salesPacketData.doordash_payment,
-            grubhub_payment: salesPacketData.grubhub_payment,
-            ebt_amount: salesPacketData.ebt_amount,
-            expected_cash: expectedCashDeposit,
-            cash_deposit: salesPacketData.cash_deposits,
-            cash_over_short: Math.round((salesPacketData.cash_deposits - expectedCashDeposit) * 100) / 100,
-            journal_total_debits: journal.totalDebits,
-            journal_total_credits: journal.totalCredits,
-            journal_lines: journal.lines,
-            qb_doc_number: docNumber,
-            notes: validationInfo.message,
-            qb_sync_response: {
-              validation: validationInfo,
-              deposit_source: depositSource,
-              toast_deposits: toastData.toastDepositsList || [],
-              cash_payouts: salesPacketData.cash_payouts || [],
-              cash_payouts_total: cashPayoutsTotal,
-              cash_in: cashIn,
-              cash_out: cashOut,
-              toast_cash_in: toastData.toastCashInList || [],
-              toast_cash_out: toastData.toastCashOutList || [],
-              expected_cash_from_sales: expectedCashFromSales,
-              expected_cash_deposit: expectedCashDeposit,
-              sales_gross_by_option: toastData.salesGrossByOption || {},
-              discount_breakdown: toastData.discountBreakdown || {},
-              card_breakdown: toastData.cardBreakdown || {}
-            },
-            updated_at: new Date().toISOString()
-          }
-
-          // If existing packet was already published, do NOT overwrite status!
-          if (existingPacket && existingPacket.status === 'published') {
-            // Keep published status
-            continue
-          }
-
-          await supabaseAdmin
-            .from('accounting_sales_packets')
-            .upsert(packetData, { onConflict: 'store_id, business_date' })
-
-        } catch (storeErr: any) {
-          console.error(`[sync-accounting] Error en ${storeName} (${targetDate}):`, storeErr.message)
-          stats.errors.push({ store: storeName, date: targetDate, error: storeErr.message })
-        }
+          })
+        )
       }
     }
 

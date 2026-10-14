@@ -560,6 +560,7 @@ export default function PreparadorPage() {
         const storeCode = (currentStore?.code || TOAST_STORE_MAP[currentStore?.external_id]?.code || '').toUpperCase()
 
         try {
+            const calledAt = new Date().toISOString()
             // 1. Enviar impulso por WebSocket broadcast si el canal está activo
             let clientSent = false
             if (realtimeChannelRef.current) {
@@ -571,13 +572,14 @@ export default function PreparadorPage() {
                         order_number: order.order_number,
                         store_code: storeCode,
                         dining_option: order.dining_option,
-                        store_name: currentStore?.name || storeCode
+                        store_name: currentStore?.name || storeCode,
+                        called_at: calledAt
                     }
                 })
                 clientSent = true
             }
 
-            // 2. Invocar endpoint REST para persistencia en DB y redundancia de broadcast (marcando fromClientBroadcast)
+            // 2. Invocar endpoint REST para persistencia en DB y redundancia de broadcast (marcando fromClientBroadcast y calledAt idéntico)
             await fetch('/api/order-ready/call', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -587,7 +589,8 @@ export default function PreparadorPage() {
                     storeCode: storeCode,
                     diningOption: order.dining_option,
                     storeName: currentStore?.name || storeCode,
-                    fromClientBroadcast: clientSent
+                    fromClientBroadcast: clientSent,
+                    calledAt
                 })
             })
         } catch (err) {

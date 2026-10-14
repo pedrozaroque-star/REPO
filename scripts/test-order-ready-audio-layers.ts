@@ -110,25 +110,25 @@ async function runSimulation() {
   )
 
   // ──────────────────────────────────────────────────────────────────────────
-  // TEST 2: Prueba de Audio Neuronal Gemini TTS (Bilingüe)
+  // TEST 2: Prueba de Audio Neuronal Gemini TTS (Bilingüe #166 y #742)
   // ──────────────────────────────────────────────────────────────────────────
-  console.log('\n--- TEST 2: Síntesis Neuronal Gemini TTS (Inglés + Español) ---')
-  const testNumber = '742'
+  console.log('\n--- TEST 2: Síntesis Neuronal Gemini TTS (Inglés + Español #166) ---')
+  const testNumber = '166'
   const t0 = Date.now()
 
-  const wavEn = await getOrderReadySpeech('en', testNumber, 'Kore')
+  const wavEn = await getOrderReadySpeech(testNumber, 'en', 'Kore')
   const timeEn = Date.now() - t0
   assert(
     wavEn && wavEn.length > 500 && wavEn.subarray(0, 4).toString('ascii') === 'RIFF',
-    `Clip en inglés generado o leído de Storage en ${timeEn}ms (WAV válido, tamaño: ${wavEn?.length} bytes)`
+    `Clip #166 en inglés leído de Storage en ${timeEn}ms (WAV válido, tamaño: ${wavEn?.length} bytes)`
   )
 
   const t1 = Date.now()
-  const wavEs = await getOrderReadySpeech('es', testNumber, 'Kore')
+  const wavEs = await getOrderReadySpeech(testNumber, 'es', 'Kore')
   const timeEs = Date.now() - t1
   assert(
     wavEs && wavEs.length > 500 && wavEs.subarray(0, 4).toString('ascii') === 'RIFF',
-    `Clip en español generado o leído de Storage en ${timeEs}ms (WAV válido, tamaño: ${wavEs?.length} bytes)`
+    `Clip #166 en español leído de Storage en ${timeEs}ms (WAV válido, tamaño: ${wavEs?.length} bytes)`
   )
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -247,29 +247,39 @@ async function runSimulation() {
   console.log('\n--- TEST 5: Simulación Algorítmica de Capas de Redundancia y Debounce ---')
 
   const lastImpulseMap = new Map<string, number>()
+  const lastAnnouncedAtMap = new Map<string, number>()
   let audioPlayCalls = 0
 
-  function simulateHandleImpulse(orderNumber: string, layerName: string, simulatedTime: number) {
+  function simulateHandleImpulse(orderNumber: string, layerName: string, simulatedTime: number, calledAtMs?: number) {
     const last = lastImpulseMap.get(orderNumber) || 0
-    if (simulatedTime - last < 6000) {
+    const lastAnn = lastAnnouncedAtMap.get(orderNumber) || 0
+    const isRecentCall = last > 0 && (simulatedTime - last) < 15000
+    const isSameTap = calledAtMs !== undefined && lastAnn > 0 && Math.abs(calledAtMs - lastAnn) < 10000
+    if (isRecentCall || isSameTap) {
+      if (calledAtMs !== undefined) {
+        lastAnnouncedAtMap.set(orderNumber, calledAtMs)
+      }
       // Debounced
       return false
     }
     lastImpulseMap.set(orderNumber, simulatedTime)
+    lastAnnouncedAtMap.set(orderNumber, calledAtMs ?? simulatedTime)
     audioPlayCalls++
     return true
   }
 
-  // Escenario A: Todo funciona normal (Llegada simultánea L1 y L2)
+  // Escenario A: Todo funciona normal (Llegada simultánea L1 y L2, más Polling tardío a los 6.9s y 11s tras terminar locución)
   const tStart = 10000
-  const l1Fired = simulateHandleImpulse('141', 'Layer 1 (Client WS)', tStart)
-  const l2Fired = simulateHandleImpulse('141', 'Layer 2 (Server WS)', tStart + 150)
-  const l3Fired = simulateHandleImpulse('141', 'Layer 3 (Postgres Changes)', tStart + 300)
-  const l4Fired = simulateHandleImpulse('141', 'Layer 4 (Polling Fallback)', tStart + 4000)
+  const l1Fired = simulateHandleImpulse('141', 'Layer 1 (Client WS)', tStart, tStart)
+  const l2Fired = simulateHandleImpulse('141', 'Layer 2 (Server WS)', tStart + 150, tStart)
+  const l3Fired = simulateHandleImpulse('141', 'Layer 3 (Postgres Changes)', tStart + 300, tStart)
+  const l4Fired = simulateHandleImpulse('141', 'Layer 4 (Polling 4s)', tStart + 4000, tStart)
+  const l4LateFired = simulateHandleImpulse('141', 'Layer 4 (Polling 6.9s post-audio)', tStart + 6900, tStart)
+  const l3LateFired = simulateHandleImpulse('141', 'Layer 3 (Upsert DB 11s)', tStart + 11000, tStart)
 
   assert(
-    l1Fired === true && l2Fired === false && l3Fired === false && l4Fired === false && audioPlayCalls === 1,
-    'Escenario A: Capa 1 dispara el audio de inmediato; Capas 2, 3 y 4 son absorbidas por el debounce de 6s (Cero duplicidad)'
+    l1Fired === true && l2Fired === false && l3Fired === false && l4Fired === false && l4LateFired === false && l3LateFired === false && audioPlayCalls === 1,
+    'Escenario A: Capa 1 dispara el audio 1 sola vez; Capas 2, 3 y 4 (incluso a los 6.9s y 11s tras hablar) son absorbidas (Cero repetición doble)'
   )
 
   // Escenario B: Capa 1 falla (desconexión de tablet), Capa 2 rescata el audio
