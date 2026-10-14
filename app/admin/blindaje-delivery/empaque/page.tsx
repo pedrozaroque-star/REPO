@@ -6,8 +6,9 @@
  *   - Acceso con PIN de 4 dígitos de RONOS con cierre automático de sesión cada 10 minutos.
  *   - Nunca se busca ni se entrega por nombre del cliente; la llave única es la Clave Oficial de cada plataforma (Uber Eats: UBERxxxxx, DoorDash: DD xxxxxxxx + QR, Grubhub: GH #..., Toast: #Ticket).
  *   - Mide automáticamente el tiempo de preparación en cocina desde que llega al KDS hasta que el cocinero borra la orden (READY).
+ *   - Cuando el cocinero borra la orden delivery del KDS (pasa de IN_KITCHEN a READY para el estante de empaque), la tableta reproduce automáticamente el aviso de voz ("Order #100, is ready! Please pack. / Orden #100, ¡ya está! Por favor empacar.") reutilizando los audios de órdenes precargados en Supabase Storage.
  *   - Flujo directo sin ruido visual: 1. Concluir sellado de empaque (obligatorio, foto opcional) -> 2. Blindar la entrega.
- * @dataFlow Toast -> /api/delivery-armor/orders -> tableta vertical fullscreen -> /api/delivery-armor/audit -> Supabase.
+ * @dataFlow Toast -> /api/delivery-armor/orders -> tableta vertical fullscreen + locutor KDS (/api/order-ready/tts + /api/order-ready/announcement-tts) -> /api/delivery-armor/audit -> Supabase.
  * @notes Piloto Slauson (#7) y LA Central (#6).
  */
 
@@ -30,7 +31,9 @@ import {
   ShieldCheck,
   ShoppingBag,
   Truck,
-  User
+  User,
+  Volume2,
+  VolumeX
 } from 'lucide-react'
 
 const STORES = [
@@ -39,6 +42,7 @@ const STORES = [
 ]
 
 const PIN_SESSION_DURATION_MS = 10 * 60 * 1000 // 10 minutos
+const KDS_POLL_INTERVAL_MS = 8000 // 8 segundos para detectar al instante cuando el cocinero borra del KDS
 
 type Platform = 'DOORDASH' | 'UBER_EATS' | 'GRUBHUB' | 'TOAST_ONLINE' | 'OTHER'
 type CheckKey = 'foodComplete' | 'drinksComplete' | 'bagCountCorrect' | 'bagSealed'
@@ -124,6 +128,12 @@ function formatRemainingMs(ms: number): string {
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
 }
 
+function isForbiddenRaulVoice(voiceName: string | null | undefined): boolean {
+  if (!voiceName) return false
+  const normalized = voiceName.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+  return normalized.includes('raul')
+}
+
 export default function BlindajeDeliveryEmpaquePage() {
   const rootRef = useRef<HTMLElement | null>(null)
   const [storeId, setStoreId] = useState(7)
@@ -140,9 +150,305 @@ export default function BlindajeDeliveryEmpaquePage() {
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
   const [isFullscreen, setIsFullscreen] = useState(false)
+  const [isMuted, setIsMuted] = useState(false)
+  const [activeAnnouncement, setActiveAnnouncement] = useState<string | null>(null)
+
+  // Referencias del motor de audio y rastreo de KDS
+  const audioCtxRef = useRef<AudioContext | null>(null)
+  const clipCacheRef = useRef<Map<string, Promise<string | null>>>(new Map())
+  const audioQueueRef = useRef<Order[]>([])
+  const isPlayingAudioRef = useRef<boolean>(false)
+  const prevKdsStatusRef = useRef<Map<string, 'IN_KITCHEN' | 'READY'>>(new Map())
+  const announcedGuidsRef = useRef<Set<string>>(new Set())
+  const initializedStoreRef = useRef<number | null>(null)
+
+  // Desbloquear AudioContext en cualquier toque o tecla
+  const unlockAudio = useCallback(() => {
+    try {
+      if (typeof window === 'undefined') return
+      if (!audioCtxRef.current) {
+        const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext
+        if (AudioContextClass) {
+          audioCtxRef.current = new AudioContextClass()
+        }
+      }
+      if (audioCtxRef.current && audioCtxRef.current.state === 'suspended') {
+        audioCtxRef.current.resume().catch(() => {})
+      }
+    } catch {
+      // ignore
+    }
+  }, [])
+
+  // Campanilla Ding-Dong de dos tonos antes de la voz
+  const playChime = useCallback((): Promise<void> => {
+    return new Promise(async resolve => {
+      try {
+        unlockAudio()
+        const ctx = audioCtxRef.current
+        if (!ctx) {
+          resolve()
+          return
+        }
+        if (ctx.state === 'suspended') {
+          await ctx.resume().catch(() => {})
+        }
+        const now = ctx.currentTime
+
+        const osc1 = ctx.createOscillator()
+        const gain1 = ctx.createGain()
+        osc1.type = 'sine'
+        osc1.frequency.setValueAtTime(587.33, now)
+        gain1.gain.setValueAtTime(0.3, now)
+        gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.55)
+        osc1.connect(gain1)
+        gain1.connect(ctx.destination)
+        osc1.start(now)
+        osc1.stop(now + 0.55)
+
+        const osc2 = ctx.createOscillator()
+        const gain2 = ctx.createGain()
+        osc2.type = 'sine'
+        osc2.frequency.setValueAtTime(880, now + 0.16)
+        gain2.gain.setValueAtTime(0.38, now + 0.16)
+        gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.85)
+        osc2.connect(gain2)
+        gain2.connect(ctx.destination)
+        osc2.start(now + 0.16)
+        osc2.stop(now + 0.85)
+
+        setTimeout(resolve, 800)
+      } catch {
+        resolve()
+      }
+    })
+  }, [unlockAudio])
+
+  // Descargar y cachear en memoria un clip de audio (orden precargada o frase complementaria)
+  const getCachedAudioUrl = useCallback((cacheKey: string, endpointUrl: string): Promise<string | null> => {
+    const existing = clipCacheRef.current.get(cacheKey)
+    if (existing) return existing
+
+    const job = (async (): Promise<string | null> => {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          const res = await fetch(endpointUrl, { signal: AbortSignal.timeout(9000) })
+          if (!res.ok) throw new Error(`HTTP ${res.status}`)
+          const blob = await res.blob()
+          if (blob.size < 500) throw new Error('Empty audio blob')
+          return URL.createObjectURL(blob)
+        } catch {
+          if (attempt === 0) await new Promise(r => setTimeout(r, 300))
+        }
+      }
+      clipCacheRef.current.delete(cacheKey)
+      return null
+    })()
+
+    clipCacheRef.current.set(cacheKey, job)
+    return job
+  }, [])
+
+  // Precargar los 2 clips de sufijo ("Please pack." y "Por favor empacar.") al montar
+  useEffect(() => {
+    void getCachedAudioUrl(
+      'suffix:en:please-pack',
+      '/api/order-ready/announcement-tts?text=Please%20pack.&lang=en&voice=Kore'
+    )
+    void getCachedAudioUrl(
+      'suffix:es:por-favor-empacar',
+      '/api/order-ready/announcement-tts?text=Por%20favor%20empacar.&lang=es&voice=Kore'
+    )
+  }, [getCachedAudioUrl])
+
+  // Reproducir un Blob URL usando Web Audio API (primario) o HTMLAudioElement (respaldo)
+  const playClipUrl = useCallback(
+    (url: string): Promise<boolean> =>
+      new Promise(async resolve => {
+        let done = false
+        const finish = (ok: boolean) => {
+          if (!done) {
+            done = true
+            resolve(ok)
+          }
+        }
+
+        try {
+          unlockAudio()
+          const ctx = audioCtxRef.current
+          if (ctx) {
+            if (ctx.state === 'suspended') {
+              await ctx.resume().catch(() => {})
+            }
+            const res = await fetch(url)
+            if (res.ok) {
+              const arrayBuf = await res.arrayBuffer()
+              if (arrayBuf.byteLength > 44) {
+                const audioBuffer = await ctx.decodeAudioData(arrayBuf.slice(0))
+                const source = ctx.createBufferSource()
+                source.buffer = audioBuffer
+                source.connect(ctx.destination)
+                const timer = setTimeout(() => {
+                  try {
+                    source.stop()
+                  } catch {}
+                  finish(false)
+                }, 12000)
+                source.onended = () => {
+                  clearTimeout(timer)
+                  finish(true)
+                }
+                source.start(0)
+                return
+              }
+            }
+          }
+        } catch {
+          // Fallback a HTMLAudioElement
+        }
+
+        try {
+          const audio = new Audio(url)
+          audio.onended = () => finish(true)
+          audio.onerror = () => finish(false)
+          setTimeout(() => {
+            if (!done) audio.pause()
+            finish(false)
+          }, 12000)
+          audio.play().catch(() => finish(false))
+        } catch {
+          finish(false)
+        }
+      }),
+    [unlockAudio]
+  )
+
+  // Respaldo con síntesis del navegador (con filtro anti-Raúl) si no hay red
+  const speakBrowserFallback = useCallback((numStr: string, lang: 'en' | 'es'): Promise<void> => {
+    return new Promise(resolve => {
+      if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
+        resolve()
+        return
+      }
+      const voices = window.speechSynthesis.getVoices().filter(v => !isForbiddenRaulVoice(v.name))
+      const targetVoice =
+        voices.find(v => v.lang.toLowerCase().startsWith(lang) && /female|samantha|victoria|paulina|monica|dalia|sabina|google/i.test(v.name)) ||
+        voices.find(v => v.lang.toLowerCase().startsWith(lang)) ||
+        voices[0]
+      if (!targetVoice || isForbiddenRaulVoice(targetVoice.name)) {
+        resolve()
+        return
+      }
+      const text =
+        lang === 'en'
+          ? `Order ${numStr} is ready, please pack.`
+          : `Orden ${numStr} ya está, por favor empacar.`
+      const utt = new SpeechSynthesisUtterance(text)
+      utt.voice = targetVoice
+      utt.lang = targetVoice.lang || (lang === 'en' ? 'en-US' : 'es-MX')
+      utt.rate = 0.95
+      const timer = setTimeout(resolve, 7000)
+      utt.onend = () => {
+        clearTimeout(timer)
+        resolve()
+      }
+      utt.onerror = () => {
+        clearTimeout(timer)
+        resolve()
+      }
+      try {
+        window.speechSynthesis.speak(utt)
+      } catch {
+        clearTimeout(timer)
+        resolve()
+      }
+    })
+  }, [])
+
+  // Reproducir aviso completo: Ding-Dong + "Order #100, is ready! Please pack." + "Orden #100, ¡ya está! Por favor empacar."
+  const speakOrderReadyToPack = useCallback(
+    async (targetOrder: Order) => {
+      const rawDigits = targetOrder.ticket.replace(/\D/g, '')
+      const num = rawDigits && /^\d{1,4}$/.test(rawDigits) ? String(parseInt(rawDigits, 10)) : ''
+      const bannerText = `🔊 Order #${targetOrder.ticket} is ready, please pack • ${targetOrder.platformOrderKey}`
+      setActiveAnnouncement(bannerText)
+
+      try {
+        await playChime()
+
+        if (!num) {
+          await speakBrowserFallback(targetOrder.ticket, 'en')
+          await speakBrowserFallback(targetOrder.ticket, 'es')
+          return
+        }
+
+        // Descargar en paralelo el audio pregrabado de la orden (#num) en EN y ES + los sufijos de empaque
+        const [orderEnUrl, packEnUrl, orderEsUrl, packEsUrl] = await Promise.all([
+          getCachedAudioUrl(`order:en:${num}`, `/api/order-ready/tts?n=${num}&lang=en&voice=Kore`),
+          getCachedAudioUrl(
+            'suffix:en:please-pack',
+            '/api/order-ready/announcement-tts?text=Please%20pack.&lang=en&voice=Kore'
+          ),
+          getCachedAudioUrl(`order:es:${num}`, `/api/order-ready/tts?n=${num}&lang=es&voice=Kore`),
+          getCachedAudioUrl(
+            'suffix:es:por-favor-empacar',
+            '/api/order-ready/announcement-tts?text=Por%20favor%20empacar.&lang=es&voice=Kore'
+          )
+        ])
+
+        // 1. Inglés: "Order #100, is ready!" + "Please pack."
+        const okEnOrder = orderEnUrl ? await playClipUrl(orderEnUrl) : false
+        if (okEnOrder) {
+          if (packEnUrl) await playClipUrl(packEnUrl)
+        } else {
+          await speakBrowserFallback(num, 'en')
+        }
+
+        await new Promise(r => setTimeout(r, 180))
+
+        // 2. Español: "Orden #100, ¡ya está!" + "Por favor empacar."
+        const okEsOrder = orderEsUrl ? await playClipUrl(orderEsUrl) : false
+        if (okEsOrder) {
+          if (packEsUrl) await playClipUrl(packEsUrl)
+        } else {
+          await speakBrowserFallback(num, 'es')
+        }
+      } finally {
+        setTimeout(() => {
+          setActiveAnnouncement(current => (current === bannerText ? null : current))
+        }, 3500)
+      }
+    },
+    [getCachedAudioUrl, playChime, playClipUrl, speakBrowserFallback]
+  )
+
+  const processAudioQueue = useCallback(async () => {
+    if (isPlayingAudioRef.current || isMuted || audioQueueRef.current.length === 0) return
+    isPlayingAudioRef.current = true
+    try {
+      while (audioQueueRef.current.length > 0 && !isMuted) {
+        const nextOrder = audioQueueRef.current.shift()
+        if (nextOrder) {
+          await speakOrderReadyToPack(nextOrder)
+        }
+      }
+    } finally {
+      isPlayingAudioRef.current = false
+    }
+  }, [isMuted, speakOrderReadyToPack])
+
+  const enqueueOrderAnnouncement = useCallback(
+    (targetOrder: Order) => {
+      if (isMuted) return
+      audioQueueRef.current.push(targetOrder)
+      void processAudioQueue()
+    },
+    [isMuted, processAudioQueue]
+  )
 
   // Función para activar y mantener siempre Pantalla Completa (Fullscreen) en la tableta
   const ensureFullscreen = useCallback(async () => {
+    unlockAudio()
     if (typeof document === 'undefined') return
     const doc = document as any
     if (doc.fullscreenElement || doc.webkitFullscreenElement) {
@@ -160,7 +466,7 @@ export default function BlindajeDeliveryEmpaquePage() {
     } catch {
       setIsFullscreen(true)
     }
-  }, [])
+  }, [unlockAudio])
 
   // Sincronizar estado de fullscreen y activar automáticamente al primer toque en cualquier parte de la pantalla
   useEffect(() => {
@@ -170,6 +476,7 @@ export default function BlindajeDeliveryEmpaquePage() {
       setIsFullscreen(!!(doc.fullscreenElement || doc.webkitFullscreenElement))
     }
     const onUserInteraction = () => {
+      unlockAudio()
       if (!doc.fullscreenElement && !doc.webkitFullscreenElement) {
         void ensureFullscreen()
       }
@@ -189,7 +496,7 @@ export default function BlindajeDeliveryEmpaquePage() {
       window.removeEventListener('touchstart', onUserInteraction)
       window.removeEventListener('keydown', onUserInteraction)
     }
-  }, [ensureFullscreen])
+  }, [ensureFullscreen, unlockAudio])
 
   // Al cerrar sesión o terminar los 10 minutos, regresa a la pantalla de PIN manteniendo Fullscreen
   const logout = useCallback(
@@ -261,9 +568,34 @@ export default function BlindajeDeliveryEmpaquePage() {
     return () => window.clearInterval(interval)
   }, [packer, logout])
 
+  // Cargar historial de órdenes ya anunciadas en esta sesión por sucursal
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem(`blindaje_kds_announced_${storeId}`)
+      const parsed: string[] = raw ? JSON.parse(raw) : []
+      announcedGuidsRef.current = new Set(Array.isArray(parsed) ? parsed : [])
+    } catch {
+      announcedGuidsRef.current = new Set()
+    }
+    prevKdsStatusRef.current = new Map()
+    initializedStoreRef.current = null
+  }, [storeId])
+
+  const persistAnnouncedGuid = useCallback(
+    (guid: string) => {
+      announcedGuidsRef.current.add(guid)
+      try {
+        const list = Array.from(announcedGuidsRef.current).slice(-300)
+        sessionStorage.setItem(`blindaje_kds_announced_${storeId}`, JSON.stringify(list))
+      } catch {
+        // ignore storage quota
+      }
+    },
+    [storeId]
+  )
+
   const fetchOrders = useCallback(async () => {
     setLoading(true)
-    setError(null)
     try {
       const response = await fetch(`/api/delivery-armor/orders?storeId=${storeId}`, { cache: 'no-store' })
       const data = await response.json()
@@ -310,42 +642,88 @@ export default function BlindajeDeliveryEmpaquePage() {
             }
           : undefined
       }))
+
+      // Detectar órdenes que el cocinero acaba de borrar del KDS (IN_KITCHEN -> READY)
+      const isInitialFetchForStore = initializedStoreRef.current !== storeId
+      const newlyReadyOrders: Order[] = []
+
+      for (const item of next) {
+        const prevStatus = prevKdsStatusRef.current.get(item.guid)
+        prevKdsStatusRef.current.set(item.guid, item.kdsStatus)
+
+        const isUnpackedDelivery =
+          item.kdsStatus === 'READY' &&
+          !item.isVoided &&
+          item.audit?.status !== 'ready' &&
+          item.audit?.status !== 'released'
+
+        if (!isUnpackedDelivery) {
+          if (item.kdsStatus === 'READY') {
+            persistAnnouncedGuid(item.guid)
+          }
+          continue
+        }
+
+        if (announcedGuidsRef.current.has(item.guid)) {
+          continue
+        }
+
+        const readyAgeMs = item.kdsReadyAt ? Date.now() - new Date(item.kdsReadyAt).getTime() : Infinity
+
+        if (isInitialFetchForStore) {
+          // En la carga inicial, solo anunciar si el cocinero la acaba de borrar del KDS hace menos de 45 segundos
+          if (readyAgeMs >= 0 && readyAgeMs <= 45_000) {
+            persistAnnouncedGuid(item.guid)
+            newlyReadyOrders.push(item)
+          } else {
+            persistAnnouncedGuid(item.guid)
+          }
+        } else {
+          // En monitoreo continuo: si pasó de IN_KITCHEN a READY o es nueva orden recién salida del KDS
+          if (prevStatus === 'IN_KITCHEN' || (prevStatus === undefined && readyAgeMs <= 180_000)) {
+            persistAnnouncedGuid(item.guid)
+            newlyReadyOrders.push(item)
+          }
+        }
+      }
+
+      initializedStoreRef.current = storeId
+
+      if (newlyReadyOrders.length > 0) {
+        for (const readyOrder of newlyReadyOrders) {
+          enqueueOrderAnnouncement(readyOrder)
+        }
+      }
+
       setOrders(next)
       setSelected(current => {
+        if (newlyReadyOrders.length > 0) {
+          const currentObj = next.find(o => o.guid === current)
+          if (!currentObj || currentObj.audit?.status === 'released') {
+            return newlyReadyOrders[0].guid
+          }
+        }
         if (current && next.some(o => o.guid === current)) return current
         const firstActive = next.find(o => o.audit?.status !== 'released')
         return firstActive?.guid || next[0]?.guid || null
       })
     } catch (caught: any) {
-      setError(caught.message)
+      if (packer) setError(caught.message)
     } finally {
       setLoading(false)
     }
-  }, [storeId])
+  }, [storeId, packer, persistAnnouncedGuid, enqueueOrderAnnouncement])
 
+  // Monitoreo continuo del KDS cada 8 segundos (incluso cuando está en la pantalla de PIN)
   useEffect(() => {
-    if (!packer) return
     void fetchOrders()
-    const timer = window.setInterval(fetchOrders, 20000)
+    const timer = window.setInterval(fetchOrders, KDS_POLL_INTERVAL_MS)
     return () => window.clearInterval(timer)
-  }, [packer, fetchOrders])
+  }, [fetchOrders])
 
   const order = useMemo(() => orders.find(value => value.guid === selected) || null, [orders, selected])
   const bagCount = order ? bags[order.guid] || order.audit?.bags || 1 : 1
   const sealedPhoto = order ? photos[order.guid] || order.audit?.sealedPhoto || '' : ''
-
-  const riskReasons = useMemo(
-    () =>
-      order
-        ? [
-            order.hasDrinks ? 'con bebidas' : '',
-            order.itemCount >= 8 ? '8+ artículos' : '',
-            bagCount > 1 ? 'múltiples bolsas' : ''
-          ].filter(Boolean)
-        : [],
-    [order, bagCount]
-  )
-  const risk = riskReasons.length > 0
 
   // Bloqueo de búsqueda por nombre del cliente: solo permite buscar por Clave Única o #Ticket
   const blockedByName = useMemo(() => {
@@ -579,16 +957,33 @@ export default function BlindajeDeliveryEmpaquePage() {
             <span className="inline-flex items-center gap-2 text-xs sm:text-sm font-black uppercase tracking-wider text-slate-400">
               Tacos Gavilan • Estación de Tableta
             </span>
-            <button
-              type="button"
-              onClick={() => void ensureFullscreen()}
-              title="Pantalla Completa"
-              className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-slate-100 text-slate-700 text-xs sm:text-sm font-black"
-            >
-              <Maximize2 className="w-4 h-4" />
-              <span>{isFullscreen ? 'FULLSCREEN ACTIVO' : 'PANTALLA COMPLETA'}</span>
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setIsMuted(prev => !prev)}
+                title={isMuted ? 'Activar voz KDS' : 'Silenciar voz KDS'}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-100 text-slate-700 text-xs sm:text-sm font-black"
+              >
+                {isMuted ? <VolumeX className="w-4 h-4 text-red-600" /> : <Volume2 className="w-4 h-4 text-emerald-600" />}
+                <span>{isMuted ? 'MUDO' : 'VOZ KDS ACTIVA'}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => void ensureFullscreen()}
+                title="Pantalla Completa"
+                className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-slate-100 text-slate-700 text-xs sm:text-sm font-black"
+              >
+                <Maximize2 className="w-4 h-4" />
+                <span>{isFullscreen ? 'FULLSCREEN ACTIVO' : 'PANTALLA COMPLETA'}</span>
+              </button>
+            </div>
           </div>
+
+          {activeAnnouncement && (
+            <div className="mb-4 p-4 rounded-2xl bg-slate-900 text-white text-center text-lg font-black animate-pulse">
+              {activeAnnouncement}
+            </div>
+          )}
 
           <ShieldCheck className="w-16 h-16 sm:w-20 sm:h-20 text-red-600 mx-auto" />
           <h1 className="text-4xl sm:text-5xl font-black text-center mt-2">Entrega Blindada</h1>
@@ -699,6 +1094,14 @@ export default function BlindajeDeliveryEmpaquePage() {
           <div className="flex items-center gap-2.5">
             <button
               type="button"
+              onClick={() => setIsMuted(prev => !prev)}
+              title={isMuted ? 'Activar aviso de voz KDS' : 'Silenciar aviso de voz KDS'}
+              className={`p-3 rounded-xl ${isMuted ? 'bg-red-50 text-red-600' : 'bg-slate-100 text-emerald-700'}`}
+            >
+              {isMuted ? <VolumeX className="w-6 h-6" /> : <Volume2 className="w-6 h-6" />}
+            </button>
+            <button
+              type="button"
               onClick={() => void ensureFullscreen()}
               title="Pantalla Completa"
               className="p-3 rounded-xl bg-slate-100 text-slate-700"
@@ -741,6 +1144,12 @@ export default function BlindajeDeliveryEmpaquePage() {
 
       {/* DISEÑO VERTICAL FULLSCREEN A ANCHO COMPLETO DE LA TABLETA */}
       <div className="w-full px-4 sm:px-6 py-4 space-y-4">
+        {activeAnnouncement && (
+          <div className="p-4 rounded-2xl bg-slate-900 text-white text-lg sm:text-xl font-black flex items-center justify-between gap-3 shadow-md">
+            <span>{activeAnnouncement}</span>
+          </div>
+        )}
+
         {/* 1. BUSCADOR Y SELECTOR POR CLAVE ÚNICA */}
         <section className="bg-white border rounded-3xl p-5 shadow-sm space-y-4">
           <div className="relative">
@@ -826,12 +1235,23 @@ export default function BlindajeDeliveryEmpaquePage() {
             <section className="bg-white border rounded-3xl p-6 sm:p-7 shadow-sm">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <p className="text-xl sm:text-2xl font-black text-red-600">{label(order.platform)}</p>
-                <span className="inline-flex items-center gap-2 text-sm sm:text-base font-bold text-slate-700 bg-slate-100 px-4 py-1.5 rounded-xl">
-                  <Clock className="w-4 h-4" />
-                  {order.kdsStatus === 'IN_KITCHEN'
-                    ? 'En cocina KDS'
-                    : `Preparación KDS: ${formatDuration(order.kdsPrepSeconds)}`}
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex items-center gap-2 text-sm sm:text-base font-bold text-slate-700 bg-slate-100 px-4 py-1.5 rounded-xl">
+                    <Clock className="w-4 h-4" />
+                    {order.kdsStatus === 'IN_KITCHEN'
+                      ? 'En cocina KDS'
+                      : `Preparación KDS: ${formatDuration(order.kdsPrepSeconds)}`}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => enqueueOrderAnnouncement(order)}
+                    title="Repetir anuncio de voz de esta orden"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-sm font-black"
+                  >
+                    <Volume2 className="w-4 h-4" />
+                    <span>Anunciar #{order.ticket}</span>
+                  </button>
+                </div>
               </div>
 
               <div className="mt-3 flex flex-wrap items-baseline justify-between gap-4">

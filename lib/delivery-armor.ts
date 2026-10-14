@@ -631,6 +631,7 @@ export async function fetchOffPremiseOrders(storeId: number, targetBusinessDate?
   while (page <= maxPages) {
     const ordersUrl = `${TOAST_API_HOST}/orders/v2/ordersBulk?businessDate=${businessDate}&pageSize=100&page=${page}`
     const oRes = await fetch(ordersUrl, {
+      cache: 'no-store',
       headers: {
         Authorization: `Bearer ${token}`,
         'Toast-Restaurant-External-ID': store.external_id

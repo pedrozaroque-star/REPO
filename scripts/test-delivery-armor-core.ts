@@ -171,5 +171,20 @@ assert.equal(empaqueSource.includes('requestFullscreen'), true, 'Debe invocar re
 assert.equal(empaqueSource.includes('ensureFullscreen'), true, 'Debe mantener fullscreen en PIN, login y logout')
 assert.equal(empaqueSource.includes('fixed inset-0 z-[100] w-screen h-screen'), true, 'Debe ocupar 100% de la pantalla')
 assert.equal(empaqueSource.includes('max-w-2xl'), false, 'No debe restringir el ancho a max-w-2xl en la tableta')
+assert.equal(
+  empaqueSource.includes('/api/order-ready/tts?n='),
+  true,
+  'Debe reutilizar los audios de órdenes ya descargados en Supabase Storage (/api/order-ready/tts)'
+)
+assert.equal(
+  empaqueSource.includes('Please%20pack.') && empaqueSource.includes('Por%20favor%20empacar.'),
+  true,
+  'Debe anunciar Please pack / Por favor empacar al salir del KDS'
+)
+assert.equal(
+  empaqueSource.includes("prevStatus === 'IN_KITCHEN'"),
+  true,
+  'Debe detectar automáticamente cuando el cocinero borra la orden del KDS (IN_KITCHEN -> READY)'
+)
 
 console.log('Delivery Armor core simulation: PASS')
