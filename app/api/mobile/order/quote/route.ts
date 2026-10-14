@@ -1,118 +1,120 @@
 /**
  * @module api/mobile/order/quote
- * @description Authoritative server-side pricing and tax quotation engine for customer mobile orders (Pickup & Delivery).
- * Persists single-use financial quotes in public.app_quotes with canonical cart hash and 10-minute TTL.
+ * @description Endpoint autoritativo de cotización financiera nativa para Tacos Gavilan App.
+ * Valida platillos y modificadores mediante el validador unificado `validateCartLineAgainstMenuV3`,
+ * consulta Toast Orders API (`/orders/v2/prices`) y persiste cotizaciones únicamente cuando
+ * Toast devuelve precios autoritativos (`price_source = 'toast_prices'`).
+ *
  * @businessRules
- * - Principio de Autoridad Financiera: La app móvil nunca fija ni calcula el total financiero vinculante.
- * - Todos los precios de platillos y modificadores se validan contra app_menu_cache de la sucursal seleccionada.
- * - Validación Estricta de Modificadores: Todo modificador debe pertenecer a un grupo del artículo;
- *   rechaza con VALIDATION_ERROR si un modificador no es válido o si se violan minSelections / maxSelections;
- *   rechaza con MENU_DATA_INCOMPLETE si las definiciones de modificadores están incompletas o corruptas.
- * - Aplica la tasa exacta de impuesto sobre las ventas (CDTFA) por ciudad (ej. Lynwood 11.25%, LA 10.25%, Santa Ana 9.25%, Rialto 7.75%).
- * - En entregas a domicilio (DELIVERY), valida el radio de cobertura máximo (5.0 millas vía fórmula Haversine) y calcula el cargo de entrega.
- * - Emite y persiste un registro autoritativo en app_quotes con cart_hash canónico y expiración de 10 minutos (TTL).
+ * - Cero tasas estáticas de impuestos (`STORE_TAX_RATES` eliminado del flujo productivo).
+ * - Todo cálculo de impuestos, service charges, tarifas y total comprable proviene exclusivamente
+ *   de Toast POS (`POST /orders/v2/prices`).
+ * - Si Toast devuelve `HTTP 403 / code 10010`, responde `TOAST_SCOPE_BLOCKED` con `quoteId: null`
+ *   y expone únicamente `catalogSubtotal` como referencia no pagable (`nonPayableEstimate: true`).
+ * - Delivery permanece deshabilitado por feature flag (`ENABLE_MOBILE_DELIVERY === 'true'`).
+ * - Cero creación de perfiles de usuario ficticios en `app_users`.
+ *
  * @dataFlow
- * - Client POST /api/mobile/order/quote -> Valida items en app_menu_cache -> Resuelve tasa fiscal por sucursal -> Inserta app_quotes -> Retorna OrderQuoteResponse.
+ * - POST /api/mobile/order/quote -> `app_menu_cache` -> `validateCartLineAgainstMenuV3`
+ *   -> `calculateToastPrices` (`/orders/v2/prices`) -> `app_quotes` (solo si `toast_prices`).
+ *
  * @notes
- * - Genera cart_hash SHA-256 canónico para garantizar que el contenido del carrito no sea alterado entre la cotización y el pago.
+ * - Unificado con `validateCartLineAgainstMenuV3` y removido `STORE_TAX_RATES` de producción.
  */
 
 import { type NextRequest, NextResponse } from 'next/server'
-import { supabaseAdmin } from '@/lib/supabase'
-import { corsResponse, jsonOk, jsonError, getAuthUser, isAuthSuccess } from '../../_helpers'
-import { calculateToastPrices } from '@/lib/toast/prices-client'
-import { TOAST_WRITE_BLOCKED_DESCRIPTOR } from '@/lib/toast/menus-v3-contract'
 import crypto from 'crypto'
+import { supabaseAdmin } from '@/lib/supabase'
+import { corsResponse, jsonOk, getAuthUser, isAuthSuccess, corsHeaders } from '../../_helpers'
+import { calculateToastPrices } from '@/lib/toast/prices-client'
+import {
+  UUID_REGEX,
+  validateCartLineAgainstMenuV3,
+  type FulfillmentChannel,
+  type ToastMenuItemV3,
+  type ToastModifierGroupV3,
+} from '@/lib/toast/menus-v3-contract'
 
-export const dynamic = 'force-dynamic'
-
-// Feature Flag: Delivery nativo requiere aprobación contractual previa (TDS vs DoorDash Drive)
 const DELIVERY_ENABLED = process.env.ENABLE_MOBILE_DELIVERY === 'true'
 
-/**
- * Calcula un hash canónico SHA-256 de los items, modificadores y dirección de entrega.
- */
+function quoteError(
+  message: string,
+  status: number,
+  code: string,
+  extra?: { requestId?: string | null; retryable?: boolean }
+): NextResponse {
+  return NextResponse.json(
+    {
+      ok: false,
+      error: message,
+      code,
+      requestId: extra?.requestId ?? null,
+      retryable: extra?.retryable ?? status >= 500,
+    },
+    { status, headers: corsHeaders() }
+  )
+}
+
 export function computeCartHash(params: {
   storeId: number
-  channel: string
-  pickupMethod?: string
-  items: Array<{ itemGuid: string; quantity: number; modifiers?: Array<{ guid: string }> }>
-  deliveryAddress?: any
+  channel: 'PICKUP' | 'DELIVERY'
+  pickupMethod?: string | null
+  items: Array<{
+    guid?: string
+    itemGuid?: string
+    qty?: number
+    quantity?: number
+    modifiers?: Array<{ guid: string; optionGroupGuid?: string }>
+  }>
+  tipAmount?: number
+  zipCode?: string | null
 }): string {
   const normalizedItems = [...params.items]
-    .map(i => ({
-      itemGuid: i.itemGuid.toLowerCase(),
-      quantity: i.quantity,
-      modifiers: (i.modifiers || [])
-        .map(m => m.guid.toLowerCase())
-        .sort()
+    .map((item) => ({
+      guid: String(item.guid || item.itemGuid || '').trim().toLowerCase(),
+      qty: Number(item.qty ?? item.quantity ?? 1),
+      modifiers: [...(item.modifiers || [])]
+        .map(
+          (m) =>
+            `${(m.optionGroupGuid || '').trim().toLowerCase()}:${m.guid.trim().toLowerCase()}`
+        )
+        .sort(),
     }))
-    .sort((a, b) => a.itemGuid.localeCompare(b.itemGuid))
+    .sort((a, b) => a.guid.localeCompare(b.guid))
 
-  const normalized = {
-    storeId: params.storeId,
-    channel: params.channel.toUpperCase(),
-    pickupMethod: (params.pickupMethod || 'in_store').toLowerCase(),
+  const payload = JSON.stringify({
+    storeId: Number(params.storeId),
+    channel: params.channel,
     items: normalizedItems,
-    deliveryAddress: params.channel.toUpperCase() === 'DELIVERY' && params.deliveryAddress ? {
-      streetAddress: (params.deliveryAddress.streetAddress || '').trim().toLowerCase(),
-      zipCode: (params.deliveryAddress.zipCode || '').trim(),
-      latitude: Number(params.deliveryAddress.latitude || 0).toFixed(4),
-      longitude: Number(params.deliveryAddress.longitude || 0).toFixed(4),
-    } : null
-  }
+    tipAmount: Number(Number(params.tipAmount ?? 0).toFixed(2)),
+    zipCode: (params.zipCode || '').trim(),
+  })
 
-  return crypto.createHash('sha256').update(JSON.stringify(normalized)).digest('hex')
-}
-
-/** Tasas oficiales de Sales Tax por sucursal (CDTFA - Vigentes desde el 01 de Octubre de 2026) */
-export const STORE_TAX_RATES: Record<number, number> = {
-  1: 0.0775,  // Rialto (San Bernardino County) - 7.75%
-  3: 0.1025,  // West Covina (LA County + Measure ER) - 10.25%
-  4: 0.1125,  // Azusa (LA County + Measure Z + Measure ER) - 11.25%
-  5: 0.1025,  // LA Broadway (City of Los Angeles + Measure ER) - 10.25%
-  6: 0.1025,  // LA Central (City of Los Angeles + Measure ER) - 10.25%
-  7: 0.1025,  // Slauson (City of Los Angeles + Measure ER) - 10.25%
-  8: 0.1025,  // Hollywood (City of Los Angeles + Measure ER) - 10.25%
-  9: 0.0925,  // Santa Ana (Orange County + Measure X) - 9.25%
-  10: 0.1075, // La Puente (LA County + Measure ER) - 10.75%
-  11: 0.1100, // Huntington Park (LA County + Measure CH + Measure ER) - 11.00%
-  12: 0.1100, // Norwalk (LA County + Measure ER) - 11.00%
-  13: 0.1025, // Bell (LA County + Measure ER) - 10.25%
-  14: 0.1125, // Lynwood (LA County + Measure PS + Measure ER) - 11.25%
-  15: 0.1125, // South Gate (LA County + Measure P + Measure ER) - 11.25%
-  16: 0.1100, // Downey (LA County + Measure S + Measure ER) - 11.00%
-}
-
-export function getStoreTaxRate(storeId: number): number {
-  return STORE_TAX_RATES[storeId] ?? 0.1025
-}
-
-/** Calcula distancia en millas entre dos coordenadas (Fórmula Haversine) */
-function calculateDistanceMiles(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const R = 3958.8 // Radio de la Tierra en millas
-  const dLat = (lat2 - lat1) * (Math.PI / 180)
-  const dLon = (lon2 - lon1) * (Math.PI / 180)
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(lat1 * (Math.PI / 180)) * Math.cos(lat2 * (Math.PI / 180)) * Math.sin(dLon / 2) * Math.sin(dLon / 2)
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
-  return R * c
+  return crypto.createHash('sha256').update(payload).digest('hex')
 }
 
 interface QuoteItemInput {
-  itemGuid: string
-  quantity: number
-  modifiers?: Array<{ guid: string }>
+  guid?: string
+  itemGuid?: string
+  qty?: number
+  quantity?: number
+  modifiers?: Array<{
+    guid: string
+    optionGroupGuid?: string
+    name?: string
+  }>
+  specialInstructions?: string
 }
 
 interface QuoteRequestBody {
   storeId: number
-  channel: 'PICKUP' | 'DELIVERY'
-  pickupSubtype?: 'IN_STORE' | 'CURBSIDE' | 'DRIVE_THRU'
+  channel: FulfillmentChannel
+  pickupSubType?: 'IN_STORE' | 'CURBSIDE'
+  items: QuoteItemInput[]
+  tipAmount?: number
   deliveryAddress?: {
-    streetAddress: string
-    unitOrApt?: string
+    street: string
+    aptSuite?: string
     city: string
     state: string
     zipCode: string
@@ -120,417 +122,418 @@ interface QuoteRequestBody {
     longitude: number
     deliveryInstructions?: string
   }
-  items: QuoteItemInput[]
-  tipAmount?: number
-  appliedRewardId?: string
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
+    const authUser = await getAuthUser(request)
     const body = (await request.json()) as QuoteRequestBody
-
-    const { storeId, channel, items, tipAmount = 0 } = body
+    const {
+      storeId,
+      channel = 'PICKUP',
+      pickupSubType = 'IN_STORE',
+      items,
+      tipAmount = 0,
+      deliveryAddress,
+    } = body
 
     if (!storeId || typeof storeId !== 'number') {
-      return jsonError('storeId es requerido y debe ser un número entero', 400)
+      return quoteError('storeId numérico es requerido', 400, 'VALIDATION_ERROR', {
+        retryable: false,
+      })
     }
 
-    if (!channel || (channel !== 'PICKUP' && channel !== 'DELIVERY')) {
-      return jsonError("channel debe ser 'PICKUP' o 'DELIVERY'", 400)
-    }
-
-    if (channel === 'DELIVERY' && !DELIVERY_ENABLED) {
-      return jsonError(
-        'El canal de entrega a domicilio (Delivery) se encuentra en proceso de aprobación contractual con Toast/DoorDash. Actualmente solo está habilitado Retiro en Sucursal (Pickup).',
-        400
+    if (channel !== 'PICKUP' && channel !== 'DELIVERY') {
+      return quoteError(
+        'channel debe ser PICKUP o DELIVERY',
+        400,
+        'VALIDATION_ERROR',
+        { retryable: false }
       )
     }
 
-    if (!items || !Array.isArray(items) || items.length === 0) {
-      return jsonError('La orden debe contener al menos un artículo', 400)
+    if (channel === 'DELIVERY' && !DELIVERY_ENABLED) {
+      return quoteError(
+        'El servicio de Delivery nativo se encuentra temporalmente deshabilitado hasta confirmar la configuración contractual oficial con Toast / DoorDash. Por favor selecciona Pickup.',
+        409,
+        'DELIVERY_DISABLED',
+        { retryable: false }
+      )
     }
 
-    // 1. Obtener la sucursal para validar existencia, external_id y coordenadas
+    if (!Array.isArray(items) || items.length === 0) {
+      return quoteError(
+        'El carrito debe contener al menos un artículo',
+        400,
+        'VALIDATION_ERROR',
+        { retryable: false }
+      )
+    }
+
     const { data: store, error: storeErr } = await supabaseAdmin
       .from('stores')
-      .select('id, name, external_id, latitude, longitude')
+      .select('id, name, address, phone, external_id')
       .eq('id', storeId)
       .single()
 
     if (storeErr || !store) {
-      return jsonError(`Sucursal con ID ${storeId} no encontrada`, 404)
+      return quoteError(
+        `Sucursal #${storeId} no encontrada`,
+        404,
+        'VALIDATION_ERROR',
+        { retryable: false }
+      )
     }
 
-    if (!store.external_id) {
-      return jsonError(`La sucursal ${store.name} no cuenta con external_id vinculado a Toast`, 400)
-    }
+    const normalizedInputItems = items.map((reqItem) => ({
+      guid: String(reqItem.guid || reqItem.itemGuid || '').trim(),
+      qty: Number(reqItem.qty ?? reqItem.quantity ?? 0),
+      modifiers: reqItem.modifiers || [],
+      specialInstructions: reqItem.specialInstructions,
+    }))
 
-    // 2. Obtener los items del menú de esta sucursal desde app_menu_cache
-    const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-    const itemGuids = items.map(i => i.itemGuid).filter(Boolean)
-
-    for (const item of items) {
-      if (!item.itemGuid || !UUID_REGEX.test(item.itemGuid)) {
-        return jsonError(`Artículo '${item.itemGuid}' no disponible en la sucursal ${store.name}`, 400)
+    for (const reqItem of normalizedInputItems) {
+      if (!reqItem.guid || !UUID_REGEX.test(String(reqItem.guid))) {
+        return quoteError(
+          `GUID de artículo inválido: "${String(reqItem.guid)}"`,
+          400,
+          'VALIDATION_ERROR',
+          { retryable: false }
+        )
+      }
+      if (!Number.isInteger(reqItem.qty) || reqItem.qty <= 0 || reqItem.qty > 99) {
+        return quoteError(
+          `Cantidad inválida para el artículo ${reqItem.guid}. Debe ser un entero entre 1 y 99.`,
+          400,
+          'VALIDATION_ERROR',
+          { retryable: false }
+        )
       }
     }
 
-    const { data: menuCache, error: menuErr } = await supabaseAdmin
+    const itemGuids = Array.from(new Set(normalizedInputItems.map((i) => i.guid)))
+
+    const { data: menuRows, error: menuErr } = await supabaseAdmin
       .from('app_menu_cache')
-      .select('toast_item_guid, name, price, modifier_groups_json, is_available')
+      .select(
+        'toast_item_guid, name, price, is_available, modifier_groups_json'
+      )
       .eq('store_id', storeId)
       .in('toast_item_guid', itemGuids)
 
-    if (menuErr || !menuCache) {
-      console.error('❌ [ORDER QUOTE] Error consultando app_menu_cache:', menuErr?.message)
-      return jsonError('Error al validar precios del menú', 500)
+    if (menuErr) {
+      return quoteError(
+        'Error consultando catálogo de menú de la sucursal',
+        500,
+        'BACKEND_UNAVAILABLE',
+        { retryable: true }
+      )
     }
 
-    const menuMap = new Map<string, (typeof menuCache)[0]>()
-    for (const m of menuCache) {
-      menuMap.set(m.toast_item_guid, m)
-    }
-
-    // 3. Calcular Net Sales de referencia y validar cada partida con anti-tampering y reglas estrictas de modificadores
-    let netSales = 0
-
-    for (const item of items) {
-      if (!item.quantity || item.quantity <= 0 || !Number.isInteger(item.quantity) || item.quantity > 50) {
-        return jsonError(`Cantidad inválida para el artículo (${item.quantity})`, 400, 'VALIDATION_ERROR')
+    const menuItemMap = new Map<
+      string,
+      {
+        menuItemV3: ToastMenuItemV3
+        groupsMap: Record<string, ToastModifierGroupV3>
       }
+    >()
 
-      const menuItem = menuMap.get(item.itemGuid)
-      if (!menuItem) {
-        return jsonError(`Artículo '${item.itemGuid}' no disponible en la sucursal ${store.name}`, 400, 'VALIDATION_ERROR')
-      }
+    for (const row of menuRows || []) {
+      const rawGroups = Array.isArray(row.modifier_groups_json)
+        ? row.modifier_groups_json
+        : []
+      const groupsMap: Record<string, ToastModifierGroupV3> = {}
+      const groupGuids: string[] = []
 
-      if (!menuItem.is_available) {
-        return jsonError(`El artículo '${menuItem.name}' está agotado actualmente`, 400, 'VALIDATION_ERROR')
-      }
-
-      const basePrice = Number(menuItem.price) || 0
-      let modifiersPrice = 0
-
-      // Extraer y validar grupos de modificadores del menú
-      const rawModGroups = menuItem.modifier_groups_json
-      const modGroups: Array<{
-        guid: string
-        name: string
-        minSelections: number
-        maxSelections: number
-        optionsMap: Map<string, { guid: string; name: string; price: number }>
-      }> = []
-
-      if (rawModGroups !== null && rawModGroups !== undefined) {
-        if (!Array.isArray(rawModGroups)) {
-          console.error(`❌ [ORDER QUOTE] modifier_groups_json no es array para item ${menuItem.toast_item_guid}`)
-          return jsonError(
-            `La información de modificadores del artículo '${menuItem.name}' está incompleta en el menú local.`,
-            400,
-            'MENU_DATA_INCOMPLETE'
-          )
-        }
-
-        for (const grp of rawModGroups as any[]) {
-          if (!grp || typeof grp !== 'object' || !grp.guid || !grp.name) {
-            console.error(`❌ [ORDER QUOTE] Grupo de modificadores inválido en item ${menuItem.toast_item_guid}`, grp)
-            return jsonError(
-              `Definición de grupo de modificadores incompleta para el artículo '${menuItem.name}'.`,
-              400,
-              'MENU_DATA_INCOMPLETE'
-            )
-          }
-
-          const rawOpts = grp.options || grp.modifiers || []
-          if (!Array.isArray(rawOpts)) {
-            return jsonError(
-              `Opciones de modificadores incompletas para el grupo '${grp.name}'.`,
-              400,
-              'MENU_DATA_INCOMPLETE'
-            )
-          }
-
-          const optionsMap = new Map<string, { guid: string; name: string; price: number }>()
-          for (const opt of rawOpts) {
-            if (!opt || !opt.guid || typeof opt.name !== 'string') {
-              return jsonError(
-                `Opción de modificador inválida en el grupo '${grp.name}'.`,
-                400,
-                'MENU_DATA_INCOMPLETE'
-              )
-            }
-            optionsMap.set(opt.guid.toLowerCase(), {
-              guid: opt.guid,
-              name: opt.name,
-              price: Number(opt.price) || 0
+      for (const grp of rawGroups) {
+        if (!grp || !grp.guid || !grp.name) continue
+        const minSel = Number(grp.minSelections ?? 0)
+        const maxSel = Number(grp.maxSelections ?? 10)
+        groupsMap[grp.guid] = {
+          guid: String(grp.guid),
+          name: String(grp.name),
+          minSelections: minSel,
+          maxSelections: maxSel,
+          required: minSel > 0 || Boolean(grp.required),
+          isMultiSelect: maxSel > 1,
+          options: (Array.isArray(grp.options) ? grp.options : []).map(
+            (opt: { guid?: string; name?: string; price?: number }) => ({
+              guid: String(opt.guid || ''),
+              name: String(opt.name || ''),
+              price: Number(opt.price || 0),
+              isAvailable: true,
+              isDefault: false,
             })
-          }
-
-          const minSel = typeof grp.minSelections === 'number'
-            ? grp.minSelections
-            : typeof grp.min === 'number'
-              ? grp.min
-              : grp.required ? 1 : 0
-          const maxSel = typeof grp.maxSelections === 'number'
-            ? grp.maxSelections
-            : typeof grp.max === 'number'
-              ? grp.max
-              : 99
-
-          modGroups.push({
-            guid: grp.guid,
-            name: grp.name,
-            minSelections: minSel,
-            maxSelections: maxSel,
-            optionsMap
-          })
+          ),
         }
+        groupGuids.push(String(grp.guid))
       }
 
-      // Si el cliente envió modificadores pero el artículo no tiene grupos de modificadores
-      const clientMods = item.modifiers || []
-      if (modGroups.length === 0 && clientMods.length > 0) {
-        return jsonError(
-          `El artículo '${menuItem.name}' no admite modificadores.`,
-          400,
-          'VALIDATION_ERROR'
-        )
-      }
-
-      // Validar cada modificador enviado por el cliente: debe pertenecer a algún grupo del artículo
-      const groupSelectionsCount = new Map<string, number>()
-      for (const grp of modGroups) {
-        groupSelectionsCount.set(grp.guid, 0)
-      }
-
-      for (const mod of clientMods) {
-        if (!mod || !mod.guid) {
-          return jsonError('Modificador con identificador GUID no proporcionado', 400, 'VALIDATION_ERROR')
-        }
-
-        const normalizedModGuid = mod.guid.toLowerCase()
-        let matchingGroup: (typeof modGroups)[0] | undefined
-
-        for (const grp of modGroups) {
-          if (grp.optionsMap.has(normalizedModGuid)) {
-            matchingGroup = grp
-            break
-          }
-        }
-
-        if (!matchingGroup) {
-          return jsonError(
-            `El modificador '${mod.guid}' no es válido para el platillo '${menuItem.name}'.`,
-            400,
-            'VALIDATION_ERROR'
-          )
-        }
-
-        const optData = matchingGroup.optionsMap.get(normalizedModGuid)!
-        modifiersPrice += optData.price
-
-        const currentCount = groupSelectionsCount.get(matchingGroup.guid) || 0
-        groupSelectionsCount.set(matchingGroup.guid, currentCount + 1)
-      }
-
-      // Validar restricciones de selección minSelections y maxSelections por cada grupo
-      for (const grp of modGroups) {
-        const count = groupSelectionsCount.get(grp.guid) || 0
-        if (grp.minSelections > 0 && count < grp.minSelections) {
-          return jsonError(
-            `El artículo '${menuItem.name}' requiere seleccionar al menos ${grp.minSelections} opción(es) en el grupo '${grp.name}'.`,
-            400,
-            'VALIDATION_ERROR'
-          )
-        }
-        if (grp.maxSelections > 0 && count > grp.maxSelections) {
-          return jsonError(
-            `El artículo '${menuItem.name}' permite como máximo ${grp.maxSelections} opción(es) en el grupo '${grp.name}' (seleccionadas: ${count}).`,
-            400,
-            'VALIDATION_ERROR'
-          )
-        }
-      }
-
-      const lineTotal = (basePrice + modifiersPrice) * item.quantity
-      netSales += lineTotal
-    }
-
-    netSales = Math.round(netSales * 100) / 100
-
-    // 4. Calcular tasa impositiva de referencia
-    const taxRate = getStoreTaxRate(storeId)
-    const taxAmount = Math.round(netSales * taxRate * 100) / 100
-    const safeTip = Math.max(0, Math.round(Number(tipAmount) * 100) / 100 || 0)
-
-    // 5. Invocar cálculo autoritativo en Toast Orders /prices API
-    const toastSelections = items.map(i => ({
-      itemGuid: i.itemGuid,
-      quantity: i.quantity,
-      modifiers: (i.modifiers || []).map(m => ({ guid: m.guid }))
-    }))
-
-    const pricesResult = await calculateToastPrices(store.external_id, {
-      selections: toastSelections,
-      deliveryAddress: channel === 'DELIVERY' && body.deliveryAddress ? {
-        streetAddress: body.deliveryAddress.streetAddress,
-        city: body.deliveryAddress.city,
-        state: body.deliveryAddress.state,
-        zipCode: body.deliveryAddress.zipCode,
-        latitude: body.deliveryAddress.latitude,
-        longitude: body.deliveryAddress.longitude
-      } : undefined
-    })
-
-    // Caso 1: Toast responde con bloqueo externo de permisos (HTTP 403 / code 10010)
-    if (!pricesResult.ok && pricesResult.code === 'BLOCKED_EXTERNALLY') {
-      return jsonOk({
-        ok: false,
-        code: 'BLOCKED_EXTERNALLY',
-        message: 'Pedidos en línea nativos en preparación: Esperando activación de permisos en Toast Partner Connect para el cálculo autoritativo de precios e impuestos.',
-        detail: {
-          httpStatus: pricesResult.httpStatus,
-          toastCode: pricesResult.toastCode,
-          requiredScopes: pricesResult.requiredScopes,
-          partnerActionRequired: pricesResult.partnerActionRequired
+      menuItemMap.set(row.toast_item_guid, {
+        menuItemV3: {
+          guid: row.toast_item_guid,
+          name: row.name,
+          description: null,
+          basePrice: Number(row.price),
+          imageUrl: null,
+          isAvailable: Boolean(row.is_available),
+          visibility: ['PICKUP', 'DELIVERY'],
+          modifierGroupGuids: groupGuids,
         },
-        estimatedReference: {
-          netSales,
-          taxRate,
-          taxAmount,
-          deliveryFee: 0,
-          tipAmount: safeTip,
-          discountAmount: 0,
-          totalAmount: Math.round((netSales + taxAmount + safeTip) * 100) / 100,
-          priceSource: 'estimated_reference',
-          isPayable: false
-        },
-        quoteId: null
+        groupsMap,
       })
     }
 
-    // Caso 2: Manejo granular de errores de Toast API
-    if (!pricesResult.ok) {
-      if (pricesResult.code === 'TOAST_TIMEOUT') {
-        return jsonError(`Tiempo de espera agotado al consultar Toast /prices: ${pricesResult.message}`, 504, 'TOAST_TIMEOUT')
+    let catalogSubtotal = 0
+    const validatedItems: Array<{
+      guid: string
+      name: string
+      qty: number
+      basePrice: number
+      modifiers: Array<{
+        guid: string
+        optionGroupGuid: string
+        name: string
+        price: number
+      }>
+      unitPrice: number
+      lineTotal: number
+      specialInstructions?: string
+    }> = []
+
+    for (const reqItem of normalizedInputItems) {
+      const entry = menuItemMap.get(reqItem.guid)
+      if (!entry) {
+        return quoteError(
+          `El artículo ${reqItem.guid} no existe en el menú de ${store.name}`,
+          400,
+          'VALIDATION_ERROR',
+          { retryable: false }
+        )
       }
-      if (pricesResult.code === 'TOAST_UNREACHABLE') {
-        return jsonError(`No fue posible conectar con los servidores de Toast POS: ${pricesResult.message}`, 503, 'NETWORK_UNAVAILABLE')
+
+      const validation = validateCartLineAgainstMenuV3(
+        entry.menuItemV3,
+        entry.groupsMap,
+        (reqItem.modifiers || []).map((m) => ({
+          optionGuid: m.guid,
+          groupGuid: m.optionGroupGuid,
+        })),
+        channel,
+        reqItem.qty
+      )
+
+      if (!validation.valid || !validation.resolvedItem) {
+        return quoteError(
+          validation.errors[0] || 'Selección de modificadores inválida',
+          400,
+          validation.code || 'VALIDATION_ERROR',
+          { retryable: false }
+        )
       }
-      if (pricesResult.code === 'TOAST_AUTH_ERROR') {
-        return jsonError(`Error de autenticación con Toast API: ${pricesResult.message}`, 502, 'TOAST_AUTH_ERROR')
-      }
-      return jsonError(`Error en Toast /prices API: ${pricesResult.message}`, 502, 'TOAST_API_ERROR')
+
+      catalogSubtotal += validation.resolvedItem.lineTotal
+      validatedItems.push({
+        guid: validation.resolvedItem.guid,
+        name: validation.resolvedItem.name,
+        qty: reqItem.qty,
+        basePrice: validation.resolvedItem.basePrice,
+        modifiers: validation.resolvedItem.modifiers,
+        unitPrice: validation.resolvedItem.unitPrice,
+        lineTotal: validation.resolvedItem.lineTotal,
+        specialInstructions: reqItem.specialInstructions?.trim() || undefined,
+      })
     }
 
-    // Caso 3: Cálculo autoritativo exitoso de Toast /prices
-    const authoritativePrices = pricesResult.data
-    const authoritativeNetSales = authoritativePrices.subtotal
-    const authoritativeTaxAmount = authoritativePrices.taxTotal
-    const authoritativeDeliveryFee = authoritativePrices.deliveryFee
-    const authoritativeTotalAmount = authoritativePrices.total
-    const discountAmount = authoritativePrices.discountTotal
+    catalogSubtotal = Math.round(catalogSubtotal * 100) / 100
+    const requestedTip = Math.max(0, Math.round(Number(tipAmount || 0) * 100) / 100)
 
-    // 6. Computar hash canónico del carrito y generar expiración (TTL: 10 minutos)
     const cartHash = computeCartHash({
       storeId,
       channel,
-      pickupMethod: body.pickupSubtype,
-      items,
-      deliveryAddress: body.deliveryAddress
+      items: validatedItems.map((i) => ({
+        guid: i.guid,
+        qty: i.qty,
+        modifiers: i.modifiers.map((m) => ({
+          guid: m.guid,
+          optionGroupGuid: m.optionGroupGuid,
+        })),
+      })),
+      tipAmount: requestedTip,
+      zipCode: channel === 'DELIVERY' ? deliveryAddress?.zipCode : null,
     })
 
-    const quoteId = crypto.randomUUID()
-    const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString()
+    const toastSelections = validatedItems.map((i, idx) => ({
+      itemGuid: i.guid,
+      quantity: i.qty,
+      externalId: `quote:${cartHash.slice(0, 12)}:line:${idx}`,
+      modifiers: i.modifiers.map((m, modIdx) => ({
+        guid: m.guid,
+        optionGroupGuid: m.optionGroupGuid,
+        quantity: 1,
+        externalId: `quote:${cartHash.slice(0, 12)}:line:${idx}:mod:${modIdx}`,
+      })),
+    }))
 
-    // 7. Extraer usuario autenticado si existe sesión
-    let userId: string | null = null
-    try {
-      const auth = await getAuthUser(request)
-      if (isAuthSuccess(auth)) {
-        const { data: userProfile } = await supabaseAdmin
-          .from('app_users')
-          .select('id')
-          .eq('id', auth.userId)
-          .maybeSingle()
-
-        if (userProfile) {
-          userId = userProfile.id
-        } else {
-          const safePhone = `+1${Date.now().toString().slice(-10)}`
-          const { error: insertUserErr } = await supabaseAdmin.from('app_users').insert({
-            id: auth.userId,
-            phone: safePhone,
-            email: auth.email || null,
-            first_name: 'Cliente',
-            last_name: 'Gavilan',
-          })
-          if (!insertUserErr) {
-            userId = auth.userId
-          }
-        }
-      }
-    } catch {
-      // Usuario invitado sin token Bearer
-    }
-
-    // 8. Persistir la cotización autoritativa en public.app_quotes con price_source = 'toast_prices'
-    const { error: quoteInsertErr } = await supabaseAdmin.from('app_quotes').insert({
-      id: quoteId,
-      user_id: userId,
-      store_id: storeId,
+    const toastPricesResp = await calculateToastPrices(store.external_id, {
       channel,
-      pickup_method: body.pickupSubtype ? body.pickupSubtype.toLowerCase() : 'in_store',
-      cart_hash: cartHash,
-      subtotal: authoritativeNetSales,
-      discount_amount: discountAmount,
-      tax_rate: taxRate,
-      tax_amount: authoritativeTaxAmount,
-      delivery_fee: authoritativeDeliveryFee,
-      tip_amount: safeTip,
-      total_amount: authoritativeTotalAmount,
-      currency: 'USD',
-      price_source: 'toast_prices',
-      price_version: 'v2',
-      items_json: items,
-      delivery_address: channel === 'DELIVERY' ? body.deliveryAddress : null,
-      status: 'OPEN',
-      expires_at: expiresAt,
+      selections: toastSelections,
+      tipAmount: requestedTip,
+      orderExternalId: `quote:${cartHash.slice(0, 16)}`,
+      deliveryAddress:
+        channel === 'DELIVERY' && deliveryAddress ? deliveryAddress : undefined,
     })
 
-    if (quoteInsertErr) {
-      console.error('❌ [ORDER QUOTE] Error al persistir cotización en app_quotes:', quoteInsertErr.message)
-      return jsonError('Error al generar la cotización autoritativa', 500)
+    // Caso 1: Toast POS devuelve HTTP 403 / code 10010 (TOAST_SCOPE_BLOCKED)
+    if (!toastPricesResp.ok && toastPricesResp.status === 'BLOCKED_EXTERNALLY') {
+      return jsonOk({
+        ok: false,
+        code: 'TOAST_SCOPE_BLOCKED',
+        quoteId: null,
+        priceSource: 'blocked_external',
+        requestId: toastPricesResp.requestId,
+        retryable: false,
+        toastStatus: toastPricesResp.blocked,
+        store: {
+          id: store.id,
+          name: store.name,
+          address: store.address,
+          phone: store.phone,
+        },
+        channel,
+        pickupSubType: channel === 'PICKUP' ? pickupSubType : null,
+        items: validatedItems,
+        estimatedReference: {
+          catalogSubtotal,
+          tipAmount: requestedTip,
+          currency: 'USD',
+          nonPayableEstimate: true,
+          disclaimer:
+            'Subtotal informativo de catálogo (no pagable). Los impuestos, recargos y total comprable se calculan exclusivamente en Toast POS (/orders/v2/prices) cuando se habiliten los permisos de escritura.',
+        },
+      })
     }
 
-    const paymentGatewayAvailable = false // Deshabilitado hasta aprobación de Toast Credit Cards
+    // Caso 2: Error técnico / timeout en Toast API
+    if (!toastPricesResp.ok) {
+      return quoteError(
+        toastPricesResp.error ||
+          'No se pudo obtener el cálculo de precios desde Toast POS.',
+        toastPricesResp.httpStatus >= 500 ? 502 : 422,
+        toastPricesResp.code || 'TOAST_API_ERROR',
+        {
+          requestId: toastPricesResp.requestId,
+          retryable: toastPricesResp.retryable,
+        }
+      )
+    }
 
-    const quoteData = {
-      ok: true,
-      quoteId,
-      cartHash,
-      expiresAt,
-      paymentGatewayAvailable,
-      financials: {
-        netSales: authoritativeNetSales,
-        taxRate,
-        taxAmount: authoritativeTaxAmount,
-        deliveryFee: authoritativeDeliveryFee,
-        tipAmount: safeTip,
-        discountAmount,
-        totalAmount: authoritativeTotalAmount,
-      },
-      priceSource: 'toast_prices'
+    // Caso 3: Toast /orders/v2/prices respondió con cálculo autoritativo
+    const authResult = toastPricesResp.result
+
+    const authenticatedUserId = isAuthSuccess(authUser) ? authUser.userId : null
+
+    if (authenticatedUserId) {
+      try {
+        await supabaseAdmin
+          .from('app_quotes')
+          .update({ status: 'EXPIRED' })
+          .eq('user_id', authenticatedUserId)
+          .eq('store_id', storeId)
+          .eq('status', 'OPEN')
+      } catch (expireErr) {
+        console.warn('[mobile/order/quote] Error expirando quotes previas:', expireErr)
+      }
+    }
+
+    const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString()
+
+    // Verificar si el usuario autenticado ya tiene fila en app_users (sin inventar datos falsos)
+    let validAppUserId: string | null = null
+    if (authenticatedUserId) {
+      const { data: existingProfile } = await supabaseAdmin
+        .from('app_users')
+        .select('id')
+        .eq('id', authenticatedUserId)
+        .maybeSingle()
+      if (existingProfile?.id) {
+        validAppUserId = existingProfile.id
+      }
+    }
+
+    const { data: savedQuote, error: quoteInsertErr } = await supabaseAdmin
+      .from('app_quotes')
+      .insert({
+        user_id: validAppUserId,
+        store_id: storeId,
+        channel,
+        pickup_method: pickupSubType === 'CURBSIDE' ? 'curbside' : 'in_store',
+        delivery_address:
+          channel === 'DELIVERY' && deliveryAddress ? deliveryAddress : null,
+        items_json: validatedItems,
+        subtotal: authResult.subtotal,
+        tax_rate: 0,
+        tax_amount: authResult.taxTotal,
+        delivery_fee: authResult.deliveryFee,
+        tip_amount: authResult.tipTotal,
+        discount_amount: authResult.discountTotal,
+        total_amount: authResult.totalAmount,
+        currency: 'USD',
+        price_version: 'v2',
+        cart_hash: cartHash,
+        price_source: 'toast_prices',
+        status: 'OPEN',
+        expires_at: expiresAt,
+      })
+      .select('id, expires_at')
+      .single()
+
+    if (quoteInsertErr || !savedQuote) {
+      console.error('❌ [mobile/order/quote] Error guardando quote:', quoteInsertErr)
+      return quoteError(
+        'No se pudo registrar la cotización autoritativa en base de datos.',
+        500,
+        'BACKEND_UNAVAILABLE',
+        { retryable: true }
+      )
     }
 
     return jsonOk({
-      ...quoteData,
-      data: quoteData
+      ok: true,
+      quoteId: savedQuote.id,
+      priceSource: 'toast_prices',
+      requestId: toastPricesResp.requestId,
+      retryable: false,
+      store: {
+        id: store.id,
+        name: store.name,
+        address: store.address,
+        phone: store.phone,
+      },
+      channel,
+      pickupSubType: channel === 'PICKUP' ? pickupSubType : null,
+      items: validatedItems,
+      financials: {
+        subtotal: authResult.subtotal,
+        taxAmount: authResult.taxTotal,
+        serviceChargeTotal: authResult.serviceChargeTotal,
+        deliveryFee: authResult.deliveryFee,
+        tipAmount: authResult.tipTotal,
+        discountAmount: authResult.discountTotal,
+        totalAmount: authResult.totalAmount,
+        currency: 'USD',
+      },
+      cartHash,
+      expiresAt: savedQuote.expires_at,
     })
   } catch (err) {
-    const msg = err instanceof Error ? err.message : 'Error inesperado'
-    console.error('❌ [ORDER QUOTE] Fatal error:', msg)
-    return jsonError('Error interno del servidor al procesar la cotización', 500)
+    console.error('❌ [mobile/order/quote] Error:', err)
+    return quoteError(
+      'Error interno al calcular cotización',
+      500,
+      'BACKEND_UNAVAILABLE',
+      { retryable: true }
+    )
   }
 }
 

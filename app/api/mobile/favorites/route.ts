@@ -1,3 +1,19 @@
+/**
+ * @module app/api/mobile/favorites/route
+ * @description Endpoint protegido para listar y guardar combinaciones favoritas de pedidos en Tacos Gavilan App.
+ *
+ * @businessRules
+ * - Requiere sesión autenticada vía Bearer JWT.
+ * - Limita a un máximo de 20 combinaciones favoritas por comensal.
+ * - Cada ítem guardado debe poseer un `itemGuid` válido y cantidad positiva.
+ *
+ * @dataFlow
+ * - App Móvil GET/POST `/api/mobile/favorites` -> `getAuthUser` -> `public.app_favorite_orders`.
+ *
+ * @notes
+ * - Los registros se eliminan permanentemente cuando el usuario ejecuta `/api/mobile/user/delete`.
+ */
+
 import { type NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import {
@@ -7,17 +23,6 @@ import {
   getAuthUser,
   isAuthSuccess,
 } from '../_helpers'
-
-// ============================================================================
-// /api/mobile/favorites — Combinaciones favoritas (protegido)
-// ============================================================================
-// Permite al usuario guardar y recuperar sus combinaciones favoritas.
-// Cada favorito es un snapshot de ítems del carrito con un nombre personalizado.
-//
-// Métodos:
-//   GET  — Listar favoritos del usuario autenticado
-//   POST — Guardar un nuevo favorito
-// ============================================================================
 
 // --- Tipos ---
 

@@ -70,7 +70,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // 3. Consultar la orden existente
     const { data: order, error: orderErr } = await supabaseAdmin
       .from('app_orders')
-      .select('id, user_id, store_id, status, pickup_method, items_json')
+      .select('id, user_id, store_id, status, payment_status, pickup_method, items_json')
       .eq('id', orderId)
       .single()
 
@@ -110,13 +110,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       updated_at: now,
     }
 
-    // Si la orden aún estaba en HOLDING, intentar dispararla inmediatamente a cocina Toast KDS
+    // Si la orden aún estaba en HOLDING, pagada (PAID) y Hold-and-Fire está activo, intentar dispararla a Toast KDS
+    const holdAndFireEnabled = process.env.ENABLE_MOBILE_HOLD_AND_FIRE === 'true'
     let triggeredFire = false
     let toastInjected = false
     let toastOrderGuid: string | null = null
     let toastError: string | null = null
 
-    if (order.status === 'HOLDING') {
+    if (order.status === 'HOLDING' && order.payment_status === 'PAID' && holdAndFireEnabled) {
       try {
         const toastRes = await injectOrderToToast(orderId)
         if (toastRes.ok && toastRes.toastOrderGuid) {

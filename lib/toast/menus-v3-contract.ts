@@ -1,284 +1,355 @@
 /**
  * @module lib/toast/menus-v3-contract
- * @description Contrato TypeScript autoritativo para Toast Menus V3 API y Orders /prices API.
- * Diseñado conforme a los estándares oficiales de Toast Partner Connect (Tacos Gavilan).
- * 
+ * @description Contratos estrictos TypeScript y validador unificado para Toast Menus V3 API,
+ * grupos de modificadores, disponibilidad por canal (PICKUP / DELIVERY) y clasificación de bloqueos externos.
+ *
  * @businessRules
- * - Prohibición de GUIDs ficticios (e.g. 'group-*', 'mod-cebolla', 'sin-*'). Todos los identificadores deben ser GUIDs reales de Toast.
- * - Validación estricta de modificadores: cada opción debe pertenecer al grupo y producto correspondiente.
- * - Cero descarte silencioso: cualquier modificador desconocido o fuera de rango min/max produce un error explícito.
- * - Separación de identidad: cartLineId local es independiente del Toast item GUID.
- * - Autoridad financiera: los precios vinculantes para el checkout provienen exclusivamente de Toast /prices.
- * 
+ * - Todo artículo y modificador DEBE tener un `guid` real de Toast POS en formato UUID estándar;
+ *   prohibido usar IDs sintéticos (`mod-cebolla`, `mod-salsa-roja`, `sin-*`, `ext_*`, `tort_*`).
+ * - Valida `minSelections` (grupos obligatorios), `maxSelections`, exclusividad (`!isMultiSelect`),
+ *   prevención de duplicados por grupo y modificadores anidados (`nestedModifiers`).
+ * - No inventa el scope `orders.prices:read`; lista únicamente scopes documentados oficialmente por Toast
+ *   (`orders:write`, `menus.channel:read`, `menus:read`) e indica que el scope exacto para `/orders/v2/prices`
+ *   está sujeto a confirmación del representante de Toast.
+ *
  * @dataFlow
- * - Menus V3 (Toast) -> Normalización en Backend -> Catálogo y Personalizador Móvil -> Validación -> Orders /prices.
- * 
+ * - Toast Menus V3 / `app_menu_cache` -> `validateCartLineAgainstMenuV3` -> `/api/mobile/order/quote` & `/api/mobile/order/create`.
+ *
  * @notes
- * - Cuando Toast responde HTTP 403 / code 10010, el sistema categoriza el estado como BLOCKED_EXTERNALLY.
+ * - Validador unificado utilizado en producción por `/api/mobile/order/quote` y en la suite de pruebas automatizadas.
  */
 
-// ─────────────────────────────────────────────────────────────
-// 1. Interfaces de Toast Menus V3
-// ─────────────────────────────────────────────────────────────
+export type FulfillmentChannel = 'PICKUP' | 'DELIVERY'
 
-export interface ToastMenuV3Option {
+export type PickupSubType = 'IN_STORE' | 'CURBSIDE'
+
+export type NativeIntegrationStatus =
+  | 'READY'
+  | 'BLOCKED_EXTERNALLY'
+  | 'DISABLED_BY_FLAG'
+
+export type MobileApiErrorCode =
+  | 'TOAST_SCOPE_BLOCKED'
+  | 'NETWORK_UNAVAILABLE'
+  | 'BACKEND_UNAVAILABLE'
+  | 'TOAST_TIMEOUT'
+  | 'TOAST_API_ERROR'
+  | 'MENU_DATA_INCOMPLETE'
+  | 'VALIDATION_ERROR'
+  | 'DELIVERY_DISABLED'
+
+export const UUID_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+export interface ToastMenuOptionV3 {
   guid: string
   name: string
   price: number
-  isDefault?: boolean
-  calories?: number | null
+  isAvailable: boolean
+  isDefault: boolean
+  nestedModifierGroupGuids?: string[]
 }
 
-export interface ToastMenuV3ModifierGroup {
+export interface ToastModifierGroupV3 {
   guid: string
   name: string
-  required: boolean
   minSelections: number
   maxSelections: number
+  required: boolean
   isMultiSelect: boolean
-  options: ToastMenuV3Option[]
+  allowDuplicates?: boolean
+  options: ToastMenuOptionV3[]
 }
 
-export interface ToastMenuV3Item {
+export interface ToastMenuItemV3 {
   guid: string
   name: string
-  description?: string
-  price: number
-  calories?: number | null
-  imageUrl?: string
-  visibility: 'ALL' | 'ONLINE_ONLY' | 'POS_ONLY'
+  description: string | null
+  basePrice: number
+  imageUrl: string | null
   isAvailable: boolean
-  modifierGroups: ToastMenuV3ModifierGroup[]
+  visibility: FulfillmentChannel[]
+  modifierGroupGuids: string[]
 }
 
-export interface ToastMenuV3Subgroup {
+export interface ToastMenuCategoryV3 {
   guid: string
   name: string
-  items: ToastMenuV3Item[]
+  sortOrder: number
+  items: ToastMenuItemV3[]
 }
 
-export interface ToastMenuV3Group {
-  guid: string
-  name: string
-  subgroups: ToastMenuV3Subgroup[]
+export interface ToastStoreMenuSnapshotV3 {
+  storeId: number
+  restaurantExternalId: string
+  versionHash: string
+  syncedAt: string
+  channelsSupported: FulfillmentChannel[]
+  diningOptions: {
+    pickupGuid: string | null
+    curbsideGuid: string | null
+    deliveryGuid: string | null
+  }
+  categories: ToastMenuCategoryV3[]
+  modifierGroups: Record<string, ToastModifierGroupV3>
 }
 
-export interface ToastMenusV3Catalog {
-  restaurantGuid: string
-  menuVersion: string
-  diningOption: 'TAKE_OUT' | 'DINE_IN' | 'DELIVERY' | 'CURBSIDE'
-  lastUpdated: string
-  groups: ToastMenuV3Group[]
+export interface ToastWriteBlockedDescriptor {
+  status: 'BLOCKED_EXTERNALLY'
+  code: 'TOAST_SCOPE_BLOCKED'
+  toastCode: 10010 | number
+  httpStatus: number
+  requestId: string | null
+  retryable: false
+  requiredScopes: string[]
+  title: string
+  userMessage: string
+  technicalDetail: string
 }
 
-// ─────────────────────────────────────────────────────────────
-// 2. Interfaces de Toast Orders /prices API (Cálculo Financiero)
-// ─────────────────────────────────────────────────────────────
+export const TOAST_WRITE_BLOCKED_DESCRIPTOR: ToastWriteBlockedDescriptor = {
+  status: 'BLOCKED_EXTERNALLY',
+  code: 'TOAST_SCOPE_BLOCKED',
+  toastCode: 10010,
+  httpStatus: 403,
+  requestId: null,
+  retryable: false,
+  requiredScopes: ['orders:write', 'menus.channel:read', 'menus:read'],
+  title: 'Integración Nativa en Espera de Permisos Toast POS',
+  userMessage:
+    'Tu selección en la bolsa fue validada localmente, pero el cálculo autoritativo de precios (/orders/v2/prices) y el envío directo a cocina en Toast POS requieren la habilitación oficial de permisos de escritura por parte de Toast. Tu bolsa permanece guardada.',
+  technicalDetail:
+    'Toast API responded HTTP 403 (code 10010: Access Denied). Documented scopes required: orders:write and menus.channel:read / menus:read (exact scope enabling /orders/v2/prices pending Toast representative confirmation).',
+}
 
-export interface ToastPricesSelectionModifier {
+export interface CartModifierSelectionInput {
+  optionGuid: string
+  groupGuid?: string
+  qty?: number
+  nestedModifiers?: CartModifierSelectionInput[]
+}
+
+export interface ResolvedValidatedModifier {
   guid: string
   optionGroupGuid: string
+  name: string
+  price: number
 }
 
-export interface ToastPricesSelectionItem {
-  itemGuid: string
-  quantity: number
-  modifiers?: ToastPricesSelectionModifier[]
-}
-
-export interface ToastPricesRequest {
-  restaurantGuid: string
-  diningOptionGuid: string
-  items: ToastPricesSelectionItem[]
-  deliveryAddress?: {
-    streetAddress1: string
-    streetAddress2?: string
-    city: string
-    state: string
-    zipCode: string
-    latitude?: number
-    longitude?: number
+export interface CartLineValidationResult {
+  valid: boolean
+  code?: 'VALIDATION_ERROR' | 'MENU_DATA_INCOMPLETE'
+  errors: string[]
+  resolvedItem?: {
+    guid: string
+    name: string
+    basePrice: number
+    unitPrice: number
+    lineTotal: number
+    modifiers: ResolvedValidatedModifier[]
   }
 }
-
-export interface ToastPricesBreakdownItem {
-  itemGuid: string
-  name: string
-  quantity: number
-  basePrice: number
-  modifierPriceTotal: number
-  totalPrice: number
-}
-
-export interface ToastPricesResponse {
-  subtotal: number
-  taxTotal: number
-  serviceChargeTotal: number
-  deliveryFee: number
-  discountTotal: number
-  tipTotal: number
-  total: number
-  currency: string
-  breakdown: ToastPricesBreakdownItem[]
-  toastCalculatedAt: string
-}
-
-// ─────────────────────────────────────────────────────────────
-// 3. Resultado de Error de Bloqueo Externo (HTTP 403 / 10010)
-// ─────────────────────────────────────────────────────────────
-
-export interface ToastExternalBlockedResult {
-  ok: false
-  code: 'BLOCKED_EXTERNALLY'
-  httpStatus: 403
-  toastCode: 10010
-  message: string
-  requiredScopes: string[]
-  partnerActionRequired: string
-}
-
-export const TOAST_WRITE_BLOCKED_DESCRIPTOR: ToastExternalBlockedResult = {
-  ok: false,
-  code: 'BLOCKED_EXTERNALLY',
-  httpStatus: 403,
-  toastCode: 10010,
-  message: "Acceso denegado: El cliente de Toast Partner Connect para Tacos Gavilan aún no cuenta con el scope 'orders.orders:write' o '/prices' habilitado por Toast.",
-  requiredScopes: ['orders.orders:write', 'orders.prices:read', 'menus.menu:read'],
-  partnerActionRequired: 'Toast Partner Management debe aprobar y asignar los scopes de escritura a las credenciales de producción de Tacos Gavilan.'
-}
-
-// ─────────────────────────────────────────────────────────────
-// 4. Validador de Carrito contra Catálogo Menus V3
-// ─────────────────────────────────────────────────────────────
-
-export interface CartLineValidationInput {
-  cartLineId: string
-  itemGuid: string
-  quantity: number
-  modifiers?: Array<{
-    optionGuid: string
-    groupGuid: string
-  }>
-}
-
-export interface ValidationSuccessResult {
-  valid: true
-  cartLineId: string
-  item: ToastMenuV3Item
-  validatedModifiers: ToastMenuV3Option[]
-  estimatedSubtotal: number
-}
-
-export interface ValidationErrorResult {
-  valid: false
-  cartLineId: string
-  error: string
-  field?: string
-}
-
-export type CartItemValidationResult = ValidationSuccessResult | ValidationErrorResult
 
 /**
- * Valida rigurosamente una línea del carrito contra la definición auténtica de Menus V3.
- * Regla: No admite modificadores desconocidos, respeta min/max y evita duplicaciones no permitidas.
+ * Valida una línea del carrito contra el contrato de menú y modificadores de Toast POS.
  */
 export function validateCartLineAgainstMenuV3(
-  input: CartLineValidationInput,
-  catalogItemsMap: Map<string, ToastMenuV3Item>
-): CartItemValidationResult {
-  if (!input.quantity || input.quantity <= 0 || !Number.isInteger(input.quantity)) {
-    return {
-      valid: false,
-      cartLineId: input.cartLineId,
-      error: `Cantidad inválida (${input.quantity}). Debe ser un entero positivo mayor a cero.`,
-      field: 'quantity'
-    }
+  menuItem: ToastMenuItemV3,
+  modifierGroupsMap: Record<string, ToastModifierGroupV3>,
+  selectedModifiers: CartModifierSelectionInput[],
+  channel: FulfillmentChannel,
+  qty: number = 1
+): CartLineValidationResult {
+  const errors: string[] = []
+
+  if (!menuItem.guid || !UUID_REGEX.test(menuItem.guid)) {
+    errors.push(`El GUID del artículo "${menuItem.name || menuItem.guid}" no es un UUID válido de Toast POS.`)
+    return { valid: false, code: 'VALIDATION_ERROR', errors }
   }
 
-  const menuItem = catalogItemsMap.get(input.itemGuid)
-  if (!menuItem) {
-    return {
-      valid: false,
-      cartLineId: input.cartLineId,
-      error: `El platillo con GUID ${input.itemGuid} no existe en el catálogo oficial de esta sucursal.`,
-      field: 'itemGuid'
-    }
+  if (!Number.isInteger(qty) || qty <= 0 || qty > 99) {
+    errors.push(`Cantidad inválida (${qty}) para "${menuItem.name}". Debe ser un entero entre 1 y 99.`)
+    return { valid: false, code: 'VALIDATION_ERROR', errors }
   }
 
   if (!menuItem.isAvailable) {
-    return {
-      valid: false,
-      cartLineId: input.cartLineId,
-      error: `El platillo '${menuItem.name}' no está disponible actualmente en esta sucursal.`,
-      field: 'isAvailable'
-    }
+    errors.push(`El artículo "${menuItem.name}" se encuentra agotado temporalmente (86'd).`)
   }
 
-  const requestedMods = input.modifiers || []
-  const validatedOptions: ToastMenuV3Option[] = []
-  let modifiersPriceSum = 0
+  if (Array.isArray(menuItem.visibility) && !menuItem.visibility.includes(channel)) {
+    errors.push(`El artículo "${menuItem.name}" no está disponible para el canal ${channel}.`)
+  }
 
-  // Validar cada grupo de modificadores del producto
-  for (const group of menuItem.modifierGroups) {
-    const selectedInThisGroup = requestedMods.filter(m => m.groupGuid === group.guid)
-
-    // Validar mínimo requerido
-    if (group.required && selectedInThisGroup.length < group.minSelections) {
-      return {
-        valid: false,
-        cartLineId: input.cartLineId,
-        error: `El grupo '${group.name}' requiere al menos ${group.minSelections} selección(es) (recibidas: ${selectedInThisGroup.length}).`,
-        field: group.guid
-      }
+  const itemGroups: ToastModifierGroupV3[] = []
+  for (const grpGuid of menuItem.modifierGroupGuids || []) {
+    const grp = modifierGroupsMap[grpGuid]
+    if (!grp) {
+      errors.push(`Datos de menú incompletos: grupo de modificadores "${grpGuid}" no encontrado para "${menuItem.name}".`)
+      return { valid: false, code: 'MENU_DATA_INCOMPLETE', errors }
     }
+    itemGroups.push(grp)
+  }
 
-    // Validar máximo permitido
-    if (group.maxSelections > 0 && selectedInThisGroup.length > group.maxSelections) {
-      return {
-        valid: false,
-        cartLineId: input.cartLineId,
-        error: `El grupo '${group.name}' permite máximo ${group.maxSelections} selección(es) (recibidas: ${selectedInThisGroup.length}).`,
-        field: group.guid
+  if (itemGroups.length === 0 && selectedModifiers.length > 0) {
+    errors.push(`El artículo "${menuItem.name}" no admite modificadores.`)
+    return { valid: false, code: 'VALIDATION_ERROR', errors }
+  }
+
+  const byGroup = new Map<string, CartModifierSelectionInput[]>()
+  const resolvedModifiers: ResolvedValidatedModifier[] = []
+
+  const validateModifierList = (
+    modsToValidate: CartModifierSelectionInput[],
+    allowedGroups: ToastModifierGroupV3[],
+    contextLabel: string
+  ) => {
+    for (const sel of modsToValidate) {
+      const optGuid = String(sel.optionGuid || '').trim()
+      if (!optGuid || !UUID_REGEX.test(optGuid)) {
+        errors.push(
+          `El modificador "${optGuid}" en ${contextLabel} no tiene un UUID válido de Toast POS (prohibidos IDs sintéticos).`
+        )
+        continue
       }
-    }
 
-    // Validar existencia de cada opción dentro del grupo oficial
-    for (const sel of selectedInThisGroup) {
-      const optionDef = group.options.find(opt => opt.guid === sel.optionGuid)
-      if (!optionDef) {
-        return {
-          valid: false,
-          cartLineId: input.cartLineId,
-          error: `El modificador ${sel.optionGuid} no pertenece al grupo '${group.name}' de '${menuItem.name}'.`,
-          field: 'optionGuid'
+      let targetGroup: ToastModifierGroupV3 | undefined
+      if (sel.groupGuid) {
+        targetGroup = allowedGroups.find((g) => g.guid === sel.groupGuid)
+        if (!targetGroup) {
+          errors.push(
+            `El grupo de modificadores "${sel.groupGuid}" no pertenece a ${contextLabel}.`
+          )
+          continue
+        }
+      } else {
+        const matchingGroups = allowedGroups.filter((g) =>
+          g.options.some((o) => o.guid === optGuid)
+        )
+        if (matchingGroups.length === 0) {
+          errors.push(
+            `El modificador "${optGuid}" no pertenece a ningún grupo permitido de ${contextLabel}.`
+          )
+          continue
+        }
+        if (matchingGroups.length > 1) {
+          errors.push(
+            `El modificador "${optGuid}" aparece en múltiples grupos de ${contextLabel}; debe especificarse optionGroupGuid.`
+          )
+          continue
+        }
+        targetGroup = matchingGroups[0]
+      }
+
+      const matchedOpt = targetGroup.options.find((o) => o.guid === optGuid)
+      if (!matchedOpt) {
+        errors.push(
+          `La opción "${optGuid}" no existe dentro del grupo "${targetGroup.name}" en ${contextLabel}.`
+        )
+        continue
+      }
+
+      if (!matchedOpt.isAvailable) {
+        errors.push(
+          `La opción "${matchedOpt.name}" en "${targetGroup.name}" no está disponible actualmente.`
+        )
+        continue
+      }
+
+      const currentInGroup = byGroup.get(targetGroup.guid) || []
+      currentInGroup.push(sel)
+      byGroup.set(targetGroup.guid, currentInGroup)
+
+      resolvedModifiers.push({
+        guid: matchedOpt.guid,
+        optionGroupGuid: targetGroup.guid,
+        name: matchedOpt.name,
+        price: Number(matchedOpt.price || 0),
+      })
+
+      // Validar nestedModifiers si existen
+      if (sel.nestedModifiers && sel.nestedModifiers.length > 0) {
+        const nestedGroupGuids = matchedOpt.nestedModifierGroupGuids || []
+        if (nestedGroupGuids.length === 0) {
+          errors.push(
+            `La opción "${matchedOpt.name}" no admite modificadores anidados.`
+          )
+        } else {
+          const nestedAllowedGroups = nestedGroupGuids
+            .map((id) => modifierGroupsMap[id])
+            .filter(Boolean)
+          validateModifierList(
+            sel.nestedModifiers,
+            nestedAllowedGroups,
+            `"${matchedOpt.name}"`
+          )
         }
       }
-      validatedOptions.push(optionDef)
-      modifiersPriceSum += Number(optionDef.price) || 0
     }
   }
 
-  // Verificar si hay modificadores huérfanos que no pertenecen a ningún grupo del producto
-  const itemGroupGuids = new Set(menuItem.modifierGroups.map(g => g.guid))
-  for (const sel of requestedMods) {
-    if (!itemGroupGuids.has(sel.groupGuid)) {
-      return {
-        valid: false,
-        cartLineId: input.cartLineId,
-        error: `El grupo de modificadores ${sel.groupGuid} no pertenece a '${menuItem.name}'. Prohibido descarte silencioso.`,
-        field: 'groupGuid'
+  validateModifierList(selectedModifiers, itemGroups, `"${menuItem.name}"`)
+
+  // Validar cardinalidades, exclusividad y duplicados por cada grupo del ítem
+  for (const group of itemGroups) {
+    const selectedInThisGroup = byGroup.get(group.guid) || []
+    const count = selectedInThisGroup.length
+    const effectiveMin = Math.max(group.minSelections || 0, group.required ? 1 : 0)
+    const effectiveMax = group.maxSelections ?? 10
+
+    if (effectiveMin > 0 && count < effectiveMin) {
+      errors.push(
+        `El grupo "${group.name}" en "${menuItem.name}" requiere al menos ${effectiveMin} selección(es).`
+      )
+    }
+
+    if (effectiveMax > 0 && count > effectiveMax) {
+      errors.push(
+        `El grupo "${group.name}" en "${menuItem.name}" permite máximo ${effectiveMax} selección(es).`
+      )
+    }
+
+    if (!group.isMultiSelect && effectiveMax === 1 && count > 1) {
+      errors.push(
+        `El grupo "${group.name}" en "${menuItem.name}" es de selección única (exclusivo).`
+      )
+    }
+
+    if (!group.allowDuplicates && count > 1) {
+      const seenOptionGuids = new Set<string>()
+      for (const sel of selectedInThisGroup) {
+        if (seenOptionGuids.has(sel.optionGuid)) {
+          errors.push(
+            `No se permiten opciones duplicadas ("${sel.optionGuid}") dentro del grupo "${group.name}" en "${menuItem.name}".`
+          )
+          break
+        }
+        seenOptionGuids.add(sel.optionGuid)
       }
     }
   }
 
-  const unitBasePrice = Number(menuItem.price) || 0
-  const estimatedSubtotal = Math.round((unitBasePrice + modifiersPriceSum) * input.quantity * 100) / 100
+  if (errors.length > 0) {
+    return {
+      valid: false,
+      code: 'VALIDATION_ERROR',
+      errors,
+    }
+  }
+
+  const modsPriceSum = resolvedModifiers.reduce((acc, m) => acc + m.price, 0)
+  const unitPrice = Math.round((Number(menuItem.basePrice) + modsPriceSum) * 100) / 100
+  const lineTotal = Math.round(unitPrice * qty * 100) / 100
 
   return {
     valid: true,
-    cartLineId: input.cartLineId,
-    item: menuItem,
-    validatedModifiers: validatedOptions,
-    estimatedSubtotal
+    errors: [],
+    resolvedItem: {
+      guid: menuItem.guid,
+      name: menuItem.name,
+      basePrice: Number(menuItem.basePrice),
+      unitPrice,
+      lineTotal,
+      modifiers: resolvedModifiers,
+    },
   }
 }

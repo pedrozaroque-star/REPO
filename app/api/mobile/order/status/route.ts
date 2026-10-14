@@ -103,28 +103,17 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
           deliveryStatus = 'AWAITING_ARRIVAL'
       }
     } else {
-      // Canal DELIVERY (DoorDash Drive)
-      switch (kitchenStatus) {
-        case 'HOLDING':
-          deliveryStatus = 'ORDER_PLACED'
-          break
-        case 'FIRED':
-          deliveryStatus = 'DISPATCHING_DRIVER'
-          break
-        case 'PREPARING':
-          deliveryStatus = 'DRIVER_ASSIGNED'
-          break
-        case 'READY':
-          deliveryStatus = 'OUT_FOR_DELIVERY'
-          break
-        case 'COMPLETED':
-          deliveryStatus = 'DELIVERED'
-          break
-        case 'CANCELLED':
-          deliveryStatus = 'CANCELLED'
-          break
-        default:
-          deliveryStatus = 'DISPATCHING_DRIVER'
+      // Canal DELIVERY: Prohibido inventar estados de chofer (DRIVER_ASSIGNED, OUT_FOR_DELIVERY)
+      // a partir de kitchenStatus. Solo se reporta el estado oficial recibido por webhook de DoorDash.
+      const officialDeliveryStatus = itemsJsonObj.deliveryTracking?.status
+      if (typeof officialDeliveryStatus === 'string' && officialDeliveryStatus.trim().length > 0) {
+        deliveryStatus = officialDeliveryStatus
+      } else if (kitchenStatus === 'CANCELLED') {
+        deliveryStatus = 'CANCELLED'
+      } else if (kitchenStatus === 'COMPLETED') {
+        deliveryStatus = 'DELIVERED'
+      } else {
+        deliveryStatus = 'PENDING_EXTERNAL_DISPATCH'
       }
     }
 

@@ -113,6 +113,7 @@ export const dictionaries: Record<Language, Dictionary> = {
             create_bills: 'Crear Bills',
             maintenance: 'Mantenimiento & Proveedores',
             blindaje_delivery: 'Blindaje Delivery',
+            gavilan_pos: 'Gavilan POS',
         },
         // LOGIN
         login: {
@@ -4808,6 +4809,33 @@ export const dictionaries: Record<Language, Dictionary> = {
             btn_confirm_step1_first: 'PRIMERO CONFIRMA ORDEN COMPLETA Y SELLADA',
             btn_check_collision_box: 'TOCA LA CASILLA DE ARRIBA PARA CONFIRMAR APELLIDO Y #CHECK',
             btn_release_order_prefix: 'ENTREGAR ORDEN DE'
+        },
+        gavilan_pos: {
+            brand_title: 'Gavilan POS Cloud & Terminal Suite',
+            brand_subtitle: 'Ecosistema Unificado de Punto de Venta, KDS HDMI, Pagos & Delivery Directo',
+            search_placeholder: 'Buscar platillo, estación, impresora, impuesto o ajuste (Ctrl+K)...',
+            all_stores: 'Todas las Sucursales (15 Tiendas)',
+            staged_changes: 'Cambios en Borrador',
+            all_synced: '15 Tiendas Sincronizadas en Vivo',
+            review_publish_btn: 'Revisar Diff y Publicar',
+            open_pos_simulator: 'Abrir Caja Piloto',
+            open_kds_simulator: 'Ver KDS + HDMI',
+            nav_command: 'Centro de Comando',
+            nav_command_desc: 'Pulso en vivo, 86 rápido y publicación inteligente',
+            nav_menu: 'Estudio de Menú',
+            nav_menu_desc: 'Constructor visual, matriz en lote y modificadores',
+            nav_register: 'Caja POS & Front of House',
+            nav_register_desc: 'Terminal de cajero en vivo, pantalla cliente y comedores',
+            nav_kds: 'Cocina & KDS HDMI',
+            nav_kds_desc: 'Estaciones, ruteo, Bump Bar USB y espejo HDMI',
+            nav_tickets: 'Diseño de Tickets ESC/POS',
+            nav_tickets_desc: 'Recibo térmico 80mm y comanda bicolor rojo/negro',
+            nav_payments: 'Pagos, Bancos & EBT RMP',
+            nav_payments_desc: 'Interchange++, PAX A35, CalFresh RMP e impuestos',
+            nav_delivery: 'Delivery Directo API',
+            nav_delivery_desc: 'Uber Eats, DoorDash y Grubhub sin intermediarios',
+            nav_hardware: 'Hardware LAN, Caja & Roles',
+            nav_hardware_desc: 'Impresoras IP, cajones RJ12, Cortes Z y permisos'
         }
     },
     en: {
@@ -4901,6 +4929,7 @@ export const dictionaries: Record<Language, Dictionary> = {
             create_bills: 'Create Bills',
             maintenance: 'Maintenance & Vendors',
             blindaje_delivery: 'Delivery Armor',
+            gavilan_pos: 'Gavilan POS',
         },
         // LOGIN
         login: {
@@ -9596,6 +9625,33 @@ export const dictionaries: Record<Language, Dictionary> = {
             btn_confirm_step1_first: 'FIRST CONFIRM ORDER COMPLETE AND SEALED',
             btn_check_collision_box: 'TAP THE BOX ABOVE TO CONFIRM LAST NAME & #CHECK',
             btn_release_order_prefix: 'RELEASE ORDER FOR'
+        },
+        gavilan_pos: {
+            brand_title: 'Gavilan POS Cloud & Terminal Suite',
+            brand_subtitle: 'Unified Point of Sale, HDMI KDS, Payments & Direct Delivery Ecosystem',
+            search_placeholder: 'Search menu item, prep station, printer, tax rate or setting (Ctrl+K)...',
+            all_stores: 'All Locations (15 Stores)',
+            staged_changes: 'Staged Changes',
+            all_synced: '15 Stores Live & Synced',
+            review_publish_btn: 'Review Diff & Publish',
+            open_pos_simulator: 'Open Pilot Register',
+            open_kds_simulator: 'View KDS + HDMI',
+            nav_command: 'Command Center',
+            nav_command_desc: 'Live pulse, instant 86ing & smart diff publishing',
+            nav_menu: 'Unified Menu Studio',
+            nav_menu_desc: 'Visual builder, bulk matrix & modifier groups',
+            nav_register: 'POS Register & Front of House',
+            nav_register_desc: 'Live cashier terminal, customer display & dining options',
+            nav_kds: 'Kitchen & KDS HDMI',
+            nav_kds_desc: 'Prep stations, routing, USB Bump Bar & HDMI mirror',
+            nav_tickets: 'ESC/POS Ticket Studio',
+            nav_tickets_desc: '80mm thermal guest receipt & red/black impact kitchen ticket',
+            nav_payments: 'Payments, Banks & EBT RMP',
+            nav_payments_desc: 'Interchange++, PAX A35, CalFresh RMP & tax rules',
+            nav_delivery: 'Direct Delivery API',
+            nav_delivery_desc: 'Zero-middleman Uber Eats, DoorDash & Grubhub hub',
+            nav_hardware: 'LAN Hardware, Cash & Roles',
+            nav_hardware_desc: 'Static IP printers, RJ12 drawers, Z-Reports & RBAC'
         }
     }
 };

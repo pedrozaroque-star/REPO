@@ -1,46 +1,45 @@
 /**
  * @module api/mobile/menu
- * @description Public endpoint returning the active restaurant menu and modifier groups for a specific store.
+ * @description Endpoint público que devuelve el catálogo de menú y grupos de modificadores por platillo para una sucursal.
+ *
  * @businessRules
- * - Reads from app_menu_cache filtered by store_id and is_available = true.
- * - Extracts and aggregates modifier groups so the customer customizer can render ingredient choices.
- * - Exposes both guid and toastGuid matching Toast POS item UUIDs.
- * - Emite metadata de catálogo explícita (catalogMetadata) advirtiendo que los datos provienen de caché local
- *   no reconciliada en tiempo real con Toast Menus V3 (purchasable = false) hasta aprobación de scopes externos.
+ * - Lee de `public.app_menu_cache` filtrado por `store_id` e `is_available = true`.
+ * - Adjunta a cada platillo (`modifierGroups`) exclusivamente los grupos de modificadores que le corresponden
+ *   (ej. Hielo en aguas frescas, Tipo de Tortilla obligatoria en platos, cero modificadores en postres/aguas embotelladas).
+ * - Emite `catalogMetadata` explícito identificando la fuente (`LEGACY_CACHE_UNRECONCILED`, `purchasable: false`)
+ *   mientras Toast POS mantiene bloqueados los scopes `menus.channel:read` / `menus:read` y `/orders/v2/prices`.
+ *
  * @dataFlow
- * - Client GET /api/mobile/menu?storeId=N -> Supabase app_menu_cache -> Grouped categories, modifier groups, and catalogMetadata JSON.
+ * - GET /api/mobile/menu?storeId=N&channel=PICKUP -> Supabase `app_menu_cache` -> `{ categories, modifierGroups, catalogMetadata }`.
+ *
  * @notes
- * - Returns authentic Toast pricing and UUIDs for display; authoritative pricing is resolved via /prices quote.
- * - Identifies data as LEGACY_CACHE_UNRECONCILED to avoid false claims of real-time Menus V3 synchronization.
+ * - Se adjunta `modifierGroups` directamente en cada ítem además del diccionario `modifierGroups` para evitar pérdida
+ *   de variaciones por platillo y proveer `optionGroupGuid` en cada opción.
  */
 
 import { type NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { corsResponse, jsonOk, jsonError } from '../_helpers'
 
-// ============================================================================
-// GET /api/mobile/menu?storeId=N — Menú por sucursal (público)
-// ============================================================================
-
-// --- Tipos internos ---
-
-/** Modificador individual dentro de un grupo (ej: "Extra Queso", "+$1.50") */
 interface ModifierOption {
   guid: string
+  optionGroupGuid: string
   name: string
   price: number
+  isDefault?: boolean
+  imageUrl?: string | null
 }
 
-/** Grupo de modificadores (ej: "Extras", "Salsas", "Tipo de Tortilla") */
 interface ModifierGroup {
   name: string
   guid: string
   minSelections: number
   maxSelections: number
+  required: boolean
+  isMultiSelect: boolean
   options: ModifierOption[]
 }
 
-/** Ítem de menú tal como se devuelve en la respuesta */
 interface MenuItemResponse {
   id: string
   guid: string
@@ -50,9 +49,9 @@ interface MenuItemResponse {
   price: number
   imageUrl: string | null
   modifierGroupIds: string[]
+  modifierGroups: ModifierGroup[]
 }
 
-/** Fila cruda de la tabla app_menu_cache */
 interface MenuCacheRow {
   id: string
   toast_item_guid: string
@@ -62,32 +61,35 @@ interface MenuCacheRow {
   price: number
   image_url: string | null
   modifier_groups_json: ModifierGroupJson[] | null
+  last_synced: string | null
 }
 
-/** Estructura JSON almacenada en modifier_groups_json */
 interface ModifierGroupJson {
   guid: string
   name: string
   minSelections?: number
   maxSelections?: number
+  required?: boolean
+  isMultiSelect?: boolean
   options?: ModifierOptionJson[]
 }
 
-/** Opción dentro del JSON de un grupo de modificadores */
 interface ModifierOptionJson {
   guid: string
   name: string
   price?: number
+  isDefault?: boolean
+  imageUrl?: string | null
 }
 
-// --- Columnas a seleccionar ---
-const MENU_SELECT = 'id, toast_item_guid, category_name, name, description, price, image_url, modifier_groups_json' as const
+const MENU_SELECT =
+  'id, toast_item_guid, category_name, name, description, price, image_url, modifier_groups_json, last_synced' as const
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
-    // Extraer y validar el parámetro storeId
     const { searchParams } = new URL(request.url)
     const storeIdParam = searchParams.get('storeId')
+    const channelParam = (searchParams.get('channel') || 'PICKUP').toUpperCase()
 
     if (!storeIdParam) {
       return jsonError('El parámetro storeId es requerido', 400)
@@ -98,14 +100,15 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       return jsonError('storeId debe ser un número entero positivo', 400)
     }
 
-    // Consultar la tabla app_menu_cache para esta sucursal
+    // Ordenar estrictamente por last_synced ASC (que codifica la secuencia exacta de Toast Online Ordering:
+    // Online Menu -> Online Drinks -> Desayunos (Toast), respetando el orden de grupos e ítems de Toast)
     const { data, error } = await supabaseAdmin
       .from('app_menu_cache')
       .select(MENU_SELECT)
       .eq('store_id', storeId)
       .eq('is_available', true)
-      .order('category_name', { ascending: true })
-      .order('name', { ascending: true })
+      .order('last_synced', { ascending: true })
+      .order('id', { ascending: true })
 
     if (error) {
       console.error('❌ [mobile/menu] Error al consultar menú:', error.message)
@@ -114,66 +117,91 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     const rows = (data ?? []) as MenuCacheRow[]
 
-    // ---- Agrupar por categoría y extraer modifier groups ----
     const categories: Record<string, MenuItemResponse[]> = {}
     const modifierGroups: Record<string, ModifierGroup> = {}
+    let latestSyncedAt: string | null = null
 
     for (const row of rows) {
-      const categoryName = row.category_name || 'Otros'
+      if (row.last_synced && (!latestSyncedAt || row.last_synced > latestSyncedAt)) {
+        latestSyncedAt = row.last_synced
+      }
 
-      // Inicializar la categoría si no existe
+      const categoryName = row.category_name || 'Otros'
       if (!categories[categoryName]) {
         categories[categoryName] = []
       }
 
-      // Parsear modifier_groups_json y acumular IDs de grupo
       const modGroupIds: string[] = []
+      const itemModifierGroups: ModifierGroup[] = []
       const rawModGroups = row.modifier_groups_json
 
       if (rawModGroups && Array.isArray(rawModGroups)) {
         for (const group of rawModGroups) {
           if (!group.guid || !group.name) continue
 
-          modGroupIds.push(group.guid)
+          const optsList = group.options ?? []
+          const minSel = group.minSelections ?? 0
+          const isMulti = Boolean(group.isMultiSelect) || (group.maxSelections ?? 0) > 1
+          const maxSel =
+            group.maxSelections && group.maxSelections > 0
+              ? group.maxSelections
+              : isMulti
+                ? Math.max(1, optsList.length)
+                : 1
 
-          // Si aún no hemos registrado este grupo, agregarlo al mapa global
+          const normalizedGroup: ModifierGroup = {
+            guid: group.guid,
+            name: group.name,
+            minSelections: minSel,
+            maxSelections: maxSel,
+            required: Boolean(group.required) || minSel > 0,
+            isMultiSelect: isMulti || maxSel > 1,
+            options: optsList.map((opt) => ({
+              guid: opt.guid,
+              optionGroupGuid: group.guid,
+              name: opt.name,
+              price: Number(opt.price ?? 0),
+              isDefault: Boolean(opt.isDefault),
+              imageUrl: opt.imageUrl ?? null,
+            })),
+          }
+
+          modGroupIds.push(group.guid)
+          itemModifierGroups.push(normalizedGroup)
+
           if (!modifierGroups[group.guid]) {
-            modifierGroups[group.guid] = {
-              guid: group.guid,
-              name: group.name,
-              minSelections: group.minSelections ?? 0,
-              maxSelections: group.maxSelections ?? 10,
-              options: (group.options ?? []).map((opt) => ({
-                guid: opt.guid,
-                name: opt.name,
-                price: opt.price ?? 0,
-              })),
-            }
+            modifierGroups[group.guid] = normalizedGroup
           }
         }
       }
 
-      // Agregar el ítem a su categoría
       categories[categoryName].push({
         id: row.id,
         guid: row.toast_item_guid,
         toastGuid: row.toast_item_guid,
         name: row.name,
         description: row.description,
-        price: row.price,
+        price: Number(row.price),
         imageUrl: row.image_url,
         modifierGroupIds: modGroupIds,
+        modifierGroups: itemModifierGroups,
       })
     }
+
+    const categoryOrder = Object.keys(categories)
 
     const catalogMetadata = {
       source: 'LEGACY_CACHE_UNRECONCILED' as const,
       isReconciledWithToastMenusV3: false,
       purchasable: false,
-      warning: 'Catálogo de visualización sincronizado desde caché local. Precios y disponibilidad sujetos a cotización y confirmación oficial de Toast.',
+      storeId,
+      channel: channelParam,
+      lastSyncedAt: latestSyncedAt,
+      warning:
+        'Catálogo de sucursal sincronizado con el orden, fotografías y modificadores de Toast Online Ordering. El cierre de orden nativa permanece en espera de habilitación de scopes de escritura Toast POS.',
     }
 
-    return jsonOk({ categories, modifierGroups, catalogMetadata })
+    return jsonOk({ categories, categoryOrder, modifierGroups, catalogMetadata })
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Error desconocido'
     console.error('❌ [mobile/menu] Error inesperado:', message)
@@ -181,9 +209,6 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   }
 }
 
-// ============================================================================
-// OPTIONS — Preflight CORS
-// ============================================================================
 export async function OPTIONS(): Promise<NextResponse> {
   return corsResponse()
 }

@@ -102,10 +102,20 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return jsonError('latitude y longitude son requeridos y deben ser numéricos.', 400)
     }
 
-    // 3. Obtener la orden de la base de datos
+    // 3. Verificar feature flag de Hold-and-Fire (deshabilitado por defecto hasta confirmación de Toast)
+    const holdAndFireEnabled = process.env.ENABLE_MOBILE_HOLD_AND_FIRE === 'true'
+    if (!holdAndFireEnabled) {
+      return jsonError(
+        'El disparo por geocerca (Hold-and-Fire) está deshabilitado hasta confirmar con Toast si se usará programación nativa o inyección diferida.',
+        409,
+        'HOLD_AND_FIRE_DISABLED'
+      )
+    }
+
+    // 4. Obtener la orden de la base de datos
     const { data: order, error: orderError } = await supabaseAdmin
       .from('app_orders')
-      .select('id, store_id, status, user_id, pickup_method, curbside_stall, items_json')
+      .select('id, store_id, status, payment_status, user_id, pickup_method, curbside_stall, items_json')
       .eq('id', orderId)
       .single()
 
@@ -117,7 +127,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return jsonError('No autorizado para actualizar esta orden.', 403)
     }
 
-    // 4. Obtener coordenadas de la sucursal
+    if (order.payment_status !== 'PAID') {
+      return jsonError('No se puede disparar a cocina una orden cuyo pago no está confirmado (PAID).', 409, 'ORDER_NOT_PAID')
+    }
+
+    // 5. Obtener coordenadas de la sucursal
     const { data: store, error: storeError } = await supabaseAdmin
       .from('stores')
       .select('id, name, latitude, longitude')
@@ -132,7 +146,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return jsonError('La tienda no tiene coordenadas configuradas para geofencing.', 500)
     }
 
-    // 5. Calcular Distancia y ETA
+    // 6. Calcular Distancia y ETA autoritativamente en servidor (sin confiar en deviceEtaMinutes del cliente)
     const distanceMiles = haversineDistance(
       latitude,
       longitude,
@@ -142,15 +156,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const distanceRounded = Number(distanceMiles.toFixed(2))
 
     const calculatedEtaMinutes = (distanceMiles / AVG_DRIVING_SPEED_MPH) * 60
-    let finalEta: number
-    if (deviceEtaMinutes != null && typeof deviceEtaMinutes === 'number' && deviceEtaMinutes > 0) {
-      finalEta = Math.min(calculatedEtaMinutes, deviceEtaMinutes)
-    } else {
-      finalEta = calculatedEtaMinutes
-    }
-    finalEta = Number(finalEta.toFixed(1))
+    const finalEta = Number(calculatedEtaMinutes.toFixed(1))
 
-    // 6. Preparar payload de actualización
+    // 7. Preparar payload de actualización
     const now = new Date().toISOString()
     const updatePayload: Record<string, unknown> = {
       user_latitude: latitude,
@@ -159,7 +167,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       updated_at: now,
     }
 
-    // 7. Evaluar si debe disparar la orden a cocina (FIRE)
+    // 8. Evaluar si debe disparar la orden a cocina (FIRE)
     let firedAt: string | null = null
     let toastInjected = false
     let toastOrderGuid: string | null = null

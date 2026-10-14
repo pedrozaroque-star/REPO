@@ -1,3 +1,19 @@
+/**
+ * @module app/api/mobile/_helpers
+ * @description Utilidades compartidas de autenticación JWT, respuestas JSON estructuradas y cabeceras CORS
+ * para todos los endpoints de la API móvil de Tacos Gavilan.
+ *
+ * @businessRules
+ * - Valida estrictamente tokens Bearer contra Supabase Auth (`supabaseAdmin.auth.getUser`).
+ * - Estandariza códigos de error (`VALIDATION_ERROR`, `TOAST_SCOPE_BLOCKED`, `PAYMENT_PROVIDER_DISABLED`, etc.).
+ *
+ * @dataFlow
+ * - Petición HTTP entrante -> `getAuthUser` / `jsonOk` / `jsonError` -> Respuesta NextResponse con CORS.
+ *
+ * @notes
+ * - Exporta `isAuthSuccess` como type guard seguro en TypeScript.
+ */
+
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 

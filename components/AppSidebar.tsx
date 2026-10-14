@@ -50,6 +50,7 @@ type MenuItem = {
     icon: React.ReactNode
     roles: string[]
     tooltip?: string
+    openInNewTab?: boolean
 }
 
 type MenuGroup = {
@@ -334,6 +335,17 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                     tooltip: language === 'en'
                         ? 'Tacos Gavilan new website design preview and live testing (file:///C:/Users/pedro/Desktop/tacosgavilan-web/index.html)'
                         : 'Vista previa y pruebas en vivo del nuevo diseño web de Tacos Gavilan (file:///C:/Users/pedro/Desktop/tacosgavilan-web/index.html)'
+                },
+                {
+                    name: t('items.gavilan_pos') || 'Gavilan POS',
+                    plainName: 'Gavilan POS',
+                    path: '/gavilan-pos',
+                    icon: <Monitor size={20} />,
+                    roles: ['admin', 'supervisor', 'manager'],
+                    openInNewTab: true,
+                    tooltip: language === 'en'
+                        ? 'Opens in a new tab: Next-Gen Gavilan POS Cloud & Terminal Ecosystem (Menus, KDS HDMI, ESC/POS Tickets, EBT RMP & Direct Delivery)'
+                        : 'Abre en nueva pestaña: Ecosistema Gavilan POS & KDS (Menús, KDS HDMI, Tickets ESC/POS, EBT RMP y Delivery Directo)'
                 },
                 {
                     name: t('items.manager'),
@@ -702,12 +714,14 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
     const renderNavItem = (item: MenuItem, groupId: string, isMobile: boolean = false) => {
         const isActive = pathname === item.path || (item.path !== '/dashboard' && pathname.startsWith(item.path + '/'))
         const colors = GROUP_COLORS[groupId] || GROUP_COLORS.operaciones
-        const hasNewBadge = item.path === '/basecamp' || item.path === '/admin/compras/viele' || item.path === '/app' || item.path === '/nueva-web'
+        const hasNewBadge = item.path === '/basecamp' || item.path === '/admin/compras/viele' || item.path === '/app' || item.path === '/nueva-web' || item.path === '/gavilan-pos'
 
         return (
             <Link
                 key={item.path}
                 href={item.path}
+                target={item.openInNewTab ? '_blank' : undefined}
+                rel={item.openInNewTab ? 'noopener noreferrer' : undefined}
                 onClick={() => { if (isMobile) setMobileDrawerOpen(false) }}
                 title={item.tooltip || (typeof item.name === 'string' ? item.name : item.plainName) || ''}
                 className={`group/item relative flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-all duration-200 border-l-[3px] ${
@@ -724,11 +738,16 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                 {(!isCollapsed || isMobile) ? (
                     <div className="flex items-center justify-between w-full min-w-0">
                         <span className="truncate">{item.name}</span>
-                        {hasNewBadge && (
-                            <span className="new-badge-animated bg-red-500 dark:bg-red-600 text-white text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded shadow-sm ml-1.5 shrink-0 flex items-center justify-center border border-red-400/20 leading-none">
-                                new
-                            </span>
-                        )}
+                        <div className="flex items-center gap-1 ml-1.5 shrink-0">
+                            {item.openInNewTab && (
+                                <ExternalLink size={11} className="text-slate-400 group-hover/item:text-blue-600 transition-colors" />
+                            )}
+                            {hasNewBadge && (
+                                <span className="new-badge-animated bg-red-500 dark:bg-red-600 text-white text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded shadow-sm shrink-0 flex items-center justify-center border border-red-400/20 leading-none">
+                                    new
+                                </span>
+                            )}
+                        </div>
                     </div>
                 ) : (
                     hasNewBadge && (

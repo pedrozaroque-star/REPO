@@ -238,8 +238,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             })
             .eq('id', matchedOrder.id)
 
-          // Insertar en app_order_outbox para Toast KDS exclusivamente cuando el pago es PAID
-          await supabaseAdmin.from('app_order_outbox').insert({
+          // Insertar de forma idempotente en app_order_outbox para Toast KDS exclusivamente cuando el pago es PAID
+          await supabaseAdmin.from('app_order_outbox').upsert({
             order_id: matchedOrder.id,
             integration: 'toast_kds',
             idempotency_key: `toast:${matchedOrder.id}`,
@@ -249,7 +249,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
               storeId: matchedOrder.store_id,
               items: matchedOrder.items_json?.items || [],
             }
-          })
+          }, { onConflict: 'idempotency_key' })
         }
       }
 
@@ -293,7 +293,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         await supabaseAdmin
           .from('app_orders')
           .update({
-            payment_status: 'FAILED',
+            payment_status: 'PAYMENT_FAILED',
             updated_at: now,
           })
           .eq('id', matchedOrder.id)

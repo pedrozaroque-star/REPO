@@ -1,14 +1,21 @@
+/**
+ * @module app/api/mobile/stores/route
+ * @description Endpoint público de consulta de las 15 sucursales oficiales activas de Tacos Gavilan.
+ *
+ * @businessRules
+ * - Retorna únicamente sucursales activas (`is_active = true`) con coordenadas GPS reales (`latitude`, `longitude`).
+ * - No requiere sesión autenticada para permitir que comensales invitados seleccionen sucursal antes de iniciar sesión.
+ *
+ * @dataFlow
+ * - App Móvil GET `/api/mobile/stores` -> Consulta `public.stores` -> Retorna arreglo ordenado alfabéticamente.
+ *
+ * @notes
+ * - Sincronizado con los identificadores numéricos `1..15` de sucursales en Supabase.
+ */
+
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { corsResponse, jsonOk, jsonError } from '../_helpers'
-
-// ============================================================================
-// GET /api/mobile/stores — Lista de sucursales activas (público)
-// ============================================================================
-// Devuelve todas las tiendas Tacos Gavilán activas con su ubicación.
-// No requiere autenticación — la app necesita mostrar sucursales al usuario
-// antes de que inicie sesión para elegir la más cercana.
-// ============================================================================
 
 /** Columnas seleccionadas de la tabla stores */
 const STORE_SELECT_COLUMNS = 'id, name, address, city, latitude, longitude, phone' as const

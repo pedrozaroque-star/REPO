@@ -1,3 +1,19 @@
+/**
+ * @module app/api/mobile/cart/route
+ * @description Endpoint protegido de sincronización de carrito persistente por comensal en Supabase (`public.app_carts`).
+ *
+ * @businessRules
+ * - Cada comensal autenticado posee un único registro de carrito activo (`UNIQUE(user_id)`).
+ * - Los precios almacenados en el carrito son informativos de catálogo y NUNCA se usan como fuente financiera de cobro;
+ *   el cobro exige cotización autoritativa de Toast `/orders/v2/prices` en `/api/mobile/order/quote`.
+ *
+ * @dataFlow
+ * - App Móvil GET/PUT/DELETE `/api/mobile/cart` -> `getAuthUser` -> `public.app_carts`.
+ *
+ * @notes
+ * - Se purga automáticamente al confirmar una orden o eliminar la cuenta del usuario.
+ */
+
 import { type NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import {
@@ -7,18 +23,6 @@ import {
   getAuthUser,
   isAuthSuccess,
 } from '../_helpers'
-
-// ============================================================================
-// /api/mobile/cart — Carrito de compras persistente (protegido)
-// ============================================================================
-// Cada usuario tiene UN solo carrito (UNIQUE en user_id).
-// El carrito se persiste en Supabase para sincronizar entre dispositivos.
-//
-// Métodos:
-//   GET    — Obtener el carrito actual del usuario autenticado
-//   PUT    — Crear o actualizar el carrito (upsert por user_id)
-//   DELETE — Vaciar/eliminar el carrito del usuario
-// ============================================================================
 
 // --- Tipos ---
 

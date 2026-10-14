@@ -27,16 +27,11 @@ function isAuthorized(request: NextRequest): boolean {
   const cronSecret = process.env.CRON_SECRET
 
   if (!cronSecret) {
-    // Si no hay secret configurado, permitir en entornos de desarrollo local
+    // Si no hay secret configurado, permitir únicamente en entornos de desarrollo local
     return process.env.NODE_ENV !== 'production'
   }
 
-  if (authHeader === `Bearer ${cronSecret}`) {
-    return true
-  }
-
-  const { searchParams } = new URL(request.url)
-  return searchParams.get('key') === cronSecret
+  return authHeader === `Bearer ${cronSecret}`
 }
 
 export async function GET(request: NextRequest): Promise<NextResponse> {

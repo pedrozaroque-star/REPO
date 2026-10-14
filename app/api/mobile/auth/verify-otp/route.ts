@@ -1,3 +1,19 @@
+/**
+ * @module app/api/mobile/auth/verify-otp/route
+ * @description Endpoint de verificación de código OTP SMS (6 dígitos) y emisión de sesión autenticada para Tacos Gavilan App.
+ *
+ * @businessRules
+ * - Exige teléfono de 10 dígitos y código OTP de 6 dígitos numéricos.
+ * - Verifica el token contra Supabase Auth (`supabaseAdmin.auth.verifyOtp`).
+ * - Sincroniza el perfil del comensal en `public.app_users` usando el `auth.users.id` autoritativo.
+ *
+ * @dataFlow
+ * - App Móvil POST `/api/mobile/auth/verify-otp` -> `supabaseAdmin.auth.verifyOtp` -> `public.app_users` -> Retorna JWT y perfil.
+ *
+ * @notes
+ * - Compatible tanto con clientes que leen `token`/`userId` en raíz como con sesiones estándar.
+ */
+
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 

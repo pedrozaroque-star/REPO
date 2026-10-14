@@ -564,14 +564,14 @@ export const TOOL_DECLARATIONS = [
   },
   {
     name: 'query_mobile_orders',
-    description: 'Consultar órdenes de la app móvil oficial de clientes de Tacos Gavilan (Arquitectura 100% nativa con Toast Menus V3, cotizaciones autoritativas /prices, outbox transaccional y clasificación BLOCKED_EXTERNALLY). Muestra estados de comanda, pagos y canales.',
+    description: 'Consultar órdenes de Tacos Gavilan App en public.app_orders y el estado real de la integración nativa con Toast POS (actualmente Toast /orders/v2/prices y creación de órdenes devuelven HTTP 403 / code 10010 TOAST_SCOPE_BLOCKED; proveedor de pago nativo y canal Delivery deshabilitados hasta autorización oficial).',
     parameters: {
       type: 'OBJECT',
       properties: {
         store_name: { type: 'STRING', description: 'Nombre o fragmento de la sucursal (ej: "Lynwood", "Slauson", "Central")' },
         channel: { type: 'STRING', description: 'Filtro por canal: "PICKUP", "DELIVERY", o "ALL"' },
         kitchen_status: { type: 'STRING', description: 'Filtro por estado de cocina: "HOLDING", "FIRED", "PREPARING", "READY", "COMPLETED", "CANCELLED"' },
-        payment_status: { type: 'STRING', description: 'Filtro por estado de pago: "PENDING", "PAID", "FAILED", "REFUNDED"' },
+        payment_status: { type: 'STRING', description: 'Filtro por estado de pago: "PENDING_PAYMENT", "AUTHORIZED", "PAID", "PAYMENT_FAILED", "REFUNDED"' },
         limit: { type: 'NUMBER', description: 'Límite de órdenes a consultar (por defecto 20)' }
       }
     }
@@ -3147,7 +3147,7 @@ async function queryMobileOrdersTool(args: any): Promise<string> {
     const { data: rawOrders, error } = await query;
     if (error) throw error;
     if (!rawOrders || rawOrders.length === 0) {
-      return `No se encontraron órdenes móviles con los filtros especificados${args.store_name ? ` para ${args.store_name}` : ''}.`;
+      return `No se encontraron órdenes móviles con los filtros especificados${args.store_name ? ` para ${args.store_name}` : ''}.\n\nℹ️ **Estado de Integración Nativa Toast**: Actualmente Toast bloquea \`/orders/v2/prices\` y creación de órdenes con \`HTTP 403 / Toast code 10010 (TOAST_SCOPE_BLOCKED)\`, el proveedor de pago nativo está pendiente de aprobación oficial de Toast y el canal Delivery está deshabilitado hasta tener contrato activo.`;
     }
 
     let orders = rawOrders;
@@ -3164,7 +3164,8 @@ async function queryMobileOrdersTool(args: any): Promise<string> {
     }
 
     let out = `📱 **Órdenes Móviles de Clientes (Tacos Gavilan App)**\n`;
-    out += `• **Total órdenes encontradas**: ${orders.length}\n\n`;
+    out += `• **Total órdenes encontradas**: ${orders.length}\n`;
+    out += `• **Estado Integración Toast**: \`TOAST_SCOPE_BLOCKED\` (\`HTTP 403 / code 10010\` en \`/orders/v2/prices\` y \`orders:write\`; pago nativo y Delivery deshabilitados hasta autorización oficial)\n\n`;
     out += `| Orden # | Sucursal | Canal / Método | Total | Cocina | Pago | Toast GUID | Cajón / Delivery |\n`;
     out += `|---------|----------|----------------|-------|--------|------|------------|------------------|\n`;
 

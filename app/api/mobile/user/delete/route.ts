@@ -46,23 +46,43 @@ export async function DELETE(request: NextRequest): Promise<NextResponse> {
 
     console.log(`🗑️ [ACCOUNT DELETION] Iniciando purga de datos para comensal ${userId}`)
 
-    // 2. Desvincular pedidos históricos para preservar la integridad contable sin retener PII
-    const { error: ordersErr } = await supabaseAdmin
+    // 2. Anonimizar y desvincular pedidos históricos para preservar la integridad contable sin retener PII
+    const { data: userOrders } = await supabaseAdmin
       .from('app_orders')
-      .update({
-        user_id: null,
-        updated_at: new Date().toISOString(),
-      })
+      .select('id, items_json')
       .eq('user_id', userId)
 
-    if (ordersErr) {
-      console.warn('[ACCOUNT DELETION] Aviso desvinculando órdenes:', ordersErr.message)
+    if (userOrders && userOrders.length > 0) {
+      for (const ord of userOrders) {
+        const rawJson = typeof ord.items_json === 'object' && ord.items_json !== null
+          ? { ...(ord.items_json as Record<string, unknown>) }
+          : {}
+        delete rawJson.deliveryAddress
+        delete rawJson.curbsideArrival
+        delete rawJson.curbsideDetails
+        delete rawJson.geofenceTelemetrics
+
+        await supabaseAdmin
+          .from('app_orders')
+          .update({
+            user_id: null,
+            user_latitude: null,
+            user_longitude: null,
+            curbside_stall: null,
+            items_json: rawJson,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', ord.id)
+      }
     }
 
-    // 3. Desvincular cotizaciones históricas
+    // 3. Anonimizar y desvincular cotizaciones históricas
     await supabaseAdmin
       .from('app_quotes')
-      .update({ user_id: null })
+      .update({
+        user_id: null,
+        delivery_address: null,
+      })
       .eq('user_id', userId)
 
     // 4. Purgar carritos y favoritos guardados

@@ -8,6 +8,9 @@
  * 
  * @dataFlow
  * - Cualquier petición entrante recibe HTTP 503 Service Unavailable informando el estado de bloqueo externo.
+ * 
+ * @notes
+ * - Mantiene el código `PAYMENT_PROVIDER_DISABLED` alineado con `lib/mobile/payment-provider.ts`.
  */
 
 import { NextRequest, NextResponse } from 'next/server'

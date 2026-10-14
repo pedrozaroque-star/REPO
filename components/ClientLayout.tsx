@@ -67,7 +67,8 @@ export default function ClientLayout({
         '/inventory/orders/print-sheet',
         '/admin/compras/viele/print-sheet',
         '/admin/blindaje-delivery/empaque',
-        '/tablet'
+        '/tablet',
+        '/gavilan-pos'
     ]
 
     // Dedicated kiosk / TV mode for order-ready-board via query param (?tv=1 or ?kiosk=1)
