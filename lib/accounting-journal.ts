@@ -264,8 +264,11 @@ export function generateJournalLines(salesData: SalesPacketData, siteMapping: Si
   addLine(ghArAcct, ghPayMemo, salesData.grubhub_payment, 0, ghPaySrc, 'grubhub_payment');
 
   if (salesData.deposits_collected) {
-    // Cohesion: Ordenes abiertas y depositos cobrados se registran en Debito en cuenta 12049
-    addLine(openOrdersAcct, 'Deposit Sales Collected & Open Orders', salesData.deposits_collected, 0, 'Deposit Sales Collected', 'deposits_collected');
+    // Cohesion: Ordenes abiertas y depositos cobrados (> 0) se registran en Debito en cuenta 12049;
+    // sobrepagos de cheques (< 0, ej. descuento Taco Tuesday aplicado tras cobro con tarjeta) se registran en Credito en cuenta 12049.
+    const depDr = salesData.deposits_collected > 0 ? salesData.deposits_collected : 0;
+    const depCr = salesData.deposits_collected < 0 ? Math.abs(salesData.deposits_collected) : 0;
+    addLine(openOrdersAcct, 'Deposit Sales Collected & Open Orders', depDr, depCr, 'Deposit Sales Collected', 'deposits_collected');
   }
   addLine(siteMapping.bank_account, 'Credit Card Deposit', salesData.credit_card_deposit, 0, 'Combined Credit Card Deposit', 'cc_deposit');
   addLine(ccFeesAcct, 'Credit Card Fees', salesData.credit_card_fees, 0, 'Credit Cards: Merchant Fees', 'cc_fees');
@@ -297,7 +300,7 @@ export function generateJournalLines(salesData: SalesPacketData, siteMapping: Si
     addLine(tipsAcct, 'Cash Out', salesData.cash_out, 0, 'Cash Out: Drawer', 'cash_out');
   }
   if (salesData.tip_out && salesData.tip_out > 0) {
-    addLine(tipsAcct, 'Tip Out', salesData.tip_out, 0, 'Tips/Grat Out', 'tip_out');
+    addLine(tipsAcct, 'Tip Out', salesData.tip_out, 0, 'Cash Payout: Tips', 'tip_out');
   }
 
   // --- CASH OVER / SHORT ---

@@ -1090,19 +1090,20 @@ export default function PacketDetailPage() {
                   </tr>
                 )}
                 {(() => {
-                  const openOrdersDebit = Number((packet.qb_sync_response as any)?.deposits_collected ?? packet.journal_lines?.find((l: any) => (l.account === '12049' || l.memo?.includes('Deposit Sales Collected')) && l.debit > 0)?.debit ?? 0)
-                  if (openOrdersDebit <= 0) return null
+                  const depLine = packet.journal_lines?.find((l: any) => l.account === '12049' || l.memo?.includes('Deposit Sales Collected'))
+                  const openOrdersAmt = Number((packet.qb_sync_response as any)?.deposits_collected ?? (depLine ? (Number(depLine.debit || 0) - Number(depLine.credit || 0)) : 0))
+                  if (Math.abs(openOrdersAmt) < 0.005) return null
                   return (
                     <tr>
                       <td className="py-2.5 font-sans font-bold text-slate-800 dark:text-slate-200">
                         {language === 'en' ? 'Deposit Sales Collected & Open Orders' : 'Depósitos Cobrados y Órdenes Abiertas (12049)'}
                       </td>
                       <td className="py-2.5 text-right font-semibold text-slate-900 dark:text-white">
-                        {formatCurrency(openOrdersDebit)}
+                        {formatCurrency(openOrdersAmt)}
                       </td>
                       <td className="py-2.5 text-right text-slate-400">$0.00</td>
                       <td className="py-2.5 text-right font-bold text-slate-900 dark:text-white">
-                        {formatCurrency(openOrdersDebit)}
+                        {formatCurrency(openOrdersAmt)}
                       </td>
                     </tr>
                   )
@@ -1110,17 +1111,21 @@ export default function PacketDetailPage() {
                 <tr className="font-extrabold text-slate-900 dark:text-white border-t-2 border-slate-200 dark:border-slate-700">
                   <td className="py-2.5 font-sans" colSpan={3}>{t('accounting.non_cash_payments_total') || 'Total Pagos No Efectivo'}</td>
                   <td className="py-2.5 text-right text-blue-600 dark:text-blue-400">
-                    {formatCurrency(
-                      (packet.credit_card_deposit ?? packet.cc_deposit ?? 0) +
-                      (packet.credit_card_fees ?? packet.cc_fees ?? 0) +
-                      Number(packet.credit_card_other_deductions || packet.journal_lines?.find((l: any) => l.memo?.toLowerCase().includes('other deductions') && l.debit > 0)?.debit || 0) +
-                      (packet.uber_payment ?? 0) +
-                      (packet.doordash_payment ?? 0) +
-                      (packet.grubhub_payment ?? 0) +
-                      (packet.ebt_amount ?? 0) +
-                      (packet.journal_lines?.find((l: any) => l.memo.includes('Gift Card') && l.debit > 0)?.debit || 0) +
-                      Number((packet.qb_sync_response as any)?.deposits_collected ?? packet.journal_lines?.find((l: any) => (l.account === '12049' || l.memo?.includes('Deposit Sales Collected')) && l.debit > 0)?.debit ?? 0)
-                    )}
+                    {(() => {
+                      const depLine = packet.journal_lines?.find((l: any) => l.account === '12049' || l.memo?.includes('Deposit Sales Collected'))
+                      const openOrdersAmt = Number((packet.qb_sync_response as any)?.deposits_collected ?? (depLine ? (Number(depLine.debit || 0) - Number(depLine.credit || 0)) : 0))
+                      return formatCurrency(
+                        (packet.credit_card_deposit ?? packet.cc_deposit ?? 0) +
+                        (packet.credit_card_fees ?? packet.cc_fees ?? 0) +
+                        Number(packet.credit_card_other_deductions || packet.journal_lines?.find((l: any) => l.memo?.toLowerCase().includes('other deductions') && l.debit > 0)?.debit || 0) +
+                        (packet.uber_payment ?? 0) +
+                        (packet.doordash_payment ?? 0) +
+                        (packet.grubhub_payment ?? 0) +
+                        (packet.ebt_amount ?? 0) +
+                        (packet.journal_lines?.find((l: any) => l.memo.includes('Gift Card') && l.debit > 0)?.debit || 0) +
+                        openOrdersAmt
+                      )
+                    })()}
                   </td>
                 </tr>
               </tbody>

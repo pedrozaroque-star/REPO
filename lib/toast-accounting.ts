@@ -771,7 +771,7 @@ export async function fetchToastAccountingData(
         chkPaid += Number(p.amount || 0)
       }
       const chkExcess = Math.round((chkPaid - chkTotal) * 100) / 100
-      if (chkExcess > 0.009) depositsCollected += chkExcess
+      if (chkExcess > 0.009) depositsCollected -= chkExcess
     }
   }
 
