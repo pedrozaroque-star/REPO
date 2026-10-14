@@ -8,15 +8,19 @@
 
 import assert from 'node:assert/strict'
 import {
+  areCustomerNamesConfusable,
   areQuickChecksComplete,
   calculateDeliveryRisk,
   classifyPlatform,
   extractKdsTiming,
   extractPlatformOrderIdentity,
+  formatDisputeStatement,
   getToastBusinessDate,
   isDeliveryPlatform,
   isHighRiskBeverage,
-  maskCustomerName
+  isOrderUnclaimedByDriver,
+  maskCustomerName,
+  UNCLAIMED_DRIVER_TIMEOUT_MS
 } from '../lib/delivery-armor'
 
 const laInstant = (value: string) => new Date(`${value}-07:00`)
@@ -47,6 +51,19 @@ assert.equal(calculateDeliveryRisk({ hasRefrigeratedBeverages: true, totalItemsC
 // Pruebas de extracción de claves oficiales por plataforma y enmascarado de nombre
 assert.equal(maskCustomerName('Aramis P.'), 'A••• P.')
 assert.equal(maskCustomerName('Jose Martinez'), 'J••• M.')
+
+// Pruebas de blindaje contra nombres duplicados (mismo nombre aunque el apellido sea diferente) y nombres muy parecidos
+assert.deepEqual(areCustomerNamesConfusable('Maria G.', 'Maria G.'), { confusable: true, reason: 'EXACT_NAME' })
+assert.deepEqual(areCustomerNamesConfusable('Maria G.', 'Maria R.'), { confusable: true, reason: 'SAME_FIRST_NAME' })
+assert.deepEqual(areCustomerNamesConfusable('Jose L.', 'José Martinez'), { confusable: true, reason: 'SAME_FIRST_NAME' })
+assert.deepEqual(areCustomerNamesConfusable('Cristian M.', 'Christian R.'), { confusable: true, reason: 'SIMILAR_NAME' })
+assert.deepEqual(areCustomerNamesConfusable('Bryan S.', 'Brian T.'), { confusable: true, reason: 'SIMILAR_NAME' })
+assert.deepEqual(areCustomerNamesConfusable('Carla P.', 'Karla M.'), { confusable: true, reason: 'SIMILAR_NAME' })
+assert.deepEqual(areCustomerNamesConfusable('Alex G.', 'Alexis R.'), { confusable: true, reason: 'SIMILAR_NAME' })
+assert.deepEqual(areCustomerNamesConfusable('Jovita G.', 'Jovana L.'), { confusable: true, reason: 'SIMILAR_NAME' })
+assert.deepEqual(areCustomerNamesConfusable('Maria G.', 'Mario L.'), { confusable: true, reason: 'SIMILAR_NAME' })
+assert.deepEqual(areCustomerNamesConfusable('Jovita G.', 'Marco S.'), { confusable: false, reason: null })
+assert.deepEqual(areCustomerNamesConfusable('Kristy V.', 'Evelyn C.'), { confusable: false, reason: null })
 
 const ueIdentity = extractPlatformOrderIdentity({
   platform: 'UBER_EATS',
@@ -161,6 +178,48 @@ const kdsTiming = extractKdsTiming({
 assert.equal(kdsTiming.kdsStatus, 'READY')
 assert.equal(kdsTiming.kdsPrepSeconds, 172)
 
+// Prueba de cambio automático de estatus si una orden no fue recogida por ningún chofer en 2 horas o más (119m59s vs 120m00s)
+assert.equal(UNCLAIMED_DRIVER_TIMEOUT_MS, 2 * 60 * 60 * 1000)
+const refNow = new Date('2026-10-14T18:00:00.000Z').getTime()
+assert.equal(
+  isOrderUnclaimedByDriver({
+    openedDate: new Date(refNow - (2 * 60 * 60 * 1000 - 1000)).toISOString(),
+    status: 'PACKED_AND_SEALED',
+    nowMs: refNow
+  }),
+  false,
+  'A 1h 59m 59s aún sigue esperando al chofer'
+)
+assert.equal(
+  isOrderUnclaimedByDriver({
+    openedDate: new Date(refNow - 2 * 60 * 60 * 1000).toISOString(),
+    status: 'PACKED_AND_SEALED',
+    nowMs: refNow
+  }),
+  true,
+  'Exactamente a las 2 horas (120 min) sin chofer cambia automáticamente a no recogida'
+)
+assert.equal(
+  isOrderUnclaimedByDriver({
+    openedDate: new Date(refNow - 3 * 60 * 60 * 1000).toISOString(),
+    status: 'DELIVERED',
+    handedAt: new Date(refNow - 90 * 60 * 1000).toISOString(),
+    nowMs: refNow
+  }),
+  false,
+  'Una orden ya entregada a un chofer nunca debe marcarse como no recogida'
+)
+const unclaimedDossier = formatDisputeStatement({
+  store_id: 7,
+  toast_display_number: '671',
+  platform: 'UBER_EATS',
+  status: 'UNCLAIMED_2H',
+  packed_at: '2026-10-14T16:00:00.000Z',
+  packer_ronos_name: 'Colaborador Test',
+  packer_ronos_user_id: 10
+})
+assert.equal(unclaimedDossier.includes('UNCLAIMED_2H'), true)
+
 for (const value of [0, 1, 8, 20]) assert.equal(Number.isFinite(value / Math.max(1, value)), true)
 
 // Prueba de contrato Fullscreen en tableta (PIN, Login, Operación y Retorno a PIN)
@@ -197,5 +256,41 @@ assert.equal(
   true,
   'Debe detectar automáticamente cuando el cocinero borra la orden del KDS (IN_KITCHEN -> READY)'
 )
+assert.equal(
+  empaqueSource.includes('collisionsByGuid') && empaqueSource.includes('NOMBRE REPETIDO O MUY PARECIDO EN KDS'),
+  true,
+  'Debe alertar con alto énfasis cuando existan órdenes con nombres iguales o muy parecidos desde KDS'
+)
+assert.equal(
+  empaqueSource.includes('landscape:grid-cols-[370px_1fr]') && empaqueSource.includes('landscape:flex-col'),
+  true,
+  'Si la tableta está horizontal debe pasar todas las órdenes del lado izquierdo'
+)
+assert.equal(
+  empaqueSource.includes('order.items.map('),
+  false,
+  'No debe mostrar el contenido de artículos de los tickets en ninguna de las dos versiones (vertical u horizontal)'
+)
+assert.equal(
+  empaqueSource.includes('NO RECOGIDA (+2H)') && empaqueSource.includes('isOrderUnclaimedAfter2Hours'),
+  true,
+  'Debe cambiar automáticamente el estatus a NO RECOGIDA (+2H) cuando una orden cumple 2 horas o más sin ser recogida por ningún chofer'
+)
+assert.equal(
+  empaqueSource.includes('Expedientes') || empaqueSource.includes('href="/admin/blindaje-delivery"'),
+  false,
+  'El botón de Expedientes fue eliminado totalmente de la tableta de empaque'
+)
+
+const dashboardSource = fs.readFileSync(
+  path.join(process.cwd(), 'app', 'admin', 'blindaje-delivery', 'page.tsx'),
+  'utf8'
+)
+assert.equal(
+  dashboardSource.includes('openDossierModal') || dashboardSource.includes('Evidencia (Fotos)'),
+  false,
+  'El botón de Expediente y columna de Evidencia (Fotos) fueron eliminados totalmente del panel'
+)
 
 console.log('Delivery Armor core simulation: PASS')
+

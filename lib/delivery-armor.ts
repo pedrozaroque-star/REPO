@@ -42,6 +42,9 @@ export type AuditStatus =
   | 'PACKED_AND_SEALED'
   | 'DELIVERED'
   | 'DISPUTED'
+  | 'UNCLAIMED_2H'
+
+export const UNCLAIMED_DRIVER_TIMEOUT_MS = 2 * 60 * 60 * 1000 // 2 horas (120 minutos) sin recolección de chofer
 
 export type DeliveryRiskLevel = 'NORMAL' | 'HIGH'
 export type EvidencePolicy = 'NONE' | 'SEALED_BAG'
@@ -132,7 +135,7 @@ export interface OffPremiseOrder {
 }
 
 /**
- * Enmascara el nombre del cliente (ej. "Aramis P." -> "A••• P.") para impedir entregas por nombre en mostrador
+ * Enmascara el nombre del cliente (ej. "Aramis P." -> "A••• P.")
  */
 export function maskCustomerName(rawName: string): string {
   const clean = String(rawName || '').trim()
@@ -145,6 +148,190 @@ export function maskCustomerName(rawName: string): string {
   }
   const lastInitial = parts[parts.length - 1].charAt(0).toUpperCase()
   return `${firstChar}••• ${lastInitial}.`
+}
+
+export type NameCollisionReason = 'EXACT_NAME' | 'SAME_FIRST_NAME' | 'SIMILAR_NAME'
+
+function normalizeAsciiLetters(input: string): string {
+  return String(input || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function phoneticFirstToken(token: string): string {
+  return token
+    .replace(/ph/g, 'f')
+    .replace(/ch/g, 'x')
+    .replace(/ll/g, 'i')
+    .replace(/qu/g, 'k')
+    .replace(/c([ei])/g, 's$1')
+    .replace(/c/g, 'k')
+    .replace(/z/g, 's')
+    .replace(/v/g, 'b')
+    .replace(/g([ei])/g, 'j$1')
+    .replace(/h/g, '')
+    .replace(/y/g, 'i')
+    .replace(/(.)\1+/g, '$1')
+}
+
+function levenshteinDistance(a: string, b: string): number {
+  if (a === b) return 0
+  if (!a.length) return b.length
+  if (!b.length) return a.length
+  const matrix: number[][] = Array.from({ length: a.length + 1 }, (_, i) => [i])
+  for (let j = 1; j <= b.length; j++) matrix[0][j] = j
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1
+      matrix[i][j] = Math.min(
+        matrix[i - 1][j] + 1,
+        matrix[i][j - 1] + 1,
+        matrix[i - 1][j - 1] + cost
+      )
+    }
+  }
+  return matrix[a.length][b.length]
+}
+
+const GENERIC_CUSTOMER_TOKENS = new Set(['cliente', 'uber', 'eats', 'doordash', 'grubhub', 'online', 'delivery', 'pickup'])
+
+/**
+ * Detecta si dos nombres de clientes son idénticos, comparten el mismo primer nombre (aunque el apellido sea diferente)
+ * o son fonéticamente/visualmente muy parecidos (ej. Maria G. vs Maria R., Cristian vs Christian, Jovita vs Jovanna, Carla vs Karla).
+ */
+export function areCustomerNamesConfusable(
+  nameA: string,
+  nameB: string
+): { confusable: boolean; reason: NameCollisionReason | null } {
+  const normA = normalizeAsciiLetters(nameA)
+  const normB = normalizeAsciiLetters(nameB)
+  if (!normA || !normB) return { confusable: false, reason: null }
+
+  const partsA = normA.split(' ').filter(t => t && !GENERIC_CUSTOMER_TOKENS.has(t))
+  const partsB = normB.split(' ').filter(t => t && !GENERIC_CUSTOMER_TOKENS.has(t))
+  const firstA = partsA[0] || ''
+  const firstB = partsB[0] || ''
+
+  if (firstA.length < 2 || firstB.length < 2) {
+    return { confusable: false, reason: null }
+  }
+
+  // 1. Nombre y apellido/inicial exactamente iguales
+  if (partsA.join(' ') === partsB.join(' ')) {
+    return { confusable: true, reason: 'EXACT_NAME' }
+  }
+
+  // 2. Mismo primer nombre aunque el apellido o inicial sea diferente (ej. "Maria G." vs "Maria R.")
+  if (firstA === firstB) {
+    return { confusable: true, reason: 'SAME_FIRST_NAME' }
+  }
+
+  // 3. Equivalencia fonética directa (ej. "Cristian" vs "Christian", "Bryan" vs "Brian", "Carla" vs "Karla", "Steven" vs "Stephen")
+  const phonA = phoneticFirstToken(firstA)
+  const phonB = phoneticFirstToken(firstB)
+  if (phonA.length >= 3 && phonA === phonB) {
+    return { confusable: true, reason: 'SIMILAR_NAME' }
+  }
+
+  // 4. Uno contiene al otro como prefijo/diminutivo de >= 3 letras (ej. "Alex" vs "Alexis"/"Alejandro", "Mari" vs "Maria", "Jovi" vs "Jovita")
+  const minLen = Math.min(firstA.length, firstB.length)
+  if (minLen >= 3 && (firstA.startsWith(firstB) || firstB.startsWith(firstA))) {
+    return { confusable: true, reason: 'SIMILAR_NAME' }
+  }
+  const minPhonLen = Math.min(phonA.length, phonB.length)
+  if (minPhonLen >= 3 && (phonA.startsWith(phonB) || phonB.startsWith(phonA))) {
+    return { confusable: true, reason: 'SIMILAR_NAME' }
+  }
+
+  // 5. Distancia de edición muy corta (ej. "Maria" vs "Mario", "Jovita" vs "Jovana", "Juan" vs "Juana", "Luis" vs "Luisa")
+  const rawDist = levenshteinDistance(firstA, firstB)
+  const phonDist = levenshteinDistance(phonA, phonB)
+
+  if (minLen >= 4 && (rawDist <= 1 || phonDist <= 1)) {
+    return { confusable: true, reason: 'SIMILAR_NAME' }
+  }
+
+  if (minLen >= 5 && rawDist <= 2 && phonA[0] === phonB[0]) {
+    return { confusable: true, reason: 'SIMILAR_NAME' }
+  }
+
+  return { confusable: false, reason: null }
+}
+
+/**
+ * Determina si una orden no fue recogida por ningún chofer en 2 horas o más (>= 120 minutos).
+ */
+export function isOrderUnclaimedByDriver(params: {
+  openedDate?: string | null
+  packedAt?: string | null
+  handedAt?: string | null
+  status?: string | null
+  nowMs?: number
+}): boolean {
+  const { openedDate, packedAt, handedAt, status, nowMs = Date.now() } = params
+  if (status === 'DELIVERED' || status === 'released' || handedAt) return false
+  if (status === 'UNCLAIMED_2H' || status === 'unclaimed') return true
+
+  const openedMs = openedDate ? new Date(openedDate).getTime() : NaN
+  const packedMs = packedAt ? new Date(packedAt).getTime() : NaN
+  const referenceMs = Number.isFinite(openedMs) ? openedMs : packedMs
+
+  if (!Number.isFinite(referenceMs)) return false
+  return nowMs - referenceMs >= UNCLAIMED_DRIVER_TIMEOUT_MS
+}
+
+/**
+ * Cambia automáticamente el estatus en base de datos a UNCLAIMED_2H para todas las órdenes
+ * no entregadas (sin chofer) que hayan cumplido 2 horas o más desde su apertura o empaque.
+ */
+export async function autoExpireUnclaimedAudits(
+  storeId?: number,
+  nowMs: number = Date.now()
+): Promise<number> {
+  try {
+    let query = supabaseAdmin
+      .from('delivery_packing_audits')
+      .select('id, status, order_opened_at, packed_at, handed_at, created_at')
+      .in('status', ['PENDING_MATCH', 'MATCHED', 'PACKED_AND_SEALED'])
+      .is('handed_at', null)
+
+    if (storeId && storeId > 0) {
+      query = query.eq('store_id', storeId)
+    }
+
+    const { data: candidates, error } = await query
+    if (error || !candidates?.length) return 0
+
+    const expiredIds = candidates
+      .filter(row =>
+        isOrderUnclaimedByDriver({
+          openedDate: row.order_opened_at || row.packed_at || row.created_at,
+          packedAt: row.packed_at,
+          handedAt: row.handed_at,
+          status: row.status,
+          nowMs
+        })
+      )
+      .map(row => row.id)
+
+    if (expiredIds.length === 0) return 0
+
+    await supabaseAdmin
+      .from('delivery_packing_audits')
+      .update({
+        status: 'UNCLAIMED_2H' as AuditStatus,
+        updated_at: new Date(nowMs).toISOString()
+      })
+      .in('id', expiredIds)
+
+    return expiredIds.length
+  } catch {
+    return 0
+  }
 }
 
 /**
@@ -198,9 +385,17 @@ export function extractPlatformOrderIdentity(params: {
       ? 'Grubhub'
       : 'Online'
 
+  const tabCustomerFallback = tab
+    .replace(/^\s*UBER[-_\s]*[A-Z0-9]{4,8}\b\s*/i, '')
+    .replace(/^\s*(DD|SF)\s+[a-f0-9]{6,10}\b\s*/i, '')
+    .replace(/^\s*Grubhub\s*#?\d+\s*/i, '')
+    .replace(/^pickup-\s*/i, '')
+    .trim()
+
   const cleanCustomerName =
     [cleanFirst, rawLast].filter(Boolean).join(' ').trim() ||
     String(params.fullName || '').trim() ||
+    tabCustomerFallback ||
     `Cliente ${platformLabel}`
 
   const maskedCustomerName = maskCustomerName(cleanCustomerName)
@@ -635,8 +830,8 @@ export async function fetchOffPremiseOrders(storeId: number, targetBusinessDate?
   // 2. Mapeo dinámico de Dining Options
   const diningOptionsMap = await fetchDiningOptionsMap(token, store.external_id)
 
-  // 3. Consultar órdenes en Toast API con caché de 5s y protección contra 429 Too Many Requests
-  const cacheKey = `${store.external_id}:${businessDate}`
+  // 3. Consultar órdenes en Toast API con ventana móvil en tiempo real (últimos 180 min) para cubrir el cambio automático a las 2 horas sin paginar desde las 6 AM ni truncar en la orden #200 por rate-limit
+  const cacheKey = `${store.external_id}:${targetBusinessDate || 'LIVE'}`
   const nowMs = Date.now()
   const cachedRaw = toastRawOrdersCache.get(cacheKey)
 
@@ -649,9 +844,20 @@ export async function fetchOffPremiseOrders(storeId: number, targetBusinessDate?
       inflightJob = (async () => {
         const fetched: any[] = []
         let page = 1
-        const maxPages = 20
+        const maxPages = targetBusinessDate ? 20 : 5
+        let abortedByError = false
+
+        const endInstant = new Date()
+        const startInstant = new Date(endInstant.getTime() - 180 * 60 * 1000)
+        const formatToastIso = (d: Date) => d.toISOString().replace('Z', '+0000')
+
         while (page <= maxPages) {
-          const ordersUrl = `${TOAST_API_HOST}/orders/v2/ordersBulk?businessDate=${businessDate}&pageSize=100&page=${page}`
+          const ordersUrl = targetBusinessDate
+            ? `${TOAST_API_HOST}/orders/v2/ordersBulk?businessDate=${businessDate}&pageSize=100&page=${page}`
+            : `${TOAST_API_HOST}/orders/v2/ordersBulk?startDate=${encodeURIComponent(
+                formatToastIso(startInstant)
+              )}&endDate=${encodeURIComponent(formatToastIso(endInstant))}&pageSize=100&page=${page}`
+
           const oRes = await fetch(ordersUrl, {
             cache: 'no-store',
             headers: {
@@ -661,10 +867,11 @@ export async function fetchOffPremiseOrders(storeId: number, targetBusinessDate?
           })
 
           if (!oRes.ok) {
+            abortedByError = true
+            if (cachedRaw?.orders?.length) {
+              return cachedRaw.orders
+            }
             if (page === 1) {
-              if (cachedRaw?.orders?.length) {
-                return cachedRaw.orders
-              }
               const errText = await oRes.text().catch(() => '')
               throw new Error(`Error consultando órdenes en Toast API (${oRes.status}): ${errText.substring(0, 150)}`)
             }
@@ -678,7 +885,11 @@ export async function fetchOffPremiseOrders(storeId: number, targetBusinessDate?
           if (chunk.length < 100) break
           page++
         }
-        toastRawOrdersCache.set(cacheKey, { at: Date.now(), orders: fetched })
+
+        // Nunca sobrescribir el caché si una página intermedia falló por rate-limit (evita mostrar órdenes viejas #200)
+        if (!abortedByError || !cachedRaw?.orders?.length) {
+          toastRawOrdersCache.set(cacheKey, { at: Date.now(), orders: fetched })
+        }
         return fetched
       })().finally(() => {
         toastRawOrdersInflight.delete(cacheKey)
@@ -688,7 +899,9 @@ export async function fetchOffPremiseOrders(storeId: number, targetBusinessDate?
     rawOrders = await inflightJob
   }
 
-  // 4. Consultar auditorías existentes en Supabase para vincular su estado actual
+  // 4. Cambiar automáticamente a UNCLAIMED_2H las auditorías que cumplan >= 2 horas sin ser recogidas por ningún chofer
+  await autoExpireUnclaimedAudits(storeId, nowMs)
+
   const { data: existingAudits } = await supabaseAdmin
     .from('delivery_packing_audits')
     .select('*')
@@ -706,6 +919,19 @@ export async function fetchOffPremiseOrders(storeId: number, targetBusinessDate?
     if (o.deleted) continue
     const existingAudit = auditsMap.get(o.guid)
     if (o.voided && !existingAudit) continue
+
+    const openedRaw = o.openedDate || o.createdDate || existingAudit?.order_opened_at
+    const openedMs = openedRaw ? new Date(openedRaw).getTime() : NaN
+
+    // En modo en vivo (tableta), descartar órdenes de otro día laboral (corte 6:00 AM) o abiertas hace más de 3 horas sin auditoría que Toast actualiza por cierre de lote/propinas (ej. #200 vs #670 actuales)
+    if (!targetBusinessDate) {
+      if (o.businessDate && String(o.businessDate) !== businessDate) {
+        continue
+      }
+      if (!existingAudit && Number.isFinite(openedMs) && nowMs - openedMs > 180 * 60 * 1000) {
+        continue
+      }
+    }
 
     const dGuid = o.diningOption?.guid || ''
     const dName = diningOptionsMap[dGuid] || o.diningOption?.name || 'Mostrador'
@@ -771,6 +997,38 @@ export async function fetchOffPremiseOrders(storeId: number, targetBusinessDate?
 
     if (items.length === 0) continue
 
+    const isUnclaimed2h = isOrderUnclaimedByDriver({
+      openedDate: openedRaw,
+      packedAt: existingAudit?.packed_at,
+      handedAt: existingAudit?.handed_at,
+      status: existingAudit?.status,
+      nowMs
+    })
+
+    // Si Toast actualizó el nombre del repartidor posteriormente (ej. Uber Eats en deliveryInfo.notes "Driver Pin: ... (Nombre)")
+    // y nuestra auditoría no tenía nombre o tenía un placeholder genérico, sincronizarlo automáticamente en DB.
+    const currentAuditDriver = (existingAudit?.driver_name || '').trim()
+    const isGenericDriverPlaceholder =
+      !currentAuditDriver ||
+      currentAuditDriver.toLowerCase() === 'chofer verificado' ||
+      currentAuditDriver.toLowerCase() === 'repartidor verificado'
+    const resolvedDriverName =
+      isGenericDriverPlaceholder && identity.assignedDriverHint
+        ? identity.assignedDriverHint
+        : existingAudit?.driver_name || identity.assignedDriverHint || null
+
+    if (existingAudit?.id && isGenericDriverPlaceholder && identity.assignedDriverHint) {
+      existingAudit.driver_name = identity.assignedDriverHint
+      supabaseAdmin
+        .from('delivery_packing_audits')
+        .update({
+          driver_name: identity.assignedDriverHint,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', existingAudit.id)
+        .then(() => {})
+    }
+
     offPremiseOrders.push({
       orderGuid: o.guid,
       displayNumber: displayNumStr,
@@ -792,29 +1050,58 @@ export async function fetchOffPremiseOrders(storeId: number, targetBusinessDate?
       isVoided: !!o.voided,
       items,
       totalItemsCount: items.reduce((acc, curr) => acc + curr.quantity, 0),
-      audit: existingAudit ? {
-        id: existingAudit.id,
-        status: existingAudit.status,
-        matchedItems: Array.isArray(existingAudit.matched_items) ? existingAudit.matched_items : [],
-        matchCompleted: !!existingAudit.match_completed,
-        photoOpenUrl: existingAudit.photo_open_url,
-        photoSealedUrl: existingAudit.photo_sealed_url,
-        packerName: existingAudit.packer_ronos_name,
-        packedAt: existingAudit.packed_at,
-        handedByName: existingAudit.handed_by_ronos_name,
-        handedAt: existingAudit.handed_at,
-        driverName: existingAudit.driver_name || null,
-        driverConfirmed: existingAudit.driver_confirmed,
-        quickChecks: existingAudit.quick_checks || undefined,
-        expectedBagCount: Number(existingAudit.expected_bag_count || 1),
-        confirmedBagCount: existingAudit.confirmed_bag_count == null ? null : Number(existingAudit.confirmed_bag_count),
-        riskLevel: existingAudit.risk_level || 'NORMAL',
-        riskReasons: Array.isArray(existingAudit.risk_reasons) ? existingAudit.risk_reasons : [],
-        evidencePolicy: existingAudit.evidence_policy || 'NONE',
-        courierVerificationMethod: existingAudit.courier_verification_method || null,
-        courierOrderReference: existingAudit.courier_order_reference || null,
-        livePickupConfirmed: !!existingAudit.live_pickup_confirmed
-      } : undefined
+      audit: existingAudit
+        ? {
+            id: existingAudit.id,
+            status:
+              isUnclaimed2h && existingAudit.status !== 'DELIVERED'
+                ? 'UNCLAIMED_2H'
+                : existingAudit.status,
+            matchedItems: Array.isArray(existingAudit.matched_items) ? existingAudit.matched_items : [],
+            matchCompleted: !!existingAudit.match_completed,
+            photoOpenUrl: existingAudit.photo_open_url,
+            photoSealedUrl: existingAudit.photo_sealed_url,
+            packerName: existingAudit.packer_ronos_name,
+            packedAt: existingAudit.packed_at,
+            handedByName: existingAudit.handed_by_ronos_name,
+            handedAt: existingAudit.handed_at,
+            driverName: resolvedDriverName,
+            driverConfirmed: existingAudit.driver_confirmed,
+            quickChecks: existingAudit.quick_checks || undefined,
+            expectedBagCount: Number(existingAudit.expected_bag_count || 1),
+            confirmedBagCount:
+              existingAudit.confirmed_bag_count == null ? null : Number(existingAudit.confirmed_bag_count),
+            riskLevel: existingAudit.risk_level || 'NORMAL',
+            riskReasons: Array.isArray(existingAudit.risk_reasons) ? existingAudit.risk_reasons : [],
+            evidencePolicy: existingAudit.evidence_policy || 'NONE',
+            courierVerificationMethod: existingAudit.courier_verification_method || null,
+            courierOrderReference: existingAudit.courier_order_reference || null,
+            livePickupConfirmed: !!existingAudit.live_pickup_confirmed
+          }
+        : isUnclaimed2h
+        ? {
+            id: `unclaimed:${o.guid}`,
+            status: 'UNCLAIMED_2H',
+            matchedItems: [],
+            matchCompleted: false,
+            photoOpenUrl: null,
+            photoSealedUrl: null,
+            packerName: null,
+            packedAt: null,
+            handedByName: null,
+            handedAt: null,
+            driverName: null,
+            driverConfirmed: false,
+            expectedBagCount: 1,
+            confirmedBagCount: null,
+            riskLevel: 'NORMAL',
+            riskReasons: [],
+            evidencePolicy: 'NONE',
+            courierVerificationMethod: null,
+            courierOrderReference: null,
+            livePickupConfirmed: false
+          }
+        : undefined
     })
   }
 
@@ -997,7 +1284,11 @@ export async function confirmHandoffToDriver(params: {
   if (currentError || !current) throw new Error('Primero debes concluir el sellado de empaque antes de entregar la orden.')
   if (Number(current.store_id) !== storeId) throw new Error('La orden no pertenece a la sucursal activa.')
   if (current.status === 'DELIVERED') throw new Error('La orden ya fue liberada al chofer.')
-  if (current.status !== 'PACKED_AND_SEALED' || !current.match_completed || !areQuickChecksComplete(current.quick_checks)) {
+  if (
+    (current.status !== 'PACKED_AND_SEALED' && current.status !== 'UNCLAIMED_2H') ||
+    !current.match_completed ||
+    !areQuickChecksComplete(current.quick_checks)
+  ) {
     throw new Error('Primero debes concluir el sellado de empaque antes de entregar la orden.')
   }
   if (Number(current.expected_bag_count) !== Number(current.confirmed_bag_count)) {
@@ -1028,7 +1319,7 @@ export async function confirmHandoffToDriver(params: {
     .from('delivery_packing_audits')
     .update(payload)
     .eq('id', current.id)
-    .eq('status', 'PACKED_AND_SEALED')
+    .in('status', ['PACKED_AND_SEALED', 'UNCLAIMED_2H'])
     .select('*')
     .single()
 
@@ -1053,6 +1344,10 @@ export function formatDisputeStatement(audit: any): string {
   const kdsLine = Number.isFinite(Number(kdsSeconds))
     ? `KITCHEN KDS PREP TIME: ${Math.floor(Number(kdsSeconds) / 60)}m ${Number(kdsSeconds) % 60}s (Cleared by Kitchen before Packing)\n`
     : ''
+  const isUnclaimed2h = audit.status === 'UNCLAIMED_2H' || audit.status === 'unclaimed'
+  const handoffLine = isUnclaimed2h
+    ? 'UNCLAIMED BY DRIVER AFTER 2+ HOURS (Auto-status: UNCLAIMED_2H)'
+    : `${audit.handed_by_ronos_name || 'Counter Staff'} (Handoff at: ${audit.handed_at || 'Verified'})`
 
   return `
 DISPUTE REPRESENTMENT DOSSIER — TACOS GAVILAN
@@ -1063,12 +1358,11 @@ PLATFORM ORDER KEY / CLAVE: ${platformKey}
 PLATFORM / CHANNEL: ${audit.platform} (${audit.dining_option_name || 'Delivery'})
 ${kdsLine}FULFILLMENT TIMESTAMP: ${dateFormatted} PST
 VERIFIED PACKER: ${audit.packer_ronos_name || 'Staff Employee'} (RONOS ID #${audit.packer_ronos_user_id || 'N/A'})
-HANDOFF AGENT: ${audit.handed_by_ronos_name || 'Counter Staff'} (Handoff at: ${audit.handed_at || 'Verified'})
+HANDOFF AGENT: ${handoffLine}
 
 OFFICIAL DISPUTE STATEMENT:
 "This order passed the restaurant's four-point release control for prepared items, beverages, bag count, and seal integrity.
-The custody record identifies the responsible restaurant employee and the handoff time.
-Courier verification method: ${audit.courier_verification_method || 'not recorded'}; order key verified: ${platformKey}; live pickup confirmation observed: ${audit.live_pickup_confirmed ? 'yes' : 'no'}.
+The custody record identifies the responsible restaurant employee and the fulfillment timestamp.${isUnclaimed2h ? '\nNo platform courier arrived to pick up the order within 2 hours of preparation; the system automatically recorded its status as UNCLAIMED_2H (No Courier Pickup After 2+ Hours).' : `\nCourier verification method: ${audit.courier_verification_method || 'not recorded'}; order key verified: ${platformKey}; live pickup confirmation observed: ${audit.live_pickup_confirmed ? 'yes' : 'no'}.`}
 ${audit.photo_sealed_url ? 'A timestamped photograph of the sealed bag and visible ticket is attached.' : 'No photographic evidence is asserted for this order.'}
 We request a review of the error charge against the attached order-level custody evidence."
 

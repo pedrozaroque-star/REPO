@@ -1,11 +1,11 @@
 /**
  * @module BovedaDisputasBlindajeDelivery
- * @description Bóveda de Disputas y Auditoría de Entrega Blindada para Tacos Gavilan. Permite revisar controles rápidos, cadena de custodia, verificación del chofer y la evidencia realmente disponible.
+ * @description Panel de Historial de Custodia y Entrega Blindada para Tacos Gavilan. Permite revisar cadena de custodia de empaque, entrega a repartidor y estatus automático de órdenes no recogidas (+2h).
  * @businessRules
  * - Horario Laboral de Tacos Gavilan: 6:00 AM a 5:59 AM del siguiente día (Turno PM desde 5:00 PM).
  * - Identificación de Personal: Rastreabilidad estricta mediante el PIN de RONOS del empacador y del colaborador que entrega al chofer.
- * - Evidencia proporcional: Las órdenes de riesgo conservan foto sellada; las normales no cargan trabajo fotográfico obligatorio.
- * - Expediente Legal de Disputa: Redacta y formatea automáticamente la declaración oficial en inglés y español lista para pegar en los portales de DoorDash Merchant Portal y Uber Eats Manager.
+ * - Estatus Automático (+2h): Si una orden cumple 2 horas o más desde su apertura sin ser recogida por ningún chofer, cambia automáticamente a UNCLAIMED_2H.
+ * - Sin Evidencia Fotográfica: Se eliminaron completamente los botones de Expediente y captura de fotografías operativas.
  * @dataFlow Supabase `delivery_packing_audits` & `stores` -> API `/api/delivery-armor/disputes` -> BovedaDisputas UI
  * @notes Piloto inicial en Slauson (#7) y LA Central (#6). Estilo adaptado al diseño claro oficial de Tacos Gavilan con soporte de modo oscuro.
  */
@@ -13,27 +13,17 @@
 'use client'
 
 import { useState, useEffect, useMemo, useCallback } from 'react'
-import { useLanguage } from '@/lib/i18n'
 import Link from 'next/link'
 import {
   ShieldCheck,
-  FileText,
-  Camera,
   CheckCircle2,
   AlertTriangle,
   Search,
   Filter,
   RefreshCw,
-  ExternalLink,
-  Copy,
-  Check,
-  X,
   Truck,
   Store as StoreIcon,
   ShoppingBag,
-  Eye,
-  Maximize2,
-  Lock,
   ArrowUpRight
 } from 'lucide-react'
 
@@ -60,15 +50,13 @@ interface DeliveryAuditRow {
   packer_employee_id: string
   packer_name: string
   packer_pin: string
-  photo_open_content_url?: string
-  photo_sealed_bag_url?: string
   handoff_at?: string
   handoff_employee_id?: string
   handoff_employee_name?: string
   handoff_employee_pin?: string
   courier_name?: string
   courier_verified?: boolean
-  status: 'pending_match' | 'matched' | 'sealed' | 'delivered'
+  status: 'pending_match' | 'matched' | 'sealed' | 'delivered' | 'unclaimed'
   dispute_status: 'none' | 'disputed' | 'won' | 'lost'
   dispute_notes?: string
   created_at: string
@@ -81,8 +69,6 @@ interface DeliveryAuditRow {
 }
 
 export default function BovedaDisputasBlindajeDeliveryPage() {
-  const { t, language } = useLanguage()
-
   // Filtros
   const [selectedStoreId, setSelectedStoreId] = useState<number>(0)
   const [selectedPlatform, setSelectedPlatform] = useState<string>('ALL')
@@ -93,14 +79,6 @@ export default function BovedaDisputasBlindajeDeliveryPage() {
   const [audits, setAudits] = useState<DeliveryAuditRow[]>([])
   const [loading, setLoading] = useState<boolean>(true)
   const [error, setError] = useState<string | null>(null)
-
-  // Modal de Expediente de Disputa
-  const [selectedAuditForDossier, setSelectedAuditForDossier] = useState<DeliveryAuditRow | null>(null)
-  const [dossierText, setDossierText] = useState<string>('')
-  const [copied, setCopied] = useState<boolean>(false)
-
-  // Modal de Zoom de Imagen
-  const [zoomedImage, setZoomedImage] = useState<{ url: string; title: string } | null>(null)
 
   // Cargar auditorías desde la API
   const fetchAudits = useCallback(async () => {
@@ -134,15 +112,22 @@ export default function BovedaDisputasBlindajeDeliveryPage() {
         packer_employee_id: String(a.packer_ronos_user_id || a.packer_employee_id || a.packer_pin || ''),
         packer_name: a.packer_ronos_name || a.packer_name || 'Colaborador',
         packer_pin: '••••',
-        photo_open_content_url: a.photo_open_url || a.photo_open_content_url,
-        photo_sealed_bag_url: a.photo_sealed_url || a.photo_sealed_bag_url,
         handoff_at: a.handed_at || a.handoff_at,
         handoff_employee_id: String(a.handed_by_ronos_user_id || a.handoff_employee_id || ''),
         handoff_employee_name: a.handed_by_ronos_name || a.handoff_employee_name,
         handoff_employee_pin: '••••',
         courier_name: a.driver_name || a.courier_name,
         courier_verified: a.driver_confirmed || a.courier_verified,
-        status: (a.status === 'PACKED_AND_SEALED' ? 'sealed' : (a.status === 'DELIVERED' ? 'delivered' : (a.status === 'MATCHED' ? 'matched' : (a.status || 'pending_match')))),
+        status:
+          a.status === 'PACKED_AND_SEALED'
+            ? 'sealed'
+            : a.status === 'DELIVERED'
+            ? 'delivered'
+            : a.status === 'UNCLAIMED_2H'
+            ? 'unclaimed'
+            : a.status === 'MATCHED'
+            ? 'matched'
+            : a.status || 'pending_match',
         dispute_status: a.dispute_status || 'none',
         dispute_notes: a.dispute_notes,
         created_at: a.created_at,
@@ -196,80 +181,19 @@ export default function BovedaDisputasBlindajeDeliveryPage() {
   // Métricas clave (KPIs)
   const stats = useMemo(() => {
     const total = filteredAudits.length
-    const sealedOrDelivered = filteredAudits.filter(a => a.status === 'sealed' || a.status === 'delivered').length
+    const sealedCount = filteredAudits.filter(a => a.status === 'sealed').length
     const deliveredCount = filteredAudits.filter(a => a.status === 'delivered').length
-    const withSealedEvidence = filteredAudits.filter(a => a.photo_sealed_bag_url).length
-    const compliancePct = total > 0 ? Math.round((sealedOrDelivered / total) * 100) : 100
-    // Estimación de ahorro basada en $32 promedio por orden con contracargo evitado
+    const unclaimedCount = filteredAudits.filter(a => a.status === 'unclaimed').length
+    const sealedOrDelivered = sealedCount + deliveredCount + unclaimedCount
     const estimatedSavings = sealedOrDelivered * 32
     return {
       total,
-      sealedOrDelivered,
+      sealedCount,
       deliveredCount,
-      withSealedEvidence,
-      compliancePct,
+      unclaimedCount,
       estimatedSavings
     }
   }, [filteredAudits])
-
-  // Abrir Modal de Expediente de Disputa
-  const handleOpenDossier = (audit: DeliveryAuditRow) => {
-    setSelectedAuditForDossier(audit)
-
-    const dateFormatted = audit.created_at
-      ? new Date(audit.created_at).toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })
-      : new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })
-
-    const itemsList = Array.isArray(audit.items_ordered)
-      ? audit.items_ordered.map(i => `- ${i.quantity || 1}x ${i.displayName || i.name || 'Item'} ($${Number(i.price || 0).toFixed(2)})`).join('\n')
-      : 'All ordered items'
-
-    const platformKey =
-      audit.courier_order_reference ||
-      audit.quick_checks?.platformOrderKey ||
-      `#${audit.ticket_number || audit.toast_order_id.slice(-4)}`
-
-    const kdsSec = audit.quick_checks?.kdsPrepSeconds
-    const kdsLine =
-      kdsSec != null && Number.isFinite(Number(kdsSec))
-        ? `\nKITCHEN KDS PREP TIME: ${Math.floor(Number(kdsSec) / 60)}m ${Number(kdsSec) % 60}s (Cleared on KDS before Cashier Packing)`
-        : ''
-
-    const statement = `DISPUTE REPRESENTMENT DOSSIER — TACOS GAVILAN
---------------------------------------------------------------------------------
-MERCHANT: Tacos Gavilan (${audit.store_name})
-ORDER NUMBER / DISPLAY ID: #${audit.ticket_number || audit.toast_order_id.slice(-4)}
-PLATFORM ORDER KEY / CLAVE: ${platformKey}
-PLATFORM / CHANNEL: ${audit.platform} (${audit.dining_option_name || 'Delivery'})${kdsLine}
-FULFILLMENT TIMESTAMP: ${dateFormatted} PST
-VERIFIED PACKER: ${audit.packer_name || 'Staff Employee'} (RONOS ID #${audit.packer_employee_id || 'N/A'})
-HANDOFF AGENT: ${audit.handoff_employee_name || 'Counter Staff'} (Handoff at: ${audit.handoff_at ? new Date(audit.handoff_at).toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }) : 'Verified'})
-
-OFFICIAL DISPUTE STATEMENT:
-"This order passed the restaurant's four-point release control for prepared items, beverages, bag count, and seal integrity.
-The custody record identifies the responsible restaurant employee and the handoff time.
-Courier verification method: ${audit.courier_verification_method || (audit.platform === 'DOORDASH' ? 'DOORDASH_QR' : 'PLATFORM_ORDER_ID')}; order key verified: ${platformKey}; live pickup confirmation observed: ${audit.live_pickup_confirmed ? 'yes' : 'yes'}.
-${audit.photo_sealed_bag_url ? 'A timestamped photograph of the sealed bag and visible ticket is attached.' : 'No photographic evidence is asserted for this order.'}
-We request a review of the error charge against the attached order-level custody evidence."
-
-VERIFIED PACKED ITEMS:
-${itemsList}
-
-AVAILABLE EVIDENCE:
-1. Sealed bag and ticket: ${audit.photo_sealed_bag_url || 'Not captured / not asserted'}
---------------------------------------------------------------------------------`.trim()
-
-    setDossierText(statement)
-    setCopied(false)
-  }
-
-  // Copiar al portapapeles
-  const handleCopyDossier = () => {
-    if (!dossierText) return
-    navigator.clipboard.writeText(dossierText)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 3000)
-  }
 
   // Helper para badge de plataforma
   const getPlatformBadge = (platform: DeliveryAuditRow['platform']) => {
@@ -304,11 +228,11 @@ AVAILABLE EVIDENCE:
                   Blindaje Delivery
                 </h1>
                 <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800/40">
-                  BÓVEDA DE DISPUTAS
+                  HISTORIAL DE CUSTODIA
                 </span>
               </div>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                Tacos Gavilan • Control de Entrega, Custodia y Protección contra Contracargos
+                Tacos Gavilan • Control de Empaque y Entrega a Repartidores
               </p>
             </div>
           </div>
@@ -349,6 +273,12 @@ AVAILABLE EVIDENCE:
       </div>
 
       <main className="max-w-7xl mx-auto w-full px-4 md:px-6 py-6 space-y-6">
+        {error && (
+          <div className="p-4 rounded-2xl bg-red-50 border border-red-200 text-red-700 text-xs font-bold">
+            {error}
+          </div>
+        )}
+
         {/* 3. TARJETAS DE MÉTRICAS (KPIS) */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           {/* Total Órdenes Blindadas */}
@@ -363,15 +293,15 @@ AVAILABLE EVIDENCE:
             </div>
           </div>
 
-          {/* Con Evidencia Sellada */}
+          {/* Empacadas y Selladas */}
           <div className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm flex items-center gap-4 border-l-4 border-l-emerald-500">
             <div className="w-12 h-12 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 flex items-center justify-center text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/40">
-              <Camera className="w-6 h-6" />
+              <CheckCircle2 className="w-6 h-6" />
             </div>
             <div>
-              <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 block">Con Foto Sellada</span>
-              <span className="text-2xl font-black text-emerald-600 dark:text-emerald-400">{stats.withSealedEvidence}</span>
-              <span className="text-[11px] text-slate-400 block">Evidencia de riesgo guardada</span>
+              <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 block">Listas en Estante</span>
+              <span className="text-2xl font-black text-emerald-600 dark:text-emerald-400">{stats.sealedCount}</span>
+              <span className="text-[11px] text-slate-400 block">Esperando recolección</span>
             </div>
           </div>
 
@@ -387,17 +317,17 @@ AVAILABLE EVIDENCE:
             </div>
           </div>
 
-          {/* Ahorro Estimado */}
-          <div className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm flex items-center gap-4 border-l-4 border-l-amber-500">
-            <div className="w-12 h-12 rounded-xl bg-amber-50 dark:bg-amber-950/40 flex items-center justify-center text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-800/40">
-              <ShieldCheck className="w-6 h-6" />
+          {/* No Recogidas (+2h) */}
+          <div className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm flex items-center gap-4 border-l-4 border-l-orange-500">
+            <div className="w-12 h-12 rounded-xl bg-orange-50 dark:bg-orange-950/40 flex items-center justify-center text-orange-600 dark:text-orange-400 border border-orange-200 dark:border-orange-800/40">
+              <AlertTriangle className="w-6 h-6" />
             </div>
             <div>
-              <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 block">Ahorro Estimado</span>
-              <span className="text-2xl font-black text-amber-600 dark:text-amber-400 font-mono">
-                ${stats.estimatedSavings.toLocaleString()}
+              <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 block">No Recogidas (+2h)</span>
+              <span className="text-2xl font-black text-orange-600 dark:text-orange-400 font-mono">
+                {stats.unclaimedCount}
               </span>
-              <span className="text-[11px] text-slate-400 block">En contracargos blindados</span>
+              <span className="text-[11px] text-slate-400 block">Cambio automático a las 2 horas</span>
             </div>
           </div>
         </div>
@@ -446,8 +376,9 @@ AVAILABLE EVIDENCE:
                 className="bg-transparent text-slate-800 dark:text-slate-200 font-semibold focus:outline-none cursor-pointer"
               >
                 <option value="ALL" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">Todos los Estados</option>
-                <option value="sealed" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">Selladas con Foto</option>
+                <option value="sealed" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">Listas en Estante</option>
                 <option value="delivered" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">Entregadas a Chofer</option>
+                <option value="unclaimed" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">No Recogidas (+2h)</option>
               </select>
             </div>
           </div>
@@ -457,7 +388,7 @@ AVAILABLE EVIDENCE:
             <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
             <input
               type="text"
-              placeholder="Buscar por Ticket, Orden, Cliente, PIN..."
+              placeholder="Buscar por Cliente, #Check, Clave, Empacador..."
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
               className="w-full pl-9 pr-3.5 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:border-red-500 focus:bg-white dark:focus:bg-slate-900 transition-colors"
@@ -465,7 +396,7 @@ AVAILABLE EVIDENCE:
           </div>
         </div>
 
-        {/* 5. TABLA DE EXPEDIENTES Y AUDITORÍAS */}
+        {/* 5. TABLA DE REGISTROS DE CUSTODIA (SIN EVIDENCIAS NI BOTÓN EXPEDIENTE) */}
         <div className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse text-xs">
@@ -476,28 +407,26 @@ AVAILABLE EVIDENCE:
                   <th className="py-3.5 px-4">Cliente</th>
                   <th className="py-3.5 px-4">Empacador (RONOS)</th>
                   <th className="py-3.5 px-4">Custodia Entrega</th>
-                  <th className="py-3.5 px-4">Evidencia (Fotos)</th>
                   <th className="py-3.5 px-4">Estado</th>
-                  <th className="py-3.5 px-4 text-right">Acción</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                 {loading && (
                   <tr>
-                    <td colSpan={8} className="py-16 text-center text-slate-500 dark:text-slate-400">
+                    <td colSpan={6} className="py-16 text-center text-slate-500 dark:text-slate-400">
                       <RefreshCw className="w-6 h-6 animate-spin mx-auto text-red-600 mb-2" />
-                      <span className="font-medium">Cargando expedientes de la bóveda...</span>
+                      <span className="font-medium">Cargando registros de custodia...</span>
                     </td>
                   </tr>
                 )}
 
                 {!loading && filteredAudits.length === 0 && (
                   <tr>
-                    <td colSpan={8} className="py-16 text-center text-slate-500 dark:text-slate-400">
+                    <td colSpan={6} className="py-16 text-center text-slate-500 dark:text-slate-400">
                       <ShieldCheck className="w-12 h-12 mx-auto text-slate-300 dark:text-slate-700 mb-2.5" />
                       <p className="text-sm font-bold text-slate-700 dark:text-slate-300">No se encontraron auditorías registradas</p>
                       <p className="text-xs text-slate-400 mt-1 max-w-sm mx-auto">
-                        Las órdenes empaquetadas en la Mesa de Empaque aparecerán aquí con sus fotografías de evidencia y cadena de custodia.
+                        Las órdenes empaquetadas y entregadas en la estación de tableta aparecerán aquí con su cadena de custodia.
                       </p>
                     </td>
                   </tr>
@@ -549,11 +478,8 @@ AVAILABLE EVIDENCE:
 
                         {/* Cliente */}
                         <td className="py-3.5 px-4">
-                          <span className="font-bold text-slate-900 dark:text-slate-100 block truncate max-w-[150px]">
+                          <span className="font-bold text-slate-900 dark:text-slate-100 block truncate max-w-[180px]">
                             {audit.customer_name}
-                          </span>
-                          <span className="text-[10px] text-slate-400">
-                            {audit.items_ordered?.length || 0} artículos cotejados
                           </span>
                         </td>
 
@@ -571,85 +497,22 @@ AVAILABLE EVIDENCE:
                         <td className="py-3.5 px-4">
                           {audit.status === 'delivered' ? (
                             <div>
-                              <span className="font-semibold text-blue-700 dark:text-blue-300 block truncate max-w-[140px]">
+                              <span className="font-semibold text-blue-700 dark:text-blue-300 block truncate max-w-[160px]">
                                 {audit.handoff_employee_name || 'Entregador'}
                               </span>
                               <span className="text-[10px] text-slate-500 dark:text-slate-400 block">
-                                Clave: {orderKey} • {audit.courier_name || 'Verificado'}
+                                {audit.courier_name || 'Chofer verificado'}
                               </span>
                             </div>
+                          ) : audit.status === 'unclaimed' ? (
+                            <span className="text-[11px] font-bold text-orange-700 dark:text-orange-400">
+                              Sin chofer tras 2+ horas
+                            </span>
                           ) : (
                             <span className="text-[11px] text-slate-400 italic">
                               Pendiente de chofer
                             </span>
                           )}
-                        </td>
-
-                        {/* Fotos de Evidencia */}
-                        <td className="py-3.5 px-4">
-                          <div className="flex items-center gap-2">
-                            {audit.photo_open_content_url ? (
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setZoomedImage({
-                                    url: audit.photo_open_content_url!,
-                                    title: `Foto 1: Contenido Abierto • Orden #${audit.ticket_number}`
-                                  })
-                                }
-                                className="w-10 h-10 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden relative group hover:border-red-500 hover:ring-2 hover:ring-red-500/20 transition-all flex-shrink-0 shadow-sm"
-                                title="Ver Foto 1: Contenido Abierto"
-                              >
-                                {/* eslint-disable-next-line @next/next/no-img-element */}
-                                <img
-                                  src={audit.photo_open_content_url}
-                                  alt="Foto 1"
-                                  className="w-full h-full object-cover"
-                                />
-                                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white transition-opacity">
-                                  <Eye className="w-4 h-4" />
-                                </div>
-                              </button>
-                            ) : (
-                              <div
-                                className="w-10 h-10 rounded-xl border border-dashed border-slate-200 dark:border-slate-800 flex items-center justify-center text-slate-400 bg-slate-50 dark:bg-slate-850"
-                                title="Sin Foto 1"
-                              >
-                                <Camera className="w-4 h-4" />
-                              </div>
-                            )}
-
-                            {audit.photo_sealed_bag_url ? (
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setZoomedImage({
-                                    url: audit.photo_sealed_bag_url!,
-                                    title: `Foto 2: Bolsa Sellada • Orden #${audit.ticket_number}`
-                                  })
-                                }
-                                className="w-10 h-10 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden relative group hover:border-purple-500 hover:ring-2 hover:ring-purple-500/20 transition-all flex-shrink-0 shadow-sm"
-                                title="Ver Foto 2: Bolsa Sellada"
-                              >
-                                {/* eslint-disable-next-line @next/next/no-img-element */}
-                                <img
-                                  src={audit.photo_sealed_bag_url}
-                                  alt="Foto 2"
-                                  className="w-full h-full object-cover"
-                                />
-                                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white transition-opacity">
-                                  <Eye className="w-4 h-4" />
-                                </div>
-                              </button>
-                            ) : (
-                              <div
-                                className="w-10 h-10 rounded-xl border border-dashed border-slate-200 dark:border-slate-800 flex items-center justify-center text-slate-400 bg-slate-50 dark:bg-slate-850"
-                                title="Sin Foto 2"
-                              >
-                                <Lock className="w-4 h-4" />
-                              </div>
-                            )}
-                          </div>
                         </td>
 
                         {/* Estado */}
@@ -658,27 +521,19 @@ AVAILABLE EVIDENCE:
                             <span className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-800/40 flex items-center gap-1.5 w-max">
                               <Truck className="w-3.5 h-3.5" /> Entregada
                             </span>
+                          ) : audit.status === 'unclaimed' ? (
+                            <span className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-orange-50 text-orange-700 border border-orange-300 dark:bg-orange-950/40 dark:text-orange-300 dark:border-orange-800/40 flex items-center gap-1.5 w-max">
+                              <AlertTriangle className="w-3.5 h-3.5" /> No Recogida (+2h)
+                            </span>
                           ) : audit.status === 'sealed' ? (
-                            <span className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-purple-50 text-purple-700 border border-purple-200 dark:bg-purple-950/40 dark:text-purple-300 dark:border-purple-800/40 flex items-center gap-1.5 w-max">
-                              <CheckCircle2 className="w-3.5 h-3.5" /> Sellada
+                            <span className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800/40 flex items-center gap-1.5 w-max">
+                              <CheckCircle2 className="w-3.5 h-3.5" /> Lista
                             </span>
                           ) : (
                             <span className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800/40 flex items-center gap-1.5 w-max">
                               En Cotejo
                             </span>
                           )}
-                        </td>
-
-                        {/* Acción */}
-                        <td className="py-3.5 px-4 text-right">
-                          <button
-                            type="button"
-                            onClick={() => handleOpenDossier(audit)}
-                            className="px-3.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 font-bold text-xs inline-flex items-center gap-1.5 transition-all shadow-sm active:scale-95"
-                          >
-                            <FileText className="w-3.5 h-3.5 text-red-600 dark:text-red-400" />
-                            <span>Expediente</span>
-                          </button>
                         </td>
                       </tr>
                     )
@@ -688,190 +543,6 @@ AVAILABLE EVIDENCE:
           </div>
         </div>
       </main>
-
-      {/* 6. MODAL DE EXPEDIENTE LEGAL DE DISPUTA */}
-      {selectedAuditForDossier && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 max-w-2xl w-full shadow-2xl space-y-5 animate-in fade-in zoom-in-95 duration-200 flex flex-col max-h-[90vh]">
-            <div className="flex items-center justify-between pb-3.5 border-b border-slate-200 dark:border-slate-800">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/40 flex items-center justify-center text-red-600 dark:text-red-400">
-                  <ShieldCheck className="w-6 h-6" />
-                </div>
-                <div>
-                  <h3 className="text-base font-bold text-slate-900 dark:text-white">
-                    Expediente Oficial de Disputa • Orden #{selectedAuditForDossier.ticket_number}
-                  </h3>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">
-                    Formato legal probatorio para DoorDash Merchant Portal y Uber Eats Manager
-                  </p>
-                </div>
-              </div>
-              <button
-                onClick={() => setSelectedAuditForDossier(null)}
-                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            {/* Vista Previa de Evidencia Visual */}
-            <div className="grid grid-cols-2 gap-3 p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-850 border border-slate-200 dark:border-slate-800">
-              <div>
-                <span className="text-[11px] font-bold text-slate-600 dark:text-slate-300 block mb-1">
-                  Foto 1: Contenido Abierto
-                </span>
-                {selectedAuditForDossier.photo_open_content_url ? (
-                  <div
-                    onClick={() =>
-                      setZoomedImage({
-                        url: selectedAuditForDossier.photo_open_content_url!,
-                        title: `Foto 1: Contenido Abierto • Orden #${selectedAuditForDossier.ticket_number}`
-                      })
-                    }
-                    className="relative rounded-xl overflow-hidden aspect-video border border-slate-200 dark:border-slate-700 cursor-pointer group shadow-sm bg-white dark:bg-slate-900"
-                  >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={selectedAuditForDossier.photo_open_content_url}
-                      alt="Foto 1"
-                      className="w-full h-full object-cover"
-                    />
-                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white text-xs font-bold gap-1 transition-opacity">
-                      <Maximize2 className="w-4 h-4" /> Ampliar
-                    </div>
-                  </div>
-                ) : (
-                  <div className="aspect-video rounded-xl bg-white dark:bg-slate-900 border border-dashed border-slate-200 dark:border-slate-800 flex items-center justify-center text-xs text-slate-400">
-                    Sin Foto
-                  </div>
-                )}
-              </div>
-
-              <div>
-                <span className="text-[11px] font-bold text-slate-600 dark:text-slate-300 block mb-1">
-                  Foto 2: Bolsa Sellada con Sello Intacto
-                </span>
-                {selectedAuditForDossier.photo_sealed_bag_url ? (
-                  <div
-                    onClick={() =>
-                      setZoomedImage({
-                        url: selectedAuditForDossier.photo_sealed_bag_url!,
-                        title: `Foto 2: Bolsa Sellada • Orden #${selectedAuditForDossier.ticket_number}`
-                      })
-                    }
-                    className="relative rounded-xl overflow-hidden aspect-video border border-slate-200 dark:border-slate-700 cursor-pointer group shadow-sm bg-white dark:bg-slate-900"
-                  >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={selectedAuditForDossier.photo_sealed_bag_url}
-                      alt="Foto 2"
-                      className="w-full h-full object-cover"
-                    />
-                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white text-xs font-bold gap-1 transition-opacity">
-                      <Maximize2 className="w-4 h-4" /> Ampliar
-                    </div>
-                  </div>
-                ) : (
-                  <div className="aspect-video rounded-xl bg-white dark:bg-slate-900 border border-dashed border-slate-200 dark:border-slate-800 flex items-center justify-center text-xs text-slate-400">
-                    Sin Foto
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Texto del Expediente */}
-            <div className="flex-1 overflow-y-auto">
-              <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1.5">
-                Declaración Legal Formateada para Copiar y Pegar en el Portal de Disputas:
-              </label>
-              <textarea
-                readOnly
-                value={dossierText}
-                rows={10}
-                className="w-full p-3.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs font-mono text-slate-800 dark:text-slate-200 leading-relaxed focus:outline-none select-all"
-              />
-            </div>
-
-            <div className="pt-2 flex items-center justify-between border-t border-slate-200 dark:border-slate-800">
-              <span className="text-xs text-slate-500">
-                Pega este texto en el campo de apelación del portal para revertir el cobro.
-              </span>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setSelectedAuditForDossier(null)}
-                  className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-bold text-xs transition-colors"
-                >
-                  Cerrar
-                </button>
-                <button
-                  type="button"
-                  onClick={handleCopyDossier}
-                  className="px-5 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold text-xs shadow-md shadow-red-500/20 flex items-center gap-2 transition-all active:scale-95"
-                >
-                  {copied ? (
-                    <>
-                      <Check className="w-4 h-4 stroke-[3]" />
-                      <span>¡Copiado al Portapapeles!</span>
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="w-4 h-4" />
-                      <span>Copiar Texto de Disputa</span>
-                    </>
-                  )}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 7. MODAL DE ZOOM DE FOTOGRAFÍA EN ALTA RESOLUCIÓN */}
-      {zoomedImage && (
-        <div
-          className="fixed inset-0 z-50 bg-black/75 backdrop-blur-md flex items-center justify-center p-4 cursor-pointer"
-          onClick={() => setZoomedImage(null)}
-        >
-          <div
-            className="max-w-4xl w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl overflow-hidden shadow-2xl relative"
-            onClick={e => e.stopPropagation()}
-          >
-            <div className="p-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50 dark:bg-slate-950">
-              <h4 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                <Camera className="w-4 h-4 text-red-600" />
-                {zoomedImage.title}
-              </h4>
-              <button
-                onClick={() => setZoomedImage(null)}
-                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1.5 rounded-lg"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <div className="p-4 bg-slate-100 dark:bg-slate-950 flex items-center justify-center max-h-[75vh] overflow-hidden">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={zoomedImage.url}
-                alt="Zoom Evidencia"
-                className="max-h-[70vh] w-auto object-contain rounded-xl shadow-lg border border-slate-200 dark:border-slate-800"
-              />
-            </div>
-            <div className="p-3.5 border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 flex justify-end">
-              <a
-                href={zoomedImage.url}
-                target="_blank"
-                rel="noreferrer"
-                className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-xs font-bold text-slate-700 dark:text-slate-200 inline-flex items-center gap-1.5 transition-colors"
-              >
-                <ExternalLink className="w-3.5 h-3.5 text-red-600" />
-                <span>Abrir Imagen en Pestaña Nueva</span>
-              </a>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }

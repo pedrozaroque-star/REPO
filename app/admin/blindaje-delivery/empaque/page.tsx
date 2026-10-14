@@ -1,10 +1,11 @@
 /**
  * @module BlindajeDeliveryEmpaque
- * @description Estación vertical Fullscreen de Entrega Blindada para validar el empaque y liberar cada bolsa al chofer correcto por la Clave Única de la Orden.
+ * @description Estación vertical Fullscreen de Entrega Blindada para validar el empaque y liberar cada bolsa al chofer correcto identificando por Nombre + Apellido/Inicial y blindando contra nombres duplicados o muy parecidos desde KDS.
  * @businessRules
  *   - Siempre en modo Fullscreen (tanto al pedir PIN, al iniciar sesión con PIN, durante la operación y al cerrarse/expirar la sesión de PIN).
  *   - Acceso con PIN de 4 dígitos de RONOS con cierre automático de sesión cada 10 minutos.
- *   - Nunca se busca ni se entrega por nombre del cliente; la llave única es la Clave Oficial de cada plataforma (Uber Eats: 5 caracteres ej. 60A07, DoorDash: DD xxxxxxxx + QR, Grubhub: GH #..., Toast: #Ticket).
+ *   - Identificación principal por Nombre + Apellido/Inicial del cliente (si existe), acompañado de #Check y Clave de Plataforma.
+ *   - Blindaje estricto contra colisión de nombres desde que entran por KDS: alerta de alto énfasis si existen dos órdenes con el mismo nombre exacto, el mismo primer nombre con apellido diferente, o nombres fonética/visualmente muy parecidos.
  *   - Mide automáticamente el tiempo de preparación en cocina desde que llega al KDS hasta que el cocinero borra la orden (READY).
  *   - Cuando el cocinero borra la orden delivery del KDS (pasa de IN_KITCHEN a READY para el estante de empaque), la tableta reproduce automáticamente el aviso de voz ("Order #100, is ready! Please pack. / Orden #100, ¡ya está! Por favor empacar.") reutilizando los audios de órdenes precargados en Supabase Storage.
  *   - Flujo directo sin pasos innecesarios: 1. CONFIRMAR ORDEN COMPLETA Y SELLADA -> 2. Blindar la entrega.
@@ -15,13 +16,11 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import Link from 'next/link'
 import {
   AlertTriangle,
   CheckCircle2,
   Clock,
   Delete,
-  FileText,
   Lock,
   LogOut,
   Maximize2,
@@ -42,6 +41,7 @@ const STORES = [
 
 const PIN_SESSION_DURATION_MS = 10 * 60 * 1000 // 10 minutos
 const KDS_POLL_INTERVAL_MS = 8000 // 8 segundos para detectar al instante cuando el cocinero borra del KDS
+const UNCLAIMED_DRIVER_TIMEOUT_MS = 2 * 60 * 60 * 1000 // 2 horas (120 min) sin que ningún chofer recoja la orden
 
 type Platform = 'DOORDASH' | 'UBER_EATS' | 'GRUBHUB' | 'TOAST_ONLINE' | 'OTHER'
 type CheckKey = 'foodComplete' | 'drinksComplete' | 'bagCountCorrect' | 'bagSealed'
@@ -92,9 +92,8 @@ interface Order {
   itemCount: number
   hasDrinks: boolean
   audit?: {
-    status: 'pending' | 'ready' | 'released'
+    status: 'pending' | 'ready' | 'released' | 'unclaimed'
     bags?: number
-    sealedPhoto?: string
     handedBy?: string
     driver?: string
     courierReference?: string
@@ -112,7 +111,14 @@ const label = (platform: Platform) =>
     ? 'Toast Delivery'
     : 'Delivery'
 
-type OrderStage = 'PREPARACION' | 'EMPACANDO' | 'LISTA' | 'ENTREGADA'
+type OrderStage = 'PREPARACION' | 'EMPACANDO' | 'LISTA' | 'ENTREGADA' | 'NO_RECOGIDA'
+
+function isOrderUnclaimedAfter2Hours(order: Order, now: number = Date.now()): boolean {
+  if (order.audit?.status === 'released') return false
+  if (order.audit?.status === 'unclaimed') return true
+  const openedAgeMs = now - new Date(order.openedAt).getTime()
+  return Number.isFinite(openedAgeMs) && openedAgeMs >= UNCLAIMED_DRIVER_TIMEOUT_MS
+}
 
 function getOrderStageInfo(order: Order): {
   stage: OrderStage
@@ -130,6 +136,16 @@ function getOrderStageInfo(order: Order): {
       dotClass: 'bg-slate-500',
       cardClass: 'border-slate-200 bg-slate-50 text-slate-600',
       cardSelectedClass: 'border-slate-700 bg-slate-100 ring-4 ring-slate-400/30'
+    }
+  }
+  if (isOrderUnclaimedAfter2Hours(order)) {
+    return {
+      stage: 'NO_RECOGIDA',
+      label: 'NO RECOGIDA (+2H)',
+      badgeClass: 'bg-orange-600 text-white border border-orange-700',
+      dotClass: 'bg-white',
+      cardClass: 'border-orange-400 bg-orange-50/70 text-orange-950',
+      cardSelectedClass: 'border-orange-600 bg-orange-100 ring-4 ring-orange-500/30'
     }
   }
   if (order.audit?.status === 'ready') {
@@ -162,16 +178,128 @@ function getOrderStageInfo(order: Order): {
   }
 }
 
-// Determina si una orden sigue activa en el estante (excluye órdenes viejas del día que ya se llevó el repartidor antes de usar la tableta)
+type NameCollisionReason = 'EXACT_NAME' | 'SAME_FIRST_NAME' | 'SIMILAR_NAME'
+
+interface NameCollisionMatch {
+  order: Order
+  reason: NameCollisionReason
+  reasonLabel: string
+}
+
+const GENERIC_CUSTOMER_WORDS = new Set(['cliente', 'uber', 'eats', 'doordash', 'grubhub', 'online', 'delivery', 'pickup'])
+
+function normalizeAsciiName(input: string): string {
+  return String(input || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function phoneticFirstToken(token: string): string {
+  return token
+    .replace(/ph/g, 'f')
+    .replace(/ch/g, 'x')
+    .replace(/ll/g, 'i')
+    .replace(/qu/g, 'k')
+    .replace(/c([ei])/g, 's$1')
+    .replace(/c/g, 'k')
+    .replace(/z/g, 's')
+    .replace(/v/g, 'b')
+    .replace(/g([ei])/g, 'j$1')
+    .replace(/h/g, '')
+    .replace(/y/g, 'i')
+    .replace(/(.)\1+/g, '$1')
+}
+
+function levenshteinDistance(a: string, b: string): number {
+  if (a === b) return 0
+  if (!a.length) return b.length
+  if (!b.length) return a.length
+  const matrix: number[][] = Array.from({ length: a.length + 1 }, (_, i) => [i])
+  for (let j = 1; j <= b.length; j++) matrix[0][j] = j
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1
+      matrix[i][j] = Math.min(matrix[i - 1][j] + 1, matrix[i][j - 1] + 1, matrix[i - 1][j - 1] + cost)
+    }
+  }
+  return matrix[a.length][b.length]
+}
+
+function areCustomerNamesConfusable(
+  nameA: string,
+  nameB: string
+): { confusable: boolean; reason: NameCollisionReason | null } {
+  const normA = normalizeAsciiName(nameA)
+  const normB = normalizeAsciiName(nameB)
+  if (!normA || !normB) return { confusable: false, reason: null }
+
+  const partsA = normA.split(' ').filter(t => t && !GENERIC_CUSTOMER_WORDS.has(t))
+  const partsB = normB.split(' ').filter(t => t && !GENERIC_CUSTOMER_WORDS.has(t))
+  const firstA = partsA[0] || ''
+  const firstB = partsB[0] || ''
+
+  if (firstA.length < 2 || firstB.length < 2) {
+    return { confusable: false, reason: null }
+  }
+
+  if (partsA.join(' ') === partsB.join(' ')) {
+    return { confusable: true, reason: 'EXACT_NAME' }
+  }
+
+  if (firstA === firstB) {
+    return { confusable: true, reason: 'SAME_FIRST_NAME' }
+  }
+
+  const phonA = phoneticFirstToken(firstA)
+  const phonB = phoneticFirstToken(firstB)
+  if (phonA.length >= 3 && phonA === phonB) {
+    return { confusable: true, reason: 'SIMILAR_NAME' }
+  }
+
+  const minLen = Math.min(firstA.length, firstB.length)
+  if (minLen >= 3 && (firstA.startsWith(firstB) || firstB.startsWith(firstA))) {
+    return { confusable: true, reason: 'SIMILAR_NAME' }
+  }
+  const minPhonLen = Math.min(phonA.length, phonB.length)
+  if (minPhonLen >= 3 && (phonA.startsWith(phonB) || phonB.startsWith(phonA))) {
+    return { confusable: true, reason: 'SIMILAR_NAME' }
+  }
+
+  const rawDist = levenshteinDistance(firstA, firstB)
+  const phonDist = levenshteinDistance(phonA, phonB)
+
+  if (minLen >= 4 && (rawDist <= 1 || phonDist <= 1)) {
+    return { confusable: true, reason: 'SIMILAR_NAME' }
+  }
+
+  if (minLen >= 5 && rawDist <= 2 && phonA[0] === phonB[0]) {
+    return { confusable: true, reason: 'SIMILAR_NAME' }
+  }
+
+  return { confusable: false, reason: null }
+}
+
+function getCollisionReasonLabel(reason: NameCollisionReason): string {
+  if (reason === 'EXACT_NAME') return 'MISMO NOMBRE EXACTO'
+  if (reason === 'SAME_FIRST_NAME') return 'MISMO NOMBRE (APELLIDO DIFERENTE)'
+  return 'NOMBRE MUY PARECIDO'
+}
+
+// Determina si una orden sigue activa en el estante (si cumple 2 horas o más sin ser recogida por ningún chofer, cambia automáticamente a NO RECOGIDA (+2H))
 function isOrderCurrentlyActive(order: Order): boolean {
-  if (order.audit?.status === 'released') return false
+  if (order.audit?.status === 'released' || isOrderUnclaimedAfter2Hours(order)) return false
   const now = Date.now()
   const openedAgeMs = now - new Date(order.openedAt).getTime()
+  if (!Number.isFinite(openedAgeMs) || openedAgeMs >= UNCLAIMED_DRIVER_TIMEOUT_MS) return false
   const readyAgeMs = order.kdsReadyAt ? now - new Date(order.kdsReadyAt).getTime() : openedAgeMs
 
-  // 1. Si ya fue empacada y sellada en la tableta (LISTA), mantener en estante hasta 60 min esperando al chofer
+  // 1. Si ya fue empacada y sellada en la tableta (LISTA), mantener en estante hasta cumplir 2 horas (120 min) esperando al chofer; a las 2 horas cambia automáticamente a NO RECOGIDA (+2H)
   if (order.audit?.status === 'ready') {
-    return readyAgeMs <= 60 * 60 * 1000
+    return openedAgeMs < UNCLAIMED_DRIVER_TIMEOUT_MS
   }
   // 2. Si el cocinero aún la tiene en pantalla KDS (PREPARACIÓN), mantener hasta 60 min
   if (order.kdsStatus === 'IN_KITCHEN') {
@@ -212,6 +340,7 @@ export default function BlindajeDeliveryEmpaquePage() {
   const [selected, setSelected] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [bags, setBags] = useState<Record<string, number>>({})
+  const [collisionAck, setCollisionAck] = useState<Record<string, boolean>>({})
   const [busy, setBusy] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -699,11 +828,12 @@ export default function BlindajeDeliveryEmpaquePage() {
               status:
                 raw.audit.status === 'DELIVERED'
                   ? 'released'
+                  : raw.audit.status === 'UNCLAIMED_2H'
+                  ? 'unclaimed'
                   : raw.audit.status === 'PACKED_AND_SEALED'
                   ? 'ready'
                   : 'pending',
               bags: raw.audit.confirmedBagCount,
-              sealedPhoto: raw.audit.photoSealedUrl,
               handedBy: raw.audit.handedByName,
               driver: raw.audit.driverName,
               courierReference: raw.audit.courierOrderReference
@@ -723,7 +853,9 @@ export default function BlindajeDeliveryEmpaquePage() {
           item.kdsStatus === 'READY' &&
           !item.isVoided &&
           item.audit?.status !== 'ready' &&
-          item.audit?.status !== 'released'
+          item.audit?.status !== 'released' &&
+          item.audit?.status !== 'unclaimed' &&
+          !isOrderUnclaimedAfter2Hours(item)
 
         if (!isUnpackedDelivery) {
           if (item.kdsStatus === 'READY') {
@@ -774,7 +906,7 @@ export default function BlindajeDeliveryEmpaquePage() {
         const currentObj = current ? next.find(o => o.guid === current) : null
         if (currentObj && isOrderCurrentlyActive(currentObj)) return current
         const firstActive = next.find(o => isOrderCurrentlyActive(o))
-        return firstActive?.guid || next[0]?.guid || null
+        return firstActive?.guid || null
       })
     } catch (caught: any) {
       if (packer) setError(caught.message)
@@ -795,36 +927,59 @@ export default function BlindajeDeliveryEmpaquePage() {
     [orders, showHistory]
   )
 
+  // Detectar colisiones de nombres (mismo nombre exacto, mismo primer nombre con apellido diferente, o nombre muy parecido)
+  // entre todas las órdenes que han entrado al sistema desde KDS en las últimas 2 horas (o que siguen activas)
+  const collisionsByGuid = useMemo(() => {
+    const map = new Map<string, NameCollisionMatch[]>()
+    const now = Date.now()
+    const recentKdsPool = orders.filter(o => {
+      if (o.isVoided) return false
+      if (isOrderCurrentlyActive(o)) return true
+      const openedAgeMs = now - new Date(o.openedAt).getTime()
+      const readyAgeMs = o.kdsReadyAt ? now - new Date(o.kdsReadyAt).getTime() : openedAgeMs
+      return Math.min(openedAgeMs, readyAgeMs) <= 120 * 60 * 1000
+    })
+
+    for (const currentOrder of orders) {
+      if (currentOrder.isVoided) continue
+      const matches: NameCollisionMatch[] = []
+      for (const candidate of recentKdsPool) {
+        if (candidate.guid === currentOrder.guid) continue
+        const check = areCustomerNamesConfusable(currentOrder.customer, candidate.customer)
+        if (check.confusable && check.reason) {
+          matches.push({
+            order: candidate,
+            reason: check.reason,
+            reasonLabel: getCollisionReasonLabel(check.reason)
+          })
+        }
+      }
+      if (matches.length > 0) {
+        map.set(currentOrder.guid, matches)
+      }
+    }
+    return map
+  }, [orders])
+
   const order = useMemo(() => orders.find(value => value.guid === selected) || null, [orders, selected])
   const bagCount = order ? bags[order.guid] || order.audit?.bags || 1 : 1
-
-  // Bloqueo de búsqueda por nombre del cliente: solo permite buscar por Clave Única o #Ticket
-  const blockedByName = useMemo(() => {
-    const q = search.trim().toLowerCase()
-    if (!q) return false
-    const matchesKey = orders.some(o =>
-      `${o.platformOrderKey} UBER${o.platformOrderKey} ${o.shortOrderKey} #${o.ticket} ${o.ticket} ${label(o.platform)}`
-        .toLowerCase()
-        .includes(q)
-    )
-    if (matchesKey) return false
-    const matchesCustomer = orders.some(o => {
-      const firstWord = o.customer.split(/\s+/)[0]?.toLowerCase() || ''
-      return firstWord.length >= 2 && (o.customer.toLowerCase().includes(q) || firstWord.includes(q))
-    })
-    return matchesCustomer || /^[a-zA-ZáéíóúñÁÉÍÓÚÑ\s]{3,}$/.test(q)
-  }, [orders, search])
+  const currentCollisions = useMemo(
+    () => (order ? collisionsByGuid.get(order.guid) || [] : []),
+    [order, collisionsByGuid]
+  )
+  const isCollisionConfirmed = order ? currentCollisions.length === 0 || !!collisionAck[order.guid] : true
 
   const visible = useMemo(() => {
     const q = search.trim().toLowerCase()
     if (!q) return activeQueueOrders
-    if (blockedByName) return []
     return orders.filter(value =>
-      `${value.platformOrderKey} UBER${value.platformOrderKey} ${value.shortOrderKey} #${value.ticket} ${value.ticket} ${label(value.platform)}`
+      `${value.customer} #${value.ticket} ${value.ticket} ${value.platformOrderKey} ${value.shortOrderKey} ${
+        value.assignedDriverHint || ''
+      } ${label(value.platform)}`
         .toLowerCase()
         .includes(q)
     )
-  }, [orders, activeQueueOrders, search, blockedByName])
+  }, [orders, activeQueueOrders, search])
 
   async function login(event: React.FormEvent) {
     event.preventDefault()
@@ -879,11 +1034,15 @@ export default function BlindajeDeliveryEmpaquePage() {
 
   async function savePackingRecord(targetOrder: Order) {
     if (!packer) return
+    const targetCollisions = collisionsByGuid.get(targetOrder.guid) || []
     const currentBags = bags[targetOrder.guid] || targetOrder.audit?.bags || 1
     const currentReasons = [
       targetOrder.hasDrinks ? 'con bebidas' : '',
       targetOrder.itemCount >= 8 ? '8+ artículos' : '',
-      currentBags > 1 ? 'múltiples bolsas' : ''
+      currentBags > 1 ? 'múltiples bolsas' : '',
+      targetCollisions.length > 0
+        ? `nombre repetido/parecido (${targetCollisions.map(c => `${c.order.customer} #${c.order.ticket}`).join(', ')})`
+        : ''
     ].filter(Boolean)
     const isHighRisk = currentReasons.length > 0
 
@@ -908,7 +1067,6 @@ export default function BlindajeDeliveryEmpaquePage() {
         })),
         matchedItems: ['CONTROL:foodComplete', 'CONTROL:drinksComplete', 'CONTROL:bagCountCorrect', 'CONTROL:bagSealed'],
         matchCompleted: true,
-        photo_sealed_bag_url: targetOrder.audit?.sealedPhoto || null,
         packer_pin: packer.pin,
         quick_checks: {
           ...COMPLETED_CHECKS,
@@ -938,7 +1096,7 @@ export default function BlindajeDeliveryEmpaquePage() {
     setSuccess(null)
     try {
       await savePackingRecord(order)
-      setSuccess(`Orden completa y sellada: ${order.platformOrderKey}`)
+      setSuccess(`Orden completa y sellada: ${order.customer} (Check #${order.ticket})`)
       await fetchOrders()
     } catch (caught: any) {
       setError(caught.message)
@@ -950,8 +1108,16 @@ export default function BlindajeDeliveryEmpaquePage() {
   async function release() {
     if (!order || !packer) return
     void ensureFullscreen()
-    if (order.audit?.status !== 'ready') {
+    const isPackedForRelease =
+      order.audit?.status === 'ready' || (order.audit?.status === 'unclaimed' && order.audit?.bags != null)
+    if (!isPackedForRelease) {
       setError('Primero debes confirmar que la orden esté completa y sellada antes de entregarla.')
+      return
+    }
+    if (currentCollisions.length > 0 && !collisionAck[order.guid]) {
+      setError(
+        `¡ALERTA DE NOMBRE REPETIDO/PARECIDO! Debes tocar la casilla de verificación confirmando que diferenciaste a "${order.customer}" (#${order.ticket}) antes de entregar.`
+      )
       return
     }
     setBusy(true)
@@ -968,13 +1134,13 @@ export default function BlindajeDeliveryEmpaquePage() {
           courier_name: order.assignedDriverHint || 'Chofer verificado',
           courier_verified: true,
           verification_method: order.platform === 'DOORDASH' ? 'DOORDASH_QR' : 'PLATFORM_ORDER_ID',
-          courier_order_reference: order.platformOrderKey,
+          courier_order_reference: `${order.customer} (#${order.ticket} • ${order.platformOrderKey})`,
           live_pickup_confirmed: true
         })
       })
       const data = await response.json()
       if (!response.ok || !data.ok) throw new Error(data.error || 'No se pudo liberar la bolsa.')
-      setSuccess(`Orden ${order.platformOrderKey} liberada por ${data.audit.handed_by_ronos_name}.`)
+      setSuccess(`Orden de ${order.customer} (#${order.ticket}) entregada por ${data.audit.handed_by_ronos_name}.`)
       await fetchOrders()
     } catch (caught: any) {
       setError(caught.message)
@@ -1173,124 +1339,17 @@ export default function BlindajeDeliveryEmpaquePage() {
             >
               <LogOut className="w-6 h-6" />
             </button>
-            <Link
-              href="/admin/blindaje-delivery"
-              title="Expedientes"
-              className="p-3 rounded-xl bg-slate-900 text-white"
-            >
-              <FileText className="w-6 h-6" />
-            </Link>
           </div>
         </div>
       </header>
 
-      {/* DISEÑO VERTICAL FULLSCREEN A ANCHO COMPLETO DE LA TABLETA */}
+      {/* DISEÑO ADAPTATIVO FULLSCREEN: VERTICAL (APILADO) Y HORIZONTAL (ÓRDENES A LA IZQUIERDA + DETALLE A LA DERECHA) */}
       <div className="w-full px-4 sm:px-6 py-4 space-y-4">
         {activeAnnouncement && (
           <div className="p-4 rounded-2xl bg-slate-900 text-white text-lg sm:text-xl font-black flex items-center justify-between gap-3 shadow-md">
             <span>{activeAnnouncement}</span>
           </div>
         )}
-
-        {/* 1. BUSCADOR Y SELECTOR POR CLAVE ÚNICA */}
-        <section className="bg-white border rounded-3xl p-5 shadow-sm space-y-4">
-          <div className="relative">
-            <Search className="w-6 h-6 absolute left-4 top-4 text-slate-400" />
-            <input
-              value={search}
-              onChange={event => setSearch(event.target.value)}
-              placeholder="Buscar por clave de orden (ej. 60A07, DD 1F29FEC6, #559)"
-              className="w-full h-14 rounded-2xl bg-slate-100 pl-12 pr-4 text-lg sm:text-xl font-black uppercase placeholder:normal-case"
-            />
-          </div>
-
-          {blockedByName && (
-            <div className="p-4 rounded-2xl bg-slate-100 border border-slate-300 text-slate-800 text-base font-bold">
-              No busques por nombre del cliente. Ingresa la clave de la orden de la plataforma.
-            </div>
-          )}
-
-          {/* LEYENDA Y CONTADORES POR ESTATUS CON COLORES */}
-          <div className="flex flex-wrap items-center justify-between gap-2 text-xs sm:text-sm font-black">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-amber-100 text-amber-950 border border-amber-400">
-                <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse" />
-                PREPARACIÓN (KDS):{' '}
-                {activeQueueOrders.filter(o => getOrderStageInfo(o).stage === 'PREPARACION').length}
-              </span>
-              <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-blue-100 text-blue-900 border border-blue-400">
-                <span className="w-2.5 h-2.5 rounded-full bg-blue-600 animate-pulse" />
-                EMPACANDO (Estante):{' '}
-                {activeQueueOrders.filter(o => getOrderStageInfo(o).stage === 'EMPACANDO').length}
-              </span>
-              <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-emerald-100 text-emerald-900 border border-emerald-400">
-                <span className="w-2.5 h-2.5 rounded-full bg-emerald-600" />
-                LISTA (Sellada):{' '}
-                {activeQueueOrders.filter(o => getOrderStageInfo(o).stage === 'LISTA').length}
-              </span>
-            </div>
-
-            {orders.length > activeQueueOrders.length || showHistory ? (
-              <button
-                type="button"
-                onClick={() => setShowHistory(prev => !prev)}
-                className={`px-3 py-1.5 rounded-xl border text-xs sm:text-sm font-black transition-colors ${
-                  showHistory
-                    ? 'bg-slate-900 text-white border-slate-900'
-                    : 'bg-slate-100 text-slate-600 border-slate-300 hover:bg-slate-200'
-                }`}
-              >
-                {showHistory
-                  ? 'Ocultar órdenes pasadas'
-                  : `Ver pasadas del día (${Math.max(0, orders.length - activeQueueOrders.length)})`}
-              </button>
-            ) : null}
-          </div>
-
-          <div className="flex gap-3 overflow-x-auto pb-1">
-            {visible.map(value => {
-              const stageInfo = getOrderStageInfo(value)
-              const isSelected = selected === value.guid
-              return (
-                <button
-                  key={value.guid}
-                  type="button"
-                  onClick={() => {
-                    void ensureFullscreen()
-                    setSelected(value.guid)
-                    setError(null)
-                    setSuccess(null)
-                  }}
-                  className={`min-w-[235px] sm:min-w-[265px] p-4 rounded-2xl border-2 text-left flex-shrink-0 transition-all ${
-                    isSelected ? stageInfo.cardSelectedClass : stageInfo.cardClass
-                  }`}
-                >
-                  <div className="flex justify-between items-center gap-2">
-                    <span className="text-sm font-extrabold text-slate-700">{label(value.platform)}</span>
-                    <span
-                      className={`inline-flex items-center gap-1.5 text-xs font-black px-2.5 py-1 rounded-lg ${stageInfo.badgeClass}`}
-                    >
-                      <span className={`w-2 h-2 rounded-full ${stageInfo.dotClass}`} />
-                      {stageInfo.label}
-                    </span>
-                  </div>
-                  <strong className="block text-2xl font-black font-mono mt-1.5 truncate text-slate-950">
-                    {value.platformOrderKey}
-                  </strong>
-                  <small className="text-slate-700 text-sm font-bold block mt-1 truncate">
-                    #{value.ticket} • {value.itemCount} art.{value.hasDrinks ? ' • CON BEBIDAS' : ''}
-                    {value.assignedDriverHint ? ` • Chofer: ${value.assignedDriverHint}` : ''}
-                  </small>
-                </button>
-              )
-            })}
-            {!loading && visible.length === 0 && !blockedByName && (
-              <p className="text-center text-slate-500 py-4 text-base font-semibold w-full">
-                No hay órdenes delivery activas en este momento.
-              </p>
-            )}
-          </div>
-        </section>
 
         {error && (
           <div className="p-4 rounded-2xl bg-red-50 border border-red-200 text-red-700 text-lg font-bold flex gap-3 items-center">
@@ -1305,225 +1364,407 @@ export default function BlindajeDeliveryEmpaquePage() {
           </div>
         )}
 
-        {!order ? (
-          <div className="h-96 bg-white rounded-3xl border grid place-items-center text-center p-8">
-            <div>
-              <ShoppingBag className="w-20 h-20 mx-auto text-slate-300" />
-              <h2 className="text-3xl font-black mt-3">Selecciona una orden</h2>
+        <div className="space-y-4 landscape:space-y-0 lg:space-y-0 landscape:grid landscape:grid-cols-[370px_1fr] lg:grid lg:grid-cols-[410px_1fr] landscape:gap-4 lg:gap-5 landscape:items-start lg:items-start">
+          {/* COLUMNA IZQUIERDA EN HORIZONTAL / SUPERIOR EN VERTICAL: TODAS LAS ÓRDENES */}
+          <section className="bg-white border rounded-3xl p-4 sm:p-5 shadow-sm space-y-3.5 landscape:sticky landscape:top-[76px] lg:sticky lg:top-[76px]">
+            <div className="relative">
+              <Search className="w-6 h-6 absolute left-4 top-4 text-slate-400" />
+              <input
+                value={search}
+                onChange={event => setSearch(event.target.value)}
+                placeholder="Buscar Nombre + Apellido, #Check o clave"
+                className="w-full h-14 rounded-2xl bg-slate-100 pl-12 pr-4 text-base sm:text-lg font-black placeholder:normal-case"
+              />
             </div>
-          </div>
-        ) : (
-          <div className="space-y-4">
-            {/* 2. CABEZAL LIMPIO CON LA CLAVE ÚNICA DE LA ORDEN, ESTATUS POR COLOR Y TIEMPO KDS */}
-            <section className="bg-white border rounded-3xl p-6 sm:p-7 shadow-sm">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex flex-wrap items-center gap-3">
-                  <p className="text-xl sm:text-2xl font-black text-red-600">{label(order.platform)}</p>
-                  {(() => {
-                    const currentStage = getOrderStageInfo(order)
-                    return (
-                      <span
-                        className={`inline-flex items-center gap-2 text-sm sm:text-base font-black px-3.5 py-1.5 rounded-xl ${currentStage.badgeClass}`}
-                      >
-                        <span className={`w-2.5 h-2.5 rounded-full ${currentStage.dotClass}`} />
-                        {currentStage.label}
-                      </span>
-                    )
-                  })()}
-                  {order.assignedDriverHint && (
-                    <span className="inline-flex items-center gap-1.5 text-sm sm:text-base font-black px-3.5 py-1.5 rounded-xl bg-slate-100 text-slate-800 border border-slate-300">
-                      <Truck className="w-4 h-4 text-slate-600" />
-                      Chofer: {order.assignedDriverHint}
-                    </span>
-                  )}
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="inline-flex items-center gap-2 text-sm sm:text-base font-bold text-slate-700 bg-slate-100 px-4 py-1.5 rounded-xl">
-                    <Clock className="w-4 h-4" />
-                    {order.kdsStatus === 'IN_KITCHEN'
-                      ? 'En cocina KDS'
-                      : `Preparación KDS: ${formatDuration(order.kdsPrepSeconds)}`}
-                  </span>
+
+            {/* LEYENDA Y CONTADORES POR ESTATUS CON COLORES */}
+            <div className="flex flex-wrap items-center justify-between gap-1.5 text-xs font-black">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-amber-100 text-amber-950 border border-amber-400">
+                  <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+                  PREPARACIÓN:{' '}
+                  {activeQueueOrders.filter(o => getOrderStageInfo(o).stage === 'PREPARACION').length}
+                </span>
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-blue-100 text-blue-900 border border-blue-400">
+                  <span className="w-2 h-2 rounded-full bg-blue-600 animate-pulse" />
+                  EMPACANDO:{' '}
+                  {activeQueueOrders.filter(o => getOrderStageInfo(o).stage === 'EMPACANDO').length}
+                </span>
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-emerald-100 text-emerald-900 border border-emerald-400">
+                  <span className="w-2 h-2 rounded-full bg-emerald-600" />
+                  LISTA:{' '}
+                  {activeQueueOrders.filter(o => getOrderStageInfo(o).stage === 'LISTA').length}
+                </span>
+                {orders.some(o => getOrderStageInfo(o).stage === 'NO_RECOGIDA') && (
                   <button
                     type="button"
-                    onClick={() => enqueueOrderAnnouncement(order)}
-                    title="Repetir anuncio de voz de esta orden"
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-sm font-black"
+                    onClick={() => setShowHistory(true)}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-orange-100 text-orange-950 border border-orange-400 hover:bg-orange-200 transition-colors"
                   >
-                    <Volume2 className="w-4 h-4" />
-                    <span>Anunciar #{order.ticket}</span>
+                    <span className="w-2 h-2 rounded-full bg-orange-600" />
+                    NO RECOGIDA (+2H):{' '}
+                    {orders.filter(o => getOrderStageInfo(o).stage === 'NO_RECOGIDA').length}
                   </button>
-                </div>
+                )}
               </div>
 
-              <div className="mt-3 flex flex-wrap items-baseline justify-between gap-4">
-                <div>
-                  <span className="text-sm font-black uppercase tracking-wider text-slate-400 block">
-                    Clave única de la orden
-                  </span>
-                  <h2 className="text-5xl sm:text-6xl font-black font-mono tracking-tight mt-0.5">
-                    {order.platformOrderKey}
-                  </h2>
-                </div>
-                <div className="text-right">
-                  <span className="text-3xl sm:text-4xl font-black font-mono text-slate-800 block">
-                    Check #{order.ticket}
-                  </span>
-                  <span className="text-sm text-slate-400 font-bold">
-                    Ref: {order.maskedCustomer}
-                  </span>
-                </div>
-              </div>
+              {orders.length > activeQueueOrders.length || showHistory ? (
+                <button
+                  type="button"
+                  onClick={() => setShowHistory(prev => !prev)}
+                  className={`px-2.5 py-1.5 rounded-xl border text-xs font-black transition-colors ${
+                    showHistory
+                      ? 'bg-slate-900 text-white border-slate-900'
+                      : 'bg-slate-100 text-slate-600 border-slate-300 hover:bg-slate-200'
+                  }`}
+                >
+                  {showHistory
+                    ? 'Ocultar pasadas'
+                    : `Pasadas (${Math.max(0, orders.length - activeQueueOrders.length)})`}
+                </button>
+              ) : null}
+            </div>
 
-              {order.isVoided && (
-                <div className="mt-4 p-4 rounded-2xl bg-red-50 border border-red-200 text-red-700 text-base sm:text-lg font-black">
-                  ⚠️ ORDEN CANCELADA (VOIDED) EN TOAST
-                </div>
-              )}
-
-              {order.hasDrinks && (
-                <div className="mt-4 inline-block px-4 py-2 rounded-xl bg-slate-100 border-2 border-slate-300 text-slate-900 text-base font-black">
-                  CON BEBIDAS
-                </div>
-              )}
-
-              {/* CONTENIDO DE LA ORDEN */}
-              <div className="mt-6 pt-5 border-t space-y-3">
-                <div className="flex justify-between items-center mb-1">
-                  <span className="text-sm font-black uppercase tracking-wider text-slate-400">
-                    Contenido ({order.itemCount} artículos)
-                  </span>
-                </div>
-                {order.items.map(item => (
-                  <div
-                    key={item.id}
-                    className="p-4 rounded-2xl bg-slate-50 border border-slate-200/70 flex justify-between items-start gap-3"
+            <div className="flex gap-3 overflow-x-auto pb-1 landscape:flex-col landscape:overflow-x-hidden landscape:overflow-y-auto landscape:max-h-[calc(100vh-250px)] lg:flex-col lg:overflow-x-hidden lg:overflow-y-auto lg:max-h-[calc(100vh-250px)]">
+              {visible.map(value => {
+                const stageInfo = getOrderStageInfo(value)
+                const isSelected = selected === value.guid
+                const cardCollisions = collisionsByGuid.get(value.guid) || []
+                const hasCollision = cardCollisions.length > 0
+                return (
+                  <button
+                    key={value.guid}
+                    type="button"
+                    onClick={() => {
+                      void ensureFullscreen()
+                      setSelected(value.guid)
+                      setError(null)
+                      setSuccess(null)
+                    }}
+                    className={`min-w-[245px] sm:min-w-[275px] landscape:min-w-0 landscape:w-full lg:min-w-0 lg:w-full p-4 rounded-2xl border-2 text-left flex-shrink-0 transition-all ${
+                      isSelected ? stageInfo.cardSelectedClass : stageInfo.cardClass
+                    } ${hasCollision ? 'ring-4 ring-red-600/80 border-red-600' : ''}`}
                   >
-                    <div>
-                      <strong className="text-xl sm:text-2xl font-black block">
-                        <span className="text-red-600 mr-1.5">{item.quantity}x</span>
-                        {item.name}
-                      </strong>
-                      {item.modifiers.length > 0 && (
-                        <p className="text-base sm:text-lg font-medium text-slate-600 mt-1">
-                          {item.modifiers.join(' • ')}
+                    <div className="flex justify-between items-center gap-2">
+                      <span className="text-sm font-extrabold text-slate-700">{label(value.platform)}</span>
+                      <span
+                        className={`inline-flex items-center gap-1.5 text-xs font-black px-2.5 py-1 rounded-lg ${stageInfo.badgeClass}`}
+                      >
+                        <span className={`w-2 h-2 rounded-full ${stageInfo.dotClass}`} />
+                        {stageInfo.label}
+                      </span>
+                    </div>
+                    <strong className="block text-2xl font-black mt-1.5 truncate text-slate-950">
+                      {value.customer}
+                    </strong>
+                    <small className="text-slate-700 text-sm font-bold block mt-1 truncate">
+                      #{value.ticket} • Clave: {value.platformOrderKey}
+                      {value.hasDrinks ? ' • CON BEBIDAS' : ''}
+                    </small>
+                    {hasCollision && (
+                      <div className="mt-2 px-2.5 py-1.5 rounded-xl bg-red-600 text-white text-xs font-black flex items-center gap-1.5 animate-pulse">
+                        <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+                        <span className="truncate">
+                          ¡OJO NOMBRE IGUAL/PARECIDO! ({cardCollisions.map(c => `${c.order.customer} #${c.order.ticket}`).join(', ')})
+                        </span>
+                      </div>
+                    )}
+                  </button>
+                )
+              })}
+              {!loading && visible.length === 0 && (
+                <p className="text-center text-slate-500 py-4 text-base font-semibold w-full">
+                  No hay órdenes delivery activas en este momento.
+                </p>
+              )}
+            </div>
+          </section>
+
+          {/* COLUMNA DERECHA EN HORIZONTAL / INFERIOR EN VERTICAL: PANEL DE ACCIÓN DE LA ORDEN */}
+          <div className="min-w-0">
+            {!order ? (
+              <div className="h-96 bg-white rounded-3xl border grid place-items-center text-center p-8">
+                <div>
+                  <ShoppingBag className="w-20 h-20 mx-auto text-slate-300" />
+                  <h2 className="text-3xl font-black mt-3">Selecciona una orden</h2>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {/* ALERTA DE ALTO ÉNFASIS SI HAY COLISIÓN DE NOMBRE DUPLICADO O MUY PARECIDO DESDE KDS */}
+                {currentCollisions.length > 0 && (
+                  <section className="rounded-3xl border-4 border-red-600 bg-red-50 overflow-hidden shadow-lg">
+                    <div className="bg-red-600 text-white px-5 py-4 flex items-center gap-3">
+                      <AlertTriangle className="w-9 h-9 flex-shrink-0 animate-bounce" />
+                      <div>
+                        <h2 className="text-xl sm:text-2xl font-black uppercase tracking-tight leading-tight">
+                          🚨 ¡CUIDADO! NOMBRE REPETIDO O MUY PARECIDO EN KDS
+                        </h2>
+                        <p className="text-sm sm:text-base font-bold text-red-100 mt-0.5">
+                          Entró otra orden al sistema con el mismo nombre (aunque el apellido sea distinto) o un nombre muy parecido. ¡Verifica APELLIDO, #CHECK y PLATAFORMA!
                         </p>
+                      </div>
+                    </div>
+
+                    <div className="p-4 sm:p-5 grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div className="p-4 rounded-2xl bg-white border-2 border-slate-900">
+                        <span className="inline-block text-xs font-black uppercase px-2.5 py-0.5 rounded-md bg-slate-900 text-white">
+                          ESTA ORDEN SELECCIONADA
+                        </span>
+                        <p className="text-2xl sm:text-3xl font-black text-slate-950 mt-1.5">{order.customer}</p>
+                        <p className="text-base font-extrabold text-slate-700 mt-1">
+                          Check #{order.ticket} • {label(order.platform)} • Clave: {order.platformOrderKey}
+                        </p>
+                      </div>
+
+                      {currentCollisions.map(match => {
+                        const otherStage = getOrderStageInfo(match.order)
+                        return (
+                          <div key={match.order.guid} className="p-4 rounded-2xl bg-red-100/90 border-2 border-red-500">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <span className="inline-block text-xs font-black uppercase px-2.5 py-0.5 rounded-md bg-red-700 text-white">
+                                ⚠️ NO CONFUNDIR CON ({match.reasonLabel})
+                              </span>
+                              <span className={`text-xs font-black px-2 py-0.5 rounded-md ${otherStage.badgeClass}`}>
+                                {otherStage.label}
+                              </span>
+                            </div>
+                            <p className="text-2xl sm:text-3xl font-black text-red-950 mt-1.5">{match.order.customer}</p>
+                            <p className="text-base font-extrabold text-red-900 mt-1">
+                              Check #{match.order.ticket} • {label(match.order.platform)} • Clave: {match.order.platformOrderKey}
+                            </p>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </section>
+                )}
+
+                {/* 2. CABEZAL CON NOMBRE + APELLIDO/INICIAL, ESTATUS POR COLOR Y TIEMPO KDS (SIN CONTENIDO DEL TICKET) */}
+                <section className="bg-white border rounded-3xl p-6 sm:p-7 shadow-sm">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex flex-wrap items-center gap-3">
+                      <p className="text-xl sm:text-2xl font-black text-red-600">{label(order.platform)}</p>
+                      {(() => {
+                        const currentStage = getOrderStageInfo(order)
+                        return (
+                          <span
+                            className={`inline-flex items-center gap-2 text-sm sm:text-base font-black px-3.5 py-1.5 rounded-xl ${currentStage.badgeClass}`}
+                          >
+                            <span className={`w-2.5 h-2.5 rounded-full ${currentStage.dotClass}`} />
+                            {currentStage.label}
+                          </span>
+                        )
+                      })()}
+                      {order.assignedDriverHint && (
+                        <span className="inline-flex items-center gap-1.5 text-sm sm:text-base font-black px-3.5 py-1.5 rounded-xl bg-slate-100 text-slate-800 border border-slate-300">
+                          <Truck className="w-4 h-4 text-slate-600" />
+                          Chofer asignado: {order.assignedDriverHint}
+                        </span>
                       )}
                     </div>
-                    {item.isDrink && (
-                      <span className="text-xs sm:text-sm font-black px-3 py-1 rounded-lg bg-slate-200 text-slate-800 flex-shrink-0">
-                        CON BEBIDAS
+                    <div className="flex items-center gap-2">
+                      <span className="inline-flex items-center gap-2 text-sm sm:text-base font-bold text-slate-700 bg-slate-100 px-4 py-1.5 rounded-xl">
+                        <Clock className="w-4 h-4" />
+                        {order.kdsStatus === 'IN_KITCHEN'
+                          ? 'En cocina KDS'
+                          : `Preparación KDS: ${formatDuration(order.kdsPrepSeconds)}`}
                       </span>
+                      <button
+                        type="button"
+                        onClick={() => enqueueOrderAnnouncement(order)}
+                        title="Repetir anuncio de voz de esta orden"
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-sm font-black"
+                      >
+                        <Volume2 className="w-4 h-4" />
+                        <span>Anunciar #{order.ticket}</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 flex flex-wrap items-baseline justify-between gap-4">
+                    <div>
+                      <span className="text-sm font-black uppercase tracking-wider text-slate-400 block">
+                        Cliente (Nombre + Apellido)
+                      </span>
+                      <h2 className="text-5xl sm:text-6xl font-black tracking-tight mt-0.5 text-slate-950">
+                        {order.customer}
+                      </h2>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-3xl sm:text-4xl font-black font-mono text-slate-900 block">
+                        Check #{order.ticket}
+                      </span>
+                      <span className="text-lg sm:text-xl text-slate-600 font-black font-mono block mt-0.5">
+                        Clave: {order.platformOrderKey}
+                      </span>
+                    </div>
+                  </div>
+
+                  {order.isVoided && (
+                    <div className="mt-4 p-4 rounded-2xl bg-red-50 border border-red-200 text-red-700 text-base sm:text-lg font-black">
+                      ⚠️ ORDEN CANCELADA (VOIDED) EN TOAST
+                    </div>
+                  )}
+
+                  {getOrderStageInfo(order).stage === 'NO_RECOGIDA' && (
+                    <div className="mt-4 p-4 rounded-2xl bg-orange-50 border-2 border-orange-500 text-orange-950 text-base sm:text-lg font-black">
+                      ⏱️ ESTATUS AUTOMÁTICO: NO RECOGIDA POR NINGÚN CHOFER EN 2 HORAS O MÁS (+2H)
+                    </div>
+                  )}
+
+                  {order.hasDrinks && (
+                    <div className="mt-4 inline-block px-4 py-2 rounded-xl bg-slate-100 border-2 border-slate-300 text-slate-900 text-base font-black">
+                      CON BEBIDAS
+                    </div>
+                  )}
+                </section>
+
+                {/* 3. CONFIRMAR ORDEN COMPLETA Y SELLADA + BLINDAR LA ENTREGA */}
+                <section className="bg-white border rounded-3xl p-6 sm:p-7 shadow-sm space-y-6">
+                  {/* PASO 1: CONFIRMAR ORDEN COMPLETA Y SELLADA (OBLIGATORIO) */}
+                  <div className="space-y-4">
+                    <div className="flex flex-wrap items-center justify-between gap-4">
+                      <div>
+                        <h3 className="text-2xl font-black">1. Confirmar orden completa y sellada</h3>
+                        <p className="text-base text-slate-500 font-medium">
+                          Confirma cantidad de bolsas, que la orden esté completa y sellada.
+                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-3">
+                        <strong className="text-lg font-black">Bolsas:</strong>
+                        <button
+                          type="button"
+                          disabled={order.audit?.status === 'released'}
+                          onClick={() =>
+                            setBags(previous => ({ ...previous, [order.guid]: Math.max(1, bagCount - 1) }))
+                          }
+                          className="w-14 h-14 rounded-2xl bg-slate-200 text-2xl font-black disabled:opacity-30"
+                        >
+                          −
+                        </button>
+                        <span className="text-3xl font-black w-10 text-center">{bagCount}</span>
+                        <button
+                          type="button"
+                          disabled={order.audit?.status === 'released'}
+                          onClick={() =>
+                            setBags(previous => ({ ...previous, [order.guid]: Math.min(20, bagCount + 1) }))
+                          }
+                          className="w-14 h-14 rounded-2xl bg-slate-950 text-white text-2xl font-black disabled:opacity-30"
+                        >
+                          +
+                        </button>
+                      </div>
+                    </div>
+
+                    {order.audit?.status !== 'released' &&
+                      order.audit?.status !== 'ready' &&
+                      !(order.audit?.status === 'unclaimed' && order.audit?.bags != null) && (
+                        <button
+                          type="button"
+                          onClick={markReady}
+                          disabled={busy}
+                          className="w-full h-16 sm:h-20 rounded-2xl bg-slate-950 text-white text-xl sm:text-2xl font-black disabled:opacity-30"
+                        >
+                          CONFIRMAR ORDEN COMPLETA Y SELLADA
+                        </button>
+                      )}
+
+                    {(order.audit?.status === 'ready' ||
+                      (order.audit?.status === 'unclaimed' && order.audit?.bags != null)) && (
+                      <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-lg font-black flex items-center justify-between">
+                        <span>✓ Orden completa y sellada ({order.customer})</span>
+                        <span>
+                          {bagCount} bolsa{bagCount === 1 ? '' : 's'}
+                        </span>
+                      </div>
                     )}
                   </div>
-                ))}
-              </div>
-            </section>
 
-            {/* 3. CONFIRMAR ORDEN COMPLETA Y SELLADA + BLINDAR LA ENTREGA */}
-            <section className="bg-white border rounded-3xl p-6 sm:p-7 shadow-sm space-y-6">
-              {/* PASO 1: CONFIRMAR ORDEN COMPLETA Y SELLADA (OBLIGATORIO) */}
-              <div className="space-y-4">
-                <div className="flex flex-wrap items-center justify-between gap-4">
-                  <div>
-                    <h3 className="text-2xl font-black">1. Confirmar orden completa y sellada</h3>
-                    <p className="text-base text-slate-500 font-medium">
-                      Confirma cantidad de bolsas, que la orden esté completa y sellada.
-                    </p>
-                  </div>
+                  {/* PASO 2: BLINDAR ENTREGA AL CHOFER */}
+                  <div className="pt-6 border-t space-y-4">
+                    <div>
+                      <h3 className="text-2xl font-black">2. Blindar la entrega</h3>
+                      <p className="text-base text-slate-600 font-medium mt-0.5">
+                        {order.platform === 'DOORDASH'
+                          ? `Verifica Nombre + Apellido (${order.customer}), Check #${order.ticket} y que el Dasher escanee el QR en vivo.`
+                          : `Verifica Nombre + Apellido (${order.customer}), Check #${order.ticket} y Clave ${order.platformOrderKey} en la pantalla del chofer.`}
+                      </p>
+                    </div>
 
-                  <div className="flex items-center gap-3">
-                    <strong className="text-lg font-black">Bolsas:</strong>
-                    <button
-                      type="button"
-                      disabled={order.audit?.status === 'released'}
-                      onClick={() =>
-                        setBags(previous => ({ ...previous, [order.guid]: Math.max(1, bagCount - 1) }))
-                      }
-                      className="w-14 h-14 rounded-2xl bg-slate-200 text-2xl font-black disabled:opacity-30"
-                    >
-                      −
-                    </button>
-                    <span className="text-3xl font-black w-10 text-center">{bagCount}</span>
-                    <button
-                      type="button"
-                      disabled={order.audit?.status === 'released'}
-                      onClick={() =>
-                        setBags(previous => ({ ...previous, [order.guid]: Math.min(20, bagCount + 1) }))
-                      }
-                      className="w-14 h-14 rounded-2xl bg-slate-950 text-white text-2xl font-black disabled:opacity-30"
-                    >
-                      +
-                    </button>
-                  </div>
-                </div>
+                    {/* DOBLE CANDADO OBLIGATORIO CUANDO EXISTE OTRO CLIENTE CON EL MISMO NOMBRE O MUY PARECIDO */}
+                    {currentCollisions.length > 0 && order.audit?.status !== 'released' && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setCollisionAck(prev => ({ ...prev, [order.guid]: !prev[order.guid] }))
+                        }
+                        className={`w-full p-4 rounded-2xl border-2 text-left transition-all flex items-start gap-3 ${
+                          isCollisionConfirmed
+                            ? 'bg-emerald-50 border-emerald-600 text-emerald-950'
+                            : 'bg-red-50 border-red-600 text-red-950 animate-pulse'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isCollisionConfirmed}
+                          readOnly
+                          className="w-7 h-7 mt-0.5 accent-emerald-600 flex-shrink-0"
+                        />
+                        <div className="text-base sm:text-lg font-black leading-snug">
+                          ⚠️ CONFIRMO QUE VERIFIQUÉ APELLIDO E INICIAL DE &ldquo;{order.customer}&rdquo; (CHECK #{order.ticket} • {order.platformOrderKey}) Y NO LA ESTOY CONFUNDIENDO CON{' '}
+                          {currentCollisions.map(c => `"${c.order.customer}" (CHECK #${c.order.ticket})`).join(', ')}
+                        </div>
+                      </button>
+                    )}
 
-                {order.audit?.status !== 'released' && order.audit?.status !== 'ready' && (
-                  <button
-                    type="button"
-                    onClick={markReady}
-                    disabled={busy}
-                    className="w-full h-16 sm:h-20 rounded-2xl bg-slate-950 text-white text-xl sm:text-2xl font-black disabled:opacity-30"
-                  >
-                    CONFIRMAR ORDEN COMPLETA Y SELLADA
-                  </button>
-                )}
-
-                {order.audit?.status === 'ready' && (
-                  <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-lg font-black flex items-center justify-between">
-                    <span>✓ Orden completa y sellada</span>
-                    <span>
-                      {bagCount} bolsa{bagCount === 1 ? '' : 's'}
-                    </span>
-                  </div>
-                )}
-              </div>
-
-              {/* PASO 2: BLINDAR ENTREGA AL CHOFER */}
-              <div className="pt-6 border-t space-y-4">
-                <div>
-                  <h3 className="text-2xl font-black">2. Blindar la entrega</h3>
-                  <p className="text-base text-slate-600 font-medium mt-0.5">
-                    {order.platform === 'DOORDASH'
-                      ? `Verifica clave ${order.platformOrderKey} y que el Dasher escanee el QR del Check #${order.ticket} en vivo.`
-                      : `Verifica la clave ${order.platformOrderKey} en la pantalla activa del chofer antes de entregar.`}
-                  </p>
-                </div>
-
-                {order.audit?.status === 'released' ? (
-                  <div className="p-5 rounded-2xl bg-slate-100 border border-slate-300">
-                    <strong className="block text-xl font-black text-slate-900">
-                      ✓ ENTREGADA CON CLAVE {order.platformOrderKey}
-                    </strong>
-                    <p className="text-base text-slate-600 font-semibold mt-1">
-                      Por {order.audit.handedBy} • {order.audit.driver || 'Chofer verificado'}
-                    </p>
-                  </div>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={release}
-                    disabled={busy || order.audit?.status !== 'ready'}
-                    className="w-full h-16 sm:h-20 rounded-2xl bg-red-600 text-white text-xl sm:text-2xl font-black disabled:bg-slate-300 disabled:text-slate-600 flex items-center justify-center gap-3"
-                  >
-                    {order.audit?.status === 'ready' ? (
-                      <Truck className="w-7 h-7" />
+                    {order.audit?.status === 'released' ? (
+                      <div className="p-5 rounded-2xl bg-slate-100 border border-slate-300">
+                        <strong className="block text-xl font-black text-slate-900">
+                          ✓ ENTREGADA: {order.customer} (Check #{order.ticket})
+                        </strong>
+                        <p className="text-base text-slate-600 font-semibold mt-1">
+                          Por {order.audit.handedBy} • {order.audit.driver || 'Chofer verificado'}
+                        </p>
+                      </div>
                     ) : (
-                      <Lock className="w-7 h-7" />
+                      <button
+                        type="button"
+                        onClick={release}
+                        disabled={
+                          busy ||
+                          (order.audit?.status !== 'ready' &&
+                            !(order.audit?.status === 'unclaimed' && order.audit?.bags != null)) ||
+                          !isCollisionConfirmed
+                        }
+                        className="w-full h-16 sm:h-20 rounded-2xl bg-red-600 text-white text-xl sm:text-2xl font-black disabled:bg-slate-300 disabled:text-slate-600 flex items-center justify-center gap-3"
+                      >
+                        {(order.audit?.status === 'ready' ||
+                          (order.audit?.status === 'unclaimed' && order.audit?.bags != null)) &&
+                        isCollisionConfirmed ? (
+                          <Truck className="w-7 h-7" />
+                        ) : (
+                          <Lock className="w-7 h-7" />
+                        )}
+                        <span>
+                          {busy
+                            ? 'PROCESANDO…'
+                            : order.audit?.status !== 'ready' &&
+                              !(order.audit?.status === 'unclaimed' && order.audit?.bags != null)
+                            ? 'PRIMERO CONFIRMA ORDEN COMPLETA Y SELLADA'
+                            : !isCollisionConfirmed
+                            ? 'TOCA LA CASILLA DE ARRIBA PARA CONFIRMAR APELLIDO Y #CHECK'
+                            : `ENTREGAR ORDEN DE ${order.customer.toUpperCase()} (#${order.ticket})`}
+                        </span>
+                      </button>
                     )}
-                    <span>
-                      {busy
-                        ? 'PROCESANDO…'
-                        : order.audit?.status !== 'ready'
-                        ? 'PRIMERO CONFIRMA ORDEN COMPLETA Y SELLADA'
-                        : `CONFIRMAR CLAVE ${order.platformOrderKey} Y ENTREGAR`}
-                    </span>
-                  </button>
-                )}
+                  </div>
+                </section>
               </div>
-            </section>
+            )}
           </div>
-        )}
+        </div>
       </div>
     </main>
   )

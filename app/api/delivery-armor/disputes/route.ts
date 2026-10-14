@@ -12,7 +12,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
-import { formatDisputeStatement } from '@/lib/delivery-armor'
+import { autoExpireUnclaimedAudits, formatDisputeStatement } from '@/lib/delivery-armor'
 
 export async function GET(req: NextRequest) {
   try {
@@ -22,14 +22,17 @@ export async function GET(req: NextRequest) {
     const status = searchParams.get('status')
     const limit = parseInt(searchParams.get('limit') || '50', 10)
 
+    const parsedStoreId = storeIdParam && storeIdParam !== 'all' ? parseInt(storeIdParam, 10) : undefined
+    await autoExpireUnclaimedAudits(parsedStoreId)
+
     let query = supabaseAdmin
       .from('delivery_packing_audits')
       .select('*, stores(id, name, code)')
       .order('created_at', { ascending: false })
       .limit(limit)
 
-    if (storeIdParam && storeIdParam !== 'all') {
-      query = query.eq('store_id', parseInt(storeIdParam, 10))
+    if (parsedStoreId) {
+      query = query.eq('store_id', parsedStoreId)
     }
 
     if (status && status !== 'ALL') {
