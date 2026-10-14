@@ -66,10 +66,13 @@ export interface ToastAccountingData {
   totalTaxes: number
   forHereSales: number
   toGoSales: number
+  phoneSales: number
+  curbsideSales: number
   driveThruSales: number
   kioskDineInSales: number
   kioskTakeOutSales: number
   toastOnlineSales: number
+  onlineOrderingTakeoutSales: number
   toastDeliverySales: number
   tipsPayable: number
   depositsCollected: number
@@ -83,10 +86,13 @@ export interface ToastAccountingData {
   salesGrossByOption?: {
     forHere: number
     toGo: number
+    phone: number
+    curbside: number
     driveThru: number
     kioskDineIn: number
     kioskTakeOut: number
     toastOnline: number
+    onlineOrderingTakeout: number
     toastDelivery: number
     uberDelivery: number
     uberTakeout: number
@@ -119,11 +125,13 @@ export interface ToastAccountingData {
   toastDepositsList: Array<{ guid: string; amount: number; date: string; employee?: string }>
   cashPayoutsTotal: number
   toastCashPayoutsList: Array<{ amount: number; reason: string; comment: string; date: string }>
-  // Toast Cash In & Cash Out (Entradas y Salidas de Gaveta registradas en Toast POS)
+  // Toast Cash In, Cash Out & Tip Out (Entradas y Salidas de Gaveta registradas en Toast POS)
   cashInTotal: number
   toastCashInList: Array<{ amount: number; reason: string; comment: string; date: string }>
   cashOutTotal: number
   toastCashOutList: Array<{ amount: number; reason: string; comment: string; date: string }>
+  tipOutTotal: number
+  toastTipOutList: Array<{ amount: number; reason: string; comment: string; date: string }>
   // Validación de Órdenes Abiertas (Step 11 Cohesion)
   openOrdersCount: number
   outOfBalanceOrdersCount: number
@@ -133,47 +141,48 @@ export interface ToastAccountingData {
   validationMessage?: string
 }
 
+async function fetchToastWithRetry(
+  url: string,
+  options: RequestInit,
+  maxRetries = 5
+): Promise<Response> {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    const res = await fetch(url, options)
+    if (res.status === 429 || res.status === 502 || res.status === 503 || res.status === 504) {
+      if (attempt < maxRetries) {
+        const retryAfterHeader = res.headers.get('retry-after')
+        const waitMs = retryAfterHeader && !isNaN(Number(retryAfterHeader))
+          ? Math.max(Number(retryAfterHeader) * 1000, 1500)
+          : 2000 * attempt
+        await new Promise(resolve => setTimeout(resolve, waitMs))
+        continue
+      }
+    }
+    return res
+  }
+  return fetch(url, options)
+}
+
 export async function fetchToastAccountingData(
   storeExternalId: string,
   businessDate: string // YYYYMMDD
 ): Promise<ToastAccountingData> {
   const token = await getAuthToken()
+  const toastHeaders = {
+    Authorization: `Bearer ${token}`,
+    'Toast-Restaurant-External-ID': storeExternalId,
+  }
 
   // 1. Obtener Dining Options Map, Alternate Payment Types Map, Depósitos y Payouts de Cash Management de Toast POS
   const [optRes, altRes, depRes, entriesRes, payoutReasonsRes] = await Promise.all([
-    fetch(`${TOAST_API_HOST}/config/v2/diningOptions`, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Toast-Restaurant-External-ID': storeExternalId,
-      },
-    }),
-    fetch(`${TOAST_API_HOST}/config/v2/alternatePaymentTypes`, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Toast-Restaurant-External-ID': storeExternalId,
-      },
-    }).catch(() => null),
-    fetch(`${TOAST_API_HOST}/cashmgmt/v1/deposits?businessDate=${businessDate}`, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Toast-Restaurant-External-ID': storeExternalId,
-      },
-    }).catch(() => null),
-    fetch(`${TOAST_API_HOST}/cashmgmt/v1/entries?businessDate=${businessDate}`, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Toast-Restaurant-External-ID': storeExternalId,
-      },
-    }).catch(() => null),
-    fetch(`${TOAST_API_HOST}/config/v2/payoutReasons`, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Toast-Restaurant-External-ID': storeExternalId,
-      },
-    }).catch(() => null),
+    fetchToastWithRetry(`${TOAST_API_HOST}/config/v2/diningOptions`, { headers: toastHeaders }).catch(() => null),
+    fetchToastWithRetry(`${TOAST_API_HOST}/config/v2/alternatePaymentTypes`, { headers: toastHeaders }).catch(() => null),
+    fetchToastWithRetry(`${TOAST_API_HOST}/cashmgmt/v1/deposits?businessDate=${businessDate}`, { headers: toastHeaders }).catch(() => null),
+    fetchToastWithRetry(`${TOAST_API_HOST}/cashmgmt/v1/entries?businessDate=${businessDate}`, { headers: toastHeaders }).catch(() => null),
+    fetchToastWithRetry(`${TOAST_API_HOST}/config/v2/payoutReasons`, { headers: toastHeaders }).catch(() => null),
   ])
 
-  const diningOptions = optRes.ok ? await optRes.json() : []
+  const diningOptions = optRes && optRes.ok ? await optRes.json().catch(() => []) : []
   const diningMap: Record<string, string> = {}
   if (Array.isArray(diningOptions)) {
     for (const opt of diningOptions) {
@@ -220,13 +229,15 @@ export async function fetchToastAccountingData(
     }
   }
 
-  // Parsear payouts, cash in y cash out registrados en Toast POS (Cash Management Entries)
+  // Parsear payouts, cash in, cash out y tip out registrados en Toast POS (Cash Management Entries)
   let cashPayoutsTotal = 0
   const toastCashPayoutsList: Array<{ amount: number; reason: string; comment: string; date: string }> = []
   let cashInTotal = 0
   const toastCashInList: Array<{ amount: number; reason: string; comment: string; date: string }> = []
   let cashOutTotal = 0
   const toastCashOutList: Array<{ amount: number; reason: string; comment: string; date: string }> = []
+  let tipOutTotal = 0
+  const toastTipOutList: Array<{ amount: number; reason: string; comment: string; date: string }> = []
 
   if (entriesRes && entriesRes.ok) {
     const rawEntries = await entriesRes.json().catch(() => [])
@@ -278,6 +289,22 @@ export async function fetchToastAccountingData(
             date: co.date,
           })
           cashOutTotal = Math.round((cashOutTotal + amt) * 100) / 100
+        }
+      }
+
+      // 4. Tip Out (TIP_OUT)
+      const tipOuts = rawEntries.filter((e: any) => e.type === 'TIP_OUT')
+      for (const to of tipOuts) {
+        const amt = Math.round(Math.abs(Number(to.amount) || 0) * 100) / 100
+        if (amt > 0) {
+          const comment = (to.reason || '').trim()
+          toastTipOutList.push({
+            amount: amt,
+            reason: 'Tip Out',
+            comment,
+            date: to.date,
+          })
+          tipOutTotal = Math.round((tipOutTotal + amt) * 100) / 100
         }
       }
     }
@@ -342,12 +369,7 @@ export async function fetchToastAccountingData(
 
   while (hasMore) {
     url.searchParams.set('page', String(page))
-    const res = await fetch(url.toString(), {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Toast-Restaurant-External-ID': storeExternalId,
-      },
-    })
+    const res = await fetchToastWithRetry(url.toString(), { headers: toastHeaders })
 
     if (!res.ok) {
       throw new Error(`Toast API Error: ${res.status} ${await res.text()}`)
@@ -364,6 +386,10 @@ export async function fetchToastAccountingData(
   let forHereGross = 0
   let toGo = 0
   let toGoGross = 0
+  let phone = 0
+  let phoneGross = 0
+  let curbside = 0
+  let curbsideGross = 0
   let driveThru = 0
   let driveThruGross = 0
   let kioskDineIn = 0
@@ -372,8 +398,8 @@ export async function fetchToastAccountingData(
   let kioskTakeOutGross = 0
   let toastOnline = 0
   let toastOnlineGross = 0
-  // Cohesion cambio su mapeo ~2026-10-03: antes el Toast Delivery iba en 40050 y las Other Deductions dentro de Merchant Fees (51030)
-  const legacyCohesionRules = businessDate < '20261003'
+  let onlineOrderingTakeout = 0
+  let onlineOrderingTakeoutGross = 0
   let toastDelivery = 0
   let toastDeliveryGross = 0
   let tipsPayable = 0
@@ -437,20 +463,24 @@ export async function fetchToastAccountingData(
       const isCheckOpen = !isCheckClosed
 
       // Filtrar estrictamente pagos válidos (descartar DENIED, FAILED, VOIDED, OPEN, CANCELLED, etc.)
-      // En Toast POS, check.totalAmount incluye la propina; por tanto, paymentsTotal debe sumar amount + tipAmount
-      const paymentsTotal = (check.payments || [])
+      // En Toast POS, check.totalAmount es el subtotal + tax (sin propina), pero en algunos flujos incluye propina.
+      // Validamos contra ambos (con y sin propina) para evitar falsos positivos de OUT_OF_BALANCE en órdenes con propina.
+      const validPayments = (check.payments || [])
         .filter((p: any) => !p.voided && !INVALID_PAYMENT_STATUSES.has(String(p.paymentStatus || '').toUpperCase()))
-        .reduce((sum: number, p: any) => sum + (Number(p.amount) || 0) + (Number(p.tipAmount) || 0), 0)
+      const paymentsBaseTotal = validPayments.reduce((sum: number, p: any) => sum + (Number(p.amount) || 0), 0)
+      const paymentsWithTipTotal = validPayments.reduce((sum: number, p: any) => sum + (Number(p.amount) || 0) + (Number(p.tipAmount) || 0), 0)
       const expectedTotal = Number(check.totalAmount ?? check.amount ?? 0)
-      const diff = Math.abs(expectedTotal - paymentsTotal)
-      const isCheckOutOfBalance = diff > 0.05 && (isCheckClosed || paymentsTotal > 0)
+      const diffBase = Math.abs(expectedTotal - paymentsBaseTotal)
+      const diffWithTip = Math.abs(expectedTotal - paymentsWithTipTotal)
+      const minDiff = Math.min(diffBase, diffWithTip)
+      const isCheckOutOfBalance = minDiff > 0.05 && (isCheckClosed || paymentsBaseTotal > 0)
       if (isCheckOutOfBalance) {
         orderHasIssue = true
         outOfBalanceOrdersCount++
-        checkIssues.push(`Desbalanceada: Esperado $${expectedTotal.toFixed(2)}, Pagado $${paymentsTotal.toFixed(2)}`)
+        checkIssues.push(`Desbalanceada: Esperado $${expectedTotal.toFixed(2)}, Pagado $${paymentsBaseTotal.toFixed(2)}`)
       } else if (isCheckOpen) {
         // Solo marcar check sin cerrar si realmente quedó abierto con balance pendiente por cobrar
-        if (expectedTotal > 0 && paymentsTotal < expectedTotal) {
+        if (expectedTotal > 0 && paymentsBaseTotal < expectedTotal - 0.05) {
           orderHasIssue = true
           checkIssues.push(`Check sin cerrar (Estado: ${check.paymentStatus || 'OPEN'})`)
         }
@@ -533,6 +563,7 @@ export async function fetchToastAccountingData(
         if (sel.refundDetails?.refundAmount) {
           const rAmt = Number(sel.refundDetails.refundAmount)
           p -= rAmt
+          pre -= rAmt
           selRefunds += rAmt
         }
 
@@ -606,10 +637,14 @@ export async function fetchToastAccountingData(
         ghDel += checkNet
         ghDelGross += checkGross
         marketplaceTax += checkTax
-      } else if (dOptLower.includes('toast delivery') && !legacyCohesionRules) {
-        // Dining Option "Toast Delivery Services" -> línea propia 53060 en Cohesion
+      } else if (dOptLower.includes('toast delivery')) {
+        // Dining Option "Toast Delivery Services" -> línea propia en Cohesion
         toastDelivery += checkNet
         toastDeliveryGross += checkGross
+      } else if (dOptLower.includes('online ordering - takeout') || dOptLower.includes('online ordering takeout')) {
+        // Dining Option explícito "Online Ordering - Takeout" (Central LA -> 12100, Downey -> 40050)
+        onlineOrderingTakeout += checkNet
+        onlineOrderingTakeoutGross += checkGross
       } else if (optName.includes('online')) {
         toastOnline += checkNet
         toastOnlineGross += checkGross
@@ -622,13 +657,21 @@ export async function fetchToastAccountingData(
       } else if (dOptLower.includes('kiosk take out') || dOptLower === 'kiosk' || (dOptLower.includes('kiosk') && !dOptLower.includes('dine in') && !dOptLower.includes('for here'))) {
         kioskTakeOut += checkNet
         kioskTakeOutGross += checkGross
+      } else if (dOptLower === 'phone' || dOptLower.includes('phone')) {
+        // Dining Option "Phone" -> línea propia en Cohesion (40050 | Phone | Dining Option: Phone)
+        phone += checkNet
+        phoneGross += checkGross
+      } else if (dOptLower.includes('curbside')) {
+        // Dining Option "Curbside Pickup" -> línea propia en Cohesion (40050 | Curbside Pickup | Dining Option: Curbside Pickup)
+        curbside += checkNet
+        curbsideGross += checkGross
       } else if (dOptLower.includes('for here') || dOptLower.includes('dine in') || dOptLower.includes('comedor')) {
         forHere += checkNet
         forHereGross += checkGross
       } else if (dOptLower.includes('to go') || dOptLower.includes('take out') || dOptLower.includes('llevar')) {
         toGo += checkNet
         toGoGross += checkGross
-      } else if (optName.includes('to go') || optName.includes('curbside') || optName.includes('phone')) {
+      } else if (optName.includes('to go')) {
         toGo += checkNet
         toGoGross += checkGross
       } else {
@@ -719,11 +762,12 @@ export async function fetchToastAccountingData(
 
       // Cohesion: cheque en 0 (items anulados) con pago capturado = Deposit Sales Collected (12049)
       const chkTotal = Number(check.totalAmount ?? check.amount ?? 0)
-      // Tambien aplica a sobrepagos: pagos capturados > total del cheque (ej. Norwalk 10/3 orden 277: tarjeta 13.04 + efectivo 9.06 sobre total 13.04)
+      // Tambien aplica a sobrepagos: pagos capturados hoy > total del cheque (ej. Norwalk 10/3 orden 277: tarjeta 13.04 + efectivo 9.06 sobre total 13.04)
       let chkPaid = 0
       for (const p of check.payments || []) {
         if (p.voided) continue
         if (INVALID_PAYMENT_STATUSES.has(String(p.paymentStatus || '').toUpperCase())) continue
+        if (p.paidBusinessDate && String(p.paidBusinessDate) !== businessDate) continue
         chkPaid += Number(p.amount || 0)
       }
       const chkExcess = Math.round((chkPaid - chkTotal) * 100) / 100
@@ -740,9 +784,7 @@ export async function fetchToastAccountingData(
   try {
     const payUrl = new URL(`${TOAST_API_HOST}/orders/v2/payments`)
     payUrl.searchParams.set('paidBusinessDate', businessDate)
-    const pListRes = await fetch(payUrl.toString(), {
-      headers: { Authorization: `Bearer ${token}`, 'Toast-Restaurant-External-ID': storeExternalId },
-    })
+    const pListRes = await fetchToastWithRetry(payUrl.toString(), { headers: toastHeaders })
     if (pListRes.ok) {
       const paymentGuids: string[] = await pListRes.json()
       if (Array.isArray(paymentGuids) && paymentGuids.length > 0) {
@@ -752,9 +794,7 @@ export async function fetchToastAccountingData(
           await Promise.all(
             crossPaymentGuids.map(async (pGuid) => {
               try {
-                const pRes = await fetch(`${TOAST_API_HOST}/orders/v2/payments/${pGuid}`, {
-                  headers: { Authorization: `Bearer ${token}`, 'Toast-Restaurant-External-ID': storeExternalId },
-                })
+                const pRes = await fetchToastWithRetry(`${TOAST_API_HOST}/orders/v2/payments/${pGuid}`, { headers: toastHeaders })
                 if (!pRes.ok) return
                 const pp = await pRes.json()
                 if (pp.voided || INVALID_PAYMENT_STATUSES.has(String(pp.paymentStatus || '').toUpperCase())) return
@@ -819,10 +859,13 @@ export async function fetchToastAccountingData(
 
   forHere = r(forHere)
   toGo = r(toGo)
+  phone = r(phone)
+  curbside = r(curbside)
   driveThru = r(driveThru)
   kioskDineIn = r(kioskDineIn)
   kioskTakeOut = r(kioskTakeOut)
   toastOnline = r(toastOnline)
+  onlineOrderingTakeout = r(onlineOrderingTakeout)
   uberDel = r(uberDel)
   uberTake = r(uberTake)
   ddDel = r(ddDel)
@@ -847,7 +890,7 @@ export async function fetchToastAccountingData(
   paidIn = r(paidIn)
 
   deliveryServiceCharges = r(deliveryServiceCharges)
-  const netSales = r(forHere + toGo + driveThru + kioskDineIn + kioskTakeOut + toastOnline + toastDelivery + uberDel + uberTake + ddDel + ddTake + ghDel + ghTake + deliveryServiceCharges)
+  const netSales = r(forHere + toGo + phone + curbside + driveThru + kioskDineIn + kioskTakeOut + toastOnline + onlineOrderingTakeout + toastDelivery + uberDel + uberTake + ddDel + ddTake + ghDel + ghTake + deliveryServiceCharges)
   totalTax = r(totalTax)
   marketplaceTax = r(marketplaceTax)
   taxPaidByUber = r(taxPaidByUber)
@@ -867,8 +910,7 @@ export async function fetchToastAccountingData(
   // En Cohesion: Credit Card Fees reales de Toast (originalProcessingFee)
   creditCardActualFees = r(creditCardActualFees)
   creditCardOtherDeductions = r(creditCardOtherDeductions)
-  let ccFees = creditCardActualFees > 0 ? creditCardActualFees : (creditCardGross > 0 ? r(creditCardGross * 0.01919) : 0)
-  if (legacyCohesionRules && creditCardOtherDeductions > 0) { ccFees = r(ccFees + creditCardOtherDeductions); creditCardOtherDeductions = 0 }
+  const ccFees = creditCardActualFees > 0 ? creditCardActualFees : (creditCardGross > 0 ? r(creditCardGross * 0.01919) : 0)
   const ccDeposit = r(creditCardGross - ccFees - creditCardOtherDeductions)
 
   // Resolver nombres reales de cajeros/meseros desde toast_employees
@@ -925,10 +967,13 @@ export async function fetchToastAccountingData(
     totalTaxes: totalTax,
     forHereSales: forHere,
     toGoSales: toGo,
+    phoneSales: phone,
+    curbsideSales: curbside,
     driveThruSales: driveThru,
     kioskDineInSales: kioskDineIn,
     kioskTakeOutSales: kioskTakeOut,
     toastOnlineSales: toastOnline,
+    onlineOrderingTakeoutSales: onlineOrderingTakeout,
     toastDeliverySales: toastDelivery,
     tipsPayable,
     depositsCollected,
@@ -942,10 +987,13 @@ export async function fetchToastAccountingData(
     salesGrossByOption: {
       forHere: r(forHereGross),
       toGo: r(toGoGross),
+      phone: r(phoneGross),
+      curbside: r(curbsideGross),
       driveThru: r(driveThruGross),
       kioskDineIn: r(kioskDineInGross),
       kioskTakeOut: r(kioskTakeOutGross),
       toastOnline: r(toastOnlineGross),
+      onlineOrderingTakeout: r(onlineOrderingTakeoutGross),
       toastDelivery: r(toastDeliveryGross),
       uberDelivery: r(uberDelGross),
       uberTakeout: r(uberTakeGross),
@@ -981,6 +1029,8 @@ export async function fetchToastAccountingData(
     toastCashInList,
     cashOutTotal,
     toastCashOutList,
+    tipOutTotal,
+    toastTipOutList,
     openOrdersCount,
     outOfBalanceOrdersCount,
     openOrdersList,

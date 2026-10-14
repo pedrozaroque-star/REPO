@@ -243,15 +243,17 @@ export const QB_STORE_REFS_MAP: Record<string, QBStoreRefs> = {
 }
 
 export function getQBStoreRefs(storeName: string): QBStoreRefs {
-  const clean = storeName.toLowerCase().replace(/tacos\s*gavilan\s*/i, '').trim()
-  
-  if (QB_STORE_REFS_MAP[clean]) {
+  const clean = (storeName || '').toLowerCase().replace(/tacos\s*(el\s*)?gavilan\s*/i, '').replace(/^[-\s]+|[-\s]+$/g, '').trim()
+
+  if (clean && QB_STORE_REFS_MAP[clean]) {
     return QB_STORE_REFS_MAP[clean]
   }
 
-  for (const [key, val] of Object.entries(QB_STORE_REFS_MAP)) {
-    if (clean.includes(key) || key.includes(clean)) {
-      return val
+  if (clean) {
+    for (const [key, val] of Object.entries(QB_STORE_REFS_MAP)) {
+      if (clean.includes(key) || key.includes(clean)) {
+        return val
+      }
     }
   }
 

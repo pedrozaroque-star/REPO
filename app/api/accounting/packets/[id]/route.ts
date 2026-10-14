@@ -141,98 +141,12 @@ export async function PATCH(
       }
     }
 
-    // 4. Handle cash_deposit update
+    // 4. Reject manual cash_deposit updates (Strict Rule: Bank Deposit comes 100% from Toast POS Cash Management)
     if (cash_deposit !== undefined && cash_deposit !== null) {
-      if (packet.status === 'published') {
-        return NextResponse.json(
-          { error: 'No se puede modificar el depósito de una póliza ya publicada a QuickBooks Online.' },
-          { status: 400 }
-        )
-      }
-      const newDeposit = Math.round(Number(cash_deposit) * 100) / 100
-      const expectedCash = Number(packet.expected_cash || 0)
-      const cashDiff = Math.round((newDeposit - expectedCash) * 100) / 100
-
-      // Rebalancear journal_lines
-      const currentLines: any[] = [...(packet.journal_lines || [])]
-
-      // Actualizar o agregar línea 13200 (Deposit To Bank)
-      const depositLineIdx = currentLines.findIndex((l: any) => l.memo === 'Deposit To Bank' || l.sourceMemo === 'Cash Deposits')
-      if (newDeposit > 0) {
-        if (depositLineIdx >= 0) {
-          currentLines[depositLineIdx].debit = newDeposit
-        } else {
-          currentLines.push({
-            account: '13200',
-            memo: 'Deposit To Bank',
-            debit: newDeposit,
-            credit: 0,
-            sourceMemo: 'Cash Deposits',
-            location: currentLines[0]?.location || '',
-            className: currentLines[0]?.className || '',
-          })
-        }
-      } else if (depositLineIdx >= 0) {
-        currentLines.splice(depositLineIdx, 1)
-      }
-
-      // Actualizar o agregar línea 51050 (Cash Over/(Short))
-      const overShortIdx = currentLines.findIndex((l: any) =>
-        (l.account === '51050' || l.memo?.toLowerCase().includes('over') || l.memo?.toLowerCase().includes('short')) &&
-        !l.memo?.toLowerCase().includes('paid in')
+      return NextResponse.json(
+        { error: 'El depósito bancario se obtiene 100% de forma automática desde Toast POS Cash Management y no es editable manualmente.' },
+        { status: 400 }
       )
-
-      if (cashDiff > 0) {
-        // Sobrante: Credit
-        if (overShortIdx >= 0) {
-          currentLines[overShortIdx].memo = 'Cash Over/(Short)'
-          currentLines[overShortIdx].credit = cashDiff
-          currentLines[overShortIdx].debit = 0
-          currentLines[overShortIdx].sourceMemo = 'Cash Overage'
-        } else {
-          currentLines.push({
-            account: '51050',
-            memo: 'Cash Over/(Short)',
-            debit: 0,
-            credit: cashDiff,
-            sourceMemo: 'Cash Overage',
-            location: currentLines[0]?.location || '',
-            className: currentLines[0]?.className || '',
-          })
-        }
-      } else if (cashDiff < 0) {
-        // Faltante: Debit
-        if (overShortIdx >= 0) {
-          currentLines[overShortIdx].memo = 'Over/(Short)'
-          currentLines[overShortIdx].debit = Math.abs(cashDiff)
-          currentLines[overShortIdx].credit = 0
-          currentLines[overShortIdx].sourceMemo = 'Calculated'
-        } else {
-          currentLines.push({
-            account: '51050',
-            memo: 'Over/(Short)',
-            debit: Math.abs(cashDiff),
-            credit: 0,
-            sourceMemo: 'Calculated',
-            location: currentLines[0]?.location || '',
-            className: currentLines[0]?.className || '',
-          })
-        }
-      } else if (overShortIdx >= 0) {
-        currentLines.splice(overShortIdx, 1)
-      }
-
-      const totalDebits = Math.round(currentLines.reduce((sum: number, l: any) => sum + (Number(l.debit) || 0), 0) * 100) / 100
-      const totalCredits = Math.round(currentLines.reduce((sum: number, l: any) => sum + (Number(l.credit) || 0), 0) * 100) / 100
-
-      updatePayload.cash_deposit = newDeposit
-      updatePayload.cash_over_short = cashDiff
-      updatePayload.journal_lines = currentLines
-      updatePayload.journal_total_debits = totalDebits
-      updatePayload.journal_total_credits = totalCredits
-      if (totalDebits === totalCredits && packet.status === 'pending') {
-        updatePayload.status = 'ready'
-      }
     }
 
     // 5. Handle notes update

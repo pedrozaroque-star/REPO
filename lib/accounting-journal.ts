@@ -32,10 +32,13 @@ export interface SalesPacketData {
 
   for_here_sales: number;
   to_go_sales: number;
+  phone_sales?: number;
+  curbside_sales?: number;
   drive_thru_sales?: number;
   kiosk_dine_in_sales?: number;
   kiosk_takeout_sales?: number;
   toast_online_sales?: number;
+  online_ordering_takeout_sales?: number;
   toast_delivery_sales?: number;
   tips_payable?: number;
   deposits_collected?: number;
@@ -68,6 +71,7 @@ export interface SalesPacketData {
   cash_payouts_total?: number;
   cash_in?: number;
   cash_out?: number;
+  tip_out?: number;
 }
 
 export interface SiteMappingConfig {
@@ -89,9 +93,12 @@ export interface SiteMappingConfig {
   cash_over_short_account?: string;
   gift_card_account?: string;
   open_orders_account?: string;
+  paid_in_account?: string;
   cash_on_hand_account?: string;
   tips_account?: string;
   cogs_account?: string;
+  alt_memos?: Record<string, string>;
+  line_class_overrides?: Record<string, string>;
 }
 
 export interface JournalResult {
@@ -108,7 +115,20 @@ const round = (val: number) => Math.round(val * 100) / 100;
  */
 export function generateJournalLines(salesData: SalesPacketData, siteMapping: SiteMappingConfig): JournalResult {
   const lines: JournalLine[] = [];
-  
+
+  const loc = (siteMapping.location || '').trim();
+  const isRialto = /rialto/i.test(loc);
+  const isBroadway = /broadway/i.test(loc);
+  const isCentral = /central/i.test(loc);
+  const isDowney = /downey/i.test(loc);
+  const isSouthGate = /south\s*gate|souht\s*gate/i.test(loc);
+  const isWestCovina = /west\s*covina/i.test(loc);
+  const isHuntingtonPark = /huntington/i.test(loc);
+  const isNorwalk = /norwalk/i.test(loc);
+  const isHollywood = /hollywood/i.test(loc);
+  const isSantaAna = /santa\s*ana/i.test(loc);
+  const isSlauson = /slauson/i.test(loc);
+
   const dineInAcct = siteMapping.sales_dine_in_account || '40050';
   const uberSalesAcct = siteMapping.sales_uber_account || '40060';
   const ddSalesAcct = siteMapping.sales_doordash_account || '40062';
@@ -124,123 +144,181 @@ export function generateJournalLines(salesData: SalesPacketData, siteMapping: Si
   const openOrdersAcct = siteMapping.open_orders_account || '12049';
   const tipsAcct = siteMapping.tips_account || '12100';
 
-  const addLine = (account: string, memo: string, debit: number, credit: number, sourceMemo: string) => {
+  const altMemos = siteMapping.alt_memos || {};
+  const classOverrides = siteMapping.line_class_overrides || {};
+
+  const addLine = (account: string, memo: string, debit: number, credit: number, sourceMemo: string, overrideKey?: string) => {
     if (debit === 0 && credit === 0) return;
+    const finalMemo = (overrideKey && altMemos[overrideKey]) || altMemos[sourceMemo] || memo;
+    const finalClass = (overrideKey && classOverrides[overrideKey]) || classOverrides[sourceMemo] || siteMapping.className;
     lines.push({
       account,
-      memo,
+      memo: finalMemo,
       debit: round(debit),
       credit: round(credit),
       sourceMemo,
       location: siteMapping.location,
-      className: siteMapping.className,
+      className: finalClass,
     });
   };
 
   // --- CREDITS ---
-  addLine(dineInAcct, 'For Here', 0, salesData.for_here_sales, 'Dining Option: For Here');
+  addLine(dineInAcct, 'For Here', 0, salesData.for_here_sales, 'Dining Option: For Here', 'for_here');
   if (salesData.toast_delivery_sales) {
-    addLine(dineInAcct, 'Toast Delivery Services', 0, salesData.toast_delivery_sales, 'Dining Option: Toast Delivery Services');
+    const toastDelAcct = isBroadway ? '53060' : dineInAcct;
+    addLine(toastDelAcct, 'Toast Delivery Services', 0, salesData.toast_delivery_sales, 'Dining Option: Toast Delivery Services', 'toast_delivery');
   }
-  addLine(dineInAcct, 'To Go', 0, salesData.to_go_sales, 'Dining Option: To Go');
+  addLine(dineInAcct, 'To Go', 0, salesData.to_go_sales, 'Dining Option: To Go', 'to_go');
+  if (salesData.phone_sales) {
+    addLine(dineInAcct, 'Phone', 0, salesData.phone_sales, 'Dining Option: Phone', 'phone');
+  }
+  if (salesData.curbside_sales) {
+    addLine(dineInAcct, 'Curbside Pickup', 0, salesData.curbside_sales, 'Dining Option: Curbside Pickup', 'curbside');
+  }
   if (salesData.drive_thru_sales) {
-    addLine(dineInAcct, 'Drive Thru', 0, salesData.drive_thru_sales, 'Dining Option: Drive Thru');
+    addLine(dineInAcct, 'Drive Thru', 0, salesData.drive_thru_sales, 'Dining Option: Drive Thru', 'drive_thru');
   }
   if (salesData.kiosk_takeout_sales) {
-    addLine(dineInAcct, 'Kiosk Take Out', 0, salesData.kiosk_takeout_sales, 'Dining Option: Kiosk Take Out');
+    addLine(dineInAcct, 'Kiosk Take Out', 0, salesData.kiosk_takeout_sales, 'Dining Option: Kiosk Take Out', 'kiosk_takeout');
   }
   if (salesData.kiosk_dine_in_sales) {
-    addLine(dineInAcct, 'Kiosk Dine In', 0, salesData.kiosk_dine_in_sales, 'Dining Option: Kiosk Dine In');
+    addLine(dineInAcct, 'Kiosk Dine In', 0, salesData.kiosk_dine_in_sales, 'Dining Option: Kiosk Dine In', 'kiosk_dine_in');
   }
   if (salesData.toast_online_sales) {
-    addLine(dineInAcct, 'Toast Online', 0, salesData.toast_online_sales, 'Dining Option: Toast Online');
+    addLine(dineInAcct, 'Toast Online', 0, salesData.toast_online_sales, 'Dining Option: Toast Online', 'toast_online');
   }
-  addLine(uberSalesAcct, 'Uber Eats - Delivery', 0, salesData.uber_delivery_sales, 'Dining Option: Uber Eats - Delivery');
-  addLine(uberSalesAcct, 'Uber Eats Takeout', 0, salesData.uber_takeout_sales, 'Dining Option: Uber Eats Takeout');
-  addLine(ddSalesAcct, 'DoorDash - Takeout', 0, salesData.doordash_takeout_sales, 'Dining Option: DoorDash - Takeout');
-  addLine(ddSalesAcct, 'DoorDash - Delivery', 0, salesData.doordash_delivery_sales, 'Dining Option: DoorDash - Delivery');
-  addLine(ghSalesAcct, 'GrubHub Delivery', 0, salesData.grubhub_delivery_sales, 'Dining Option: GrubHub Delivery');
+  if (salesData.online_ordering_takeout_sales) {
+    const onlineTakeoutAcct = isCentral ? tipsAcct : dineInAcct;
+    addLine(onlineTakeoutAcct, 'Online Ordering - Takeout', 0, salesData.online_ordering_takeout_sales, 'Dining Option: Online Ordering - Takeout', 'online_ordering_takeout');
+  }
+  addLine(uberSalesAcct, 'Uber Eats - Delivery', 0, salesData.uber_delivery_sales, 'Dining Option: Uber Eats - Delivery', 'uber_delivery');
+  addLine(uberSalesAcct, 'Uber Eats Takeout', 0, salesData.uber_takeout_sales, 'Dining Option: Uber Eats Takeout', 'uber_takeout');
+  addLine(ddSalesAcct, 'DoorDash - Takeout', 0, salesData.doordash_takeout_sales, 'Dining Option: DoorDash - Takeout', 'doordash_takeout');
+  addLine(ddSalesAcct, 'DoorDash - Delivery', 0, salesData.doordash_delivery_sales, 'Dining Option: DoorDash - Delivery', 'doordash_delivery');
+
+  const ghDelMemo = isRialto ? 'Grubhub - Delivery' : 'GrubHub Delivery';
+  const ghDelSrc = isRialto ? 'Dining Option: Grubhub - Delivery' : 'Dining Option: GrubHub Delivery';
+  addLine(ghSalesAcct, ghDelMemo, 0, salesData.grubhub_delivery_sales, ghDelSrc, 'grubhub_delivery');
+
   if (salesData.grubhub_takeout_sales) {
-    addLine(ghSalesAcct, 'Grubhub - Takeout', 0, salesData.grubhub_takeout_sales, 'Dining Option: Grubhub - Takeout');
-  }
-  
-  if (salesData.delivery_service_charges) {
-    addLine(ccFeesAcct, 'Delivery Service', 0, salesData.delivery_service_charges, 'Service Charge: Delivery Service');
-  }
-  if (salesData.deferred_gift_cards) {
-    addLine(giftCardAcct, 'Deferred Sales - Gift Cards', 0, salesData.deferred_gift_cards, 'Deferred Sales: Gift Cards');
+    addLine(ghSalesAcct, 'Grubhub - Takeout', 0, salesData.grubhub_takeout_sales, 'Dining Option: Grubhub - Takeout', 'grubhub_takeout');
   }
 
-  addLine(uberArAcct, 'Tax Paid by Uber Eats', 0, salesData.tax_paid_by_uber, 'Tax Paid by Facilitator');
-  addLine(salesTaxAcct, 'Sales Tax', 0, salesData.sales_tax, `Tax Rate: ${siteMapping.sales_tax_rate_name}`);
-  addLine(salesTaxAcct, 'Marketplace Facilitator Taxes', 0, salesData.marketplace_tax, 'Tax Rate: Marketplace Facilitator Taxes Not Paid');
+  if (salesData.delivery_service_charges) {
+    const delChargeAcct = isDowney ? dineInAcct : ccFeesAcct;
+    const delChargeMemo = isRialto ? 'Delivery Charge' : 'Delivery Service';
+    addLine(delChargeAcct, delChargeMemo, 0, salesData.delivery_service_charges, 'Service Charge: Delivery Service', 'delivery_service');
+  }
+  if (salesData.deferred_gift_cards) {
+    addLine(giftCardAcct, 'Deferred Sales - Gift Cards', 0, salesData.deferred_gift_cards, 'Deferred: Gift Cards', 'deferred_gift_cards');
+  }
+
+  addLine(uberArAcct, 'Tax Paid by Uber Eats', 0, salesData.tax_paid_by_uber, 'Tax Paid by Facilitator', 'tax_paid_by_uber');
+
+  // Store-specific Sales Tax Memo & Source Memo matching Cohesion 1:1
+  const rawTaxRateName = (siteMapping.sales_tax_rate_name || loc).trim();
+  const effectiveTaxRateName = isBroadway && /^broadway\s+la$/i.test(rawTaxRateName)
+    ? 'Broadway'
+    : isCentral && /^central\s+la$/i.test(rawTaxRateName)
+    ? 'Central'
+    : isRialto && /^rialto$/i.test(rawTaxRateName)
+    ? 'Rialto Tax Rate'
+    : rawTaxRateName;
+  const salesTaxMemo = isSlauson
+    ? 'Slauson'
+    : (isHuntingtonPark || isRialto || isSantaAna || isWestCovina)
+    ? 'Sale Tax'
+    : 'Sales Tax';
+  addLine(salesTaxAcct, salesTaxMemo, 0, salesData.sales_tax, `Tax Rate: ${effectiveTaxRateName}`, 'sales_tax');
+
+  const mktTaxMemo = isSlauson ? 'SALE TAX' : 'Marketplace Facilitator Taxes Not Paid';
+  addLine(salesTaxAcct, mktTaxMemo, 0, salesData.marketplace_tax, 'Tax Rate: Marketplace Facilitator Taxes Not Paid', 'marketplace_tax');
+
   if (salesData.tips_payable) {
-    addLine(tipsAcct, 'Tips/Grat Payable', 0, salesData.tips_payable, 'Tips Payable');
+    addLine(tipsAcct, 'Tips/Grat Payable', 0, salesData.tips_payable, 'Tips Payable', 'tips_payable');
   }
   if (salesData.paid_in) {
     // Pagos de hoy por cheques de otra fecha comercial o pedidos futuros (Cohesion: Paid In Total (Deposits Received))
-    const paidInAcct = (siteMapping as any).paid_in_account || (/huntington/i.test(siteMapping.location || '') ? cashOverShortAcct : openOrdersAcct);
-    addLine(paidInAcct, 'Paid In Total (Deposits Received)', 0, salesData.paid_in, 'Paid In Totals');
+    const paidInAcct = siteMapping.paid_in_account || (
+      (isHuntingtonPark || isNorwalk) ? cashOverShortAcct
+      : isHollywood ? dineInAcct
+      : openOrdersAcct
+    );
+    addLine(paidInAcct, 'Paid In Total (Deposits Received)', 0, salesData.paid_in, 'Paid In Totals', 'paid_in');
   }
   if (salesData.cash_in && salesData.cash_in > 0) {
     // Cohesion: Movimientos de entrada de efectivo a gaveta (Toast Cash Management) van a cuenta 12100 como Crédito
-    addLine(tipsAcct, 'Cash In', 0, salesData.cash_in, 'Cash In');
+    addLine(tipsAcct, 'Cash In', 0, salesData.cash_in, 'Cash In: Drawer', 'cash_in');
   }
 
   // --- DEBITS ---
   if (salesData.gift_card_redemption) {
-    addLine(giftCardAcct, 'Gift Card Redemption', salesData.gift_card_redemption, 0, 'Payment Other: Gift Card Redeemed');
+    addLine(giftCardAcct, 'Gift Card Redemption', salesData.gift_card_redemption, 0, 'Payment: Gift Card Redeemed', 'gift_card_redemption');
   }
-  addLine(siteMapping.bank_account, 'EBT', salesData.ebt_amount, 0, 'Payment Other: EBT');
-  addLine(uberArAcct, 'Uber Eats', salesData.uber_payment, 0, 'Payment Other: Uber Eats');
-  addLine(ddArAcct, 'DoorDash', salesData.doordash_payment, 0, 'Payment Other: DoorDash');
-  addLine(ghArAcct, 'GrubHub', salesData.grubhub_payment, 0, 'Payment Other: GrubHub');
+  addLine(siteMapping.bank_account, 'EBT', salesData.ebt_amount, 0, 'Payment Other: EBT', 'ebt');
+  addLine(uberArAcct, 'Uber Eats', salesData.uber_payment, 0, 'Payment Other: Uber Eats', 'uber_payment');
+  addLine(ddArAcct, 'DoorDash', salesData.doordash_payment, 0, 'Payment Other: DoorDash', 'doordash_payment');
+
+  const ghPayMemo = isRialto ? 'Grubhub' : 'GrubHub';
+  const ghPaySrc = isRialto ? 'Payment Other: Grubhub' : 'Payment Other: GrubHub';
+  addLine(ghArAcct, ghPayMemo, salesData.grubhub_payment, 0, ghPaySrc, 'grubhub_payment');
+
   if (salesData.deposits_collected) {
     // Cohesion: Ordenes abiertas y depositos cobrados se registran en Debito en cuenta 12049
-    addLine(openOrdersAcct, 'Deposit Sales Collected & Open Orders', salesData.deposits_collected, 0, 'Deposit Sales Collected');
+    addLine(openOrdersAcct, 'Deposit Sales Collected & Open Orders', salesData.deposits_collected, 0, 'Deposit Sales Collected', 'deposits_collected');
   }
-  addLine(siteMapping.bank_account, 'Credit Card Deposit', salesData.credit_card_deposit, 0, 'Combined Credit Card Deposit');
-  addLine(ccFeesAcct, 'Credit Card Fees', salesData.credit_card_fees, 0, 'Credit Cards: Merchant Fees');
+  addLine(siteMapping.bank_account, 'Credit Card Deposit', salesData.credit_card_deposit, 0, 'Combined Credit Card Deposit', 'cc_deposit');
+  addLine(ccFeesAcct, 'Credit Card Fees', salesData.credit_card_fees, 0, 'Credit Cards: Merchant Fees', 'cc_fees');
   if (salesData.credit_card_other_deductions) {
-    // Cohesion (verificado 10/3): Broadway y Central registran las Other Deductions en tipsAcct (12100); otras tiendas en ccFeesAcct (51030)
-    const otherDedAcct = /broadway|central/i.test(siteMapping.location || '') ? tipsAcct : ccFeesAcct;
-    addLine(otherDedAcct, 'Credit Card Other Deductions', salesData.credit_card_other_deductions, 0, 'Credit Cards: Other Deductions');
+    // Cohesion: Broadway y Central -> 12100; Downey, Rialto, South Gate, West Covina -> 40050; resto -> 51030
+    const otherDedAcct = (isBroadway || isCentral)
+      ? tipsAcct
+      : (isDowney || isRialto || isSouthGate || isWestCovina)
+      ? dineInAcct
+      : ccFeesAcct;
+    addLine(otherDedAcct, 'Credit Card Other Deductions', salesData.credit_card_other_deductions, 0, 'Credit Cards: Other Deductions', 'cc_other_deductions');
   }
-  addLine(undepositedAcct, 'Deposit To Bank', salesData.cash_deposits, 0, 'Cash Deposits');
+  addLine(undepositedAcct, 'Deposit To Bank', salesData.cash_deposits, 0, 'Cash Deposits', 'cash_deposit');
 
   // --- CASH PAYOUTS (Toast POS Cash Management Pay Outs) ---
   if (salesData.cash_payouts && salesData.cash_payouts.length > 0) {
-    const cogsAcct = siteMapping.cogs_account || '50006';
+    const cogsAcct = (!siteMapping.cogs_account || siteMapping.cogs_account === '53060') ? '50006' : siteMapping.cogs_account;
     for (const payout of salesData.cash_payouts) {
       if (payout.amount > 0) {
         const reasonStr = payout.reason || 'COGS-Materials and Supplies';
         const commentStr = payout.comment && payout.comment.trim() ? payout.comment.trim() : 'Pay Out Comment Not Entered';
-        addLine(cogsAcct, `${reasonStr} : ${commentStr}`, payout.amount, 0, `Cash Payout: ${reasonStr}`);
+        addLine(cogsAcct, `${reasonStr} : ${commentStr}`, payout.amount, 0, `Cash Payout: ${reasonStr}`, 'cash_payout');
       }
     }
   }
 
-  // --- CASH OUT (Toast POS Cash Management Drawer Out) ---
+  // --- CASH OUT & TIP OUT (Toast POS Cash Management Drawer Out / Tips Out) ---
   if (salesData.cash_out && salesData.cash_out > 0) {
-    // Cohesion: Salidas de efectivo de gaveta (Toast Cash Management) van a cuenta 12100 como Débito
-    addLine(tipsAcct, 'Cash Out', salesData.cash_out, 0, 'Cash Out');
+    addLine(tipsAcct, 'Cash Out', salesData.cash_out, 0, 'Cash Out: Drawer', 'cash_out');
+  }
+  if (salesData.tip_out && salesData.tip_out > 0) {
+    addLine(tipsAcct, 'Tip Out', salesData.tip_out, 0, 'Tips/Grat Out', 'tip_out');
   }
 
   // --- CASH OVER / SHORT ---
-  // If actual cash deposit differs from expected cash deposit (expected cash from sales plus cash in minus cash out minus cash payouts), balance with cashOverShortAcct
   const expectedCashFromSales = calculateExpectedCash(salesData);
   const cashPayoutsTotal = salesData.cash_payouts_total || (salesData.cash_payouts?.reduce((s, p) => s + (p.amount || 0), 0) || 0);
   const cashIn = salesData.cash_in || 0;
   const cashOut = salesData.cash_out || 0;
-  const expectedCashDeposit = round(expectedCashFromSales + cashIn - cashOut - cashPayoutsTotal);
+  const tipOut = salesData.tip_out || 0;
+  const expectedCashDeposit = round(expectedCashFromSales + cashIn - cashOut - tipOut - cashPayoutsTotal);
   const cashDiff = round(salesData.cash_deposits - expectedCashDeposit);
+
+  const effectiveCashOverShortAcct = isRialto && (!siteMapping.cash_over_short_account || siteMapping.cash_over_short_account === '51050')
+    ? tipsAcct
+    : cashOverShortAcct;
 
   if (cashDiff > 0) {
     // Sobrante (Over): Credit
-    addLine(cashOverShortAcct, 'Cash Over/(Short)', 0, cashDiff, 'Cash Overage');
+    addLine(effectiveCashOverShortAcct, 'Over/(Short)', 0, cashDiff, 'Calculated', 'cash_over_short');
   } else if (cashDiff < 0) {
-    // Faltante (Short): Debit (Cohesion usa memo: 'Over/(Short)' y source memo: 'Calculated')
-    addLine(cashOverShortAcct, 'Over/(Short)', Math.abs(cashDiff), 0, 'Calculated');
+    // Faltante (Short): Debit
+    addLine(effectiveCashOverShortAcct, 'Over/(Short)', Math.abs(cashDiff), 0, 'Calculated', 'cash_over_short');
   }
 
   let totalDebits = 0;
@@ -255,26 +333,30 @@ export function generateJournalLines(salesData: SalesPacketData, siteMapping: Si
   totalCredits = round(totalCredits);
 
   // Penny plug: If there is a small rounding difference (up to 5 cents) between debits and credits
-  // caused by sum of individually rounded items, balance it via cashOverShortAcct so QuickBooks Online
+  // caused by sum of individually rounded items, balance it via the Over/(Short) line so QuickBooks Online
   // never rejects with "unbalanced journal"
   const pennyDiff = round(totalDebits - totalCredits);
   if (Math.abs(pennyDiff) > 0 && Math.abs(pennyDiff) <= 0.05) {
-    const cashOverShortLine = lines.find(l => l.account === cashOverShortAcct);
+    const cashOverShortLine = lines.find(l => l.sourceMemo === 'Calculated' || l.sourceMemo === 'Penny Rounding Balancing');
     if (cashOverShortLine) {
-      if (pennyDiff > 0) {
-        // Debits exceed credits: add difference to credit
-        cashOverShortLine.credit = round(cashOverShortLine.credit + pennyDiff);
+      const netLine = round((cashOverShortLine.debit - cashOverShortLine.credit) - pennyDiff);
+      if (netLine > 0) {
+        cashOverShortLine.debit = netLine;
+        cashOverShortLine.credit = 0;
+      } else if (netLine < 0) {
+        cashOverShortLine.debit = 0;
+        cashOverShortLine.credit = Math.abs(netLine);
       } else {
-        // Credits exceed debits: add difference to debit
-        cashOverShortLine.debit = round(cashOverShortLine.debit + Math.abs(pennyDiff));
+        const idx = lines.indexOf(cashOverShortLine);
+        if (idx !== -1) lines.splice(idx, 1);
       }
     } else {
       lines.push({
-        account: cashOverShortAcct,
-        memo: 'Cash Over/(Short)',
+        account: effectiveCashOverShortAcct,
+        memo: 'Over/(Short)',
         debit: pennyDiff < 0 ? Math.abs(pennyDiff) : 0,
         credit: pennyDiff > 0 ? pennyDiff : 0,
-        sourceMemo: 'Penny Rounding Balancing',
+        sourceMemo: 'Calculated',
         location: siteMapping.location,
         className: siteMapping.className,
       });
@@ -331,10 +413,13 @@ export function calculateExpectedCash(salesData: SalesPacketData): number {
   const sumDiningOptions = round(
     (salesData.for_here_sales || 0) +
     (salesData.to_go_sales || 0) +
+    (salesData.phone_sales || 0) +
+    (salesData.curbside_sales || 0) +
     (salesData.drive_thru_sales || 0) +
     (salesData.kiosk_dine_in_sales || 0) +
     (salesData.kiosk_takeout_sales || 0) +
     (salesData.toast_online_sales || 0) +
+    (salesData.online_ordering_takeout_sales || 0) +
     (salesData.toast_delivery_sales || 0) +
     (salesData.uber_delivery_sales || 0) +
     (salesData.uber_takeout_sales || 0) +

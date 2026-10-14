@@ -45,10 +45,8 @@ export async function POST(request: NextRequest) {
       }, { status: 404 })
     }
 
-    // Publish each packet individually
-    const baseUrl = process.env.VERCEL_URL
-      ? `https://${process.env.VERCEL_URL}`
-      : process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'
+    // Publish each packet individually using the incoming request origin
+    const baseUrl = request.nextUrl?.origin || process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'
 
     const results: { store: string; id: string; success: boolean; error?: string }[] = []
 

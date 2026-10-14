@@ -179,10 +179,13 @@ export async function POST(request: NextRequest) {
               total_taxes: toastData.totalTaxes,
               for_here_sales: toastData.forHereSales,
               to_go_sales: toastData.toGoSales,
+              phone_sales: toastData.phoneSales,
+              curbside_sales: toastData.curbsideSales,
               drive_thru_sales: toastData.driveThruSales,
               kiosk_dine_in_sales: toastData.kioskDineInSales,
               kiosk_takeout_sales: toastData.kioskTakeOutSales,
               toast_online_sales: toastData.toastOnlineSales,
+              online_ordering_takeout_sales: toastData.onlineOrderingTakeoutSales,
               toast_delivery_sales: toastData.toastDeliverySales,
               tips_payable: toastData.tipsPayable,
               deposits_collected: toastData.depositsCollected,
@@ -211,6 +214,7 @@ export async function POST(request: NextRequest) {
               cash_payouts_total: toastData.cashPayoutsTotal || 0,
               cash_in: toastData.cashInTotal || 0,
               cash_out: toastData.cashOutTotal || 0,
+              tip_out: toastData.tipOutTotal || 0,
             }
           } catch (toastErr: any) {
             console.warn(`[Accounting] Granular Toast API fetch failed for ${storeName}, falling back to cache:`, toastErr.message)
@@ -244,7 +248,6 @@ export async function POST(request: NextRequest) {
           const ccGross = round(cashFromSales * 0.70)
           const ccFees = round(ccGross * ccFeeRate)
           const ccDeposit = round(ccGross - ccFees)
-          const cashDeposit = round(totalGrossReceipts - ccGross - uberPayment - doordashPayment - grubhubPayment - ebtAmount)
 
           salesPacketData = {
             net_sales: netSales,
@@ -273,7 +276,7 @@ export async function POST(request: NextRequest) {
           location: mapping.qb_location,
           className: mapping.qb_class,
           bank_account: mapping.bank_account_number,
-          sales_tax_rate_name: mapping.qb_location, // Tax rate name = location name
+          sales_tax_rate_name: (mapping as any).sales_tax_rate_name || mapping.qb_location,
           sales_dine_in_account: mapping.sales_dine_in_account,
           sales_uber_account: mapping.sales_uber_account,
           sales_doordash_account: mapping.sales_doordash_account,
@@ -288,9 +291,12 @@ export async function POST(request: NextRequest) {
           cash_over_short_account: mapping.cash_over_short_account,
           gift_card_account: mapping.gift_card_account,
           open_orders_account: mapping.open_orders_account,
+          paid_in_account: (mapping as any).paid_in_account,
           cash_on_hand_account: mapping.cash_on_hand_account,
           tips_account: mapping.tips_account,
           cogs_account: mapping.cogs_account,
+          alt_memos: (mapping as any).alt_memos || {},
+          line_class_overrides: (mapping as any).line_class_overrides || {},
         }
 
         // Check if an existing packet is already published to protect QuickBooks integrity
@@ -312,18 +318,14 @@ export async function POST(request: NextRequest) {
         const cashPayoutsTotal = salesPacketData.cash_payouts_total || 0
         const cashIn = salesPacketData.cash_in || 0
         const cashOut = salesPacketData.cash_out || 0
-        const expectedCashDeposit = round(expectedCashFromSales + cashIn - cashOut - cashPayoutsTotal)
+        const tipOut = salesPacketData.tip_out || 0
+        const expectedCashDeposit = round(expectedCashFromSales + cashIn - cashOut - tipOut - cashPayoutsTotal)
 
-        // Toast Cash Management Parity:
-        // El depósito bancario proviene estrictamente de lo registrado por el gerente en Toast POS Cash Management.
-        // Si ya está registrado en Toast: se toma el monto real.
-        // Si aún no está registrado en Toast: queda en $0.00 con estado pendiente.
+        // Toast Cash Management Parity (Regla estricta: 100% automático desde Toast POS Cash Management):
         const finalDeposit = toastAccountingResult?.hasToastDeposit && toastAccountingResult.toastDepositAmount > 0
           ? toastAccountingResult.toastDepositAmount
-          : (existingPacket?.cash_deposit && Number(existingPacket.cash_deposit) > 0 ? Number(existingPacket.cash_deposit) : 0)
-        const depositSource: 'toast' | 'manual' | 'pending' = finalDeposit > 0 
-          ? (toastAccountingResult?.hasToastDeposit && toastAccountingResult.toastDepositAmount > 0 ? 'toast' : 'manual')
-          : 'pending'
+          : 0
+        const depositSource: 'toast' | 'pending' = finalDeposit > 0 ? 'toast' : 'pending'
         salesPacketData.cash_deposits = finalDeposit
 
         // Generate journal lines
@@ -338,7 +340,7 @@ export async function POST(request: NextRequest) {
 
         const isBalanced = journal.isBalanced
         const isDepositPending = finalDeposit === 0 && expectedCashDeposit > 0
-        // Cohesion Parity: Cuando la póliza está balanceada (la línea 51050 Over/Short balancea cualquier diferencia),
+        // Cohesion Parity: Cuando la póliza está balanceada (la línea Over/Short balancea cualquier diferencia),
         // el paquete pasa validación y queda en estado 'ready' para publicación a QuickBooks.
         const packetStatus = isBalanced ? 'ready' : 'pending'
 
@@ -358,13 +360,16 @@ export async function POST(request: NextRequest) {
           sales_gross_by_option: toastAccountingResult?.salesGrossByOption || {},
           deposits_collected: toastAccountingResult?.depositsCollected || 0,
           paid_in: toastAccountingResult?.paidIn || 0,
+          credit_card_other_deductions: salesPacketData.credit_card_other_deductions || 0,
           deposit_source: depositSource,
           toast_deposits: toastAccountingResult?.toastDepositsList || [],
           expected_cash_from_sales: expectedCashFromSales,
           cash_in: cashIn,
           cash_out: cashOut,
+          tip_out: tipOut,
           toast_cash_in: toastAccountingResult?.toastCashInList || [],
           toast_cash_out: toastAccountingResult?.toastCashOutList || [],
+          toast_tip_out: toastAccountingResult?.toastTipOutList || [],
           cash_payouts_total: cashPayoutsTotal,
           cash_payouts: salesPacketData.cash_payouts || [],
           expected_cash_deposit: expectedCashDeposit,
@@ -411,14 +416,17 @@ export async function POST(request: NextRequest) {
             discount_breakdown: toastAccountingResult?.discountBreakdown || {},
             card_breakdown: toastAccountingResult?.cardBreakdown || {},
             sales_gross_by_option: toastAccountingResult?.salesGrossByOption || {},
+            credit_card_other_deductions: salesPacketData.credit_card_other_deductions || 0,
             deposit_source: depositSource,
             toast_deposits: toastAccountingResult?.toastDepositsList || [],
             cash_payouts: salesPacketData.cash_payouts || [],
             cash_payouts_total: cashPayoutsTotal,
             cash_in: cashIn,
             cash_out: cashOut,
+            tip_out: tipOut,
             toast_cash_in: toastAccountingResult?.toastCashInList || [],
             toast_cash_out: toastAccountingResult?.toastCashOutList || [],
+            toast_tip_out: toastAccountingResult?.toastTipOutList || [],
             expected_cash_from_sales: expectedCashFromSales,
             expected_cash_deposit: expectedCashDeposit,
           },

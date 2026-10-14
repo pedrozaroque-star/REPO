@@ -208,7 +208,7 @@ export async function POST(
       return {
         Amount: amount,
         DetailType: 'JournalEntryLineDetail' as const,
-        Description: line.sourceMemo,
+        Description: line.memo || line.sourceMemo,
         JournalEntryLineDetail: lineDetail,
       }
     })
@@ -307,7 +307,7 @@ export async function POST(
     const qbData = await qbRes.json()
     const result = qbData.JournalEntry || qbData
 
-    // 6. Update packet with QB response
+    // 6. Update packet with QB response while preserving existing qb_sync_response breakdown metadata
     const qbEntryId = (result as { Id?: string })?.Id || null
 
     const { data: updated, error: updateErr } = await supabaseAdmin
@@ -315,7 +315,10 @@ export async function POST(
       .update({
         status: 'published',
         qb_journal_entry_id: qbEntryId,
-        qb_sync_response: result,
+        qb_sync_response: {
+          ...(packet.qb_sync_response || {}),
+          qbo_result: result,
+        },
         published_at: new Date().toISOString(),
         published_by: isUuid(body.performed_by) ? body.performed_by : null,
         updated_at: new Date().toISOString(),
