@@ -1091,12 +1091,13 @@ export async function fetchOffPremiseOrders(storeId: number, targetBusinessDate?
     const openedRaw = o.openedDate || o.createdDate || existingAudit?.order_opened_at
     const openedMs = openedRaw ? new Date(openedRaw).getTime() : NaN
 
-    // En modo en vivo (tableta), descartar órdenes de otro día laboral (corte 6:00 AM) o abiertas hace más de 3 horas sin auditoría que Toast actualiza por cierre de lote/propinas (ej. #200 vs #670 actuales)
+    // En modo en vivo (tableta), conservar toda orden abierta en las últimas 3 horas (incluso si cruza el corte de las 6:00 AM, ej. 5:45 AM -> 6:05 AM) y descartar órdenes viejas que Toast actualiza por cierre de lote/propinas
     if (!targetBusinessDate) {
-      if (o.businessDate && String(o.businessDate) !== businessDate) {
-        continue
-      }
-      if (!existingAudit && Number.isFinite(openedMs) && nowMs - openedMs > 180 * 60 * 1000) {
+      if (Number.isFinite(openedMs)) {
+        if (nowMs - openedMs > 180 * 60 * 1000 && !existingAudit) {
+          continue
+        }
+      } else if (o.businessDate && String(o.businessDate) !== businessDate) {
         continue
       }
     }
@@ -1517,6 +1518,138 @@ export async function confirmHandoffToDriver(params: {
 
   if (error) throw new Error(`Error confirmando entrega de orden: ${error.message}`)
   return updated
+}
+
+/**
+ * Reabre una orden marcada como DELIVERED por accidente y la regresa al estante activo en estado PACKED_AND_SEALED (LISTA)
+ */
+export async function reopenDeliveredAudit(params: {
+  toastOrderGuid?: string
+  orderGuid?: string
+  storeId: number
+  pin?: string
+  sessionToken?: string
+  reopenedByEmployee?: {
+    id: number
+    fullName: string
+    jobTitle?: string
+    storeId: number
+  }
+}): Promise<any> {
+  const { storeId, pin, sessionToken, reopenedByEmployee } = params
+  const toastOrderGuid = params.toastOrderGuid || params.orderGuid || ''
+
+  if (sessionToken) {
+    const sessionCheck = await touchActiveStorePinSession(storeId, sessionToken)
+    if (!sessionCheck.valid) {
+      if (sessionCheck.replacedBy) {
+        throw new Error(`SESSION_REPLACED:${sessionCheck.replacedBy}`)
+      }
+      throw new Error('SESSION_EXPIRED')
+    }
+  }
+
+  if (!reopenedByEmployee) {
+    if (!pin) throw new Error('Se requiere el PIN del colaborador para reabrir la orden.')
+    const verifiedEmployee = await verifyRonosPin(storeId, pin)
+    if (!verifiedEmployee.valid || !verifiedEmployee.employeeUserId || !verifiedEmployee.fullName) {
+      throw new Error(verifiedEmployee.error || 'No fue posible validar al colaborador en RONOS.')
+    }
+  }
+
+  const { data: current, error: currentError } = await supabaseAdmin
+    .from('delivery_packing_audits')
+    .select('id, store_id, status')
+    .eq('toast_order_guid', toastOrderGuid)
+    .maybeSingle()
+
+  if (currentError || !current) {
+    throw new Error('No se encontró el registro de la orden para reabrir.')
+  }
+  if (Number(current.store_id) !== storeId) {
+    throw new Error('La orden no pertenece a la sucursal activa.')
+  }
+
+  const { data: updated, error } = await supabaseAdmin
+    .from('delivery_packing_audits')
+    .update({
+      status: 'PACKED_AND_SEALED' as AuditStatus,
+      handed_by_ronos_user_id: null,
+      handed_by_ronos_name: null,
+      handed_pin: null,
+      handed_at: null,
+      driver_confirmed: false,
+      live_pickup_confirmed: false,
+      updated_at: new Date().toISOString()
+    })
+    .eq('id', current.id)
+    .select('*')
+    .single()
+
+  if (error) throw new Error(`Error reabriendo orden: ${error.message}`)
+  return updated
+}
+
+/**
+ * Deshace el Paso 1 (PACKED_AND_SEALED -> regresa la orden a EMPACANDO eliminando el registro prematuro de empaque)
+ */
+export async function undoPackingAudit(params: {
+  toastOrderGuid?: string
+  orderGuid?: string
+  storeId: number
+  pin?: string
+  sessionToken?: string
+  undoneByEmployee?: {
+    id: number
+    fullName: string
+    jobTitle?: string
+    storeId: number
+  }
+}): Promise<boolean> {
+  const { storeId, pin, sessionToken, undoneByEmployee } = params
+  const toastOrderGuid = params.toastOrderGuid || params.orderGuid || ''
+
+  if (sessionToken) {
+    const sessionCheck = await touchActiveStorePinSession(storeId, sessionToken)
+    if (!sessionCheck.valid) {
+      if (sessionCheck.replacedBy) {
+        throw new Error(`SESSION_REPLACED:${sessionCheck.replacedBy}`)
+      }
+      throw new Error('SESSION_EXPIRED')
+    }
+  }
+
+  if (!undoneByEmployee) {
+    if (!pin) throw new Error('Se requiere el PIN del colaborador para deshacer el empaque.')
+    const verifiedEmployee = await verifyRonosPin(storeId, pin)
+    if (!verifiedEmployee.valid || !verifiedEmployee.employeeUserId || !verifiedEmployee.fullName) {
+      throw new Error(verifiedEmployee.error || 'No fue posible validar al colaborador en RONOS.')
+    }
+  }
+
+  const { data: current, error: currentError } = await supabaseAdmin
+    .from('delivery_packing_audits')
+    .select('id, store_id, status')
+    .eq('toast_order_guid', toastOrderGuid)
+    .maybeSingle()
+
+  if (currentError || !current) {
+    return true
+  }
+  if (Number(current.store_id) !== storeId) {
+    throw new Error('La orden no pertenece a la sucursal activa.')
+  }
+  if (current.status === 'DELIVERED') {
+    throw new Error('La orden ya figura como entregada; primero reábrela a LISTA.')
+  }
+
+  const { error } = await supabaseAdmin
+    .from('delivery_packing_audits')
+    .delete()
+    .eq('id', current.id)
+
+  if (error) throw new Error(`Error al regresar la orden a EMPACANDO: ${error.message}`)
+  return true
 }
 
 /**

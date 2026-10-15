@@ -13,7 +13,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { saveAuditProgress, confirmHandoffToDriver } from '@/lib/delivery-armor'
+import { saveAuditProgress, confirmHandoffToDriver, reopenDeliveredAudit, undoPackingAudit } from '@/lib/delivery-armor'
 
 export async function POST(req: NextRequest) {
   try {
@@ -182,6 +182,57 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({
       ok: false,
       error: msg || 'Error al registrar entrega al chofer'
+    }, { status: isSessionError ? 409 : 500 })
+  }
+}
+
+export async function PATCH(req: NextRequest) {
+  try {
+    const body = await req.json()
+    const targetOrderGuid = body?.toastOrderGuid || body?.order_guid
+    const targetStoreId = Number(body?.storeId || body?.store_id)
+    const targetPin = String(body?.pin || body?.packer_pin || body?.handoff_pin || '').trim()
+    const targetToken = body?.sessionToken || body?.session_token || undefined
+    const action = String(body?.action || 'REOPEN_DELIVERED').toUpperCase()
+
+    if (!targetOrderGuid || !targetStoreId || !targetPin) {
+      return NextResponse.json({
+        ok: false,
+        error: 'Faltan campos obligatorios para actualizar la orden (orderGuid, storeId, PIN).'
+      }, { status: 400 })
+    }
+
+    if (action === 'UNDO_PACKING') {
+      await undoPackingAudit({
+        toastOrderGuid: targetOrderGuid,
+        storeId: targetStoreId,
+        pin: targetPin,
+        sessionToken: targetToken
+      })
+      return NextResponse.json({
+        ok: true,
+        undone: true
+      })
+    }
+
+    const audit = await reopenDeliveredAudit({
+      toastOrderGuid: targetOrderGuid,
+      storeId: targetStoreId,
+      pin: targetPin,
+      sessionToken: targetToken
+    })
+
+    return NextResponse.json({
+      ok: true,
+      audit
+    })
+  } catch (err: any) {
+    console.error('Error en PATCH /api/delivery-armor/audit:', err)
+    const msg = String(err?.message || '')
+    const isSessionError = msg.startsWith('SESSION_REPLACED:') || msg === 'SESSION_EXPIRED'
+    return NextResponse.json({
+      ok: false,
+      error: msg || 'Error al reabrir la orden'
     }, { status: isSessionError ? 409 : 500 })
   }
 }

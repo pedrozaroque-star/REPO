@@ -301,6 +301,22 @@ assert.equal(
   'La sesión del PIN de la cajera debe cerrarse tras 10 min sin actividad o cuando alguien más inicia sesión en esa tienda (no puede haber 2 sesiones abiertas)'
 )
 
+assert.equal(
+  empaqueSource.includes('getOrderOperationalPriority') &&
+    empaqueSource.includes('hasBagCountChanged') &&
+    empaqueSource.includes('isEditingStep1') &&
+    empaqueSource.includes('isInKitchenBlocked') &&
+    empaqueSource.includes('isReleaseInCooldown') &&
+    empaqueSource.includes('driverPresentAck') &&
+    empaqueSource.includes('undoPacking') &&
+    empaqueSource.includes('reopenOrder') &&
+    empaqueSource.includes('showHistoryRef.current') &&
+    empaqueSource.includes('voided_packed_banner_title') &&
+    !empaqueSource.includes('readyAgeMs <= 20 * 60 * 1000'),
+  true,
+  'Debe garantizar continuidad total entre cajeras y los 7 blindajes operativos en tienda'
+)
+
 const dashboardSource = fs.readFileSync(
   path.join(process.cwd(), 'app', 'admin', 'blindaje-delivery', 'page.tsx'),
   'utf8'
@@ -325,7 +341,7 @@ assert.deepEqual(
   'Los diccionarios ES y EN de blindaje_delivery deben tener exactamente las mismas claves (100% paridad bilingüe)'
 )
 assert.equal(
-  esKeys.length >= 117,
+  esKeys.length >= 133,
   true,
   'El diccionario de blindaje_delivery debe cubrir la totalidad de textos del módulo'
 )
@@ -334,11 +350,15 @@ import {
   registerExclusiveStorePinSession,
   touchActiveStorePinSession,
   getActiveStorePinSession,
-  clearActiveStorePinSession
+  clearActiveStorePinSession,
+  reopenDeliveredAudit,
+  undoPackingAudit
 } from '../lib/delivery-armor'
+import { supabaseAdmin } from '../lib/supabase'
 
 ;(async () => {
   const testStoreId = 9999
+  const testOrderGuid = `test-continuity-guid-${Date.now()}`
   try {
     // 1. Cajera 1 inicia sesión en la tienda 9999
     const s1 = await registerExclusiveStorePinSession({
@@ -374,14 +394,71 @@ import {
     const activeNow = await getActiveStorePinSession(testStoreId)
     assert.equal(activeNow?.sessionToken, s2.sessionToken, 'La única sesión activa debe seguir siendo la de Cajera Dos')
 
-    // 4. Limpieza final con el token activo
+    // 4. Simulación real en DB de continuidad entre Cajera 1 (arma bolsa) -> Cajera 2 (actualiza/entrega) -> Reabrir orden entregada por error -> Deshacer empaque a EMPACANDO
+    const { data: inserted, error: insertErr } = await supabaseAdmin
+      .from('delivery_packing_audits')
+      .insert({
+        toast_order_guid: testOrderGuid,
+        store_id: 7,
+        toast_display_number: '999',
+        platform: 'UBER_EATS',
+        dining_option_name: 'Uber Eats - Delivery',
+        customer_name: 'Test C.',
+        items_json: [],
+        matched_items: ['1'],
+        match_completed: true,
+        expected_bag_count: 1,
+        confirmed_bag_count: 1,
+        packer_ronos_user_id: 2454,
+        packer_ronos_name: 'Jennifer Test',
+        packed_at: new Date().toISOString(),
+        handed_by_ronos_user_id: 2457,
+        handed_by_ronos_name: 'Abigail Test',
+        handed_at: new Date().toISOString(),
+        driver_name: 'Test Driver',
+        driver_confirmed: true,
+        status: 'DELIVERED'
+      })
+      .select('*')
+      .single()
+    assert.equal(!insertErr && !!inserted, true, `Insert de prueba debe funcionar: ${insertErr?.message || ''}`)
+
+    const reopened = await reopenDeliveredAudit({
+      orderGuid: testOrderGuid,
+      storeId: 7,
+      reopenedByEmployee: {
+        id: 2457,
+        fullName: 'Abigail Test',
+        jobTitle: 'Cashier',
+        storeId: 7
+      }
+    })
+    assert.equal(reopened.status, 'PACKED_AND_SEALED', 'La orden reabierta debe regresar a PACKED_AND_SEALED (LISTA)')
+    assert.equal(reopened.handed_at, null, 'handed_at debe limpiarse al reabrir la orden')
+    assert.equal(reopened.packer_ronos_name, 'Jennifer Test', 'Debe conservar quién empacó originalmente la orden')
+
+    const undone = await undoPackingAudit({
+      orderGuid: testOrderGuid,
+      storeId: 7,
+      undoneByEmployee: {
+        id: 2457,
+        fullName: 'Abigail Test',
+        jobTitle: 'Cashier',
+        storeId: 7
+      }
+    })
+    assert.equal(undone, true, 'undoPackingAudit debe regresar la orden a EMPACANDO eliminando el registro prematuro')
+
+    // 5. Limpieza final con el token activo
     const clearedByNew = await clearActiveStorePinSession(testStoreId, s2.sessionToken)
     assert.equal(clearedByNew, true, 'La sesión activa debe poder cerrarse limpiamente')
 
     console.log('Delivery Armor core simulation: PASS')
   } finally {
+    await supabaseAdmin.from('delivery_packing_audits').delete().eq('toast_order_guid', testOrderGuid)
     await clearActiveStorePinSession(testStoreId)
   }
 })()
+
 
 

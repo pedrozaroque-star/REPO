@@ -103,6 +103,8 @@ interface Order {
   audit?: {
     status: 'pending' | 'ready' | 'released' | 'unclaimed'
     bags?: number
+    packedBy?: string
+    packedAt?: string
     handedBy?: string
     driver?: string
     courierReference?: string
@@ -305,14 +307,20 @@ function getCollisionReasonLabel(
 }
 
 // Determina si una orden sigue activa en el estante (si cumple 2 horas o más sin ser recogida por ningún chofer, cambia automáticamente a NO RECOGIDA (+2H))
-function isOrderCurrentlyActive(order: Order): boolean {
+function isOrderCurrentlyActive(order: Order, dismissedVoided?: Record<string, boolean>): boolean {
+  if (order.isVoided) {
+    // Si la orden ya había sido empacada (LISTA) y la plataforma la cancela después, NO esconderla hasta que la cajera confirme que retiró la bolsa física del estante
+    if (order.audit?.status === 'ready' && !dismissedVoided?.[order.guid]) {
+      return true
+    }
+    return false
+  }
   if (order.audit?.status === 'released' || isOrderUnclaimedAfter2Hours(order)) return false
   const now = Date.now()
   const openedAgeMs = now - new Date(order.openedAt).getTime()
   if (!Number.isFinite(openedAgeMs) || openedAgeMs >= UNCLAIMED_DRIVER_TIMEOUT_MS) return false
-  const readyAgeMs = order.kdsReadyAt ? now - new Date(order.kdsReadyAt).getTime() : openedAgeMs
 
-  // 1. Si ya fue empacada y sellada en la tableta (LISTA), mantener en estante hasta cumplir 2 horas (120 min) esperando al chofer; a las 2 horas cambia automáticamente a NO RECOGIDA (+2H)
+  // 1. Si ya fue empacada y sellada en la tableta (LISTA), mantener en estante hasta cumplir 2 horas (120 min) esperando al chofer
   if (order.audit?.status === 'ready') {
     return openedAgeMs < UNCLAIMED_DRIVER_TIMEOUT_MS
   }
@@ -320,8 +328,17 @@ function isOrderCurrentlyActive(order: Order): boolean {
   if (order.kdsStatus === 'IN_KITCHEN') {
     return openedAgeMs <= 60 * 60 * 1000
   }
-  // 3. Si salió del KDS y no se ha empacado (EMPACANDO), ventana activa de 20 minutos en el estante
-  return readyAgeMs <= 20 * 60 * 1000
+  // 3. Si salió del KDS y no se ha empacado (EMPACANDO), mantener visible en el estante hasta que se empaque/entregue o cumpla las 2 horas (nunca ocultarla a los 20 min)
+  return openedAgeMs < UNCLAIMED_DRIVER_TIMEOUT_MS
+}
+
+function getOrderOperationalPriority(order: Order): number {
+  if (order.isVoided && order.audit?.status === 'ready') return -1 // Alerta crítica arriba de todo: retirar bolsa cancelada del estante
+  if (order.audit?.status === 'released') return 4
+  if (isOrderUnclaimedAfter2Hours(order)) return 3
+  if (order.kdsStatus === 'IN_KITCHEN' && order.audit?.status !== 'ready') return 2 // En cocina KDS va debajo de lo que ya salió
+  if (order.audit?.status === 'ready') return 1 // Lista esperando chofer
+  return 0 // EMPACANDO (Ya salió de cocina y requiere armar bolsas) va primero arriba
 }
 
 function formatDuration(seconds: number | null | undefined): string {
@@ -356,6 +373,11 @@ export default function BlindajeDeliveryEmpaquePage() {
   const [selected, setSelected] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [bags, setBags] = useState<Record<string, number>>({})
+  const [editingPacking, setEditingPacking] = useState<Record<string, boolean>>({})
+  const [allowEarlyPack, setAllowEarlyPack] = useState<Record<string, boolean>>({})
+  const [releaseCooldownUntil, setReleaseCooldownUntil] = useState<Record<string, number>>({})
+  const [driverPresentAck, setDriverPresentAck] = useState<Record<string, boolean>>({})
+  const [dismissedVoided, setDismissedVoided] = useState<Record<string, boolean>>({})
   const [collisionAck, setCollisionAck] = useState<Record<string, boolean>>({})
   const [busy, setBusy] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -376,6 +398,9 @@ export default function BlindajeDeliveryEmpaquePage() {
   const announcedGuidsRef = useRef<Set<string>>(new Set())
   const initializedStoreRef = useRef<number | null>(null)
   const packerRef = useRef<Packer | null>(null)
+  const showHistoryRef = useRef<boolean>(false)
+  const searchRef = useRef<string>('')
+  const dismissedVoidedRef = useRef<Record<string, boolean>>({})
   const lastActivityAtRef = useRef<number>(Date.now())
   const sessionExpiresAtRef = useRef<number>(0)
   const lastStorageSyncAtRef = useRef<number>(0)
@@ -383,6 +408,18 @@ export default function BlindajeDeliveryEmpaquePage() {
   useEffect(() => {
     packerRef.current = packer
   }, [packer])
+
+  useEffect(() => {
+    showHistoryRef.current = showHistory
+  }, [showHistory])
+
+  useEffect(() => {
+    searchRef.current = search
+  }, [search])
+
+  useEffect(() => {
+    dismissedVoidedRef.current = dismissedVoided
+  }, [dismissedVoided])
 
   // Sincronizar la voz configurada en Supabase (order_ready_settings) igual que Order Ready Board
   useEffect(() => {
@@ -1079,6 +1116,8 @@ export default function BlindajeDeliveryEmpaquePage() {
                   ? 'ready'
                   : 'pending',
               bags: raw.audit.confirmedBagCount,
+              packedBy: raw.audit.packerName || undefined,
+              packedAt: raw.audit.packedAt || undefined,
               handedBy: raw.audit.handedByName,
               driver: raw.audit.driverName,
               courierReference: raw.audit.courierOrderReference
@@ -1142,19 +1181,30 @@ export default function BlindajeDeliveryEmpaquePage() {
 
       setOrders(next)
       setSelected(current => {
+        const currentObj = current ? next.find(o => o.guid === current) : null
+        // Si la cajera está viendo "Ver todas" o buscando, conservar SIEMPRE la orden que seleccionó sin arrebatársela cada 8s
+        if (currentObj && (showHistoryRef.current || searchRef.current.trim().length > 0)) {
+          return current
+        }
         if (newlyReadyOrders.length > 0) {
-          const currentObj = next.find(o => o.guid === current)
-          if (!currentObj || currentObj.audit?.status === 'released' || !isOrderCurrentlyActive(currentObj)) {
+          if (
+            !currentObj ||
+            currentObj.audit?.status === 'released' ||
+            !isOrderCurrentlyActive(currentObj, dismissedVoidedRef.current)
+          ) {
             return newlyReadyOrders[0].guid
           }
         }
-        const currentObj = current ? next.find(o => o.guid === current) : null
-        if (currentObj && isOrderCurrentlyActive(currentObj)) return current
-        const firstActive = next.find(o => isOrderCurrentlyActive(o))
-        return firstActive?.guid || null
+        if (currentObj && isOrderCurrentlyActive(currentObj, dismissedVoidedRef.current)) return current
+        const activeSorted = next
+          .filter(o => isOrderCurrentlyActive(o, dismissedVoidedRef.current))
+          .sort((a, b) => getOrderOperationalPriority(a) - getOrderOperationalPriority(b))
+        return activeSorted[0]?.guid || null
       })
+      return next
     } catch (caught: any) {
       if (packer) setError(caught.message)
+      return []
     } finally {
       setLoading(false)
     }
@@ -1167,10 +1217,14 @@ export default function BlindajeDeliveryEmpaquePage() {
     return () => window.clearInterval(timer)
   }, [fetchOrders])
 
-  const activeQueueOrders = useMemo(
-    () => (showHistory ? orders : orders.filter(isOrderCurrentlyActive)),
-    [orders, showHistory]
-  )
+  const activeQueueOrders = useMemo(() => {
+    const base = showHistory ? [...orders] : orders.filter(o => isOrderCurrentlyActive(o, dismissedVoided))
+    return base.sort((a, b) => {
+      const prioDiff = getOrderOperationalPriority(a) - getOrderOperationalPriority(b)
+      if (prioDiff !== 0) return prioDiff
+      return new Date(b.openedAt).getTime() - new Date(a.openedAt).getTime()
+    })
+  }, [orders, showHistory, dismissedVoided])
 
   // Detectar colisiones de nombres (mismo nombre exacto, mismo primer nombre con apellido diferente, o nombre muy parecido)
   // entre todas las órdenes que han entrado al sistema desde KDS en las últimas 2 horas (o que siguen activas)
@@ -1179,7 +1233,7 @@ export default function BlindajeDeliveryEmpaquePage() {
     const now = Date.now()
     const recentKdsPool = orders.filter(o => {
       if (o.isVoided) return false
-      if (isOrderCurrentlyActive(o)) return true
+      if (isOrderCurrentlyActive(o, dismissedVoided)) return true
       const openedAgeMs = now - new Date(o.openedAt).getTime()
       const readyAgeMs = o.kdsReadyAt ? now - new Date(o.kdsReadyAt).getTime() : openedAgeMs
       return Math.min(openedAgeMs, readyAgeMs) <= 120 * 60 * 1000
@@ -1408,14 +1462,126 @@ export default function BlindajeDeliveryEmpaquePage() {
     if (!order || !packer) return
     if (!recordCashierActivity()) return
     void ensureFullscreen()
+    const targetGuid = order.guid
     setBusy(true)
     setError(null)
     setSuccess(null)
     try {
       await savePackingRecord(order)
       if (!packerRef.current) return
+      setEditingPacking(prev => ({ ...prev, [targetGuid]: false }))
+      setDriverPresentAck(prev => ({ ...prev, [targetGuid]: false }))
+      const cooldownUntil = Date.now() + 2500
+      setReleaseCooldownUntil(prev => ({ ...prev, [targetGuid]: cooldownUntil }))
+      window.setTimeout(() => {
+        setReleaseCooldownUntil(prev => {
+          if (!prev[targetGuid] || prev[targetGuid] > Date.now()) return prev
+          const next = { ...prev }
+          delete next[targetGuid]
+          return next
+        })
+      }, 2600)
       setSuccess(`${t('blindaje_delivery.success_packed')}: ${order.customer} (Check #${order.ticket})`)
+      const refreshedOrders = await fetchOrders()
+      // Si hay otra orden azul en EMPACANDO esperando ser armada, saltar automáticamente a ella para seguir armando bolsas sin tocar por error ENTREGAR ORDEN de la anterior
+      const nextToPack = refreshedOrders.find(
+        o =>
+          o.guid !== targetGuid &&
+          isOrderCurrentlyActive(o, dismissedVoidedRef.current) &&
+          getOrderOperationalPriority(o) === 0
+      )
+      if (nextToPack) {
+        setSelected(nextToPack.guid)
+      }
+    } catch (caught: any) {
+      setError(caught.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function undoPacking() {
+    if (!order || !packer) return
+    if (!recordCashierActivity()) return
+    void ensureFullscreen()
+    const targetGuid = order.guid
+    setBusy(true)
+    setError(null)
+    setSuccess(null)
+    try {
+      const response = await fetch('/api/delivery-armor/audit', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'UNDO_PACKING',
+          order_guid: targetGuid,
+          store_id: storeId,
+          pin: packer.pin,
+          session_token: packer.sessionToken
+        })
+      })
+      const data = await response.json()
+      if (!response.ok || !data.ok) {
+        const errMsg = String(data.error || '')
+        if (errMsg.startsWith('SESSION_REPLACED:')) {
+          handleSessionReplacedError(errMsg.replace('SESSION_REPLACED:', ''))
+          return
+        }
+        if (errMsg === 'SESSION_EXPIRED') {
+          logout(t('blindaje_delivery.pin_session_expired'), true)
+          return
+        }
+        throw new Error(errMsg || t('blindaje_delivery.error_reopen_order'))
+      }
+      setEditingPacking(prev => ({ ...prev, [targetGuid]: false }))
+      setDriverPresentAck(prev => ({ ...prev, [targetGuid]: false }))
+      setSuccess(`${t('blindaje_delivery.undo_packing_success')}: ${order.customer} (Check #${order.ticket})`)
       await fetchOrders()
+      setSelected(targetGuid)
+    } catch (caught: any) {
+      setError(caught.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function reopenOrder() {
+    if (!order || !packer) return
+    if (!recordCashierActivity()) return
+    void ensureFullscreen()
+    const targetGuid = order.guid
+    setBusy(true)
+    setError(null)
+    setSuccess(null)
+    try {
+      const response = await fetch('/api/delivery-armor/audit', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'REOPEN_DELIVERED',
+          order_guid: targetGuid,
+          store_id: storeId,
+          pin: packer.pin,
+          session_token: packer.sessionToken
+        })
+      })
+      const data = await response.json()
+      if (!response.ok || !data.ok) {
+        const errMsg = String(data.error || '')
+        if (errMsg.startsWith('SESSION_REPLACED:')) {
+          handleSessionReplacedError(errMsg.replace('SESSION_REPLACED:', ''))
+          return
+        }
+        if (errMsg === 'SESSION_EXPIRED') {
+          logout(t('blindaje_delivery.pin_session_expired'), true)
+          return
+        }
+        throw new Error(errMsg || t('blindaje_delivery.error_reopen_order'))
+      }
+      setDriverPresentAck(prev => ({ ...prev, [targetGuid]: false }))
+      setSuccess(`${t('blindaje_delivery.reopen_success')}: ${order.customer} (Check #${order.ticket})`)
+      await fetchOrders()
+      setSelected(targetGuid)
     } catch (caught: any) {
       setError(caught.message)
     } finally {
@@ -1427,16 +1593,24 @@ export default function BlindajeDeliveryEmpaquePage() {
     if (!order || !packer) return
     if (!recordCashierActivity()) return
     void ensureFullscreen()
+    if ((releaseCooldownUntil[order.guid] || 0) > Date.now()) {
+      return
+    }
     const isPackedForRelease =
       order.audit?.status === 'ready' || (order.audit?.status === 'unclaimed' && order.audit?.bags != null)
     if (!isPackedForRelease) {
       setError(t('blindaje_delivery.error_confirm_before_release'))
       return
     }
+    if (!driverPresentAck[order.guid]) {
+      setError(t('blindaje_delivery.btn_confirm_driver_present_first'))
+      return
+    }
     if (currentCollisions.length > 0 && !collisionAck[order.guid]) {
       setError(t('blindaje_delivery.error_collision_ack_required'))
       return
     }
+    const releasedGuid = order.guid
     setBusy(true)
     setError(null)
     setSuccess(null)
@@ -1472,7 +1646,11 @@ export default function BlindajeDeliveryEmpaquePage() {
       setSuccess(
         `${t('blindaje_delivery.order_of')} ${order.customer} (#${order.ticket}) ${t('blindaje_delivery.success_released')} ${data.audit.handed_by_ronos_name}.`
       )
-      await fetchOrders()
+      const refreshed = await fetchOrders()
+      const nextActive = refreshed
+        .filter(o => o.guid !== releasedGuid && isOrderCurrentlyActive(o, dismissedVoidedRef.current))
+        .sort((a, b) => getOrderOperationalPriority(a) - getOrderOperationalPriority(b))
+      setSelected(nextActive[0]?.guid || null)
     } catch (caught: any) {
       setError(caught.message)
     } finally {
@@ -1673,20 +1851,21 @@ export default function BlindajeDeliveryEmpaquePage() {
             >
               <RefreshCw className={`w-6 h-6 ${loading ? 'animate-spin' : ''}`} />
             </button>
-            <span className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-100 text-base font-black">
-              <User className="w-5 h-5" />
-              <span className="hidden sm:inline">{packer.name}</span>
-              <small className="text-slate-500 font-mono text-sm">
-                PIN •••• ({formatRemainingMs(remainingMs)})
-              </small>
-            </span>
             <button
               type="button"
               onClick={() => logout()}
               title={t('blindaje_delivery.logout_pin_title')}
-              className="p-3 rounded-xl bg-slate-100 text-red-600"
+              className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-sm sm:text-base font-black transition-colors"
             >
-              <LogOut className="w-6 h-6" />
+              <User className="w-5 h-5 text-emerald-400" />
+              <span>{packer.name}</span>
+              <small className="text-slate-300 font-mono text-xs sm:text-sm">
+                ({formatRemainingMs(remainingMs)})
+              </small>
+              <span className="ml-1 px-2.5 py-1 rounded-lg bg-red-600 text-white text-xs font-black flex items-center gap-1">
+                <LogOut className="w-3.5 h-3.5" />
+                {t('blindaje_delivery.switch_cashier_btn')}
+              </span>
             </button>
           </div>
         </div>
@@ -1810,6 +1989,14 @@ export default function BlindajeDeliveryEmpaquePage() {
                       #{value.ticket} • {t('blindaje_delivery.key_label')}: {value.platformOrderKey}
                       {value.hasDrinks ? ` • ${t('blindaje_delivery.with_drinks_badge')}` : ''}
                     </small>
+                    {value.audit?.packedBy && value.audit?.status !== 'released' && (
+                      <small className="text-emerald-800 text-xs font-black block mt-1 truncate">
+                        ✓ {t('blindaje_delivery.packed_by_staff')} {value.audit.packedBy} • {value.audit.bags || 1}{' '}
+                        {(value.audit.bags || 1) === 1
+                          ? t('blindaje_delivery.bag_singular')
+                          : t('blindaje_delivery.bag_plural')}
+                      </small>
+                    )}
                     {hasCollision && (
                       <div className="mt-2 px-2.5 py-1.5 rounded-xl bg-red-600 text-white text-xs font-black flex items-center gap-1.5 animate-pulse">
                         <AlertTriangle className="w-4 h-4 flex-shrink-0" />
@@ -1956,8 +2143,28 @@ export default function BlindajeDeliveryEmpaquePage() {
                   </div>
 
                   {order.isVoided && (
-                    <div className="mt-4 p-4 rounded-2xl bg-red-50 border border-red-200 text-red-700 text-base sm:text-lg font-black">
-                      {t('blindaje_delivery.order_voided_alert')}
+                    <div className="mt-4 p-4 rounded-2xl bg-red-600 text-white border-2 border-red-800 space-y-2 animate-pulse">
+                      <strong className="block text-lg sm:text-xl font-black">
+                        {order.audit?.status === 'ready'
+                          ? t('blindaje_delivery.voided_packed_banner_title')
+                          : t('blindaje_delivery.order_voided_alert')}
+                      </strong>
+                      {order.audit?.status === 'ready' && (
+                        <>
+                          <p className="text-sm sm:text-base font-bold text-red-100">
+                            {t('blindaje_delivery.voided_packed_banner_desc')}
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setDismissedVoided(prev => ({ ...prev, [order.guid]: true }))
+                            }
+                            className="px-4 py-2 rounded-xl bg-white text-red-700 text-sm font-black"
+                          >
+                            {t('blindaje_delivery.voided_ack_remove_bag_btn')}
+                          </button>
+                        </>
+                      )}
                     </div>
                   )}
 
@@ -1975,158 +2182,270 @@ export default function BlindajeDeliveryEmpaquePage() {
                 </section>
 
                 {/* 3. CONFIRMAR ORDEN COMPLETA Y SELLADA + BLINDAR LA ENTREGA */}
-                <section className="bg-white border rounded-3xl p-6 sm:p-7 shadow-sm space-y-6">
-                  {/* PASO 1: CONFIRMAR ORDEN COMPLETA Y SELLADA (OBLIGATORIO) */}
-                  <div className="space-y-4">
-                    <div className="flex flex-wrap items-center justify-between gap-4">
-                      <div>
-                        <h3 className="text-2xl font-black">{t('blindaje_delivery.step1_title')}</h3>
-                        <p className="text-base text-slate-500 font-medium">{t('blindaje_delivery.step1_desc')}</p>
-                      </div>
+                {(() => {
+                  const isOrderPacked =
+                    order.audit?.status === 'ready' ||
+                    (order.audit?.status === 'unclaimed' && order.audit?.bags != null)
+                  const hasBagCountChanged =
+                    isOrderPacked && order.audit?.bags != null && bagCount !== order.audit.bags
+                  const isEditingStep1 = !!editingPacking[order.guid] || hasBagCountChanged
+                  const isInKitchenBlocked =
+                    order.kdsStatus === 'IN_KITCHEN' && !isOrderPacked && !allowEarlyPack[order.guid]
+                  const isReleaseInCooldown = (releaseCooldownUntil[order.guid] || 0) > Date.now()
+                  const isDriverPresentConfirmed = !!driverPresentAck[order.guid]
+                  const cashierShortName = packer.name.split(' ')[0]
 
-                      <div className="flex items-center gap-3">
-                        <strong className="text-lg font-black">{t('blindaje_delivery.bags_label')}</strong>
-                        <button
-                          type="button"
-                          disabled={order.audit?.status === 'released'}
-                          onClick={() =>
-                            setBags(previous => ({ ...previous, [order.guid]: Math.max(1, bagCount - 1) }))
-                          }
-                          className="w-14 h-14 rounded-2xl bg-slate-200 text-2xl font-black disabled:opacity-30"
-                        >
-                          −
-                        </button>
-                        <span className="text-3xl font-black w-10 text-center">{bagCount}</span>
-                        <button
-                          type="button"
-                          disabled={order.audit?.status === 'released'}
-                          onClick={() =>
-                            setBags(previous => ({ ...previous, [order.guid]: Math.min(20, bagCount + 1) }))
-                          }
-                          className="w-14 h-14 rounded-2xl bg-slate-950 text-white text-2xl font-black disabled:opacity-30"
-                        >
-                          +
-                        </button>
-                      </div>
-                    </div>
+                  return (
+                    <section className="bg-white border rounded-3xl p-6 sm:p-7 shadow-sm space-y-6">
+                      {/* PASO 1: CONFIRMAR ORDEN COMPLETA Y SELLADA (OBLIGATORIO) */}
+                      <div className="space-y-4">
+                        <div className="flex flex-wrap items-center justify-between gap-4">
+                          <div>
+                            <h3 className="text-2xl font-black">{t('blindaje_delivery.step1_title')}</h3>
+                            <p className="text-base text-slate-500 font-medium">{t('blindaje_delivery.step1_desc')}</p>
+                          </div>
 
-                    {order.audit?.status !== 'released' &&
-                      order.audit?.status !== 'ready' &&
-                      !(order.audit?.status === 'unclaimed' && order.audit?.bags != null) && (
-                        <button
-                          type="button"
-                          onClick={markReady}
-                          disabled={busy}
-                          className="w-full h-16 sm:h-20 rounded-2xl bg-slate-950 text-white text-xl sm:text-2xl font-black disabled:opacity-30"
-                        >
-                          {t('blindaje_delivery.confirm_complete_sealed_btn')}
-                        </button>
-                      )}
-
-                    {(order.audit?.status === 'ready' ||
-                      (order.audit?.status === 'unclaimed' && order.audit?.bags != null)) && (
-                      <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-lg font-black flex items-center justify-between">
-                        <span>
-                          {t('blindaje_delivery.order_complete_sealed_done')} ({order.customer})
-                        </span>
-                        <span>
-                          {bagCount}{' '}
-                          {bagCount === 1
-                            ? t('blindaje_delivery.bag_singular')
-                            : t('blindaje_delivery.bag_plural')}
-                        </span>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* PASO 2: BLINDAR ENTREGA AL CHOFER */}
-                  <div className="pt-6 border-t space-y-4">
-                    <div>
-                      <h3 className="text-2xl font-black">{t('blindaje_delivery.step2_title')}</h3>
-                      <p className="text-base text-slate-600 font-medium mt-0.5">
-                        {order.platform === 'DOORDASH'
-                          ? t('blindaje_delivery.step2_desc_doordash', {
-                              customer: order.customer,
-                              ticket: order.ticket
-                            })
-                          : t('blindaje_delivery.step2_desc_other', {
-                              customer: order.customer,
-                              ticket: order.ticket,
-                              key: order.platformOrderKey
-                            })}
-                      </p>
-                    </div>
-
-                    {/* DOBLE CANDADO OBLIGATORIO CUANDO EXISTE OTRO CLIENTE CON EL MISMO NOMBRE O MUY PARECIDO */}
-                    {currentCollisions.length > 0 && order.audit?.status !== 'released' && (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setCollisionAck(prev => ({ ...prev, [order.guid]: !prev[order.guid] }))
-                        }
-                        className={`w-full p-4 rounded-2xl border-2 text-left transition-all flex items-start gap-3 ${
-                          isCollisionConfirmed
-                            ? 'bg-emerald-50 border-emerald-600 text-emerald-950'
-                            : 'bg-red-50 border-red-600 text-red-950 animate-pulse'
-                        }`}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={isCollisionConfirmed}
-                          readOnly
-                          className="w-7 h-7 mt-0.5 accent-emerald-600 flex-shrink-0"
-                        />
-                        <div className="text-base sm:text-lg font-black leading-snug">
-                          {t('blindaje_delivery.collision_checkbox_prefix')} &ldquo;{order.customer}&rdquo; (CHECK #{order.ticket} •{' '}
-                          {order.platformOrderKey}) {t('blindaje_delivery.collision_checkbox_middle')}{' '}
-                          {currentCollisions.map(c => `"${c.order.customer}" (CHECK #${c.order.ticket})`).join(', ')}
+                          <div className="flex items-center gap-3">
+                            <strong className="text-lg font-black">{t('blindaje_delivery.bags_label')}</strong>
+                            <button
+                              type="button"
+                              disabled={order.audit?.status === 'released' || order.isVoided}
+                              onClick={() =>
+                                setBags(previous => ({ ...previous, [order.guid]: Math.max(1, bagCount - 1) }))
+                              }
+                              className="w-14 h-14 rounded-2xl bg-slate-200 text-2xl font-black disabled:opacity-30"
+                            >
+                              −
+                            </button>
+                            <span className="text-3xl font-black w-10 text-center">{bagCount}</span>
+                            <button
+                              type="button"
+                              disabled={order.audit?.status === 'released' || order.isVoided}
+                              onClick={() =>
+                                setBags(previous => ({ ...previous, [order.guid]: Math.min(20, bagCount + 1) }))
+                              }
+                              className="w-14 h-14 rounded-2xl bg-slate-950 text-white text-2xl font-black disabled:opacity-30"
+                            >
+                              +
+                            </button>
+                          </div>
                         </div>
-                      </button>
-                    )}
 
-                    {order.audit?.status === 'released' ? (
-                      <div className="p-5 rounded-2xl bg-slate-100 border border-slate-300">
-                        <strong className="block text-xl font-black text-slate-900">
-                          {t('blindaje_delivery.delivered_status_prefix')}: {order.customer} (Check #{order.ticket})
-                        </strong>
-                        <p className="text-base text-slate-600 font-semibold mt-1">
-                          {t('blindaje_delivery.by_staff')} {order.audit.handedBy} •{' '}
-                          {order.audit.driver || t('blindaje_delivery.verified_driver')}
-                        </p>
-                      </div>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={release}
-                        disabled={
-                          busy ||
-                          (order.audit?.status !== 'ready' &&
-                            !(order.audit?.status === 'unclaimed' && order.audit?.bags != null)) ||
-                          !isCollisionConfirmed
-                        }
-                        className="w-full h-16 sm:h-20 rounded-2xl bg-red-600 text-white text-xl sm:text-2xl font-black disabled:bg-slate-300 disabled:text-slate-600 flex items-center justify-center gap-3"
-                      >
-                        {(order.audit?.status === 'ready' ||
-                          (order.audit?.status === 'unclaimed' && order.audit?.bags != null)) &&
-                        isCollisionConfirmed ? (
-                          <Truck className="w-7 h-7" />
-                        ) : (
-                          <Lock className="w-7 h-7" />
+                        {/* CANDADO PREVENTIVO SI LA ORDEN AÚN ESTÁ EN PREPARACIÓN EN EL KDS DE COCINA */}
+                        {order.kdsStatus === 'IN_KITCHEN' && !isOrderPacked && order.audit?.status !== 'released' && (
+                          <div className="p-4 rounded-2xl bg-amber-50 border-2 border-amber-400 text-amber-950 flex flex-wrap items-center justify-between gap-3">
+                            <div className="space-y-0.5">
+                              <strong className="block text-base sm:text-lg font-black">
+                                {t('blindaje_delivery.in_kitchen_pack_warning_title')}
+                              </strong>
+                              <p className="text-sm font-bold text-amber-900">
+                                {t('blindaje_delivery.in_kitchen_pack_warning_desc')}
+                              </p>
+                            </div>
+                            {!allowEarlyPack[order.guid] && (
+                              <button
+                                type="button"
+                                onClick={() => setAllowEarlyPack(prev => ({ ...prev, [order.guid]: true }))}
+                                className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 text-sm font-black whitespace-nowrap"
+                              >
+                                {t('blindaje_delivery.in_kitchen_allow_pack_btn')}
+                              </button>
+                            )}
+                          </div>
                         )}
-                        <span>
-                          {busy
-                            ? t('blindaje_delivery.btn_processing')
-                            : order.audit?.status !== 'ready' &&
-                              !(order.audit?.status === 'unclaimed' && order.audit?.bags != null)
-                            ? t('blindaje_delivery.btn_confirm_step1_first')
-                            : !isCollisionConfirmed
-                            ? t('blindaje_delivery.btn_check_collision_box')
-                            : `${t('blindaje_delivery.btn_release_order_prefix')} ${order.customer.toUpperCase()} (#${order.ticket})`}
-                        </span>
-                      </button>
-                    )}
-                  </div>
-                </section>
+
+                        {order.audit?.status !== 'released' && !order.isVoided && (!isOrderPacked || isEditingStep1) && (
+                          <button
+                            type="button"
+                            onClick={markReady}
+                            disabled={busy || isInKitchenBlocked}
+                            className="w-full h-16 sm:h-20 rounded-2xl bg-slate-950 text-white text-xl sm:text-2xl font-black disabled:opacity-30"
+                          >
+                            {isOrderPacked
+                              ? `${t('blindaje_delivery.update_bags_and_reconfirm_btn')} (${cashierShortName})`
+                              : `${t('blindaje_delivery.confirm_complete_sealed_btn')} (${cashierShortName})`}
+                          </button>
+                        )}
+
+                        {isOrderPacked && (
+                          <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-900 flex flex-wrap items-center justify-between gap-3">
+                            <div>
+                              <strong className="block text-lg font-black">
+                                {t('blindaje_delivery.order_complete_sealed_done')} ({order.customer})
+                              </strong>
+                              {order.audit?.packedBy && (
+                                <span className="block text-sm font-bold text-emerald-700 mt-0.5">
+                                  {t('blindaje_delivery.packed_by_staff')} {order.audit.packedBy}
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="text-lg font-black px-3 py-1 rounded-xl bg-emerald-100 text-emerald-950">
+                                {order.audit?.bags || bagCount}{' '}
+                                {(order.audit?.bags || bagCount) === 1
+                                  ? t('blindaje_delivery.bag_singular')
+                                  : t('blindaje_delivery.bag_plural')}
+                              </span>
+                              {!isEditingStep1 && !order.isVoided && (
+                                <>
+                                  <button
+                                    type="button"
+                                    disabled={busy}
+                                    onClick={() => setEditingPacking(prev => ({ ...prev, [order.guid]: true }))}
+                                    className="px-3.5 py-2 rounded-xl bg-white border border-emerald-400 hover:bg-emerald-100 text-emerald-900 text-xs sm:text-sm font-black"
+                                  >
+                                    {t('blindaje_delivery.reconfirm_packing_btn')}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={busy}
+                                    onClick={undoPacking}
+                                    className="px-3.5 py-2 rounded-xl bg-amber-100 border border-amber-400 hover:bg-amber-200 text-amber-950 text-xs sm:text-sm font-black"
+                                  >
+                                    {t('blindaje_delivery.undo_packing_btn')}
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* PASO 2: BLINDAR ENTREGA AL CHOFER */}
+                      <div className="pt-6 border-t space-y-4">
+                        <div>
+                          <h3 className="text-2xl font-black">{t('blindaje_delivery.step2_title')}</h3>
+                          <p className="text-base text-slate-600 font-medium mt-0.5">
+                            {order.platform === 'DOORDASH'
+                              ? t('blindaje_delivery.step2_desc_doordash', {
+                                  customer: order.customer,
+                                  ticket: order.ticket
+                                })
+                              : t('blindaje_delivery.step2_desc_other', {
+                                  customer: order.customer,
+                                  ticket: order.ticket,
+                                  key: order.platformOrderKey
+                                })}
+                          </p>
+                        </div>
+
+                        {/* CASILLA DE VERIFICACIÓN DE CHOFER PRESENTE (EVITA MARCAR ENTREGADA MIENTRAS SOLO SE ARMAN BOLSAS) */}
+                        {isOrderPacked && !hasBagCountChanged && order.audit?.status !== 'released' && !order.isVoided && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setDriverPresentAck(prev => ({ ...prev, [order.guid]: !prev[order.guid] }))
+                            }
+                            className={`w-full p-4 rounded-2xl border-2 text-left transition-all flex items-center gap-3 ${
+                              isDriverPresentConfirmed
+                                ? 'bg-emerald-50 border-emerald-600 text-emerald-950'
+                                : 'bg-slate-50 border-slate-300 text-slate-900 hover:bg-slate-100'
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isDriverPresentConfirmed}
+                              readOnly
+                              className="w-7 h-7 accent-emerald-600 flex-shrink-0"
+                            />
+                            <span className="text-base sm:text-lg font-black leading-snug">
+                              {t('blindaje_delivery.driver_present_checkbox')} — {order.customer} (Check #{order.ticket})
+                            </span>
+                          </button>
+                        )}
+
+                        {/* DOBLE CANDADO OBLIGATORIO CUANDO EXISTE OTRO CLIENTE CON EL MISMO NOMBRE O MUY PARECIDO */}
+                        {currentCollisions.length > 0 && order.audit?.status !== 'released' && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setCollisionAck(prev => ({ ...prev, [order.guid]: !prev[order.guid] }))
+                            }
+                            className={`w-full p-4 rounded-2xl border-2 text-left transition-all flex items-start gap-3 ${
+                              isCollisionConfirmed
+                                ? 'bg-emerald-50 border-emerald-600 text-emerald-950'
+                                : 'bg-red-50 border-red-600 text-red-950 animate-pulse'
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isCollisionConfirmed}
+                              readOnly
+                              className="w-7 h-7 mt-0.5 accent-emerald-600 flex-shrink-0"
+                            />
+                            <div className="text-base sm:text-lg font-black leading-snug">
+                              {t('blindaje_delivery.collision_checkbox_prefix')} &ldquo;{order.customer}&rdquo; (CHECK #{order.ticket} •{' '}
+                              {order.platformOrderKey}) {t('blindaje_delivery.collision_checkbox_middle')}{' '}
+                              {currentCollisions.map(c => `"${c.order.customer}" (CHECK #${c.order.ticket})`).join(', ')}
+                            </div>
+                          </button>
+                        )}
+
+                        {order.audit?.status === 'released' ? (
+                          <div className="p-5 rounded-2xl bg-slate-100 border border-slate-300 flex flex-wrap items-center justify-between gap-4">
+                            <div>
+                              <strong className="block text-xl font-black text-slate-900">
+                                {t('blindaje_delivery.delivered_status_prefix')}: {order.customer} (Check #{order.ticket})
+                              </strong>
+                              <p className="text-base text-slate-600 font-semibold mt-1">
+                                {order.audit.packedBy ? `${t('blindaje_delivery.packed_by_staff')} ${order.audit.packedBy} • ` : ''}
+                                {t('blindaje_delivery.by_staff')} {order.audit.handedBy} •{' '}
+                                {order.audit.driver || t('blindaje_delivery.verified_driver')}
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={reopenOrder}
+                              className="px-4 py-3 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 text-sm font-black disabled:opacity-40"
+                            >
+                              {t('blindaje_delivery.reopen_delivered_btn')}
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={release}
+                            disabled={
+                              busy ||
+                              order.isVoided ||
+                              !isOrderPacked ||
+                              hasBagCountChanged ||
+                              isReleaseInCooldown ||
+                              !isDriverPresentConfirmed ||
+                              !isCollisionConfirmed
+                            }
+                            className="w-full h-16 sm:h-20 rounded-2xl bg-red-600 text-white text-xl sm:text-2xl font-black disabled:bg-slate-300 disabled:text-slate-600 flex items-center justify-center gap-3"
+                          >
+                            {isOrderPacked &&
+                            !hasBagCountChanged &&
+                            !isReleaseInCooldown &&
+                            isDriverPresentConfirmed &&
+                            isCollisionConfirmed &&
+                            !order.isVoided ? (
+                              <Truck className="w-7 h-7" />
+                            ) : (
+                              <Lock className="w-7 h-7" />
+                            )}
+                            <span>
+                              {busy
+                                ? t('blindaje_delivery.btn_processing')
+                                : !isOrderPacked || hasBagCountChanged
+                                ? t('blindaje_delivery.btn_confirm_step1_first')
+                                : isReleaseInCooldown
+                                ? t('blindaje_delivery.cooldown_before_release_btn')
+                                : !isDriverPresentConfirmed
+                                ? t('blindaje_delivery.btn_confirm_driver_present_first')
+                                : !isCollisionConfirmed
+                                ? t('blindaje_delivery.btn_check_collision_box')
+                                : `${t('blindaje_delivery.btn_release_order_prefix')} ${order.customer.toUpperCase()} (#${order.ticket}) (${cashierShortName})`}
+                            </span>
+                          </button>
+                        )}
+                      </div>
+                    </section>
+                  )
+                })()}
               </div>
             )}
           </div>
