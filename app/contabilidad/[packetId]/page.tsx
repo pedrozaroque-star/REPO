@@ -640,7 +640,7 @@ export default function PacketDetailPage() {
         )}
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         
         {/* 3. Reconciliation Summary Card (Gross Sales & Receipts - 1:1 Cohesion) */}
         <Card>
@@ -657,24 +657,27 @@ export default function PacketDetailPage() {
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-mono">
                 <tr>
                   <td className="py-2 pr-2 font-sans text-slate-700 dark:text-slate-300 font-medium">{t('accounting.col_net_sales') || 'Ventas'}</td>
-                  <td className="py-2 px-2 text-right font-semibold text-slate-800 dark:text-slate-200">{formatCurrency(packet.gross_sales)}</td>
-                  <td className="py-2 pl-2 text-right font-semibold text-slate-800 dark:text-slate-200">{formatCurrency(packet.net_sales)}</td>
+                  <td className="py-2 px-2 text-right font-semibold text-slate-800 dark:text-slate-200 whitespace-nowrap">{formatCurrency(packet.gross_sales)}</td>
+                  <td className="py-2 pl-2 text-right font-semibold text-slate-800 dark:text-slate-200 whitespace-nowrap">{formatCurrency(packet.net_sales)}</td>
                 </tr>
                 <tr className="text-rose-600 dark:text-rose-400">
                   <td className="py-2 pr-2 font-sans font-medium">{t('accounting.section_discounts') || 'Ventas - Descuentos'}</td>
-                  <td className="py-2 px-2 text-right font-semibold">-{formatCurrency(packet.total_discounts ?? packet.discounts ?? 0)}</td>
-                  <td className="py-2 pl-2 text-right font-semibold text-slate-500 dark:text-slate-400">{formatCurrency(0)}</td>
+                  <td className="py-2 px-2 text-right font-semibold whitespace-nowrap">-{formatCurrency(packet.total_discounts ?? packet.discounts ?? 0)}</td>
+                  <td className="py-2 pl-2 text-right font-semibold text-slate-500 dark:text-slate-400 whitespace-nowrap">{formatCurrency(0)}</td>
                 </tr>
                 {(() => {
                   const paidInLine = packet.journal_lines?.find((l: any) => 
                     l.memo?.toLowerCase().includes('paid in') || 
                     l.sourceMemo?.toLowerCase().includes('paid in')
                   )
+                  const paidInFromLine = paidInLine
+                    ? Math.round((Number(paidInLine.credit || 0) - Number(paidInLine.debit || 0)) * 100) / 100
+                    : undefined
                   const paidInAmount = Number(
                     packet.paid_in ?? 
                     (packet.qb_sync_response as any)?.validation?.paid_in ?? 
                     (packet.qb_sync_response as any)?.paidIn ?? 
-                    paidInLine?.credit ?? 
+                    paidInFromLine ?? 
                     0
                   )
                   const giftCardLine = packet.journal_lines?.find((l: any) => 
@@ -703,38 +706,38 @@ export default function PacketDetailPage() {
                       {giftCardsAmount > 0 && (
                         <tr className="text-amber-600 dark:text-amber-400">
                           <td className="py-2 pr-2 font-sans font-medium">{t('accounting.label_gift_cards_deferred') || 'Deferred Sales - Gift Cards'}</td>
-                          <td className="py-2 px-2 text-right font-semibold">{formatCurrency(giftCardsAmount)}</td>
-                          <td className="py-2 pl-2 text-right font-semibold">{formatCurrency(giftCardsAmount)}</td>
+                          <td className="py-2 px-2 text-right font-semibold whitespace-nowrap">{formatCurrency(giftCardsAmount)}</td>
+                          <td className="py-2 pl-2 text-right font-semibold whitespace-nowrap">{formatCurrency(giftCardsAmount)}</td>
                         </tr>
                       )}
                       <tr className="font-bold text-slate-900 dark:text-white bg-slate-50/50 dark:bg-slate-800/30">
                         <td className="py-2 pr-2 font-sans">Net Sales + Deferred</td>
                         <td className="py-2 px-2 text-right"></td>
-                        <td className="py-2 pl-2 text-right text-blue-600 dark:text-blue-400">{formatCurrency(netPlusDeferred)}</td>
+                        <td className="py-2 pl-2 text-right text-blue-600 dark:text-blue-400 whitespace-nowrap">{formatCurrency(netPlusDeferred)}</td>
                       </tr>
                       <tr>
                         <td className="py-2 pr-2 font-sans text-slate-700 dark:text-slate-300 font-medium">{t('accounting.col_taxes') || 'Impuestos'}</td>
-                        <td className="py-2 px-2 text-right font-semibold text-slate-800 dark:text-slate-200">{formatCurrency(packet.total_taxes)}</td>
-                        <td className="py-2 pl-2 text-right font-semibold text-slate-800 dark:text-slate-200">{formatCurrency(packet.total_taxes)}</td>
+                        <td className="py-2 px-2 text-right font-semibold text-slate-800 dark:text-slate-200 whitespace-nowrap">{formatCurrency(packet.total_taxes)}</td>
+                        <td className="py-2 pl-2 text-right font-semibold text-slate-800 dark:text-slate-200 whitespace-nowrap">{formatCurrency(packet.total_taxes)}</td>
                       </tr>
                       {tipsPayableAmount > 0 && (
                         <tr className="text-indigo-600 dark:text-indigo-400">
                           <td className="py-2 pr-2 font-sans font-medium">{t('accounting.label_tips_payable') || 'Tips/Grat Payable'}</td>
-                          <td className="py-2 px-2 text-right font-semibold">{formatCurrency(tipsPayableAmount)}</td>
-                          <td className="py-2 pl-2 text-right font-semibold">{formatCurrency(tipsPayableAmount)}</td>
+                          <td className="py-2 px-2 text-right font-semibold whitespace-nowrap">{formatCurrency(tipsPayableAmount)}</td>
+                          <td className="py-2 pl-2 text-right font-semibold whitespace-nowrap">{formatCurrency(tipsPayableAmount)}</td>
                         </tr>
                       )}
-                      {paidInAmount > 0 && (
-                        <tr className="text-emerald-600 dark:text-emerald-400">
+                      {Math.abs(paidInAmount) > 0 && (
+                        <tr className={paidInAmount > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}>
                           <td className="py-2 pr-2 font-sans font-medium">{t('accounting.label_paid_in') || 'Paid In Total (Deposits Received)'}</td>
-                          <td className="py-2 px-2 text-right font-semibold">{formatCurrency(paidInAmount)}</td>
-                          <td className="py-2 pl-2 text-right font-semibold">{formatCurrency(paidInAmount)}</td>
+                          <td className="py-2 px-2 text-right font-semibold whitespace-nowrap">{formatCurrency(paidInAmount)}</td>
+                          <td className="py-2 pl-2 text-right font-semibold whitespace-nowrap">{formatCurrency(paidInAmount)}</td>
                         </tr>
                       )}
                       <tr className="font-extrabold text-slate-900 dark:text-white border-t-2 border-slate-200 dark:border-slate-700 text-sm">
                         <td className="py-2.5 pr-2 font-sans">{t('accounting.col_total_gross_receipts') || 'Total Gross Receipts'}</td>
                         <td className="py-2.5 px-2 text-right"></td>
-                        <td className="py-2.5 pl-2 text-right">{formatCurrency(totalGrossReceipts)}</td>
+                        <td className="py-2.5 pl-2 text-right whitespace-nowrap">{formatCurrency(totalGrossReceipts)}</td>
                       </tr>
                     </>
                   )
@@ -1149,7 +1152,7 @@ export default function PacketDetailPage() {
         </Card>
 
         {/* 9. Other Payment Details Card (1:1 Cohesion Other Payment Details) */}
-        <Card className="col-span-1 md:col-span-2 lg:col-span-3">
+        <Card className="col-span-1 lg:col-span-2">
           <h2 className="text-base font-bold text-slate-900 dark:text-white mb-4">
             {language === 'en' ? 'Other Payment Details' : 'Detalle de Otros Pagos (Other Payment Details)'}
           </h2>

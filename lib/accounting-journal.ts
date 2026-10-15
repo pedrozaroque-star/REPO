@@ -52,6 +52,7 @@ export interface SalesPacketData {
 
   deferred_gift_cards?: number;
   delivery_service_charges?: number;
+  delivery_fee_6_miles?: number;
   gift_card_redemption?: number;
 
   tax_paid_by_uber: number;
@@ -128,6 +129,8 @@ export function generateJournalLines(salesData: SalesPacketData, siteMapping: Si
   const isHollywood = /hollywood/i.test(loc);
   const isSantaAna = /santa\s*ana/i.test(loc);
   const isSlauson = /slauson/i.test(loc);
+  const isLynwood = /lynwood/i.test(loc);
+  const isLaPuente = /la\s*puente/i.test(loc);
 
   const dineInAcct = siteMapping.sales_dine_in_account || '40050';
   const uberSalesAcct = siteMapping.sales_uber_account || '40060';
@@ -148,14 +151,24 @@ export function generateJournalLines(salesData: SalesPacketData, siteMapping: Si
   const classOverrides = siteMapping.line_class_overrides || {};
 
   const addLine = (account: string, memo: string, debit: number, credit: number, sourceMemo: string, overrideKey?: string) => {
-    if (debit === 0 && credit === 0) return;
+    let finalDr = round(debit);
+    let finalCr = round(credit);
+    if (finalDr < 0) {
+      finalCr = round(finalCr + Math.abs(finalDr));
+      finalDr = 0;
+    }
+    if (finalCr < 0) {
+      finalDr = round(finalDr + Math.abs(finalCr));
+      finalCr = 0;
+    }
+    if (finalDr === 0 && finalCr === 0) return;
     const finalMemo = (overrideKey && altMemos[overrideKey]) || altMemos[sourceMemo] || memo;
     const finalClass = (overrideKey && classOverrides[overrideKey]) || classOverrides[sourceMemo] || siteMapping.className;
     lines.push({
       account,
       memo: finalMemo,
-      debit: round(debit),
-      credit: round(credit),
+      debit: finalDr,
+      credit: finalCr,
       sourceMemo,
       location: siteMapping.location,
       className: finalClass,
@@ -165,7 +178,8 @@ export function generateJournalLines(salesData: SalesPacketData, siteMapping: Si
   // --- CREDITS ---
   addLine(dineInAcct, 'For Here', 0, salesData.for_here_sales, 'Dining Option: For Here', 'for_here');
   if (salesData.toast_delivery_sales) {
-    const toastDelAcct = isBroadway ? '53060' : dineInAcct;
+    // Cohesion Table 14: Broadway -> 53060, Lynwood -> 12100, resto -> 40050
+    const toastDelAcct = isBroadway ? '53060' : isLynwood ? tipsAcct : dineInAcct;
     addLine(toastDelAcct, 'Toast Delivery Services', 0, salesData.toast_delivery_sales, 'Dining Option: Toast Delivery Services', 'toast_delivery');
   }
   addLine(dineInAcct, 'To Go', 0, salesData.to_go_sales, 'Dining Option: To Go', 'to_go');
@@ -209,6 +223,11 @@ export function generateJournalLines(salesData: SalesPacketData, siteMapping: Si
     const delChargeMemo = isRialto ? 'Delivery Charge' : 'Delivery Service';
     addLine(delChargeAcct, delChargeMemo, 0, salesData.delivery_service_charges, 'Service Charge: Delivery Service', 'delivery_service');
   }
+  if (salesData.delivery_fee_6_miles) {
+    // Cohesion Table 22: Downey -> 40050, Rialto -> 51040, resto -> 51030
+    const del6Acct = isDowney ? dineInAcct : isRialto ? '51040' : ccFeesAcct;
+    addLine(del6Acct, 'Delivery Fee > 6 Miles', 0, salesData.delivery_fee_6_miles, 'Service Charge: Delivery Fee > 6 Miles', 'delivery_fee_6_miles');
+  }
   if (salesData.deferred_gift_cards) {
     addLine(giftCardAcct, 'Deferred Sales - Gift Cards', 0, salesData.deferred_gift_cards, 'Deferred: Gift Cards', 'deferred_gift_cards');
   }
@@ -235,27 +254,34 @@ export function generateJournalLines(salesData: SalesPacketData, siteMapping: Si
   addLine(salesTaxAcct, mktTaxMemo, 0, salesData.marketplace_tax, 'Tax Rate: Marketplace Facilitator Taxes Not Paid', 'marketplace_tax');
 
   if (salesData.tips_payable) {
-    addLine(tipsAcct, 'Tips/Grat Payable', 0, salesData.tips_payable, 'Tips Payable', 'tips_payable');
+    // Cohesion Table 7 (Tips): La Puente -> 51050, resto -> 12100
+    const effectiveTipsAcct = isLaPuente ? cashOverShortAcct : tipsAcct;
+    addLine(effectiveTipsAcct, 'Tips/Grat Payable', 0, salesData.tips_payable, 'Tips Payable', 'tips_payable');
   }
   if (salesData.paid_in) {
-    // Pagos de hoy por cheques de otra fecha comercial o pedidos futuros (Cohesion: Paid In Total (Deposits Received))
+    // Cohesion Table 25 (Paid In Total): Broadway, Huntington Park, Norwalk, South Gate -> 51050; Hollywood -> 40050; resto -> 12049
     const paidInAcct = siteMapping.paid_in_account || (
-      (isHuntingtonPark || isNorwalk) ? cashOverShortAcct
+      (isBroadway || isHuntingtonPark || isNorwalk || isSouthGate) ? cashOverShortAcct
       : isHollywood ? dineInAcct
       : openOrdersAcct
     );
-    addLine(paidInAcct, 'Paid In Total (Deposits Received)', 0, salesData.paid_in, 'Paid In Totals', 'paid_in');
+    const paidInDr = salesData.paid_in < 0 ? Math.abs(salesData.paid_in) : 0;
+    const paidInCr = salesData.paid_in > 0 ? salesData.paid_in : 0;
+    addLine(paidInAcct, 'Paid In Total (Deposits Received)', paidInDr, paidInCr, 'Paid In Totals', 'paid_in');
   }
+  const cashDrawerAcct = isHollywood ? cashOverShortAcct : tipsAcct;
   if (salesData.cash_in && salesData.cash_in > 0) {
-    // Cohesion: Movimientos de entrada de efectivo a gaveta (Toast Cash Management) van a cuenta 12100 como Crédito
-    addLine(tipsAcct, 'Cash In', 0, salesData.cash_in, 'Cash In: Drawer', 'cash_in');
+    // Cohesion Table 7 (Cash Recon): Hollywood -> 51050, resto -> 12100
+    addLine(cashDrawerAcct, 'Cash In', 0, salesData.cash_in, 'Cash In: Drawer', 'cash_in');
   }
 
   // --- DEBITS ---
   if (salesData.gift_card_redemption) {
     addLine(giftCardAcct, 'Gift Card Redemption', salesData.gift_card_redemption, 0, 'Payment: Gift Card Redeemed', 'gift_card_redemption');
   }
-  addLine(siteMapping.bank_account, 'EBT', salesData.ebt_amount, 0, 'Payment Other: EBT', 'ebt');
+  // Cohesion Table 14 (Payments): Santa Ana -> 40050, resto -> bank_account (100XX)
+  const ebtAcct = isSantaAna ? dineInAcct : siteMapping.bank_account;
+  addLine(ebtAcct, 'EBT', salesData.ebt_amount, 0, 'Payment Other: EBT', 'ebt');
   addLine(uberArAcct, 'Uber Eats', salesData.uber_payment, 0, 'Payment Other: Uber Eats', 'uber_payment');
   addLine(ddArAcct, 'DoorDash', salesData.doordash_payment, 0, 'Payment Other: DoorDash', 'doordash_payment');
 
@@ -273,10 +299,12 @@ export function generateJournalLines(salesData: SalesPacketData, siteMapping: Si
   addLine(siteMapping.bank_account, 'Credit Card Deposit', salesData.credit_card_deposit, 0, 'Combined Credit Card Deposit', 'cc_deposit');
   addLine(ccFeesAcct, 'Credit Card Fees', salesData.credit_card_fees, 0, 'Credit Cards: Merchant Fees', 'cc_fees');
   if (salesData.credit_card_other_deductions) {
-    // Cohesion: Broadway y Central -> 12100; Downey, Rialto, South Gate, West Covina -> 40050; resto -> 51030
+    // Cohesion Table 12 (Payments): Broadway/Central -> 12100; Lynwood -> 10004 (bank_account); Downey/HP/La Puente/Rialto/South Gate/West Covina -> 40050; resto -> 51030
     const otherDedAcct = (isBroadway || isCentral)
       ? tipsAcct
-      : (isDowney || isRialto || isSouthGate || isWestCovina)
+      : isLynwood
+      ? siteMapping.bank_account
+      : (isDowney || isHuntingtonPark || isLaPuente || isRialto || isSouthGate || isWestCovina)
       ? dineInAcct
       : ccFeesAcct;
     addLine(otherDedAcct, 'Credit Card Other Deductions', salesData.credit_card_other_deductions, 0, 'Credit Cards: Other Deductions', 'cc_other_deductions');
@@ -297,7 +325,8 @@ export function generateJournalLines(salesData: SalesPacketData, siteMapping: Si
 
   // --- CASH OUT & TIP OUT (Toast POS Cash Management Drawer Out / Tips Out) ---
   if (salesData.cash_out && salesData.cash_out > 0) {
-    addLine(tipsAcct, 'Cash Out', salesData.cash_out, 0, 'Cash Out: Drawer', 'cash_out');
+    // Cohesion Table 7 (Cash Recon): Hollywood -> 51050, resto -> 12100
+    addLine(cashDrawerAcct, 'Cash Out', salesData.cash_out, 0, 'Cash Out: Drawer', 'cash_out');
   }
   if (salesData.tip_out && salesData.tip_out > 0) {
     addLine(tipsAcct, 'Tip Out', salesData.tip_out, 0, 'Cash Payout: Tips', 'tip_out');
@@ -430,7 +459,8 @@ export function calculateExpectedCash(salesData: SalesPacketData): number {
     (salesData.doordash_delivery_sales || 0) +
     (salesData.grubhub_delivery_sales || 0) +
     (salesData.grubhub_takeout_sales || 0) +
-    (salesData.delivery_service_charges || 0)
+    (salesData.delivery_service_charges || 0) +
+    (salesData.delivery_fee_6_miles || 0)
   );
   const netSales = sumDiningOptions > 0 ? sumDiningOptions : (salesData.net_sales || 0);
 

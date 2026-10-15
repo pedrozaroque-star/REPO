@@ -132,10 +132,6 @@ export async function POST(request: NextRequest) {
       const { getQBStoreRefs } = await import('@/lib/qb-classes-locations')
       const refs = getQBStoreRefs(store.name)
 
-      const isCentralOrBroadway = 
-        store.name.toLowerCase().includes('central') || 
-        store.name.toLowerCase().includes('broadway')
-
       const restoredPayload = {
         qb_location: refs.locationName,
         qb_class: refs.className,
@@ -150,7 +146,7 @@ export async function POST(request: NextRequest) {
         ar_doordash_account: '12053',
         ar_grubhub_account: '12054',
         ar_postmates_account: '12051',
-        cc_fees_account: isCentralOrBroadway ? '12100' : '51030',
+        cc_fees_account: '51030',
         undeposited_funds_account: '13200',
         cash_over_short_account: '51050',
         gift_card_account: '20500',

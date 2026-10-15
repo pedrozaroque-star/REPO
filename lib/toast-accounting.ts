@@ -107,6 +107,7 @@ export interface ToastAccountingData {
   deferredSalesGiftCards: number
   giftCardRedemption: number
   deliveryServiceCharges: number
+  deliveryFee6Miles: number
   discountsTotal: number
   discountBreakdown?: Record<string, number>
   creditCardGross: number
@@ -216,15 +217,18 @@ export async function fetchToastAccountingData(
   if (depRes && depRes.ok) {
     const rawDeps = await depRes.json().catch(() => [])
     if (Array.isArray(rawDeps) && rawDeps.length > 0) {
-      hasToastDeposit = true
-      toastDepositAmount = Math.round(rawDeps.reduce((sum: number, d: any) => sum + (Number(d.amount) || 0), 0) * 100) / 100
-      for (const d of rawDeps) {
-        toastDepositsList.push({
-          guid: d.guid,
-          amount: Number(d.amount) || 0,
-          date: d.date,
-          employee: d.employee?.guid,
-        })
+      const validDeps = rawDeps.filter((d: any) => !d.deleted && !d.voided)
+      if (validDeps.length > 0) {
+        hasToastDeposit = true
+        toastDepositAmount = Math.round(validDeps.reduce((sum: number, d: any) => sum + (Number(d.amount) || 0), 0) * 100) / 100
+        for (const d of validDeps) {
+          toastDepositsList.push({
+            guid: d.guid,
+            amount: Number(d.amount) || 0,
+            date: d.date,
+            employee: d.employee?.guid,
+          })
+        }
       }
     }
   }
@@ -242,8 +246,9 @@ export async function fetchToastAccountingData(
   if (entriesRes && entriesRes.ok) {
     const rawEntries = await entriesRes.json().catch(() => [])
     if (Array.isArray(rawEntries)) {
+      const validEntries = rawEntries.filter((e: any) => !e.deleted && !e.voided)
       // 1. Payouts (PAY_OUT)
-      const payouts = rawEntries.filter((e: any) => e.type === 'PAY_OUT')
+      const payouts = validEntries.filter((e: any) => e.type === 'PAY_OUT')
       for (const p of payouts) {
         const amt = Math.round(Math.abs(Number(p.amount) || 0) * 100) / 100
         if (amt > 0) {
@@ -261,7 +266,7 @@ export async function fetchToastAccountingData(
       }
 
       // 2. Cash In (CASH_IN / PAID_IN / PAY_IN)
-      const cashIns = rawEntries.filter((e: any) => e.type === 'CASH_IN' || e.type === 'PAID_IN' || e.type === 'PAY_IN')
+      const cashIns = validEntries.filter((e: any) => e.type === 'CASH_IN' || e.type === 'PAID_IN' || e.type === 'PAY_IN')
       for (const ci of cashIns) {
         const amt = Math.round(Math.abs(Number(ci.amount) || 0) * 100) / 100
         if (amt > 0) {
@@ -277,7 +282,7 @@ export async function fetchToastAccountingData(
       }
 
       // 3. Cash Out (CASH_OUT)
-      const cashOuts = rawEntries.filter((e: any) => e.type === 'CASH_OUT')
+      const cashOuts = validEntries.filter((e: any) => e.type === 'CASH_OUT')
       for (const co of cashOuts) {
         const amt = Math.round(Math.abs(Number(co.amount) || 0) * 100) / 100
         if (amt > 0) {
@@ -293,7 +298,7 @@ export async function fetchToastAccountingData(
       }
 
       // 4. Tip Out (TIP_OUT)
-      const tipOuts = rawEntries.filter((e: any) => e.type === 'TIP_OUT')
+      const tipOuts = validEntries.filter((e: any) => e.type === 'TIP_OUT')
       for (const to of tipOuts) {
         const amt = Math.round(Math.abs(Number(to.amount) || 0) * 100) / 100
         if (amt > 0) {
@@ -340,6 +345,9 @@ export async function fetchToastAccountingData(
     'checks.payments.amount',
     'checks.payments.tipAmount',
     'checks.payments.refundAmount',
+    'checks.payments.refund',
+    'checks.payments.refundStatus',
+    'checks.payments.paidBusinessDate',
     'checks.payments.voided',
     'checks.payments.server',
     'checks.payments.cardType',
@@ -424,6 +432,7 @@ export async function fetchToastAccountingData(
   let deferredSalesGiftCards = 0
   let giftCardRedemption = 0
   let deliveryServiceCharges = 0
+  let deliveryFee6Miles = 0
   let discountsTotal = 0
   const discountBreakdown: Record<string, number> = {}
 
@@ -455,6 +464,8 @@ export async function fetchToastAccountingData(
     // --- REVISIÓN DE ORDEN ABIERTA / DESBALANCEADA (Step 11 Cohesion) ---
     const checkIssues: string[] = []
     let orderHasIssue = false
+    let orderUnpaidTotal = 0
+    let orderUnpaidTax = 0
 
     for (const check of order.checks || []) {
       if (check.voided || check.deleted) continue
@@ -468,11 +479,13 @@ export async function fetchToastAccountingData(
       const validPayments = (check.payments || [])
         .filter((p: any) => !p.voided && !INVALID_PAYMENT_STATUSES.has(String(p.paymentStatus || '').toUpperCase()))
       const paymentsBaseTotal = validPayments.reduce((sum: number, p: any) => sum + (Number(p.amount) || 0), 0)
-      const paymentsWithTipTotal = validPayments.reduce((sum: number, p: any) => sum + (Number(p.amount) || 0) + (Number(p.tipAmount) || 0), 0)
       const expectedTotal = Number(check.totalAmount ?? check.amount ?? 0)
       if (isCheckOpen && expectedTotal > 0 && paymentsBaseTotal < expectedTotal - 0.05) {
         // Solo marcar check sin cerrar si realmente quedó abierto con balance pendiente por cobrar
         orderHasIssue = true
+        const unpaidBalance = Math.max(0, expectedTotal - paymentsBaseTotal)
+        orderUnpaidTotal += unpaidBalance
+        orderUnpaidTax += Number(check.taxAmount || 0) * (expectedTotal > 0 ? unpaidBalance / expectedTotal : 1)
         checkIssues.push(`Check sin cerrar (Estado: ${check.paymentStatus || 'OPEN'})`)
       }
     }
@@ -481,15 +494,16 @@ export async function fetchToastAccountingData(
       const rawOrderAmount = Number((order as any).totalAmount ?? (order as any).amount ?? 0)
       if (rawOrderAmount > 0) {
         orderHasIssue = true
+        orderUnpaidTotal += rawOrderAmount
         checkIssues.push('Orden sin checks pero con saldo pendiente en Toast POS')
       }
     }
 
     if (orderHasIssue) {
-      const orderTotal = (order.checks || [])
+      const orderTotal = orderUnpaidTotal > 0 ? orderUnpaidTotal : (order.checks || [])
         .filter((c: any) => !c.voided && !c.deleted)
         .reduce((sum: number, c: any) => sum + Number(c.totalAmount ?? c.amount ?? 0), 0)
-      const orderTax = (order.checks || [])
+      const orderTax = orderUnpaidTotal > 0 ? orderUnpaidTax : (order.checks || [])
         .filter((c: any) => !c.voided && !c.deleted)
         .reduce((sum: number, c: any) => sum + Number(c.taxAmount || 0), 0)
 
@@ -529,10 +543,23 @@ export async function fetchToastAccountingData(
       const checkTax = Number(check.taxAmount || 0)
       totalTax += checkTax
 
-      // Service charges aplicados en el check (ej: delivery service charge Cohesion cuenta 51030)
+      // Service charges aplicados en el check (ej: Delivery Service, Delivery Fee > 6 Miles, o Gratuity)
       if (check.appliedServiceCharges) {
         for (const sc of check.appliedServiceCharges) {
-          deliveryServiceCharges += Number(sc.chargeAmount || sc.amount || 0)
+          if (sc.voided) continue
+          const scRefund = Number(sc.refundDetails?.refundAmount || 0)
+          const scAmt = Math.max(0, Number(sc.chargeAmount ?? sc.amount ?? 0) - scRefund)
+          if (scAmt <= 0) continue
+          if (sc.gratuity) {
+            tipsPayable += scAmt
+          } else {
+            const scName = String(sc.name || '').toLowerCase()
+            if (scName.includes('6 miles')) {
+              deliveryFee6Miles += scAmt
+            } else {
+              deliveryServiceCharges += scAmt
+            }
+          }
         }
       }
 
@@ -700,7 +727,8 @@ export async function fetchToastAccountingData(
 
         // Redención de Tarjetas de Regalo (Gift Card Redemption -> 20500)
         if (pType === 'GIFT_CARD' || pType.includes('GIFT') || pName.includes('gift card')) {
-          giftCardRedemption += amt
+          giftCardRedemption += amt + tip
+          if (tip > 0) tipsPayable += tip
         } else if (pName.includes('ebt')) {
           // EBT se valida para evitar enmascaramiento con CREDIT
           ebtAmount += amt
@@ -791,15 +819,22 @@ export async function fetchToastAccountingData(
                 if (pp.voided || INVALID_PAYMENT_STATUSES.has(String(pp.paymentStatus || '').toUpperCase())) return
 
                 const pAmt = Number(pp.amount || 0)
-                if (pAmt <= 0) return
+                if (pAmt === 0) return
                 const pTip = Number(pp.tipAmount || 0)
                 const pT = String(pp.type || '').toUpperCase()
                 const fee = Number(pp.originalProcessingFee || 0)
+                if (pp.mcaRepaymentAmount) {
+                  creditCardOtherDeductions += Number(pp.mcaRepaymentAmount || 0)
+                }
 
                 const altName = pp.otherPayment?.guid ? (altMap[pp.otherPayment.guid] || '') : (pp.otherPayment?.name || '')
                 const pName = (altName || pp.displayName || pp.paymentInstrument?.displayName || '').toLowerCase()
 
-                if (pT === 'CREDIT') {
+                if (pT === 'GIFT_CARD' || pT.includes('GIFT') || pName.includes('gift card')) {
+                  giftCardRedemption += pAmt + pTip
+                  if (pTip > 0) tipsPayable += pTip
+                  paidIn += pAmt
+                } else if (pT === 'CREDIT') {
                   const fullGross = pAmt + pTip
                   creditCardGross += fullGross
                   tipsPayable += pTip
@@ -821,18 +856,23 @@ export async function fetchToastAccountingData(
                   cashDeposit += pAmt
                   paidIn += pAmt
                 } else if (pName.includes('uber') || pName.includes('postmates')) {
-                  uberPayment += pAmt
+                  uberPayment += pAmt + pTip
+                  if (pTip > 0) tipsPayable += pTip
                   paidIn += pAmt
                 } else if (pName.includes('doordash') || pName.includes('dash')) {
-                  doordashPayment += pAmt
+                  doordashPayment += pAmt + pTip
+                  if (pTip > 0) tipsPayable += pTip
                   paidIn += pAmt
                 } else if (pName.includes('grub')) {
-                  grubhubPayment += pAmt
+                  grubhubPayment += pAmt + pTip
+                  if (pTip > 0) tipsPayable += pTip
                   paidIn += pAmt
                 } else if (pName.includes('ebt')) {
                   ebtAmount += pAmt
                   paidIn += pAmt
                 } else {
+                  creditCardGross += pAmt + pTip
+                  if (pTip > 0) tipsPayable += pTip
                   paidIn += pAmt
                 }
               } catch (fetchErr) {
@@ -882,7 +922,8 @@ export async function fetchToastAccountingData(
   paidIn = r(paidIn)
 
   deliveryServiceCharges = r(deliveryServiceCharges)
-  const netSales = r(forHere + toGo + phone + curbside + driveThru + kioskDineIn + kioskTakeOut + toastOnline + onlineOrderingTakeout + toastDelivery + uberDel + uberTake + ddDel + ddTake + ghDel + ghTake + deliveryServiceCharges)
+  deliveryFee6Miles = r(deliveryFee6Miles)
+  const netSales = r(forHere + toGo + phone + curbside + driveThru + kioskDineIn + kioskTakeOut + toastOnline + onlineOrderingTakeout + toastDelivery + uberDel + uberTake + ddDel + ddTake + ghDel + ghTake + deliveryServiceCharges + deliveryFee6Miles)
   totalTax = r(totalTax)
   marketplaceTax = r(marketplaceTax)
   taxPaidByUber = r(taxPaidByUber)
@@ -1000,6 +1041,7 @@ export async function fetchToastAccountingData(
     deferredSalesGiftCards,
     giftCardRedemption,
     deliveryServiceCharges,
+    deliveryFee6Miles,
     discountsTotal: r(discountsTotal),
     discountBreakdown,
     creditCardGross,

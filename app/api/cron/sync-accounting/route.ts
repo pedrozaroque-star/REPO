@@ -243,6 +243,7 @@ export async function GET(request: Request) {
             deferred_gift_cards: toastData.deferredSalesGiftCards,
             gift_card_redemption: toastData.giftCardRedemption,
             delivery_service_charges: toastData.deliveryServiceCharges,
+            delivery_fee_6_miles: toastData.deliveryFee6Miles,
             tax_paid_by_uber: toastData.taxPaidByUber,
             sales_tax: toastData.salesTax,
             marketplace_tax: toastData.marketplaceTax,
