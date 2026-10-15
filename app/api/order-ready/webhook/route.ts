@@ -47,16 +47,19 @@ export async function POST(request: Request) {
       return NextResponse.json({ message: 'Payload recibido sin orderNumber ni orderGuid, ignorado' }, { status: 200 })
     }
 
-    // Estado: misma lógica que el sync activo (platillos con fulfillmentStatus READY = doble tap del KDS)
+    // Estado: misma lógica que el sync activo (platillos de cocina con fulfillmentStatus READY = doble tap del KDS).
+    // Si el payload incluye selections (evaluation.activeItems > 0), evaluateToastOrder es la fuente autoritativa
+    // y nunca debe ser sobrescrita a READY mientras existan platillos de cocina en SENT.
     const evaluation = evaluateToastOrder(orderObj)
     let status: 'IN_PROGRESS' | 'READY' | 'COMPLETED' = evaluation.status
-    if (
-      status === 'IN_PROGRESS' &&
-      (rawStatus === 'READY_FOR_PICKUP' || rawStatus === 'READY' || rawStatus === 'FULFILLED')
-    ) {
-      status = 'READY'
-    } else if (rawStatus === 'VOIDED') {
+    if (rawStatus === 'VOIDED') {
       status = 'COMPLETED'
+    } else if (evaluation.activeItems === 0) {
+      if (rawStatus === 'READY_FOR_PICKUP' || rawStatus === 'READY' || rawStatus === 'FULFILLED') {
+        status = 'READY'
+      } else if (rawStatus === 'IN_PROGRESS' || rawStatus === 'SENT' || rawStatus === 'OPEN') {
+        status = 'IN_PROGRESS'
+      }
     }
 
     // Traducir Dining Option usando Toast Dining Map dinámico

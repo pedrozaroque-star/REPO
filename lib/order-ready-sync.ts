@@ -69,14 +69,14 @@ export function extractOrderItemsSummary(order: any): string | null {
     for (const sel of chk.selections || []) {
       if (!sel || sel.voided || sel.deleted) continue
       const name = String(sel.displayName || sel.name || '').trim()
-      if (!name || name.includes('---')) continue
+      if (!name || isNonFoodMarkerItem(name)) continue
 
       const mods: string[] = []
       if (Array.isArray(sel.modifiers)) {
         for (const m of sel.modifiers) {
           if (m?.voided || m?.deleted) continue
           const mName = String(m.displayName || m.name || '').trim()
-          if (mName && !mName.includes('---')) {
+          if (mName && !isNonFoodMarkerItem(mName)) {
             mods.push(mName)
           }
         }
@@ -97,6 +97,7 @@ export function extractOrderItemsSummary(order: any): string | null {
   return items.length > 0 ? JSON.stringify(items) : null
 }
 
+import { isDrinkOrDessertItem, isNonFoodMarkerItem } from '@/lib/order-ready-filter'
 export * from '@/lib/order-ready-filter'
 
 export interface ToastOrderEvaluation {
@@ -110,7 +111,23 @@ export interface ToastOrderEvaluation {
   readyItems: number
 }
 
-/** Clasifica una orden de Toast leyendo el fulfillmentStatus de cada platillo (selection). */
+/**
+ * Clasifica una orden de Toast leyendo el fulfillmentStatus de cada platillo (selection).
+ *
+ * REGLA CRÍTICA DE COCINA (FIX Slauson #429):
+ * - Cuando una orden incluye platillos de cocina (ej. Torta Cubana + 2 Tacos Cabeza) junto con un postre o bebida
+ *   (ej. Cheesecake, Flan, Horchata), el postre/bebida suele marcarse `READY` en caja pocos segundos después de cobrarse,
+ *   mientras los platillos de cocina siguen en `SENT` preparándose en la plancha durante varios minutos.
+ * - Asimismo, si una orden tiene varios platillos de cocina y solo uno se marca `READY` mientras otros siguen `SENT`,
+ *   la orden aún NO está terminada en cocina.
+ * - Por lo tanto:
+ *   1) Si la orden tiene platillos de cocina (`kitchenSent + kitchenReady > 0`), EXCLUSIVAMENTE los platillos de cocina
+ *      gobiernan el estado `IN_PROGRESS` vs `READY`.
+ *   2) Mientras exista al menos 1 platillo de cocina en `SENT` (`kitchenSent > 0`), la orden permanece en `IN_PROGRESS`
+ *      para que siga visible en la tableta del preparador (`/inventory/preparador`).
+ *   3) Solo cuando TODOS los platillos de cocina enviados pasan a `READY`/`FULFILLED` (`kitchenReady > 0 && kitchenSent === 0`),
+ *      la orden pasa a `READY` (ignorando bebidas como Horchata/Champurrado que permanecen en `SENT` por no ir al KDS).
+ */
 export function evaluateToastOrder(order: any): ToastOrderEvaluation {
   if (!order || order.voided || order.deleted) {
     return { status: 'COMPLETED', readyAt: null, sentAt: null, activeItems: 0, sentItems: 0, readyItems: 0 }
@@ -119,17 +136,26 @@ export function evaluateToastOrder(order: any): ToastOrderEvaluation {
   let activeItems = 0
   let sentItems = 0
   let readyItems = 0
-  let latestReadyMs = 0
+  let kitchenActive = 0
+  let kitchenSent = 0
+  let kitchenReady = 0
+  let latestKitchenReadyMs = 0
+  let latestAnyReadyMs = 0
   let earliestSentMs = Infinity
 
   for (const check of order.checks || []) {
     if (check?.voided || check?.deleted) continue
     for (const sel of check.selections || []) {
       if (!sel || sel.voided || sel.deleted) continue
-      const name = String(sel.displayName || '')
-      // Separadores de tacos del POS ("------- Taco Separator-------") no son platillos reales
-      if (name.includes('---')) continue
+      const name = String(sel.displayName || sel.name || '').trim()
+      // Separadores de tacos del POS ("--- Taco Separator ---", "********") y marcadores no son platillos reales
+      if (!name || isNonFoodMarkerItem(name)) continue
       activeItems++
+
+      const isDrinkDessert = isDrinkOrDessertItem(name)
+      if (!isDrinkDessert) {
+        kitchenActive++
+      }
 
       const itemDateStr = sel.sentDate || sel.createdDate || sel.modifiedDate
       const itemDateMs = Date.parse(itemDateStr || '')
@@ -141,9 +167,16 @@ export function evaluateToastOrder(order: any): ToastOrderEvaluation {
       if (st === 'READY' || st === 'FULFILLED') {
         readyItems++
         const ms = Date.parse(sel.modifiedDate || '')
-        if (Number.isFinite(ms) && ms > latestReadyMs) latestReadyMs = ms
+        if (Number.isFinite(ms) && ms > latestAnyReadyMs) latestAnyReadyMs = ms
+        if (!isDrinkDessert) {
+          kitchenReady++
+          if (Number.isFinite(ms) && ms > latestKitchenReadyMs) latestKitchenReadyMs = ms
+        }
       } else if (st === 'SENT') {
         sentItems++
+        if (!isDrinkDessert) {
+          kitchenSent++
+        }
       }
     }
   }
@@ -159,22 +192,34 @@ export function evaluateToastOrder(order: any): ToastOrderEvaluation {
     return { status: 'COMPLETED', readyAt: null, sentAt, activeItems: 0, sentItems: 0, readyItems: 0 }
   }
 
-  // 2. Si ya tiene platillos marcados con doble tap en expediter -> READY
-  if (readyItems > 0) {
-    return {
-      status: 'READY',
-      readyAt: new Date(latestReadyMs || Date.now()).toISOString(),
-      sentAt,
-      activeItems,
-      sentItems,
-      readyItems
+  // 2. Si la orden contiene platillos de cocina, los platillos de cocina gobiernan el estado:
+  //    - Mientras haya al menos 1 platillo de cocina en SENT (kitchenSent > 0), sigue IN_PROGRESS en la tableta del preparador.
+  //    - Cuando todos los platillos de cocina enviados están READY (kitchenReady > 0 && kitchenSent === 0), pasa a READY.
+  if (kitchenActive > 0) {
+    if (kitchenSent > 0) {
+      return {
+        status: 'IN_PROGRESS',
+        readyAt: null,
+        sentAt,
+        activeItems,
+        sentItems,
+        readyItems
+      }
     }
+    if (kitchenReady > 0) {
+      return {
+        status: 'READY',
+        readyAt: new Date(latestKitchenReadyMs || latestAnyReadyMs || Date.now()).toISOString(),
+        sentAt,
+        activeItems,
+        sentItems,
+        readyItems
+      }
+    }
+    return { status: 'COMPLETED', readyAt: null, sentAt, activeItems, sentItems, readyItems }
   }
 
-  // 3. Si está enviada al expediter pero aún no lista -> IN_PROGRESS
-  // REGLA CRÍTICA: Debe tener platillos en estado 'SENT' en la cocina.
-  // Si la orden está abierta en la caja sin enviar al expediter (draft / no enviada),
-  // ningún platillo tendrá fulfillmentStatus = 'SENT' ni 'READY'.
+  // 3. Si la orden solo tiene bebidas/postres (sin platillos de cocina):
   if (sentItems > 0) {
     return {
       status: 'IN_PROGRESS',
@@ -186,8 +231,18 @@ export function evaluateToastOrder(order: any): ToastOrderEvaluation {
     }
   }
 
+  if (readyItems > 0) {
+    return {
+      status: 'READY',
+      readyAt: new Date(latestAnyReadyMs || Date.now()).toISOString(),
+      sentAt,
+      activeItems,
+      sentItems,
+      readyItems
+    }
+  }
+
   // 4. Si no tiene platillos SENT ni READY, la orden está abierta en la caja sin enviar al expediter
-  // -> No debe aparecer en "EN PREPARACIÓN"
   return { status: 'COMPLETED', readyAt: null, sentAt, activeItems, sentItems, readyItems }
 }
 
@@ -285,7 +340,7 @@ export async function syncStoreFromToast(storeCode: string, force = false): Prom
       const guids = orders.map(o => o.guid).filter(Boolean)
       const { data: existingRows } = await supabaseAdmin
         .from('order_ready_announcements')
-        .select('id, status, order_guid, order_number, dining_option, items_summary')
+        .select('id, status, order_guid, order_number, dining_option, items_summary, ready_at')
         .eq('store_code', storeCode)
         .in('order_guid', guids)
 
@@ -338,8 +393,14 @@ export async function syncStoreFromToast(storeCode: string, force = false): Prom
             updatePayload.status = 'READY'
             updatePayload.ready_at = ev.readyAt
             updatePayload.announced = true
+          } else if (ev.status === 'READY' && row.status === 'READY' && ev.readyAt) {
+            const oldReadyMs = Date.parse(row.ready_at || '')
+            const newReadyMs = Date.parse(ev.readyAt)
+            if (Number.isFinite(newReadyMs) && (!Number.isFinite(oldReadyMs) || Math.abs(newReadyMs - oldReadyMs) > 1000)) {
+              updatePayload.ready_at = ev.readyAt
+            }
           } else if (ev.status === 'IN_PROGRESS' && row.status === 'READY') {
-            // RECALL en Toast KDS: el cocinero desmarcó la orden en el KDS de Toast.
+            // RECALL en Toast KDS (o corrección si un postre marcó READY antes que la cocina):
             // Vuelve a preparación (IN_PROGRESS), se limpia ready_at y vuelve a aparecer en la tableta del preparador.
             updatePayload.status = 'IN_PROGRESS'
             updatePayload.ready_at = null

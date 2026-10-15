@@ -103,6 +103,7 @@ export const DRINK_DESSERT_PATTERNS: RegExp[] = [
 export const NON_FOOD_MARKER_PATTERNS: RegExp[] = [
   /\bseparator\b/i,
   /---+/,
+  /\*{2,}/,
   /\bempleado\b/i,
   /\bpolicia\b/i,
   /\bdiscount\b/i,

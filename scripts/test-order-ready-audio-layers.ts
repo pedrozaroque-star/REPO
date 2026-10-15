@@ -351,6 +351,61 @@ async function runSimulation() {
     'Escenario F: Aislamiento multi-tienda por llave compuesta (storeCode:orderNumber) evita bloqueos cruzados'
   )
 
+  // =========================================================================
+  // TEST 6: Regla de Cocina en evaluateToastOrder (Caso Real Slauson #429)
+  // =========================================================================
+  console.log('\n--- TEST 6: Protección de Órdenes en Cocina ante Postres/Bebidas READY (Caso Slauson #429) ---')
+  const { evaluateToastOrder, extractOrderItemsSummary } = await import('@/lib/order-ready-sync')
+
+  // Fase 1 de Slauson #429: Cheesecake se marca READY en caja (01:59:22), pero Torta Cubana y 2 Tacos Cabeza siguen SENT en cocina
+  const slauson429Cooking = {
+    guid: 'c99acad1-6a93-4845-a7f2-3060aa7589aa',
+    displayNumber: '429',
+    openedDate: '2026-10-15T01:58:23.023+0000',
+    checks: [
+      {
+        guid: '48b96682-c8ae-4612-bf57-bcea2faa6a8e',
+        displayNumber: '429',
+        selections: [
+          { displayName: 'Cheesecake', quantity: 1, fulfillmentStatus: 'READY', createdDate: '2026-10-15T01:59:18.110+0000', modifiedDate: '2026-10-15T01:59:22.956+0000' },
+          { displayName: 'Taco Cabeza', quantity: 2, fulfillmentStatus: 'SENT', createdDate: '2026-10-15T01:59:06.203+0000', modifiedDate: '2026-10-15T01:59:06.250+0000' },
+          { displayName: 'Champurrado', quantity: 1, fulfillmentStatus: 'SENT', createdDate: '2026-10-15T01:59:06.215+0000', modifiedDate: '2026-10-15T01:59:06.260+0000' },
+          { displayName: 'Torta Cubana', quantity: 1, fulfillmentStatus: 'SENT', createdDate: '2026-10-15T01:59:06.188+0000', modifiedDate: '2026-10-15T01:59:06.240+0000', modifiers: [{ displayName: 'No Aguacate (In Store)' }] },
+          { displayName: '********', quantity: 1, fulfillmentStatus: 'SENT', createdDate: '2026-10-15T01:59:06.200+0000', modifiedDate: '2026-10-15T01:59:06.200+0000' }
+        ]
+      }
+    ]
+  }
+
+  const evCooking = evaluateToastOrder(slauson429Cooking)
+  const summaryCooking = extractOrderItemsSummary(slauson429Cooking) || ''
+  assert(
+    evCooking.status === 'IN_PROGRESS' && evCooking.readyAt === null && !summaryCooking.includes('***'),
+    'Slauson #429 permanece en IN_PROGRESS (visible en tableta del preparador) aunque Cheesecake esté READY mientras Torta Cubana y Tacos Cabeza siguen SENT'
+  )
+
+  // Fase 2 de Slauson #429: Cocina termina Torta Cubana y 2 Tacos Cabeza (02:04:46), mientras Champurrado sigue SENT
+  const slauson429Done = {
+    ...slauson429Cooking,
+    checks: [
+      {
+        ...slauson429Cooking.checks[0],
+        selections: [
+          { displayName: 'Cheesecake', quantity: 1, fulfillmentStatus: 'READY', createdDate: '2026-10-15T01:59:18.110+0000', modifiedDate: '2026-10-15T01:59:22.956+0000' },
+          { displayName: 'Taco Cabeza', quantity: 2, fulfillmentStatus: 'READY', createdDate: '2026-10-15T01:59:06.203+0000', modifiedDate: '2026-10-15T02:04:46.107+0000' },
+          { displayName: 'Champurrado', quantity: 1, fulfillmentStatus: 'SENT', createdDate: '2026-10-15T01:59:06.215+0000', modifiedDate: '2026-10-15T01:59:06.260+0000' },
+          { displayName: 'Torta Cubana', quantity: 1, fulfillmentStatus: 'READY', createdDate: '2026-10-15T01:59:06.188+0000', modifiedDate: '2026-10-15T02:04:46.102+0000', modifiers: [{ displayName: 'No Aguacate (In Store)' }] }
+        ]
+      }
+    ]
+  }
+
+  const evDone = evaluateToastOrder(slauson429Done)
+  assert(
+    evDone.status === 'READY' && evDone.readyAt === '2026-10-15T02:04:46.107Z',
+    'Slauson #429 pasa a READY con el timestamp real de cocina (02:04:46) cuando Torta Cubana y Tacos Cabeza se marcan listos, ignorando Champurrado en SENT'
+  )
+
   console.log('\n======================================================================')
   console.log(`📊 RESULTADO FINAL: ${passedTests}/${totalTests} PRUEBAS EXITOSAS`)
   console.log('======================================================================\n')
