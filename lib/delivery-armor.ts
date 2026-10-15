@@ -1487,12 +1487,6 @@ export async function confirmHandoffToDriver(params: {
   if (Number(current.expected_bag_count) !== Number(current.confirmed_bag_count)) {
     throw new Error('La cantidad de bolsas no está confirmada.')
   }
-  if (current.platform === 'DOORDASH' && verificationMethod !== 'DOORDASH_QR') {
-    throw new Error('DoorDash requiere verificar el QR nativo del ticket en la app del Dasher.')
-  }
-  if (current.platform !== 'DOORDASH' && verificationMethod === 'DOORDASH_QR') {
-    throw new Error('El método QR de DoorDash no corresponde a esta plataforma.')
-  }
 
   const payload = {
     handed_by_ronos_user_id: verifiedEmployee.employeeUserId,

@@ -731,10 +731,10 @@ Food Cost % = (Total Ingredient Cost ÷ Net Sales) × 100
 
 ## BLINDAJE DELIVERY — ESTACIÓN TABLET Y PANEL (/admin/blindaje-delivery/empaque y /admin/blindaje-delivery)
 - **Sesión Exclusiva por Tienda y Expiración por Inactividad (10 min)**: El acceso con PIN de 4 dígitos de RONOS cierra automáticamente la sesión tras 10 minutos sin actividad y garantiza sesión única por sucursal (si otra cajera inicia sesión en la tienda, la sesión anterior se cierra al instante). Incluye botón directo "Cambiar Cajera (PIN)" y muestra el nombre de la cajera activa en los botones de acción.
-- **Continuidad Total entre Cajeras y 7 Blindajes Operativos**:
+- **Continuidad Total entre Cajeras y Selección 100% Manual**:
   1) Si una cajera empaca las bolsas (Paso 1: \`PACKED_AND_SEALED\` / \`LISTA\`) y cambia de posición con otra cajera, la segunda cajera ve quién empacó la orden, puede ajustar la cantidad de bolsas o re-confirmar el empaque, puede deshacer el empaque (\`undoPackingAudit\` -> regresa a \`EMPACANDO\`), o puede entregarla al chofer (Paso 2: \`DELIVERED\`).
-  2) Al confirmar el Paso 1, la pantalla salta automáticamente a la siguiente orden en \`EMPACANDO\` para evitar toques accidentales sobre el Paso 2.
-  3) El Paso 2 requiere enfriamiento de 2.5s y marcar la casilla obligatoria de chofer presente en mostrador con código/QR verificado.
+  2) **Selección Estrictamente Manual**: El sistema nunca autoselecciona órdenes ni al iniciar, ni en el refresco de 8s, ni después de empacar (\`markReady\`) o entregar al chofer (\`release\`), regresando siempre a "Selecciona una orden" para evitar equivocaciones.
+  3) El Paso 2 requiere enfriamiento de 2.5s y marcar la casilla obligatoria de chofer presente en mostrador tras verificar el nombre del cliente y la orden en su teléfono (sin códigos QR).
   4) Si una orden se marcó como \`ENTREGADA\` por error, puede reabrirse con un toque (\`reopenDeliveredAudit\`) regresando al estante activo en estado \`LISTA\`.
   5) Si una orden ya empacada (\`LISTA\`) es cancelada (\`voided\`) en la plataforma, muestra alerta roja parpadeante para retirar la bolsa física del estante.
   6) Respeta continuidad en el corte de las 6:00 AM y órdenes \`NO RECOGIDA (+2H)\`.`;

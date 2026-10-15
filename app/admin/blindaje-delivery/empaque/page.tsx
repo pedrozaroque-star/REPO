@@ -813,6 +813,7 @@ export default function BlindajeDeliveryEmpaquePage() {
       lastActivityAtRef.current = 0
       packerRef.current = null
       setPacker(null)
+      setSelected(null)
       setPin('')
       if (expiredNotice) {
         setError(expiredNotice)
@@ -1181,25 +1182,14 @@ export default function BlindajeDeliveryEmpaquePage() {
 
       setOrders(next)
       setSelected(current => {
-        const currentObj = current ? next.find(o => o.guid === current) : null
-        // Si la cajera está viendo "Ver todas" o buscando, conservar SIEMPRE la orden que seleccionó sin arrebatársela cada 8s
-        if (currentObj && (showHistoryRef.current || searchRef.current.trim().length > 0)) {
+        // Nunca seleccionar ninguna orden automáticamente: solo conservar la que la cajera haya seleccionado manualmente
+        if (!current) return null
+        const currentObj = next.find(o => o.guid === current) || null
+        if (!currentObj) return null
+        if (showHistoryRef.current || searchRef.current.trim().length > 0) {
           return current
         }
-        if (newlyReadyOrders.length > 0) {
-          if (
-            !currentObj ||
-            currentObj.audit?.status === 'released' ||
-            !isOrderCurrentlyActive(currentObj, dismissedVoidedRef.current)
-          ) {
-            return newlyReadyOrders[0].guid
-          }
-        }
-        if (currentObj && isOrderCurrentlyActive(currentObj, dismissedVoidedRef.current)) return current
-        const activeSorted = next
-          .filter(o => isOrderCurrentlyActive(o, dismissedVoidedRef.current))
-          .sort((a, b) => getOrderOperationalPriority(a) - getOrderOperationalPriority(b))
-        return activeSorted[0]?.guid || null
+        return isOrderCurrentlyActive(currentObj, dismissedVoidedRef.current) ? current : null
       })
       return next
     } catch (caught: any) {
@@ -1482,17 +1472,9 @@ export default function BlindajeDeliveryEmpaquePage() {
         })
       }, 2600)
       setSuccess(`${t('blindaje_delivery.success_packed')}: ${order.customer} (Check #${order.ticket})`)
-      const refreshedOrders = await fetchOrders()
-      // Si hay otra orden azul en EMPACANDO esperando ser armada, saltar automáticamente a ella para seguir armando bolsas sin tocar por error ENTREGAR ORDEN de la anterior
-      const nextToPack = refreshedOrders.find(
-        o =>
-          o.guid !== targetGuid &&
-          isOrderCurrentlyActive(o, dismissedVoidedRef.current) &&
-          getOrderOperationalPriority(o) === 0
-      )
-      if (nextToPack) {
-        setSelected(nextToPack.guid)
-      }
+      await fetchOrders()
+      // Regresar a "Selecciona una orden" para que toda selección sea estrictamente manual y evitar equivocaciones
+      setSelected(null)
     } catch (caught: any) {
       setError(caught.message)
     } finally {
@@ -1610,7 +1592,6 @@ export default function BlindajeDeliveryEmpaquePage() {
       setError(t('blindaje_delivery.error_collision_ack_required'))
       return
     }
-    const releasedGuid = order.guid
     setBusy(true)
     setError(null)
     setSuccess(null)
@@ -1625,7 +1606,7 @@ export default function BlindajeDeliveryEmpaquePage() {
           session_token: packer.sessionToken,
           courier_name: order.assignedDriverHint || t('blindaje_delivery.verified_driver'),
           courier_verified: true,
-          verification_method: order.platform === 'DOORDASH' ? 'DOORDASH_QR' : 'PLATFORM_ORDER_ID',
+          verification_method: 'PLATFORM_ORDER_ID',
           courier_order_reference: `${order.customer} (#${order.ticket} • ${order.platformOrderKey})`,
           live_pickup_confirmed: true
         })
@@ -1646,11 +1627,8 @@ export default function BlindajeDeliveryEmpaquePage() {
       setSuccess(
         `${t('blindaje_delivery.order_of')} ${order.customer} (#${order.ticket}) ${t('blindaje_delivery.success_released')} ${data.audit.handed_by_ronos_name}.`
       )
-      const refreshed = await fetchOrders()
-      const nextActive = refreshed
-        .filter(o => o.guid !== releasedGuid && isOrderCurrentlyActive(o, dismissedVoidedRef.current))
-        .sort((a, b) => getOrderOperationalPriority(a) - getOrderOperationalPriority(b))
-      setSelected(nextActive[0]?.guid || null)
+      setSelected(null)
+      await fetchOrders()
     } catch (caught: any) {
       setError(caught.message)
     } finally {
@@ -2319,7 +2297,8 @@ export default function BlindajeDeliveryEmpaquePage() {
                             {order.platform === 'DOORDASH'
                               ? t('blindaje_delivery.step2_desc_doordash', {
                                   customer: order.customer,
-                                  ticket: order.ticket
+                                  ticket: order.ticket,
+                                  key: order.platformOrderKey
                                 })
                               : t('blindaje_delivery.step2_desc_other', {
                                   customer: order.customer,

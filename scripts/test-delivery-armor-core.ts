@@ -345,6 +345,21 @@ assert.equal(
   true,
   'El diccionario de blindaje_delivery debe cubrir la totalidad de textos del módulo'
 )
+assert.equal(
+  Object.values(dictionaries.es.blindaje_delivery).some(v => /\bQR\b/i.test(String(v))) ||
+    Object.values(dictionaries.en.blindaje_delivery).some(v => /\bQR\b/i.test(String(v))) ||
+    empaqueSource.includes('DOORDASH_QR'),
+  false,
+  'Ningún texto de Blindaje Delivery debe pedir ni mencionar código QR'
+)
+assert.equal(
+  empaqueSource.includes('activeSorted[0]?.guid') ||
+    empaqueSource.includes('newlyReadyOrders[0].guid') ||
+    empaqueSource.includes('nextActive[0]?.guid') ||
+    empaqueSource.includes('nextToPack.guid'),
+  false,
+  'Las órdenes nunca deben seleccionarse automáticamente: solo manualmente por la cajera'
+)
 
 import {
   registerExclusiveStorePinSession,
