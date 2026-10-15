@@ -242,14 +242,12 @@ assert.equal(empaqueSource.includes('ensureFullscreen'), true, 'Debe mantener fu
 assert.equal(empaqueSource.includes('fixed inset-0 z-[100] w-screen h-screen'), true, 'Debe ocupar 100% de la pantalla')
 assert.equal(empaqueSource.includes('max-w-2xl'), false, 'No debe restringir el ancho a max-w-2xl en la tableta')
 assert.equal(
-  empaqueSource.includes('/api/order-ready/tts?n='),
+  empaqueSource.includes('/api/order-ready/tts?n=') &&
+    empaqueSource.includes('Please%20pack.') &&
+    empaqueSource.includes('Favor%20de%20empacar.') &&
+    empaqueSource.includes('&v=kds2'),
   true,
-  'Debe reutilizar los audios de órdenes ya descargados en Supabase Storage (/api/order-ready/tts)'
-)
-assert.equal(
-  empaqueSource.includes('Please%20pack.') && empaqueSource.includes('Favor%20de%20empacar.'),
-  true,
-  'Debe anunciar Please pack / Favor de empacar al salir del KDS'
+  'Debe usar los audios de órdenes de Supabase Storage (/api/order-ready/tts) seguidos de Please pack. y Favor de empacar. con la misma voz calibrada (&v=kds2)'
 )
 assert.equal(
   empaqueSource.includes('strikeBellPartial(1318.51') &&
@@ -293,6 +291,15 @@ assert.equal(
   true,
   'La tableta de empaque debe estar 100% traducida con useLanguage() e incluir botón de cambio de idioma ES/EN'
 )
+assert.equal(
+  empaqueSource.includes('PIN_INACTIVITY_TIMEOUT_MS = 10 * 60 * 1000') &&
+    empaqueSource.includes('recordCashierActivity') &&
+    empaqueSource.includes('blindaje_packer_last_activity_at') &&
+    empaqueSource.includes('handleSessionReplacedError') &&
+    empaqueSource.includes('blindaje_packer_session_token'),
+  true,
+  'La sesión del PIN de la cajera debe cerrarse tras 10 min sin actividad o cuando alguien más inicia sesión en esa tienda (no puede haber 2 sesiones abiertas)'
+)
 
 const dashboardSource = fs.readFileSync(
   path.join(process.cwd(), 'app', 'admin', 'blindaje-delivery', 'page.tsx'),
@@ -318,11 +325,63 @@ assert.deepEqual(
   'Los diccionarios ES y EN de blindaje_delivery deben tener exactamente las mismas claves (100% paridad bilingüe)'
 )
 assert.equal(
-  esKeys.length >= 115,
+  esKeys.length >= 117,
   true,
   'El diccionario de blindaje_delivery debe cubrir la totalidad de textos del módulo'
 )
 
-console.log('Delivery Armor core simulation: PASS')
+import {
+  registerExclusiveStorePinSession,
+  touchActiveStorePinSession,
+  getActiveStorePinSession,
+  clearActiveStorePinSession
+} from '../lib/delivery-armor'
+
+;(async () => {
+  const testStoreId = 9999
+  try {
+    // 1. Cajera 1 inicia sesión en la tienda 9999
+    const s1 = await registerExclusiveStorePinSession({
+      storeId: testStoreId,
+      employeeUserId: 101,
+      employeeName: 'Cajera Uno',
+      jobTitle: 'Cashier'
+    })
+    const check1 = await touchActiveStorePinSession(testStoreId, s1.sessionToken)
+    assert.equal(check1.valid, true, 'La sesión de Cajera Uno debe estar activa')
+
+    // 2. Cajera 2 inicia sesión en la misma tienda 9999 -> debe cerrar/reemplazar la sesión de Cajera Uno
+    const s2 = await registerExclusiveStorePinSession({
+      storeId: testStoreId,
+      employeeUserId: 202,
+      employeeName: 'Cajera Dos',
+      jobTitle: 'Cashier'
+    })
+    assert.notEqual(s1.sessionToken, s2.sessionToken, 'Cada inicio de sesión genera un token único')
+
+    const checkOldSession = await touchActiveStorePinSession(testStoreId, s1.sessionToken)
+    assert.equal(checkOldSession.valid, false, 'La sesión de Cajera Uno debe quedar invalidada inmediatamente')
+    assert.equal(
+      checkOldSession.replacedBy,
+      'Cajera Dos',
+      'Debe indicar que Cajera Dos inició sesión en esa tienda'
+    )
+
+    // 3. Intentar cerrar con el token viejo NO debe borrar la sesión nueva de Cajera Dos
+    const clearedByOld = await clearActiveStorePinSession(testStoreId, s1.sessionToken)
+    assert.equal(clearedByOld, false, 'El logout de la sesión desplazada no debe borrar la nueva sesión activa')
+
+    const activeNow = await getActiveStorePinSession(testStoreId)
+    assert.equal(activeNow?.sessionToken, s2.sessionToken, 'La única sesión activa debe seguir siendo la de Cajera Dos')
+
+    // 4. Limpieza final con el token activo
+    const clearedByNew = await clearActiveStorePinSession(testStoreId, s2.sessionToken)
+    assert.equal(clearedByNew, true, 'La sesión activa debe poder cerrarse limpiamente')
+
+    console.log('Delivery Armor core simulation: PASS')
+  } finally {
+    await clearActiveStorePinSession(testStoreId)
+  }
+})()
 
 

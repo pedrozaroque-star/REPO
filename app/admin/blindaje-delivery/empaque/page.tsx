@@ -3,19 +3,20 @@
  * @description Estación vertical Fullscreen de Entrega Blindada para validar el empaque y liberar cada bolsa al chofer correcto identificando por Nombre + Apellido/Inicial y blindando contra nombres duplicados o muy parecidos desde KDS.
  * @businessRules
  *   - Siempre en modo Fullscreen (tanto al pedir PIN, al iniciar sesión con PIN, durante la operación y al cerrarse/expirar la sesión de PIN).
- *   - Acceso con PIN de 4 dígitos de RONOS con cierre automático de sesión cada 10 minutos.
+ *   - Acceso de la cajera/empacador con PIN de 4 dígitos de RONOS con cierre automático de sesión tras 10 minutos sin actividad (inactividad). Cualquier interacción real de la cajera reinicia el contador de 10 minutos.
  *   - Identificación principal por Nombre + Apellido/Inicial del cliente (si existe), acompañado de #Check y Clave de Plataforma.
  *   - Blindaje estricto contra colisión de nombres desde que entran por KDS: alerta de alto énfasis si existen dos órdenes con el mismo nombre exacto, el mismo primer nombre con apellido diferente, o nombres fonética/visualmente muy parecidos.
  *   - Mide automáticamente el tiempo de preparación en cocina desde que llega al KDS hasta que el cocinero borra la orden (READY).
- *   - Cuando el cocinero borra la orden delivery del KDS (pasa de IN_KITCHEN a READY para el estante de empaque), la tableta reproduce automáticamente el aviso de voz ("Order #100, is ready! Please pack. / Orden #100, ¡ya está! Por favor empacar.") reutilizando los audios de órdenes precargados en Supabase Storage.
+ *   - Cuando el cocinero borra la orden delivery del KDS (pasa de IN_KITCHEN a READY para el estante de empaque), la tableta reproduce automáticamente la campana aguda prolongada de Delivery y el aviso de voz ("Order #100, is ready! Please pack. / Orden #100, ¡ya está! Favor de empacar.") usando las voces calibradas de Supabase Storage.
  *   - Flujo directo sin pasos innecesarios: 1. CONFIRMAR ORDEN COMPLETA Y SELLADA -> 2. Blindar la entrega.
- * @dataFlow Toast -> /api/delivery-armor/orders -> tableta vertical fullscreen + locutor KDS (/api/order-ready/tts + /api/order-ready/announcement-tts) -> /api/delivery-armor/audit -> Supabase.
+ * @dataFlow Toast -> /api/delivery-armor/orders -> tableta fullscreen + locutor KDS (/api/order-ready/tts) -> /api/delivery-armor/audit -> Supabase.
  * @notes Piloto Slauson (#7) y LA Central (#6).
  */
 
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createClient } from '@supabase/supabase-js'
 import { useLanguage } from '@/lib/i18n'
 import {
   AlertTriangle,
@@ -36,12 +37,17 @@ import {
   VolumeX
 } from 'lucide-react'
 
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
+const supabase = supabaseUrl && supabaseAnonKey ? createClient(supabaseUrl, supabaseAnonKey) : null
+
 const STORES = [
   { id: 7, name: 'Slauson (#7)' },
   { id: 6, name: 'LA Central (#6)' }
 ]
 
-const PIN_SESSION_DURATION_MS = 10 * 60 * 1000 // 10 minutos
+const PIN_INACTIVITY_TIMEOUT_MS = 10 * 60 * 1000 // 10 minutos sin actividad para cerrar sesión del PIN de la cajera
+const PIN_SESSION_DURATION_MS = PIN_INACTIVITY_TIMEOUT_MS
 const KDS_POLL_INTERVAL_MS = 8000 // 8 segundos para detectar al instante cuando el cocinero borra del KDS
 const UNCLAIMED_DRIVER_TIMEOUT_MS = 2 * 60 * 60 * 1000 // 2 horas (120 min) sin que ningún chofer recoja la orden
 
@@ -63,6 +69,7 @@ interface Packer {
   id: number
   storeId: number
   expiresAt: number
+  sessionToken: string
 }
 
 interface Item {
@@ -356,17 +363,46 @@ export default function BlindajeDeliveryEmpaquePage() {
   const [success, setSuccess] = useState<string | null>(null)
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [isMuted, setIsMuted] = useState(false)
+  const [selectedVoice, setSelectedVoice] = useState<'Kore' | 'Aoede' | 'Zephyr' | 'Puck' | 'Orus'>('Kore')
   const [activeAnnouncement, setActiveAnnouncement] = useState<string | null>(null)
   const [showHistory, setShowHistory] = useState(false)
 
-  // Referencias del motor de audio y rastreo de KDS
+  // Referencias del motor de audio, rastreo de KDS e inactividad de sesión PIN (10 min sin actividad)
   const audioCtxRef = useRef<AudioContext | null>(null)
-  const clipCacheRef = useRef<Map<string, Promise<string | null>>>(new Map())
+  const clipCacheRef = useRef<Map<string, Promise<ArrayBuffer | null>>>(new Map())
   const audioQueueRef = useRef<Order[]>([])
   const isPlayingAudioRef = useRef<boolean>(false)
   const prevKdsStatusRef = useRef<Map<string, 'IN_KITCHEN' | 'READY'>>(new Map())
   const announcedGuidsRef = useRef<Set<string>>(new Set())
   const initializedStoreRef = useRef<number | null>(null)
+  const packerRef = useRef<Packer | null>(null)
+  const lastActivityAtRef = useRef<number>(Date.now())
+  const sessionExpiresAtRef = useRef<number>(0)
+  const lastStorageSyncAtRef = useRef<number>(0)
+
+  useEffect(() => {
+    packerRef.current = packer
+  }, [packer])
+
+  // Sincronizar la voz configurada en Supabase (order_ready_settings) igual que Order Ready Board
+  useEffect(() => {
+    let mounted = true
+    ;(async () => {
+      try {
+        const res = await fetch('/api/order-ready/settings', { cache: 'no-store' })
+        const data = await res.json()
+        const v = data?.settings?.voice
+        if (mounted && (v === 'Kore' || v === 'Aoede' || v === 'Zephyr' || v === 'Puck' || v === 'Orus')) {
+          setSelectedVoice(v)
+        }
+      } catch {
+        // Mantiene Kore por defecto
+      }
+    })()
+    return () => {
+      mounted = false
+    }
+  }, [])
 
   // Desbloquear AudioContext en cualquier toque o tecla
   const unlockAudio = useCallback(() => {
@@ -439,19 +475,19 @@ export default function BlindajeDeliveryEmpaquePage() {
     })
   }, [unlockAudio])
 
-  // Descargar y cachear en memoria un clip de audio (orden precargada o frase complementaria)
-  const getCachedAudioUrl = useCallback((cacheKey: string, endpointUrl: string): Promise<string | null> => {
+  // Descargar y cachear en memoria el ArrayBuffer WAV desde Supabase Storage (evita fallos de fetch a blob:)
+  const getCachedAudioBuffer = useCallback((cacheKey: string, endpointUrl: string): Promise<ArrayBuffer | null> => {
     const existing = clipCacheRef.current.get(cacheKey)
     if (existing) return existing
 
-    const job = (async (): Promise<string | null> => {
+    const job = (async (): Promise<ArrayBuffer | null> => {
       for (let attempt = 0; attempt < 2; attempt++) {
         try {
           const res = await fetch(endpointUrl, { signal: AbortSignal.timeout(9000) })
           if (!res.ok) throw new Error(`HTTP ${res.status}`)
-          const blob = await res.blob()
-          if (blob.size < 500) throw new Error('Empty audio blob')
-          return URL.createObjectURL(blob)
+          const arrayBuf = await res.arrayBuffer()
+          if (arrayBuf.byteLength < 500) throw new Error('Empty audio buffer')
+          return arrayBuf
         } catch {
           if (attempt === 0) await new Promise(r => setTimeout(r, 300))
         }
@@ -464,21 +500,21 @@ export default function BlindajeDeliveryEmpaquePage() {
     return job
   }, [])
 
-  // Precargar los 2 clips de sufijo ("Please pack." y "Favor de empacar.") al montar
+  // Precargar los 2 clips de sufijo ("Please pack." y "Favor de empacar.") con exactamente la misma voz y timbre de Supabase
   useEffect(() => {
-    void getCachedAudioUrl(
-      'suffix:en:please-pack',
-      '/api/order-ready/announcement-tts?text=Please%20pack.&lang=en&voice=Kore'
+    void getCachedAudioBuffer(
+      `suffix:${selectedVoice}:en:please-pack:kds2`,
+      `/api/order-ready/announcement-tts?text=Please%20pack.&lang=en&voice=${selectedVoice}&v=kds2`
     )
-    void getCachedAudioUrl(
-      'suffix:es:favor-de-empacar',
-      '/api/order-ready/announcement-tts?text=Favor%20de%20empacar.&lang=es&voice=Kore'
+    void getCachedAudioBuffer(
+      `suffix:${selectedVoice}:es:favor-de-empacar:kds2`,
+      `/api/order-ready/announcement-tts?text=Favor%20de%20empacar.&lang=es&voice=${selectedVoice}&v=kds2`
     )
-  }, [getCachedAudioUrl])
+  }, [getCachedAudioBuffer, selectedVoice])
 
-  // Reproducir un Blob URL usando Web Audio API (primario) o HTMLAudioElement (respaldo)
-  const playClipUrl = useCallback(
-    (url: string): Promise<boolean> =>
+  // Reproducir un ArrayBuffer WAV de Supabase usando Web Audio API directamente (o HTMLAudioElement de respaldo)
+  const playClipBuffer = useCallback(
+    (arrayBuf: ArrayBuffer): Promise<boolean> =>
       new Promise(async resolve => {
         let done = false
         const finish = (ok: boolean) => {
@@ -491,46 +527,45 @@ export default function BlindajeDeliveryEmpaquePage() {
         try {
           unlockAudio()
           const ctx = audioCtxRef.current
-          if (ctx) {
+          if (ctx && arrayBuf.byteLength > 44) {
             if (ctx.state === 'suspended') {
               await ctx.resume().catch(() => {})
             }
-            const res = await fetch(url)
-            if (res.ok) {
-              const arrayBuf = await res.arrayBuffer()
-              if (arrayBuf.byteLength > 44) {
-                const audioBuffer = await ctx.decodeAudioData(arrayBuf.slice(0))
-                const source = ctx.createBufferSource()
-                source.buffer = audioBuffer
-                source.connect(ctx.destination)
-                const timer = setTimeout(() => {
-                  try {
-                    source.stop()
-                  } catch {}
-                  finish(false)
-                }, 12000)
-                source.onended = () => {
-                  clearTimeout(timer)
-                  finish(true)
-                }
-                source.start(0)
-                return
-              }
+            const audioBuffer = await ctx.decodeAudioData(arrayBuf.slice(0))
+            const source = ctx.createBufferSource()
+            source.buffer = audioBuffer
+            source.connect(ctx.destination)
+            const timer = setTimeout(() => {
+              try {
+                source.stop()
+              } catch {}
+              finish(false)
+            }, 12000)
+            source.onended = () => {
+              clearTimeout(timer)
+              finish(true)
             }
+            source.start(0)
+            return
           }
         } catch {
           // Fallback a HTMLAudioElement
         }
 
         try {
-          const audio = new Audio(url)
-          audio.onended = () => finish(true)
-          audio.onerror = () => finish(false)
+          const blobUrl = URL.createObjectURL(new Blob([arrayBuf.slice(0)], { type: 'audio/wav' }))
+          const audio = new Audio(blobUrl)
+          const cleanup = (ok: boolean) => {
+            URL.revokeObjectURL(blobUrl)
+            finish(ok)
+          }
+          audio.onended = () => cleanup(true)
+          audio.onerror = () => cleanup(false)
           setTimeout(() => {
             if (!done) audio.pause()
-            finish(false)
+            cleanup(false)
           }, 12000)
-          audio.play().catch(() => finish(false))
+          audio.play().catch(() => cleanup(false))
         } catch {
           finish(false)
         }
@@ -580,7 +615,7 @@ export default function BlindajeDeliveryEmpaquePage() {
     })
   }, [])
 
-  // Reproducir aviso completo: Campana aguda prolongada + "Order #100, is ready! Please pack." + "Orden #100, ¡ya está! Favor de empacar."
+  // Reproducir aviso completo con las mismas voces de Supabase Storage: Campana aguda prolongada + "Order #100, is ready! Please pack." + "Orden #100, ¡ya está! Favor de empacar."
   const speakOrderReadyToPack = useCallback(
     async (targetOrder: Order) => {
       const rawDigits = targetOrder.ticket.replace(/\D/g, '')
@@ -597,34 +632,34 @@ export default function BlindajeDeliveryEmpaquePage() {
           return
         }
 
-        // Descargar en paralelo el audio pregrabado de la orden (#num) en EN y ES + los sufijos de empaque
-        const [orderEnUrl, packEnUrl, orderEsUrl, packEsUrl] = await Promise.all([
-          getCachedAudioUrl(`order:en:${num}`, `/api/order-ready/tts?n=${num}&lang=en&voice=Kore`),
-          getCachedAudioUrl(
-            'suffix:en:please-pack',
-            '/api/order-ready/announcement-tts?text=Please%20pack.&lang=en&voice=Kore'
+        // Descargar en paralelo el audio de la orden en Supabase Storage (v4/{voice}/{lang}/{num}.wav) + los sufijos ("Please pack." / "Favor de empacar.") con la misma voz
+        const [orderEnBuf, packEnBuf, orderEsBuf, packEsBuf] = await Promise.all([
+          getCachedAudioBuffer(`order:${selectedVoice}:en:${num}`, `/api/order-ready/tts?n=${num}&lang=en&voice=${selectedVoice}`),
+          getCachedAudioBuffer(
+            `suffix:${selectedVoice}:en:please-pack:kds2`,
+            `/api/order-ready/announcement-tts?text=Please%20pack.&lang=en&voice=${selectedVoice}&v=kds2`
           ),
-          getCachedAudioUrl(`order:es:${num}`, `/api/order-ready/tts?n=${num}&lang=es&voice=Kore`),
-          getCachedAudioUrl(
-            'suffix:es:favor-de-empacar',
-            '/api/order-ready/announcement-tts?text=Favor%20de%20empacar.&lang=es&voice=Kore'
+          getCachedAudioBuffer(`order:${selectedVoice}:es:${num}`, `/api/order-ready/tts?n=${num}&lang=es&voice=${selectedVoice}`),
+          getCachedAudioBuffer(
+            `suffix:${selectedVoice}:es:favor-de-empacar:kds2`,
+            `/api/order-ready/announcement-tts?text=Favor%20de%20empacar.&lang=es&voice=${selectedVoice}&v=kds2`
           )
         ])
 
-        // 1. Inglés: "Order #100, is ready!" + "Please pack."
-        const okEnOrder = orderEnUrl ? await playClipUrl(orderEnUrl) : false
+        // 1. Inglés desde Supabase Storage: "Order #100, is ready!" + "Please pack."
+        const okEnOrder = orderEnBuf ? await playClipBuffer(orderEnBuf) : false
         if (okEnOrder) {
-          if (packEnUrl) await playClipUrl(packEnUrl)
+          if (packEnBuf) await playClipBuffer(packEnBuf)
         } else {
           await speakBrowserFallback(num, 'en')
         }
 
-        await new Promise(r => setTimeout(r, 180))
+        await new Promise(r => setTimeout(r, 150))
 
-        // 2. Español: "Orden #100, ¡ya está!" + "Favor de empacar."
-        const okEsOrder = orderEsUrl ? await playClipUrl(orderEsUrl) : false
+        // 2. Español desde Supabase Storage: "Orden #100, ¡ya está!" + "Favor de empacar."
+        const okEsOrder = orderEsBuf ? await playClipBuffer(orderEsBuf) : false
         if (okEsOrder) {
-          if (packEsUrl) await playClipUrl(packEsUrl)
+          if (packEsBuf) await playClipBuffer(packEsBuf)
         } else {
           await speakBrowserFallback(num, 'es')
         }
@@ -634,7 +669,7 @@ export default function BlindajeDeliveryEmpaquePage() {
         }, 3500)
       }
     },
-    [getCachedAudioUrl, playChime, playClipUrl, speakBrowserFallback]
+    [getCachedAudioBuffer, playChime, playClipBuffer, selectedVoice, speakBrowserFallback]
   )
 
   const processAudioQueue = useCallback(async () => {
@@ -713,17 +748,33 @@ export default function BlindajeDeliveryEmpaquePage() {
     }
   }, [ensureFullscreen, unlockAudio])
 
-  // Al cerrar sesión o terminar los 10 minutos, regresa a la pantalla de PIN manteniendo Fullscreen
+  // Al cerrar sesión, cumplir 10 minutos sin actividad, o cuando otra persona inicia sesión en la tienda, regresa a la pantalla de PIN manteniendo Fullscreen
   const logout = useCallback(
-    (expiredNotice?: string) => {
+    (expiredNotice?: string, skipServerDelete?: boolean) => {
+      const currentPacker = packerRef.current
+      if (currentPacker && !skipServerDelete) {
+        fetch('/api/delivery-armor/verify-pin', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            storeId: currentPacker.storeId,
+            sessionToken: currentPacker.sessionToken
+          })
+        }).catch(() => {})
+      }
       ;[
         'blindaje_packer_pin',
         'blindaje_packer_name',
         'blindaje_packer_title',
         'blindaje_packer_user_id',
         'blindaje_packer_store',
-        'blindaje_packer_expires_at'
+        'blindaje_packer_expires_at',
+        'blindaje_packer_last_activity_at',
+        'blindaje_packer_session_token'
       ].forEach(key => sessionStorage.removeItem(key))
+      sessionExpiresAtRef.current = 0
+      lastActivityAtRef.current = 0
+      packerRef.current = null
       setPacker(null)
       setPin('')
       if (expiredNotice) {
@@ -734,7 +785,68 @@ export default function BlindajeDeliveryEmpaquePage() {
     [ensureFullscreen]
   )
 
-  // Restaurar sesión si sigue dentro de los 10 minutos
+  const handleSessionReplacedError = useCallback(
+    (replacedByName?: string | null) => {
+      const cleanName = String(replacedByName || '').trim()
+      const msg = cleanName
+        ? t('blindaje_delivery.pin_session_replaced', { name: cleanName })
+        : t('blindaje_delivery.pin_session_replaced_generic')
+      logout(msg, true)
+    },
+    [logout, t]
+  )
+
+  // Reiniciar el contador de 10 minutos sin actividad ante cualquier interacción real de la cajera en la tableta
+  const recordCashierActivity = useCallback((): boolean => {
+    const activePacker = packerRef.current
+    if (!activePacker) return false
+    const now = Date.now()
+    const currentExpiry = sessionExpiresAtRef.current
+    const inactiveMs = lastActivityAtRef.current > 0 ? now - lastActivityAtRef.current : 0
+    if ((currentExpiry > 0 && now >= currentExpiry) || inactiveMs >= PIN_INACTIVITY_TIMEOUT_MS) {
+      logout(t('blindaje_delivery.pin_session_expired'))
+      return false
+    }
+    const nextExpiresAt = now + PIN_INACTIVITY_TIMEOUT_MS
+    const prevSync = lastStorageSyncAtRef.current
+    lastActivityAtRef.current = now
+    sessionExpiresAtRef.current = nextExpiresAt
+    if (now - prevSync >= 500) {
+      lastStorageSyncAtRef.current = now
+      setRemainingMs(PIN_INACTIVITY_TIMEOUT_MS)
+      try {
+        sessionStorage.setItem('blindaje_packer_last_activity_at', String(now))
+        sessionStorage.setItem('blindaje_packer_expires_at', String(nextExpiresAt))
+      } catch {
+        // ignore storage quota
+      }
+    }
+    // Sincronizar actividad con el servidor cada 20 segundos y verificar que nadie más haya iniciado sesión en la tienda
+    if (now - prevSync >= 20_000 && activePacker.sessionToken) {
+      fetch('/api/delivery-armor/verify-pin', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          storeId: activePacker.storeId,
+          sessionToken: activePacker.sessionToken
+        })
+      })
+        .then(async res => {
+          if (res.status === 409) {
+            const payload = await res.json().catch(() => ({}))
+            if (payload.replacedBy) {
+              handleSessionReplacedError(payload.replacedBy)
+            } else if (payload.expired) {
+              logout(t('blindaje_delivery.pin_session_expired'), true)
+            }
+          }
+        })
+        .catch(() => {})
+    }
+    return true
+  }, [logout, handleSessionReplacedError, t])
+
+  // Restaurar sesión si sigue dentro de los 10 minutos sin actividad y sigue siendo la sesión única activa de la tienda
   useEffect(() => {
     try {
       const savedStore = Number(sessionStorage.getItem('blindaje_packer_store'))
@@ -742,46 +854,150 @@ export default function BlindajeDeliveryEmpaquePage() {
       const name = sessionStorage.getItem('blindaje_packer_name') || ''
       const id = Number(sessionStorage.getItem('blindaje_packer_user_id'))
       const expiresAt = Number(sessionStorage.getItem('blindaje_packer_expires_at'))
+      const savedLastActivity = Number(sessionStorage.getItem('blindaje_packer_last_activity_at'))
+      const savedSessionToken = sessionStorage.getItem('blindaje_packer_session_token') || ''
+      const now = Date.now()
+      const lastActivity =
+        Number.isFinite(savedLastActivity) && savedLastActivity > 0
+          ? savedLastActivity
+          : expiresAt - PIN_INACTIVITY_TIMEOUT_MS
       if (
         savedStore === storeId &&
         /^\d{4}$/.test(savedPin) &&
         name &&
         id &&
+        savedSessionToken &&
         Number.isFinite(expiresAt) &&
-        expiresAt > Date.now()
+        expiresAt > now &&
+        now - lastActivity < PIN_INACTIVITY_TIMEOUT_MS
       ) {
-        setPacker({
+        lastActivityAtRef.current = lastActivity
+        sessionExpiresAtRef.current = expiresAt
+        const restored: Packer = {
           pin: savedPin,
           name,
           title: sessionStorage.getItem('blindaje_packer_title') || t('blindaje_delivery.default_staff'),
           id,
           storeId,
-          expiresAt
-        })
-        setRemainingMs(expiresAt - Date.now())
+          expiresAt,
+          sessionToken: savedSessionToken
+        }
+        packerRef.current = restored
+        setPacker(restored)
+        setRemainingMs(expiresAt - now)
       } else {
-        logout()
+        logout(undefined, true)
       }
     } catch {
       setPacker(null)
     }
   }, [storeId, logout, t])
 
-  // Reloj de cierre automático de sesión de PIN cada 10 minutos
+  // Candado de Sesión Única por Tienda (Mismo dispositivo vía BroadcastChannel/localStorage + Entre tabletas vía Supabase Realtime)
   useEffect(() => {
     if (!packer) return
-    const checkExpiry = () => {
-      const left = packer.expiresAt - Date.now()
-      if (left <= 0) {
+
+    const onExternalSessionOpened = (incomingStoreId: number, incomingToken: string, incomingName?: string) => {
+      const current = packerRef.current
+      if (!current) return
+      if (Number(incomingStoreId) === current.storeId && incomingToken && incomingToken !== current.sessionToken) {
+        handleSessionReplacedError(incomingName)
+      }
+    }
+
+    // 1. BroadcastChannel + localStorage storage event (pestañas/ventanas en el mismo dispositivo)
+    let bc: BroadcastChannel | null = null
+    try {
+      if (typeof BroadcastChannel !== 'undefined') {
+        bc = new BroadcastChannel('blindaje_delivery_session')
+        bc.onmessage = event => {
+          const d = event?.data
+          if (d?.type === 'SESSION_OPENED') {
+            onExternalSessionOpened(Number(d.storeId), String(d.sessionToken || ''), d.employeeName)
+          }
+        }
+      }
+    } catch {
+      // ignore if BroadcastChannel unsupported
+    }
+
+    const onStorageEvent = (event: StorageEvent) => {
+      if (event.key === `blindaje_active_session_${storeId}` && event.newValue) {
+        try {
+          const parsed = JSON.parse(event.newValue)
+          onExternalSessionOpened(Number(parsed.storeId), String(parsed.sessionToken || ''), parsed.employeeName)
+        } catch {
+          // ignore
+        }
+      }
+    }
+    window.addEventListener('storage', onStorageEvent)
+
+    // 2. Supabase Realtime Broadcast (entre distintas tabletas o computadoras en la misma tienda)
+    const channel = supabase
+      ? supabase
+          .channel(`blindaje-delivery-session-${storeId}`)
+          .on('broadcast', { event: 'session_opened' }, payload => {
+            const p = payload?.payload as any
+            if (p) {
+              onExternalSessionOpened(Number(p.storeId), String(p.sessionToken || ''), p.employeeName)
+            }
+          })
+          .subscribe()
+      : null
+
+    return () => {
+      window.removeEventListener('storage', onStorageEvent)
+      try {
+        bc?.close()
+      } catch {}
+      if (channel && supabase) {
+        supabase.removeChannel(channel)
+      }
+    }
+  }, [packer, storeId, handleSessionReplacedError])
+
+  // Reloj y sensores de inactividad: cierra la sesión del PIN de la cajera tras 10 minutos sin actividad
+  useEffect(() => {
+    if (!packer) return
+    const checkInactivityExpiry = () => {
+      const now = Date.now()
+      const left = sessionExpiresAtRef.current - now
+      const inactiveMs = now - lastActivityAtRef.current
+      if (left <= 0 || inactiveMs >= PIN_INACTIVITY_TIMEOUT_MS) {
         logout(t('blindaje_delivery.pin_session_expired'))
       } else {
         setRemainingMs(left)
       }
     }
-    checkExpiry()
-    const interval = window.setInterval(checkExpiry, 1000)
-    return () => window.clearInterval(interval)
-  }, [packer, logout, t])
+    const onUserActivity = () => {
+      recordCashierActivity()
+    }
+    const onVisibilityOrFocus = () => {
+      checkInactivityExpiry()
+    }
+
+    checkInactivityExpiry()
+    const interval = window.setInterval(checkInactivityExpiry, 1000)
+    window.addEventListener('pointerdown', onUserActivity, { passive: true })
+    window.addEventListener('touchstart', onUserActivity, { passive: true })
+    window.addEventListener('mousedown', onUserActivity, { passive: true })
+    window.addEventListener('keydown', onUserActivity, { passive: true })
+    window.addEventListener('scroll', onUserActivity, { passive: true, capture: true })
+    document.addEventListener('visibilitychange', onVisibilityOrFocus)
+    window.addEventListener('focus', onVisibilityOrFocus)
+
+    return () => {
+      window.clearInterval(interval)
+      window.removeEventListener('pointerdown', onUserActivity)
+      window.removeEventListener('touchstart', onUserActivity)
+      window.removeEventListener('mousedown', onUserActivity)
+      window.removeEventListener('keydown', onUserActivity)
+      window.removeEventListener('scroll', onUserActivity, true)
+      document.removeEventListener('visibilitychange', onVisibilityOrFocus)
+      window.removeEventListener('focus', onVisibilityOrFocus)
+    }
+  }, [packer, logout, recordCashierActivity, t])
 
   // Cargar historial de órdenes ya anunciadas en esta sesión por sucursal
   useEffect(() => {
@@ -815,6 +1031,17 @@ export default function BlindajeDeliveryEmpaquePage() {
       const response = await fetch(`/api/delivery-armor/orders?storeId=${storeId}`, { cache: 'no-store' })
       const data = await response.json()
       if (!response.ok || !data.ok) throw new Error(data.error || t('blindaje_delivery.error_fetch_orders'))
+
+      // Verificar si otra persona inició sesión en esta misma tienda (no puede haber 2 sesiones abiertas)
+      const currentPacker = packerRef.current
+      if (
+        currentPacker &&
+        data.activeSession &&
+        data.activeSession.sessionToken &&
+        data.activeSession.sessionToken !== currentPacker.sessionToken
+      ) {
+        handleSessionReplacedError(data.activeSession.employeeName)
+      }
       const next: Order[] = (data.orders || []).map((raw: any) => ({
         guid: raw.orderGuid,
         ticket: raw.displayNumber,
@@ -931,7 +1158,7 @@ export default function BlindajeDeliveryEmpaquePage() {
     } finally {
       setLoading(false)
     }
-  }, [storeId, packer, persistAnnouncedGuid, enqueueOrderAnnouncement, t])
+  }, [storeId, packer, persistAnnouncedGuid, enqueueOrderAnnouncement, handleSessionReplacedError, t])
 
   // Monitoreo continuo del KDS cada 8 segundos (incluso cuando está en la pantalla de PIN)
   useEffect(() => {
@@ -1012,23 +1239,82 @@ export default function BlindajeDeliveryEmpaquePage() {
       })
       const data = await response.json()
       if (!response.ok || !data.ok) throw new Error(data.error || t('blindaje_delivery.error_invalid_pin'))
-      const expiresAt = Date.now() + PIN_SESSION_DURATION_MS
+      const now = Date.now()
+      const expiresAt = now + PIN_INACTIVITY_TIMEOUT_MS
+      const sessionToken = String(data.sessionToken || `${storeId}-${now}`)
       const next: Packer = {
         pin,
         name: data.employee.fullName,
         title: data.employee.jobTitle,
         id: data.employee.id,
         storeId,
-        expiresAt
+        expiresAt,
+        sessionToken
       }
+      lastActivityAtRef.current = now
+      sessionExpiresAtRef.current = expiresAt
+      lastStorageSyncAtRef.current = now
+      packerRef.current = next
       setPacker(next)
-      setRemainingMs(PIN_SESSION_DURATION_MS)
+      setRemainingMs(PIN_INACTIVITY_TIMEOUT_MS)
       sessionStorage.setItem('blindaje_packer_pin', pin)
       sessionStorage.setItem('blindaje_packer_name', next.name)
       sessionStorage.setItem('blindaje_packer_title', next.title)
       sessionStorage.setItem('blindaje_packer_user_id', String(next.id))
       sessionStorage.setItem('blindaje_packer_store', String(storeId))
+      sessionStorage.setItem('blindaje_packer_last_activity_at', String(now))
       sessionStorage.setItem('blindaje_packer_expires_at', String(expiresAt))
+      sessionStorage.setItem('blindaje_packer_session_token', sessionToken)
+
+      // Notificar instantáneamente a cualquier otra pestaña o tableta abierta en esta misma tienda para cerrar su sesión
+      try {
+        localStorage.setItem(
+          `blindaje_active_session_${storeId}`,
+          JSON.stringify({
+            storeId,
+            sessionToken,
+            employeeName: next.name,
+            ts: now
+          })
+        )
+      } catch {}
+      try {
+        if (typeof BroadcastChannel !== 'undefined') {
+          const bc = new BroadcastChannel('blindaje_delivery_session')
+          bc.postMessage({
+            type: 'SESSION_OPENED',
+            storeId,
+            sessionToken,
+            employeeName: next.name
+          })
+          bc.close()
+        }
+      } catch {}
+      if (supabase) {
+        try {
+          const ch = supabase.channel(`blindaje-delivery-session-${storeId}`)
+          ch.subscribe(status => {
+            if (status === 'SUBSCRIBED') {
+              void ch
+                .send({
+                  type: 'broadcast',
+                  event: 'session_opened',
+                  payload: {
+                    storeId,
+                    sessionToken,
+                    employeeName: next.name
+                  }
+                })
+                .finally(() => {
+                  setTimeout(() => {
+                    supabase.removeChannel(ch)
+                  }, 1500)
+                })
+            }
+          })
+        } catch {}
+      }
+
       setPin('')
       void ensureFullscreen()
     } catch (caught: any) {
@@ -1086,6 +1372,7 @@ export default function BlindajeDeliveryEmpaquePage() {
         matchedItems: ['CONTROL:foodComplete', 'CONTROL:drinksComplete', 'CONTROL:bagCountCorrect', 'CONTROL:bagSealed'],
         matchCompleted: true,
         packer_pin: packer.pin,
+        session_token: packer.sessionToken,
         quick_checks: {
           ...COMPLETED_CHECKS,
           platformOrderKey: targetOrder.platformOrderKey,
@@ -1103,17 +1390,30 @@ export default function BlindajeDeliveryEmpaquePage() {
       })
     })
     const data = await response.json()
-    if (!response.ok || !data.ok) throw new Error(data.error || t('blindaje_delivery.error_save_packing'))
+    if (!response.ok || !data.ok) {
+      const errMsg = String(data.error || '')
+      if (errMsg.startsWith('SESSION_REPLACED:')) {
+        handleSessionReplacedError(errMsg.replace('SESSION_REPLACED:', ''))
+        return
+      }
+      if (errMsg === 'SESSION_EXPIRED') {
+        logout(t('blindaje_delivery.pin_session_expired'), true)
+        return
+      }
+      throw new Error(errMsg || t('blindaje_delivery.error_save_packing'))
+    }
   }
 
   async function markReady() {
     if (!order || !packer) return
+    if (!recordCashierActivity()) return
     void ensureFullscreen()
     setBusy(true)
     setError(null)
     setSuccess(null)
     try {
       await savePackingRecord(order)
+      if (!packerRef.current) return
       setSuccess(`${t('blindaje_delivery.success_packed')}: ${order.customer} (Check #${order.ticket})`)
       await fetchOrders()
     } catch (caught: any) {
@@ -1125,6 +1425,7 @@ export default function BlindajeDeliveryEmpaquePage() {
 
   async function release() {
     if (!order || !packer) return
+    if (!recordCashierActivity()) return
     void ensureFullscreen()
     const isPackedForRelease =
       order.audit?.status === 'ready' || (order.audit?.status === 'unclaimed' && order.audit?.bags != null)
@@ -1147,6 +1448,7 @@ export default function BlindajeDeliveryEmpaquePage() {
           order_guid: order.guid,
           store_id: storeId,
           handoff_pin: packer.pin,
+          session_token: packer.sessionToken,
           courier_name: order.assignedDriverHint || t('blindaje_delivery.verified_driver'),
           courier_verified: true,
           verification_method: order.platform === 'DOORDASH' ? 'DOORDASH_QR' : 'PLATFORM_ORDER_ID',
@@ -1155,7 +1457,18 @@ export default function BlindajeDeliveryEmpaquePage() {
         })
       })
       const data = await response.json()
-      if (!response.ok || !data.ok) throw new Error(data.error || t('blindaje_delivery.error_release_order'))
+      if (!response.ok || !data.ok) {
+        const errMsg = String(data.error || '')
+        if (errMsg.startsWith('SESSION_REPLACED:')) {
+          handleSessionReplacedError(errMsg.replace('SESSION_REPLACED:', ''))
+          return
+        }
+        if (errMsg === 'SESSION_EXPIRED') {
+          logout(t('blindaje_delivery.pin_session_expired'), true)
+          return
+        }
+        throw new Error(errMsg || t('blindaje_delivery.error_release_order'))
+      }
       setSuccess(
         `${t('blindaje_delivery.order_of')} ${order.customer} (#${order.ticket}) ${t('blindaje_delivery.success_released')} ${data.audit.handed_by_ronos_name}.`
       )

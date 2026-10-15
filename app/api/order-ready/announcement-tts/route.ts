@@ -42,7 +42,7 @@ export async function GET(request: Request) {
       headers: {
         'Content-Type': 'audio/wav',
         'Content-Length': String(wav.length),
-        'Cache-Control': 'public, max-age=2592000, immutable'
+        'Cache-Control': 'public, max-age=3600, must-revalidate'
       }
     })
   } catch (err: any) {
@@ -71,7 +71,7 @@ export async function POST(request: Request) {
       headers: {
         'Content-Type': 'audio/wav',
         'Content-Length': String(wav.length),
-        'Cache-Control': 'public, max-age=2592000, immutable'
+        'Cache-Control': 'public, max-age=3600, must-revalidate'
       }
     })
   } catch (err: any) {

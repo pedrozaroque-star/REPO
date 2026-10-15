@@ -47,6 +47,8 @@ export async function POST(req: NextRequest) {
       packer_name,
       packerPin,
       packer_pin,
+      sessionToken,
+      session_token,
       quickChecks,
       quick_checks,
       expectedBagCount,
@@ -89,6 +91,7 @@ export async function POST(req: NextRequest) {
       packerRonosUserId: packerRonosUserId || packer_employee_id ? Number(packerRonosUserId || packer_employee_id) : undefined,
       packerRonosName: packerRonosName || packer_name,
       packerPin: packerPin || packer_pin,
+      sessionToken: sessionToken || session_token || undefined,
       quickChecks: quickChecks || quick_checks || {},
       expectedBagCount: Number(expectedBagCount || expected_bag_count || 1),
       confirmedBagCount: Number(confirmedBagCount || confirmed_bag_count || 1),
@@ -103,10 +106,12 @@ export async function POST(req: NextRequest) {
     })
   } catch (err: any) {
     console.error('Error en POST /api/delivery-armor/audit:', err)
+    const msg = String(err?.message || '')
+    const isSessionError = msg.startsWith('SESSION_REPLACED:') || msg === 'SESSION_EXPIRED'
     return NextResponse.json({
       ok: false,
-      error: err?.message || 'Error al guardar progreso de auditoría'
-    }, { status: 500 })
+      error: msg || 'Error al guardar progreso de auditoría'
+    }, { status: isSessionError ? 409 : 500 })
   }
 }
 
@@ -122,6 +127,8 @@ export async function PUT(req: NextRequest) {
       handedByRonosName,
       handedPin,
       handoff_pin,
+      sessionToken,
+      session_token,
       driverName,
       courier_name,
       driverConfirmed,
@@ -156,6 +163,7 @@ export async function PUT(req: NextRequest) {
       handedByRonosUserId: Number(handedByRonosUserId || 0),
       handedByRonosName: handedByRonosName || 'Colaborador',
       handedPin: targetPin,
+      sessionToken: sessionToken || session_token || undefined,
       driverName: driverName || courier_name,
       driverConfirmed: driverConfirmed !== undefined ? !!driverConfirmed : !!courier_verified,
       verificationMethod: targetMethod as 'DOORDASH_QR' | 'PLATFORM_ORDER_ID' | 'APP_ORDER_SCREEN',
@@ -169,9 +177,11 @@ export async function PUT(req: NextRequest) {
     })
   } catch (err: any) {
     console.error('Error en PUT /api/delivery-armor/audit:', err)
+    const msg = String(err?.message || '')
+    const isSessionError = msg.startsWith('SESSION_REPLACED:') || msg === 'SESSION_EXPIRED'
     return NextResponse.json({
       ok: false,
-      error: err?.message || 'Error al registrar entrega al chofer'
-    }, { status: 500 })
+      error: msg || 'Error al registrar entrega al chofer'
+    }, { status: isSessionError ? 409 : 500 })
   }
 }

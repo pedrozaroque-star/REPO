@@ -1729,7 +1729,7 @@ function OrderReadyBoardContent() {
         },
         (payload) => {
           const newRow = payload.new as any
-          if (newRow && newRow.voice && isValidVoice(newRow.voice)) {
+          if (newRow && newRow.id === 'global' && newRow.voice && isValidVoice(newRow.voice)) {
             setSelectedVoice(newRow.voice)
             if (typeof window !== 'undefined') {
               localStorage.setItem('teg_order_ready_voice', newRow.voice)

@@ -675,6 +675,174 @@ export async function verifyRonosPin(storeId: number, pin: string): Promise<{
   }
 }
 
+export const PIN_INACTIVITY_TIMEOUT_MS = 10 * 60 * 1000 // 10 minutos sin actividad
+
+export interface ActiveStorePinSession {
+  storeId: number
+  sessionToken: string
+  employeeUserId: number
+  employeeName: string
+  jobTitle: string
+  startedAt: string
+  lastActivityAt: string
+  expiresAt: string
+}
+
+const activeSessionMemoryCache = new Map<number, ActiveStorePinSession>()
+
+function getStoreSessionRowId(storeId: number): string {
+  return `delivery_armor_session_store_${storeId}`
+}
+
+/**
+ * Obtiene la sesión única activa de PIN para una sucursal desde PostgreSQL.
+ * Si ya cumplió 10 minutos sin actividad, devuelve null.
+ */
+export async function getActiveStorePinSession(storeId: number): Promise<ActiveStorePinSession | null> {
+  try {
+    const rowId = getStoreSessionRowId(storeId)
+    const { data, error } = await supabaseAdmin
+      .from('order_ready_settings')
+      .select('updated_by')
+      .eq('id', rowId)
+      .maybeSingle()
+
+    if (error || !data || !data.updated_by) {
+      activeSessionMemoryCache.delete(storeId)
+      return null
+    }
+    const parsed = JSON.parse(data.updated_by) as ActiveStorePinSession
+    if (!parsed || !parsed.sessionToken || new Date(parsed.expiresAt).getTime() <= Date.now()) {
+      activeSessionMemoryCache.delete(storeId)
+      return null
+    }
+    activeSessionMemoryCache.set(storeId, parsed)
+    return parsed
+  } catch {
+    const mem = activeSessionMemoryCache.get(storeId)
+    if (mem && new Date(mem.expiresAt).getTime() > Date.now()) return mem
+    return null
+  }
+}
+
+/**
+ * Registra una nueva sesión exclusiva de PIN para una sucursal.
+ * Sobreescribe e invalida inmediatamente cualquier otra sesión abierta en esa misma tienda (no puede haber 2 sesiones abiertas).
+ */
+export async function registerExclusiveStorePinSession(params: {
+  storeId: number
+  employeeUserId: number
+  employeeName: string
+  jobTitle: string
+}): Promise<ActiveStorePinSession> {
+  const now = Date.now()
+  const sessionToken =
+    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : `${params.storeId}-${now}-${Math.random().toString(36).slice(2, 10)}`
+
+  const session: ActiveStorePinSession = {
+    storeId: params.storeId,
+    sessionToken,
+    employeeUserId: params.employeeUserId,
+    employeeName: params.employeeName,
+    jobTitle: params.jobTitle,
+    startedAt: new Date(now).toISOString(),
+    lastActivityAt: new Date(now).toISOString(),
+    expiresAt: new Date(now + PIN_INACTIVITY_TIMEOUT_MS).toISOString()
+  }
+
+  activeSessionMemoryCache.set(params.storeId, session)
+
+  try {
+    const rowId = getStoreSessionRowId(params.storeId)
+    await supabaseAdmin
+      .from('order_ready_settings')
+      .upsert(
+        {
+          id: rowId,
+          voice: 'Kore',
+          voice_language: 'bilingual',
+          updated_by: JSON.stringify(session),
+          updated_at: new Date(now).toISOString()
+        },
+        { onConflict: 'id' }
+      )
+  } catch (err) {
+    console.warn('No se pudo persistir sesión exclusiva en PostgreSQL:', err)
+  }
+
+  return session
+}
+
+/**
+ * Valida que el sessionToken siga siendo la única sesión activa de la tienda y renueva los 10 minutos por actividad.
+ */
+export async function touchActiveStorePinSession(
+  storeId: number,
+  sessionToken: string
+): Promise<{
+  valid: boolean
+  replacedBy?: string
+  expired?: boolean
+  session?: ActiveStorePinSession
+}> {
+  const current = await getActiveStorePinSession(storeId)
+  if (!current) {
+    return { valid: false, expired: true }
+  }
+  if (current.sessionToken !== sessionToken) {
+    return {
+      valid: false,
+      replacedBy: current.employeeName
+    }
+  }
+  const now = Date.now()
+  const updated: ActiveStorePinSession = {
+    ...current,
+    lastActivityAt: new Date(now).toISOString(),
+    expiresAt: new Date(now + PIN_INACTIVITY_TIMEOUT_MS).toISOString()
+  }
+  activeSessionMemoryCache.set(storeId, updated)
+  try {
+    const rowId = getStoreSessionRowId(storeId)
+    await supabaseAdmin
+      .from('order_ready_settings')
+      .upsert(
+        {
+          id: rowId,
+          voice: 'Kore',
+          voice_language: 'bilingual',
+          updated_by: JSON.stringify(updated),
+          updated_at: new Date(now).toISOString()
+        },
+        { onConflict: 'id' }
+      )
+  } catch {
+    // ignore transient DB failure
+  }
+  return { valid: true, session: updated }
+}
+
+/**
+ * Cierra la sesión activa de la sucursal únicamente si coincide con el sessionToken que solicita el cierre.
+ */
+export async function clearActiveStorePinSession(storeId: number, sessionToken?: string): Promise<boolean> {
+  try {
+    const current = await getActiveStorePinSession(storeId)
+    if (current && sessionToken && current.sessionToken !== sessionToken) {
+      // Otra persona ya inició sesión; no borrar la nueva sesión activa
+      return false
+    }
+    activeSessionMemoryCache.delete(storeId)
+    const rowId = getStoreSessionRowId(storeId)
+    await supabaseAdmin.from('order_ready_settings').delete().eq('id', rowId)
+    return true
+  } catch {
+    return false
+  }
+}
+
 /**
  * Detecta si un ítem corresponde a una bebida o producto refrigerado/líquido que requiere atención de la cajera
  */
@@ -1135,6 +1303,7 @@ export async function saveAuditProgress(params: {
   packerRonosUserId?: number
   packerRonosName?: string
   packerPin?: string
+  sessionToken?: string
   quickChecks: DeliveryQuickChecks
   expectedBagCount: number
   confirmedBagCount: number
@@ -1157,6 +1326,7 @@ export async function saveAuditProgress(params: {
     photoOpenUrl,
     photoSealedUrl,
     packerPin,
+    sessionToken,
     quickChecks,
     expectedBagCount,
     confirmedBagCount,
@@ -1164,6 +1334,16 @@ export async function saveAuditProgress(params: {
     riskReasons,
     evidencePolicy
   } = params
+
+  if (sessionToken) {
+    const sessionCheck = await touchActiveStorePinSession(storeId, sessionToken)
+    if (!sessionCheck.valid) {
+      if (sessionCheck.replacedBy) {
+        throw new Error(`SESSION_REPLACED:${sessionCheck.replacedBy}`)
+      }
+      throw new Error('SESSION_EXPIRED')
+    }
+  }
 
   if (!Number.isInteger(expectedBagCount) || expectedBagCount < 1 || expectedBagCount > 20) {
     throw new Error('La cantidad esperada de bolsas es inválida.')
@@ -1250,6 +1430,7 @@ export async function confirmHandoffToDriver(params: {
   handedByRonosUserId: number
   handedByRonosName: string
   handedPin: string
+  sessionToken?: string
   driverName?: string
   driverConfirmed: boolean
   verificationMethod: CourierVerificationMethod
@@ -1260,12 +1441,23 @@ export async function confirmHandoffToDriver(params: {
     toastOrderGuid,
     storeId,
     handedPin,
+    sessionToken,
     driverName,
     driverConfirmed,
     verificationMethod,
     courierOrderReference,
     livePickupConfirmed
   } = params
+
+  if (sessionToken) {
+    const sessionCheck = await touchActiveStorePinSession(storeId, sessionToken)
+    if (!sessionCheck.valid) {
+      if (sessionCheck.replacedBy) {
+        throw new Error(`SESSION_REPLACED:${sessionCheck.replacedBy}`)
+      }
+      throw new Error('SESSION_EXPIRED')
+    }
+  }
 
   const verifiedEmployee = await verifyRonosPin(storeId, handedPin)
   if (!verifiedEmployee.valid || !verifiedEmployee.employeeUserId || !verifiedEmployee.fullName) {

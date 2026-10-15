@@ -15,7 +15,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { fetchOffPremiseOrders } from '@/lib/delivery-armor'
+import { fetchOffPremiseOrders, getActiveStorePinSession } from '@/lib/delivery-armor'
 
 export async function GET(req: NextRequest) {
   try {
@@ -28,7 +28,10 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ ok: false, error: 'Parámetro storeId inválido.' }, { status: 400 })
     }
 
-    const result = await fetchOffPremiseOrders(storeId, businessDate)
+    const [result, activeSession] = await Promise.all([
+      fetchOffPremiseOrders(storeId, businessDate),
+      getActiveStorePinSession(storeId)
+    ])
 
     return NextResponse.json({
       ok: true,
@@ -36,7 +39,8 @@ export async function GET(req: NextRequest) {
       storeName: result.storeName,
       businessDate: result.businessDate,
       orders: result.orders,
-      totalOrders: result.orders.length
+      totalOrders: result.orders.length,
+      activeSession
     })
   } catch (err: any) {
     console.error('Error en /api/delivery-armor/orders:', err)

@@ -36,6 +36,8 @@ const BUCKET = 'order-ready-tts'
 const DEFAULT_VOICE: VoiceId = 'Kore'
 const CACHE_VERSION = 'v4'
 const MODELS = [
+  'gemini-3.8-flash-lite-tts',
+  'gemini-3.8-flash-tts',
   'gemini-2.5-flash-preview-tts',
   'gemini-2.5-pro-preview-tts'
 ]
@@ -332,9 +334,14 @@ export async function getOrderReadySpeech(n: string, lang: TtsLang, voice: Voice
 }
 
 /**
- * Genera o recupera desde caché de Storage el audio de un anuncio personalizado para el comedor de Tacos Gavilan.
+ * Genera o recupera desde caché de Storage el audio de un anuncio personalizado para el comedor/empaque de Tacos Gavilan.
  */
-export async function getAnnouncementSpeech(text: string, lang: TtsLang, voice: VoiceId = DEFAULT_VOICE): Promise<Buffer> {
+export async function getAnnouncementSpeech(
+  text: string,
+  lang: TtsLang,
+  voice: VoiceId = DEFAULT_VOICE,
+  forceRegenerate = false
+): Promise<Buffer> {
   const clean = text.trim().slice(0, 500)
   if (!clean) throw new Error('Texto de anuncio vacío')
 
@@ -342,18 +349,20 @@ export async function getAnnouncementSpeech(text: string, lang: TtsLang, voice: 
   const hash = createHash('md5').update(`${selectedVoice}:${lang}:${clean.toLowerCase()}`).digest('hex')
   const path = `announcements/${selectedVoice}/${lang}/${hash}.wav`
 
-  // 1. Intentar caché en Storage
-  const hit = await supabaseAdmin.storage.from(BUCKET).download(path)
-  if (hit.data) return Buffer.from(await hit.data.arrayBuffer())
+  // 1. Intentar caché en Storage (salvo si se fuerza regeneración)
+  if (!forceRegenerate) {
+    const hit = await supabaseAdmin.storage.from(BUCKET).download(path)
+    if (hit.data) return Buffer.from(await hit.data.arrayBuffer())
+  }
 
   const existing = inflight.get(path)
-  if (existing) return existing
+  if (existing && !forceRegenerate) return existing
 
   const job = (async () => {
     const stylePrompt =
       lang === 'es'
-        ? 'clear, polite, professional, warm and pleasant dining room public announcement for restaurant customers'
-        : 'clear, polite, professional, warm and pleasant dining room public announcement for restaurant customers'
+        ? 'cheerful, energetic, warm and enthusiastic Mexican restaurant counter announcement, speaking with a warm natural Mexican Spanish accent'
+        : 'cheerful, upbeat, warm and friendly counter announcement'
     const wav = await generateTextWithGemini(clean, lang, selectedVoice, stylePrompt)
     try {
       await ensureBucket()
