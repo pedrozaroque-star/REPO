@@ -49,6 +49,9 @@ const originalLoad = (Module as unknown as { _load: (...args: unknown[]) => unkn
       Linking: {
         openURL: async () => true,
       },
+      Alert: {
+        alert: () => {},
+      },
     }
   }
   return originalLoad.apply(this, [request, parent, isMain])
@@ -59,6 +62,10 @@ const {
   getAuthoritativeStoreById,
   isStoreCurrentlyOpen,
   getStoreOpenStatus,
+  calculateDistanceMiles,
+  sortStoresByDistance,
+  buildStorePhoneUrl,
+  buildStoreNavigationUrls,
 } = require('../../gavilan-app/lib/constants') as typeof import('../../gavilan-app/lib/constants')
 
 const {
@@ -370,7 +377,58 @@ async function runComplianceSuite(): Promise<void> {
     )
   }
 
-  console.log('   ✅ Catálogo de 15 sucursales, horarios y sincronización DB verificados.\n')
+  // 2.4 Verificación de Localizador GPS, Ordenamiento por Cercanía, Marcador tel: y Navegación Apple Maps / Google Maps
+  const lynwoodStore = getAuthoritativeStoreById(14)
+  const zeroDist = calculateDistanceMiles(
+    lynwoodStore.latitude,
+    lynwoodStore.longitude,
+    lynwoodStore.latitude,
+    lynwoodStore.longitude
+  )
+  check(zeroDist === 0, `Distancia GPS a la misma coordenada debe ser 0 (actual: ${zeroDist})`)
+
+  const sortedFromLynwood = sortStoresByDistance(
+    ALL_STORES,
+    lynwoodStore.latitude,
+    lynwoodStore.longitude
+  )
+  check(
+    sortedFromLynwood.length === 15 && sortedFromLynwood[0].id === 14,
+    'Al ubicarse en Lynwood #14, sortStoresByDistance debe colocar a Lynwood (#14) en primer lugar (#1 más cercana)'
+  )
+  for (let i = 1; i < sortedFromLynwood.length; i++) {
+    check(
+      sortedFromLynwood[i].distanceMiles >= sortedFromLynwood[i - 1].distanceMiles,
+      'sortStoresByDistance debe ordenar de menor a mayor distancia en millas'
+    )
+  }
+
+  for (const store of ALL_STORES) {
+    const telUrl = buildStorePhoneUrl(store.phone)
+    check(
+      Boolean(telUrl && telUrl.startsWith('tel:+1') && telUrl.length === 16),
+      `buildStorePhoneUrl debe generar tel:+1XXXXXXXXXX para ${store.name} (actual: ${telUrl})`
+    )
+
+    const iosNav = buildStoreNavigationUrls(store, 'ios')
+    check(
+      iosNav.providerLabel === 'Apple Maps' &&
+        iosNav.primaryUrl.startsWith('maps://?daddr=') &&
+        iosNav.primaryUrl.includes('dirflg=d') &&
+        iosNav.fallbackUrl.startsWith('https://maps.apple.com/?daddr='),
+      `En iOS la navegación debe usar Apple Maps para ${store.name}`
+    )
+
+    const androidNav = buildStoreNavigationUrls(store, 'android')
+    check(
+      androidNav.providerLabel === 'Google Maps' &&
+        androidNav.primaryUrl.startsWith('google.navigation:q=') &&
+        androidNav.fallbackUrl.startsWith('https://www.google.com/maps/dir/?api=1&destination='),
+      `En Android la navegación debe usar Google Maps para ${store.name}`
+    )
+  }
+
+  console.log('   ✅ Catálogo de 15 sucursales, GPS Haversine, marcador tel:, Apple Maps / Google Maps y sincronización DB verificados.\n')
 
   // =========================================================================
   // 3. CONFIGURACIÓN EXPO / EAS / ANDROID API 36 / PERMISOS
@@ -393,14 +451,17 @@ async function runComplianceSuite(): Promise<void> {
     `Versiones deben coincidir en 2.1.0 (package.json=${pkgJson.version}, app.json=${appJson.expo.version})`
   )
   check(
-    !pkgJson.dependencies['expo-location'],
-    'expo-location no debe existir en dependencies de package.json'
+    Boolean(pkgJson.dependencies['expo-location']),
+    'expo-location debe existir en dependencies de package.json para el localizador GPS de sucursales'
   )
   check(
-    !JSON.stringify(appJson).includes('NSLocationWhenInUseUsageDescription') &&
-      !JSON.stringify(appJson).includes('ACCESS_FINE_LOCATION') &&
-      !JSON.stringify(appJson).includes('ACCESS_COARSE_LOCATION'),
-    'app.json no debe declarar permisos de ubicación iOS ni Android'
+    Boolean(appJson.expo.ios?.infoPlist?.NSLocationWhenInUseUsageDescription) &&
+      Array.isArray(appJson.expo.android?.permissions) &&
+      appJson.expo.android.permissions.includes('android.permission.ACCESS_COARSE_LOCATION') &&
+      appJson.expo.android.permissions.includes('android.permission.ACCESS_FINE_LOCATION') &&
+      !JSON.stringify(appJson).includes('NSLocationAlways') &&
+      !JSON.stringify(appJson).includes('ACCESS_BACKGROUND_LOCATION'),
+    'app.json debe declarar únicamente permisos de ubicación en primer plano (WhenInUse) para el localizador GPS y nunca ubicación en segundo plano'
   )
   check(
     appJson.expo.ios?.supportsTablet === false,
@@ -432,6 +493,10 @@ async function runComplianceSuite(): Promise<void> {
     !dotEnv.includes('localhost') && dotEnv.includes('https://teg-modernizado.vercel.app'),
     '.env no debe apuntar a localhost y debe usar HTTPS de producción'
   )
+  check(
+    appJson.expo.experiments?.baseUrl === '/app',
+    'app.json debe tener experiments.baseUrl = "/app" para servir el bundle web bajo /app'
+  )
 
   console.log('   ✅ Configuración de compilación, permisos y API 36 verificada.\n')
 
@@ -449,6 +514,9 @@ async function runComplianceSuite(): Promise<void> {
     '#3 Most liked',
     'Official Toast POS catalog',
     'orders.prices:read',
+    'curbside',
+    'Curbside',
+    'CURBSIDE',
   ]
 
   function scanDirForForbiddenTerms(dirPath: string): void {
@@ -471,6 +539,24 @@ async function runComplianceSuite(): Promise<void> {
 
   scanDirForForbiddenTerms(GAVILAN_APP_ROOT)
 
+  const gavilanI18nContent = fs.readFileSync(
+    path.join(GAVILAN_APP_ROOT, 'lib/i18n.tsx'),
+    'utf8'
+  )
+  const forbiddenI18nRedirects = [
+    'Toast Online',
+    'order.online',
+    'frame-ancestors',
+    'noopener,noreferrer',
+    'CSP',
+  ]
+  for (const term of forbiddenI18nRedirects) {
+    check(
+      !gavilanI18nContent.includes(term),
+      `gavilan-app/lib/i18n.tsx no debe mostrar leyendas técnicas ni referencias a "${term}"`
+    )
+  }
+
   const requiredLegalRoutes = [
     '/app',
     '/app/privacy',
@@ -487,6 +573,19 @@ async function runComplianceSuite(): Promise<void> {
       `Ruta pública ${route} debe responder HTTP 200 (recibido: ${res.status})`
     )
   }
+
+  const indexHtmlRes = await fetch(`${LOCAL_WEB_BASE}/app/index.html`)
+  const indexHtmlText = await indexHtmlRes.text()
+  const scriptMatch = indexHtmlText.match(/src="(\/app\/_expo\/static\/js\/web\/entry-[^"]+\.js)"/)
+  check(
+    indexHtmlRes.status === 200 && Boolean(scriptMatch?.[1]),
+    'public/app/index.html debe apuntar a /app/_expo/static/js/web/entry-*.js'
+  )
+  const bundleRes = await fetch(`${LOCAL_WEB_BASE}${scriptMatch![1]}`)
+  check(
+    bundleRes.status === 200,
+    `Bundle JS web ${scriptMatch![1]} debe responder HTTP 200`
+  )
 
   console.log('   ✅ Higiene de textos UI y rutas públicas HTTP 200 verificadas.\n')
 
