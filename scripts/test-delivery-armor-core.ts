@@ -360,6 +360,13 @@ assert.equal(
   false,
   'Las órdenes nunca deben seleccionarse automáticamente: solo manualmente por la cajera'
 )
+assert.equal(
+  empaqueSource.includes('data-order-detail="true"') &&
+    empaqueSource.includes('data-order-card="true"') &&
+    empaqueSource.includes("setSelected(prev => (prev === value.guid ? null : value.guid))"),
+  true,
+  'Debe quitar la selección al presionar en cualquier espacio en blanco o al volver a tocar la tarjeta seleccionada'
+)
 
 import {
   registerExclusiveStorePinSession,

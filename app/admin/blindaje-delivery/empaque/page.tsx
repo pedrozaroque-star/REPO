@@ -1782,7 +1782,22 @@ export default function BlindajeDeliveryEmpaquePage() {
   return (
     <main
       ref={rootRef}
-      onClick={() => void ensureFullscreen()}
+      onClick={event => {
+        void ensureFullscreen()
+        const target = event.target as HTMLElement | null
+        if (!target) return
+        if (
+          target.closest(
+            '[data-order-detail="true"], [data-order-card="true"], button, input, select, textarea, a, label'
+          )
+        ) {
+          return
+        }
+        if (selected) {
+          setSelected(null)
+          setError(null)
+        }
+      }}
       className="fixed inset-0 z-[100] w-screen h-screen overflow-y-auto bg-slate-100 text-slate-950 pb-8"
     >
       <header className="sticky top-0 z-30 bg-white border-b px-5 py-3.5 shadow-sm">
@@ -1941,9 +1956,10 @@ export default function BlindajeDeliveryEmpaquePage() {
                   <button
                     key={value.guid}
                     type="button"
+                    data-order-card="true"
                     onClick={() => {
                       void ensureFullscreen()
-                      setSelected(value.guid)
+                      setSelected(prev => (prev === value.guid ? null : value.guid))
                       setError(null)
                       setSuccess(null)
                     }}
@@ -2005,7 +2021,7 @@ export default function BlindajeDeliveryEmpaquePage() {
                 </div>
               </div>
             ) : (
-              <div className="space-y-4">
+              <div data-order-detail="true" className="space-y-4">
                 {/* ALERTA DE ALTO ÉNFASIS SI HAY COLISIÓN DE NOMBRE DUPLICADO O MUY PARECIDO DESDE KDS */}
                 {currentCollisions.length > 0 && (
                   <section className="rounded-3xl border-4 border-red-600 bg-red-50 overflow-hidden shadow-lg">
