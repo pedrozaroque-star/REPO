@@ -33,17 +33,29 @@ export default function MobileDeleteAccountPage(): React.JSX.Element {
   const [deletedSuccess, setDeletedSuccess] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
+  const normalizeTenDigitPhone = (raw: string): string => {
+    const digits = raw.replace(/\D/g, '')
+    if (digits.length === 11 && digits.startsWith('1')) {
+      return digits.slice(1)
+    }
+    return digits
+  }
+
   const handleSendOtp = async (e: React.FormEvent) => {
     e.preventDefault()
     setErrorMessage(null)
-    if (!phone.trim()) return
+    const cleanPhone = normalizeTenDigitPhone(phone)
+    if (cleanPhone.length !== 10) {
+      setErrorMessage('Please enter a valid 10-digit US phone number.')
+      return
+    }
 
     setLoading(true)
     try {
       const res = await fetch('/api/mobile/auth/send-otp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone: phone.trim() }),
+        body: JSON.stringify({ phone: cleanPhone }),
       })
       const data = await res.json()
       if (!res.ok) {
@@ -60,17 +72,19 @@ export default function MobileDeleteAccountPage(): React.JSX.Element {
   const handleVerifyAndDelete = async (e: React.FormEvent) => {
     e.preventDefault()
     setErrorMessage(null)
-    if (!phone.trim() || !otpCode.trim()) return
+    const cleanPhone = normalizeTenDigitPhone(phone)
+    if (cleanPhone.length !== 10 || !otpCode.trim()) return
 
     setLoading(true)
     try {
       const verifyRes = await fetch('/api/mobile/auth/verify-otp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone: phone.trim(), code: otpCode.trim() }),
+        body: JSON.stringify({ phone: cleanPhone, code: otpCode.trim() }),
       })
       const verifyData = await verifyRes.json()
-      if (!verifyRes.ok || !verifyData.sessionToken) {
+      const jwtToken = verifyData.token || verifyData.sessionToken
+      if (!verifyRes.ok || !jwtToken) {
         throw new Error(verifyData.error || 'Invalid verification code')
       }
 
@@ -78,7 +92,7 @@ export default function MobileDeleteAccountPage(): React.JSX.Element {
         method: 'DELETE',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${verifyData.sessionToken}`,
+          Authorization: `Bearer ${jwtToken}`,
         },
       })
       const deleteData = await deleteRes.json()
