@@ -207,20 +207,54 @@ export default function PacketDetailPage() {
   const [publishMessage, setPublishMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null)
   
   useEffect(() => {
-    fetchPacket()
+    fetchPacket(true)
   }, [packetId])
 
-  const fetchPacket = async () => {
-    setLoading(true)
+  const fetchPacket = async (autoCheckToast = false) => {
+    if (autoCheckToast) setLoading(true)
     setError(null)
     try {
       const res = await fetch(`/api/accounting/packets/${packetId}`)
       if (!res.ok) throw new Error('Failed to fetch packet')
       const data = await res.json()
-      setPacket(data.packet)
+      const pkt: Packet = data.packet
+      setPacket(pkt)
+      setLoading(false)
+
+      // Si al entrar al paquete el depósito en banco aún aparece en $0.00, verificar automáticamente
+      // en segundo plano si la sucursal ya lo capturó en Toast POS Cash Management:
+      if (
+        autoCheckToast &&
+        pkt &&
+        pkt.status !== 'published' &&
+        Number(pkt.cash_deposit || 0) <= 0 &&
+        Number(pkt.expected_cash || 0) > 0
+      ) {
+        try {
+          const syncRes = await fetch(`/api/accounting/packets`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              startDate: pkt.business_date,
+              endDate: pkt.business_date,
+              storeIds: [pkt.store_id],
+            }),
+          })
+          if (syncRes.ok) {
+            const refreshedRes = await fetch(`/api/accounting/packets/${packetId}`)
+            if (refreshedRes.ok) {
+              const refreshedData = await refreshedRes.json()
+              if (refreshedData.packet) {
+                setPacket(refreshedData.packet)
+              }
+            }
+          }
+        } catch {
+          // Silent background check
+        }
+      }
     } catch (err: any) {
       setError(err.message || 'Error fetching packet')
-    } finally {
       setLoading(false)
     }
   }
@@ -357,7 +391,7 @@ export default function PacketDetailPage() {
   const isBalanced = Math.abs((packet.journal_total_debits || 0) - (packet.journal_total_credits || 0)) < 0.01
 
   // Cash Deposit Status (Strictly from Toast POS Cash Management)
-  const isDepositPending = Number(packet.cash_deposit || 0) === 0 && Number(packet.expected_cash || 0) > 0
+  const isDepositPending = Number(packet.cash_deposit || 0) <= 0 && Number(packet.expected_cash || 0) > 0
   const isDepositToast = Number(packet.cash_deposit || 0) > 0
 
   const validation = (packet.qb_sync_response as any)?.validation
@@ -405,6 +439,36 @@ export default function PacketDetailPage() {
           </Badge>
         </div>
       </div>
+
+      {/* Pending Toast Bank Deposit Lock Banner */}
+      {isDepositPending && packet.status !== 'published' && (
+        <div className="bg-amber-500/10 border-2 border-amber-500/40 dark:border-amber-500/30 rounded-2xl p-6 shadow-sm">
+          <div className="flex items-start gap-4">
+            <div className="p-3 bg-amber-500 text-white rounded-xl shrink-0 mt-0.5 shadow-md">
+              <AlertCircle className="w-6 h-6 stroke-[2.5]" />
+            </div>
+            <div className="space-y-2 flex-1">
+              <div className="flex items-center justify-between gap-4 flex-wrap">
+                <h3 className="text-base font-black tracking-tight text-amber-950 dark:text-amber-200 flex items-center gap-2">
+                  <span>
+                    {language === 'en'
+                      ? '🔒 Publishing Locked — Bank Deposit Pending in Toast POS'
+                      : '🔒 Publicación Bloqueada — Depósito en Banco Pendiente en Toast POS'}
+                  </span>
+                  <span className="bg-amber-500 text-white text-xs font-black px-2.5 py-0.5 rounded-full">
+                    {language === 'en' ? 'Expected:' : 'Esperado:'} {formatCurrency(packet.expected_cash)}
+                  </span>
+                </h3>
+              </div>
+              <p className="text-sm text-slate-700 dark:text-slate-300 leading-relaxed font-medium">
+                {language === 'en'
+                  ? `This store has an Expected Cash of ${formatCurrency(packet.expected_cash)}, but the Bank Deposit ($0.00) has not yet been recorded in Toast POS Cash Management. Publishing to QuickBooks is locked until the deposit is entered in Toast POS. Once entered in Toast, click "Recalculate" to pull the deposit and unlock publishing.`
+                  : `Esta sucursal tiene un Efectivo Esperado de ${formatCurrency(packet.expected_cash)}, pero aún no ha registrado su Depósito en Banco ($0.00) en Toast POS. La publicación a QuickBooks está bloqueada hasta que el depósito esté capturado en Toast POS. En cuanto la sucursal lo registre en Toast, presiona "Recalcular" para actualizar el depósito y habilitar la publicación.`}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Open Orders Alert Card (Step 11 Operational Warning) */}
       {hasOpenOrders && packet.status !== 'published' && (
@@ -546,11 +610,15 @@ export default function PacketDetailPage() {
           <Button 
             variant="primary" 
             onClick={handlePublish} 
-            disabled={publishing || !isBalanced} 
+            disabled={publishing || !isBalanced || isDepositPending} 
             title={
-              !isBalanced 
-                ? (t('accounting.label_unbalanced') || 'La póliza debe estar balanceada para publicar')
-                : undefined
+              isDepositPending
+                ? (language === 'en'
+                    ? 'Cannot publish to QuickBooks until the Bank Deposit is recorded in Toast POS'
+                    : 'No se puede publicar a QuickBooks hasta que el Depósito en Banco esté registrado en Toast POS')
+                : !isBalanced 
+                  ? (t('accounting.label_unbalanced') || 'La póliza debe estar balanceada para publicar')
+                  : undefined
             }
           >
             {publishing ? (
@@ -558,7 +626,9 @@ export default function PacketDetailPage() {
             ) : (
               <Send className="mr-2 h-4 w-4" />
             )}
-            {t('accounting.btn_publish') || 'Publicar a QuickBooks'}
+            {isDepositPending
+              ? (language === 'en' ? 'Publish Locked (Pending Toast Deposit)' : 'Publicación Bloqueada (Falta Depósito en Toast)')
+              : (t('accounting.btn_publish') || 'Publicar a QuickBooks')}
           </Button>
         )}
 
@@ -1042,6 +1112,17 @@ export default function PacketDetailPage() {
                     {formatCurrency(packet.cash_over_short)}
                   </span>
                 </div>
+
+                {isDepositPending && packet.status !== 'published' && (
+                  <div className="mt-2 p-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-700/70 text-xs text-amber-800 dark:text-amber-300 font-semibold flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
+                    <span>
+                      {language === 'en'
+                        ? 'Publishing to QuickBooks is locked until the Bank Deposit is entered in Toast POS.'
+                        : 'Publicación a QuickBooks bloqueada hasta que se capture el Depósito en Banco en Toast POS.'}
+                    </span>
+                  </div>
+                )}
 
                 {/* Detalle de Cash Payouts si existen */}
                 {cashPayoutsTotal > 0 && payoutLines.length > 0 && (

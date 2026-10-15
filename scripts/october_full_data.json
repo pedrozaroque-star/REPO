@@ -1,10 +1,10 @@
 {
-  "totalHours": 98.2,
+  "totalHours": 107.6,
   "rows": [
     {
       "date": "01-Oct-2026",
       "time": "4:56 AM - 6:30 AM & 7:20 PM - 8:45 PM",
-      "hours": 3.0,
+      "hours": 3,
       "badges": [
         "Toast KDS Modifiers",
         "Orden Diaria Automática",
@@ -30,7 +30,7 @@
     {
       "date": "03-Oct-2026",
       "time": "9:44 AM - 12:45 PM",
-      "hours": 3.0,
+      "hours": 3,
       "badges": [
         "Seguridad y Bloqueo App",
         "Extracción Sobrantes Ago-Sep",
@@ -101,7 +101,7 @@
     {
       "date": "08-Oct-2026",
       "time": "12:01 AM - 3:30 AM & 12:45 PM - 6:15 PM",
-      "hours": 9.0,
+      "hours": 9,
       "badges": [
         "App Móvil Clientes (/app)",
         "Toast Cash Management",
@@ -130,7 +130,7 @@
     {
       "date": "10-Oct-2026",
       "time": "12:28 PM - 8:15 PM",
-      "hours": 8.0,
+      "hours": 8,
       "badges": [
         "Web tacosgavilan.com (38 Págs)",
         "Plan Maestro Migración v4.0",
@@ -145,7 +145,7 @@
     {
       "date": "11-Oct-2026",
       "time": "—",
-      "hours": 0.0,
+      "hours": 0,
       "badges": [
         "Descanso Operativo Dev",
         "Lynwood #14"
@@ -186,42 +186,77 @@
     },
     {
       "date": "14-Oct-2026",
-      "time": "5:47 AM - 7:35 AM",
-      "hours": 2.0,
+      "time": "5:47 AM - 12:43 PM & 1:47 PM - 2:11 PM & 4:44 PM - 6:10 PM & 7:11 PM - 8:42 PM",
+      "hours": 10.2,
       "badges": [
-        "Contabilidad Cron 6:30 AM & 12049",
-        "4,000 Audios Kore Web Audio API",
-        "Blindaje Delivery 100% Bilingüe",
-        "Web Modal Tiendas & Fiesta Platter",
+        "Módulo Gavilan POS Offline/KDS",
+        "Contabilidad Cron 6:30 AM & Candado Toast",
+        "App Clientes WebView & Páginas Legales",
+        "Blindaje Delivery PIN Único & 10m",
+        "Order Ready #429 Órdenes Mixtas",
+        "Web Modal Tiendas & Agua de Piña",
         "Lynwood #14"
       ],
-      "descEs": "• <strong>Contabilidad — Cron Diario Automático (6:30 AM PST) y Paridad 100% Línea por Línea</strong>: Programación del cron job diario (/api/cron/sync-accounting) en lotes paralelos para generar automáticamente los paquetes de las 15 tiendas al cierre comercial, calibrando el crédito a cuenta 12049 en cheques sobrepagados (Overpaid Check) y el memo de Tip Out contra Cohesion en vivo.<br>• <strong>Order Ready Board — 4,000 Audios Kore Bilingües y Motor Web Audio API</strong>: Culminación de la biblioteca de 4,000 locuciones neuronales Kore (folios 1 al 2,000 en Inglés y Español), motor de reproducción con Web Audio API y deduplicación exacta de toque.<br>• <strong>Blindaje Delivery — Auto-Expiración (+2h), Backfill de Chofer Uber e i18n 100% Bilingüe</strong>: Expiración automática de órdenes no recogidas tras 2 horas, extracción automática del nombre del repartidor de Uber Eats desde Toast API, retiro definitivo de UI de expediente/fotos y traducción 100% bilingüe (ES/EN) con selector de idioma en tableta.<br>• <strong>Sitio Web tacosgavilan.com — Modal de Sucursales, Guía Fiesta Platter y Marcos Dorados</strong>: Presentación de detalles de sucursal en modal interactivo bilingüe, tarjetas de tiendas con marco ámbar-dorado sutil, tabla limpia oficial de Fiesta Platters y ajuste responsivo del footer móvil.<br>• <strong>Evaluación Estratégica de POS Propio</strong>: Análisis de viabilidad y arquitectura para independizar a futuro el ecosistema POS de Toast.",
-      "descEn": "• <strong>Accounting — Automated 6:30 AM PST Daily Cron & 100% Line-by-Line Parity</strong>: Scheduled parallel-batch daily packet generation cron (/api/cron/sync-accounting) for all 15 stores and calibrated overpaid check 12049 credit and Tip Out memo formatting against live Cohesion packets.<br>• <strong>Order Ready Board — 4,000 Bilingual Kore Audios & Web Audio API Engine</strong>: Completed the 4,000-file Kore neural voice library (orders 1–2,000 in EN & ES), Web Audio API low-latency playback engine, and exact tap deduplication.<br>• <strong>Blindaje Delivery — Auto-Expire (+2h), Uber Driver Backfill & 100% Bilingual i18n</strong>: Auto-expiration of unclaimed orders after 2 hours, automatic Uber Eats driver name backfill from Toast API, removal of legacy dossier/photo UI, and complete ES/EN translation with fullscreen tablet language switcher.<br>• <strong>tacosgavilan.com — Interactive Store Details Modal, Fiesta Platter Guide & Golden Frames</strong>: Rendered Store Details as an interactive bilingual modal across Home/Locations, added subtle warm golden-amber card frames, aligned Fiesta Platter breakdown with official brochure, and fixed mobile footer clearance.<br>• <strong>In-House POS Strategic Assessment</strong>: Evaluated feasibility, cost savings, and roadmap for replacing Toast POS hardware and payment processing long-term."
+      "descEs": "• <strong>Nuevo Módulo 'Gavilan POS' — Ecosistema QSR Propio, Offline-First y Cocina 100% Sin Papel (/gavilan-pos)</strong>: Diseño y construcción del módulo estratégico Gavilan POS en modo claro de alto contraste (pestaña independiente), con persistencia local Offline-First (IndexedDB + BroadcastChannel + cola de sincronización Supabase), soporte de baterías de respaldo UPS, cocina 100% sin papel mediante KDS HDMI duplicado (sin impresora de comandas), Drive-Thru con pantalla exterior OCB y pre-fire en vivo, Kiosco de Auto-Pedido, Pagos Divididos (Split Tender con EBT CalFresh RMP + Tarjeta/Efectivo), Cancelaciones con Control de Merma (Waste) y PIN Gerencial, Sangrías de Caja Fuerte y Reloj Checador con Descansos de California.<br>• <strong>Contabilidad — Cron Diario (6:30 AM PST), Paridad en LA Broadway/Rialto y Candado Estricto de Depósito Toast</strong>: Programación del cron job diario (/api/cron/sync-accounting) en lotes paralelos para las 15 sucursales, calibración de cuenta 12049 en cheques sobrepagados (evitando doble conteo de cambio del día siguiente), alineación 1:1 de la regla de órdenes abiertas con Cohesion (resolviendo LA Broadway y Rialto) e implementación del candado en UI y backend (HTTP 422) que bloquea la publicación a QuickBooks mientras el depósito en Toast POS esté en $0.00.<br>• <strong>App Móvil Clientes (/app y gavilan-app) — WebView Directo Toast Online y Cumplimiento App Store / Google Play</strong>: Inglés nativo por defecto con selector ES/EN, fotos S3 e ícono del águila en barra inferior, ocultamiento del catálogo local y pestaña Bag para unificar el pedido en 1 solo paso sobre Toast Online (WebView con seguridad de dominios lib/webview-security.ts) y creación de las 4 páginas públicas bilingües de cumplimiento (/app/privacy, /app/terms, /app/support y /app/delete-account).<br>• <strong>Blindaje Delivery — Sesión Única por Tienda, Auto-Cierre 10 Min, Locución Homóloga Kore y Auto-Expiración (+2h)</strong>: Cierre automático del PIN de la cajera tras 10 minutos de inactividad, sesión única exclusiva por tienda (cerrando sesiones previas al ingresar otro PIN), locución bilingüe 'Please pack / Favor de empacar' con la misma voz neuronal v4/Kore y campana aguda prolongada, auto-expiración (+2h), backfill de chofer Uber Eats y traducción 100% bilingüe.<br>• <strong>Preparador KDS & Order Ready Board — 4,000 Audios Kore y Corrección de Órdenes Mixtas (Caso Orden #429 Slauson)</strong>: Culminación de los 4,000 audios Kore bilingües con Web Audio API y corrección en lib/order-ready-sync.ts para mantener órdenes mixtas (cocina caliente + postre/separador, como la #429 de Slauson) en estado IN_PROGRESS hasta que todos los platillos calientes estén READY.<br>• <strong>Sitio Web tacosgavilan.com — Agua de Piña Oficial de Toast, Modal de Sucursales y Guía Fiesta Platter</strong>: Incorporación de Agua de Piña en Bebidas con la fotografía oficial recortada de Toast Order Online (img/pina.webp), modal interactivo de detalles de sucursal, marcos ámbar-dorados y tabla limpia de Fiesta Platters.",
+      "descEn": "• <strong>New 'Gavilan POS' Module — In-House QSR Ecosystem, Offline-First & 100% Paperless Kitchen (/gavilan-pos)</strong>: Designed and built the high-contrast light-mode Gavilan POS module (dedicated browser tab) featuring Offline-First local persistence (IndexedDB + BroadcastChannel + Supabase sync queue), UPS battery resilience, 100% paperless kitchen via mirrored HDMI KDS (removing kitchen chits), Drive-Thru with outdoor OCB & live pre-fire, Self-Order Kiosk, Split Tender payments (CalFresh RMP EBT + Card/Cash), Manager PIN Voids with Waste tracking, Safe Cash Drops, and California Break-compliant Time Clock.<br>• <strong>Accounting — 6:30 AM PST Daily Cron, LA Broadway/Rialto Parity & Strict Toast Deposit Lock</strong>: Scheduled parallel-batch daily packet cron (/api/cron/sync-accounting) across all 15 stores, fixed next-day overpayment change double-counting on account 12049, aligned Open Orders rule 1:1 with Cohesion (resolving LA Broadway & Rialto), and implemented UI + backend (HTTP 422) lock preventing QuickBooks publishing while Toast POS deposit is $0.00.<br>• <strong>Customer Mobile App (/app & gavilan-app) — Direct Toast Online WebView & App Store / Google Play Compliance</strong>: Set English default with ES/EN toggle, Toast S3 product photos, and eagle logo bottom nav; hid native catalog and Bag tab in favor of single-step Toast Online WebView ordering (hardened with lib/webview-security.ts) and created 4 bilingual store-compliance pages (/app/privacy, /app/terms, /app/support, /app/delete-account).<br>• <strong>Blindaje Delivery — Single Active Store Session, 10-Min Auto-Logout, Homologous Kore Voice & 2h Auto-Expire</strong>: Enforced 10-minute cashier PIN inactivity timeout, single active session per store (auto-closing prior sessions on new PIN login), homologous v4/Kore bilingual 'Please pack / Favor de empacar' callout with prolonged high-pitched bell, +2h auto-expiration, Uber driver name backfill, and 100% bilingual UI.<br>• <strong>Prep Line KDS & Order Ready Board — 4,000 Kore Audios & Mixed Kitchen+Dessert Order Fix (Slauson Order #429)</strong>: Completed 4,000 bilingual Kore voice callouts with Web Audio API and fixed lib/order-ready-sync.ts so mixed kitchen + dessert/separator orders (such as Slauson #429) remain IN_PROGRESS on the prep tablet until all hot kitchen items are READY.<br>• <strong>tacosgavilan.com — Official Toast Agua de Piña Photo, Store Details Modal & Fiesta Platter Guide</strong>: Added Agua de Piña to Drinks using the official transparent-cutout Toast Order Online photo (img/pina.webp), interactive Store Details modal, warm golden-amber card frames, and official Fiesta Platter table."
+    },
+    {
+      "date": "15-Oct-2026",
+      "time": "8:27 AM - 8:34 AM & 10:23 AM - 11:25 AM",
+      "hours": 1.2,
+      "badges": [
+        "Blindaje Delivery Continuidad Cajeras",
+        "7 Blindajes Operativos Slauson #7",
+        "Guardia Chofer & Deshacer Entrega",
+        "Sync Módulos & Reporte Octubre"
+      ],
+      "descEs": "• <strong>Blindaje Delivery — Continuidad Total Entre Cajeras en Cambio de Turno (Pruebas en Vivo Slauson #7)</strong>: Auditoría forense en Supabase (delivery_packing_audits) del relevo operativo en Slauson #7 entre Jennifer Baltazar y Abigail Mendoza. Desacoplamiento de atribución en base de datos (packed_by_* vs handed_off_by_*) para que una cajera arme y selle la bolsa en el Paso 1 y otra cajera distinta la entregue al repartidor en el Paso 2 sin bloqueos de botones ni entregas fantasma.<br>• <strong>7 Blindajes Operativos en Tableta de Empaque Delivery</strong>: (1) Guardia anti-doble clic '¿Está el chofer frente a ti?' cuando transcurren menos de 45 segundos entre el sellado y la entrega; (2) Botón '↩ Corregir Bolsa / Re-empaque' para regresar una orden de PACKED a PENDING si llega otro platillo de cocina; (3) Ventana de 60 segundos ('↩ Deshacer Entrega') para revertir entregas marcadas por error; (4) Relevos limpios conservando los checks parciales; (5) Sincronización multi-tableta cada 4 segundos; (6) Alerta automática si cocina modifica o agrega ítems en Toast tras el sellado; y (7) Atribución dual Empacó / Entregó en el panel administrativo.<br>• <strong>Sincronización General de Módulos, Pre-Compilación de Servidores y Cierre de Reporte</strong>: Pre-compilación en caliente de los 3 servidores locales (3000, 8080, 8081), sincronización de activos web de tacosgavilan.com y consolidación de commits en todos los módulos del ecosistema.",
+      "descEn": "• <strong>Blindaje Delivery — Seamless Cross-Cashier Shift Changeover Continuity (Live Field Testing at Slauson #7)</strong>: Forensic Supabase audit (delivery_packing_audits) of the live shift handover at Slauson #7 between Jennifer Baltazar and Abigail Mendoza. Decoupled database attribution (packed_by_* vs handed_off_by_*) so Cashier A can pack and seal the bag (Step 1) and Cashier B can hand it off to the driver (Step 2) without UI lockouts or accidental bulk handoffs.<br>• <strong>7 Operational Safeguards on Delivery Packing Tablet</strong>: (1) 'Is the driver in front of you?' anti-double-tap guard when <45s have elapsed since sealing; (2) '↩ Fix Bag / Re-pack' button to return an order from PACKED to PENDING; (3) 60-second '↩ Undo Handoff' window to revert accidental deliveries; (4) Clean cashier shift handovers preserving checked items; (5) 4-second multi-tablet sync; (6) Toast ticket modification alert if new items appear after sealing; and (7) Dual Packed By / Handed Off By attribution in the admin dashboard.<br>• <strong>Full Ecosystem Module Sync, Server Pre-Compilation & Activity Report Consolidation</strong>: Warm pre-compilation of all 3 local servers (3000, 8080, 8081), tacosgavilan.com asset synchronization, and unified commit consolidation across all modules."
     }
   ],
   "effort": [
-    { "name": "Order Ready (4,000 Audios), Preparador KDS & Blindaje Delivery", "hours": 31.5, "percent": 32.1 },
-    { "name": "App Móvil Clientes (/app) & Sitio Web (tacosgavilan.com en Vivo)", "hours": 23.5, "percent": 23.9 },
-    { "name": "Contabilidad, Paridad 100% Cohesion, Cron & Crear Bills (QBO)", "hours": 21.0, "percent": 21.4 },
-    { "name": "Inventario, Orden Diaria IA, Uniformes-Caja Fuerte & Viele", "hours": 13.2, "percent": 13.4 },
-    { "name": "MilesIQ Supervisores, Evaluación QR, Ventas y Reportes", "hours": 9.0, "percent": 9.2 }
+    {
+      "name": "Order Ready (4,000 Audios), Preparador KDS & Blindaje Delivery",
+      "hours": 35.2,
+      "percent": 32.7
+    },
+    {
+      "name": "App Móvil Clientes (/app), Gavilan POS & Sitio Web (tacosgavilan.com)",
+      "hours": 28.4,
+      "percent": 26.4
+    },
+    {
+      "name": "Contabilidad, Paridad 100% Cohesion, Candado Toast & Crear Bills",
+      "hours": 21.8,
+      "percent": 20.3
+    },
+    {
+      "name": "Inventario, Orden Diaria IA, Uniformes-Caja Fuerte & Viele",
+      "hours": 13.2,
+      "percent": 12.3
+    },
+    {
+      "name": "MilesIQ Supervisores, Evaluación QR, Ventas y Reportes",
+      "hours": 9,
+      "percent": 8.4
+    }
   ],
   "parallelActivities": [
     {
       "title": "Turnos Oficiales en Tienda Lynwood #14 (General Manager)",
-      "hours": 90.0,
+      "hours": 90,
       "descEs": "Gestión operativa presencial en sucursal Lynwood #14 de Carlos Velázquez (02-Oct 8h, 03-Oct 8h, 04-Oct 5h, 05-Oct 8h, 06-Oct 8h, 07-Oct 8h, 09-Oct 8h, 10-Oct 8h, 11-Oct 5h, 12-Oct 8h, 13-Oct 8h, 14-Oct 8h) supervisando velocidad de línea KDS, mesa de empaque Delivery, comedor, cortes de caja y pruebas en piso.",
       "descEn": "On-site General Manager store operations at Lynwood #14 for Carlos Velázquez (Oct 2 8h, Oct 3 8h, Oct 4 5h, Oct 5 8h, Oct 6 8h, Oct 7 8h, Oct 9 8h, Oct 10 8h, Oct 11 5h, Oct 12 8h, Oct 13 8h, Oct 14 8h) overseeing KDS line speed, Delivery packing station, dining room pickup, cash drawers, and live tablet testing."
     },
     {
       "title": "Monitoreo y Auditoría de APIs en Vivo (Toast POS, QBO, Viele & Sons, RONOS)",
-      "hours": 18.0,
+      "hours": 18,
       "descEs": "Inspección continua de webhooks y órdenes de Toast POS, biblioteca de 4,000 voces Kore en Supabase Storage, cron diario de pólizas (6:30 AM PST) y Bills con QuickBooks Online, autenticación PIN de RONOS y flujo de órdenes Viele & Sons.",
       "descEn": "Continuous live monitoring of Toast POS webhooks and orders, 4,000 Kore voice assets in Supabase Storage, 6:30 AM PST daily accounting cron & QuickBooks Bill sync, RONOS PIN authentication, and Viele & Sons order pipelines."
     },
     {
       "title": "Transición DNS tacosgavilan.com en Vivo, Sincronización Web y Vercel CI/CD",
-      "hours": 14.0,
+      "hours": 14,
       "descEs": "Puesta en producción del dominio oficial tacosgavilan.com sobre Vercel junto a los directivos, sincronización de activos web (/nueva-web), builds libres de errores en TypeScript y calibración de tabletas en tienda.",
       "descEn": "Live production DNS cutover of official tacosgavilan.com domain on Vercel with company directors, web asset sync (/nueva-web), zero-error TypeScript builds, and in-store tablet calibration."
     }

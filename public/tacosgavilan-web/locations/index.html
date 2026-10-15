@@ -36,7 +36,7 @@
     j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
     'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
     })(window,document,'script','dataLayer','GTM-WW2N58Z');</script>
-    <link rel="stylesheet" href="../css/style.css?v=29">
+    <link rel="stylesheet" href="../css/style.css?v=35">
     <link rel="stylesheet" href="../css/compliance-a11y.css?v=29">
     <style>
         .page-content-wrapper {
@@ -177,17 +177,25 @@
             gap: 2rem;
         }
         .store-card {
-            background: rgba(22, 20, 18, 0.95);
-            border: 1px solid rgba(255, 199, 44, 0.2);
+            background: rgba(22, 19, 17, 0.92);
+            border: 1px solid rgba(255, 199, 44, 0.22);
             border-radius: 14px;
             overflow: hidden;
             display: flex;
             flex-direction: column;
-            transition: transform 0.2s, border-color 0.2s;
+            box-shadow:
+                0 10px 28px rgba(0, 0, 0, 0.65),
+                0 0 20px rgba(254, 80, 0, 0.09),
+                0 0 10px rgba(255, 199, 44, 0.05);
+            transition: transform 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease;
         }
         .store-card:hover {
             transform: translateY(-4px);
-            border-color: var(--clr-gold, #FFC72C);
+            border-color: rgba(255, 199, 44, 0.55);
+            box-shadow:
+                0 14px 34px rgba(0, 0, 0, 0.78),
+                0 0 24px rgba(254, 80, 0, 0.15),
+                0 0 14px rgba(255, 199, 44, 0.14);
         }
         .store-card-thumb {
             width: 100%;
@@ -449,6 +457,10 @@
                                 <span class="store-card-cross-streets">Central/Washington</span>
                             </a>
                         </h2>
+                        <a href="tel:+12137426677" class="store-card-phone" aria-label="Call Tacos Gavilan Los Angeles Central/Washington at (213) 742-6677">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+                            <span>(213) 742-6677</span>
+                        </a>
                         <div class="store-card-schedule">
                             <div class="schedule-header">
                                 <svg class="schedule-header-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
@@ -486,6 +498,10 @@
                                 <span class="store-card-cross-streets">Imperial/Long Beach</span>
                             </a>
                         </h2>
+                        <a href="tel:+14247855535" class="store-card-phone" aria-label="Call Tacos Gavilan Lynwood Imperial/Long Beach at (424) 785-5535">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+                            <span>(424) 785-5535</span>
+                        </a>
                         <div class="store-card-schedule">
                             <div class="schedule-header">
                                 <svg class="schedule-header-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
@@ -523,6 +539,10 @@
                                 <span class="store-card-cross-streets">Vernon/Broadway</span>
                             </a>
                         </h2>
+                        <a href="tel:+13232332302" class="store-card-phone" aria-label="Call Tacos Gavilan Los Angeles Vernon/Broadway at (323) 233-2302">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+                            <span>(323) 233-2302</span>
+                        </a>
                         <div class="store-card-schedule">
                             <div class="schedule-header">
                                 <svg class="schedule-header-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
@@ -560,6 +580,10 @@
                                 <span class="store-card-cross-streets">Rosecrans/Studebaker</span>
                             </a>
                         </h2>
+                        <a href="tel:+15626510045" class="store-card-phone" aria-label="Call Tacos Gavilan Norwalk Rosecrans/Studebaker at (562) 651-0045">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+                            <span>(562) 651-0045</span>
+                        </a>
                         <div class="store-card-schedule">
                             <div class="schedule-header">
                                 <svg class="schedule-header-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
@@ -593,6 +617,10 @@
                                 <span class="store-card-cross-streets">Slauson/Broadway</span>
                             </a>
                         </h2>
+                        <a href="tel:+13236150084" class="store-card-phone" aria-label="Call Tacos Gavilan Los Angeles Slauson/Broadway at (323) 615-0084">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+                            <span>(323) 615-0084</span>
+                        </a>
                         <div class="store-card-schedule">
                             <div class="schedule-header">
                                 <svg class="schedule-header-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
@@ -626,6 +654,10 @@
                                 <span class="store-card-cross-streets">Baseline/Riverside</span>
                             </a>
                         </h2>
+                        <a href="tel:+19095620430" class="store-card-phone" aria-label="Call Tacos Gavilan Rialto Baseline/Riverside at (909) 562-0430">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+                            <span>(909) 562-0430</span>
+                        </a>
                         <div class="store-card-schedule">
                             <div class="schedule-header">
                                 <svg class="schedule-header-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
@@ -659,6 +691,10 @@
                                 <span class="store-card-cross-streets">10 FWY/Azusa</span>
                             </a>
                         </h2>
+                        <a href="tel:+16269172662" class="store-card-phone" aria-label="Call Tacos Gavilan West Covina 10 FWY/Azusa at (626) 917-2662">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+                            <span>(626) 917-2662</span>
+                        </a>
                         <div class="store-card-schedule">
                             <div class="schedule-header">
                                 <svg class="schedule-header-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
@@ -692,6 +728,10 @@
                                 <span class="store-card-cross-streets">Firestone/Garfield</span>
                             </a>
                         </h2>
+                        <a href="tel:+15628061200" class="store-card-phone" aria-label="Call Tacos Gavilan South Gate Firestone/Garfield at (562) 806-1200">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+                            <span>(562) 806-1200</span>
+                        </a>
                         <div class="store-card-schedule">
                             <div class="schedule-header">
                                 <svg class="schedule-header-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
@@ -725,6 +765,10 @@
                                 <span class="store-card-cross-streets">Florence/Paramount</span>
                             </a>
                         </h2>
+                        <a href="tel:+15629277486" class="store-card-phone" aria-label="Call Tacos Gavilan Downey Florence/Paramount at (562) 927-7486">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+                            <span>(562) 927-7486</span>
+                        </a>
                         <div class="store-card-schedule">
                             <div class="schedule-header">
                                 <svg class="schedule-header-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
@@ -732,12 +776,8 @@
                             </div>
                             <div class="schedule-rows">
                                 <div class="schedule-row">
-                                    <span class="schedule-day" data-en="Sun – Wed" data-es="Dom – Mié">Sun – Wed</span>
+                                    <span class="schedule-day" data-en="Sun – Thu" data-es="Dom – Jue">Sun – Thu</span>
                                     <span class="schedule-time">10:00 AM – 12:00 AM</span>
-                                </div>
-                                <div class="schedule-row">
-                                    <span class="schedule-day" data-en="Thursday" data-es="Jueves">Thursday</span>
-                                    <span class="schedule-time">10:00 AM – 1:00 AM</span>
                                 </div>
                                 <div class="schedule-row schedule-row-highlight">
                                     <span class="schedule-day" data-en="Fri – Sat" data-es="Vie – Sáb">Fri – Sat</span>
@@ -762,6 +802,10 @@
                                 <span class="store-card-cross-streets">Sunset/La Brea</span>
                             </a>
                         </h2>
+                        <a href="tel:+13239637993" class="store-card-phone" aria-label="Call Tacos Gavilan Hollywood Sunset/La Brea at (323) 963-7993">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+                            <span>(323) 963-7993</span>
+                        </a>
                         <div class="store-card-schedule">
                             <div class="schedule-header">
                                 <svg class="schedule-header-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
@@ -770,11 +814,11 @@
                             <div class="schedule-rows">
                                 <div class="schedule-row">
                                     <span class="schedule-day" data-en="Sun – Thu" data-es="Dom – Jue">Sun – Thu</span>
-                                    <span class="schedule-time">10:00 AM – 12:00 AM</span>
+                                    <span class="schedule-time">9:00 AM – 12:00 AM</span>
                                 </div>
                                 <div class="schedule-row schedule-row-highlight">
                                     <span class="schedule-day" data-en="Fri – Sat" data-es="Vie – Sáb">Fri – Sat</span>
-                                    <span class="schedule-time">10:00 AM – 3:00 AM</span>
+                                    <span class="schedule-time">9:00 AM – 3:00 AM</span>
                                 </div>
                             </div>
                         </div>
@@ -795,6 +839,10 @@
                                 <span class="store-card-cross-streets">17th/Grand</span>
                             </a>
                         </h2>
+                        <a href="tel:+17144800713" class="store-card-phone" aria-label="Call Tacos Gavilan Santa Ana 17th/Grand at (714) 480-0713">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+                            <span>(714) 480-0713</span>
+                        </a>
                         <div class="store-card-schedule">
                             <div class="schedule-header">
                                 <svg class="schedule-header-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
@@ -828,6 +876,10 @@
                                 <span class="store-card-cross-streets">Florence/Santa Fe</span>
                             </a>
                         </h2>
+                        <a href="tel:+13235817309" class="store-card-phone" aria-label="Call Tacos Gavilan Huntington Park Florence/Santa Fe at (323) 581-7309">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+                            <span>(323) 581-7309</span>
+                        </a>
                         <div class="store-card-schedule">
                             <div class="schedule-header">
                                 <svg class="schedule-header-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
@@ -840,7 +892,7 @@
                                 </div>
                                 <div class="schedule-row">
                                     <span class="schedule-day" data-en="Thursday" data-es="Jueves">Thursday</span>
-                                    <span class="schedule-time">10:00 AM – 1:00 AM</span>
+                                    <span class="schedule-time">10:00 AM – 2:00 AM</span>
                                 </div>
                                 <div class="schedule-row schedule-row-highlight">
                                     <span class="schedule-day" data-en="Fri – Sat" data-es="Vie – Sáb">Fri – Sat</span>
@@ -865,6 +917,10 @@
                                 <span class="store-card-cross-streets">605 FWY/Valley</span>
                             </a>
                         </h2>
+                        <a href="tel:+16263363000" class="store-card-phone" aria-label="Call Tacos Gavilan La Puente 605 FWY/Valley at (626) 336-3000">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+                            <span>(626) 336-3000</span>
+                        </a>
                         <div class="store-card-schedule">
                             <div class="schedule-header">
                                 <svg class="schedule-header-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
@@ -898,6 +954,10 @@
                                 <span class="store-card-cross-streets">Azusa/Arrow</span>
                             </a>
                         </h2>
+                        <a href="tel:+16269691011" class="store-card-phone" aria-label="Call Tacos Gavilan Azusa Azusa/Arrow at (626) 969-1011">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+                            <span>(626) 969-1011</span>
+                        </a>
                         <div class="store-card-schedule">
                             <div class="schedule-header">
                                 <svg class="schedule-header-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
@@ -931,6 +991,10 @@
                                 <span class="store-card-cross-streets">Florence/Atlantic</span>
                             </a>
                         </h2>
+                        <a href="tel:+13237711722" class="store-card-phone" aria-label="Call Tacos Gavilan Bell Florence/Atlantic at (323) 771-1722">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+                            <span>(323) 771-1722</span>
+                        </a>
                         <div class="store-card-schedule">
                             <div class="schedule-header">
                                 <svg class="schedule-header-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
@@ -1122,7 +1186,7 @@
             <path d="M12 2c1.1 0 2 .9 2 2s-.9 2-2 2-2-.9-2-2 .9-2 2-2zm9 7h-6v13h-2v-6h-2v6H9V9H3V7h18v2z"/>
         </svg>
     </button>
-    <script src="../js/main.js?v=28" defer></script>
-    <script src="../js/compliance-a11y.js?v=28" defer></script>
+    <script src="../js/main.js?v=40" defer></script>
+    <script src="../js/compliance-a11y.js?v=33" defer></script>
 </body>
 </html>

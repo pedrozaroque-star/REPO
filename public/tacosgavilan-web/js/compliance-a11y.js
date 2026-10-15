@@ -784,6 +784,19 @@
     }
 
     function injectFooterLinks() {
+        var existingDnsBtn = document.getElementById('footer-dns-btn');
+        if (existingDnsBtn) {
+            existingDnsBtn.addEventListener('click', function (e) {
+                e.preventDefault();
+                openCookieModal();
+            });
+        }
+
+        // If the canonical .footer-legal-links block already exists in the footer, do not inject a duplicate link row
+        if (document.querySelector('.footer-legal-links') || existingDnsBtn) {
+            return;
+        }
+
         var t = I18N[currentLang];
         var footer = document.querySelector('.footer-bottom, .footer-legal, footer .container, footer');
         if (!footer || document.getElementById('tg-footer-compliance-links')) return;

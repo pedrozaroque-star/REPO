@@ -20,20 +20,40 @@ export interface VersionMilestone {
 }
 
 export const SYSTEM_VERSION = {
-    version: 'v2.13.0',
-    versionNumber: '2.13.0',
+    version: 'v2.14.0',
+    versionNumber: '2.14.0',
     releaseMonthEs: 'Octubre 2026',
     releaseMonthEn: 'October 2026',
     stage: 'Producción',
     stageEn: 'Production',
     year: '2026',
-    labelEs: 'Octubre 2026 • SM TEG v2.13.0',
-    labelEn: 'October 2026 • SM TEG v2.13.0',
+    labelEs: 'Octubre 2026 • SM TEG v2.14.0',
+    labelEn: 'October 2026 • SM TEG v2.14.0',
     brand: 'SM TEG',
-    lastUpdated: '2026-10-14'
+    lastUpdated: '2026-10-15'
 } as const;
 
 export const VERSION_HISTORY: readonly VersionMilestone[] = [
+    {
+        version: 'v2.14.0',
+        date: '15-Oct-2026',
+        titleEs: 'Gavilan POS Cloud (/gavilan-pos), Continuidad Entre Cajeras y 7 Blindajes en Delivery, Candado de Depósito Toast en Contabilidad y App Móvil WebView + Legal',
+        titleEn: 'Gavilan POS Cloud (/gavilan-pos), Cross-Cashier Delivery Continuity & 7 Safeguards, Toast Deposit Lock in Accounting & Mobile App WebView + Legal',
+        highlightsEs: [
+            'Lanzamiento de Gavilan POS Cloud (/gavilan-pos y /api/gavilan-pos/overview): ecosistema propio en Modo Claro de alto contraste con 9 módulos estratégicos (Command Center, 3-in-1 Menu Studio, Caja POS + PAX A35 EBT 0% Tax, KDS HDMI Espejo sin papel, Tickets ESC/POS, Pagos Interchange++, Delivery Directo y Hardware LAN/Offline)',
+            'Blindaje Delivery (/admin/blindaje-delivery/empaque): continuidad total entre cajeras en cambio de turno (Paso 1 -> Paso 2), sesión única exclusiva por tienda con cierre a los 10 min de inactividad, locución homóloga v4/Kore ("Favor de empacar"), guardia de chofer presente y botones para deshacer/reabrir entregas',
+            'Contabilidad (/contabilidad): candado estricto de Depósito en Toast POS (bloquea publicación a QuickBooks con HTTP 422 mientras cash_deposit sea $0.00), corrección de cambio por sobrepago en cuenta 12049 y paridad 1:1 de órdenes abiertas en LA Broadway y Rialto',
+            'App Móvil Clientes (/app y gavilan-app): integración directa con Toast Online Ordering mediante WebView nativo endurecido (lib/webview-security.ts), ocultamiento de doble bolsa y creación de las 4 páginas legales públicas bilingües (/app/privacy, /app/terms, /app/support, /app/delete-account)',
+            'Preparador KDS & Sitio Web tacosgavilan.com: gobernanza de platillos calientes en órdenes mixtas cocina + postre (caso Orden #429 Slauson), fotografía oficial de Agua de Piña en tacosgavilan.com y consolidación de 107.6 horas de ingeniería y 90.0 horas de turnos en Lynwood #14 (1 al 15 de Octubre 2026)'
+        ],
+        highlightsEn: [
+            'Launched Gavilan POS Cloud (/gavilan-pos & /api/gavilan-pos/overview): standalone high-contrast Light Mode ecosystem with 9 strategic modules (Command Center, 3-in-1 Menu Studio, Cashier POS + PAX A35 0% EBT Tax, Paperless HDMI Mirror KDS, ESC/POS Ticket Studio, Interchange++ Payments, Direct Delivery Hub, and LAN/Offline Hardware)',
+            'Blindaje Delivery (/admin/blindaje-delivery/empaque): seamless cross-cashier shift handover continuity (Step 1 -> Step 2), single active store session with 10-min inactivity auto-logout, homologous v4/Kore voice ("Please pack"), driver-present guard, and undo/reopen actions',
+            'Accounting (/contabilidad): strict Toast POS Deposit lock (blocking QuickBooks publication with HTTP 422 while cash_deposit is $0.00), next-day overpayment change fix on account 12049, and 1:1 Open Orders parity in LA Broadway and Rialto',
+            'Customer Mobile App (/app & gavilan-app): direct Toast Online Ordering integration via hardened native WebView (lib/webview-security.ts), single-step ordering without duplicate bag tab, and 4 bilingual store-compliance pages (/app/privacy, /app/terms, /app/support, /app/delete-account)',
+            'Prep Line KDS & tacosgavilan.com: hot kitchen item governance on mixed kitchen + dessert orders (Slauson Order #429 fix), official Toast Agua de Piña photo on tacosgavilan.com, and 107.6 engineering hours + 90.0 Lynwood #14 shift hours consolidated (October 1–15, 2026)'
+        ]
+    },
     {
         version: 'v2.13.0',
         date: '14-Oct-2026',
@@ -45,7 +65,7 @@ export const VERSION_HISTORY: readonly VersionMilestone[] = [
             'Sincronización bidireccional acumulativa en tiempo real entre Control de Uniformes (/inventory/uniforms) y Caja Fuerte (/caja-fuerte): cada venta de playera ($7), gorra ($1) o chamarra ($20) actualiza al instante el saldo de efectivo de uniformes en bóveda, con edición y anulación para Supervisores/Admins',
             'Paridad contable 1:1 en Contabilidad (/contabilidad): cron diario automatizado a las 6:30 AM y 7:30 AM PT (/api/cron/sync-accounting), cheques sobrepagados por descuento post-pago en crédito 12049, pagos de fechas cruzadas, Cash In-Out / Tip Out y propinas de plataformas en cierres dominicales',
             'Corte de DNS en vivo de tacosgavilan.com hacia Vercel Edge Network (76.76.21.21), redirección canónica 308, preservación en 4 capas del respaldo clásico de WordPress y Centro de Mando Web (/nueva-web) con 5 pestañas operativas',
-            'Auditoría forense en MilesIQ con recalibración de la matriz oficial de distancias reales de manejo por carretera entre las 15 sucursales y actualización del Reporte Ejecutivo de Actividades (/admin/reporte-actividades) consolidando 98.2 horas de ingeniería y 90.0 horas de turnos gerenciales en Lynwood #14 (1 al 14 de Octubre 2026)'
+            'Auditoría forense en MilesIQ con recalibración de la matriz oficial de distancias reales de manejo por carretera entre las 15 sucursales y actualización del Reporte Ejecutivo de Actividades (/admin/reporte-actividades)'
         ],
         highlightsEn: [
             'Blindaje Delivery module (/admin/blindaje-delivery, /admin/blindaje-delivery/empaque & /tablet/blindaje-delivery) at Slauson & LA Central: 3-state KDS traffic light + 2h auto-expiration (UNCLAIMED_2H), automatic Uber Eats driver name backfill, name collision guard, bilingual KDS bump voice callout, and 100% ES/EN translation',
@@ -53,7 +73,7 @@ export const VERSION_HISTORY: readonly VersionMilestone[] = [
             'Real-time cumulative bidirectional synchronization between Uniforms Control (/inventory/uniforms) and Safe Box (/caja-fuerte): every shirt ($7), cap ($1), or jacket ($20) sale immediately increments safe uniform cash balance, with Supervisor/Admin edit and void capabilities',
             '1:1 accounting parity in Accounting (/contabilidad): automated daily cron at 6:30 AM & 7:30 AM PT (/api/cron/sync-accounting), overpaid post-discount checks credited to 12049, cross-date payments, Cash In-Out / Tip Out, and 3rd-party delivery tips on Sunday closes',
             'Live DNS cutover of tacosgavilan.com to Vercel Edge Network (76.76.21.21), canonical 308 redirect, 4-layer preservation of classic WordPress backup, and 5-tab Website Command Center (/nueva-web)',
-            'Forensic MilesIQ road distance matrix recalibration across all 15 stores and updated Executive Activity Report (/admin/reporte-actividades) consolidating 98.2 engineering hours and 90.0 General Manager shift hours at Lynwood #14 (October 1–14, 2026)'
+            'Forensic MilesIQ road distance matrix recalibration across all 15 stores and updated Executive Activity Report (/admin/reporte-actividades)'
         ]
     },
     {

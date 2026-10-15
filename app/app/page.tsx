@@ -203,7 +203,6 @@ export default function MobileAppPage() {
         src="/app/index.html?nosplash=1"
         className="w-full h-full border-0 select-none"
         title="Tacos Gavilan App"
-        allow="geolocation; camera; microphone"
       />
     </div>
   )

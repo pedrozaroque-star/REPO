@@ -40,7 +40,7 @@
     'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
     })(window,document,'script','dataLayer','GTM-WW2N58Z');</script>
 
-    <link rel="stylesheet" href="../css/style.css?v=28">
+    <link rel="stylesheet" href="../css/style.css?v=35">
     <link rel="stylesheet" href="../css/compliance-a11y.css?v=28">
     <style>
         .page-content-wrapper {
@@ -54,7 +54,7 @@
             padding: 0 1.5rem;
         }
         .catering-hero-banner {
-            background: linear-gradient(135deg, rgba(218, 41, 28, 0.9), rgba(18, 16, 14, 0.95)), url('../img/front-page/gav-home-desktop-hero-party-@1.jpg') center/cover;
+            background: linear-gradient(135deg, rgba(18, 16, 14, 0.82), rgba(218, 41, 28, 0.78)), url('../img/party-tray-dark.webp') center/cover no-repeat;
             border: 1px solid rgba(255, 199, 44, 0.3);
             border-radius: var(--radius-lg, 16px);
             padding: 3.5rem 2rem;
@@ -133,6 +133,9 @@
             padding: 2rem 1.5rem;
             text-align: center;
             transition: border-color 0.2s, transform 0.2s;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
         }
         .package-card:hover {
             border-color: var(--clr-gold, #FFC72C);
@@ -143,13 +146,13 @@
             font-weight: 800;
             color: var(--clr-gold, #FFC72C);
             font-family: var(--ff-heading, sans-serif);
-            margin: 0 0 0.5rem;
+            margin: 0 0 0.65rem;
         }
         .package-desc {
             font-size: 0.95rem;
-            color: rgba(255, 255, 255, 0.8);
-            line-height: 1.5;
-            margin-bottom: 1.25rem;
+            color: rgba(255, 255, 255, 0.82);
+            line-height: 1.55;
+            margin-bottom: 1.5rem;
         }
         .steps-container {
             background: rgba(22, 20, 18, 0.9);
@@ -212,6 +215,68 @@
             width: 100%;
             height: auto;
             display: block;
+        }
+        .fiesta-guide-table-wrap {
+            width: 100%;
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+            margin: 0 0 2.5rem;
+            border-radius: 12px;
+            border: 1px solid rgba(255, 199, 44, 0.3);
+            background: rgba(14, 12, 11, 0.95);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+        }
+        .fiesta-guide-table {
+            width: 100%;
+            border-collapse: collapse;
+            min-width: 640px;
+            text-align: center;
+            font-size: 0.95rem;
+        }
+        .fiesta-guide-table thead th {
+            background: rgba(255, 199, 44, 0.1);
+            color: var(--clr-gold, #FFC72C);
+            font-family: var(--ff-heading, sans-serif);
+            font-weight: 800;
+            font-size: 1rem;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            padding: 1rem 0.85rem;
+            border-bottom: 2px solid rgba(255, 199, 44, 0.4);
+        }
+        .fiesta-guide-table thead th:first-child {
+            text-align: center;
+            color: var(--clr-gold, #FFC72C);
+            width: 26%;
+        }
+        .fiesta-guide-table tbody tr {
+            border-bottom: 1px solid rgba(255, 199, 44, 0.25);
+        }
+        .fiesta-guide-table tbody tr:last-child {
+            border-bottom: none;
+        }
+        .fiesta-guide-table tbody th {
+            background: var(--clr-red, #DA291C);
+            color: #ffffff;
+            font-weight: 700;
+            text-align: center;
+            padding: 0.85rem 1rem;
+            font-size: 0.92rem;
+            line-height: 1.35;
+        }
+        .fiesta-guide-table tbody th small {
+            display: block;
+            color: rgba(255, 255, 255, 0.92);
+            font-weight: 500;
+            font-size: 0.8rem;
+            margin-top: 0.15rem;
+        }
+        .fiesta-guide-table tbody td {
+            color: #ffffff;
+            font-weight: 700;
+            padding: 0.85rem;
+            font-size: 0.98rem;
+            vertical-align: middle;
         }
     </style>
 </head>
@@ -288,33 +353,41 @@
 
             <!-- Package Options -->
             <div class="text-center">
-                <h2 style="font-size: 1.8rem; color: #ffffff; margin-bottom: 0.5rem;" data-i18n="fiesta.packagesTitle">Catering Packages by Group Size</h2>
-                <p style="color: rgba(255,255,255,0.7); max-width: 600px; margin: 0 auto;" data-i18n="fiesta.packagesSubtitle">Each package includes your choice of meats, fresh hand-made tortillas, rice, beans, salsas, cilantro, onion, limes, and utensils.</p>
+                <h2 style="font-size: 1.8rem; color: #ffffff; margin-bottom: 0.5rem;" data-i18n="fiesta.packagesTitle" data-en="Catering Packages by Group Size" data-es="Paquetes de Banquete por Tamaño de Grupo">Catering Packages by Group Size</h2>
+                <p style="color: rgba(255,255,255,0.7); max-width: 650px; margin: 0 auto;" data-i18n="fiesta.packagesSubtitle" data-en="Each package includes your choice of meats, Mexican rice, refried pinto beans, Agua Fresca, corn or flour tortillas, red &amp; green salsas, condiments, and utensils." data-es="Cada paquete incluye tu elección de carnes, arroz mexicano, frijoles pintos refritos, Agua Fresca, tortillas de maíz o harina, salsas roja y verde, condimentos y utensilios.">Each package includes your choice of meats, Mexican rice, refried pinto beans, Agua Fresca, corn or flour tortillas, red &amp; green salsas, condiments, and utensils.</p>
             </div>
 
             <div class="packages-grid">
                 <div class="package-card">
-                    <div class="package-size" data-i18n="fiesta.pkg15Title">15 – 20 People</div>
-                    <p class="package-desc" data-i18n="fiesta.pkg15Desc">Ideal for small office lunches, birthday celebrations, and family dinners.</p>
-                    <a href="https://order.online/business/-137616" target="_blank" class="btn btn-secondary btn-sm" style="width: 100%;"><span data-i18n="fiesta.orderBtn">Order on Toast</span></a>
+                    <div>
+                        <div class="package-size" data-i18n="fiesta.pkg15Title" data-en="15 – 20 People" data-es="15 a 20 Personas">15 – 20 People</div>
+                        <p class="package-desc" data-i18n="fiesta.pkg15Desc" data-en="6 lbs Meat · Medium Rice &amp; Beans · 3 Gallons Agua Fresca" data-es="6 lbs de Carne · Arroz y Frijol Mediano · 3 Galones de Agua Fresca">6 lbs Meat · Medium Rice &amp; Beans · 3 Gallons Agua Fresca</p>
+                    </div>
+                    <a href="https://order.online/business/-137616" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm" style="width: 100%;"><span data-i18n="fiesta.orderBtn" data-en="Order on Toast" data-es="Ordenar por Toast">Order on Toast</span></a>
                 </div>
 
                 <div class="package-card">
-                    <div class="package-size" data-i18n="fiesta.pkg20Title">20 – 25 People</div>
-                    <p class="package-desc" data-i18n="fiesta.pkg20Desc">Generous portions featuring 2 meat varieties, traditional sides, and chips.</p>
-                    <a href="https://order.online/business/-137616" target="_blank" class="btn btn-secondary btn-sm" style="width: 100%;"><span data-i18n="fiesta.orderBtn">Order on Toast</span></a>
+                    <div>
+                        <div class="package-size" data-i18n="fiesta.pkg20Title" data-en="20 – 25 People" data-es="20 a 25 Personas">20 – 25 People</div>
+                        <p class="package-desc" data-i18n="fiesta.pkg20Desc" data-en="7.5 lbs Meat · 1/2 Tray Rice &amp; Beans · 4 Gallons Agua Fresca" data-es="7.5 lbs de Carne · 1/2 Charola Arroz y Frijol · 4 Galones de Agua Fresca">7.5 lbs Meat · 1/2 Tray Rice &amp; Beans · 4 Gallons Agua Fresca</p>
+                    </div>
+                    <a href="https://order.online/business/-137616" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm" style="width: 100%;"><span data-i18n="fiesta.orderBtn" data-en="Order on Toast" data-es="Ordenar por Toast">Order on Toast</span></a>
                 </div>
 
                 <div class="package-card">
-                    <div class="package-size" data-i18n="fiesta.pkg25Title">25 – 30 People</div>
-                    <p class="package-desc" data-i18n="fiesta.pkg25Desc">Perfect for milestone gatherings, quinceañeras, and team celebrations.</p>
-                    <a href="https://order.online/business/-137616" target="_blank" class="btn btn-secondary btn-sm" style="width: 100%;"><span data-i18n="fiesta.orderBtn">Order on Toast</span></a>
+                    <div>
+                        <div class="package-size" data-i18n="fiesta.pkg25Title" data-en="25 – 30 People" data-es="25 a 30 Personas">25 – 30 People</div>
+                        <p class="package-desc" data-i18n="fiesta.pkg25Desc" data-en="10 lbs Meat · 3/4 Tray Rice &amp; Beans · 5 Gallons Agua Fresca" data-es="10 lbs de Carne · 3/4 Charola Arroz y Frijol · 5 Galones de Agua Fresca">10 lbs Meat · 3/4 Tray Rice &amp; Beans · 5 Gallons Agua Fresca</p>
+                    </div>
+                    <a href="https://order.online/business/-137616" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm" style="width: 100%;"><span data-i18n="fiesta.orderBtn" data-en="Order on Toast" data-es="Ordenar por Toast">Order on Toast</span></a>
                 </div>
 
                 <div class="package-card">
-                    <div class="package-size" data-i18n="fiesta.pkg30Title">30 – 40 People</div>
-                    <p class="package-desc" data-i18n="fiesta.pkg30Desc">Our ultimate crowd-pleaser with expanded meat portions and full salsa bar sides.</p>
-                    <a href="https://order.online/business/-137616" target="_blank" class="btn btn-secondary btn-sm" style="width: 100%;"><span data-i18n="fiesta.orderBtn">Order on Toast</span></a>
+                    <div>
+                        <div class="package-size" data-i18n="fiesta.pkg30Title" data-en="30 – 40 People" data-es="30 a 40 Personas">30 – 40 People</div>
+                        <p class="package-desc" data-i18n="fiesta.pkg30Desc" data-en="12 lbs Meat · Full Tray Rice &amp; Beans · 6 Gallons Agua Fresca" data-es="12 lbs de Carne · Charola Completa Arroz y Frijol · 6 Galones de Agua Fresca">12 lbs Meat · Full Tray Rice &amp; Beans · 6 Gallons Agua Fresca</p>
+                    </div>
+                    <a href="https://order.online/business/-137616" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm" style="width: 100%;"><span data-i18n="fiesta.orderBtn" data-en="Order on Toast" data-es="Ordenar por Toast">Order on Toast</span></a>
                 </div>
             </div>
 
@@ -335,7 +408,7 @@
                     <div class="step-item">
                         <div class="step-number">3</div>
                         <h4 data-i18n="fiesta.s3Title">Choose Meats</h4>
-                        <p data-i18n="fiesta.s3Desc">Select Asada, Al Pastor, Pollo, Carnitas, or Cabeza.</p>
+                        <p data-i18n="fiesta.s3Desc" data-en="Select Carne Asada, Pollo (Chicken), or Al Pastor." data-es="Elige Carne Asada, Pollo o Al Pastor.">Select Carne Asada, Pollo (Chicken), or Al Pastor.</p>
                     </div>
                     <div class="step-item">
                         <div class="step-number">4</div>
@@ -353,28 +426,73 @@
             <!-- What's Included Showcase -->
             <div style="margin-top: 3.5rem; background: rgba(22, 20, 18, 0.95); border: 1px solid rgba(255, 199, 44, 0.25); border-radius: 16px; padding: 3rem 2rem;">
                 <div class="text-center" style="margin-bottom: 2rem;">
-                    <span style="background: var(--clr-gold, #FFC72C); color: #000; font-weight: 800; font-size: 0.85rem; padding: 0.25rem 0.75rem; border-radius: 4px; display: inline-block; margin-bottom: 0.75rem; letter-spacing: 0.05em;" data-i18n="fiesta.incTag">EVERYTHING INCLUDED</span>
-                    <h2 style="font-size: clamp(1.6rem, 3.5vw, 2.2rem); color: #ffffff; margin: 0 0 0.5rem; font-family: var(--ff-heading, sans-serif);" data-i18n="fiesta.incTitle">What Comes With Every Fiesta Platter</h2>
-                    <p style="color: rgba(255, 255, 255, 0.75); max-width: 650px; margin: 0 auto; line-height: 1.6;" data-i18n="fiesta.incSubtitle">Each banquet package is freshly prepared hot to order with generous portions of our traditional specialties.</p>
+                    <span style="background: var(--clr-gold, #FFC72C); color: #000; font-weight: 800; font-size: 0.85rem; padding: 0.25rem 0.75rem; border-radius: 4px; display: inline-block; margin-bottom: 0.75rem; letter-spacing: 0.05em;" data-i18n="fiesta.incTag" data-en="EVERYTHING INCLUDED" data-es="TODO INCLUIDO">EVERYTHING INCLUDED</span>
+                    <h2 style="font-size: clamp(1.6rem, 3.5vw, 2.2rem); color: #ffffff; margin: 0 0 0.5rem; font-family: var(--ff-heading, sans-serif);" data-i18n="fiesta.incTitle" data-en="What Comes With Every Fiesta Platter" data-es="Qué Incluye Cada Charola Fiesta Platter">What Comes With Every Fiesta Platter</h2>
+                    <p style="color: rgba(255, 255, 255, 0.75); max-width: 680px; margin: 0 auto; line-height: 1.6;" data-i18n="fiesta.incSubtitle" data-en="Each banquet package is freshly prepared hot to order with generous portions of our traditional specialties." data-es="Cada paquete de banquete se prepara caliente al momento con porciones generosas de nuestras especialidades tradicionales.">Each banquet package is freshly prepared hot to order with generous portions of our traditional specialties.</p>
                 </div>
 
-                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1.5rem; margin-bottom: 2.5rem;">
-                    <div style="background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; padding: 1.5rem;">
-                        <h4 style="color: var(--clr-gold, #FFC72C); margin: 0 0 0.5rem; font-size: 1.1rem;" data-i18n="fiesta.boxMeatsH">Fresh Grilled Meats</h4>
-                        <p style="color: rgba(255, 255, 255, 0.8); margin: 0; font-size: 0.9rem; line-height: 1.5;" data-i18n="fiesta.boxMeatsP">Your choice of Carne Asada, Al Pastor, Pollo, Carnitas, or Cabeza prepared right off the grill.</p>
-                    </div>
-                    <div style="background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; padding: 1.5rem;">
-                        <h4 style="color: var(--clr-gold, #FFC72C); margin: 0 0 0.5rem; font-size: 1.1rem;" data-i18n="fiesta.boxSidesH">Authentic Sides</h4>
-                        <p style="color: rgba(255, 255, 255, 0.8); margin: 0; font-size: 0.9rem; line-height: 1.5;" data-i18n="fiesta.boxSidesP">Traditional Mexican rice, slow-cooked refried beans, and freshly fried crispy tortilla chips.</p>
-                    </div>
-                    <div style="background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; padding: 1.5rem;">
-                        <h4 style="color: var(--clr-gold, #FFC72C); margin: 0 0 0.5rem; font-size: 1.1rem;" data-i18n="fiesta.boxSalsasH">Fresh Salsas &amp; Garnishes</h4>
-                        <p style="color: rgba(255, 255, 255, 0.8); margin: 0; font-size: 0.9rem; line-height: 1.5;" data-i18n="fiesta.boxSalsasP">Signature red &amp; green salsas, diced white onions, fresh cilantro, lime wedges, and warm tortillas.</p>
-                    </div>
-                    <div style="background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; padding: 1.5rem;">
-                        <h4 style="color: var(--clr-gold, #FFC72C); margin: 0 0 0.5rem; font-size: 1.1rem;" data-i18n="fiesta.boxDrinksH">Aguas Frescas &amp; Utensils</h4>
-                        <p style="color: rgba(255, 255, 255, 0.8); margin: 0; font-size: 0.9rem; line-height: 1.5;" data-i18n="fiesta.boxDrinksP">Made-from-scratch Horchata or Jamaica, complete with plates, napkins, and serving tongs.</p>
-                    </div>
+                <!-- Official Party Tray Brochure Table -->
+                <div class="fiesta-guide-table-wrap" role="region" aria-label="Fiesta Platter Package Breakdown">
+                    <table class="fiesta-guide-table">
+                        <thead>
+                            <tr>
+                                <th data-en="Includes:" data-es="Incluye:">Includes:</th>
+                                <th data-en="15–20 PEOPLE" data-es="15–20 PERSONAS">15–20 PEOPLE</th>
+                                <th data-en="20–25 PEOPLE" data-es="20–25 PERSONAS">20–25 PEOPLE</th>
+                                <th data-en="25–30 PEOPLE" data-es="25–30 PERSONAS">25–30 PEOPLE</th>
+                                <th data-en="30–40 PEOPLE" data-es="30–40 PERSONAS">30–40 PEOPLE</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <th data-en="Meat of Choice:<small>Asada, Chicken, Al Pastor</small>" data-es="Carne a Elegir:<small>Asada, Pollo, Al Pastor</small>">Meat of Choice:<small>Asada, Chicken, Al Pastor</small></th>
+                                <td>6 lbs</td>
+                                <td>7.5 lbs</td>
+                                <td>10 lbs</td>
+                                <td>12 lbs</td>
+                            </tr>
+                            <tr>
+                                <th data-en="Pinto / Fried Beans" data-es="Frijoles Pintos / Refritos">Pinto / Fried Beans</th>
+                                <td data-en="Medium Tray" data-es="Charola Mediana">Medium Tray</td>
+                                <td data-en="1/2 Party Tray" data-es="1/2 Charola">1/2 Party Tray</td>
+                                <td data-en="3/4 Party Tray" data-es="3/4 Charola">3/4 Party Tray</td>
+                                <td data-en="Full Party Tray" data-es="Charola Completa">Full Party Tray</td>
+                            </tr>
+                            <tr>
+                                <th data-en="Mexican Rice" data-es="Arroz Mexicano">Mexican Rice</th>
+                                <td data-en="Medium Tray" data-es="Charola Mediana">Medium Tray</td>
+                                <td data-en="1/2 Party Tray" data-es="1/2 Charola">1/2 Party Tray</td>
+                                <td data-en="3/4 Party Tray" data-es="3/4 Charola">3/4 Party Tray</td>
+                                <td data-en="Full Party Tray" data-es="Charola Completa">Full Party Tray</td>
+                            </tr>
+                            <tr>
+                                <th data-en="Agua Fresca of Choice:<small>Jamaica, Horchata, Piña, Tamarindo</small>" data-es="Agua Fresca a Elegir:<small>Jamaica, Horchata, Piña, Tamarindo</small>">Agua Fresca of Choice:<small>Jamaica, Horchata, Piña, Tamarindo</small></th>
+                                <td data-en="3 Gallons" data-es="3 Galones">3 Gallons</td>
+                                <td data-en="4 Gallons" data-es="4 Galones">4 Gallons</td>
+                                <td data-en="5 Gallons" data-es="5 Galones">5 Gallons</td>
+                                <td data-en="6 Gallons" data-es="6 Galones">6 Gallons</td>
+                            </tr>
+                            <tr>
+                                <th data-en="Tortillas (Corn / Flour)" data-es="Tortillas (Maíz / Harina)">Tortillas (Corn / Flour)</th>
+                                <td data-en="10 / 5 Dozen" data-es="10 / 5 Docenas">10 / 5 Dozen</td>
+                                <td data-en="13 / 7 Dozen" data-es="13 / 7 Docenas">13 / 7 Dozen</td>
+                                <td data-en="15 / 8 Dozen" data-es="15 / 8 Docenas">15 / 8 Dozen</td>
+                                <td data-en="20 / 10 Dozen" data-es="20 / 10 Docenas">20 / 10 Dozen</td>
+                            </tr>
+                            <tr>
+                                <th data-en="Salsas" data-es="Salsas">Salsas</th>
+                                <td colspan="4" data-en="Red, Green, Mix" data-es="Roja, Verde, Mixta">Red, Green, Mix</td>
+                            </tr>
+                            <tr>
+                                <th data-en="Condiments" data-es="Condimentos">Condiments</th>
+                                <td colspan="4" data-en="Cilantro &amp; Onion, Limes, Pickled Carrots, Chiles and More..." data-es="Cilantro y Cebolla, Limones, Zanahorias en Escabeche, Chiles y Más...">Cilantro &amp; Onion, Limes, Pickled Carrots, Chiles and More...</td>
+                            </tr>
+                            <tr>
+                                <th data-en="Utensils" data-es="Utensilios">Utensils</th>
+                                <td colspan="4" data-en="Plates, Forks, Napkins, Cups, Straws, Etc." data-es="Platos, Tenedores, Servilletas, Vasos, Popotes, Etc.">Plates, Forks, Napkins, Cups, Straws, Etc.</td>
+                            </tr>
+                        </tbody>
+                    </table>
                 </div>
 
                 <div style="display: flex; justify-content: center; align-items: center; width: 100%; margin: 0 auto; text-align: center;">
@@ -557,7 +675,7 @@
         </svg>
     </button>
 
-    <script src="../js/main.js?v=28" defer></script>
-    <script src="../js/compliance-a11y.js?v=28" defer></script>
+    <script src="../js/main.js?v=40" defer></script>
+    <script src="../js/compliance-a11y.js?v=33" defer></script>
 </body>
 </html>

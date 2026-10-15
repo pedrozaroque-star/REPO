@@ -99,6 +99,20 @@ export async function POST(
       )
     }
 
+    // Candado Estricto de Depósito en Toast POS:
+    // No permitir publicar la póliza a QuickBooks hasta que el Depósito en Banco esté registrado en Toast POS Cash Management.
+    const cashDeposit = Math.round((Number(packet.cash_deposit) || 0) * 100) / 100
+    const expectedCash = Math.round((Number(packet.expected_cash) || 0) * 100) / 100
+    if (cashDeposit <= 0 && expectedCash > 0) {
+      return NextResponse.json(
+        {
+          error: 'No se puede publicar a QuickBooks: El Depósito en Banco ($0.00) aún está pendiente de capturarse en Toast POS por la sucursal. / Cannot publish to QuickBooks: Bank Deposit ($0.00) is still pending in Toast POS.',
+          pendingDeposit: true,
+        },
+        { status: 422 }
+      )
+    }
+
     // Step 11 Cohesion Parity: Las órdenes abiertas se compensan contablemente en la cuenta 12049 (Deposit Sales Collected & Open Orders).
     // No se bloquea la publicación en QuickBooks Online; únicamente se exige que la póliza esté balanceada.
 

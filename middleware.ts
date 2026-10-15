@@ -4,6 +4,7 @@ import type { NextRequest } from 'next/server'
 // Rutas públicas que NO requieren autenticación
 const PUBLIC_ROUTES = [
   '/login',
+  '/app',
   '/clientes',
   '/evaluacion',
   '/admin',

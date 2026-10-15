@@ -10,7 +10,8 @@
  * - App Móvil GET `/api/mobile/stores` -> Consulta `public.stores` -> Retorna arreglo ordenado alfabéticamente.
  *
  * @notes
- * - Sincronizado con los identificadores numéricos `1..15` de sucursales en Supabase.
+ * - Sincronizado con los identificadores numéricos reales de las 15 sucursales en Supabase (`1, 3..16`)
+ *   y teléfonos/direcciones contrastados contra https://tacosgavilan.com/locations/.
  */
 
 import { NextResponse } from 'next/server'

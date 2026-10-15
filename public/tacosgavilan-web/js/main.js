@@ -772,6 +772,7 @@ document.addEventListener('DOMContentLoaded', () => {
             'menu.drinksTitle':       'Aguas Frescas & Drinks',
             'menu.drinkHorchata':     'Sweet rice, cinnamon & milk',
             'menu.drinkJamaica':      'Tart hibiscus flower tea',
+            'menu.drinkPina':         'Refreshing sweet pineapple agua fresca',
             'menu.drinkTamarindo':    'Tangy tamarind pulp infusion',
             'menu.drinkChampurrado':  'Traditional hot Mexican spiced chocolate',
             'menu.drinkSodas':        'Jarritos, Coca-Cola Mexicana',
@@ -820,6 +821,8 @@ document.addEventListener('DOMContentLoaded', () => {
             'menu.horchata.desc': 'Sweet rice milk drink with cinnamon and vanilla.',
             'menu.jamaica.name': 'Agua de Jamaica',
             'menu.jamaica.desc': 'Hibiscus flower infusion with a vibrant red hue and a subtly sweet, tart flavor.',
+            'menu.pina.name': 'Agua de Piña',
+            'menu.pina.desc': 'Refreshing tropical pineapple agua fresca made with sweet, ripe pineapple and served ice-cold.',
             'menu.tamarindo.name': 'Agua de Tamarindo',
             'menu.tamarindo.desc': 'Traditional Mexican tamarind agua fresca, tart, sweet, and served cold over ice.',
             'menu.meatCalloutTitle': 'Available Meats',
@@ -840,51 +843,51 @@ document.addEventListener('DOMContentLoaded', () => {
             'fiesta.heroLead':         'Authentic Mexican taquiza catering made simple! Same-day ordering is available for pickup at all 15 locations. Order as little as 1 hour in advance for group sizes from 15 to 40 people.',
             'fiesta.orderToastBtn':    'Order Online on Toast',
             'fiesta.packagesTitle':    'Catering Packages by Group Size',
-            'fiesta.packagesSubtitle': 'Each package includes your choice of meats, fresh hand-made tortillas, rice, beans, salsas, cilantro, onion, limes, and utensils.',
+            'fiesta.packagesSubtitle': 'Each package includes your choice of meats, Mexican rice, refried pinto beans, Agua Fresca, corn or flour tortillas, red & green salsas, condiments, and utensils.',
             'fiesta.pkg15Title':       '15 – 20 People',
-            'fiesta.pkg15Desc':        'Ideal for small office lunches, birthday celebrations, and family dinners.',
+            'fiesta.pkg15Desc':        '6 lbs Meat · Medium Rice & Beans · 3 Gallons Agua Fresca',
             'fiesta.pkg20Title':       '20 – 25 People',
-            'fiesta.pkg20Desc':        'Generous portions featuring 2 meat varieties, traditional sides, and chips.',
+            'fiesta.pkg20Desc':        '7.5 lbs Meat · 1/2 Tray Rice & Beans · 4 Gallons Agua Fresca',
             'fiesta.pkg25Title':       '25 – 30 People',
-            'fiesta.pkg25Desc':        'Perfect for milestone gatherings, quinceañeras, and team celebrations.',
+            'fiesta.pkg25Desc':        '10 lbs Meat · 3/4 Tray Rice & Beans · 5 Gallons Agua Fresca',
             'fiesta.pkg30Title':       '30 – 40 People',
-            'fiesta.pkg30Desc':        'Our largest fiesta platter package. Multiple meats, double sides, and all fixings.',
+            'fiesta.pkg30Desc':        '12 lbs Meat · Full Tray Rice & Beans · 6 Gallons Agua Fresca',
             'fiesta.orderBtn':         'Order on Toast',
             'fiesta.whatsIncludedTitle': 'What\'s Included in Every Fiesta Platter',
-            'fiesta.incMeatsTitle':    'Your Choice of Meats',
-            'fiesta.incMeatsDesc':     'Choose from Carne Asada, Al Pastor, Pollo, Carnitas, Cabeza, Lengua, Buche, or Chorizo.',
-            'fiesta.incSidesTitle':    'Traditional Rice & Beans',
-            'fiesta.incSidesDesc':     'Large party trays of our seasoned Mexican red rice and slow-cooked pinto beans.',
-            'fiesta.incTortillasTitle':'Warm Handcrafted Tortillas',
-            'fiesta.incTortillasDesc': 'Dozens of fresh corn tortillas kept warm and ready for building your own tacos.',
-            'fiesta.incGarnishTitle':  'Fresh Salsas & Garnishes',
-            'fiesta.incGarnishDesc':   'Red salsa, green salsa, chopped cilantro, fresh diced onions, and lime wedges.',
-            'fiesta.incUtensilsTitle': 'Plates, Forks & Napkins',
-            'fiesta.incUtensilsDesc':  'Heavy-duty disposable serving trays, paper plates, utensils, and plenty of napkins.',
-            'fiesta.incChipsTitle':    'Crispy Chips & Salsa',
-            'fiesta.incChipsDesc':     'Generous trays of our freshly fried house tortilla chips with signature roasted salsa.',
+            'fiesta.incMeatsTitle':    'Meat of Choice (6 to 12 lbs)',
+            'fiesta.incMeatsDesc':     'Choose from Carne Asada, Pollo (Chicken), or Al Pastor freshly grilled to order.',
+            'fiesta.incSidesTitle':    'Mexican Rice & Pinto Beans',
+            'fiesta.incSidesDesc':     '3 to 10 lbs of seasoned Mexican rice and 3 to 10 lbs of slow-cooked refried pinto beans.',
+            'fiesta.incTortillasTitle':'Corn or Flour Tortillas',
+            'fiesta.incTortillasDesc': '2 to 5 packs of Corn Tortillas (10 to 20 Dozen) or 5 to 12 packs of Flour Tortillas (5 to 10 Dozen).',
+            'fiesta.incGarnishTitle':  'Salsas & Condiments',
+            'fiesta.incGarnishDesc':   'Red & green salsa packets, chopped cilantro & onion packets, limes, and pickled carrots & jalapeños.',
+            'fiesta.incUtensilsTitle': 'Plates, Forks, Spoons, Cups & Napkins',
+            'fiesta.incUtensilsDesc':  '30 to 50 plates, 15 to 25 forks & spoons, 20 to 40 cups, and 1 to 3 packs of napkins.',
+            'fiesta.incChipsTitle':    'Agua Fresca (3 to 6 Gallons)',
+            'fiesta.incChipsDesc':     '3 to 6 gallons of Agua Fresca of your choice: Jamaica, Horchata, Piña, or Tamarindo.',
                         'fiesta.stepsH2': '5 Easy Steps to Order Your Taquiza',
             'fiesta.s1Title': 'Choose Store',
             'fiesta.s1Desc': 'Select your nearest Tacos Gavilan location for pickup.',
             'fiesta.s2Title': 'Group Size',
             'fiesta.s2Desc': 'Pick the package that matches your guest count (15 to 40+).',
             'fiesta.s3Title': 'Choose Meats',
-            'fiesta.s3Desc': 'Select Asada, Al Pastor, Pollo, Carnitas, or Cabeza.',
+            'fiesta.s3Desc': 'Select Carne Asada, Pollo (Chicken), or Al Pastor.',
             'fiesta.s4Title': 'Pick Up',
             'fiesta.s4Desc': 'Hot, freshly prepared food ready in as little as 1 hour.',
             'fiesta.s5Title': '¡Disfruta!',
             'fiesta.s5Desc': 'Authentic street taco experience at your event!',
             'fiesta.incTag': 'EVERYTHING INCLUDED',
             'fiesta.incTitle': 'What Comes With Every Fiesta Platter',
-            'fiesta.incSubtitle': 'Each banquet package is freshly prepared hot to order with generous portions of our traditional specialties.',
-            'fiesta.boxMeatsH': 'Fresh Grilled Meats',
-            'fiesta.boxMeatsP': 'Your choice of Carne Asada, Al Pastor, Pollo, Carnitas, or Cabeza prepared right off the grill.',
-            'fiesta.boxSidesH': 'Authentic Sides',
-            'fiesta.boxSidesP': 'Traditional Mexican rice, slow-cooked refried beans, and freshly fried crispy tortilla chips.',
-            'fiesta.boxSalsasH': 'Fresh Salsas & Garnishes',
-            'fiesta.boxSalsasP': 'Signature red & green salsas, diced white onions, fresh cilantro, lime wedges, and warm tortillas.',
+            'fiesta.incSubtitle': 'Every Fiesta Platter is prepared fresh to order with exact portions of meats, rice, beans, Agua Fresca, tortillas, salsas, condiments, and complete serving utensils.',
+            'fiesta.boxMeatsH': 'Meat of Choice (6 to 12 lbs)',
+            'fiesta.boxMeatsP': 'Your choice of freshly grilled Carne Asada, Pollo (Chicken), or Al Pastor served hot in aluminum party trays.',
+            'fiesta.boxSidesH': 'Mexican Rice, Beans & Tortillas',
+            'fiesta.boxSidesP': 'Traditional Mexican rice (3 to 10 lbs), refried pinto beans (3 to 10 lbs), and warm Corn or Flour tortillas.',
+            'fiesta.boxSalsasH': 'Salsas & Condiments',
+            'fiesta.boxSalsasP': 'Signature Red & Green salsas, chopped cilantro & white onion packets, fresh limes, and pickled carrots & jalapeños.',
             'fiesta.boxDrinksH': 'Aguas Frescas & Utensils',
-            'fiesta.boxDrinksP': 'Made-from-scratch Horchata or Jamaica, complete with plates, napkins, and serving tongs.',
+            'fiesta.boxDrinksP': '3 to 6 Gallons of Agua Fresca (Jamaica, Horchata, Piña, or Tamarindo) plus plates, forks, spoons, cups, and napkins.',
             'fiesta.exclusiveH3': 'Online Ordering Exclusively',
             'fiesta.exclusiveP': 'To guarantee fast preparation and accurate scheduling, all catering and Fiesta Platter orders are placed exclusively through our official online ordering platform. Select your nearest restaurant, configure your party size, and schedule pickup directly.',
             'fiesta.contactBtn': 'Questions? Contact Us',
@@ -1186,6 +1189,7 @@ document.addEventListener('DOMContentLoaded', () => {
             'menu.drinksTitle':       'Aguas Frescas y Bebidas',
             'menu.drinkHorchata':     'Arroz dulce, canela y leche',
             'menu.drinkJamaica':      'Té refrescante de flor de jamaica',
+            'menu.drinkPina':         'Agua fresca natural de piña dulce',
             'menu.drinkTamarindo':    'Infusión agridulce de pulpa de tamarindo',
             'menu.drinkChampurrado':  'Bebida tradicional de chocolate mexicano caliente',
             'menu.drinkSodas':        'Jarritos, Coca-Cola Mexicana',
@@ -1234,6 +1238,8 @@ document.addEventListener('DOMContentLoaded', () => {
             'menu.horchata.desc': 'Bebida tradicional de arroz con canela y vainilla.',
             'menu.jamaica.name': 'Agua de Jamaica',
             'menu.jamaica.desc': 'Infusión de flor de jamaica con color vibrante y sabor fresco agridulce.',
+            'menu.pina.name': 'Agua de Piña',
+            'menu.pina.desc': 'Refrescante agua fresca de piña natural, dulce y servida bien fría con hielo.',
             'menu.tamarindo.name': 'Agua de Tamarindo',
             'menu.tamarindo.desc': 'Agua fresca tradicional de tamarindo, agridulce y servida bien fría.',
             'menu.meatCalloutTitle': 'Carnes Disponibles',
@@ -1254,51 +1260,51 @@ document.addEventListener('DOMContentLoaded', () => {
             'fiesta.heroLead':         '¡Auténtica taquiza mexicana fácil y rápida! Disponible para recoger el mismo día en nuestras 15 sucursales. Ordena con solo 1 hora de anticipación para grupos de 15 a 40 personas.',
             'fiesta.orderToastBtn':    'Ordenar en Línea por Toast',
             'fiesta.packagesTitle':    'Paquetes de Banquete por Tamaño de Grupo',
-            'fiesta.packagesSubtitle': 'Cada paquete incluye tu elección de carnes, tortillas hechas a mano, arroz, frijoles, salsas, cilantro, cebolla, limones y desechables.',
+            'fiesta.packagesSubtitle': 'Cada paquete incluye tu elección de carnes, arroz mexicano, frijoles pintos refritos, Agua Fresca, tortillas de maíz o harina, salsas roja y verde, condimentos y utensilios.',
             'fiesta.pkg15Title':       '15 a 20 Personas',
-            'fiesta.pkg15Desc':        'Ideal para comidas de oficina, cumpleaños y reuniones familiares.',
+            'fiesta.pkg15Desc':        '6 lbs de Carne · Arroz y Frijol Mediano · 3 Galones de Agua Fresca',
             'fiesta.pkg20Title':       '20 a 25 Personas',
-            'fiesta.pkg20Desc':        'Porciones generosas con 2 variedades de carne, guarniciones y totopos.',
+            'fiesta.pkg20Desc':        '7.5 lbs de Carne · 1/2 Charola Arroz y Frijol · 4 Galones de Agua Fresca',
             'fiesta.pkg25Title':       '25 a 30 Personas',
-            'fiesta.pkg25Desc':        'Perfecto para grandes celebraciones, quinceañeras y reuniones de equipo.',
+            'fiesta.pkg25Desc':        '10 lbs de Carne · 3/4 Charola Arroz y Frijol · 5 Galones de Agua Fresca',
             'fiesta.pkg30Title':       '30 a 40 Personas',
-            'fiesta.pkg30Desc':        'Nuestro paquete más grande. Variedad de carnes, porciones dobles y todos los complementos.',
+            'fiesta.pkg30Desc':        '12 lbs de Carne · Charola Completa Arroz y Frijol · 6 Galones de Agua Fresca',
             'fiesta.orderBtn':         'Ordenar por Toast',
-            'fiesta.whatsIncludedTitle': 'Qué Incluye Cada Charola para Fiestas',
-            'fiesta.incMeatsTitle':    'Tu Elección de Carnes',
-            'fiesta.incMeatsDesc':     'Elige entre Carne Asada, Al Pastor, Pollo, Carnitas, Cabeza, Lengua, Buche o Chorizo.',
-            'fiesta.incSidesTitle':    'Arroz y Frijoles Tradicionales',
-            'fiesta.incSidesDesc':     'Charolas grandes de nuestro arroz rojo sazonado y frijoles pintos cocidos a fuego lento.',
-            'fiesta.incTortillasTitle':'Tortillas Calientes Hechas a Mano',
-            'fiesta.incTortillasDesc': 'Docenas de tortillas de maíz recién hechas, calientes y listas para preparar tacos.',
-            'fiesta.incGarnishTitle':  'Salsas Frescas y Complementos',
-            'fiesta.incGarnishDesc':   'Salsa roja, salsa verde, cilantro fresco, cebolla picada y limones.',
-            'fiesta.incUtensilsTitle': 'Platos, Tenedores y Servilletas',
-            'fiesta.incUtensilsDesc':  'Charolas desechables resistentes, platos, cubiertos y abundantes servilletas.',
-            'fiesta.incChipsTitle':    'Totopos Crujientes y Salsa',
-            'fiesta.incChipsDesc':     'Charolas generosas de totopos dorados con salsa tatemada de la casa.',
+            'fiesta.whatsIncludedTitle': 'Qué Incluye Cada Charola Fiesta Platter',
+            'fiesta.incMeatsTitle':    'Carne a Elegir (6 a 12 lbs)',
+            'fiesta.incMeatsDesc':     'Elige entre Carne Asada, Pollo o Al Pastor recién asada al momento.',
+            'fiesta.incSidesTitle':    'Arroz Mexicano y Frijoles Pintos',
+            'fiesta.incSidesDesc':     'De 3 a 10 lbs de arroz rojo mexicano sazonado y de 3 a 10 lbs de frijoles pintos refritos.',
+            'fiesta.incTortillasTitle':'Tortillas de Maíz o Harina',
+            'fiesta.incTortillasDesc': 'De 2 a 5 paquetes de tortilla de maíz (10 a 20 docenas) o de 5 a 12 paquetes de harina (5 a 10 docenas).',
+            'fiesta.incGarnishTitle':  'Salsas y Condimentos',
+            'fiesta.incGarnishDesc':   'Sobres de salsa roja y verde, bolsitas de cebolla con cilantro fresco, limones y zanahorias con jalapeños.',
+            'fiesta.incUtensilsTitle': 'Platos, Tenedores, Cucharas, Vasos y Servilletas',
+            'fiesta.incUtensilsDesc':  'De 30 a 50 platos, 15 a 25 tenedores y cucharas, 20 a 40 vasos y 1 a 3 paquetes de servilletas.',
+            'fiesta.incChipsTitle':    'Agua Fresca (3 a 6 Galones)',
+            'fiesta.incChipsDesc':     'De 3 a 6 galones de Agua Fresca a elegir: Jamaica, Horchata, Piña o Tamarindo.',
                         'fiesta.stepsH2': '5 Pasos Sencillos para Ordenar tu Taquiza',
             'fiesta.s1Title': 'Elige Sucursal',
             'fiesta.s1Desc': 'Selecciona tu sucursal más cercana para recoger.',
             'fiesta.s2Title': 'Tamaño de Grupo',
             'fiesta.s2Desc': 'Elige el paquete según tu número de invitados (15 a 40+ personas).',
             'fiesta.s3Title': 'Elige tus Carnes',
-            'fiesta.s3Desc': 'Elige Asada, Al Pastor, Pollo, Carnitas o Cabeza.',
+            'fiesta.s3Desc': 'Elige Carne Asada, Pollo o Al Pastor.',
             'fiesta.s4Title': 'Recoge en Tienda',
             'fiesta.s4Desc': 'Comida caliente y recién hecha lista en tan solo 1 hora.',
             'fiesta.s5Title': '¡Disfruta!',
             'fiesta.s5Desc': '¡Auténtica experiencia taquera en tu evento!',
             'fiesta.incTag': 'TODO INCLUIDO',
-            'fiesta.incTitle': 'Qué Incluye Cada Charola para Fiestas',
-            'fiesta.incSubtitle': 'Cada paquete de banquete se prepara caliente al momento con porciones generosas de nuestras especialidades tradicionales.',
-            'fiesta.boxMeatsH': 'Carnes Asadas Frescas',
-            'fiesta.boxMeatsP': 'Tu elección de Carne Asada, Al Pastor, Pollo, Carnitas o Cabeza preparadas al momento en la parrilla.',
-            'fiesta.boxSidesH': 'Guarniciones Auténticas',
-            'fiesta.boxSidesP': 'Arroz rojo tradicional mexicano, frijoles refritos a fuego lento y totopos crujientes recién dorados.',
-            'fiesta.boxSalsasH': 'Salsas Frescas y Complementos',
-            'fiesta.boxSalsasP': 'Salsas de la casa roja y verde, cebolla blanca picada, cilantro fresco, limones y tortillas calientes.',
+            'fiesta.incTitle': 'Qué Incluye Cada Charola Fiesta Platter',
+            'fiesta.incSubtitle': 'Cada Fiesta Platter se prepara caliente al momento con las porciones exactas de carne, arroz, frijoles, Agua Fresca, tortillas, salsas, condimentos y utensilios completos.',
+            'fiesta.boxMeatsH': 'Carne a Elegir (6 a 12 lbs)',
+            'fiesta.boxMeatsP': 'Tu elección de Carne Asada, Pollo o Al Pastor recién asada en la parrilla y servida caliente en charolas para fiesta.',
+            'fiesta.boxSidesH': 'Arroz Mexicano, Frijoles y Tortillas',
+            'fiesta.boxSidesP': 'Arroz rojo mexicano tradicional (3 a 10 lbs), frijoles pintos refritos (3 a 10 lbs) y tortillas calientes de maíz o harina.',
+            'fiesta.boxSalsasH': 'Salsas y Condimentos',
+            'fiesta.boxSalsasP': 'Salsas roja y verde de la casa, bolsitas de cebolla con cilantro fresco, limones y zanahorias con chiles jalapeños en escabeche.',
             'fiesta.boxDrinksH': 'Aguas Frescas y Utensilios',
-            'fiesta.boxDrinksP': 'Horchata o Jamaica hechas desde cero, acompañadas de platos, servilletas y pinzas de servicio.',
+            'fiesta.boxDrinksP': 'De 3 a 6 galones de Agua Fresca (Jamaica, Horchata, Piña o Tamarindo), además de platos, tenedores, cucharas, vasos y servilletas.',
             'fiesta.exclusiveH3': 'Pedidos Exclusivamente en Línea',
             'fiesta.exclusiveP': 'Para garantizar una preparación rápida y programación exacta, todos los pedidos de banquete y Fiesta Platter se realizan exclusivamente a través de nuestra plataforma oficial de pedidos en línea. Selecciona tu restaurante más cercano, configura el tamaño de tu fiesta y programa tu recogida directamente.',
             'fiesta.contactBtn': '¿Preguntas? Contáctanos',
@@ -1651,7 +1657,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 crossStreets: 'Central/Washington',
                 name: 'Los Angeles Central/Washington',
                 address: '1900 S. Central Ave, Los Angeles, CA 90011',
-                phone: '(213) 749-0117',
+                phone: '(213) 742-6677',
                 lat: 34.023884,
                 lng: -118.250561,
                 order: 'https://order.online/store/tacos-gavilan-los-angeles-260847'
@@ -1663,7 +1669,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 crossStreets: 'Imperial/Long Beach',
                 name: 'Lynwood Imperial/Long Beach',
                 address: '3220 E. Imperial Hwy, Lynwood, CA 90262',
-                phone: '(310) 639-6799',
+                phone: '(424) 785-5535',
                 lat: 33.930001,
                 lng: -118.21232,
                 order: 'https://order.online/store/tacos-gavilan-lynwood-727877'
@@ -1675,7 +1681,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 crossStreets: 'Vernon/Broadway',
                 name: 'Los Angeles Vernon/Broadway',
                 address: '4380 S. Broadway, Los Angeles, CA 90037',
-                phone: '(323) 235-5858',
+                phone: '(323) 233-2302',
                 lat: 34.004005,
                 lng: -118.278106,
                 order: 'https://order.online/store/tacos-gavilan-los-angeles-260769'
@@ -1687,7 +1693,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 crossStreets: 'Rosecrans/Studebaker',
                 name: 'Norwalk Rosecrans/Studebaker',
                 address: '10968 Rosecrans Ave, Norwalk, CA 90650',
-                phone: '(562) 868-8099',
+                phone: '(562) 651-0045',
                 lat: 33.90181,
                 lng: -118.100403,
                 order: 'https://order.online/store/tacos-gavilan-norwalk-1327857'
@@ -1699,7 +1705,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 crossStreets: 'Slauson/Broadway',
                 name: 'Los Angeles Slauson/Broadway',
                 address: '5833 S. Broadway, Los Angeles, CA 90003',
-                phone: '(323) 232-2300',
+                phone: '(323) 615-0084',
                 lat: 33.98894,
                 lng: -118.278609,
                 order: 'https://order.online/store/tacos-gavilan-slauson-broadway-23989119'
@@ -1711,7 +1717,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 crossStreets: 'Baseline/Riverside',
                 name: 'Rialto Baseline/Riverside',
                 address: '115 E. Baseline Rd, Rialto, CA 92376',
-                phone: '(909) 877-0331',
+                phone: '(909) 562-0430',
                 lat: 34.1211,
                 lng: -117.370048,
                 order: 'https://order.online/store/tacos-gavilan-rialto-841931'
@@ -1723,7 +1729,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 crossStreets: '10 FWY/Azusa',
                 name: 'West Covina 10 FWY/Azusa',
                 address: '101 S. Azusa Ave, West Covina, CA 91791',
-                phone: '(626) 915-0551',
+                phone: '(626) 917-2662',
                 lat: 34.070966,
                 lng: -117.90815,
                 order: 'https://order.online/store/tacos-gavilan-west-covina-725035'
@@ -1735,7 +1741,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 crossStreets: 'Firestone/Garfield',
                 name: 'South Gate Firestone/Garfield',
                 address: '5800 Firestone Blvd, South Gate, CA 90280',
-                phone: '(562) 928-8777',
+                phone: '(562) 806-1200',
                 lat: 33.948795,
                 lng: -118.164767,
                 order: 'https://order.online/store/tacos-gavilan-south-gate-846517'
@@ -1747,7 +1753,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 crossStreets: 'Florence/Paramount',
                 name: 'Downey Florence/Paramount',
                 address: '7947 E. Florence Ave, Downey, CA 90240',
-                phone: '(562) 806-0310',
+                phone: '(562) 927-7486',
                 lat: 33.953703,
                 lng: -118.130299,
                 order: 'https://order.online/store/tacos-gavilan-downey-302620'
@@ -1759,7 +1765,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 crossStreets: 'Sunset/La Brea',
                 name: 'Hollywood Sunset/La Brea',
                 address: '7070 Sunset Blvd, Los Angeles, CA 90028',
-                phone: '(323) 469-2313',
+                phone: '(323) 963-7993',
                 lat: 34.097757,
                 lng: -118.34389,
                 order: 'https://order.online/store/tacos-gavilan-los-angeles-551916'
@@ -1771,7 +1777,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 crossStreets: '17th/Grand',
                 name: 'Santa Ana 17th/Grand',
                 address: '1258 E. 17th St, Santa Ana, CA 92701',
-                phone: '(714) 543-8226',
+                phone: '(714) 480-0713',
                 lat: 33.759621,
                 lng: -117.852252,
                 order: 'https://order.online/store/tacos-gavilan-santa-ana-724574'
@@ -1783,7 +1789,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 crossStreets: 'Florence/Santa Fe',
                 name: 'Huntington Park Florence/Santa Fe',
                 address: '2425 E. Florence Ave, Huntington Park, CA 90255',
-                phone: '(323) 583-0940',
+                phone: '(323) 581-7309',
                 lat: 33.975055,
                 lng: -118.229235,
                 order: 'https://order.online/store/tacos-gavilan-huntington-park-260849'
@@ -1795,7 +1801,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 crossStreets: '605 FWY/Valley',
                 name: 'La Puente 605 FWY/Valley',
                 address: '13009 Valley Blvd, La Puente, CA 91746',
-                phone: '(626) 968-3565',
+                phone: '(626) 336-3000',
                 lat: 34.053251,
                 lng: -118.001777,
                 order: 'https://order.online/store/tacos-gavilan-la-puente-963464'
@@ -1807,7 +1813,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 crossStreets: 'Azusa/Arrow',
                 name: 'Azusa Azusa/Arrow',
                 address: '887 S. Azusa Ave, Azusa, CA 91702',
-                phone: '(626) 969-7988',
+                phone: '(626) 969-1011',
                 lat: 34.107074,
                 lng: -117.908194,
                 order: 'https://order.online/store/tacos-gavilan-azusa-718169'
@@ -1819,7 +1825,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 crossStreets: 'Florence/Atlantic',
                 name: 'Bell Florence/Atlantic',
                 address: '4406 E Florence Ave, Bell, CA 90201',
-                phone: '(323) 560-8451',
+                phone: '(323) 771-1722',
                 lat: 33.970395,
                 lng: -118.188871,
                 order: 'https://order.online/store/tacos-gavilan-bell-260912'
@@ -1834,6 +1840,10 @@ document.addEventListener('DOMContentLoaded', () => {
         const dirUrl = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(loc.address)}`;
         const orderText = isEs ? 'Ordenar en Línea' : 'Order Online';
         const dirText = isEs ? 'Cómo llegar' : 'Directions';
+        const phoneE164 = loc.phone ? `+1${loc.phone.replace(/\D/g, '')}` : '';
+        const phoneHtml = loc.phone
+            ? `<div class="map-popup-phone" style="margin-top: 4px; font-weight: 600;"><a href="tel:${phoneE164}" style="color: #FFC72C; text-decoration: none;">${loc.phone}</a></div>`
+            : '';
         const titleHtml = loc.crossStreets
             ? `<div class="map-popup-name"><span class="map-popup-city">${loc.city || loc.name}</span> <span class="map-popup-cross" style="color: #FFC72C; font-weight: 700; display: block; font-size: 0.85em; margin-top: 2px;">${loc.crossStreets}</span></div>`
             : `<div class="map-popup-name">${loc.name}</div>`;
@@ -1841,6 +1851,7 @@ document.addEventListener('DOMContentLoaded', () => {
         return `<div class="map-popup">
             ${titleHtml}
             <div class="map-popup-address">${loc.address}</div>
+            ${phoneHtml}
             ${distHtml}
             <div class="map-popup-actions">
                 <a href="${loc.order}" target="_blank" rel="noopener noreferrer" class="map-popup-btn-order">${orderText}</a>
@@ -2579,4 +2590,545 @@ document.addEventListener('DOMContentLoaded', () => {
 
     initFooterMarquee();
 
+    /* ==========================================================
+       18. STORE DETAILS MODAL CONTROLLER (BILINGUAL IN-PAGE MODAL)
+       Intercepts "Store Details" / "Details" links on Homepage and
+       Locations page to display a rich modal instead of navigating away.
+       Also auto-opens when ?store={slug} is present in the URL.
+       ========================================================== */
+    const storeCatalogBySlug = {
+        'la-central': {
+            code: 'LACENTRAL',
+            thumb: '/img/Central_Gavilan_small-600.jpg',
+            rows: [
+                { dayEn: 'Sun – Wed', dayEs: 'Dom – Mié', time: '8:00 AM – 2:00 AM', highlight: false },
+                { dayEn: 'Thursday', dayEs: 'Jueves', time: '8:00 AM – 3:00 AM', highlight: false },
+                { dayEn: 'Fri – Sat', dayEs: 'Vie – Sáb', time: '8:00 AM – 4:00 AM', highlight: true }
+            ]
+        },
+        'lynwood': {
+            code: 'LYNWOOD',
+            thumb: '/img/lynwood_thumb_new-600.jpg',
+            rows: [
+                { dayEn: 'Sun – Wed', dayEs: 'Dom – Mié', time: '10:00 AM – 1:00 AM', highlight: false },
+                { dayEn: 'Thursday', dayEs: 'Jueves', time: '10:00 AM – 2:00 AM', highlight: false },
+                { dayEn: 'Fri – Sat', dayEs: 'Vie – Sáb', time: '10:00 AM – 3:00 AM', highlight: true }
+            ]
+        },
+        'la-broadway': {
+            code: 'LABROADWY',
+            thumb: '/img/broadway_thumb-600.jpg',
+            rows: [
+                { dayEn: 'Mon – Wed', dayEs: 'Lun – Mié', time: '8:00 AM – 1:00 AM', highlight: false },
+                { dayEn: 'Thu & Sun', dayEs: 'Jue y Dom', time: '8:00 AM – 2:00 AM', highlight: false },
+                { dayEn: 'Fri – Sat', dayEs: 'Vie – Sáb', time: '8:00 AM – 4:00 AM', highlight: true }
+            ]
+        },
+        'norwalk': {
+            code: 'NORWALK',
+            thumb: '/img/norwalk_thumb.jpg',
+            rows: [
+                { dayEn: 'Sun – Thu', dayEs: 'Dom – Jue', time: '10:00 AM – 1:00 AM', highlight: false },
+                { dayEn: 'Fri – Sat', dayEs: 'Vie – Sáb', time: '10:00 AM – 3:00 AM', highlight: true }
+            ]
+        },
+        'slauson': {
+            code: 'SLAUSON',
+            thumb: '/img/broadway_thumb-600.jpg',
+            rows: [
+                { dayEn: 'Sun – Thu', dayEs: 'Dom – Jue', time: '10:00 AM – 1:00 AM', highlight: false },
+                { dayEn: 'Fri – Sat', dayEs: 'Vie – Sáb', time: '10:00 AM – 3:00 AM', highlight: true }
+            ]
+        },
+        'rialto': {
+            code: 'RIALTO',
+            thumb: '/img/rioalto_thumb-600.jpg',
+            rows: [
+                { dayEn: 'Sun – Thu', dayEs: 'Dom – Jue', time: '10:00 AM – 12:00 AM', highlight: false },
+                { dayEn: 'Fri – Sat', dayEs: 'Vie – Sáb', time: '10:00 AM – 2:00 AM', highlight: true }
+            ]
+        },
+        'west-covina': {
+            code: 'WCOVINA',
+            thumb: '/img/azusa_thumb-600.jpg',
+            rows: [
+                { dayEn: 'Sun – Thu', dayEs: 'Dom – Jue', time: '10:00 AM – 1:00 AM', highlight: false },
+                { dayEn: 'Fri – Sat', dayEs: 'Vie – Sáb', time: '10:00 AM – 3:00 AM', highlight: true }
+            ]
+        },
+        'south-gate': {
+            code: 'SOUTHGATE',
+            thumb: '/img/south_gate_thumb-600.jpg',
+            rows: [
+                { dayEn: 'Sun – Thu', dayEs: 'Dom – Jue', time: '10:00 AM – 12:00 AM', highlight: false },
+                { dayEn: 'Fri – Sat', dayEs: 'Vie – Sáb', time: '10:00 AM – 3:00 AM', highlight: true }
+            ]
+        },
+        'downey': {
+            code: 'DOWNEY',
+            thumb: '/img/downeylocation-600.jpg',
+            rows: [
+                { dayEn: 'Sun – Thu', dayEs: 'Dom – Jue', time: '10:00 AM – 12:00 AM', highlight: false },
+                { dayEn: 'Fri – Sat', dayEs: 'Vie – Sáb', time: '10:00 AM – 3:00 AM', highlight: true }
+            ]
+        },
+        'hollywood': {
+            code: 'HOLLYWOOD',
+            thumb: '/img/Hollywood_thumb-600.jpg',
+            rows: [
+                { dayEn: 'Sun – Thu', dayEs: 'Dom – Jue', time: '9:00 AM – 12:00 AM', highlight: false },
+                { dayEn: 'Fri – Sat', dayEs: 'Vie – Sáb', time: '9:00 AM – 3:00 AM', highlight: true }
+            ]
+        },
+        'santa-ana': {
+            code: 'SANTAANA',
+            thumb: '/img/Santa_Ana_Gavilan_small-600.jpg',
+            rows: [
+                { dayEn: 'Sun – Thu', dayEs: 'Dom – Jue', time: '10:00 AM – 12:00 AM', highlight: false },
+                { dayEn: 'Fri – Sat', dayEs: 'Vie – Sáb', time: '10:00 AM – 2:00 AM', highlight: true }
+            ]
+        },
+        'huntington-park': {
+            code: 'HPARK',
+            thumb: '/img/hp_thumb-600.jpg',
+            rows: [
+                { dayEn: 'Sun – Wed', dayEs: 'Dom – Mié', time: '10:00 AM – 12:00 AM', highlight: false },
+                { dayEn: 'Thursday', dayEs: 'Jueves', time: '10:00 AM – 2:00 AM', highlight: false },
+                { dayEn: 'Fri – Sat', dayEs: 'Vie – Sáb', time: '10:00 AM – 3:00 AM', highlight: true }
+            ]
+        },
+        'la-puente': {
+            code: 'LAPUENTE',
+            thumb: '/img/Gavilan-Location-Thumbs-La_Puente.jpg',
+            rows: [
+                { dayEn: 'Sun – Thu', dayEs: 'Dom – Jue', time: '10:00 AM – 12:00 AM', highlight: false },
+                { dayEn: 'Fri – Sat', dayEs: 'Vie – Sáb', time: '10:00 AM – 2:00 AM', highlight: true }
+            ]
+        },
+        'azusa': {
+            code: 'AZUSA',
+            thumb: '/img/azusa_thumb-600.jpg',
+            rows: [
+                { dayEn: 'Sun – Thu', dayEs: 'Dom – Jue', time: '10:00 AM – 11:00 PM', highlight: false },
+                { dayEn: 'Fri – Sat', dayEs: 'Vie – Sáb', time: '10:00 AM – 12:00 AM', highlight: true }
+            ]
+        },
+        'bell': {
+            code: 'BELL',
+            thumb: '/img/bell_thumb-600.jpg',
+            rows: [
+                { dayEn: 'Sun – Thu', dayEs: 'Dom – Jue', time: '10:00 AM – 12:00 AM', highlight: false },
+                { dayEn: 'Fri – Sat', dayEs: 'Vie – Sáb', time: '10:00 AM – 2:00 AM', highlight: true }
+            ]
+        }
+    };
+
+    let activeStoreSlug = null;
+
+    const ensureStoreDetailsModalDom = () => {
+        let overlay = document.getElementById('store-details-modal-overlay');
+        if (overlay) return overlay;
+
+        const styleEl = document.createElement('style');
+        styleEl.id = 'store-details-modal-styles';
+        styleEl.textContent = `
+            .store-details-modal-overlay {
+                position: fixed;
+                inset: 0;
+                z-index: 10050;
+                background: rgba(0, 0, 0, 0.82);
+                backdrop-filter: blur(10px);
+                -webkit-backdrop-filter: blur(10px);
+                display: none;
+                align-items: center;
+                justify-content: center;
+                padding: 1rem;
+                opacity: 0;
+                transition: opacity 0.25s ease;
+            }
+            .store-details-modal-overlay.is-open {
+                opacity: 1;
+            }
+            .store-details-modal {
+                position: relative;
+                width: 100%;
+                max-width: 480px;
+                max-height: 92dvh;
+                overflow-y: auto;
+                background: #161412;
+                border: 1px solid rgba(255, 199, 44, 0.28);
+                border-radius: 18px;
+                box-shadow: 0 28px 80px rgba(0, 0, 0, 0.85);
+                color: #ffffff;
+                transform: translateY(14px) scale(0.98);
+                transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+            }
+            .store-details-modal-overlay.is-open .store-details-modal {
+                transform: translateY(0) scale(1);
+            }
+            .store-modal-banner {
+                position: relative;
+                width: 100%;
+                height: 165px;
+                background: #222;
+                overflow: hidden;
+            }
+            .store-modal-banner img {
+                width: 100%;
+                height: 100%;
+                object-fit: cover;
+                display: block;
+            }
+            .store-modal-banner::after {
+                content: '';
+                position: absolute;
+                inset: 0;
+                background: linear-gradient(180deg, rgba(0,0,0,0.35) 0%, rgba(22,20,18,0.98) 100%);
+            }
+            .store-modal-close {
+                position: absolute;
+                top: 12px;
+                right: 12px;
+                z-index: 3;
+                width: 42px;
+                height: 42px;
+                border-radius: 50%;
+                background: rgba(0, 0, 0, 0.72);
+                border: 1px solid rgba(255, 199, 44, 0.45);
+                color: #ffffff;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                cursor: pointer;
+                transition: background 0.2s, transform 0.2s, border-color 0.2s;
+            }
+            .store-modal-close:hover {
+                background: #DA291C;
+                border-color: #DA291C;
+                transform: scale(1.06);
+            }
+            .store-modal-body {
+                padding: 0 1.5rem 1.6rem;
+                margin-top: -1.4rem;
+                position: relative;
+                z-index: 2;
+            }
+            .store-modal-tag {
+                display: inline-block;
+                font-size: 0.7rem;
+                font-weight: 800;
+                letter-spacing: 0.1em;
+                text-transform: uppercase;
+                color: #FFC72C;
+                background: rgba(255, 199, 44, 0.12);
+                border: 1px solid rgba(255, 199, 44, 0.3);
+                padding: 0.25rem 0.65rem;
+                border-radius: 999px;
+                margin-bottom: 0.55rem;
+            }
+            .store-modal-title {
+                margin: 0 0 0.9rem;
+                font-family: var(--ff-heading, sans-serif);
+                display: flex;
+                flex-direction: column;
+                gap: 0.15rem;
+            }
+            .store-modal-city {
+                font-size: 1.65rem;
+                font-weight: 800;
+                color: #ffffff;
+                line-height: 1.15;
+            }
+            .store-modal-cross {
+                font-size: 1.02rem;
+                font-weight: 700;
+                color: #FFC72C;
+                letter-spacing: 0.02em;
+            }
+            .store-modal-info-list {
+                display: flex;
+                flex-direction: column;
+                gap: 0.6rem;
+                margin-bottom: 1rem;
+            }
+            .store-modal-info-item {
+                display: flex;
+                align-items: center;
+                gap: 0.65rem;
+                font-size: 0.95rem;
+                color: rgba(255, 255, 255, 0.9);
+            }
+            .store-modal-info-item svg {
+                flex-shrink: 0;
+                stroke: #FFC72C;
+            }
+            .store-modal-info-item a {
+                color: #FFC72C;
+                font-weight: 700;
+                text-decoration: none;
+            }
+            .store-modal-info-item a:hover {
+                text-decoration: underline;
+                color: #ffffff;
+            }
+            .store-modal-schedule {
+                background: rgba(0, 0, 0, 0.52);
+                border: 1px solid rgba(255, 199, 44, 0.22);
+                border-radius: 12px;
+                padding: 0.85rem 1.05rem;
+                margin: 0.85rem 0 1.25rem;
+                display: flex;
+                flex-direction: column;
+                gap: 0.45rem;
+            }
+            .store-modal-schedule-header {
+                display: flex;
+                align-items: center;
+                gap: 0.45rem;
+                font-size: 0.73rem;
+                font-weight: 700;
+                text-transform: uppercase;
+                letter-spacing: 0.08em;
+                color: #FFC72C;
+                padding-bottom: 0.4rem;
+                border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+            }
+            .store-modal-schedule-header svg {
+                stroke: #FFC72C;
+                flex-shrink: 0;
+            }
+            .store-modal-schedule-rows {
+                display: flex;
+                flex-direction: column;
+                gap: 0.35rem;
+            }
+            .store-modal-schedule-row {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                font-size: 0.88rem;
+                line-height: 1.35;
+                gap: 0.75rem;
+            }
+            .store-modal-schedule-day {
+                color: rgba(255, 255, 255, 0.84);
+                font-weight: 500;
+            }
+            .store-modal-schedule-time {
+                color: #ffffff;
+                font-weight: 700;
+                font-variant-numeric: tabular-nums;
+                text-align: right;
+                white-space: nowrap;
+            }
+            .store-modal-schedule-row.is-highlight .store-modal-schedule-time {
+                color: #FFC72C;
+            }
+            .store-modal-actions {
+                display: flex;
+                flex-direction: column;
+                gap: 0.65rem;
+            }
+            .store-modal-btn-order {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                gap: 0.5rem;
+                width: 100%;
+                padding: 0.9rem 1.2rem;
+                background: #DA291C;
+                color: #ffffff;
+                font-weight: 800;
+                font-size: 0.95rem;
+                text-transform: uppercase;
+                letter-spacing: 0.04em;
+                border-radius: 10px;
+                text-decoration: none;
+                transition: background 0.2s, transform 0.15s;
+            }
+            .store-modal-btn-order:hover {
+                background: #b91c1c;
+                transform: translateY(-1px);
+            }
+            .store-modal-btn-directions {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                gap: 0.5rem;
+                width: 100%;
+                padding: 0.8rem 1.2rem;
+                background: rgba(255, 255, 255, 0.06);
+                border: 1px solid rgba(255, 255, 255, 0.25);
+                color: #ffffff;
+                font-weight: 700;
+                font-size: 0.9rem;
+                border-radius: 10px;
+                text-decoration: none;
+                transition: border-color 0.2s, color 0.2s, background 0.2s;
+            }
+            .store-modal-btn-directions:hover {
+                border-color: #FFC72C;
+                color: #FFC72C;
+                background: rgba(255, 199, 44, 0.08);
+            }
+        `;
+        document.head.appendChild(styleEl);
+
+        overlay = document.createElement('div');
+        overlay.id = 'store-details-modal-overlay';
+        overlay.className = 'store-details-modal-overlay';
+        overlay.setAttribute('role', 'dialog');
+        overlay.setAttribute('aria-modal', 'true');
+        overlay.setAttribute('aria-labelledby', 'store-modal-title');
+        overlay.innerHTML = `<div class="store-details-modal" id="store-details-modal-content"></div>`;
+        document.body.appendChild(overlay);
+
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) closeStoreDetailsModal();
+        });
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && overlay.classList.contains('is-open')) {
+                closeStoreDetailsModal();
+            }
+        });
+
+        return overlay;
+    };
+
+    const renderStoreDetailsModalContent = (slug) => {
+        const meta = storeCatalogBySlug[slug];
+        if (!meta) return false;
+        const loc = gavilanLocations.find(l => l.code === meta.code);
+        if (!loc) return false;
+
+        const isEs = currentLang === 'es';
+        const phoneE164 = `+1${loc.phone.replace(/\D/g, '')}`;
+        const dirUrl = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(loc.address)}`;
+        const tagText = isEs ? 'Tacos Gavilan · Detalles de Sucursal' : 'Tacos Gavilan · Store Details';
+        const hoursTitle = isEs ? 'Horarios' : 'Hours';
+        const orderBtnText = isEs ? 'Ordenar en Toast (Recoger o Entrega)' : 'Order Pickup or Delivery on Toast';
+        const dirBtnText = isEs ? 'Cómo llegar en Google Maps' : 'Get Directions in Google Maps';
+        const closeLabel = isEs ? 'Cerrar detalles de sucursal' : 'Close store details';
+
+        const scheduleRowsHtml = meta.rows.map(r => `
+            <div class="store-modal-schedule-row${r.highlight ? ' is-highlight' : ''}">
+                <span class="store-modal-schedule-day">${isEs ? r.dayEs : r.dayEn}</span>
+                <span class="store-modal-schedule-time">${r.time}</span>
+            </div>
+        `).join('');
+
+        const container = document.getElementById('store-details-modal-content');
+        if (!container) return false;
+
+        container.innerHTML = `
+            <div class="store-modal-banner">
+                <img src="${meta.thumb}" alt="Tacos Gavilan ${loc.name}" loading="eager">
+                <button type="button" class="store-modal-close" id="store-details-modal-close" aria-label="${closeLabel}">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
+            </div>
+            <div class="store-modal-body">
+                <span class="store-modal-tag">${tagText}</span>
+                <h2 class="store-modal-title" id="store-modal-title">
+                    <span class="store-modal-city">${loc.city}</span>
+                    <span class="store-modal-cross">${loc.crossStreets}</span>
+                </h2>
+                <div class="store-modal-info-list">
+                    <div class="store-modal-info-item">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+                        <span>${loc.address}</span>
+                    </div>
+                    <div class="store-modal-info-item">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+                        <a href="tel:${phoneE164}">${loc.phone}</a>
+                    </div>
+                </div>
+                <div class="store-modal-schedule">
+                    <div class="store-modal-schedule-header">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                        <span>${hoursTitle}</span>
+                    </div>
+                    <div class="store-modal-schedule-rows">
+                        ${scheduleRowsHtml}
+                    </div>
+                </div>
+                <div class="store-modal-actions">
+                    <a href="${loc.order}" target="_blank" rel="noopener noreferrer" class="store-modal-btn-order">${orderBtnText}</a>
+                    <a href="${dirUrl}" target="_blank" rel="noopener noreferrer" class="store-modal-btn-directions">${dirBtnText}</a>
+                </div>
+            </div>
+        `;
+
+        const closeBtn = document.getElementById('store-details-modal-close');
+        if (closeBtn) closeBtn.addEventListener('click', closeStoreDetailsModal);
+        return true;
+    };
+
+    const openStoreDetailsModal = (slug) => {
+        if (!storeCatalogBySlug[slug]) return;
+        activeStoreSlug = slug;
+        const overlay = ensureStoreDetailsModalDom();
+        if (!renderStoreDetailsModalContent(slug)) return;
+
+        overlay.style.display = 'flex';
+        overlay.offsetHeight;
+        overlay.classList.add('is-open');
+        document.body.style.overflow = 'hidden';
+        if (typeof updateStickyBar === 'function') updateStickyBar();
+        trapFocus(overlay);
+    };
+
+    const closeStoreDetailsModal = () => {
+        const overlay = document.getElementById('store-details-modal-overlay');
+        if (!overlay || !overlay.classList.contains('is-open')) return;
+        overlay.classList.remove('is-open');
+        activeStoreSlug = null;
+
+        // Clean ?store= from URL if present so refreshing doesn't re-trigger
+        try {
+            const url = new URL(window.location.href);
+            if (url.searchParams.has('store')) {
+                url.searchParams.delete('store');
+                window.history.replaceState({}, '', url.pathname + url.search + url.hash);
+            }
+        } catch (e) {}
+
+        setTimeout(() => {
+            overlay.style.display = 'none';
+            document.body.style.overflow = '';
+            if (typeof updateStickyBar === 'function') updateStickyBar();
+        }, 250);
+        releaseFocus();
+    };
+
+    // Intercept clicks on any store details link (/locations/{slug}/ or ./{slug}/)
+    document.addEventListener('click', (e) => {
+        const link = e.target.closest('a');
+        if (!link) return;
+        const rawHref = link.getAttribute('href') || '';
+        // Match /locations/{slug}/ or ./{slug}/
+        const match = rawHref.match(/(?:^\/locations\/|^\.\/)([a-z0-9-]+)\/?$/i);
+        if (match && storeCatalogBySlug[match[1]]) {
+            e.preventDefault();
+            openStoreDetailsModal(match[1]);
+        }
+    });
+
+    // Re-render modal content live if language is toggled while modal is open
+    if (langToggleBtn) {
+        langToggleBtn.addEventListener('click', () => {
+            if (activeStoreSlug) {
+                renderStoreDetailsModalContent(activeStoreSlug);
+            }
+        });
+    }
+
+    // Auto-open modal if URL has ?store={slug}
+    const initialStoreSlug = new URLSearchParams(window.location.search).get('store');
+    if (initialStoreSlug && storeCatalogBySlug[initialStoreSlug]) {
+        openStoreDetailsModal(initialStoreSlug);
+    }
+
 });
+
