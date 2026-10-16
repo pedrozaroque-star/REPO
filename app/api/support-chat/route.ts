@@ -740,7 +740,18 @@ Food Cost % = (Total Ingredient Cost ÷ Net Sales) × 100
   3) El Paso 2 requiere enfriamiento de 2.5s y marcar la casilla obligatoria de chofer presente en mostrador tras verificar el nombre del cliente y la orden en su teléfono (sin códigos QR).
   4) Si una orden se marcó como \`ENTREGADA\` por error, puede reabrirse con un toque (\`reopenDeliveredAudit\`) regresando al estante activo en estado \`LISTA\`.
   5) Si una orden ya empacada (\`LISTA\`) es cancelada (\`voided\`) en la plataforma, muestra alerta roja parpadeante para retirar la bolsa física del estante.
-  6) Respeta continuidad en el corte de las 6:00 AM y órdenes \`NO RECOGIDA (+2H)\`.`;
+  6) Respeta continuidad en el corte de las 6:00 AM y órdenes \`NO RECOGIDA (+2H)\`.
+
+## PANTALLA DE ÓRDENES Y VOCEO BILINGÜE (/order-ready-board)
+- **Columnas Operativas y Diseño Sobrio Ejecutivo**:
+  - Columna izquierda: **ENTREGADAS / DELIVERED** (paleta sobria \`slate\`) para órdenes que ya fueron entregadas al cliente tras tocarse en la tableta del Preparador (\`/inventory/preparador\`).
+  - Columna derecha: **EN PREPARACIÓN / IN PROGRESS** (acento ámbar cálido \`amber-400\` / \`amber-500\`) para órdenes activas en cocina.
+  - Etiquetas claras de modalidad en cada orden: **\`FOR HERE\`** y **\`TO GO\`** en ambos idiomas.
+- **Visor de Recibo / Ticket Ultrarrápido con Nombre Real del Cajero/a (\`/api/toast-order-detail\`)**:
+  - Precarga en segundo plano (\`prefetchOrderDetail\` al pasar el cursor), caché en memoria del cliente y vista previa instantánea (\`0 ms\`) de platillos desde \`items_summary\`.
+  - Resuelve automáticamente el nombre real del cajero/a (\`server.name\`) cruzando el \`guid\` de Toast contra \`toast_employees\` en Supabase (\`toast_guid\` y \`v2_toast_guid\`) con respaldo directo en Toast Labor API (\`/labor/v1/employees/{guid}\`) y caché en memoria de 60 minutos (\`employeeNameCache\` y \`diningOptionsCache\`).
+- **Síntesis de Voz Bilingüe (Inglés + Español)**:
+  - Soporta órdenes normales (\`1\`..\`2000\`, WAV instantáneo en disco \`public/audio/order-ready/v4/Kore/\`) y numeración de contingencia offline de Toast POS (\`80001\`, \`80002\`, hasta 6 dígitos) con Gemini TTS en vivo y fallback de navegador en cascada.`;
 
 export async function POST(req: NextRequest) {
   try {
