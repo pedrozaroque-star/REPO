@@ -70,12 +70,24 @@ export async function GET(request: NextRequest) {
         });
     } catch (error: any) {
         console.error('Error fetching warehouse bills/invoices:', error);
+        const errMsg = String(error?.message || error?.originalMessage || '');
+        const isAuthError =
+            errMsg.includes('token') ||
+            errMsg.includes('auth') ||
+            errMsg.includes('invalid_grant') ||
+            errMsg.includes('401') ||
+            errMsg.includes('re-authenticate');
+
         return NextResponse.json(
             {
                 success: false,
-                error: error.message || 'Error al obtener facturas de QuickBooks'
+                isAuthError,
+                reauthUrl: '/api/integrations/quickbooks/auth',
+                error: isAuthError
+                    ? 'La sesión de QuickBooks ha expirado. Por favor reconecta la cuenta.'
+                    : (error.message || 'Error al obtener facturas de QuickBooks')
             },
-            { status: 500 }
+            { status: isAuthError ? 401 : 500 }
         );
     }
 }
@@ -135,12 +147,24 @@ export async function POST(request: NextRequest) {
         });
     } catch (error: any) {
         console.error('Error processing Bill creation:', error);
+        const errMsg = String(error?.message || error?.originalMessage || '');
+        const isAuthError =
+            errMsg.includes('token') ||
+            errMsg.includes('auth') ||
+            errMsg.includes('invalid_grant') ||
+            errMsg.includes('401') ||
+            errMsg.includes('re-authenticate');
+
         return NextResponse.json(
             {
                 success: false,
-                error: error.message || 'Error al procesar la creación de Bills'
+                isAuthError,
+                reauthUrl: '/api/integrations/quickbooks/auth',
+                error: isAuthError
+                    ? 'La sesión de QuickBooks ha expirado. Por favor reconecta la cuenta.'
+                    : (error.message || 'Error al procesar la creación de Bills')
             },
-            { status: 500 }
+            { status: isAuthError ? 401 : 500 }
         );
     }
 }

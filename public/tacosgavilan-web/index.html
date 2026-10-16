@@ -42,7 +42,36 @@
     <!-- Preload Hero Image -->
     <link rel="preload" as="image" href="img/hero-bg.webp" type="image/webp">
 
-    <!-- Marketing & Analytics Pixels -->
+    <!-- Marketing & Analytics Pixels (California CCPA/CPRA + Google Consent Mode v2 + GPC Gated) -->
+    <script>
+    (function() {
+        window.dataLayer = window.dataLayer || [];
+        function gtag(){window.dataLayer.push(arguments);}
+        var gpc = (typeof navigator !== 'undefined' && navigator.globalPrivacyControl === true);
+        var allowMkt = !gpc;
+        var allowAna = true;
+        try {
+            var raw = localStorage.getItem('tg_cookie_consent') || localStorage.getItem('tacosgavilan_cookie_consent');
+            if (raw === 'declined') {
+                allowMkt = false; allowAna = false;
+            } else if (raw && raw.charAt(0) === '{') {
+                var parsed = JSON.parse(raw);
+                if (parsed.doNotSell || gpc) { allowMkt = false; allowAna = false; }
+                else { allowMkt = !!parsed.marketing; allowAna = !!parsed.analytics; }
+            }
+        } catch (e) {}
+        window.__TG_ALLOW_MKT__ = allowMkt;
+        window.__TG_ALLOW_ANA__ = allowAna;
+        if (!allowAna) window['ga-disable-UA-74752614-19'] = true;
+        gtag('consent', 'default', {
+            'ad_storage': allowMkt ? 'granted' : 'denied',
+            'ad_user_data': allowMkt ? 'granted' : 'denied',
+            'ad_personalization': allowMkt ? 'granted' : 'denied',
+            'analytics_storage': allowAna ? 'granted' : 'denied',
+            'wait_for_update': 500
+        });
+    })();
+    </script>
     <!-- Google Tag Manager -->
     <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
     new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
@@ -50,7 +79,7 @@
     'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
     })(window,document,'script','dataLayer','GTM-WW2N58Z');</script>
 
-    <!-- Meta Pixel Code -->
+    <!-- Meta Pixel Code (with California CCPA Limited Data Use & Consent Gate) -->
     <script>
     !function(f,b,e,v,n,t,s)
     {if(f.fbq)return;n=f.fbq=function(){n.callMethod?
@@ -60,16 +89,29 @@
     t.src=v;s=b.getElementsByTagName(e)[0];
     s.parentNode.insertBefore(t,s)}(window, document,'script',
     'https://connect.facebook.net/en_US/fbevents.js');
+    fbq('consent', window.__TG_ALLOW_MKT__ === false ? 'revoke' : 'grant');
+    if (window.__TG_ALLOW_MKT__ === false) {
+        fbq('dataProcessingOptions', ['LDU'], 1, 1000);
+    } else {
+        fbq('dataProcessingOptions', []);
+    }
     fbq('init', '2180512185415859');
-    fbq('track', 'PageView');
+    if (window.__TG_ALLOW_MKT__ !== false) {
+        fbq('track', 'PageView');
+    }
     </script>
 
-    <!-- TikTok Pixel Code -->
+    <!-- TikTok Pixel Code (with California Consent Gate) -->
     <script>
     !function (w, d, t) {
       w.TiktokAnalyticsObject=t;var ttq=w[t]=w[t]||[];ttq.methods=["page","track","identify","instances","debug","on","off","once","ready","alias","group","enableCookie","disableCookie"],ttq.setAndDefer=function(t,e){t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}};for(var i=0;i<ttq.methods.length;i++)ttq.setAndDefer(ttq,ttq.methods[i]);ttq.instance=function(t){for(var e=ttq._i[t]||[],n=0;n<ttq.methods.length;n++)ttq.setAndDefer(e,ttq.methods[n]);return e},ttq.load=function(e,n){var i="https://analytics.tiktok.com/i18n/pixel/events.js";ttq._i=ttq._i||{},ttq._i[e]=[],ttq._i[e]._u=i,s=d.createElement("script");s.type="text/javascript",s.async=!0,s.src=i+"?sdkid="+e+"&lib="+t;var c=d.getElementsByTagName("script")[0];c.parentNode.insertBefore(s,c)};
       ttq.load('C72F1PTP2K6V4FLP2V5G');
-      ttq.page();
+      if (w.__TG_ALLOW_MKT__ === false) {
+        ttq.disableCookie();
+      } else {
+        ttq.enableCookie();
+        ttq.page();
+      }
     }(window, document, 'ttq');
     </script>
 
@@ -2059,26 +2101,30 @@
                 </button>
             </div>
             <div class="privacy-modal-body" tabindex="0" role="region" aria-label="Privacy Policy content">
-                <p class="privacy-intro" data-i18n="privacy.intro">Effective and last updated October 9, 2026. Tacos Gavilan explains here what this website collects, why it is used, and the choices available to California visitors.</p>
+                <p class="privacy-intro" data-i18n="privacy.intro">Effective March 19, 2019 · Last updated October 16, 2026. Tacos Gavilan, LLC and its affiliated operating entities ("Tacos Gavilan") explain here what this website collects, how it is protected, and how California residents can exercise their privacy rights.</p>
                 <div class="privacy-section">
-                    <h4 data-i18n="privacy.h1">1. Information We Collect</h4>
-                    <p data-i18n="privacy.p1">Our hosting and security services may process IP address, browser User Agent, request time, and language preferences to deliver and protect the site. Vercel hosts the website; Supabase stores contact submissions; Toast handles orders; Google provides fonts and the optional interactive map.</p>
+                    <h4 data-i18n="privacy.h1">1. Information We Collect &amp; Location Data</h4>
+                    <p data-i18n="privacy.p1">Our hosting and security infrastructure (Vercel, Supabase) processes technical request data (IP address, browser User Agent, timestamp, language preference). If you use the optional "Find Me" store locator button, your browser processes your location in real time to calculate distances to our 15 locations without storing or selling your GPS coordinates on our servers. Online orders and payments are processed independently on Toast POS (order.online) and delivery platforms; we never collect payment card numbers on this site.</p>
                 </div>
                 <div class="privacy-section">
-                    <h4 data-i18n="privacy.formFieldsH">2. Contact Form Inquiries</h4>
-                    <p data-i18n="privacy.formFieldsP">When you submit our contact form, we collect your name, email address, phone number (optional), nearest store selection, topic, and message solely to respond to your inquiry and prevent automated abuse.</p>
+                    <h4 data-i18n="privacy.formFieldsH">2. Contact, Newsletter &amp; Career Inquiries</h4>
+                    <p data-i18n="privacy.formFieldsP">When you submit our contact form, newsletter signup, or employment inquiry, we collect your name, email address, phone number, selected restaurant location, topic, and message solely to respond to your inquiry, provide guest support, and prevent automated spam abuse.</p>
                 </div>
                 <div class="privacy-section">
-                    <h4 data-i18n="privacy.retentionH">3. Data Retention Criteria</h4>
-                    <p data-i18n="privacy.retentionP">Contact messages and inquiries are retained for as long as necessary to fulfill the operational purpose for which they were collected, resolve customer inquiries, or comply with applicable legal, tax, or regulatory obligations, after which they are securely deleted or de-identified.</p>
+                    <h4 data-i18n="privacy.retentionH">3. Data Retention, Security &amp; Children's Privacy</h4>
+                    <p data-i18n="privacy.retentionP">Contact inquiries are retained only as long as necessary to resolve your request or satisfy legal obligations, after which they are securely deleted or de-identified. Our Service does not address anyone under age 18, and we do not knowingly collect, sell, or share personal data from minors under 18/16 (COPPA &amp; CCPA).</p>
                 </div>
                 <div class="privacy-section">
-                    <h4 data-i18n="privacy.h2">4. Do Not Sell or Share Personal Information</h4>
-                    <p data-i18n="privacy.p2">This website is not used to sell personal information or share it for cross-context behavioral advertising. It does not use advertising cookies. Google Maps loads only after you request the interactive locator; Toast processes orders on its own website.</p>
+                    <h4 data-i18n="privacy.h2">4. Cookies, Pixels &amp; Right to Opt Out ("Do Not Sell or Share")</h4>
+                    <p data-i18n="privacy.p2">Tacos Gavilan never sells personal information for money. We use essential preference cookies and, unless you opt out, analytics and advertising tags (Google Tag Manager, Google Analytics/Ads, Meta Pixel, TikTok Pixel). You may opt out at any time via our "Do Not Sell or Share My Personal Information" controls or by broadcasting a Global Privacy Control (GPC) browser signal, which automatically disables non-essential advertising/analytics tags via Google Consent Mode v2.</p>
                 </div>
                 <div class="privacy-section">
                     <h4 data-i18n="privacy.rightsH">5. Your California Privacy Rights (CCPA / CPRA)</h4>
-                    <p data-i18n="privacy.rightsP">California residents may request access, correction, or deletion and will not receive discriminatory treatment for exercising applicable rights. Email info@tacosgavilan.com or email info@tacosgavilan.com. We may request information needed to verify the request. Because this website does not sell or share data for behavioral advertising, Global Privacy Control does not change advertising behavior here.</p>
+                    <p data-i18n="privacy.rightsP">California residents have the right to Know/Access, Delete, Correct, and Opt Out of Sale/Sharing without discrimination. Submit requests by emailing info@tacosgavilan.com or via our Online Contact Form.</p>
+                </div>
+                <div style="margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid rgba(255,255,255,0.12); display: flex; flex-wrap: wrap; gap: 0.75rem;">
+                    <a href="/privacy/" class="btn btn-outline btn-sm" data-en="Read Full Privacy Policy Page →" data-es="Ver Página Completa de Privacidad →">Read Full Privacy Policy Page →</a>
+                    <a href="/privacy-choices/" class="btn btn-outline btn-sm" data-en="Your California Privacy Choices →" data-es="Tus Opciones de Privacidad en California →">Your California Privacy Choices →</a>
                 </div>
             </div>
         </div>
@@ -2092,25 +2138,28 @@
             <div class="privacy-modal-header">
                 <div class="privacy-modal-title">
                     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
-                    <h3 id="terms-modal-title" data-i18n="terms.title">Terms of Use</h3>
+                    <h3 id="terms-modal-title" data-i18n="terms.title">Terms of Use &amp; Conditions</h3>
                 </div>
                 <button class="privacy-modal-close" id="terms-modal-close" type="button" aria-label="Close terms of use dialog">
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                 </button>
             </div>
             <div class="privacy-modal-body" tabindex="0" role="region" aria-label="Terms of Use content">
-                <p class="privacy-intro" data-i18n="terms.intro">Welcome to Tacos Gavilan. By accessing or using our website, you agree to comply with and be bound by the following Terms of Use.</p>
+                <p class="privacy-intro" data-i18n="terms.intro">Effective March 19, 2019 · Last updated October 16, 2026. By accessing or using https://tacosgavilan.com, operated by Tacos Gavilan, LLC and its affiliated operating entities ("Tacos Gavilan"), you agree to be bound by these Terms of Use.</p>
                 <div class="privacy-section">
-                    <h4 data-i18n="terms.h1">1. Online Ordering &amp; External Payment Processing</h4>
-                    <p data-i18n="terms.p1">All online food orders, pickup, delivery, pricing, payment processing, and transaction receipts are powered exclusively through Toast POS / order.online. Tacos Gavilan does not store or process payment card details on this website.</p>
+                    <h4 data-i18n="terms.h1">1. Online Ordering, Pricing, Allergens &amp; Third-Party Links</h4>
+                    <p data-i18n="terms.p1">Online food orders and payments are processed through Toast POS (order.online) and authorized delivery marketplaces (DoorDash, Uber Eats, Grubhub, Postmates). Menu offerings, Fiesta Platter packages, prices, and hours may vary by location. Food is prepared in kitchens handling wheat, dairy, eggs, soy, and meats; guests with allergies should consult restaurant management before ordering.</p>
                 </div>
                 <div class="privacy-section">
-                    <h4 data-i18n="terms.h2">2. Intellectual Property &amp; Brand Standards</h4>
-                    <p data-i18n="terms.p2">All content, logos, food photography, graphics, and trade dress on this website are the property of Tacos Gavilan. Reproduction or redistribution without prior written authorization is strictly prohibited.</p>
+                    <h4 data-i18n="terms.h2">2. Intellectual Property &amp; Acceptable Use</h4>
+                    <p data-i18n="terms.p2">All content, trademarks ("Tacos Gavilan", "Ya está."), logos, food photography, and trade dress are the exclusive property of Tacos Gavilan and its licensors. Unauthorized reproduction, scraping, or automated abuse is strictly prohibited.</p>
                 </div>
                 <div class="privacy-section">
-                    <h4 data-i18n="terms.h3">3. Accuracy of Information</h4>
-                    <p data-i18n="terms.p3">While we strive for complete accuracy, menu offerings, ingredients, item availability, and operating hours may vary by restaurant location and day. Refer to order.online for real-time item availability at each location.</p>
+                    <h4 data-i18n="terms.h3">3. Disclaimer ("AS IS"), Limitation of Liability, Indemnification &amp; Governing Law</h4>
+                    <p data-i18n="terms.p3">The Service is provided "AS IS" and "AS AVAILABLE" without warranties of any kind. To the fullest extent permitted by law, Tacos Gavilan shall not be liable for any indirect, incidental, special, consequential, or punitive damages arising from your use of the Service. You agree to indemnify and hold harmless Tacos Gavilan from claims arising out of your breach of these Terms. Governed by the laws of the State of California (Los Angeles County).</p>
+                </div>
+                <div style="margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid rgba(255,255,255,0.12);">
+                    <a href="/terms/" class="btn btn-outline btn-sm" data-en="Read Full Terms of Use Page →" data-es="Ver Página Completa de Términos de Uso →">Read Full Terms of Use Page →</a>
                 </div>
             </div>
         </div>
@@ -2124,32 +2173,35 @@
             <div class="privacy-modal-header">
                 <div class="privacy-modal-title">
                     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="M12 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4z"></path><path d="M12 12v6"></path><path d="M8 14l4-2 4 2"></path></svg>
-                    <h3 id="accessibility-modal-title" data-i18n="accessibility.title">Accessibility Statement</h3>
+                    <h3 id="accessibility-modal-title" data-i18n="accessibility.title">Accessibility Statement (ADA &amp; WCAG 2.2 AA)</h3>
                 </div>
                 <button class="privacy-modal-close" id="accessibility-modal-close" type="button" aria-label="Close accessibility statement dialog">
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                 </button>
             </div>
             <div class="privacy-modal-body" tabindex="0" role="region" aria-label="Accessibility Statement content">
-                <p class="privacy-intro" data-i18n="accessibility.intro">Tacos Gavilan is committed to digital accessibility and ensuring our website is welcoming and accessible to all guests, including individuals with disabilities.</p>
+                <p class="privacy-intro" data-i18n="accessibility.intro">Effective April 15, 2019 · Last updated October 16, 2026. Tacos Gavilan is committed to digital accessibility for all guests, including individuals with disabilities, in alignment with ADA Title III, the California Unruh Civil Rights Act, and WCAG 2.1 / 2.2 Level AA.</p>
                 <div class="privacy-section">
-                    <h4 data-i18n="accessibility.h1">Our Standards &amp; Conformance</h4>
-                    <p data-i18n="accessibility.p1">We use WCAG 2.2 AA as our accessibility target and continue testing keyboard navigation, contrast, text resizing, alternative text, focus management, and screen-reader semantics. This statement describes an ongoing effort, not a certification of perfect conformance.</p>
+                    <h4 data-i18n="accessibility.h1">Our Standards, Assistive Toolbar &amp; Ongoing Efforts</h4>
+                    <p data-i18n="accessibility.p1">We target WCAG 2.2 Level AA and provide a built-in ADA Accessibility Toolbar (high contrast, text-to-speech screen reader, font scaling, dyslexia font, link highlighting, animation pause) alongside semantic keyboard navigation. Despite our ongoing efforts, some third-party integrations (such as external ordering portals or map tiles) may be controlled by external providers.</p>
                 </div>
                 <div class="privacy-section">
-                    <h4 data-i18n="accessibility.lastUpdatedH">Last Reviewed &amp; Alternatives</h4>
-                    <p data-i18n="accessibility.lastUpdatedP">Last reviewed: October 2026. If any portion of the site presents an accessibility barrier, you may also place orders directly via Toast POS (order.online) or contact your nearest location by phone.</p>
+                    <h4 data-i18n="accessibility.lastUpdatedH">Here For You — Telephone Ordering &amp; Personal Assistance</h4>
+                    <p data-i18n="accessibility.lastUpdatedP">Last reviewed: October 2026. If you experience any difficulty with any part of our website or placing an online order, you may call any of our 15 Southern California restaurant locations directly and our staff will gladly assist you and take your order by telephone under the exact same prices and terms.</p>
                 </div>
                 <div class="privacy-section">
-                    <h4 data-i18n="accessibility.h2">Feedback &amp; Assistance</h4>
-                    <p data-i18n="accessibility.p2">If you encounter any difficulty viewing or navigating content on this website, or notice any feature that you believe is not fully accessible, please contact our team email us at info@tacosgavilan.com with &quot;Website Accessibility&quot; in the subject line. We welcome your feedback and are glad to assist.</p>
+                    <h4 data-i18n="accessibility.h2">Feedback &amp; Barrier Reporting</h4>
+                    <p data-i18n="accessibility.p2">To report an accessibility barrier or request assistance, please email info@tacosgavilan.com with "Website Accessibility" in the subject line or use our Online Contact Form.</p>
+                </div>
+                <div style="margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid rgba(255,255,255,0.12);">
+                    <a href="/accessibility/" class="btn btn-outline btn-sm" data-en="Read Full Accessibility Statement Page →" data-es="Ver Página Completa de Accesibilidad →">Read Full Accessibility Statement Page →</a>
                 </div>
             </div>
         </div>
     </div>
 
     <!-- Main JavaScript -->
-    <script src="js/main.js?v=40" defer></script>
-    <script src="js/compliance-a11y.js?v=33" defer></script>
+    <script src="js/main.js?v=41" defer></script>
+    <script src="js/compliance-a11y.js?v=35" defer></script>
 </body>
 </html>

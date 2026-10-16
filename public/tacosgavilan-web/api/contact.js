@@ -71,6 +71,68 @@ function isValidEmail(email) {
     return emailRegex.test(email);
 }
 
+/**
+ * Detects automated form-spam bots and vulnerability scanners (e.g., random gibberish strings
+ * like "ovqjDtWDLvqzWsbkECjAxUny", consonant clusters like "Bzuchqo Gtgtno", Gmail dot-stuffing
+ * like "u.ze.ziz.ez7.67@gmail.com", or malformed/scanner User-Agents).
+ */
+function isAutomatedBotSubmission({ name, email, message, userAgent }) {
+    const ua = String(userAgent || '').trim();
+    // 1. Literal quotes around User-Agent or known automated scanner tools
+    if (
+        ua.startsWith('"') ||
+        ua.endsWith('"') ||
+        /(sqlmap|nikto|nmap|masscan|zgrab|python-requests|go-http-client|scrapy|libwww-perl)/i.test(ua)
+    ) {
+        return true;
+    }
+
+    // 2. Gmail dot-stuffing bot pattern (3+ dots in local part of gmail/googlemail)
+    const emailLower = String(email || '').toLowerCase().trim();
+    const [localPart, domainPart] = emailLower.split('@');
+    if (localPart && (domainPart === 'gmail.com' || domainPart === 'googlemail.com')) {
+        const dotCount = (localPart.match(/\./g) || []).length;
+        if (dotCount >= 3) return true;
+    }
+
+    // 3. Random case-switching gibberish token (e.g., "ovqjDtWDLvqzWsbkECjAxUny")
+    const checkRandomToken = (text) => {
+        const words = String(text || '').trim().split(/\s+/);
+        for (const w of words) {
+            if (w.length >= 14 && !/^https?:\/\//i.test(w)) {
+                let caseTransitions = 0;
+                for (let i = 1; i < w.length; i++) {
+                    const prevIsUpper = w[i - 1] >= 'A' && w[i - 1] <= 'Z';
+                    const currIsUpper = w[i] >= 'A' && w[i] <= 'Z';
+                    const prevIsAlpha = /[a-zA-Z]/.test(w[i - 1]);
+                    const currIsAlpha = /[a-zA-Z]/.test(w[i]);
+                    if (prevIsAlpha && currIsAlpha && prevIsUpper !== currIsUpper) {
+                        caseTransitions++;
+                    }
+                }
+                if (caseTransitions >= 4) return true;
+            }
+            // 5+ consecutive consonants (excluding common English/Spanish clusters)
+            if (/^[a-zA-Z]+$/.test(w) && /[bcdfghjklmnpqrstvwxz]{5,}/i.test(w)) {
+                return true;
+            }
+        }
+        return false;
+    };
+
+    if (checkRandomToken(name) || checkRandomToken(message)) {
+        return true;
+    }
+
+    // 4. Message of 16+ characters with zero spaces (single unbroken random string)
+    const trimmedMsg = String(message || '').trim();
+    if (trimmedMsg.length >= 16 && !/\s/.test(trimmedMsg)) {
+        return true;
+    }
+
+    return false;
+}
+
 const ALLOWED_REASONS = new Set([
     'general',
     'catering',
@@ -194,6 +256,14 @@ module.exports = async function handler(req, res) {
         const rawReason = REASON_ALIASES[rawReasonInput] || rawReasonInput || 'general';
         const rawStore = sanitizeText(body.store);
         const message = sanitizeText(body.message);
+
+        // 5b. Automated Bot / Gibberish / Scanner Filter (Shadow-Drop)
+        if (isAutomatedBotSubmission({ name, email, message, userAgent: req.headers['user-agent'] })) {
+            return res.status(200).json({
+                ok: true,
+                message: 'Thank you for your message.'
+            });
+        }
 
         if (!name || name.length < 2 || name.length > 100) {
             return res.status(400).json({

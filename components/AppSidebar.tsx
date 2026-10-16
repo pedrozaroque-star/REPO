@@ -6,6 +6,7 @@
  * @businessRules
  * - Filtra dinámicamente los módulos según el rol del usuario autenticado (`admin`, `supervisor`, `manager`, `asistente`, `planificador`).
  * - Los módulos configurados con `openInNewTab: true` (ej. `/app` Customer App y `/gavilan-pos` Gavilan POS) se abren en una pestaña independiente (`target="_blank"`) con icono de enlace externo.
+ * - Soporta insignias animadas (`NEW`, `Building`) con ubicación en línea o debajo del título (`badgePosition: 'below'`).
  * - Soporta cambio de idioma en vivo (ES/EN), modo claro/oscuro, notificaciones y modal de historial de versiones (`ChangelogModal`).
  *
  * @dataFlow
@@ -30,7 +31,7 @@ import {
     DollarSign, TrendingUp, Calendar, MessageSquare, CalendarCheck, UserCog,
     Monitor, ChefHat, Zap, X, PanelLeftClose, PanelLeft, RefreshCw,
     Settings, Keyboard, HelpCircle, ExternalLink, Moon, Sun, Globe, Shield,
-    CalendarDays, Sparkles, Info, UserCircle, Menu, Folder, Truck, Timer, Shirt, Car, Calculator, Package, BarChart3, UserCheck, Bell, Receipt, Wrench, Smartphone, ShieldCheck
+    CalendarDays, Sparkles, Info, UserCircle, Menu, Folder, Truck, Timer, Shirt, Car, Calculator, Package, BarChart3, UserCheck, Bell, Receipt, Wrench, Smartphone, ShieldCheck, HardHat, Construction, Layers
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useLanguage } from '@/lib/i18n'
@@ -53,6 +54,28 @@ const BasecampIcon = ({ size = 20 }: { size?: number }) => (
     </svg>
 )
 
+const HazardTapeIcon = ({ size = 14 }: { size?: number }) => (
+    <svg 
+        width={size} 
+        height={Math.round(size * 0.65)} 
+        viewBox="0 0 20 13" 
+        fill="none" 
+        className="shrink-0 rounded-[1.5px] overflow-hidden" 
+        aria-hidden="true"
+    >
+        <rect width="20" height="13" fill="#facc15" />
+        <path 
+            d="M-2 4 L2 0 H6 L2 4 H-2 Z M6 4 L10 0 H14 L10 4 H6 Z M14 4 L18 0 H22 L18 4 H14 Z" 
+            fill="#000000" 
+        />
+        <path 
+            d="M-2 13 L2 9 H6 L2 13 H-2 Z M6 13 L10 9 H14 L10 13 H6 Z M14 13 L18 9 H22 L18 13 H14 Z" 
+            fill="#000000" 
+        />
+        <rect width="20" height="13" fill="none" stroke="#000000" strokeWidth="1" />
+    </svg>
+)
+
 interface AppSidebarProps {
     isCollapsed: boolean
     setIsCollapsed: (value: boolean) => void
@@ -68,6 +91,10 @@ type MenuItem = {
     roles: string[]
     tooltip?: string
     openInNewTab?: boolean
+    badgeText?: string
+    badgeIcon?: React.ReactNode
+    badgePosition?: 'inline' | 'below'
+    badgeStyle?: 'default' | 'hazard-tape'
 }
 
 type MenuGroup = {
@@ -117,7 +144,12 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
     const { t, language, setLanguage } = useLanguage()
 
     const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({
-        operaciones: true, finanzas: true, analisis: false, inventario: false, equipo: false, gestion: false,
+        analisis: true,
+        finanzas: true,
+        operaciones: true,
+        inventario: true,
+        equipo: true,
+        gestion: true,
     })
     const [userDropdownOpen, setUserDropdownOpen] = useState(false)
     const [changelogOpen, setChangelogOpen] = useState(false)
@@ -237,6 +269,7 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                     path: '/admin/mantenimiento',
                     icon: <Wrench size={20} />,
                     roles: ['asistente', 'manager', 'supervisor', 'admin'],
+                    badgeIcon: <HazardTapeIcon size={16} />,
                     tooltip: language === 'en'
                         ? 'Vendor service visits, equipment repairs, and technical photo evidence log'
                         : 'Registro de visitas de técnicos, reparaciones de equipos y evidencias fotográficas de proveedores'
@@ -263,6 +296,7 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                     path: '/contabilidad',
                     icon: <Calculator size={20} />,
                     roles: ['admin'],
+                    badgeText: 'new',
                     tooltip: language === 'en'
                         ? 'Daily sales journal entries for QuickBooks — replaces Cohesion (Pólizas de ventas diarias)'
                         : 'Pólizas de ventas diarias para QuickBooks — reemplaza Cohesion ($450/mes)'
@@ -273,6 +307,7 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                     path: '/admin/crear-bills',
                     icon: <Receipt size={20} />,
                     roles: ['admin'],
+                    badgeText: 'new',
                     tooltip: language === 'en'
                         ? 'Automatic synchronization and Bill creation from Warehouse Invoices in QuickBooks Online'
                         : 'Sincronización y creación automática de Bills desde Invoices de Bodega en QuickBooks'
@@ -283,6 +318,7 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                     path: '/admin/ronos',
                     icon: <Clock size={20} />,
                     roles: ['admin'],
+                    badgeIcon: <HazardTapeIcon size={16} />,
                     tooltip: language === 'en'
                         ? 'Live timecard audit, time clock camera photos, meal penalty leakage & 15-store compliance (Auditoría de ponchadas, fotos y multas Cingular HR)'
                         : 'Auditoría en vivo de ponchadas, fotos de reloj checador, penalizaciones de lunch y cumplimiento Cingular HR'
@@ -340,6 +376,7 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                     icon: <Smartphone size={20} />,
                     roles: ['asistente', 'manager', 'supervisor', 'admin'],
                     openInNewTab: true,
+                    badgeIcon: <HazardTapeIcon size={16} />,
                     tooltip: language === 'en'
                         ? 'Opens in a new tab: Customer mobile ordering app preview and menu consultation (App móvil de pedidos y consulta para clientes)'
                         : 'Abre en nueva pestaña: Consulta y vista previa de la app móvil de pedidos para clientes'
@@ -361,6 +398,7 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                     icon: <Monitor size={20} />,
                     roles: ['admin', 'supervisor', 'manager'],
                     openInNewTab: true,
+                    badgeIcon: <HazardTapeIcon size={16} />,
                     tooltip: language === 'en'
                         ? 'Opens in a new tab: Next-Gen Gavilan POS Cloud & Terminal Ecosystem (Menus, KDS HDMI, ESC/POS Tickets, EBT RMP & Direct Delivery)'
                         : 'Abre en nueva pestaña: Ecosistema Gavilan POS & KDS (Menús, KDS HDMI, Tickets ESC/POS, EBT RMP y Delivery Directo)'
@@ -724,6 +762,17 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
         }
     }, [mobileDrawerOpen])
 
+    // Auto-expand the group that contains the active route
+    useEffect(() => {
+        if (!pathname || pathname === '/inicio') return
+        const matchingGroup = filteredGroups.find(g =>
+            g.items.some(item => pathname === item.path || (item.path !== '/dashboard' && pathname.startsWith(item.path + '/')))
+        )
+        if (matchingGroup) {
+            setExpandedGroups(prev => (prev[matchingGroup.id] ? prev : { ...prev, [matchingGroup.id]: true }))
+        }
+    }, [pathname, filteredGroups])
+
     const toggleGroup = (groupId: string) => {
         setExpandedGroups(prev => ({ ...prev, [groupId]: !prev[groupId] }))
     }
@@ -732,7 +781,16 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
     const renderNavItem = (item: MenuItem, groupId: string, isMobile: boolean = false) => {
         const isActive = pathname === item.path || (item.path !== '/dashboard' && pathname.startsWith(item.path + '/'))
         const colors = GROUP_COLORS[groupId] || GROUP_COLORS.operaciones
-        const hasNewBadge = item.path === '/basecamp' || item.path === '/admin/compras/viele' || item.path === '/app' || item.path === '/nueva-web' || item.path === '/gavilan-pos' || item.path === '/admin/blindaje-delivery' || item.path === '/order-ready-board'
+        const hasNewBadge = item.path === '/basecamp' || item.path === '/admin/compras/viele' || item.path === '/order-ready-board' || item.path === '/nueva-web' || item.path === '/admin/blindaje-delivery' || item.path === '/admin/crear-bills' || item.path === '/contabilidad'
+        const isBuildingBadge = item.path === '/admin/mantenimiento' || item.path === '/admin/ronos' || item.path === '/app' || item.path === '/gavilan-pos' || Boolean(item.badgeIcon)
+        const badgeText = item.badgeText || (hasNewBadge ? 'new' : null)
+        const labelStr = typeof item.name === 'string' ? item.name : (item.plainName || '')
+        const badgePosition = item.badgePosition || (isBuildingBadge && labelStr.length > 22 ? 'below' : 'inline')
+        const badgeIcon = item.badgeIcon || (isBuildingBadge ? <HazardTapeIcon size={14} /> : null)
+        const hasAnyBadge = Boolean(badgeText || badgeIcon)
+        const badgeBubbleClass = isBuildingBadge
+            ? 'bg-amber-500/20 dark:bg-amber-500/25 border-amber-500/40 text-amber-900 dark:text-amber-200 px-1.5 py-1'
+            : 'bg-blue-600 dark:bg-blue-500 border-blue-400/30 text-white text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5'
 
         return (
             <Link
@@ -740,7 +798,10 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                 href={item.path}
                 target={item.openInNewTab ? '_blank' : undefined}
                 rel={item.openInNewTab ? 'noopener noreferrer' : undefined}
-                onClick={() => { if (isMobile) setMobileDrawerOpen(false) }}
+                onClick={() => {
+                    if (isMobile) setMobileDrawerOpen(false)
+                    if (pathname === '/inicio' && !isMobile) setIsCollapsed(false)
+                }}
                 title={item.tooltip || (typeof item.name === 'string' ? item.name : item.plainName) || ''}
                 className={`group/item relative flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-all duration-200 border-l-[3px] ${
                     isActive
@@ -754,22 +815,33 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                     {React.cloneElement(item.icon as any, { size: 18, strokeWidth: isActive ? 2.5 : 2 })}
                 </div>
                 {(!isCollapsed || isMobile) ? (
-                    <div className="flex items-center justify-between w-full min-w-0">
-                        <span className="truncate">{item.name}</span>
-                        <div className="flex items-center gap-1 ml-1.5 shrink-0">
-                            {item.openInNewTab && (
-                                <ExternalLink size={11} className="text-slate-400 group-hover/item:text-blue-600 transition-colors" />
-                            )}
-                            {hasNewBadge && (
-                                <span className="new-badge-animated bg-red-500 dark:bg-red-600 text-white text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded shadow-sm shrink-0 flex items-center justify-center border border-red-400/20 leading-none">
-                                    new
-                                </span>
-                            )}
+                    <div className="flex flex-col min-w-0 flex-1">
+                        <div className="flex items-center justify-between w-full min-w-0">
+                            <span className="truncate">{item.name}</span>
+                            <div className="flex items-center gap-1 ml-1.5 shrink-0">
+                                {item.openInNewTab && (
+                                    <ExternalLink size={11} className="text-slate-400 group-hover/item:text-blue-600 transition-colors" />
+                                )}
+                                {hasAnyBadge && badgePosition === 'inline' && (
+                                    <span className={`new-badge-animated ${badgeBubbleClass} rounded shadow-sm shrink-0 inline-flex items-center gap-1.5 border leading-none`}>
+                                        {badgeIcon}
+                                        {badgeText && <span>{badgeText}</span>}
+                                    </span>
+                                )}
+                            </div>
                         </div>
+                        {hasAnyBadge && badgePosition === 'below' && (
+                            <div className="flex items-center mt-1">
+                                <span className={`new-badge-animated ${badgeBubbleClass} rounded shadow-sm inline-flex items-center gap-1.5 border leading-none`}>
+                                    {badgeIcon}
+                                    {badgeText && <span>{badgeText}</span>}
+                                </span>
+                            </div>
+                        )}
                     </div>
                 ) : (
-                    hasNewBadge && (
-                        <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full shadow-sm animate-ping new-badge-animated" />
+                    hasAnyBadge && (
+                        <span className={`absolute top-1.5 right-1.5 w-2 h-2 ${hasNewBadge ? 'bg-blue-500' : 'bg-amber-500'} rounded-full shadow-sm animate-ping new-badge-animated`} />
                     )
                 )}
 
@@ -781,7 +853,7 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
     const renderNavContent = (isMobile: boolean = false) => (
         <nav className={`flex-1 px-3 py-3 space-y-1 overflow-y-auto overflow-x-hidden no-scrollbar`}>
             {filteredGroups.map((group) => {
-                const isOpen = expandedGroups[group.id] ?? (group.id === 'analisis')
+                const isOpen = expandedGroups[group.id] ?? true
                 return (
                     <div key={group.id} className="mb-1">
                         {/* Group header */}
@@ -843,6 +915,14 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                     {/* ── Quick Links ── */}
                     <div className="py-1">
                         <Link
+                            href="/inicio"
+                            onClick={() => setUserDropdownOpen(false)}
+                            className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/70 transition-colors"
+                        >
+                            <Layers size={15} className="text-red-500" />
+                            {t('items.home_hub')}
+                        </Link>
+                        <Link
                             href="/configuracion"
                             onClick={() => setUserDropdownOpen(false)}
                             className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/70 transition-colors"
@@ -860,7 +940,10 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                         </Link>
                         <Link
                             href="/dashboard"
-                            onClick={() => setUserDropdownOpen(false)}
+                            onClick={() => {
+                                setUserDropdownOpen(false)
+                                if (pathname === '/inicio') setIsCollapsed(false)
+                            }}
                             className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/70 transition-colors"
                         >
                             <LayoutDashboard size={15} className="text-blue-500" />
@@ -1026,9 +1109,14 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                     isCollapsed ? 'w-[64px]' : 'w-[260px]'
                 }`}
             >
-                {/* Logo Section */}
+                {/* Logo Section — Clicking SM TEG returns to /inicio and collapses sidebar */}
                 <div className="flex-shrink-0 h-16 border-b border-slate-100 dark:border-slate-800/80 flex items-center px-4 gap-3">
-                    <Link href="/dashboard" className="flex items-center gap-3 group min-w-0 flex-1">
+                    <Link
+                        href="/inicio"
+                        onClick={() => setIsCollapsed(true)}
+                        title={t('items.home_hub')}
+                        className="flex items-center gap-3 group min-w-0 flex-1 rounded-lg py-1 transition-colors"
+                    >
                         <div className="flex-shrink-0 w-9 h-9 relative">
                             <img
                                 src="/logo.png"
@@ -1038,7 +1126,7 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                         </div>
                         {!isCollapsed && (
                             <div className="flex flex-col leading-tight min-w-0">
-                                <span className="text-base font-black tracking-tight text-slate-900 dark:text-white truncate">
+                                <span className="text-base font-black tracking-tight text-slate-900 dark:text-white group-hover:text-red-600 dark:group-hover:text-red-400 transition-colors truncate">
                                     SM<span className="text-red-600 font-semibold ml-0.5">TEG</span>
                                 </span>
                                 <span className="text-[10px] font-medium text-red-500 dark:text-red-400 tracking-wide truncate">
@@ -1107,7 +1195,7 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                     <button onClick={() => setMobileDrawerOpen(true)} className="p-2 rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
                         <Menu size={20} />
                     </button>
-                    <Link href="/dashboard" className="flex items-center gap-2 group">
+                    <Link href="/inicio" onClick={() => setMobileDrawerOpen(false)} className="flex items-center gap-2 group">
                         <img src="/logo.png" alt="TEG" className="w-7 h-7 object-contain transition-transform group-hover:scale-110" />
                         <span className="text-sm font-black text-slate-900 dark:text-white">
                             SM<span className="text-red-600 font-semibold ml-0.5">TEG</span>
@@ -1178,6 +1266,10 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
 
                             {/* ── Quick Links ── */}
                             <div className="py-1">
+                                <Link href="/inicio" onClick={() => setUserDropdownOpen(false)} className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/70 transition-colors">
+                                    <Layers size={15} className="text-red-500" />
+                                    {t('items.home_hub')}
+                                </Link>
                                 <Link href="/configuracion" onClick={() => setUserDropdownOpen(false)} className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/70 transition-colors">
                                     <Settings size={15} className="text-slate-500" />
                                     {language === 'es' ? 'Configuración' : 'Settings'}
@@ -1308,12 +1400,16 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                         >
                             {/* Drawer Header */}
                             <div className="flex-shrink-0 h-14 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between px-4">
-                                <div className="flex items-center gap-2.5">
-                                    <img src="/logo.png" alt="TEG" className="w-8 h-8 object-contain" />
-                                    <span className="text-base font-black text-slate-900 dark:text-white">
+                                <Link
+                                    href="/inicio"
+                                    onClick={() => setMobileDrawerOpen(false)}
+                                    className="flex items-center gap-2.5 group"
+                                >
+                                    <img src="/logo.png" alt="TEG" className="w-8 h-8 object-contain transition-transform group-hover:scale-110" />
+                                    <span className="text-base font-black text-slate-900 dark:text-white group-hover:text-red-600 transition-colors">
                                         SM<span className="text-red-600 font-semibold ml-0.5">TEG</span>
                                     </span>
-                                </div>
+                                </Link>
                                 <button
                                     onClick={() => setMobileDrawerOpen(false)}
                                     className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 transition-colors"

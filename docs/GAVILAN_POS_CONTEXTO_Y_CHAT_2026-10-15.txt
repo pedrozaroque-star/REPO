@@ -1,0 +1,277 @@
+GAVILAN POS — CONTEXTO Y CONVERSACIÓN DE TRABAJO
+Fecha de preparación: 15 de octubre de 2026 (America/Los_Angeles)
+Empresa: Tacos Gavilan
+
+FUENTES DE LA CONVERSACIÓN
+1. Chat compartido «Crear Gavilan POS»:
+   https://chatgpt.com/share/6ad1c564-16ec-83e8-a600-a465c7e69add
+2. Conversación actual de Codex, reproducida más abajo.
+
+NOTA SOBRE EL ALCANCE DE ESTA COPIA
+El enlace compartido contiene cuatro imágenes subidas por el usuario. El texto de
+esas imágenes no se puede reproducir fielmente en este TXT. Se conservan sus
+marcadores y los datos que la conversación extrajo de ellas. El enlace anterior
+es la referencia para consultar la conversación original y sus imágenes.
+Los apartados de «estado verificado» distinguen hallazgos actuales de propuestas
+o afirmaciones anteriores que todavía requieren prueba.
+
+======================================================================
+1. OBJETIVO Y CONTEXTO OPERATIVO
+======================================================================
+
+- Objetivo: crear Gavilan POS para que las 15 sucursales de Tacos Gavilan
+  puedan operar sin depender de Toast.
+- Alcance previsto: cajas, KDS de cocina, kioscos, drive-thru, impresoras,
+  pagos, cortes y administración centralizada.
+- Interés prioritario: reutilizar, si resulta técnica y contractualmente
+  viable, las terminales Toast Flex 14" y otros periféricos ya instalados.
+- El usuario quiere actuar dentro del marco legal y contractual aplicable.
+- La independencia de Toast no implica independencia de un procesador de
+  pagos: los pagos presenciales requerirán un proveedor y lectores compatibles.
+- El día laboral de Tacos Gavilan empieza a las 6:00 AM y termina a las
+  5:59 AM del día siguiente; el turno PM inicia a las 5:00 PM, zona horaria
+  America/Los_Angeles.
+
+En el repositorio ya existen:
+- app/gavilan-pos/page.tsx: interfaz de Gavilan POS con simuladores.
+- app/api/gavilan-pos/overview/route.ts: API de lectura y mutaciones declaradas
+  para el módulo.
+Estos archivos no fueron auditados integralmente en esta conversación. Que
+existan y que TypeScript compile no demuestra que estén listos para operar
+ventas reales. Se ejecutó «npx tsc --noEmit» y terminó sin errores el
+15 de octubre de 2026.
+
+Reglas relevantes del proyecto (AGENTS.md): leer la documentación inicial de
+cada módulo antes de trabajarlo; auditar línea por línea cuando se solicite una
+revisión; hacer simulaciones reales y pruebas de mutación de DB para endpoints
+de escritura; sincronizar el asistente TEG ante cambios de funciones; no hacer
+commit ni push sin solicitud explícita; no tocar reportes ni horas en este
+chat de desarrollo; usar exclusivamente la marca «Tacos Gavilan».
+
+======================================================================
+2. TEXTO Y SECUENCIA DEL CHAT COMPARTIDO
+======================================================================
+
+USUARIO: «Mi nuevo proyecto es crear Gavilan POS y no depender ya nunca de
+toast».
+
+ASISTENTE (resumen fiel del contenido visible): Propuso un sistema propio
+para las 15 tiendas: Gavilan POS para cajas, Gavilan KDS para cocina, Gavilan
+Kiosk para autoservicio, Gavilan Dashboard para corporativo y Gavilan Offline
+para continuidad. Propuso nube central más motor local por restaurante, con
+cajas, KDS y kioscos conectados localmente; recomendó delegar datos de tarjeta
+a lectores y procesadores externos. Planteó fases de análisis, POS básico,
+cocina e impresoras, pagos y operación offline, piloto en Lynwood y migración
+gradual. El objetivo de la primera versión sería completar una venta real en
+una tienda antes de extenderse a las demás.
+
+USUARIO (mensaje de voz transcrito): «utilizar el hardware que ya tenemos de
+toast eeh instalarles un software nuevo que crearía yo, yy pues no sé si se
+puede utilizar todo el hardware de toast».
+
+ASISTENTE (resumen fiel del contenido visible): Identificó la modalidad
+Self-Managed Devices para instalar APKs en modelos elegibles, incluidos
+Toast Flex 14", Flex 22", Flex 3, Elo V3/V4 y Toast Go 2. Advirtió que Toast
+sigue administrando firmware y parte del software. Clasificó como posibles
+las pantallas de caja y KDS; impresoras, cajones y lectores requieren
+verificación individual, especialmente los pagos. Distinguió dos objetivos:
+(A) ejecutar Gavilan POS sobre hardware Toast y (B) seguir usando ese
+hardware tras cancelar Toast. El objetivo B quedó sin confirmar. Recomendó
+identificar modelos en Lynwood, probar una terminal fuera de operación y
+confirmar las condiciones con Toast. La modalidad Self-Managed afecta a todos
+los dispositivos de una sucursal.
+
+USUARIO: [Imagen subida] «esto es lo que tenemos en todas las tiendas».
+USUARIO: [Imagen subida] «esta es otra tienda».
+USUARIO: [Imagen subida, sin texto adicional].
+USUARIO: [Imagen subida] «creo que no tengo una disponible actualmente pero
+puedo desmontar alguna de un restaurante».
+
+ASISTENTE: Aclaró que se había solicitado información de LW-1 de Lynwood,
+pero se había compartido C-1 de LA Central. Del material de C-1 se identificó
+una Toast Flex de 14 pulgadas con Android 12L y firmware 3.0.55. Propuso
+consultar LW-1 en Toast → Device Hub → Lynwood → LW-1 → View and manage para
+comparar «Device information» y «Versions». En ese momento no recomendó
+desmontar una terminal.
+
+USUARIO: «¿Tu intención es que Gavilan OS reemplace completamente Android de
+Toast, incluso si tenemos que investigar el procesador, abrir físicamente
+una terminal y desarrollar controladores? si y no todo bajo el marco legal y
+que no vayamos a violar alguna politica o ley».
+
+ASISTENTE (resumen fiel del contenido visible): Condicionó la investigación
+del hardware y una posible sustitución del firmware al marco legal y
+contractual. Mencionó las cláusulas 4.1 y 4.10 del Merchant Agreement público
+y posibles cargos por terminación. Propuso revisar el contrato específico,
+identificar fabricantes, buscar imágenes oficiales compatibles, solicitar
+autorización escrita cuando corresponda y consultar asesoría jurídica antes
+de modificar firmware protegido. Propuso un laboratorio con equipo fuera de
+operación y la evaluación de AOSP. Indicó que el éxito de Gavilan POS no
+debía depender de poder desbloquear las terminales Toast.
+
+USUARIO: «bueno, hacer un firmware gavilan OS es demasiado, podriamos meter
+la tableta en modo desarrollador y quitar toast para despues nosotros instalar
+nuestro software?».
+
+ASISTENTE (resumen fiel del contenido visible): Explicó que Self-Managed
+Devices permite opciones de desarrollador e instalar APKs propios, pero no
+autoriza por sí solo a retirar Toast POS o Guardian. Toast Guardian instala
+Toast POS, administra actualizaciones y puede retirar aplicaciones no
+autorizadas. Propuso desarrollar Gavilan POS independientemente, solicitar
+Self-Managed para una sucursal piloto, probar periféricos y solicitar a Toast
+autorización de liberación. Señaló que no estaba confirmado que la terminal
+seguiría funcionando tras cancelar Toast. Preguntó si bastaría, durante las
+pruebas iniciales, con mostrar Gavilan POS como única app visible aunque
+Toast siguiera instalado en segundo plano.
+
+======================================================================
+3. CONVERSACIÓN ACTUAL DE CODEX (PREGUNTAS Y RESPUESTAS)
+======================================================================
+
+USUARIO: «plan para nuestro gavilan POS:» y el enlace al chat compartido.
+
+ASISTENTE: Propuso desarrollar Gavilan POS como producto independiente y
+tratar la reutilización de Toast como una opción por validar. Las fases:
+1) definir flujos de caja, cocina, drive-thru, kiosco, cortes, menú, permisos
+   e inventario de hardware;
+2) construir el núcleo de órdenes, pagos, KDS, operación local e idempotencia
+   al reconectar, empezando sobre hardware Android abierto;
+3) validar periféricos, pagos certificados y condiciones de uso de hardware
+   Toast tras terminar el servicio;
+4) piloto paralelo en una sucursal, conciliación y expansión gradual.
+Se aclaró que Self-Managed no libera firmware ni Guardian, se aplica a toda
+una ubicación y los equipos carecen de Google Mobile Services. Se señaló
+que la interfaz y API existentes requieren validación operacional completa.
+
+USUARIO: «no podemos apagar la tableta y luego entrar en la tableta en modo
+safe o desarrollador o algo asi y dejar android puro?».
+
+ASISTENTE: El modo seguro es temporal y sirve para diagnosticar aplicaciones;
+no deja Android puro de forma persistente. Las opciones de desarrollador no
+eliminan Guardian ni sustituyen el sistema. Toast Guardian sigue administrando
+los equipos incluso en Self-Managed. Se propuso identificar el modelo exacto
+y solicitar a Toast respuesta escrita sobre la baja de su administración y
+el uso del hardware después de cancelar el servicio.
+
+USUARIO: «busca en internet un firmware compatible con esa tableta flex».
+
+ASISTENTE: No se encontró una imagen pública de Android puro verificada para
+la Toast Flex 14". Un manual de Toast agrupa modelos TT200, TT201, TT203,
+TT204 y TK200/TK300, entre otros, basados en Rockchip RK3399. El chip no
+basta para elegir firmware. La documentación oficial presenta actualización
+desde la terminal, no una imagen libre para instalar. AOSP ofrece imágenes
+genéricas GSI, pero requieren comprobar Treble, desbloqueo de arranque y
+compatibilidad de periféricos. Se pidió foto de la etiqueta trasera con el
+modelo exacto y de Ajustes → Acerca del dispositivo (se puede tapar el
+número de serie).
+
+USUARIO: «Toast indica además que su modalidad Self-Managed no permite
+cambiar el software o firmware, no lo permite pero no esta prohibido ni es
+ilegal?».
+
+ASISTENTE: Se aclaró que una restricción de Toast no implica automáticamente
+un delito. La documentación de Self-Managed dice expresamente que los cambios
+al software/firmware administrado por Toast no están permitidos en esa
+modalidad. El Merchant Agreement público de EE. UU. indica que la propiedad
+del hardware pasa al cliente, mientras que el software se licencia y existen
+restricciones contractuales. Eludir protecciones tecnológicas de software
+protegido podría implicar además el 17 U.S.C. §1201, con excepciones
+específicas. No se puede calificar legal o ilegal una modificación concreta
+sin revisar el contrato firmado, el modelo y el procedimiento propuesto.
+
+USUARIO: «dame todo este contexto y chat para un txt».
+
+======================================================================
+4. ESTADO TÉCNICO Y CONTRACTUAL VERIFICADO AL 15-OCT-2026
+======================================================================
+
+1. Toast Self-Managed Devices permite instalar APKs de terceros y usar
+   Developer Options en ciertos modelos, incluidos Toast Flex 14" y Elo V4.
+   Toast sigue administrando su software y firmware; Guardian permanece.
+   La configuración se aplica por ubicación a todos los dispositivos de esa
+   sucursal. La documentación dice explícitamente que no se permiten cambios
+   al software o firmware administrado por Toast bajo esa modalidad.
+
+2. Toast Guardian es una app de sistema de administración de dispositivos.
+   Instala y actualiza Toast POS y aplica restricciones de aplicaciones.
+
+3. La terminal C-1 de LA Central se identificó en el chat compartido como
+   Toast Flex 14", Android 12L, firmware 3.0.55. No se ha confirmado aquí
+   el modelo exacto de la etiqueta ni el hardware de LW-1 de Lynwood.
+
+4. El manual publicado para la familia Flex 14" enumera varias referencias
+   y Rockchip RK3399. No se encontró firmware AOSP/LineageOS verificado para
+   una de esas referencias específicas. Una GSI genérica no puede tratarse
+   como firmware compatible sin pruebas del equipo exacto.
+
+5. El Merchant Agreement público de EE. UU. indica transferencia de título
+   del hardware al cliente en el envío (sección 2.2) y licencia limitada de
+   los servicios/software (2.1), con restricciones en 4.1. El documento
+   público indica que la sección 4 sobre restricciones sobrevive a la
+   terminación. El contrato firmado por Tacos Gavilan y sus anexos son la
+   fuente para determinar obligaciones concretas.
+
+6. La prohibición contractual y la ilegalidad no son equivalentes. La ley
+   estadounidense 17 U.S.C. §1201 regula la elusión de ciertas protecciones
+   tecnológicas y contiene excepciones limitadas; su aplicación depende de
+   los hechos precisos. No se ha emitido una conclusión legal para este caso.
+
+7. Los lectores de pagos Toast no están confirmados como reutilizables con
+   otro POS/procesador. Pagos offline, tarjetas y EBT requieren validación
+   específica del proveedor de pagos, equipo y obligaciones aplicables.
+
+======================================================================
+5. PREGUNTAS ABIERTAS Y PRÓXIMOS DATOS NECESARIOS
+======================================================================
+
+- Modelo exacto de la Flex 14" de LA Central y de una terminal Lynwood
+  (foto de etiqueta trasera; tapar número de serie si se comparte).
+- Número de compilación y detalles de «Acerca del dispositivo» de cada una.
+- Propiedad y términos reales de compra o arrendamiento de cada tipo de equipo.
+- Contrato firmado, órdenes y anexos vigentes con Toast, especialmente
+  Self-Managed, terminación, licencias por equipo y tratamiento del hardware.
+- Respuesta escrita de Toast: si existe desprovisión/liberación oficial del
+  equipo tras terminar el servicio, y si puede seguir funcionando sin
+  conexión a su plataforma.
+- Inventario físico de impresoras, KDS, kioscos, cajones y lectores en las
+  15 sucursales; compatibilidad de cada periférico.
+- Elección y certificación de proveedor de pagos independiente.
+- Alcance del piloto de una tienda y criterios de aceptación: órdenes sin
+  duplicados, sincronización local, conciliación de pagos y cierres,
+  recuperación tras pérdida de internet y procedimiento de reversión.
+
+======================================================================
+6. ENLACES DE REFERENCIA
+======================================================================
+
+Chat original:
+https://chatgpt.com/share/6ad1c564-16ec-83e8-a600-a465c7e69add
+
+Toast, Self-Managed Devices:
+https://support.toasttab.com/en/article/Self-Managed-Devices-Overview
+
+Toast, Guardian:
+https://support.toasttab.com/en/article/Toast-Guardian-Device-Security-and-App-Management-Overview
+
+Toast, actualización de firmware Flex:
+https://support.toasttab.com/en/article/Manually-Updating-Firmware-on-Toast-Flex
+
+Toast, manual de la familia Flex 14":
+https://d2w1ef2ao9g8r9.cloudfront.net/images/Toast-Hardware-Installation-Instructions-1.pdf
+
+Toast, Merchant Agreement de EE. UU.:
+https://pos.toasttab.com/merchant-agreement
+
+Android Open Source Project, Generic System Images:
+https://source.android.com/docs/core/tests/vts/gsi
+
+Android Open Source Project, bootloader:
+https://source.android.com/docs/core/architecture/bootloader/locking_unlocking
+
+Google, modo seguro Android:
+https://support.google.com/android/answer/7665064?hl=en
+
+17 U.S.C. §1201:
+https://www.govinfo.gov/content/pkg/USCODE-2024-title17/html/USCODE-2024-title17-chap12-sec1201.htm
+
+FIN DEL DOCUMENTO

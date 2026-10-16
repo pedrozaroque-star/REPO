@@ -1,3 +1,16 @@
+/**
+ * @module components/ProtectedRoute
+ * @description Guardián de autenticación y autorización por roles en el cliente para rutas protegidas de Tacos Gavilan.
+ *
+ * @businessRules
+ * - Verifica existencia y vigencia de `teg_token` y `teg_user` en `localStorage`.
+ * - Sincroniza cookie `teg_token` para soporte SSR/API.
+ * - Si un usuario autenticado intenta acceder a una ruta fuera de `allowedRoles`, redirige a `/inicio`.
+ *
+ * @dataFlow
+ * - `localStorage` (`teg_token`, `teg_user`) -> validación JWT -> render de `children` o redirección.
+ */
+
 'use client'
 
 import { useEffect, useState } from 'react'
@@ -111,7 +124,7 @@ export default function ProtectedRoute({ children, allowedRoles, allowEmployee =
         const allowed = allowedRoles.map(r => r.toLowerCase())
 
         if (!allowed.includes(userRole)) {
-          router.push('/dashboard')
+          router.push('/inicio')
           return
         }
       }

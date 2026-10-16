@@ -22,7 +22,7 @@ import { getSupabaseWithAuth } from '@/lib/supabase'
 import { useAuth } from '@/components/ProtectedRoute'
 
 interface MyStuffPageProps {
-    navigateTo: (params: { project?: string; tool?: string; section?: string }) => void
+    navigateTo: (params: { project?: string; tool?: string; section?: string; todoId?: string }) => void
     currentUserName: string
 }
 
@@ -62,7 +62,7 @@ export default function MyStuffPage({ navigateTo, currentUserName }: MyStuffPage
                     supabase
                         .from('bc_todos')
                         .select(`
-                            id, title, is_completed, updated_at,
+                            id, title, is_completed, created_at, updated_at,
                             project:bc_projects(bc_id, name),
                             todolist:bc_todolists(name),
                             bc_todo_assignees!inner(person_id)
@@ -169,14 +169,21 @@ export default function MyStuffPage({ navigateTo, currentUserName }: MyStuffPage
                                 {myTasks.map((task) => (
                                     <div
                                         key={task.id}
-                                        onClick={() => navigateTo({ project: String(task.project?.bc_id), tool: 'todos' })}
+                                        onClick={() => navigateTo({ project: String(task.project?.bc_id), tool: 'todos', todoId: task.id })}
                                         className="flex items-start gap-2.5 p-2.5 rounded-xl border border-slate-100 dark:border-slate-800 hover:border-blue-200/50 hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-all cursor-pointer text-xs"
                                     >
                                         <CheckCircle2 size={16} className={task.is_completed ? 'text-green-500 shrink-0' : 'text-slate-355 shrink-0'} />
                                         <div className="min-w-0 flex-1">
-                                            <p className={`font-bold truncate ${task.is_completed ? 'line-through text-slate-400' : 'text-slate-750 dark:text-slate-200'}`}>
-                                                {task.title}
-                                            </p>
+                                            <div className="flex items-center gap-2 flex-wrap">
+                                                <p className={`font-bold truncate ${task.is_completed ? 'line-through text-slate-400' : 'text-slate-750 dark:text-slate-200'}`}>
+                                                    {task.title}
+                                                </p>
+                                                {task.created_at && (
+                                                    <span className="text-[9.5px] font-medium text-slate-400 dark:text-slate-500 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded whitespace-nowrap">
+                                                        {new Date(task.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'America/Los_Angeles' })} · {new Date(task.created_at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'America/Los_Angeles' })}
+                                                    </span>
+                                                )}
+                                            </div>
                                             <p className="text-[9px] text-slate-400 dark:text-slate-500 mt-0.5 font-semibold">
                                                 {task.project?.name || t('basecamp.my_stuff_project')} • {task.todolist?.name || t('basecamp.my_stuff_list')}
                                             </p>

@@ -29,7 +29,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useLanguage } from '@/lib/i18n'
-import { ClipboardList, Plus, Trash2, Calendar, User, MessageSquare, CheckSquare, Loader2, ChevronDown, ChevronRight, FileText, Paperclip, Bold, Italic, Strikethrough, Highlighter, Link, Quote, Code, List, ListOrdered, Table, AlignLeft, Mic, Image, Type, Undo2, Redo2, Check } from 'lucide-react'
+import { ClipboardList, Plus, Trash2, Calendar, Clock, User, MessageSquare, CheckSquare, Loader2, ChevronDown, ChevronRight, FileText, Paperclip, Bold, Italic, Strikethrough, Highlighter, Link, Quote, Code, List, ListOrdered, Table, AlignLeft, Mic, Image, Type, Undo2, Redo2, Check } from 'lucide-react'
 import { getSupabaseWithAuth } from '@/lib/supabase'
 
 interface ToolTodosProps {
@@ -141,7 +141,7 @@ const rewriteHtmlUrls = (html: string) => {
 
 export default function ToolTodos({ project, currentUserName, selectedTodoId, onCloseDetail, navigateTo }: ToolTodosProps) {
     const supabase = useMemo(() => getSupabaseWithAuth(), [])
-    const { t } = useLanguage()
+    const { t, language } = useLanguage()
     const [lists, setLists] = useState<any[]>([])
     const [loading, setLoading] = useState(true)
     const [actionLoading, setActionLoading] = useState<string | null>(null)
@@ -470,6 +470,27 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
         })
     }
 
+    // Format creation timestamp in America/Los_Angeles with both date and time
+    const formatCreatedDateTime = (dateStr?: string | null, includeYear: boolean = true) => {
+        if (!dateStr) return ''
+        const d = new Date(dateStr)
+        if (isNaN(d.getTime())) return ''
+        const locale = language === 'es' ? 'es-MX' : 'en-US'
+        const datePart = d.toLocaleDateString(locale, {
+            month: 'short',
+            day: 'numeric',
+            ...(includeYear ? { year: 'numeric' } : {}),
+            timeZone: 'America/Los_Angeles'
+        })
+        const timePart = d.toLocaleTimeString(locale, {
+            hour: 'numeric',
+            minute: '2-digit',
+            hour12: true,
+            timeZone: 'America/Los_Angeles'
+        })
+        return `${datePart} · ${timePart}`
+    }
+
     // Intercept clicks on HTML links and images to handle routing & lightbox
     const handleHtmlClick = (e: React.MouseEvent<HTMLDivElement>) => {
         const target = e.target as HTMLElement
@@ -525,7 +546,6 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
     }
 
     // 1. Fetch todo lists and tasks from Supabase (optimized with parallel queries)
-    // 1. Fetch todo lists and tasks from Supabase (optimized with parallel queries)
     const fetchLists = useCallback(async (opts?: { silent?: boolean }) => {
         if (!project.db_id) return
         if (!opts?.silent) setLoading(true)
@@ -544,7 +564,7 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                     .from('bc_todos')
                     .select(`
                         id, bc_id, todolist_id, title, is_completed, completed_at, due_date, position,
-                        comments_count, created_by_person_id, description,
+                        comments_count, created_by_person_id, created_at, description,
                         bc_todo_assignees(
                             person:bc_people(id, name, email, avatar_url)
                         )
@@ -558,7 +578,7 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                     .from('bc_todos')
                     .select(`
                         id, bc_id, todolist_id, title, is_completed, completed_at, due_date, position,
-                        comments_count, created_by_person_id, description,
+                        comments_count, created_by_person_id, created_at, description,
                         bc_todo_assignees(
                             person:bc_people(id, name, email, avatar_url)
                         )
@@ -574,7 +594,7 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                         .from('bc_todos')
                         .select(`
                             id, bc_id, todolist_id, title, is_completed, completed_at, due_date, position,
-                            comments_count, created_by_person_id, description,
+                            comments_count, created_by_person_id, created_at, description,
                             bc_todo_assignees(
                                 person:bc_people(id, name, email, avatar_url)
                             )
@@ -599,6 +619,14 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                 dbTodos = [...dbTodos, selectedTodo]
             }
 
+            // Build a quick lookup map for project people to resolve creator_name
+            const peopleLookup = new Map<string, string>()
+            if (Array.isArray(project.people)) {
+                project.people.forEach((p: any) => {
+                    if (p?.id && p?.name) peopleLookup.set(p.id, p.name)
+                })
+            }
+
             // Map and combine lists with todos
             const mappedLists = dbLists.map(list => {
                 const listTodos = dbTodos.filter(t => t.todolist_id === list.id)
@@ -609,6 +637,10 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                         email: a.person?.email || ''
                     })) || []
 
+                    const creatorName = t.created_by_person_id
+                        ? (peopleLookup.get(t.created_by_person_id) || null)
+                        : null
+
                     return {
                         id: t.id,
                         bc_id: t.bc_id,
@@ -616,10 +648,12 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                         description: t.description,
                         is_completed: t.is_completed,
                         due_date: t.due_date,
+                        created_at: t.created_at || null,
+                        creator_name: creatorName,
                         assignee: assignees.map((a: any) => a.name).join(', ') || null,
                         assigneeList: assignees,
                         comments_count: t.comments_count || 0,
-                        created_by: null
+                        created_by: creatorName
                     }
                 })
 
@@ -1124,7 +1158,7 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                     }}
                                     style={{ flex: 1, cursor: 'pointer', minWidth: 0 }}
                                 >
-                                    {/* Primary row: Title + Due Date + Comments count */}
+                                    {/* Primary row: Title + Creation Date/Time + Due Date + Comments count */}
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                                         <span style={{
                                             fontSize: 14.5,
@@ -1134,6 +1168,29 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                         }}>
                                             {task.task_name}
                                         </span>
+
+                                        {/* Informational creation date & time badge */}
+                                        {task.created_at && (
+                                            <span
+                                                title={`${t('basecamp.created_at_label')}: ${formatCreatedDateTime(task.created_at)}`}
+                                                style={{
+                                                    display: 'inline-flex',
+                                                    alignItems: 'center',
+                                                    gap: 3.5,
+                                                    padding: '1.5px 7px',
+                                                    borderRadius: 10,
+                                                    background: '#F1F5F9',
+                                                    border: '1px solid #E2E8F0',
+                                                    color: '#64748B',
+                                                    fontSize: 11,
+                                                    fontWeight: 500,
+                                                    whiteSpace: 'nowrap'
+                                                }}
+                                            >
+                                                <Clock size={10} style={{ color: '#94A3B8', flexShrink: 0 }} />
+                                                {formatCreatedDateTime(task.created_at)}
+                                            </span>
+                                        )}
 
                                         {/* Due date badge */}
                                         {task.due_date && (
@@ -1563,6 +1620,28 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                         >
                                             {task.task_name}
                                         </span>
+                                        {task.created_at && (
+                                            <span
+                                                title={`${t('basecamp.created_at_label')}: ${formatCreatedDateTime(task.created_at)}`}
+                                                style={{
+                                                    display: 'inline-flex',
+                                                    alignItems: 'center',
+                                                    gap: 3,
+                                                    padding: '1px 6px',
+                                                    borderRadius: 8,
+                                                    background: '#F8FAFC',
+                                                    border: '1px solid #E2E8F0',
+                                                    color: '#94A3B8',
+                                                    fontSize: 10.5,
+                                                    fontWeight: 500,
+                                                    whiteSpace: 'nowrap',
+                                                    flexShrink: 0
+                                                }}
+                                            >
+                                                <Clock size={9.5} style={{ color: '#94A3B8', flexShrink: 0 }} />
+                                                {formatCreatedDateTime(task.created_at)}
+                                            </span>
+                                        )}
                                     </div>
                                 ))}
                             </div>
@@ -2008,6 +2087,29 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                                                     {task.task_name}
                                                                 </span>
 
+                                                                {task.created_at && (
+                                                                    <span
+                                                                        title={`${t('basecamp.created_at_label')}: ${formatCreatedDateTime(task.created_at)}`}
+                                                                        style={{
+                                                                            display: 'inline-flex',
+                                                                            alignItems: 'center',
+                                                                            gap: 2.5,
+                                                                            padding: '1px 5px',
+                                                                            borderRadius: 6,
+                                                                            background: '#F8FAFC',
+                                                                            border: '1px solid #E2E8F0',
+                                                                            color: '#64748B',
+                                                                            fontSize: 10,
+                                                                            fontWeight: 500,
+                                                                            whiteSpace: 'nowrap',
+                                                                            flexShrink: 0
+                                                                        }}
+                                                                    >
+                                                                        <Clock size={9} style={{ color: '#94A3B8', flexShrink: 0 }} />
+                                                                        {formatCreatedDateTime(task.created_at, false)}
+                                                                    </span>
+                                                                )}
+
                                                                 {hasComments && (
                                                                     <span style={{
                                                                         display: 'inline-flex',
@@ -2332,11 +2434,20 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                                 {selectedTask.task_name}
                                             </h2>
 
-                                            {/* Subtitle with Creator & Status */}
+                                            {/* Subtitle with Creator, Creation Date/Time & Status */}
                                             <div className="flex items-center gap-3 mt-2 flex-wrap text-xs text-slate-500 dark:text-slate-400">
                                                 {selectedTask.is_completed && (
                                                     <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 font-bold">
                                                         ✓ {t('basecamp.completed_label') || 'Completed'}
+                                                    </span>
+                                                )}
+                                                {selectedTask.created_at && (
+                                                    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-medium border border-slate-200/80 dark:border-slate-700">
+                                                        <Clock size={12} className="text-slate-400" />
+                                                        <span>{t('basecamp.created_at_label')}:</span>
+                                                        <strong className="font-semibold text-slate-700 dark:text-slate-200">
+                                                            {formatCreatedDateTime(selectedTask.created_at)}
+                                                        </strong>
                                                     </span>
                                                 )}
                                                 {selectedTask.creator_name && (
@@ -2349,11 +2460,6 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                                             {getInitials(selectedTask.creator_name)}
                                                         </span>
                                                         <strong className="text-slate-700 dark:text-slate-300 font-semibold">{selectedTask.creator_name}</strong>
-                                                        {selectedTask.created_at && (
-                                                            <span>
-                                                                {t('basecamp.on_date')} {new Date(selectedTask.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
-                                                            </span>
-                                                        )}
                                                     </span>
                                                 )}
                                             </div>

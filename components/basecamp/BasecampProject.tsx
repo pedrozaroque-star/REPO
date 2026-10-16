@@ -280,7 +280,7 @@ export default function BasecampProject({ project, navigateTo, saveProjects, pro
                 if (resFirstList.data) {
                     const { data: listTasks } = await supabase
                         .from('bc_todos')
-                        .select('id, title, is_completed')
+                        .select('id, title, is_completed, created_at')
                         .eq('todolist_id', resFirstList.data.id)
                         .order('position', { ascending: true })
                         .limit(10)
@@ -695,6 +695,11 @@ export default function BasecampProject({ project, navigateTo, saveProjects, pro
                                         <span className={`truncate flex-1 ${todo.is_completed ? 'line-through text-slate-400 dark:text-slate-600' : 'text-slate-650 dark:text-slate-300'}`}>
                                             {todo.title}
                                         </span>
+                                        {todo.created_at && (
+                                            <span className="text-[10px] font-medium text-slate-400 dark:text-slate-500 bg-slate-100 dark:bg-slate-800/80 px-1.5 py-0.5 rounded whitespace-nowrap flex-shrink-0">
+                                                {new Date(todo.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'America/Los_Angeles' })} · {new Date(todo.created_at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'America/Los_Angeles' })}
+                                            </span>
+                                        )}
                                     </div>
                                 ))}
                             </div>

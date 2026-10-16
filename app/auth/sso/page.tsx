@@ -1,3 +1,15 @@
+/**
+ * @module app/auth/sso/page
+ * @description Callback de autenticación SSO corporativa (Google OAuth) para Tacos Gavilan.
+ *
+ * @businessRules
+ * - Almacena el token JWT y datos del usuario en `localStorage` y cookie `teg_token`.
+ * - Redirige a `/inicio` (pantalla principal de módulos) para roles administrativos y operativos.
+ *
+ * @dataFlow
+ * - Query params (`token`, `user`) -> `localStorage` + `document.cookie` -> redirección a `/inicio` o `/planificador`.
+ */
+
 'use client'
 import { useEffect, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
@@ -25,13 +37,11 @@ function SSOHandler() {
                 const role = (user.role || '').toLowerCase()
                 const emailNorm = (user.email || '').trim().toLowerCase()
 
-                // Redirect (Hard Reload)
+                // Redirect to post-login destination selector (or planificador for restricted role)
                 if (emailNorm === 'stephany@cingularhr.com' || role === 'planificador') {
                     window.location.href = '/planificador'
-                } else if (role === 'asistente') {
-                    window.location.href = '/checklists'
                 } else {
-                    window.location.href = '/dashboard'
+                    window.location.href = '/login?welcome=1'
                 }
 
             } catch (e) {

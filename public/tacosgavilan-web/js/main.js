@@ -1052,35 +1052,35 @@ document.addEventListener('DOMContentLoaded', () => {
 
             // Modals
             'privacy.title':        'Privacy Policy & California Privacy Notice (CCPA/CPRA)',
-            'privacy.intro':        'Effective October 9, 2026. Tacos Gavilan provides this notice to explain our online privacy practices, personal information collection, and visitor rights under California law.',
-            'privacy.h1':           '1. Personal Information We Collect',
-            'privacy.p1':           'Hosting and security providers may log IP address, User Agent, request time, and language preferences to deliver and protect the site. Vercel hosts the web; Supabase processes inquiries; Toast handles online orders; Google provides fonts and optional interactive maps.',
-            'privacy.formFieldsH':  '2. Contact Form Inquiries',
-            'privacy.formFieldsP':  'When you submit an inquiry through our contact form, we collect your name, email, optional phone number, preferred store location, inquiry category, and message text exclusively to respond and prevent automated abuse.',
-            'privacy.retentionH':   '3. Data Retention Criteria',
-            'privacy.retentionP':   'Contact inquiries are retained only as long as necessary to address your request, resolve customer service matters, or satisfy applicable recordkeeping standards, after which data is securely deleted or anonymized.',
-            'privacy.h2':           '4. No Sale or Cross-Context Sharing',
-            'privacy.p2':           'This brand site does not sell personal information or share personal information for cross-context behavioral advertising. We do not use third-party advertising cookies.',
+            'privacy.intro':        'Effective March 19, 2019 · Last updated October 16, 2026. Tacos Gavilan, LLC and its affiliated operating entities ("Tacos Gavilan") explain here what this website collects, how it is protected, and how California residents can exercise their privacy rights.',
+            'privacy.h1':           '1. Information We Collect & Location Data',
+            'privacy.p1':           'Our hosting and security infrastructure (Vercel, Supabase) processes technical request data (IP address, browser User Agent, timestamp, language preference). If you use the optional "Find Me" store locator button, your browser processes your location in real time to calculate distances to our 15 locations without storing or selling your GPS coordinates on our servers. Online orders and payments are processed independently on Toast POS (order.online) and delivery platforms; we never collect payment card numbers on this site.',
+            'privacy.formFieldsH':  '2. Contact, Newsletter & Career Inquiries',
+            'privacy.formFieldsP':  'When you submit our contact form, newsletter signup, or employment inquiry, we collect your name, email address, phone number, selected restaurant location, topic, and message solely to respond to your inquiry, provide guest support, and prevent automated spam abuse.',
+            'privacy.retentionH':   '3. Data Retention, Security & Children\'s Privacy',
+            'privacy.retentionP':   'Contact inquiries are retained only as long as necessary to resolve your request or satisfy legal obligations, after which they are securely deleted or de-identified. Our Service does not address anyone under age 18, and we do not knowingly collect, sell, or share personal data from minors under 18/16 (COPPA & CCPA).',
+            'privacy.h2':           '4. Cookies, Pixels & Right to Opt Out ("Do Not Sell or Share")',
+            'privacy.p2':           'Tacos Gavilan never sells personal information for money. We use essential preference cookies and, unless you opt out, analytics and advertising tags (Google Tag Manager, Google Analytics/Ads, Meta Pixel, TikTok Pixel). You may opt out at any time via our "Do Not Sell or Share My Personal Information" controls or by broadcasting a Global Privacy Control (GPC) browser signal, which automatically disables non-essential advertising/analytics tags via Google Consent Mode v2.',
             'privacy.rightsH':      '5. Your California Privacy Rights (CCPA / CPRA)',
-            'privacy.rightsP':      'California residents have the right to request access, correction, or deletion of personal information without discrimination. Contact us at info@tacosgavilan.com or email info@tacosgavilan.com to exercise rights.',
+            'privacy.rightsP':      'California residents have the right to Know/Access, Delete, Correct, and Opt Out of Sale/Sharing without discrimination. Submit requests by emailing info@tacosgavilan.com or via our Online Contact Form.',
 
-            'terms.title': 'Terms of Use',
-            'terms.intro': 'Welcome to Tacos Gavilan. By accessing and using our website, you agree to comply with and be bound by the following Terms of Use.',
-            'terms.h1':    '1. Online Ordering & External Payments',
-            'terms.p1':    'All online food orders, pricing, menus, and payments are processed independently through Toast POS (order.online). Tacos Gavilan does not process or store credit card information on this promotional site.',
-            'terms.h2':    '2. Intellectual Property & Trademark Guidelines',
-            'terms.p2':    'All content, trade dress, trademarks, logos, photography, and site designs are the exclusive property of Tacos Gavilan. Unauthorized reproduction is strictly prohibited.',
-            'terms.h3':    '3. Product Availability & Menu Disclaimers',
-            'terms.p3':    'Menu offerings, ingredients, store hours, and prices may vary slightly by location. Check order.online for real-time item availability at your chosen restaurant.',
+            'terms.title': 'Terms of Use & Conditions',
+            'terms.intro': 'Effective March 19, 2019 · Last updated October 16, 2026. By accessing or using https://tacosgavilan.com, operated by Tacos Gavilan, LLC and its affiliated operating entities ("Tacos Gavilan"), you agree to be bound by these Terms of Use.',
+            'terms.h1':    '1. Online Ordering, Pricing, Allergens & Third-Party Links',
+            'terms.p1':    'Online food orders and payments are processed through Toast POS (order.online) and authorized delivery marketplaces (DoorDash, Uber Eats, Grubhub, Postmates). Menu offerings, Fiesta Platter packages, prices, and hours may vary by location. Food is prepared in kitchens handling wheat, dairy, eggs, soy, and meats; guests with allergies should consult restaurant management before ordering.',
+            'terms.h2':    '2. Intellectual Property & Acceptable Use',
+            'terms.p2':    'All content, trademarks ("Tacos Gavilan", "Ya está."), logos, food photography, and trade dress are the exclusive property of Tacos Gavilan and its licensors. Unauthorized reproduction, scraping, or automated abuse is strictly prohibited.',
+            'terms.h3':    '3. Disclaimer ("AS IS"), Limitation of Liability, Indemnification & Governing Law',
+            'terms.p3':    'The Service is provided "AS IS" and "AS AVAILABLE" without warranties of any kind. To the fullest extent permitted by law, Tacos Gavilan shall not be liable for any indirect, incidental, special, consequential, or punitive damages arising from your use of the Service. You agree to indemnify and hold harmless Tacos Gavilan from claims arising out of your breach of these Terms. Governed by the laws of the State of California (Los Angeles County).',
 
-            'accessibility.title':        'Accessibility Statement',
-            'accessibility.intro':        'Tacos Gavilan is committed to digital accessibility and ensuring that our website is accessible to all guests, including individuals with disabilities.',
-            'accessibility.h1':           'Conformity Standards & Guidelines',
-            'accessibility.p1':           'We target WCAG 2.2 Level AA accessibility standards, continuously optimizing text contrast, keyboard navigation, image text alternatives, touch target sizing, and screen reader announcements.',
-            'accessibility.lastUpdatedH': 'Evaluation & Ordering Alternatives',
-            'accessibility.lastUpdatedP': 'Last reviewed: October 2026. If you encounter an accessibility barrier on any page, you may place food orders directly via Toast POS (order.online) or phone your local restaurant.',
-            'accessibility.h2':           'Accessibility Assistance & Feedback',
-            'accessibility.p2':           'If you have difficulty viewing or navigating any part of this site, please contact our support team email us at info@tacosgavilan.com with "Web Accessibility" in the subject line.'
+            'accessibility.title':        'Accessibility Statement (ADA & WCAG 2.2 AA)',
+            'accessibility.intro':        'Effective April 15, 2019 · Last updated October 16, 2026. Tacos Gavilan is committed to digital accessibility for all guests, including individuals with disabilities, in alignment with ADA Title III, the California Unruh Civil Rights Act, and WCAG 2.1 / 2.2 Level AA.',
+            'accessibility.h1':           'Our Standards, Assistive Toolbar & Ongoing Efforts',
+            'accessibility.p1':           'We target WCAG 2.2 Level AA and provide a built-in ADA Accessibility Toolbar (high contrast, text-to-speech screen reader, font scaling, dyslexia font, link highlighting, animation pause) alongside semantic keyboard navigation. Despite our ongoing efforts, some third-party integrations (such as external ordering portals or map tiles) may be controlled by external providers.',
+            'accessibility.lastUpdatedH': 'Here For You — Telephone Ordering & Personal Assistance',
+            'accessibility.lastUpdatedP': 'Last reviewed: October 2026. If you experience any difficulty with any part of our website or placing an online order, you may call any of our 15 Southern California restaurant locations directly and our staff will gladly assist you and take your order by telephone under the exact same prices and terms.',
+            'accessibility.h2':           'Feedback & Barrier Reporting',
+            'accessibility.p2':           'To report an accessibility barrier or request assistance, please email info@tacosgavilan.com with "Website Accessibility" in the subject line or use our Online Contact Form.'
         },
         es: {
             'a11y.skipToContent': 'Saltar al contenido principal',
@@ -1469,35 +1469,35 @@ document.addEventListener('DOMContentLoaded', () => {
 
             // Modales Legales
             'privacy.title':        'Política de Privacidad y Aviso de California (CCPA/CPRA)',
-            'privacy.intro':        'Vigente y actualizada el 9 de octubre de 2026. Tacos Gavilan explica aquí qué recopila este sitio, para qué se usa y qué opciones tienen los visitantes de California.',
-            'privacy.h1':           '1. Información que Recopilamos',
-            'privacy.p1':           'Los servicios de alojamiento y seguridad pueden procesar dirección IP, User Agent, hora de solicitud y preferencias de idioma para entregar y proteger el sitio. Vercel aloja la web; Supabase guarda formularios; Toast procesa pedidos; Google proporciona fuentes y el mapa interactivo opcional.',
-            'privacy.formFieldsH':  '2. Formulario de Contacto',
-            'privacy.formFieldsP':  'Al enviar el formulario de contacto, recopilamos tu nombre, correo, teléfono (opcional), sucursal elegida, motivo y mensaje únicamente para responder tu solicitud y prevenir abusos automatizados.',
-            'privacy.retentionH':   '3. Criterios de Retención de Datos',
-            'privacy.retentionP':   'Los mensajes y consultas de contacto se conservan durante el tiempo necesario para cumplir con el propósito operativo para el cual fueron recopilados, resolver inquietudes de los clientes o cumplir con las obligaciones legales o regulatorias aplicables, tras lo cual se eliminan de forma segura o se desidentifican.',
-            'privacy.h2':           '4. No Venta ni Cesión de Datos Personales',
-            'privacy.p2':           'Este sitio no se utiliza para vender información personal ni compartirla para publicidad conductual entre contextos. No usa cookies publicitarias. Google Maps se carga sólo al solicitar el localizador y Toast procesa pedidos en su propio sitio.',
+            'privacy.intro':        'Vigente desde el 19 de marzo de 2019 · Última actualización: 16 de octubre de 2026. Tacos Gavilan, LLC y sus entidades operativas afiliadas ("Tacos Gavilan") explican aquí qué datos recopila este sitio web, cómo se protegen y cómo los residentes de California pueden ejercer sus derechos de privacidad.',
+            'privacy.h1':           '1. Información que Recopilamos y Datos de Ubicación',
+            'privacy.p1':           'Nuestra infraestructura de alojamiento y seguridad (Vercel, Supabase) procesa datos técnicos de solicitudes (dirección IP, User Agent, fecha/hora y preferencia de idioma). Si utilizas el botón opcional "Ubicarme" en el mapa interactivo, tu navegador calcula la distancia hacia nuestras 15 sucursales en tiempo real sin almacenar ni vender tus coordenadas GPS en nuestros servidores. Los pedidos y pagos en línea se procesan directamente en Toast POS (order.online) y plataformas de entrega; nunca recopilamos números de tarjetas de pago en este sitio.',
+            'privacy.formFieldsH':  '2. Formularios de Contacto, Boletín y Empleo',
+            'privacy.formFieldsP':  'Al enviar nuestro formulario de contacto, suscripción o solicitud de empleo, recopilamos tu nombre, correo electrónico, teléfono, sucursal seleccionada, motivo y mensaje únicamente para responder tu consulta, brindar atención al cliente y prevenir abusos de spam automatizado.',
+            'privacy.retentionH':   '3. Retención de Datos, Seguridad y Privacidad de Menores',
+            'privacy.retentionP':   'Las consultas de contacto se conservan únicamente durante el tiempo necesario para resolver tu solicitud o cumplir obligaciones legales, tras lo cual se eliminan de forma segura o se desidentifican. Nuestro Servicio no está dirigido a menores de 18 años y no recopilamos, vendemos ni compartimos a sabiendas datos personales de menores de 18 o 16 años (COPPA y CCPA).',
+            'privacy.h2':           '4. Cookies, Píxeles y Derecho de Exclusión ("No Vender ni Compartir")',
+            'privacy.p2':           'Tacos Gavilan nunca vende información personal a cambio de dinero. Utilizamos cookies esenciales de preferencias y, salvo que optes por excluirlas, etiquetas de analítica y publicidad (Google Tag Manager, Google Analytics/Ads, Meta Pixel, TikTok Pixel). Puedes optar por no vender ni compartir tu información en cualquier momento desde nuestros controles de privacidad o mediante la señal Global Privacy Control (GPC) de tu navegador, lo cual desactiva automáticamente las etiquetas no esenciales mediante Google Consent Mode v2.',
             'privacy.rightsH':      '5. Tus Derechos de Privacidad en California (CCPA / CPRA)',
-            'privacy.rightsP':      'Los residentes de California pueden solicitar acceso, corrección o eliminación sin recibir trato discriminatorio por ejercer derechos aplicables. Escribe a info@tacosgavilan.com para ejercer tus derechos. Podremos solicitar datos para verificar la petición. Como este sitio no vende ni comparte datos para publicidad conductual, Global Privacy Control no cambia el comportamiento publicitario aquí.',
+            'privacy.rightsP':      'Los residentes de California tienen derecho a Conocer/Acceder, Eliminar, Corregir y Optar por No Vender ni Compartir su información personal sin recibir trato discriminatorio. Envía tus solicitudes a info@tacosgavilan.com o mediante nuestro Formulario de Contacto en Línea.',
 
-            'terms.title': 'Términos de Uso',
-            'terms.intro': 'Bienvenido a Tacos Gavilan. Al acceder y navegar en nuestro sitio web, aceptas quedar sujeto a los siguientes Términos de Uso.',
-            'terms.h1':    '1. Pedidos en Línea y Pagos Externos',
-            'terms.p1':    'Todos los pedidos en línea, menú transaccional, precios y cobros se gestionan de forma independiente a través de Toast POS (order.online). Tacos Gavilan no guarda datos de pago en este sitio de marca.',
-            'terms.h2':    '2. Propiedad Intelectual y Normas de Marca',
-            'terms.p2':    'Todos los contenidos, nombres comerciales, fotografías y diseños son propiedad exclusiva de Tacos Gavilan. Queda prohibida su reproducción sin consentimiento expreso por escrito.',
-            'terms.h3':    '3. Exactitud de la Información',
-            'terms.p3':    'Las recetas, insumos, disponibilidad de platillos y horarios pueden tener ligeras variaciones por sucursal. Consulta en order.online para conocer la disponibilidad exacta al momento de tu orden.',
+            'terms.title': 'Términos y Condiciones de Uso',
+            'terms.intro': 'Vigente desde el 19 de marzo de 2019 · Última actualización: 16 de octubre de 2026. Al acceder y navegar en https://tacosgavilan.com, operado por Tacos Gavilan, LLC y sus entidades operativas afiliadas ("Tacos Gavilan"), aceptas quedar legalmente sujeto a estos Términos de Uso.',
+            'terms.h1':    '1. Pedidos en Línea, Precios, Alérgenos y Enlaces a Terceros',
+            'terms.p1':    'Los pedidos de comida en línea y pagos se procesan mediante Toast POS (order.online) y plataformas autorizadas de entrega (DoorDash, Uber Eats, Grubhub, Postmates). Los platillos, paquetes Fiesta Platter, precios y horarios pueden variar por sucursal. Los alimentos se preparan en cocinas que manejan trigo, lácteos, huevo, soya y carnes; si presentas alergias alimentarias, consulta a la gerencia antes de ordenar.',
+            'terms.h2':    '2. Propiedad Intelectual y Uso Aceptable',
+            'terms.p2':    'Todos los contenidos, marcas registradas ("Tacos Gavilan", "Ya está."), logotipos, fotografías de alimentos e imagen comercial son propiedad exclusiva de Tacos Gavilan y sus licenciantes. Queda estrictamente prohibida su reproducción no autorizada, extracción automatizada (scraping) o abuso del sistema.',
+            'terms.h3':    '3. Exención de Garantías ("TAL CUAL"), Limitación de Responsabilidad, Indemnización y Ley Aplicable',
+            'terms.p3':    'El Servicio se proporciona "TAL CUAL" ("AS IS") y "SEGÚN DISPONIBILIDAD" sin garantías de ningún tipo. En la máxima medida permitida por la ley, Tacos Gavilan no será responsable por daños indirectos, incidentales, especiales, consecuentes o punitivos derivados del uso del Servicio. Aceptas indemnizar y eximir de responsabilidad a Tacos Gavilan ante reclamos derivados del incumplimiento de estos Términos. Regido por las leyes del Estado de California (Condado de Los Ángeles).',
 
-            'accessibility.title':        'Declaración de Accesibilidad',
-            'accessibility.intro':        'Tacos Gavilan promueve la accesibilidad universal para que todas las personas disfruten de nuestra experiencia digital sin barreras.',
-            'accessibility.h1':           'Nuestros Estándares y Cumplimiento',
-            'accessibility.p1':           'Usamos WCAG 2.2 AA como objetivo y seguimos evaluando teclado, contraste, ampliación de texto, textos alternativos, manejo del foco y semántica para lectores de pantalla. Esta declaración describe un esfuerzo continuo, no una certificación de conformidad perfecta.',
-            'accessibility.lastUpdatedH': 'Última Revisión y Alternativas',
-            'accessibility.lastUpdatedP': 'Última revisión: Octubre 2026. Si alguna sección del sitio presenta una barrera de acceso, puedes realizar pedidos directamente mediante Toast POS (order.online) o comunicarte vía telefónica con tu sucursal más cercana.',
-            'accessibility.h2':           'Asistencia y Contacto',
-            'accessibility.p2':           'Si encuentras alguna dificultad al navegar o requieres apoyo, escríbenos a info@tacosgavilan.com con el asunto "Accesibilidad Web". Estaremos atentos a asistirte.'
+            'accessibility.title':        'Declaración de Accesibilidad (ADA y WCAG 2.2 AA)',
+            'accessibility.intro':        'Vigente desde el 15 de abril de 2019 · Última actualización: 16 de octubre de 2026. Tacos Gavilan está comprometido con la accesibilidad digital para todos los clientes, incluidas las personas con discapacidad, conforme al Título III de la ADA, el Acta de Derechos Civiles Unruh de California y WCAG 2.1 / 2.2 Nivel AA.',
+            'accessibility.h1':           'Nuestros Estándares, Barra de Asistencia y Esfuerzo Continuo',
+            'accessibility.p1':           'Aplicamos el estándar WCAG 2.2 Nivel AA y ofrecemos una Barra de Herramientas de Accesibilidad ADA integrada (alto contraste, lector de voz, ampliación de texto, fuente para dislexia, resaltado de enlaces y pausa de animaciones) junto con navegación semántica por teclado. A pesar de nuestros esfuerzos continuos, algunas integraciones externas (como portales de pedidos o mapas) dependen de proveedores externos.',
+            'accessibility.lastUpdatedH': 'Estamos Para Servirte — Pedidos por Teléfono y Asistencia Personal',
+            'accessibility.lastUpdatedP': 'Última revisión: Octubre 2026. Si experimentas cualquier dificultad con alguna parte de nuestro sitio web o para realizar un pedido en línea, puedes llamar directamente a cualquiera de nuestras 15 sucursales en el Sur de California, donde nuestro personal con gusto te asistirá y tomará tu pedido por teléfono bajo los mismos precios y condiciones.',
+            'accessibility.h2':           'Comentarios y Reporte de Barreras',
+            'accessibility.p2':           'Para reportar una barrera de accesibilidad o solicitar asistencia, escríbenos a info@tacosgavilan.com con el asunto "Accesibilidad Web" o utiliza nuestro Formulario de Contacto en Línea.'
         }
     };
 
@@ -2380,7 +2380,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     };
 
-    setupModal('privacy-modal-overlay', ['open-privacy-btn', 'open-cookie-settings-btn', 'contact-privacy-link'], ['privacy-modal-close']);
+    setupModal('privacy-modal-overlay', ['open-privacy-btn', 'contact-privacy-link'], ['privacy-modal-close']);
     setupModal('terms-modal-overlay', ['open-terms-btn'], ['terms-modal-close']);
     setupModal('accessibility-modal-overlay', ['open-accessibility-btn'], ['accessibility-modal-close']);
 
@@ -2405,10 +2405,17 @@ document.addEventListener('DOMContentLoaded', () => {
         const allowMarketing = isAccepted && !(typeof navigator !== 'undefined' && navigator.globalPrivacyControl === true);
         const allowAnalytics = isAccepted;
 
+        window['ga-disable-UA-74752614-19'] = !allowAnalytics;
+
         // Meta / Facebook Pixel
         if (typeof window.fbq === 'function') {
             try {
                 window.fbq('consent', allowMarketing ? 'grant' : 'revoke');
+                if (!allowMarketing) {
+                    window.fbq('dataProcessingOptions', ['LDU'], 1, 1000);
+                } else {
+                    window.fbq('dataProcessingOptions', []);
+                }
             } catch (err) {
                 console.warn('[Tacos Gavilan] Meta consent error:', err);
             }
@@ -2427,9 +2434,16 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
 
-        // Google Tag Manager / Analytics via dataLayer
+        // Google Consent Mode v2 + Google Tag Manager / Analytics via dataLayer
         try {
             window.dataLayer = window.dataLayer || [];
+            function gtag() { window.dataLayer.push(arguments); }
+            gtag('consent', 'update', {
+                ad_storage: allowMarketing ? 'granted' : 'denied',
+                ad_user_data: allowMarketing ? 'granted' : 'denied',
+                ad_personalization: allowMarketing ? 'granted' : 'denied',
+                analytics_storage: allowAnalytics ? 'granted' : 'denied'
+            });
             window.dataLayer.push({
                 event: 'teg_cookie_consent_update',
                 consent_analytics: allowAnalytics ? 'granted' : 'denied',

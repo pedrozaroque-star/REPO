@@ -7,10 +7,11 @@
  * @businessRules
  * - Las rutas públicas (login, kioscos, tableros de clientes y aplicación de pedidos /app)
  *   se renderizan a pantalla completa sin elementos de administración (sidebar ni tab bar).
- * - En rutas administrativas, el estado colapsado del sidebar se persiste en localStorage.
+ * - En rutas administrativas, el estado colapsado del sidebar se persiste en localStorage,
+ *   excepto en `/inicio` donde inicia colapsado por defecto y se despliega al seleccionar un módulo.
  * 
  * @dataFlow
- * - Utiliza usePathname() para determinar si la ruta activa es pública o administrativa.
+ * - Utiliza usePathname() para determinar si la ruta activa es pública, `/inicio` o administrativa.
  */
 
 'use client'
@@ -20,7 +21,7 @@ import AppSidebar from './AppSidebar'
 import BottomTabBar from './BottomTabBar'
 import SupportChatWidget from './SupportChatWidget'
 import SupervisorAutoTracker from './miles/SupervisorAutoTracker'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { LanguageProvider } from '@/lib/i18n'
 
 export default function ClientLayout({
@@ -30,25 +31,49 @@ export default function ClientLayout({
 }) {
     const pathname = usePathname()
 
-    // Sidebar collapsed state (persisted in localStorage)
-    const [isCollapsed, setIsCollapsed] = useState(false)
+    // Sidebar collapsed state (collapsed by default on /inicio, expanded when selecting a module)
+    const [isCollapsed, setIsCollapsed] = useState(() => pathname === '/inicio')
     const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false)
+    const prevPathnameRef = useRef(pathname)
 
-    // Load collapsed state from localStorage
+    // Load collapsed state from localStorage on mount (except on /inicio which defaults to collapsed)
     useEffect(() => {
-        const saved = localStorage.getItem('teg_sidebar_collapsed')
-        if (saved === 'true') setIsCollapsed(true)
+        if (pathname === '/inicio') {
+            setIsCollapsed(true)
+        } else {
+            const saved = localStorage.getItem('teg_sidebar_collapsed')
+            if (saved === 'true') setIsCollapsed(true)
+        }
     }, [])
 
-    // Save collapsed state
+    // Listen for explicit expand event from /inicio module cards
     useEffect(() => {
-        localStorage.setItem('teg_sidebar_collapsed', String(isCollapsed))
-    }, [isCollapsed])
+        const handleExpandSidebar = () => {
+            setIsCollapsed(false)
+            localStorage.setItem('teg_sidebar_collapsed', 'false')
+        }
+        window.addEventListener('teg:expand-sidebar', handleExpandSidebar)
+        return () => window.removeEventListener('teg:expand-sidebar', handleExpandSidebar)
+    }, [])
 
-    // Close mobile drawer on route change
+    // Handle route transitions to/from /inicio and close mobile drawer
     useEffect(() => {
         setMobileDrawerOpen(false)
+        if (pathname === '/inicio') {
+            setIsCollapsed(true)
+        } else if (prevPathnameRef.current === '/inicio') {
+            setIsCollapsed(false)
+            localStorage.setItem('teg_sidebar_collapsed', 'false')
+        }
+        prevPathnameRef.current = pathname
     }, [pathname])
+
+    // Save collapsed state on regular module routes
+    useEffect(() => {
+        if (pathname !== '/inicio') {
+            localStorage.setItem('teg_sidebar_collapsed', String(isCollapsed))
+        }
+    }, [isCollapsed, pathname])
 
     // Public routes - no navigation chrome
     const publicRoutes = [
@@ -121,9 +146,11 @@ export default function ClientLayout({
                     >
                         <main
                             className={`w-full mx-auto animate-in fade-in duration-500 ${
-                                isFullWidth
-                                    ? 'max-w-full px-4 md:px-8 py-4 lg:py-6'
-                                    : 'max-w-[1600px] p-4 sm:p-6 lg:p-8'
+                                pathname === '/inicio'
+                                    ? 'max-w-[1720px] px-4 sm:px-6 lg:px-8 pt-2 pb-6'
+                                    : isFullWidth
+                                        ? 'max-w-full px-4 md:px-8 py-4 lg:py-6'
+                                        : 'max-w-[1600px] p-4 sm:p-6 lg:p-8'
                             }`}
                         >
                             {children}

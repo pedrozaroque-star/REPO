@@ -108,6 +108,7 @@ export default function CrearBillsPage() {
     }>({ isOpen: false });
 
     const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+    const [isAuthError, setIsAuthError] = useState<boolean>(false);
     const [toastMessage, setToastMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
     // Auto-dismiss toast
@@ -118,6 +119,30 @@ export default function CrearBillsPage() {
         }
     }, [toastMessage]);
 
+    // Handle OAuth reconnect popup
+    const handleReconnectQuickBooks = () => {
+        const width = 600, height = 700;
+        const left = (window.screen.width - width) / 2;
+        const top = (window.screen.height - height) / 2;
+
+        const popup = window.open(
+            '/api/integrations/quickbooks/auth',
+            'qb_auth_popup',
+            `width=${width},height=${height},left=${left},top=${top}`
+        );
+
+        if (popup) {
+            const handleMessage = (e: MessageEvent) => {
+                if (e.data === 'qb_authorized') {
+                    window.removeEventListener('message', handleMessage);
+                    setIsAuthError(false);
+                    loadData(true);
+                }
+            };
+            window.addEventListener('message', handleMessage);
+        }
+    };
+
     // Fetch invoices and bills from API
     const loadData = async (isManualSync: boolean = false) => {
         try {
@@ -125,12 +150,18 @@ export default function CrearBillsPage() {
             else setIsLoading(true);
 
             const res = await fetch('/api/quickbooks/bills?limit=150');
-            if (!res.ok) {
-                throw new Error(`HTTP ${res.status}: Error al consultar facturas de QuickBooks`);
-            }
-            const data = await res.json();
+            const data = await res.json().catch(() => null);
 
-            if (data.success && data.invoices) {
+            if (!res.ok || !data?.success) {
+                const errMsg = data?.error || `HTTP ${res.status}: Error al consultar facturas de QuickBooks`;
+                if (data?.isAuthError || res.status === 401) {
+                    setIsAuthError(true);
+                }
+                throw new Error(errMsg);
+            }
+
+            setIsAuthError(false);
+            if (data.invoices) {
                 setInvoices(data.invoices);
                 if (data.summary) setSummary(data.summary);
                 if (isManualSync) {
@@ -139,11 +170,6 @@ export default function CrearBillsPage() {
                         text: t('create_bills.toast_synced') || 'Datos actualizados con QuickBooks Online'
                     });
                 }
-            } else {
-                setToastMessage({
-                    type: 'error',
-                    text: data.error || 'Error al cargar facturas de QuickBooks'
-                });
             }
         } catch (err: any) {
             console.error('Error loading bills data:', err);
@@ -571,6 +597,34 @@ export default function CrearBillsPage() {
                 </div>
             </div>
 
+            {/* AUTH EXPIRATION WARNING BANNER */}
+            {isAuthError && (
+                <div className="bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-700/60 rounded-2xl p-4 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-sm animate-in fade-in duration-300">
+                    <div className="flex items-center gap-3">
+                        <div className="p-2.5 bg-amber-500/10 dark:bg-amber-500/20 text-amber-600 dark:text-amber-400 rounded-xl shrink-0">
+                            <AlertTriangle className="w-6 h-6" />
+                        </div>
+                        <div>
+                            <h4 className="text-sm font-bold text-slate-900 dark:text-white">
+                                {t('create_bills.auth_expired_title') || (language === 'en' ? 'QuickBooks Session Expired' : 'Sesión de QuickBooks Expirada')}
+                            </h4>
+                            <p className="text-xs text-slate-600 dark:text-slate-300 mt-0.5">
+                                {t('create_bills.auth_expired_desc') || (language === 'en' 
+                                    ? 'The authorization token for QuickBooks Online has expired. Re-authenticate with 1 click to sync invoices.'
+                                    : 'El token de autorización con QuickBooks Online ha expirado. Reconecta la cuenta con 1 clic para sincronizar las facturas.')}
+                            </p>
+                        </div>
+                    </div>
+                    <button
+                        onClick={handleReconnectQuickBooks}
+                        className="w-full sm:w-auto px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-sm transition-colors flex items-center justify-center gap-2 shrink-0 cursor-pointer"
+                    >
+                        <ExternalLink size={14} />
+                        <span>{t('create_bills.btn_reconnect') || (language === 'en' ? 'Reconnect QuickBooks' : 'Reconectar QuickBooks')}</span>
+                    </button>
+                </div>
+            )}
+
             {/* SUMMARY KPIS */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 {/* Pending Invoices */}
@@ -654,12 +708,22 @@ export default function CrearBillsPage() {
                     </div>
                     <div className="mt-3 flex items-baseline justify-between">
                         <span className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
+                            <span className={`w-2.5 h-2.5 rounded-full ${isAuthError ? 'bg-amber-500 animate-pulse' : 'bg-emerald-500'}`}></span>
                             Tacos Gavilan
                         </span>
-                        <span className="text-xs font-bold px-2 py-0.5 bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-300 rounded-full border border-purple-200 dark:border-purple-800">
-                            PROD
-                        </span>
+                        {isAuthError ? (
+                            <button
+                                onClick={handleReconnectQuickBooks}
+                                className="text-xs font-bold px-2.5 py-1 bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 rounded-full border border-amber-300 dark:border-amber-700 hover:bg-amber-200 transition-colors cursor-pointer flex items-center gap-1"
+                            >
+                                <ExternalLink size={11} />
+                                <span>{language === 'en' ? 'Reconnect' : 'Reconectar'}</span>
+                            </button>
+                        ) : (
+                            <span className="text-xs font-bold px-2 py-0.5 bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-300 rounded-full border border-purple-200 dark:border-purple-800">
+                                PROD
+                            </span>
+                        )}
                     </div>
                     <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                         Vendor ID: 116 (Warehouse) • Cat: 50010

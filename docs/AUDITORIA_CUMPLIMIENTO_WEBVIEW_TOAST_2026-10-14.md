@@ -154,3 +154,15 @@ Thank you for your support,
 
 **Carlos Pedroza**  
 Tacos Gavilan Inc.
+
+---
+
+## 8. Solicitud Oficial a DoorDash Storefront API Support (`storefront-api-support@doordash.com`)
+
+> **Propósito doble:**
+> 1. Solicitar las credenciales `Bearer JWT` de **DoorDash Storefront API V1** (`https://openapi.doordash.com/storefront/api/v1/`) para poder usar **nuestro propio diseño nativo de menú y carrito** (`POST /stores/{store_id}/v2/menu`, `POST /stores/{store_id}/item`, `POST /orders/order_session`) y abrir únicamente el `checkout_url` de DoorDash al momento de pagar.
+> 2. Confirmar por escrito la compatibilidad y dominios requeridos de `order.online` / `checkout_url` dentro del WebView nativo de `com.tacosgavilan.mobile` (iOS y Android).
+
+- **Para (`To`):** `storefront-api-support@doordash.com`
+- **Asunto (`Subject`):** `Storefront API V1 Access Request (JWT Credentials) & Mobile App Checkout Integration — Tacos Gavilan (Business ID: 137616 / 15 Locations)`
+

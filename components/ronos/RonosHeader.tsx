@@ -29,7 +29,8 @@ import {
   Receipt,
   Users,
   Server,
-  LayoutDashboard
+  LayoutDashboard,
+  Construction
 } from 'lucide-react'
 import { useLanguage } from '@/lib/i18n'
 import { StoreOption, WorkWeekOption, BiWeeklyPeriod } from './types'
@@ -147,6 +148,10 @@ export default function RonosHeader({
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-base sm:text-lg font-black tracking-tight text-slate-900 dark:text-white">
                 RONOS
+              </span>
+              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/30 text-[10px] font-black uppercase tracking-wider">
+                <Construction className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 animate-pulse" />
+                <span>Building</span>
               </span>
               <span className="text-slate-400 font-bold">·</span>
               <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg bg-sky-50 dark:bg-sky-950/60 border border-sky-200 dark:border-sky-800 text-sky-800 dark:text-sky-300 font-bold text-xs sm:text-sm truncate">

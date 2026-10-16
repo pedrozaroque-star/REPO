@@ -34,6 +34,34 @@
     <meta name="twitter:description" content="Reach out to Tacos Gavilan for catering inquiries, store feedback, or corporate questions.">
     <meta name="twitter:image" content="https://tacosgavilan.com/img/og-tacos-gavilan-1200x630.jpg">
 
+    <!-- California CCPA/CPRA & Google Consent Mode v2 Pre-Initialization -->
+    <script>
+    (function() {
+        window.dataLayer = window.dataLayer || [];
+        function gtag(){window.dataLayer.push(arguments);}
+        var gpc = (typeof navigator !== 'undefined' && navigator.globalPrivacyControl === true);
+        var allowMkt = !gpc;
+        var allowAna = true;
+        try {
+            var raw = localStorage.getItem('tg_cookie_consent') || localStorage.getItem('tacosgavilan_cookie_consent');
+            if (raw === 'declined') {
+                allowMkt = false; allowAna = false;
+            } else if (raw && raw.charAt(0) === '{') {
+                var parsed = JSON.parse(raw);
+                if (parsed.doNotSell || gpc) { allowMkt = false; allowAna = false; }
+                else { allowMkt = !!parsed.marketing; allowAna = !!parsed.analytics; }
+            }
+        } catch (e) {}
+        if (!allowAna) window['ga-disable-UA-74752614-19'] = true;
+        gtag('consent', 'default', {
+            'ad_storage': allowMkt ? 'granted' : 'denied',
+            'ad_user_data': allowMkt ? 'granted' : 'denied',
+            'ad_personalization': allowMkt ? 'granted' : 'denied',
+            'analytics_storage': allowAna ? 'granted' : 'denied',
+            'wait_for_update': 500
+        });
+    })();
+    </script>
     <!-- Google Tag Manager -->
     <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
     new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
@@ -410,7 +438,7 @@
         </svg>
     </button>
 
-    <script src="../js/main.js?v=40" defer></script>
+    <script src="../js/main.js?v=41" defer></script>
     <script>
         document.addEventListener('DOMContentLoaded', function() {
             const form = document.getElementById('contact-page-form');
@@ -475,6 +503,6 @@
             });
         });
     </script>
-    <script src="../js/compliance-a11y.js?v=33" defer></script>
+    <script src="../js/compliance-a11y.js?v=35" defer></script>
 </body>
 </html>

@@ -18,7 +18,8 @@
  *   Actualiza app_orders con tracking_url y delivery_status.
  * 
  * @notes
- * - La autenticación con DoorDash Drive requiere tokens JWT firmados con algoritmo HS256 y header 'dd-ver': 'DD-HEX-1'.
+ * - La autenticación con DoorDash Drive requiere tokens JWT firmados con algoritmo HS256, header 'dd-ver': 'DD-JWT-V1'
+ *   y decodificación del signing_secret en formato 'base64url'.
  */
 
 import jwt from 'jsonwebtoken'
@@ -26,7 +27,7 @@ import jwt from 'jsonwebtoken'
 const DOORDASH_API_HOST = process.env.DOORDASH_API_HOST || 'https://openapi.doordash.com'
 
 /**
- * Genera el JWT firmado necesario para autenticar peticiones con DoorDash Drive API v2.
+ * Genera el JWT firmado necesario para autenticar peticiones con DoorDash Drive API v2 y Storefront API v1.
  */
 export function generateDoorDashAuthToken(): string | null {
   const developerId = process.env.DOORDASH_DEVELOPER_ID
@@ -52,12 +53,12 @@ export function generateDoorDashAuthToken(): string | null {
     header: {
       alg: 'HS256',
       typ: 'JWT',
-      'dd-ver': 'DD-HEX-1',
+      'dd-ver': 'DD-JWT-V1',
     },
   }
 
   try {
-    const decodedSecret = Buffer.from(signingSecret, 'base64')
+    const decodedSecret = Buffer.from(signingSecret, 'base64url')
     return jwt.sign(payload, decodedSecret, headers)
   } catch (err) {
     console.error('[DoorDash Drive] Error firmando token JWT:', err)
@@ -93,7 +94,7 @@ export interface DoorDashQuoteResult {
 }
 
 /**
- * Solicita una cotización de costo de entrega y tiempo estimado a DoorDash Drive API.
+ * Solicita una cotización de costo de entrega y tiempo estimado a DoorDash Drive API v2 (/drive/v2/quotes).
  */
 export async function createDoorDashQuote(
   params: QuoteDeliveryParams
@@ -106,7 +107,7 @@ export async function createDoorDashQuote(
     }
   }
 
-  const url = `${DOORDASH_API_HOST}/drive/v2/deliveries/quotes`
+  const url = `${DOORDASH_API_HOST}/drive/v2/quotes`
 
   const body = {
     external_delivery_id: params.externalDeliveryId,
@@ -142,7 +143,7 @@ export async function createDoorDashQuote(
       ok: true,
       feeCents: data.fee,
       currency: data.currency || 'USD',
-      estimatedDeliveryTime: data.estimated_delivery_time,
+      estimatedDeliveryTime: data.dropoff_time_estimated || data.estimated_delivery_time,
     }
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Error desconocido al cotizar con DoorDash'
@@ -222,7 +223,7 @@ export async function dispatchDoorDashDelivery(
     const data = await res.json()
     return {
       ok: true,
-      deliveryId: data.id || data.delivery_id,
+      deliveryId: data.external_delivery_id || data.id || data.delivery_id,
       trackingUrl: data.tracking_url,
       status: data.delivery_status || 'CREATED',
       dasherName: data.dasher_name,

@@ -367,6 +367,12 @@ assert.equal(
   true,
   'Debe quitar la selección al presionar en cualquier espacio en blanco o al volver a tocar la tarjeta seleccionada'
 )
+const appSidebarSource = fs.readFileSync(path.join(process.cwd(), 'components', 'AppSidebar.tsx'), 'utf8')
+assert.equal(
+  appSidebarSource.includes("item.path === '/admin/blindaje-delivery'"),
+  true,
+  'AppSidebar debe mostrar la insignia NEW en Blindaje Delivery'
+)
 
 import {
   registerExclusiveStorePinSession,

@@ -211,6 +211,34 @@
         .location-lang-toggle:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
         @media (max-width: 480px) { .header-actions .btn { display: none; } }
     </style>
+    <!-- California CCPA/CPRA & Google Consent Mode v2 Pre-Initialization -->
+    <script>
+    (function() {
+        window.dataLayer = window.dataLayer || [];
+        function gtag(){window.dataLayer.push(arguments);}
+        var gpc = (typeof navigator !== 'undefined' && navigator.globalPrivacyControl === true);
+        var allowMkt = !gpc;
+        var allowAna = true;
+        try {
+            var raw = localStorage.getItem('tg_cookie_consent') || localStorage.getItem('tacosgavilan_cookie_consent');
+            if (raw === 'declined') {
+                allowMkt = false; allowAna = false;
+            } else if (raw && raw.charAt(0) === '{') {
+                var parsed = JSON.parse(raw);
+                if (parsed.doNotSell || gpc) { allowMkt = false; allowAna = false; }
+                else { allowMkt = !!parsed.marketing; allowAna = !!parsed.analytics; }
+            }
+        } catch (e) {}
+        if (!allowAna) window['ga-disable-UA-74752614-19'] = true;
+        gtag('consent', 'default', {
+            'ad_storage': allowMkt ? 'granted' : 'denied',
+            'ad_user_data': allowMkt ? 'granted' : 'denied',
+            'ad_personalization': allowMkt ? 'granted' : 'denied',
+            'analytics_storage': allowAna ? 'granted' : 'denied',
+            'wait_for_update': 500
+        });
+    })();
+    </script>
     <!-- Google Tag Manager -->
     <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
     new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
@@ -353,6 +381,6 @@
         </div>
     </footer>
     <script src="../../js/location-page.js?v=28"></script>
-    <script src="../../js/compliance-a11y.js?v=33" defer></script>
+    <script src="../../js/compliance-a11y.js?v=35" defer></script>
 </body>
 </html>

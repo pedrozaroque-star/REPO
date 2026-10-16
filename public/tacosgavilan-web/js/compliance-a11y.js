@@ -264,11 +264,33 @@
     }
 
     /* ==========================================================================
-       4. DYNAMIC TRACKING ENFORCEMENT
+       4. DYNAMIC TRACKING ENFORCEMENT (CCPA/CPRA + GOOGLE CONSENT MODE V2)
        ========================================================================== */
+    function purgeTrackingCookies() {
+        var cookiesToPurge = ['_ga', '_gid', '_gat', '_gcl_au', '_gcl_aw', '_fbp', '_fbc', '_ttp'];
+        var hostParts = (window.location.hostname || '').split('.');
+        var rootDomain = hostParts.length >= 2 ? '.' + hostParts.slice(-2).join('.') : window.location.hostname;
+        cookiesToPurge.forEach(function (name) {
+            try {
+                document.cookie = name + '=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/';
+                if (rootDomain) {
+                    document.cookie = name + '=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/;domain=' + rootDomain;
+                }
+            } catch (e) {}
+        });
+    }
+
     function applyTrackingConsent() {
-        var allowMarketing = cookieConsent.marketing && !cookieConsent.doNotSell && !(typeof navigator !== 'undefined' && navigator.globalPrivacyControl === true);
-        var allowAnalytics = cookieConsent.analytics;
+        var gpcActive = (typeof navigator !== 'undefined' && navigator.globalPrivacyControl === true);
+        var allowMarketing = cookieConsent.marketing && !cookieConsent.doNotSell && !gpcActive;
+        var allowAnalytics = cookieConsent.analytics && !cookieConsent.doNotSell;
+
+        // Disable Google Analytics tracker directly when analytics/sale is opted out
+        window['ga-disable-UA-74752614-19'] = !allowAnalytics;
+
+        if (!allowMarketing || !allowAnalytics) {
+            purgeTrackingCookies();
+        }
 
         // Meta / Facebook Pixel
         if (typeof window.fbq === 'function') {
@@ -292,17 +314,39 @@
             }
         }
 
-        // Google Tag Manager / Analytics via dataLayer
+        // Google Consent Mode v2 + Google Tag Manager dataLayer
         try {
             window.dataLayer = window.dataLayer || [];
+            function gtag() { window.dataLayer.push(arguments); }
+            gtag('consent', 'update', {
+                ad_storage: allowMarketing ? 'granted' : 'denied',
+                ad_user_data: allowMarketing ? 'granted' : 'denied',
+                ad_personalization: allowMarketing ? 'granted' : 'denied',
+                analytics_storage: allowAnalytics ? 'granted' : 'denied'
+            });
             window.dataLayer.push({
                 event: 'teg_cookie_consent_update',
                 consent_analytics: allowAnalytics ? 'granted' : 'denied',
                 consent_marketing: allowMarketing ? 'granted' : 'denied',
-                do_not_sell_california: cookieConsent.doNotSell ? 'opt_out' : 'opt_in'
+                do_not_sell_california: (cookieConsent.doNotSell || gpcActive) ? 'opt_out' : 'opt_in'
             });
         } catch (err) {
             console.warn('[Tacos Gavilan] GTM dataLayer error:', err);
+        }
+
+        // Update interactive status badge on /privacy-choices/ if present
+        var statusEl = document.getElementById('tg-privacy-choices-status');
+        if (statusEl) {
+            var isOptedOut = cookieConsent.doNotSell || gpcActive || !allowMarketing;
+            if (currentLang === 'es') {
+                statusEl.textContent = isOptedOut
+                    ? (gpcActive ? 'Estado Actual: Exclusión Activa (Señal GPC Detectada — No Vender ni Compartir)' : 'Estado Actual: Exclusión Activa (No Vender ni Compartir Mi Información Personal)')
+                    : 'Estado Actual: Preferencias Estándar Activas';
+            } else {
+                statusEl.textContent = isOptedOut
+                    ? (gpcActive ? 'Current Status: Opt-Out Active (Global Privacy Control Signal Detected)' : 'Current Status: Opt-Out Active (Do Not Sell or Share Enabled)')
+                    : 'Current Status: Standard Preferences Active';
+            }
         }
     }
 
@@ -1237,12 +1281,18 @@
             }
         });
 
-        var dnsBtns = [document.getElementById('tg-btn-dns'), document.getElementById('cookie-dns-btn')];
+        var dnsBtns = [
+            document.getElementById('tg-btn-dns'),
+            document.getElementById('cookie-dns-btn'),
+            document.getElementById('page-opt-out-dns-btn')
+        ];
         dnsBtns.forEach(function (btn) {
             if (btn) {
-                btn.addEventListener('click', function () {
+                btn.addEventListener('click', function (e) {
+                    if (e) e.preventDefault();
                     cookieConsent.doNotSell = true;
                     cookieConsent.marketing = false;
+                    cookieConsent.analytics = false;
                     saveCookieConsent('declined');
                     applyTrackingConsent();
                     hideCookieBanner();
@@ -1256,11 +1306,13 @@
         var prefsBtns = [
             document.getElementById('tg-btn-prefs'),
             document.getElementById('cookie-prefs-btn'),
-            document.getElementById('open-cookie-settings-btn')
+            document.getElementById('open-cookie-settings-btn'),
+            document.getElementById('page-open-cookie-prefs-btn')
         ];
         prefsBtns.forEach(function (btn) {
             if (btn) {
-                btn.addEventListener('click', function () {
+                btn.addEventListener('click', function (e) {
+                    if (e) e.preventDefault();
                     openCookieModal();
                 });
             }
@@ -1306,12 +1358,297 @@
     }
 
     /* ==========================================================
-       10. PUBLIC API & INITIALIZATION
+       10. FIRST-PARTY WEBSITE ANALYTICS & ORDER CLICK TRACKER
+       ========================================================== */
+    var TOAST_CODE_TO_STORE = {
+        '841931': { id: 1, name: 'Rialto' },
+        '725035': { id: 3, name: 'West Covina' },
+        '718169': { id: 4, name: 'Azusa' },
+        '260769': { id: 5, name: 'LA Broadway' },
+        '260847': { id: 6, name: 'LA Central' },
+        '252169': { id: 6, name: 'LA Central' },
+        '23989119': { id: 7, name: 'Slauson' },
+        '551916': { id: 8, name: 'Hollywood' },
+        '724574': { id: 9, name: 'Santa Ana' },
+        '963464': { id: 10, name: 'La Puente' },
+        '260849': { id: 11, name: 'Huntington Park' },
+        '1327857': { id: 12, name: 'Norwalk' },
+        '260912': { id: 13, name: 'Bell' },
+        '727877': { id: 14, name: 'Lynwood' },
+        '846517': { id: 15, name: 'South Gate' },
+        '302620': { id: 16, name: 'Downey' }
+    };
+
+    var SLUG_TO_STORE = {
+        'rialto': { id: 1, name: 'Rialto' },
+        'west-covina': { id: 3, name: 'West Covina' },
+        'azusa': { id: 4, name: 'Azusa' },
+        'la-broadway': { id: 5, name: 'LA Broadway' },
+        'la-central': { id: 6, name: 'LA Central' },
+        'slauson': { id: 7, name: 'Slauson' },
+        'hollywood': { id: 8, name: 'Hollywood' },
+        'santa-ana': { id: 9, name: 'Santa Ana' },
+        'la-puente': { id: 10, name: 'La Puente' },
+        'huntington-park': { id: 11, name: 'Huntington Park' },
+        'norwalk': { id: 12, name: 'Norwalk' },
+        'bell': { id: 13, name: 'Bell' },
+        'lynwood': { id: 14, name: 'Lynwood' },
+        'south-gate': { id: 15, name: 'South Gate' },
+        'downey': { id: 16, name: 'Downey' }
+    };
+
+    var PHONE_TO_STORE = {
+        '9095620430': { id: 1, name: 'Rialto' },
+        '6269172662': { id: 3, name: 'West Covina' },
+        '6269691011': { id: 4, name: 'Azusa' },
+        '3232332302': { id: 5, name: 'LA Broadway' },
+        '2137426677': { id: 6, name: 'LA Central' },
+        '3236150084': { id: 7, name: 'Slauson' },
+        '3239637993': { id: 8, name: 'Hollywood' },
+        '7144800713': { id: 9, name: 'Santa Ana' },
+        '6263363000': { id: 10, name: 'La Puente' },
+        '3235817309': { id: 11, name: 'Huntington Park' },
+        '5626510045': { id: 12, name: 'Norwalk' },
+        '3237711722': { id: 13, name: 'Bell' },
+        '4247855535': { id: 14, name: 'Lynwood' },
+        '5628061200': { id: 15, name: 'South Gate' },
+        '5629277486': { id: 16, name: 'Downey' }
+    };
+
+    var ADDRESS_HINTS_TO_STORE = [
+        { hint: '1900', id: 6, name: 'LA Central' },
+        { hint: '3220', id: 14, name: 'Lynwood' },
+        { hint: '4380', id: 5, name: 'LA Broadway' },
+        { hint: '10968', id: 12, name: 'Norwalk' },
+        { hint: '5833', id: 7, name: 'Slauson' },
+        { hint: '115', id: 1, name: 'Rialto' },
+        { hint: '101', id: 3, name: 'West Covina' },
+        { hint: '5800', id: 15, name: 'South Gate' },
+        { hint: '7947', id: 16, name: 'Downey' },
+        { hint: '7070', id: 8, name: 'Hollywood' },
+        { hint: '1258', id: 9, name: 'Santa Ana' },
+        { hint: '2425', id: 11, name: 'Huntington Park' },
+        { hint: '13009', id: 10, name: 'La Puente' },
+        { hint: '887', id: 4, name: 'Azusa' },
+        { hint: '4406', id: 13, name: 'Bell' }
+    ];
+
+    function getSessionId() {
+        try {
+            var sid = sessionStorage.getItem('tg_session_id');
+            if (!sid) {
+                sid = 's_' + Math.random().toString(36).slice(2, 11) + '_' + Date.now().toString(36);
+                sessionStorage.setItem('tg_session_id', sid);
+            }
+            return sid;
+        } catch (e) {
+            return 's_anon_' + Math.floor(Date.now() / 600000);
+        }
+    }
+
+    function getDeviceType() {
+        var w = window.innerWidth || 1024;
+        if (w <= 640) return 'mobile';
+        if (w <= 1024) return 'tablet';
+        return 'desktop';
+    }
+
+    function getReferrerSource() {
+        var ref = document.referrer || '';
+        if (!ref) return 'direct';
+        try {
+            var host = new URL(ref).hostname.toLowerCase();
+            if (host.indexOf('tacosgavilan.com') !== -1 || host.indexOf('localhost') !== -1) return 'internal';
+            if (host.indexOf('google.') !== -1) return 'google';
+            if (host.indexOf('instagram.') !== -1) return 'instagram';
+            if (host.indexOf('facebook.') !== -1 || host.indexOf('fb.') !== -1) return 'facebook';
+            if (host.indexOf('tiktok.') !== -1) return 'tiktok';
+            if (host.indexOf('yelp.') !== -1) return 'yelp';
+            if (host.indexOf('bing.') !== -1 || host.indexOf('yahoo.') !== -1) return 'search';
+            return host.slice(0, 60);
+        } catch (e) {
+            return 'direct';
+        }
+    }
+
+    function sendTrackEvent(payload) {
+        try {
+            // Skip tracking when loaded inside an admin preview iframe
+            if (window.self !== window.top) return;
+            if (window.location.pathname.indexOf('/api/web-preview') === 0) return;
+
+            var bodyStr = JSON.stringify(payload);
+            if (navigator.sendBeacon) {
+                var blob = new Blob([bodyStr], { type: 'text/plain;charset=UTF-8' });
+                if (navigator.sendBeacon('/api/track', blob)) return;
+            }
+            fetch('/api/track', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: bodyStr,
+                keepalive: true
+            }).catch(function () {});
+        } catch (e) {}
+    }
+
+    function detectStoreFromElementOrHref(el, href) {
+        // 1. Check Toast URL code
+        var codes = Object.keys(TOAST_CODE_TO_STORE);
+        for (var i = 0; i < codes.length; i++) {
+            if (href.indexOf(codes[i]) !== -1) {
+                return TOAST_CODE_TO_STORE[codes[i]];
+            }
+        }
+        // 2. Check tel: number
+        if (href.indexOf('tel:') === 0) {
+            var digits = href.replace(/\D/g, '').slice(-10);
+            if (PHONE_TO_STORE[digits]) return PHONE_TO_STORE[digits];
+        }
+        // 3. Check closest store-card [data-store]
+        if (el && el.closest) {
+            var card = el.closest('[data-store]');
+            if (card) {
+                var slug = card.getAttribute('data-store');
+                if (SLUG_TO_STORE[slug]) return SLUG_TO_STORE[slug];
+            }
+            var locCard = el.closest('.location-card');
+            if (locCard) {
+                var detLink = locCard.querySelector('a[href*="/locations/"]');
+                if (detLink) {
+                    var m = (detLink.getAttribute('href') || '').match(/\/locations\/([a-z0-9-]+)\/?/i);
+                    if (m && SLUG_TO_STORE[m[1]]) return SLUG_TO_STORE[m[1]];
+                }
+            }
+        }
+        // 4. Check URL query ?store= or current pathname /locations/{slug}/
+        try {
+            var qStore = new URLSearchParams(window.location.search).get('store');
+            if (qStore && SLUG_TO_STORE[qStore]) return SLUG_TO_STORE[qStore];
+            var pathMatch = window.location.pathname.match(/\/locations\/([a-z0-9-]+)\/?/i);
+            if (pathMatch && SLUG_TO_STORE[pathMatch[1]]) return SLUG_TO_STORE[pathMatch[1]];
+        } catch (e) {}
+        // 5. Check address hint in Google Maps link
+        var decoded = '';
+        try { decoded = decodeURIComponent(href); } catch (e) { decoded = href; }
+        for (var j = 0; j < ADDRESS_HINTS_TO_STORE.length; j++) {
+            var item = ADDRESS_HINTS_TO_STORE[j];
+            if (decoded.indexOf(item.hint) !== -1) {
+                return { id: item.id, name: item.name };
+            }
+        }
+        return { id: null, name: null };
+    }
+
+    function detectButtonSource(el) {
+        if (!el || !el.closest) return 'page';
+        if (el.closest('#mobile-sticky-bar, .mobile-sticky-bar')) return 'mobile_sticky_bar';
+        if (el.closest('#store-details-modal-overlay, .store-details-modal')) return 'store_modal';
+        if (el.closest('#map-modal-overlay, #gavilan-map, .map-popup')) return 'interactive_map';
+        if (el.closest('#mobile-navigation, .nav-drawer-footer')) return 'mobile_drawer';
+        if (el.closest('#header, .header')) return 'header';
+        if (el.closest('.hero')) return 'hero';
+        if (el.closest('.location-card, .store-card, #locations, #locations-list')) return 'location_card';
+        if (el.closest('#fiesta, .fiesta')) return 'fiesta_platter';
+        if (el.closest('#menu, .menu')) return 'menu';
+        if (el.closest('#footer, .footer')) return 'footer';
+        return 'page';
+    }
+
+    function initFirstPartyAnalytics() {
+        var sessionId = getSessionId();
+        var lang = (document.documentElement.lang === 'es' || currentLang === 'es') ? 'es' : 'en';
+        var pagePath = window.location.pathname || '/';
+        var storeFromUrl = detectStoreFromElementOrHref(null, window.location.href);
+
+        // 1. Track Initial Page View
+        sendTrackEvent({
+            event_type: 'page_view',
+            session_id: sessionId,
+            page_path: pagePath,
+            store_id: storeFromUrl.id,
+            store_name: storeFromUrl.name,
+            platform: 'web',
+            button_source: 'navigation',
+            device_type: getDeviceType(),
+            lang: lang,
+            referrer: getReferrerSource()
+        });
+
+        // 2. Track Outbound Order Clicks, Phone Calls, Directions, and Store Details Modal
+        document.addEventListener('click', function (e) {
+            var link = e.target && e.target.closest ? e.target.closest('a') : null;
+            if (!link) return;
+            var href = link.getAttribute('href') || '';
+            if (!href) return;
+
+            var activeLang = (document.documentElement.lang === 'es' || currentLang === 'es') ? 'es' : 'en';
+            var lowerHref = href.toLowerCase();
+
+            // Check if user opened a Store Details modal (/locations/{slug}/ or ./{slug}/)
+            var modalMatch = href.match(/(?:^\/locations\/|^\.\/)([a-z0-9-]+)\/?$/i);
+            if (modalMatch && SLUG_TO_STORE[modalMatch[1]]) {
+                var st = SLUG_TO_STORE[modalMatch[1]];
+                sendTrackEvent({
+                    event_type: 'page_view',
+                    session_id: sessionId,
+                    page_path: '/locations/' + modalMatch[1] + '/',
+                    store_id: st.id,
+                    store_name: st.name,
+                    platform: 'web',
+                    button_source: 'store_details_modal',
+                    device_type: getDeviceType(),
+                    lang: activeLang,
+                    referrer: 'internal'
+                });
+                return;
+            }
+
+            var platform = null;
+            if (lowerHref.indexOf('order.online') !== -1 || lowerHref.indexOf('toasttab.com') !== -1) {
+                platform = 'toast';
+            } else if (lowerHref.indexOf('doordash.com') !== -1) {
+                platform = 'doordash';
+            } else if (lowerHref.indexOf('ubereats.com') !== -1) {
+                platform = 'ubereats';
+            } else if (lowerHref.indexOf('grubhub.com') !== -1) {
+                platform = 'grubhub';
+            } else if (lowerHref.indexOf('postmates.com') !== -1) {
+                platform = 'postmates';
+            } else if (lowerHref.indexOf('tel:') === 0) {
+                platform = 'phone';
+            } else if (lowerHref.indexOf('google.com/maps') !== -1 || lowerHref.indexOf('maps.google.com') !== -1) {
+                platform = 'directions';
+            }
+
+            if (!platform) return;
+
+            var storeInfo = detectStoreFromElementOrHref(link, href);
+            var btnSource = detectButtonSource(link);
+
+            sendTrackEvent({
+                event_type: 'order_click',
+                session_id: sessionId,
+                page_path: window.location.pathname || '/',
+                store_id: storeInfo.id,
+                store_name: storeInfo.name || (platform === 'toast' ? 'Selector General (15 Sucursales)' : null),
+                platform: platform,
+                button_source: btnSource,
+                device_type: getDeviceType(),
+                lang: activeLang,
+                referrer: getReferrerSource(),
+                target_url: href.slice(0, 200)
+            });
+        }, true);
+    }
+
+    /* ==========================================================
+       11. PUBLIC API & INITIALIZATION
        ========================================================== */
     window._tgOpenA11y = openA11yPanel;
     window._tgCloseA11y = closeA11yPanel;
     window._tgOpenCookies = openCookieModal;
     window._tgCloseCookies = closeCookieModal;
+    window.tgTrackEvent = sendTrackEvent;
 
     function init() {
         loadSavedState();
@@ -1320,6 +1657,7 @@
         applyA11yToDOM();
         applyTrackingConsent();
         showCookieBannerIfNeeded();
+        initFirstPartyAnalytics();
     }
 
     if (document.readyState === 'loading') {
@@ -1329,3 +1667,4 @@
     }
 
 })();
+

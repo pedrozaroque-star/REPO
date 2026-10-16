@@ -20,20 +20,40 @@ export interface VersionMilestone {
 }
 
 export const SYSTEM_VERSION = {
-    version: 'v2.14.0',
-    versionNumber: '2.14.0',
+    version: 'v2.15.0',
+    versionNumber: '2.15.0',
     releaseMonthEs: 'Octubre 2026',
     releaseMonthEn: 'October 2026',
     stage: 'Producción',
     stageEn: 'Production',
     year: '2026',
-    labelEs: 'Octubre 2026 • SM TEG v2.14.0',
-    labelEn: 'October 2026 • SM TEG v2.14.0',
+    labelEs: 'Octubre 2026 • SM TEG v2.15.0',
+    labelEn: 'October 2026 • SM TEG v2.15.0',
     brand: 'SM TEG',
-    lastUpdated: '2026-10-15'
+    lastUpdated: '2026-10-16'
 } as const;
 
 export const VERSION_HISTORY: readonly VersionMilestone[] = [
+    {
+        version: 'v2.15.0',
+        date: '16-Oct-2026',
+        titleEs: 'Centro de Mando /inicio & Selector Post-Login, App Clientes Menu 2 + DoorDash API, Basecamp Auto-Sync de 6 Capas, Nueva Web Modo Claro + Sensor de Visitas y Gavilan POS Banco de Pruebas',
+        titleEn: 'Launchpad Hub /inicio & Post-Login Selector, Customer App Menu 2 + DoorDash API, Basecamp 6-Layer Auto-Sync, Nueva Web Light Mode + Traffic Sensor & Gavilan POS Test Bench',
+        highlightsEs: [
+            'Nuevo centro de mando categorizado (/inicio), expansión permanente de las 6 secciones de la barra lateral, selector ejecutivo post-login (INICIO vs Dashboard tras el Splash 3D) y estandarización de insignias "NEW" y "[ 🚧 Building ]" en todo el ecosistema',
+            'App Móvil Clientes (/app y gavilan-app): nuevo "Menu 2" nativo compactado (Horchata Medium/Large en una sola tarjeta, submenú unificado de Tacos con cambio dinámico de foto y modal de personalización en 2 pasos, nombres exactos de Toast POS y badge Popular) e integración con DoorDash Developer API',
+            'Basecamp (/basecamp): arquitectura de auto-sincronización en tiempo real de 6 capas (receptor de webhooks, respaldo OAuth2 cifrado y suscripciones Supabase Realtime) y badges informativos de fecha y hora de creación en cada To-do',
+            'Sitio Web tacosgavilan.com y /nueva-web: rediseño en Modo Claro SM TEG, sensor propio de visitas web y clics hacia pedidos en línea (api/track.js en las 37 páginas) y eliminación de archivos HTML legales duplicados en la raíz',
+            'Gavilan POS (banco de pruebas de hardware e idempotencia en Bodega y lector EBT CalFresh independiente), resolución de nombre real de cajero en recibos Toast (/api/toast-order-detail), auditoría profunda del Dashboard Ejecutivo y consolidación de 116.9 horas de ingeniería + 98.0 horas de turnos en Lynwood #14 (1 al 16 de Octubre 2026)'
+        ],
+        highlightsEn: [
+            'New categorized Launchpad Hub (/inicio), all 6 AppSidebar sections expanded by default, post-login destination selector (INICIO vs Executive Dashboard after 3D Splash), and standardized "NEW" and "[ 🚧 Building ]" status badges across the ecosystem',
+            'Customer Mobile App (/app & gavilan-app): compacted native "Menu 2" (single Horchata card with Medium/Large selector, unified Tacos submenu with dynamic protein photo switching and 2-step customizer modal, exact Toast POS naming, and Popular badge) plus DoorDash Developer API integration',
+            'Basecamp (/basecamp): 6-layer real-time auto-sync architecture (webhook receiver, encrypted OAuth2 fallback, and live Supabase Realtime subscriptions) and creation date/time badges on every To-do item',
+            'tacosgavilan.com & /nueva-web: SM TEG corporate Light Mode redesign, first-party website visit and online-order click-out counter (api/track.js across all 37 pages), and removal of duplicate root legal HTML files',
+            'Gavilan POS (Warehouse hardware & idempotency test bench and standalone EBT CalFresh reader), real cashier name resolution on Toast receipts (/api/toast-order-detail), 3-subagent Executive Dashboard audit, and 116.9 engineering hours + 98.0 Lynwood #14 shift hours consolidated (October 1–16, 2026)'
+        ]
+    },
     {
         version: 'v2.14.0',
         date: '15-Oct-2026',

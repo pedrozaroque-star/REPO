@@ -1,3 +1,14 @@
+/**
+ * @module components/BottomTabBar
+ * @description Barra de navegación inferior móvil para acceso rápido a Inicio (`/inicio`), tareas y módulos principales.
+ *
+ * @businessRules
+ * - Adapta las pestañas según el rol del usuario autenticado (`admin`, `supervisor`, `manager`, `asistente`, `planificador`).
+ *
+ * @dataFlow
+ * - Consume `useAuth()` y `useLanguage()`.
+ */
+
 'use client'
 
 import Link from 'next/link'
@@ -39,7 +50,7 @@ export default function BottomTabBar({ onOpenDrawer }: BottomTabBarProps) {
         }
 
         const items: { label: string; icon: typeof LayoutDashboard; path: string; id: string }[] = [
-            { label: 'Home', icon: LayoutDashboard, path: '/dashboard', id: 'home' },
+            { label: language === 'es' ? 'Inicio' : 'Home', icon: LayoutDashboard, path: '/inicio', id: 'home' },
         ]
 
         if (['supervisor', 'admin'].includes(userRole)) {
