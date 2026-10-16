@@ -1,3 +1,20 @@
+/**
+ * @module components/AppSidebar
+ * @description Barra lateral de navegación principal (Desktop Sidebar + Mobile Drawer) del sistema Tacos Gavilan.
+ * Organiza los módulos operativos, financieros, de análisis, inventario, equipo y gestión por rol de usuario.
+ *
+ * @businessRules
+ * - Filtra dinámicamente los módulos según el rol del usuario autenticado (`admin`, `supervisor`, `manager`, `asistente`, `planificador`).
+ * - Los módulos configurados con `openInNewTab: true` (ej. `/app` Customer App y `/gavilan-pos` Gavilan POS) se abren en una pestaña independiente (`target="_blank"`) con icono de enlace externo.
+ * - Soporta cambio de idioma en vivo (ES/EN), modo claro/oscuro, notificaciones y modal de historial de versiones (`ChangelogModal`).
+ *
+ * @dataFlow
+ * - Consume `useAuth()` para permisos de rol, `useLanguage()` para internacionalización (`i18n`), y `SYSTEM_VERSION` para control de versión.
+ *
+ * @notes
+ * - Sincronizado con `components/ClientLayout.tsx` donde `/app` y `/gavilan-pos` están registrados en `publicRoutes` para renderizarse a pantalla completa sin el sidebar administrativo.
+ */
+
 'use client'
 
 import Link from 'next/link'
@@ -322,9 +339,10 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                     path: '/app',
                     icon: <Smartphone size={20} />,
                     roles: ['asistente', 'manager', 'supervisor', 'admin'],
+                    openInNewTab: true,
                     tooltip: language === 'en'
-                        ? 'Customer mobile ordering app preview and menu consultation (App móvil de pedidos y consulta para clientes)'
-                        : 'Consulta y vista previa de la app móvil de pedidos para clientes'
+                        ? 'Opens in a new tab: Customer mobile ordering app preview and menu consultation (App móvil de pedidos y consulta para clientes)'
+                        : 'Abre en nueva pestaña: Consulta y vista previa de la app móvil de pedidos para clientes'
                 },
                 {
                     name: t('items.new_website') || (language === 'en' ? 'New Website' : 'Nueva Web'),
@@ -714,7 +732,7 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
     const renderNavItem = (item: MenuItem, groupId: string, isMobile: boolean = false) => {
         const isActive = pathname === item.path || (item.path !== '/dashboard' && pathname.startsWith(item.path + '/'))
         const colors = GROUP_COLORS[groupId] || GROUP_COLORS.operaciones
-        const hasNewBadge = item.path === '/basecamp' || item.path === '/admin/compras/viele' || item.path === '/app' || item.path === '/nueva-web' || item.path === '/gavilan-pos'
+        const hasNewBadge = item.path === '/basecamp' || item.path === '/admin/compras/viele' || item.path === '/app' || item.path === '/nueva-web' || item.path === '/gavilan-pos' || item.path === '/admin/blindaje-delivery' || item.path === '/order-ready-board'
 
         return (
             <Link

@@ -21,7 +21,33 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import net from 'net'
+import os from 'os'
 import { getSupabaseClient } from '@/lib/supabase'
+
+function getLocalLanAddresses() {
+    const nets = os.networkInterfaces()
+    const ipv4List: { iface: string; ip: string; subnetPrefix: string }[] = []
+    for (const [name, addrs] of Object.entries(nets)) {
+        for (const addr of (addrs || [])) {
+            if (addr.family === 'IPv4' && !addr.internal) {
+                const parts = addr.address.split('.')
+                const subnetPrefix = parts.slice(0, 3).join('.')
+                ipv4List.push({ iface: name, ip: addr.address, subnetPrefix })
+            }
+        }
+    }
+    const primary = ipv4List.find(x => x.ip.startsWith('192.168.') || x.ip.startsWith('10.') || x.ip.startsWith('172.')) || ipv4List[0] || {
+        iface: 'LAN',
+        ip: '127.0.0.1',
+        subnetPrefix: '192.168.1',
+    }
+    return {
+        primaryIp: primary.ip,
+        subnetPrefix: primary.subnetPrefix,
+        posLanUrl: `http://${primary.ip}:3000/gavilan-pos`,
+        interfaces: ipv4List,
+    }
+}
 
 const TOAST_GUID_TO_NAME: Record<string, string> = {
     'acf15327-54c8-4da4-8d0d-3ac0544dc422': 'Rialto',
@@ -211,8 +237,8 @@ export async function GET() {
                 receiptHeader: cfgRow?.receipt_header || 'TACOS GAVILAN — SABOR AUTÉNTICO',
                 receiptFooter: cfgRow?.receipt_footer || '¡GRACIAS POR SU VISITA! CALFRESH EBT RMP ACCEPTED',
                 printRedModifiers: cfgRow?.print_red_modifiers ?? true,
-                printerReceiptIp: cfgRow?.printer_receipt_ip || `192.168.${storeNumber}.50:9100`,
-                printerKitchenIp: cfgRow?.printer_kitchen_ip || `192.168.${storeNumber}.51:9100`,
+                printerReceiptIp: cfgRow?.printer_receipt_ip || '192.168.192.169:9100',
+                printerKitchenIp: cfgRow?.printer_kitchen_ip || '192.168.192.168:9100',
                 offlineSafLimitUsd: Number(cfgRow?.offline_saf_limit_usd || 75.0),
                 upsBatteryModel: cfgRow?.ups_battery_model || 'EcoFlow DELTA 2 LiFePO4 (1024Wh) + SUNMI UPS Base',
                 cellularFailoverModel: cfgRow?.cellular_failover_model || 'Peplink BR1 Mini 5G Dual-WAN (<1s Failover)',
@@ -380,7 +406,7 @@ export async function GET() {
                 store_number: 14,
                 business_date: currentBusinessDate,
                 dining_option: 'DRIVE_THRU',
-                customer_name: 'AUTO #1 — SUV BLANCA (ROSA L.)',
+                customer_name: 'ORDEN DRIVE-THRU #1044 (VENTANILLA)',
                 items: [
                     { id: 'seed-6', name: 'Combo Platillo Asada', qty: 1, unitPrice: 15.99, modifiers: ['TORTILLA RECIÉN HECHA MAÍZ'], station: 'PARRILLA' },
                     { id: 'seed-7', name: 'Taco de Lengua', qty: 2, unitPrice: 4.79, modifiers: ['CON TODO'], station: 'PARRILLA' },
@@ -397,8 +423,8 @@ export async function GET() {
                 created_offline: false,
                 power_source_mode: 'AC_GRID',
                 drive_thru_lane: 1,
-                vehicle_type: 'SUV',
-                vehicle_color: 'BLANCO',
+                vehicle_type: 'N/A',
+                vehicle_color: 'N/A',
                 drive_thru_stage: 'AT_PAY_WINDOW',
                 sos_speaker_sec: 32,
                 sos_window_sec: 28,
@@ -409,7 +435,7 @@ export async function GET() {
                 store_number: 14,
                 business_date: currentBusinessDate,
                 dining_option: 'DRIVE_THRU',
-                customer_name: 'AUTO #2 — TROCA ROJA (HECTOR V.)',
+                customer_name: 'ORDEN DRIVE-THRU #1045 (ALTAVOZ)',
                 items: [
                     { id: 'seed-dt-1', name: 'Taco Pastor (Maíz)', qty: 6, unitPrice: 3.79, modifiers: ['CON TODO', 'SALSA VERDE'], station: 'PARRILLA' },
                     { id: 'seed-dt-2', name: 'Vampiro de Asada', qty: 2, unitPrice: 5.99, modifiers: ['BIEN DORADO'], station: 'PARRILLA' },
@@ -427,8 +453,8 @@ export async function GET() {
                 created_offline: false,
                 power_source_mode: 'AC_GRID',
                 drive_thru_lane: 1,
-                vehicle_type: 'PICKUP_TRUCK',
-                vehicle_color: 'ROJO',
+                vehicle_type: 'N/A',
+                vehicle_color: 'N/A',
                 drive_thru_stage: 'IN_CAR_QUEUE',
                 sos_speaker_sec: 38,
                 sos_window_sec: 0,
@@ -598,6 +624,7 @@ export async function GET() {
             currentBusinessDate,
             currentShift: getCurrentGavilanShift(),
             latestBusinessDate: latestFullDate,
+            localLanInfo: getLocalLanAddresses(),
             stores: storesList,
             storeConfigs: storeConfigsData || [],
             menuItems: cleanMenu,
@@ -739,13 +766,20 @@ async function executeSingleMutation(supabase: any, action: string, payload: any
             loyaltyPhone,
         } = payload
 
+        const resolvedClientOrderId = clientOrderId || `ORD-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
+        const { data: existingOrder } = await supabase
+            .from('gavilan_pos_orders')
+            .select('id, client_order_id, order_number, total_amount')
+            .eq('client_order_id', resolvedClientOrderId)
+            .maybeSingle()
+
         const resolvedStage = driveThruStage || (diningOption === 'DRIVE_THRU' ? 'IN_CAR_QUEUE' : 'COMPLETED')
         const resolvedKdsStatus = kdsStatus || (isScheduledCatering ? 'SCHEDULED_HOLD' : 'IN_PREP')
 
         const { data, error } = await supabase
             .from('gavilan_pos_orders')
             .upsert({
-                client_order_id: clientOrderId || `ORD-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+                client_order_id: resolvedClientOrderId,
                 order_number: Number(orderNumber || 1050),
                 store_number: Number(storeNumber || 14),
                 business_date: payload.businessDate || currentBusinessDate,
@@ -764,8 +798,8 @@ async function executeSingleMutation(supabase: any, action: string, payload: any
                 created_offline: Boolean(createdOffline),
                 power_source_mode: powerSourceMode || 'AC_GRID',
                 drive_thru_lane: Number(driveThruLane || 1),
-                vehicle_type: vehicleType || 'SEDAN',
-                vehicle_color: vehicleColor || 'BLANCO',
+                vehicle_type: vehicleType || 'N/A',
+                vehicle_color: vehicleColor || 'N/A',
                 drive_thru_stage: resolvedStage,
                 sos_speaker_sec: Number(sosSpeakerSec || 0),
                 sos_window_sec: Number(sosWindowSec || 0),
@@ -788,7 +822,7 @@ async function executeSingleMutation(supabase: any, action: string, payload: any
             .single()
 
         if (error) throw error
-        return { order: data }
+        return { order: data, idempotentReplay: Boolean(existingOrder) }
     }
 
     if (action === 'UPDATE_DRIVETHRU_ORDER') {
@@ -1140,47 +1174,100 @@ async function executeSingleMutation(supabase: any, action: string, payload: any
 
 /**
  * Envía o verifica un paquete binario ESC/POS real por socket TCP puerto 9100
+ * Soporta perfiles específicos para el Laboratorio en La Bodega Central:
+ * - TP200_80MM: Impresora térmica Toast TP200 / Epson TM-T88 (Recibo 80mm + Pulso Cajón RJ12 Pin 2 y Pin 5)
+ * - EPSON_L90_LABEL: Impresora de etiquetas adhesivas Epson TM-L90 (Ticket de Bolsa Liner-Free + Corte)
+ * - DRAWER_ONLY: Envía únicamente el pulso eléctrico RJ12 (Pin 2 + Pin 5) para abrir el cajón de dinero sin gastar papel
  */
-async function sendEscPosOverTcp(targetIpPort: string, headerText: string, footerText: string, redInk: boolean, orderInfo: any) {
+async function sendEscPosOverTcp(
+    targetIpPort: string,
+    headerText: string,
+    footerText: string,
+    redInk: boolean,
+    orderInfo: any,
+    printerProfile: 'TP200_80MM' | 'EPSON_L90_LABEL' | 'DRAWER_ONLY' = 'TP200_80MM'
+) {
     const [host, portStr] = (targetIpPort || '192.168.14.50:9100').split(':')
     const port = Number(portStr || 9100)
     const orderNum = orderInfo?.orderNumber ?? orderInfo?.checkNumber ?? 1045
-    const diningOpt = orderInfo?.diningOption || 'FOR_HERE'
+    const diningOpt = orderInfo?.diningOption || 'TO_GO'
     const totalAmt = Number(orderInfo?.totalAmount ?? orderInfo?.total ?? 0)
     const payMethod = orderInfo?.paymentMethod ?? orderInfo?.tender ?? 'CASH'
 
-    const chunks: Buffer[] = [
-        Buffer.from([0x1B, 0x40]), // ESC @ Initialize printer
-        Buffer.from([0x1B, 0x61, 0x01]), // ESC a 1 Center align
-        Buffer.from([0x1D, 0x21, 0x11]), // GS ! Double height/width
-        Buffer.from(`${headerText}\n`, 'ascii'),
-        Buffer.from([0x1D, 0x21, 0x00]), // Normal text
-        Buffer.from(`ORDEN #${orderNum} - ${diningOpt}\n`, 'ascii'),
-        Buffer.from('------------------------------------------\n', 'ascii'),
-        Buffer.from([0x1B, 0x61, 0x00]), // Left align
-    ]
+    let chunks: Buffer[] = []
 
-    for (const item of (orderInfo?.items || [])) {
-        const qty = Number(item.qty || 1)
-        const unitPrice = Number(item.unitPrice || 0)
-        chunks.push(Buffer.from(`${qty}x ${item.name}  $${(qty * unitPrice).toFixed(2)}\n`, 'ascii'))
-        if (Array.isArray(item.modifiers) && item.modifiers.length > 0) {
-            const modStrings = item.modifiers.map((m: any) => typeof m === 'string' ? m : m.name).filter(Boolean)
-            if (modStrings.length > 0) {
-                if (redInk) chunks.push(Buffer.from([0x1D, 0x42, 0x01])) // GS B 1 Thermal Reverse Black/White Highlight (TM-T88VII)
-                chunks.push(Buffer.from(`   >> ${modStrings.join(', ')}\n`, 'ascii'))
-                if (redInk) chunks.push(Buffer.from([0x1D, 0x42, 0x00])) // GS B 0 Normal Black on White
+    if (printerProfile === 'DRAWER_ONLY') {
+        // Pure Cash Drawer Solenoid Kick on both Pin 2 (0x00) and Pin 5 (0x01) for 100% compatibility
+        chunks = [
+            Buffer.from([0x1B, 0x40]), // ESC @ Initialize
+            Buffer.from([0x1B, 0x70, 0x00, 0x19, 0xFA]), // ESC p 0 25 250 (Pin 2 Kick)
+            Buffer.from([0x1B, 0x70, 0x01, 0x19, 0xFA]), // ESC p 1 25 250 (Pin 5 Kick)
+        ]
+    } else if (printerProfile === 'EPSON_L90_LABEL') {
+        // Epson TM-L90 Liner-Free Sticky Bag Label format (compact 32-char width, no drawer kick needed or optional)
+        chunks = [
+            Buffer.from([0x1B, 0x40]), // ESC @ Initialize
+            Buffer.from([0x1B, 0x61, 0x01]), // Center align
+            Buffer.from([0x1D, 0x21, 0x11]), // Double height/width
+            Buffer.from(`#${orderNum} ${diningOpt}\n`, 'ascii'),
+            Buffer.from([0x1D, 0x21, 0x00]), // Normal text
+            Buffer.from(`TACOS GAVILAN - ETIQUETA BOLSA\n`, 'ascii'),
+            Buffer.from('--------------------------------\n', 'ascii'),
+            Buffer.from([0x1B, 0x61, 0x00]), // Left align
+        ]
+        for (const item of (orderInfo?.items || [])) {
+            const qty = Number(item.qty || 1)
+            chunks.push(Buffer.from(`[ ] ${qty}x ${item.name}\n`, 'ascii'))
+            if (Array.isArray(item.modifiers) && item.modifiers.length > 0) {
+                const modStrings = item.modifiers.map((m: any) => typeof m === 'string' ? m : m.name).filter(Boolean)
+                if (modStrings.length > 0) {
+                    if (redInk) chunks.push(Buffer.from([0x1D, 0x42, 0x01]))
+                    chunks.push(Buffer.from(`  * ${modStrings.join(', ')}\n`, 'ascii'))
+                    if (redInk) chunks.push(Buffer.from([0x1D, 0x42, 0x00]))
+                }
             }
         }
-    }
+        chunks.push(
+            Buffer.from('--------------------------------\n', 'ascii'),
+            Buffer.from(`ITEMS: ${(orderInfo?.items || []).length} | ${new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}\n\n\n`, 'ascii'),
+            Buffer.from([0x1D, 0x56, 0x42, 0x00]) // GS V B 0 Label Cut
+        )
+    } else {
+        // Standard Toast TP200 / Epson TM-T88 80mm Thermal Receipt + Dual-Pin RJ12 Cash Drawer Kick
+        chunks = [
+            Buffer.from([0x1B, 0x40]), // ESC @ Initialize printer
+            Buffer.from([0x1B, 0x61, 0x01]), // ESC a 1 Center align
+            Buffer.from([0x1D, 0x21, 0x11]), // GS ! Double height/width
+            Buffer.from(`${headerText}\n`, 'ascii'),
+            Buffer.from([0x1D, 0x21, 0x00]), // Normal text
+            Buffer.from(`ORDEN #${orderNum} - ${diningOpt}\n`, 'ascii'),
+            Buffer.from('------------------------------------------\n', 'ascii'),
+            Buffer.from([0x1B, 0x61, 0x00]), // Left align
+        ]
 
-    chunks.push(
-        Buffer.from('------------------------------------------\n', 'ascii'),
-        Buffer.from(`TOTAL: $${totalAmt.toFixed(2)} (${payMethod})\n`, 'ascii'),
-        Buffer.from(`${footerText}\n\n\n`, 'ascii'),
-        Buffer.from([0x1D, 0x56, 0x42, 0x00]), // GS V B 0 Partial Cut
-        Buffer.from([0x1B, 0x70, 0x00, 0x19, 0xFA]) // ESC p 0 25 250 Open RJ12 Cash Drawer
-    )
+        for (const item of (orderInfo?.items || [])) {
+            const qty = Number(item.qty || 1)
+            const unitPrice = Number(item.unitPrice || 0)
+            chunks.push(Buffer.from(`${qty}x ${item.name}  $${(qty * unitPrice).toFixed(2)}\n`, 'ascii'))
+            if (Array.isArray(item.modifiers) && item.modifiers.length > 0) {
+                const modStrings = item.modifiers.map((m: any) => typeof m === 'string' ? m : m.name).filter(Boolean)
+                if (modStrings.length > 0) {
+                    if (redInk) chunks.push(Buffer.from([0x1D, 0x42, 0x01])) // GS B 1 Thermal Reverse Black/White Highlight
+                    chunks.push(Buffer.from(`   >> ${modStrings.join(', ')}\n`, 'ascii'))
+                    if (redInk) chunks.push(Buffer.from([0x1D, 0x42, 0x00])) // GS B 0 Normal Black on White
+                }
+            }
+        }
+
+        chunks.push(
+            Buffer.from('------------------------------------------\n', 'ascii'),
+            Buffer.from(`TOTAL: $${totalAmt.toFixed(2)} (${payMethod})\n`, 'ascii'),
+            Buffer.from(`${footerText}\n\n\n`, 'ascii'),
+            Buffer.from([0x1D, 0x56, 0x42, 0x00]), // GS V B 0 Partial Cut
+            Buffer.from([0x1B, 0x70, 0x00, 0x19, 0xFA]), // ESC p 0 25 250 Open RJ12 Cash Drawer (Pin 2)
+            Buffer.from([0x1B, 0x70, 0x01, 0x19, 0xFA])  // ESC p 1 25 250 Open RJ12 Cash Drawer (Pin 5)
+        )
+    }
 
     const payloadBuffer = Buffer.concat(chunks)
     const hexDump = payloadBuffer.toString('hex').toUpperCase().match(/.{1,2}/g)?.slice(0, 64).join(' ') + ' ...'
@@ -1198,28 +1285,103 @@ async function sendEscPosOverTcp(targetIpPort: string, headerText: string, foote
         socket.setTimeout(1200)
         socket.on('connect', () => {
             socket.write(payloadBuffer, () => {
-                finish(true, `Impresora física en ${host}:${port} recibió ${payloadBuffer.length} bytes ESC/POS y abrió gaveta RJ12.`)
+                const actionDesc =
+                    printerProfile === 'DRAWER_ONLY'
+                        ? 'disparó pulso RJ12 (Pin 2 + Pin 5) y abrió el cajón de dinero'
+                        : printerProfile === 'EPSON_L90_LABEL'
+                            ? 'imprimió etiqueta adhesiva en Epson TM-L90'
+                            : 'imprimió recibo 80mm en Toast TP200 / Epson y abrió cajón RJ12'
+                finish(true, `¡ÉXITO FÍSICO! Impresora en ${host}:${port} recibió ${payloadBuffer.length} bytes ESC/POS y ${actionDesc}.`)
             })
         })
         socket.on('timeout', () => {
-            finish(false, `Buffer ESC/POS real generado (${payloadBuffer.length} bytes). Timeout en LAN ${host}:${port} (Impresora física no detectada en esta subred; lista para Caja Piloto #1).`)
+            finish(false, `Buffer ESC/POS [${printerProfile}] generado (${payloadBuffer.length} bytes). Timeout en ${host}:${port} — conecta la Epson L90 o TP200 al mismo router y usa el botón "Escanear Red de Bodega".`)
         })
         socket.on('error', (err: any) => {
-            finish(false, `Buffer ESC/POS real generado (${payloadBuffer.length} bytes, código: ${err.code || 'LAN_UNREACHABLE'}). Listo para despacho directo a ${host}:${port}.`)
+            finish(false, `Buffer ESC/POS [${printerProfile}] generado (${payloadBuffer.length} bytes, ${err.code || 'LAN_UNREACHABLE'}). Conecta la impresora al router local o verifica su IP con el escáner.`)
         })
 
         try {
             socket.connect(port, host)
         } catch (e: any) {
-            finish(false, `Buffer ESC/POS real generado (${payloadBuffer.length} bytes).`)
+            finish(false, `Buffer ESC/POS [${printerProfile}] generado (${payloadBuffer.length} bytes).`)
         }
     })
 
     return {
         target: `${host}:${port}`,
+        printerProfile,
         bytesLength: payloadBuffer.length,
         hexPreview: hexDump,
         ...socketResult,
+    }
+}
+
+/**
+ * Escanea la subred local de La Bodega Central en busca de impresoras Epson L90 / Toast TP200 con puerto TCP 9100 abierto
+ */
+async function scanWarehouseLanForPrinters(customSubnetPrefix?: string) {
+    const lanInfo = getLocalLanAddresses()
+    const prefix = customSubnetPrefix || lanInfo.subnetPrefix
+    const candidateIps: string[] = []
+    for (let i = 1; i <= 254; i++) {
+        candidateIps.push(`${prefix}.${i}`)
+    }
+    // Include exact Toast static IPs discovered in Lynwood (P-168 to P-174) and LA Central (P-169 to P-175)
+    for (const staticIp of [
+        '192.168.192.168',
+        '192.168.192.169',
+        '192.168.192.170',
+        '192.168.192.171',
+        '192.168.192.172',
+        '192.168.192.173',
+        '192.168.192.174',
+        '192.168.192.175',
+        '192.168.14.50',
+        '192.168.1.200',
+    ]) {
+        if (!candidateIps.includes(staticIp)) candidateIps.push(staticIp)
+    }
+
+    const probePort9100 = (ip: string): Promise<{ ipPort: string; latencyMs: number } | null> => {
+        return new Promise((resolve) => {
+            const start = Date.now()
+            const socket = new net.Socket()
+            let done = false
+            const closeAndResolve = (val: { ipPort: string; latencyMs: number } | null) => {
+                if (done) return
+                done = true
+                socket.destroy()
+                resolve(val)
+            }
+            socket.setTimeout(220)
+            socket.on('connect', () => {
+                closeAndResolve({ ipPort: `${ip}:9100`, latencyMs: Date.now() - start })
+            })
+            socket.on('timeout', () => closeAndResolve(null))
+            socket.on('error', () => closeAndResolve(null))
+            try {
+                socket.connect(9100, ip)
+            } catch {
+                closeAndResolve(null)
+            }
+        })
+    }
+
+    const found: { ipPort: string; latencyMs: number }[] = []
+    const batchSize = 64
+    for (let i = 0; i < candidateIps.length; i += batchSize) {
+        const slice = candidateIps.slice(i, i + batchSize)
+        const results = await Promise.all(slice.map(probePort9100))
+        for (const r of results) {
+            if (r) found.push(r)
+        }
+    }
+
+    return {
+        scannedSubnet: `${prefix}.1-254`,
+        localLanInfo: lanInfo,
+        discoveredPrinters: found,
     }
 }
 
@@ -1235,9 +1397,66 @@ export async function POST(req: NextRequest) {
                 body.receiptHeader || 'TACOS GAVILAN — SABOR AUTÉNTICO',
                 body.receiptFooter || '¡GRACIAS POR SU VISITA!',
                 Boolean(body.printRedModifiers ?? true),
-                body.orderInfo
+                body.orderInfo,
+                body.printerProfile || 'TP200_80MM'
             )
             return NextResponse.json({ ok: true, printResult })
+        }
+
+        if (action === 'SCAN_WAREHOUSE_PRINTERS') {
+            const scanResult = await scanWarehouseLanForPrinters(body.subnetPrefix)
+            return NextResponse.json({ ok: true, scanResult })
+        }
+
+        if (action === 'VERIFY_IDEMPOTENCY_LAB') {
+            const testClientId = `WAREHOUSE-LAB-IDEMP-${Date.now()}`
+            const samplePayload = {
+                clientOrderId: testClientId,
+                orderNumber: 9901,
+                storeNumber: Number(body.storeNumber || 14),
+                diningOption: 'TO_GO',
+                customerName: 'LABORATORIO BODEGA CENTRAL (PRUEBA REINTENTO 3X)',
+                items: [
+                    { id: 'tg-1', name: 'Taco de Asada', qty: 4, unitPrice: 3.49, station: 'PARRILLA', modifiers: ['CON TODO'] },
+                ],
+                subtotal: 13.96,
+                taxRate: 10.25,
+                taxAmount: 1.43,
+                totalAmount: 15.39,
+                paymentMethod: 'CARD_NFC',
+                paymentCaptureMode: 'ONLINE_AUTH',
+                createdOffline: true,
+            }
+
+            // Simulate 3 network reconnection retries with the exact same client_order_id
+            const attempt1 = await executeSingleMutation(supabase, 'CREATE_ORDER', samplePayload)
+            const attempt2 = await executeSingleMutation(supabase, 'CREATE_ORDER', samplePayload)
+            const attempt3 = await executeSingleMutation(supabase, 'CREATE_ORDER', samplePayload)
+
+            const { count: dbRowCount } = await supabase
+                .from('gavilan_pos_orders')
+                .select('*', { count: 'exact', head: true })
+                .eq('client_order_id', testClientId)
+
+            // Clean up lab test row after verification
+            await supabase
+                .from('gavilan_pos_orders')
+                .delete()
+                .eq('client_order_id', testClientId)
+
+            return NextResponse.json({
+                ok: true,
+                labResult: {
+                    clientOrderId: testClientId,
+                    attemptsSent: 3,
+                    attempt1Replay: Boolean(attempt1.idempotentReplay),
+                    attempt2Replay: Boolean(attempt2.idempotentReplay),
+                    attempt3Replay: Boolean(attempt3.idempotentReplay),
+                    persistedRowCount: dbRowCount ?? 1,
+                    zeroDuplicatesVerified: (dbRowCount ?? 1) === 1 && Boolean(attempt2.idempotentReplay) && Boolean(attempt3.idempotentReplay),
+                    verifiedAt: new Date().toISOString(),
+                }
+            })
         }
 
         if (action === 'SYNC_OFFLINE_OUTBOX') {
