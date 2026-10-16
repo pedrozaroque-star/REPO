@@ -4,8 +4,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-    <title>Terms of Use & Legal Conditions | Tacos Gavilan</title>
-    <meta name="description" content="Official Terms of Use and Legal Conditions for Tacos Gavilan (tacosgavilan.com), covering online ordering, intellectual property, disclaimers, indemnification, and California governing law.">
+    <title>Terms of Use, Online Ordering & Allergen Notice | Tacos Gavilan</title>
+    <meta name="description" content="Official Terms of Use for Tacos Gavilan, including online ordering terms for order.online (DoorDash / Toast POS), refund procedures, pricing disclosures, and food allergen notices.">
     <link rel="canonical" href="https://tacosgavilan.com/terms/">
     <!-- Favicon & Brand Icons (Transparent TEG Logo) -->
     <link rel="icon" type="image/png" href="/logo.png?v=5">
@@ -19,8 +19,8 @@
     <!-- Open Graph -->
     <meta property="og:type" content="website">
     <meta property="og:site_name" content="Tacos Gavilan">
-    <meta property="og:title" content="Terms of Use &amp; Legal Conditions | Tacos Gavilan">
-    <meta property="og:description" content="Official Terms of Use and Legal Conditions for Tacos Gavilan (tacosgavilan.com), covering online ordering, intellectual property, disclaimers, indemnification, and California governing law.">
+    <meta property="og:title" content="Terms of Use, Online Ordering &amp; Allergen Notice | Tacos Gavilan">
+    <meta property="og:description" content="Official Terms of Use for Tacos Gavilan, including online ordering terms for order.online (DoorDash / Toast POS), refund procedures, pricing disclosures, and food allergen notices.">
     <meta property="og:url" content="https://tacosgavilan.com/terms/">
     <meta property="og:image" content="https://tacosgavilan.com/img/og-tacos-gavilan-1200x630.jpg">
     <meta property="og:image:width" content="1200">
@@ -30,13 +30,13 @@
 
     <!-- Twitter Card -->
     <meta name="twitter:card" content="summary_large_image">
-    <meta name="twitter:title" content="Terms of Use &amp; Legal Conditions | Tacos Gavilan">
-    <meta name="twitter:description" content="Official Terms of Use and Legal Conditions for Tacos Gavilan (tacosgavilan.com), covering online ordering, intellectual property, disclaimers, indemnification, and California governing law.">
+    <meta name="twitter:title" content="Terms of Use, Online Ordering &amp; Allergen Notice | Tacos Gavilan">
+    <meta name="twitter:description" content="Official Terms of Use for Tacos Gavilan, including online ordering terms for order.online (DoorDash / Toast POS), refund procedures, pricing disclosures, and food allergen notices.">
     <meta name="twitter:image" content="https://tacosgavilan.com/img/og-tacos-gavilan-1200x630.jpg">
     <meta name="twitter:image:alt" content="Tacos Gavilan authentic Mexican food">
 
-    <link rel="stylesheet" href="../css/style.css?v=35">
-    <link rel="stylesheet" href="../css/compliance-a11y.css?v=28">
+    <link rel="stylesheet" href="../css/style.css?v=36">
+    <link rel="stylesheet" href="../css/compliance-a11y.css?v=36">
     <style>
         .legal-page-wrapper {
             padding-top: calc(var(--header-height, 70px) + 2.5rem);
@@ -44,12 +44,12 @@
             min-height: 80vh;
         }
         .legal-container {
-            max-width: 880px;
+            max-width: 960px;
             margin: 0 auto;
             padding: 0 1.5rem;
         }
         .legal-card {
-            background: rgba(22, 20, 18, 0.92);
+            background: rgba(22, 20, 18, 0.94);
             border: 1px solid rgba(255, 199, 44, 0.22);
             border-radius: var(--radius-lg, 16px);
             padding: 2.75rem 2.25rem;
@@ -67,13 +67,25 @@
             font-family: var(--ff-heading, sans-serif);
             line-height: 1.2;
         }
+        .legal-meta-bar {
+            display: inline-block;
+            background: rgba(255, 199, 44, 0.08);
+            border: 1px solid rgba(255, 199, 44, 0.28);
+            border-radius: 8px;
+            padding: 0.65rem 1rem;
+            margin-bottom: 1rem;
+            font-size: 0.86rem;
+            line-height: 1.55;
+            color: rgba(255, 255, 255, 0.9);
+        }
         .legal-intro {
-            font-size: 1.05rem;
-            line-height: 1.65;
+            font-size: 1.02rem;
+            line-height: 1.68;
             color: rgba(255, 255, 255, 0.88);
         }
         .legal-section {
-            margin-top: 2.1rem;
+            margin-top: 2.25rem;
+            scroll-margin-top: 100px;
         }
         .legal-section h2 {
             font-size: 1.28rem;
@@ -85,9 +97,9 @@
             line-height: 1.35;
         }
         .legal-section p, .legal-section li {
-            font-size: 0.98rem;
+            font-size: 0.96rem;
             line-height: 1.72;
-            color: rgba(255, 255, 255, 0.82);
+            color: rgba(255, 255, 255, 0.84);
             margin-bottom: 0.8rem;
         }
         .legal-section ul {
@@ -98,6 +110,39 @@
         .legal-section a {
             color: var(--clr-gold, #FFC72C);
             text-decoration: underline;
+        }
+        .legal-table-wrap {
+            width: 100%;
+            overflow-x: auto;
+            margin: 1.25rem 0 1.5rem;
+            border: 1px solid rgba(255, 199, 44, 0.22);
+            border-radius: 10px;
+            background: rgba(14, 12, 10, 0.85);
+            -webkit-overflow-scrolling: touch;
+        }
+        .legal-data-table {
+            width: 100%;
+            border-collapse: collapse;
+            min-width: 760px;
+            font-size: 0.86rem;
+            line-height: 1.55;
+        }
+        .legal-data-table th,
+        .legal-data-table td {
+            padding: 0.75rem 0.85rem;
+            text-align: left;
+            vertical-align: top;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            color: rgba(255, 255, 255, 0.86);
+        }
+        .legal-data-table th {
+            background: rgba(255, 199, 44, 0.12);
+            color: var(--clr-gold, #FFC72C);
+            font-weight: 700;
+            white-space: nowrap;
+        }
+        .legal-data-table tr:last-child td {
+            border-bottom: none;
         }
         .legal-contact-box {
             background: rgba(255, 199, 44, 0.08);
@@ -138,6 +183,19 @@
             color: var(--clr-gold, #FFC72C);
             font-size: 0.95rem;
         }
+        .legal-gpc-honored-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            background: rgba(34, 197, 94, 0.14);
+            border: 1px solid rgba(34, 197, 94, 0.45);
+            color: #4ade80;
+            padding: 0.45rem 0.85rem;
+            border-radius: 999px;
+            font-size: 0.85rem;
+            font-weight: 700;
+            width: fit-content;
+        }
         .legal-choices-actions {
             display: flex;
             flex-wrap: wrap;
@@ -145,26 +203,30 @@
         }
         @media (max-width: 600px) {
             .legal-card {
-                padding: 1.75rem 1.25rem;
+                padding: 1.5rem 1.1rem;
+            }
+            .legal-container {
+                padding: 0 1rem;
             }
         }
     </style>
-    <!-- California CCPA/CPRA & Google Consent Mode v2 Pre-Initialization -->
+    <!-- California CCPA/CPRA & Google Consent Mode v2 Strict Prior-Consent Gate -->
     <script>
     (function() {
         window.dataLayer = window.dataLayer || [];
         function gtag(){window.dataLayer.push(arguments);}
+        window.gtag = gtag;
         var gpc = (typeof navigator !== 'undefined' && navigator.globalPrivacyControl === true);
-        var allowMkt = !gpc;
-        var allowAna = true;
+        var allowMkt = false;
+        var allowAna = false;
         try {
             var raw = localStorage.getItem('tg_cookie_consent') || localStorage.getItem('tacosgavilan_cookie_consent');
-            if (raw === 'declined') {
-                allowMkt = false; allowAna = false;
-            } else if (raw && raw.charAt(0) === '{') {
+            if (raw && raw.charAt(0) === '{') {
                 var parsed = JSON.parse(raw);
-                if (parsed.doNotSell || gpc) { allowMkt = false; allowAna = false; }
-                else { allowMkt = !!parsed.marketing; allowAna = !!parsed.analytics; }
+                if (!parsed.doNotSell && !gpc) {
+                    allowMkt = parsed.marketing === true;
+                    allowAna = parsed.analytics === true;
+                }
             }
         } catch (e) {}
         if (!allowAna) window['ga-disable-UA-74752614-19'] = true;
@@ -173,23 +235,30 @@
             'ad_user_data': allowMkt ? 'granted' : 'denied',
             'ad_personalization': allowMkt ? 'granted' : 'denied',
             'analytics_storage': allowAna ? 'granted' : 'denied',
+            'functionality_storage': 'granted',
+            'security_storage': 'granted',
             'wait_for_update': 500
         });
+        if (gpc) {
+            window.dataLayer.push({ 'event': 'gpc_signal_detected', 'global_privacy_control': true });
+        }
+        window.__tgLoadGTMIfConsented = function(ana, mkt) {
+            if (gpc || (!ana && !mkt) || window.__tgGtmLoaded) return;
+            window.__tgGtmLoaded = true;
+            (function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
+            new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
+            j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
+            'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
+            })(window,document,'script','dataLayer','GTM-WW2N58Z');
+        };
+        if (allowAna || allowMkt) {
+            window.__tgLoadGTMIfConsented(allowAna, allowMkt);
+        }
     })();
     </script>
-    <!-- Google Tag Manager -->
-    <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
-    new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
-    j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
-    'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
-    })(window,document,'script','dataLayer','GTM-WW2N58Z');</script>
 </head>
 
 <body>
-    <!-- Google Tag Manager (noscript) -->
-    <noscript><iframe src="https://www.googletagmanager.com/ns.html?id=GTM-WW2N58Z"
-    height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
-
     <a href="#main-content" class="skip-link" data-en="Skip to main content" data-es="Saltar al contenido principal">Skip to main content</a>
     <header class="header scrolled" id="header">
         <div class="scroll-progress" id="scroll-progress" aria-hidden="true"></div>
@@ -243,63 +312,61 @@
         <div class="legal-container">
             <article class="legal-card">
                 <header class="legal-header">
-                    <h1 class="legal-title" data-en="Terms of Use &amp; Conditions" data-es="Términos y Condiciones de Uso">Terms of Use & Conditions</h1>
-                    <p class="legal-intro" data-en="Effective Date: March 19, 2019 · Last Updated: October 16, 2026. Welcome to Tacos Gavilan. By accessing or using https://tacosgavilan.com, you agree to comply with and be bound by the following Terms and Conditions." data-es="Fecha de entrada en vigor: 19 de marzo de 2019 · Última actualización: 16 de octubre de 2026. Bienvenido a Tacos Gavilan. Al acceder o utilizar https://tacosgavilan.com, usted acepta cumplir y quedar legalmente sujeto a los siguientes Términos y Condiciones.">Effective Date: March 19, 2019 · Last Updated: October 16, 2026. Welcome to Tacos Gavilan. By accessing or using https://tacosgavilan.com, you agree to comply with and be bound by the following Terms and Conditions.</p>
+                    <h1 class="legal-title" data-en="Terms of Use" data-es="Términos de Uso">Terms of Use</h1>
+                    <div class="legal-meta-bar" data-en="<strong>Effective Date:</strong> <code>[REQUIRES OWNER/LEGAL APPROVAL]</code> &amp;nbsp;·&amp;nbsp; <strong>Last Updated:</strong> October 16, 2026 &amp;nbsp;·&amp;nbsp; <strong>Version:</strong> 2.0 (Prepared for Owner &amp;amp; Legal Review) &amp;nbsp;·&amp;nbsp; <strong>Responsible Entity:</strong> Tacos Gavilan (<code>[REQUIRES OWNER/LEGAL APPROVAL: LEGAL ENTITY AND POSTAL ADDRESS]</code>)" data-es="<strong>Fecha de Entrada en Vigor:</strong> <code>[REQUIRES OWNER/LEGAL APPROVAL]</code> &amp;nbsp;·&amp;nbsp; <strong>Última Actualización:</strong> 16 de octubre de 2026 &amp;nbsp;·&amp;nbsp; <strong>Versión:</strong> 2.0 (Preparado para Revisión del Dueño y Abogado) &amp;nbsp;·&amp;nbsp; <strong>Entidad Responsable:</strong> Tacos Gavilan (<code>[REQUIRES OWNER/LEGAL APPROVAL: LEGAL ENTITY AND POSTAL ADDRESS]</code>)"><strong>Effective Date:</strong> <code>[REQUIRES OWNER/LEGAL APPROVAL]</code> &nbsp;·&nbsp; <strong>Last Updated:</strong> October 16, 2026 &nbsp;·&nbsp; <strong>Version:</strong> 2.0 (Prepared for Owner &amp; Legal Review) &nbsp;·&nbsp; <strong>Responsible Entity:</strong> Tacos Gavilan (<code>[REQUIRES OWNER/LEGAL APPROVAL: LEGAL ENTITY AND POSTAL ADDRESS]</code>)</div>
+                    <p class="legal-intro" data-en="These Terms of Use govern your use of <a href=&quot;https://tacosgavilan.com&quot; style=&quot;color:var(--clr-gold,#FFC72C);text-decoration:underline;&quot;>https://tacosgavilan.com</a> and explain how online orders placed through <a href=&quot;https://order.online/business/-137616&quot; target=&quot;_blank&quot; rel=&quot;noopener noreferrer&quot; style=&quot;color:var(--clr-gold,#FFC72C);text-decoration:underline;&quot;>order.online</a> (operated by DoorDash, Inc. and integrated with Toast POS), pricing, refunds, and food allergen disclosures work." data-es="Estos Términos de Uso rigen el uso de <a href=&quot;https://tacosgavilan.com&quot; style=&quot;color:var(--clr-gold,#FFC72C);text-decoration:underline;&quot;>https://tacosgavilan.com</a> y explican cómo funcionan los pedidos en línea realizados a través de <a href=&quot;https://order.online/business/-137616&quot; target=&quot;_blank&quot; rel=&quot;noopener noreferrer&quot; style=&quot;color:var(--clr-gold,#FFC72C);text-decoration:underline;&quot;>order.online</a> (operado por DoorDash, Inc. e integrado con Toast POS), los precios, los reembolsos y los avisos sobre alérgenos alimentarios.">These Terms of Use govern your use of <a href="https://tacosgavilan.com" style="color:var(--clr-gold,#FFC72C);text-decoration:underline;">https://tacosgavilan.com</a> and explain how online orders placed through <a href="https://order.online/business/-137616" target="_blank" rel="noopener noreferrer" style="color:var(--clr-gold,#FFC72C);text-decoration:underline;">order.online</a> (operated by DoorDash, Inc. and integrated with Toast POS), pricing, refunds, and food allergen disclosures work.</p>
                 </header>
 
-                <div class="legal-section">
-                    <h2 data-en="1. Agreement to Terms &amp; Corporate Entity" data-es="1. Aceptación de los Términos y Entidad Corporativa">1. Agreement to Terms & Corporate Entity</h2>
-                    <p data-en="Please read these Terms of Use (&quot;Terms&quot;, &quot;Terms and Conditions&quot;) carefully before using the https://tacosgavilan.com website (the &quot;Service&quot;) operated by Tacos Gavilan, LLC and its affiliated operating entities (collectively, &quot;Tacos Gavilan,&quot; &quot;us,&quot; &quot;we,&quot; or &quot;our&quot;). Your access to and use of the Service is conditioned on your acceptance of and compliance with these Terms. These Terms apply to all visitors, guests, users, and others who access or use the Service. By accessing or using the Service you agree to be bound by these Terms. If you disagree with any part of the terms then you may not access the Service." data-es="Por favor lea atentamente estos Términos de Uso (&quot;Términos&quot;, &quot;Términos y Condiciones&quot;) antes de utilizar el sitio web https://tacosgavilan.com (el &quot;Servicio&quot;) operado por Tacos Gavilan, LLC y sus entidades operativas afiliadas (colectivamente, &quot;Tacos Gavilan&quot;, &quot;nosotros&quot; o &quot;nuestro&quot;). Su acceso y uso del Servicio está condicionado a la aceptación y cumplimiento de estos Términos. Estos Términos se aplican a todos los visitantes, clientes, usuarios y demás personas que accedan o utilicen el Servicio. Al acceder o utilizar el Servicio, usted acepta quedar legalmente obligado por estos Términos. Si no está de acuerdo con alguna parte de los términos, no podrá acceder al Servicio.">Please read these Terms of Use ("Terms", "Terms and Conditions") carefully before using the https://tacosgavilan.com website (the "Service") operated by Tacos Gavilan, LLC and its affiliated operating entities (collectively, "Tacos Gavilan," "us," "we," or "our"). Your access to and use of the Service is conditioned on your acceptance of and compliance with these Terms. These Terms apply to all visitors, guests, users, and others who access or use the Service. By accessing or using the Service you agree to be bound by these Terms. If you disagree with any part of the terms then you may not access the Service.</p>
-                </div>
-
-                <div class="legal-section">
-                    <h2 data-en="2. Online Ordering, Menu Pricing, Allergens &amp; Third-Party Platforms" data-es="2. Pedidos en Línea, Precios del Menú, Alérgenos y Plataformas Externas">2. Online Ordering, Menu Pricing, Allergens & Third-Party Platforms</h2>
-                    <p data-en="<strong>External Ordering &amp;amp; Payment Processing:</strong> Online food ordering, pickup, and delivery transactions linked from this website are fulfilled through third-party ordering platforms, including <code>order.online</code> (operated by DoorDash, Inc.) and authorized delivery marketplaces. Payment card transactions, delivery fees, tips, and order receipts are governed by the respective third-party platform's terms and privacy policies." data-es="<strong>Pedidos Externos y Procesamiento de Pagos:</strong> Los pedidos de comida en línea, para recoger (pickup) y entrega a domicilio (delivery) enlazados desde este sitio web se procesan a través de plataformas externas de pedidos, incluyendo <code>order.online</code> (operado por DoorDash, Inc.) y servicios autorizados de entrega a domicilio. Las transacciones con tarjeta de pago, tarifas de envío, propinas y recibos de compra se rigen por los términos y políticas de privacidad de la plataforma externa correspondiente."><strong>External Ordering &amp; Payment Processing:</strong> Online food ordering, pickup, and delivery transactions linked from this website are fulfilled through third-party ordering platforms, including <code>order.online</code> (operated by DoorDash, Inc.) and authorized delivery marketplaces. Payment card transactions, delivery fees, tips, and order receipts are governed by the respective third-party platform's terms and privacy policies.</p>
-                    <p data-en="<strong>Menu Availability, Pricing &amp;amp; Photographs:</strong> Menu items, Fiesta Platter packages, descriptions, prices, and restaurant operating hours displayed on this website are for informational purposes and may vary by restaurant location or ordering platform without prior notice. Food photography is for illustrative presentation; actual dish presentation may vary." data-es="<strong>Disponibilidad del Menú, Precios y Fotografías:</strong> Los platillos del menú, paquetes Fiesta Platter, descripciones, precios y horarios de operación mostrados en este sitio web tienen fines informativos y pueden variar según la sucursal o la plataforma de pedidos sin previo aviso. Las fotografías de alimentos son de carácter ilustrativo; la presentación real del platillo puede variar."><strong>Menu Availability, Pricing &amp; Photographs:</strong> Menu items, Fiesta Platter packages, descriptions, prices, and restaurant operating hours displayed on this website are for informational purposes and may vary by restaurant location or ordering platform without prior notice. Food photography is for illustrative presentation; actual dish presentation may vary.</p>
-                    <p data-en="<strong>Food Allergen &amp;amp; Preparation Notice:</strong> Tacos Gavilan prepares food fresh daily in commercial kitchens where wheat/gluten, dairy, eggs, soy, sesame, tree nuts, and meats are handled on shared equipment. While we take food safety seriously, we cannot guarantee that any menu item is 100% free from cross-contact with allergens. Guests with food allergies or dietary restrictions should consult restaurant management directly before placing an order." data-es="<strong>Aviso sobre Alérgenos y Preparación de Alimentos:</strong> Tacos Gavilan prepara alimentos frescos diariamente en cocinas comerciales donde se manejan trigo/gluten, lácteos, huevo, soya, ajonjolí, nueces y carnes en equipos compartidos. Aunque tomamos la seguridad alimentaria con total seriedad, no podemos garantizar que ningún platillo esté 100% libre de contacto cruzado con alérgenos. Los clientes con alergias alimentarias o restricciones dietéticas deben consultar directamente a la gerencia del restaurante antes de realizar su pedido."><strong>Food Allergen &amp; Preparation Notice:</strong> Tacos Gavilan prepares food fresh daily in commercial kitchens where wheat/gluten, dairy, eggs, soy, sesame, tree nuts, and meats are handled on shared equipment. While we take food safety seriously, we cannot guarantee that any menu item is 100% free from cross-contact with allergens. Guests with food allergies or dietary restrictions should consult restaurant management directly before placing an order.</p>
-                </div>
-
-                <div class="legal-section">
-                    <h2 data-en="3. Intellectual Property &amp; Brand Trademarks" data-es="3. Propiedad Intelectual y Marcas Registradas">3. Intellectual Property & Brand Trademarks</h2>
-                    <p data-en="The Service and its original content, features, functionality, trademarks, service marks, trade names, logos (including &quot;Tacos Gavilan&quot; and &quot;Ya está.&quot;), food photography, graphics, and trade dress are and will remain the exclusive property of Tacos Gavilan and its licensors. The Service is protected by copyright, trademark, and other laws of both the United States and foreign countries. Our trademarks and trade dress may not be used, copied, reproduced, or redistributed in connection with any product or service without the prior written consent of Tacos Gavilan." data-es="El Servicio y su contenido original, características, funcionalidad, marcas comerciales, marcas de servicio, nombres comerciales, logotipos (incluyendo &quot;Tacos Gavilan&quot; y &quot;Ya está.&quot;), fotografías de alimentos, gráficos e imagen comercial son y seguirán siendo propiedad exclusiva de Tacos Gavilan y sus licenciantes. El Servicio está protegido por las leyes de derechos de autor, marcas registradas y otras leyes tanto de los Estados Unidos como de otros países. Nuestras marcas comerciales e imagen comercial no pueden ser utilizadas, copiadas, reproducidas ni redistribuidas en relación con ningún producto o servicio sin el consentimiento previo y por escrito de Tacos Gavilan.">The Service and its original content, features, functionality, trademarks, service marks, trade names, logos (including "Tacos Gavilan" and "Ya está."), food photography, graphics, and trade dress are and will remain the exclusive property of Tacos Gavilan and its licensors. The Service is protected by copyright, trademark, and other laws of both the United States and foreign countries. Our trademarks and trade dress may not be used, copied, reproduced, or redistributed in connection with any product or service without the prior written consent of Tacos Gavilan.</p>
-                </div>
-
-                <div class="legal-section">
-                    <h2 data-en="4. Links to Other Web Sites" data-es="4. Enlaces a Otros Sitios Web">4. Links to Other Web Sites</h2>
-                    <p data-en="Our Service may contain links to third-party web sites or services that are not owned or controlled by Tacos Gavilan (including external online ordering portals on <code>order.online</code> operated by DoorDash, Inc., delivery services, Google Maps, and social media platforms). Tacos Gavilan has no control over, and assumes no responsibility for, the content, privacy policies, or practices of any third-party web sites or services. You further acknowledge and agree that Tacos Gavilan shall not be responsible or liable, directly or indirectly, for any damage or loss caused or alleged to be caused by or in connection with use of or reliance on any such content, goods, or services available on or through any such web sites or services. We strongly advise you to read the terms and conditions and privacy policies of any third-party web sites or services that you visit." data-es="Nuestro Servicio puede contener enlaces a sitios web o servicios de terceros que no son propiedad ni están bajo el control de Tacos Gavilan (incluyendo portales externos de pedidos en línea en <code>order.online</code> operados por DoorDash, Inc., servicios de entrega, Google Maps y plataformas de redes sociales). Tacos Gavilan no tiene control sobre, ni asume responsabilidad alguna por, el contenido, las políticas de privacidad o las prácticas de sitios web o servicios de terceros. Asimismo, usted reconoce y acepta que Tacos Gavilan no será responsable, directa ni indirectamente, por ningún daño o pérdida causada o supuestamente causada por o en conexión con el uso o la confianza depositada en dicho contenido, bienes o servicios disponibles en o a través de cualquiera de dichos sitios o servicios. Le recomendamos encarecidamente leer los términos y condiciones y las políticas de privacidad de cualquier sitio web o servicio de terceros que visite.">Our Service may contain links to third-party web sites or services that are not owned or controlled by Tacos Gavilan (including external online ordering portals on <code>order.online</code> operated by DoorDash, Inc., delivery services, Google Maps, and social media platforms). Tacos Gavilan has no control over, and assumes no responsibility for, the content, privacy policies, or practices of any third-party web sites or services. You further acknowledge and agree that Tacos Gavilan shall not be responsible or liable, directly or indirectly, for any damage or loss caused or alleged to be caused by or in connection with use of or reliance on any such content, goods, or services available on or through any such web sites or services. We strongly advise you to read the terms and conditions and privacy policies of any third-party web sites or services that you visit.</p>
-                </div>
-
-                <div class="legal-section">
-                    <h2 data-en="5. Acceptable Use &amp; Termination" data-es="5. Uso Aceptable y Terminación">5. Acceptable Use & Termination</h2>
-                    <p data-en="<strong>Acceptable Use:</strong> You agree not to misuse the Service, submit fraudulent or automated spam messages through our contact or career forms, attempt unauthorized access to our servers or APIs, scrape website content, or interfere with the security or availability of the Service." data-es="<strong>Uso Aceptable:</strong> Usted se compromete a no hacer un uso indebido del Servicio, no enviar mensajes fraudulentos o spam automatizado a través de nuestros formularios de contacto o empleo, no intentar acceder sin autorización a nuestros servidores o APIs, no extraer contenido de forma automatizada (scraping) ni interferir con la seguridad o disponibilidad del Servicio."><strong>Acceptable Use:</strong> You agree not to misuse the Service, submit fraudulent or automated spam messages through our contact or career forms, attempt unauthorized access to our servers or APIs, scrape website content, or interfere with the security or availability of the Service.</p>
-                    <p data-en="<strong>Termination:</strong> We may terminate or suspend access to our Service immediately, without prior notice or liability, for any reason whatsoever, including without limitation if you breach the Terms. All provisions of the Terms which by their nature should survive termination shall survive termination, including, without limitation, ownership provisions, warranty disclaimers, indemnity, and limitations of liability." data-es="<strong>Terminación:</strong> Podemos terminar o suspender el acceso a nuestro Servicio de forma inmediata, sin previo aviso ni responsabilidad, por cualquier motivo, incluyendo sin limitación si usted incumple estos Términos. Todas las disposiciones de los Términos que por su naturaleza deban sobrevivir a la terminación sobrevivirán a la misma, incluyendo, sin limitación, las disposiciones de propiedad intelectual, exenciones de garantía, indemnización y limitaciones de responsabilidad."><strong>Termination:</strong> We may terminate or suspend access to our Service immediately, without prior notice or liability, for any reason whatsoever, including without limitation if you breach the Terms. All provisions of the Terms which by their nature should survive termination shall survive termination, including, without limitation, ownership provisions, warranty disclaimers, indemnity, and limitations of liability.</p>
-                </div>
-
-                <div class="legal-section">
-                    <h2 data-en="6. Indemnification" data-es="6. Indemnización">6. Indemnification</h2>
-                    <p data-en="You agree to defend, indemnify, and hold harmless Tacos Gavilan and its licensee and licensors, and their employees, contractors, agents, officers, managers, and directors, from and against any and all claims, damages, obligations, losses, liabilities, costs or debt, and expenses (including but not limited to attorney's fees), resulting from or arising out of (a) your use and access of the Service, or (b) a breach of these Terms." data-es="Usted acepta defender, indemnizar y eximir de toda responsabilidad a Tacos Gavilan, sus licenciantes y licenciatarios, así como a sus empleados, contratistas, agentes, directivos, gerentes y directores, frente a cualquier reclamo, daño, obligación, pérdida, responsabilidad, costo, deuda y gasto (incluyendo, entre otros, honorarios de abogados), que resulten o surjan de: (a) su uso y acceso al Servicio, o (b) el incumplimiento de estos Términos.">You agree to defend, indemnify, and hold harmless Tacos Gavilan and its licensee and licensors, and their employees, contractors, agents, officers, managers, and directors, from and against any and all claims, damages, obligations, losses, liabilities, costs or debt, and expenses (including but not limited to attorney's fees), resulting from or arising out of (a) your use and access of the Service, or (b) a breach of these Terms.</p>
-                </div>
-
-                <div class="legal-section">
-                    <h2 data-en="7. Limitation of Liability" data-es="7. Limitación de Responsabilidad">7. Limitation of Liability</h2>
-                    <p data-en="In no event shall Tacos Gavilan, nor its directors, employees, partners, agents, suppliers, or affiliates, be liable for any indirect, incidental, special, consequential, or punitive damages, including without limitation, loss of profits, data, use, goodwill, or other intangible losses, resulting from (i) your access to or use of or inability to access or use the Service; (ii) any conduct or content of any third party on the Service; (iii) any content obtained from the Service; and (iv) unauthorized access, use, or alteration of your transmissions or content, whether based on warranty, contract, tort (including negligence), or any other legal theory, whether or not we have been informed of the possibility of such damage, and even if a remedy set forth herein is found to have failed of its essential purpose." data-es="En ningún caso Tacos Gavilan, ni sus directores, empleados, socios, agentes, proveedores o afiliados, serán responsables por daños indirectos, incidentales, especiales, consecuentes o punitivos, incluyendo sin limitación la pérdida de ganancias, datos, uso, prestigio comercial (goodwill) u otras pérdidas intangibles, resultantes de: (i) su acceso o uso, o la imposibilidad de acceder o usar el Servicio; (ii) cualquier conducta o contenido de cualquier tercero en el Servicio; (iii) cualquier contenido obtenido del Servicio; y (iv) el acceso, uso o alteración no autorizados de sus transmisiones o contenido, ya sea con base en garantía, contrato, responsabilidad extracontractual (incluyendo negligencia) o cualquier otra teoría legal, hayamos sido informados o no de la posibilidad de dicho daño, e incluso si se determina que un recurso aquí establecido no ha cumplido con su propósito esencial.">In no event shall Tacos Gavilan, nor its directors, employees, partners, agents, suppliers, or affiliates, be liable for any indirect, incidental, special, consequential, or punitive damages, including without limitation, loss of profits, data, use, goodwill, or other intangible losses, resulting from (i) your access to or use of or inability to access or use the Service; (ii) any conduct or content of any third party on the Service; (iii) any content obtained from the Service; and (iv) unauthorized access, use, or alteration of your transmissions or content, whether based on warranty, contract, tort (including negligence), or any other legal theory, whether or not we have been informed of the possibility of such damage, and even if a remedy set forth herein is found to have failed of its essential purpose.</p>
-                </div>
-
-                <div class="legal-section">
-                    <h2 data-en="8. Disclaimer of Warranties (&quot;AS IS&quot; and &quot;AS AVAILABLE&quot;)" data-es="8. Exención de Garantías (&quot;TAL CUAL&quot; y &quot;SEGÚN DISPONIBILIDAD&quot;)">8. Disclaimer of Warranties ("AS IS" and "AS AVAILABLE")</h2>
-                    <p data-en="Your use of the Service is at your sole risk. The Service is provided on an &quot;AS IS&quot; and &quot;AS AVAILABLE&quot; basis. The Service is provided without warranties of any kind, whether express or implied, including, but not limited to, implied warranties of merchantability, fitness for a particular purpose, non-infringement, or course of performance. Tacos Gavilan, its subsidiaries, affiliates, and its licensors do not warrant that: (a) the Service will function uninterrupted, secure, or available at any particular time or location; (b) any errors or defects will be corrected; (c) the Service is free of viruses or other harmful components; or (d) the results of using the Service will meet your requirements." data-es="El uso que usted haga del Servicio es bajo su propio y exclusivo riesgo. El Servicio se proporciona &quot;TAL CUAL&quot; (&quot;AS IS&quot;) y &quot;SEGÚN DISPONIBILIDAD&quot; (&quot;AS AVAILABLE&quot;). El Servicio se ofrece sin garantías de ningún tipo, ya sean expresas o implícitas, incluyendo, entre otras, garantías implícitas de comerciabilidad, idoneidad para un propósito particular, no infracción o cumplimiento. Tacos Gavilan, sus subsidiarias, afiliadas y sus licenciantes no garantizan que: (a) el Servicio funcionará de manera ininterrumpida, segura o disponible en un momento o lugar determinado; (b) cualquier error o defecto será corregido; (c) el Servicio esté libre de virus u otros componentes dañinos; o (d) los resultados del uso del Servicio cumplirán con sus expectativas o requerimientos.">Your use of the Service is at your sole risk. The Service is provided on an "AS IS" and "AS AVAILABLE" basis. The Service is provided without warranties of any kind, whether express or implied, including, but not limited to, implied warranties of merchantability, fitness for a particular purpose, non-infringement, or course of performance. Tacos Gavilan, its subsidiaries, affiliates, and its licensors do not warrant that: (a) the Service will function uninterrupted, secure, or available at any particular time or location; (b) any errors or defects will be corrected; (c) the Service is free of viruses or other harmful components; or (d) the results of using the Service will meet your requirements.</p>
-                </div>
-
-                <div class="legal-section">
-                    <h2 data-en="9. Governing Law, Severability, Waiver &amp; Changes" data-es="9. Ley Aplicable, Divisibilidad, Renuncia y Modificaciones">9. Governing Law, Severability, Waiver & Changes</h2>
-                    <p data-en="<strong>Governing Law &amp;amp; Venue:</strong> These Terms shall be governed and construed in accordance with the laws of the State of California, United States, without regard to its conflict of law provisions. Any legal suit, action, or proceeding arising out of or related to these Terms or the Service shall be instituted exclusively in the federal or state courts located in Los Angeles County, California." data-es="<strong>Ley Aplicable y Jurisdicción:</strong> Estos Términos se regirán e interpretarán de conformidad con las leyes del Estado de California, Estados Unidos, sin dar efecto a sus disposiciones sobre conflicto de leyes. Cualquier acción o procedimiento legal que surja de o esté relacionado con estos Términos o el Servicio se presentará exclusivamente ante los tribunales estatales o federales ubicados en el Condado de Los Ángeles, California."><strong>Governing Law &amp; Venue:</strong> These Terms shall be governed and construed in accordance with the laws of the State of California, United States, without regard to its conflict of law provisions. Any legal suit, action, or proceeding arising out of or related to these Terms or the Service shall be instituted exclusively in the federal or state courts located in Los Angeles County, California.</p>
-                    <p data-en="<strong>Severability and Waiver:</strong> Our failure to enforce any right or provision of these Terms will not be considered a waiver of those rights. If any provision of these Terms is held to be invalid or unenforceable by a court, the remaining provisions of these Terms will remain in effect. These Terms constitute the entire agreement between us regarding our Service, and supersede and replace any prior agreements we might have between us regarding the Service." data-es="<strong>Divisibilidad y Renuncia:</strong> El hecho de que no exijamos el cumplimiento de cualquier derecho o disposición de estos Términos no se considerará una renuncia a dichos derechos. Si alguna disposición de estos Términos es declarada inválida o inaplicable por un tribunal, las disposiciones restantes de estos Términos permanecerán en pleno vigor y efecto. Estos Términos constituyen el acuerdo íntegro entre nosotros con respecto a nuestro Servicio y reemplazan cualquier acuerdo previo con respecto al Servicio."><strong>Severability and Waiver:</strong> Our failure to enforce any right or provision of these Terms will not be considered a waiver of those rights. If any provision of these Terms is held to be invalid or unenforceable by a court, the remaining provisions of these Terms will remain in effect. These Terms constitute the entire agreement between us regarding our Service, and supersede and replace any prior agreements we might have between us regarding the Service.</p>
-                    <p data-en="<strong>Changes to Terms:</strong> We reserve the right, at our sole discretion, to modify or replace these Terms at any time. By continuing to access or use our Service after those revisions become effective, you agree to be bound by the revised terms." data-es="<strong>Modificaciones a los Términos:</strong> Nos reservamos el derecho, a nuestra entera discreción, de modificar o reemplazar estos Términos en cualquier momento. Al continuar accediendo o utilizando nuestro Servicio después de que dichas revisiones entren en vigor, usted acepta quedar sujeto a los términos revisados."><strong>Changes to Terms:</strong> We reserve the right, at our sole discretion, to modify or replace these Terms at any time. By continuing to access or use our Service after those revisions become effective, you agree to be bound by the revised terms.</p>
-                </div>
+                <section class="legal-section" id="acceptance-of-terms">
+                    <h2 data-en="1. Acceptance of Terms &amp; Scope" data-es="1. Aceptación de los Términos y Alcance">1. Acceptance of Terms & Scope</h2>
+                    <p data-en="Welcome to <a href=&quot;https://tacosgavilan.com&quot;>https://tacosgavilan.com</a> (the &quot;Site&quot;), operated by <strong>Tacos Gavilan</strong> (Legal Entity &amp;amp; Postal Address: <code>[REQUIRES OWNER/LEGAL APPROVAL: LEGAL ENTITY AND POSTAL ADDRESS]</code>). By accessing or using this Site, viewing our menus, or submitting an inquiry, you agree to be bound by these Terms of Use (&quot;Terms&quot;) and our <a href=&quot;/privacy/&quot;>Privacy Policy</a>. If you do not agree to these Terms, please do not use this Site." data-es="Bienvenido a <a href=&quot;https://tacosgavilan.com&quot;>https://tacosgavilan.com</a> (el &quot;Sitio&quot;), operado por <strong>Tacos Gavilan</strong> (Entidad Legal y Dirección Postal: <code>[REQUIRES OWNER/LEGAL APPROVAL: LEGAL ENTITY AND POSTAL ADDRESS]</code>). Al acceder o utilizar este Sitio, consultar nuestros menús o enviar una consulta, usted acepta sujetarse a estos Términos de Uso (&quot;Términos&quot;) y a nuestra <a href=&quot;/privacy/&quot;>Política de Privacidad</a>. Si no está de acuerdo con estos Términos, por favor no utilice este Sitio.">Welcome to <a href="https://tacosgavilan.com">https://tacosgavilan.com</a> (the "Site"), operated by <strong>Tacos Gavilan</strong> (Legal Entity &amp; Postal Address: <code>[REQUIRES OWNER/LEGAL APPROVAL: LEGAL ENTITY AND POSTAL ADDRESS]</code>). By accessing or using this Site, viewing our menus, or submitting an inquiry, you agree to be bound by these Terms of Use ("Terms") and our <a href="/privacy/">Privacy Policy</a>. If you do not agree to these Terms, please do not use this Site.</p>
+                </section>
+                <section class="legal-section" id="online-ordering-policy">
+                    <h2 data-en="2. Online Ordering, Payments, Delivery, Pricing &amp; Refunds (Toast / order.online)" data-es="2. Pedidos en Línea, Pagos, Entregas, Precios y Reembolsos (Toast / order.online)">2. Online Ordering, Payments, Delivery, Pricing & Refunds (Toast / order.online)</h2>
+                    <p data-en="To provide convenient online pickup and delivery across our 15 Southern California restaurants, clicking &quot;Order Online&quot; or selecting a restaurant order link directs you to <a href=&quot;https://order.online/business/-137616&quot; target=&quot;_blank&quot; rel=&quot;noopener noreferrer&quot;>order.online</a>, an external ordering platform operated by <strong>DoorDash, Inc.</strong> and integrated with our restaurants' <strong>Toast Point-of-Sale (POS)</strong> system. Please review the following important operational terms before placing an order:" data-es="Para ofrecer un servicio conveniente de recolección y entrega en línea en nuestros 15 restaurantes del sur de California, al hacer clic en &quot;Ordenar en Línea&quot; o seleccionar el enlace de pedido de una sucursal, usted es dirigido a <a href=&quot;https://order.online/business/-137616&quot; target=&quot;_blank&quot; rel=&quot;noopener noreferrer&quot;>order.online</a>, una plataforma externa de pedidos operada por <strong>DoorDash, Inc.</strong> e integrada con el sistema de <strong>Punto de Venta (POS) Toast</strong> de nuestros restaurantes. Por favor revise los siguientes términos operativos importantes antes de realizar un pedido:">To provide convenient online pickup and delivery across our 15 Southern California restaurants, clicking "Order Online" or selecting a restaurant order link directs you to <a href="https://order.online/business/-137616" target="_blank" rel="noopener noreferrer">order.online</a>, an external ordering platform operated by <strong>DoorDash, Inc.</strong> and integrated with our restaurants' <strong>Toast Point-of-Sale (POS)</strong> system. Please review the following important operational terms before placing an order:</p>
+                    <ul>
+                        <li data-en="<strong>Who Processes Your Order &amp;amp; Payment:</strong> Online checkout and payment card transactions placed through <code>order.online</code> are processed by DoorDash, Inc. as the ordering platform merchant/processor. Tacos Gavilan does not collect or store your payment card numbers on <code>tacosgavilan.com</code>. Once your payment is authorized on <code>order.online</code>, your order details are transmitted via Toast POS to the selected Tacos Gavilan restaurant for kitchen preparation." data-es="<strong>Quién Procesa su Pedido y Pago:</strong> El proceso de pago y las transacciones con tarjeta realizadas a través de <code>order.online</code> son procesados por DoorDash, Inc. como plataforma de pedidos. Tacos Gavilan no recopila ni almacena números de tarjetas de pago en <code>tacosgavilan.com</code>. Una vez autorizado su pago en <code>order.online</code>, los detalles de su pedido se transmiten vía Toast POS al restaurante Tacos Gavilan seleccionado para su preparación en cocina."><strong>Who Processes Your Order &amp; Payment:</strong> Online checkout and payment card transactions placed through <code>order.online</code> are processed by DoorDash, Inc. as the ordering platform merchant/processor. Tacos Gavilan does not collect or store your payment card numbers on <code>tacosgavilan.com</code>. Once your payment is authorized on <code>order.online</code>, your order details are transmitted via Toast POS to the selected Tacos Gavilan restaurant for kitchen preparation.</li>
+                        <li data-en="<strong>Who Manages Delivery:</strong> Delivery orders placed through <code>order.online</code> or third-party delivery marketplaces are fulfilled and transported by independent third-party delivery couriers coordinated by DoorDash, Inc. (not by Tacos Gavilan employees)." data-es="<strong>Quién Gestiona la Entrega a Domicilio:</strong> Los pedidos a domicilio realizados a través de <code>order.online</code> o aplicaciones de entrega externas son recolectados y transportados por repartidores independientes coordinados por DoorDash, Inc. (no por empleados de Tacos Gavilan)."><strong>Who Manages Delivery:</strong> Delivery orders placed through <code>order.online</code> or third-party delivery marketplaces are fulfilled and transported by independent third-party delivery couriers coordinated by DoorDash, Inc. (not by Tacos Gavilan employees).</li>
+                        <li data-en="<strong>Menu Pricing &amp;amp; Platform Fees:</strong> Menu descriptions and photographs on <code>tacosgavilan.com</code> are for general informational purposes. Prices, item availability, taxes, service fees, delivery fees, and optional courier tips on <code>order.online</code> or third-party delivery apps may differ from in-restaurant dining prices. The final itemized price and fees displayed on the <code>order.online</code> checkout screen prior to payment govern your online transaction." data-es="<strong>Precios del Menú y Tarifas de Plataforma:</strong> Las descripciones y fotografías del menú en <code>tacosgavilan.com</code> tienen fines informativos generales. Los precios, disponibilidad de productos, impuestos, cargos por servicio, tarifas de envío y propinas opcionales para repartidores en <code>order.online</code> o aplicaciones de entrega pueden diferir de los precios en restaurante. El precio final desglosado y los cargos mostrados en la pantalla de pago de <code>order.online</code> antes de confirmar su compra rigen su transacción en línea."><strong>Menu Pricing &amp; Platform Fees:</strong> Menu descriptions and photographs on <code>tacosgavilan.com</code> are for general informational purposes. Prices, item availability, taxes, service fees, delivery fees, and optional courier tips on <code>order.online</code> or third-party delivery apps may differ from in-restaurant dining prices. The final itemized price and fees displayed on the <code>order.online</code> checkout screen prior to payment govern your online transaction.</li>
+                        <li data-en="<strong>Store Operating Hours &amp;amp; Closed Locations:</strong> Operating hours vary by restaurant location (see <a href=&quot;/locations/&quot;>/locations/</a>). If a restaurant is closed, experiencing a temporary equipment/utility interruption, or out of a specific ingredient, <code>order.online</code> disables ordering for that store or item, or may cancel/adjust an affected order in accordance with platform procedures." data-es="<strong>Horarios de Operación y Sucursales Cerradas:</strong> Los horarios de atención varían según la sucursal (consulte <a href=&quot;/locations/&quot;>/locations/</a>). Si un restaurante está cerrado, presenta una interrupción temporal de equipo/servicios o no cuenta con un ingrediente específico, <code>order.online</code> deshabilita los pedidos para esa sucursal o producto, o puede cancelar/ajustar el pedido afectado conforme a los procedimientos de la plataforma."><strong>Store Operating Hours &amp; Closed Locations:</strong> Operating hours vary by restaurant location (see <a href="/locations/">/locations/</a>). If a restaurant is closed, experiencing a temporary equipment/utility interruption, or out of a specific ingredient, <code>order.online</code> disables ordering for that store or item, or may cancel/adjust an affected order in accordance with platform procedures.</li>
+                        <li data-en="<strong>How to Request a Refund or Report an Incorrect / Missing Order:</strong><ul><li><em>For Delivery or Online Orders Placed via <code>order.online</code> / DoorDash:</em> Please use the automated &quot;Help&quot; / &quot;Get Help&quot; link in your <code>order.online</code> / DoorDash digital confirmation receipt to report missing items, delivery issues, or refund requests directly to DoorDash order support, or call the fulfilling Tacos Gavilan restaurant directly using the phone number listed on <a href=&quot;/locations/&quot;>/locations/</a>.</li><li><em>For In-Store Pickup or Restaurant Service Questions:</em> Please speak with the restaurant manager on duty at the location where your order was prepared, call the restaurant directly (<a href=&quot;/locations/&quot;>/locations/</a>), or submit a Customer Experience message through <a href=&quot;/contact/&quot;>/contact/</a> with your order receipt details.</li></ul>" data-es="<strong>Cómo Solicitar un Reembolso o Reportar un Pedido Incorrecto o Incompleto:</strong><ul><li><em>Para Pedidos a Domicilio o en Línea Realizados en <code>order.online</code> / DoorDash:</em> Utilice el enlace de &quot;Ayuda&quot; (&quot;Help&quot; / &quot;Get Help&quot;) incluido en su recibo digital de confirmación de <code>order.online</code> / DoorDash para reportar artículos faltantes, problemas de entrega o solicitudes de reembolso directamente al soporte de pedidos de DoorDash, o llame directamente al restaurante Tacos Gavilan que preparó su orden usando el teléfono publicado en <a href=&quot;/locations/&quot;>/locations/</a>.</li><li><em>Para Recolección en Tienda o Dudas de Servicio en Restaurante:</em> Comuníquese con el gerente en turno de la sucursal donde se preparó su pedido, llame directamente al restaurante (<a href=&quot;/locations/&quot;>/locations/</a>) o envíe un mensaje de Experiencia del Cliente en <a href=&quot;/contact/&quot;>/contact/</a> con los datos de su recibo.</li></ul>"><strong>How to Request a Refund or Report an Incorrect / Missing Order:</strong><ul><li><em>For Delivery or Online Orders Placed via <code>order.online</code> / DoorDash:</em> Please use the automated "Help" / "Get Help" link in your <code>order.online</code> / DoorDash digital confirmation receipt to report missing items, delivery issues, or refund requests directly to DoorDash order support, or call the fulfilling Tacos Gavilan restaurant directly using the phone number listed on <a href="/locations/">/locations/</a>.</li><li><em>For In-Store Pickup or Restaurant Service Questions:</em> Please speak with the restaurant manager on duty at the location where your order was prepared, call the restaurant directly (<a href="/locations/">/locations/</a>), or submit a Customer Experience message through <a href="/contact/">/contact/</a> with your order receipt details.</li></ul></li>
+                        <li data-en="<strong>Third-Party Delays &amp;amp; Independent Platform Policies:</strong> Tacos Gavilan does not control and is not responsible for independent third-party courier delays, traffic, weather delays, or technical outages on <code>order.online</code> or DoorDash, nor do we control the independent <a href=&quot;https://help.doordash.com/consumers/s/terms-and-conditions-us&quot; target=&quot;_blank&quot; rel=&quot;noopener noreferrer&quot;>Terms &amp;amp; Conditions</a> or <a href=&quot;https://help.doordash.com/consumers/s/privacy-policy-us&quot; target=&quot;_blank&quot; rel=&quot;noopener noreferrer&quot;>Privacy Policy</a> of DoorDash, Inc. or Toast, Inc." data-es="<strong>Retrasos de Terceros y Políticas de Plataformas Independientes:</strong> Tacos Gavilan no controla ni es responsable de retrasos de repartidores independientes, tráfico, clima o interrupciones técnicas en <code>order.online</code> o DoorDash, ni controla los <a href=&quot;https://help.doordash.com/consumers/s/terms-and-conditions-us&quot; target=&quot;_blank&quot; rel=&quot;noopener noreferrer&quot;>Términos y Condiciones</a> ni la <a href=&quot;https://help.doordash.com/consumers/s/privacy-policy-us&quot; target=&quot;_blank&quot; rel=&quot;noopener noreferrer&quot;>Política de Privacidad</a> independientes de DoorDash, Inc. o Toast, Inc."><strong>Third-Party Delays &amp; Independent Platform Policies:</strong> Tacos Gavilan does not control and is not responsible for independent third-party courier delays, traffic, weather delays, or technical outages on <code>order.online</code> or DoorDash, nor do we control the independent <a href="https://help.doordash.com/consumers/s/terms-and-conditions-us" target="_blank" rel="noopener noreferrer">Terms &amp; Conditions</a> or <a href="https://help.doordash.com/consumers/s/privacy-policy-us" target="_blank" rel="noopener noreferrer">Privacy Policy</a> of DoorDash, Inc. or Toast, Inc.</li>
+                    </ul>
+                </section>
+                <section class="legal-section" id="allergen-notice">
+                    <h2 data-en="3. Food Allergen, Ingredient &amp; Cross-Contact Notice" data-es="3. Aviso sobre Alérgenos Alimentarios, Ingredientes y Contacto Cruzado">3. Food Allergen, Ingredient & Cross-Contact Notice</h2>
+                    <p data-en="<strong>Important Food Safety &amp;amp; Allergen Disclosure:</strong> Please read the following carefully before ordering or consuming our food:" data-es="<strong>Aviso Importante sobre Seguridad Alimentaria y Alérgenos:</strong> Por favor lea atentamente lo siguiente antes de ordenar o consumir nuestros alimentos:"><strong>Important Food Safety &amp; Allergen Disclosure:</strong> Please read the following carefully before ordering or consuming our food:</p>
+                    <ul>
+                        <li data-en="<strong>Ingredients &amp;amp; Menus May Change:</strong> Recipes, ingredients, suppliers, and menu items across our restaurants may change periodically without prior notice." data-es="<strong>Los Ingredientes y Menús Pueden Cambiar:</strong> Las recetas, ingredientes, proveedores y platillos del menú en nuestros restaurantes pueden cambiar periódicamente sin previo aviso."><strong>Ingredients &amp; Menus May Change:</strong> Recipes, ingredients, suppliers, and menu items across our restaurants may change periodically without prior notice.</li>
+                        <li data-en="<strong>Shared Kitchen Facilities &amp;amp; Cross-Contact Risk:</strong> Tacos Gavilan restaurants prepare food from scratch in shared commercial kitchens using shared grills, fryers, prep tables, utensils, and cooking oil. Common food allergens—including wheat/gluten (flour tortillas, bread), milk/dairy (cheese, crema, champurrado), soy, eggs, sesame, peanuts, tree nuts, fish, and shellfish—may be present in our kitchens or supplier facilities. Because of shared preparation environments, <strong>we cannot guarantee that any menu item is 100% free of any allergen</strong>, and there is always a risk of cross-contact." data-es="<strong>Instalaciones de Cocina Compartidas y Riesgo de Contacto Cruzado:</strong> Los restaurantes Tacos Gavilan preparan alimentos frescos en cocinas comerciales compartidas utilizando parrillas, freidoras, mesas de preparación, utensilios y aceite de cocina compartidos. Alérgenos alimentarios comunes—incluyendo trigo/gluten (tortillas de harina, pan), leche/lácteos (queso, crema, champurrado), soya, huevo, ajonjolí/sésamo, cacahuates/maní, frutos secos, pescado y mariscos—pueden estar presentes en nuestras cocinas o en las instalaciones de nuestros proveedores. Debido a los entornos de preparación compartidos, <strong>no podemos garantizar que ningún platillo del menú esté 100% libre de alérgenos</strong>, y siempre existe riesgo de contacto cruzado."><strong>Shared Kitchen Facilities &amp; Cross-Contact Risk:</strong> Tacos Gavilan restaurants prepare food from scratch in shared commercial kitchens using shared grills, fryers, prep tables, utensils, and cooking oil. Common food allergens—including wheat/gluten (flour tortillas, bread), milk/dairy (cheese, crema, champurrado), soy, eggs, sesame, peanuts, tree nuts, fish, and shellfish—may be present in our kitchens or supplier facilities. Because of shared preparation environments, <strong>we cannot guarantee that any menu item is 100% free of any allergen</strong>, and there is always a risk of cross-contact.</li>
+                        <li data-en="<strong>Guest Responsibility to Consult Before Ordering:</strong> Guests with food allergies, celiac disease, or dietary sensitivities must inform restaurant staff and consult with the restaurant manager on duty <strong>before placing an order</strong>. Current item availability and ordering descriptions are available directly at your local restaurant or on <a href=&quot;https://order.online/business/-137616&quot; target=&quot;_blank&quot; rel=&quot;noopener noreferrer&quot;>order.online</a>." data-es="<strong>Responsabilidad del Cliente de Consultar Antes de Ordenar:</strong> Los clientes con alergias alimentarias, enfermedad celíaca o sensibilidades dietéticas deben informar al personal del restaurante y consultar con el gerente en turno <strong>antes de realizar un pedido</strong>. La disponibilidad actual de productos y descripciones de pedido están disponibles directamente en su restaurante local o en <a href=&quot;https://order.online/business/-137616&quot; target=&quot;_blank&quot; rel=&quot;noopener noreferrer&quot;>order.online</a>."><strong>Guest Responsibility to Consult Before Ordering:</strong> Guests with food allergies, celiac disease, or dietary sensitivities must inform restaurant staff and consult with the restaurant manager on duty <strong>before placing an order</strong>. Current item availability and ordering descriptions are available directly at your local restaurant or on <a href="https://order.online/business/-137616" target="_blank" rel="noopener noreferrer">order.online</a>.</li>
+                    </ul>
+                </section>
+                <section class="legal-section" id="intellectual-property">
+                    <h2 data-en="4. Intellectual Property &amp; Permitted Use" data-es="4. Propiedad Intelectual y Uso Permitido">4. Intellectual Property & Permitted Use</h2>
+                    <p data-en="All content on this Site—including the <strong>Tacos Gavilan</strong> name, logos, eagle emblems, food photography, menu descriptions, graphics, text, and code—is owned by or licensed to Tacos Gavilan and protected by United States copyright, trademark, and intellectual property laws. You may view and use the Site solely for personal, non-commercial use in learning about our restaurants or placing food orders. You may not copy, scrape, reproduce, republish, or exploit any part of this Site for commercial purposes without our prior written consent." data-es="Todo el contenido de este Sitio—incluyendo el nombre <strong>Tacos Gavilan</strong>, logotipos, emblemas del águila, fotografías de alimentos, descripciones de menú, gráficos, textos y código—es propiedad de Tacos Gavilan o cuenta con licencia a su favor, y está protegido por las leyes de derechos de autor, marcas registradas y propiedad intelectual de los Estados Unidos. Usted puede ver y utilizar el Sitio únicamente para uso personal y no comercial con el fin de conocer nuestros restaurantes o realizar pedidos de comida. No puede copiar, extraer de forma automatizada (scraping), reproducir, republicar ni explotar ninguna parte de este Sitio con fines comerciales sin nuestro consentimiento previo por escrito.">All content on this Site—including the <strong>Tacos Gavilan</strong> name, logos, eagle emblems, food photography, menu descriptions, graphics, text, and code—is owned by or licensed to Tacos Gavilan and protected by United States copyright, trademark, and intellectual property laws. You may view and use the Site solely for personal, non-commercial use in learning about our restaurants or placing food orders. You may not copy, scrape, reproduce, republish, or exploit any part of this Site for commercial purposes without our prior written consent.</p>
+                </section>
+                <section class="legal-section" id="acceptable-use">
+                    <h2 data-en="5. Acceptable Use &amp; Contact Submissions" data-es="5. Uso Aceptable y Envíos de Contacto">5. Acceptable Use & Contact Submissions</h2>
+                    <p data-en="When using our Site or submitting our Contact Form, you agree not to: (a) submit false, defamatory, or fraudulent messages; (b) submit sensitive personal information (such as Social Security numbers, payment card numbers, or medical data); (c) impersonate another person or submit unauthorized requests on another person's behalf; or (d) attempt to bypass rate limits, inject malicious scripts, or interfere with the security or availability of our Site." data-es="Al utilizar nuestro Sitio o enviar nuestro Formulario de Contacto, usted acepta no: (a) enviar mensajes falsos, difamatorios o fraudulentos; (b) enviar información personal sensible (como números de Seguro Social, números de tarjetas de pago o datos médicos); (c) suplantar a otra persona o presentar solicitudes no autorizadas en nombre de un tercero; ni (d) intentar eludir los límites de tasa, inyectar código malicioso o interferir con la seguridad o disponibilidad de nuestro Sitio.">When using our Site or submitting our Contact Form, you agree not to: (a) submit false, defamatory, or fraudulent messages; (b) submit sensitive personal information (such as Social Security numbers, payment card numbers, or medical data); (c) impersonate another person or submit unauthorized requests on another person's behalf; or (d) attempt to bypass rate limits, inject malicious scripts, or interfere with the security or availability of our Site.</p>
+                </section>
+                <section class="legal-section" id="disclaimers-liability">
+                    <h2 data-en="6. Disclaimer of Warranties, Limitation of Liability &amp; Indemnification [REQUIRES LEGAL COUNSEL REVIEW]" data-es="6. Exclusión de Garantías, Limitación de Responsabilidad e Indemnización [REQUIRES LEGAL COUNSEL REVIEW]">6. Disclaimer of Warranties, Limitation of Liability & Indemnification [REQUIRES LEGAL COUNSEL REVIEW]</h2>
+                    <p data-en="<em>Note: The following standard commercial website clauses are maintained from our historical Terms of Use and are flagged for review and confirmation by Tacos Gavilan legal counsel (<code>[REQUIRES LEGAL COUNSEL REVIEW]</code>):</em>" data-es="<em>Nota: Las siguientes cláusulas comerciales estándar se mantienen de nuestros Términos de Uso históricos y están marcadas para revisión y confirmación por parte del abogado de Tacos Gavilan (<code>[REQUIRES LEGAL COUNSEL REVIEW]</code>):</em>"><em>Note: The following standard commercial website clauses are maintained from our historical Terms of Use and are flagged for review and confirmation by Tacos Gavilan legal counsel (<code>[REQUIRES LEGAL COUNSEL REVIEW]</code>):</em></p>
+                    <ul>
+                        <li data-en="<strong>&quot;AS IS&quot; Disclaimer of Warranties:</strong> To the maximum extent permitted by applicable law, this Site and its informational content are provided on an &quot;AS IS&quot; and &quot;AS AVAILABLE&quot; basis without warranties of any kind, whether express or implied, including implied warranties of merchantability, fitness for a particular purpose, or non-infringement." data-es="<strong>Exclusión de Garantías (&quot;TAL CUAL&quot;):</strong> En la máxima medida permitida por la ley aplicable, este Sitio y su contenido informativo se proporcionan &quot;TAL CUAL&quot; (&quot;AS IS&quot;) y &quot;SEGÚN DISPONIBILIDAD&quot; (&quot;AS AVAILABLE&quot;), sin garantías de ningún tipo, ya sean expresas o implícitas, incluidas las garantías implícitas de comerciabilidad, idoneidad para un propósito particular o no infracción."><strong>"AS IS" Disclaimer of Warranties:</strong> To the maximum extent permitted by applicable law, this Site and its informational content are provided on an "AS IS" and "AS AVAILABLE" basis without warranties of any kind, whether express or implied, including implied warranties of merchantability, fitness for a particular purpose, or non-infringement.</li>
+                        <li data-en="<strong>Limitation of Liability:</strong> To the fullest extent permitted by applicable California and federal law, Tacos Gavilan shall not be liable for any indirect, incidental, special, consequential, or punitive damages arising out of or related to your use of or inability to use this Site, or any outage or error of third-party platforms linked from this Site (including <code>order.online</code> / DoorDash). Nothing in these Terms purports to waive or limit any non-waivable statutory consumer rights under California law." data-es="<strong>Limitación de Responsabilidad:</strong> En la máxima medida permitida por las leyes aplicables de California y federales, Tacos Gavilan no será responsable por daños indirectos, incidentales, especiales, consecuentes o punitivos derivados o relacionados con el uso o la imposibilidad de usar este Sitio, o cualquier interrupción o error de plataformas de terceros enlazadas desde este Sitio (incluyendo <code>order.online</code> / DoorDash). Nada en estos Términos pretende renunciar o limitar derechos legales irrenunciables del consumidor bajo la ley de California."><strong>Limitation of Liability:</strong> To the fullest extent permitted by applicable California and federal law, Tacos Gavilan shall not be liable for any indirect, incidental, special, consequential, or punitive damages arising out of or related to your use of or inability to use this Site, or any outage or error of third-party platforms linked from this Site (including <code>order.online</code> / DoorDash). Nothing in these Terms purports to waive or limit any non-waivable statutory consumer rights under California law.</li>
+                        <li data-en="<strong>Indemnification:</strong> To the extent permitted by applicable law, you agree to indemnify and hold harmless Tacos Gavilan from third-party claims arising out of your violation of these Terms or your unlawful misuse of this Site." data-es="<strong>Indemnización:</strong> En la medida permitida por la ley aplicable, usted acepta indemnizar y eximir de responsabilidad a Tacos Gavilan frente a reclamaciones de terceros derivadas de su incumplimiento de estos Términos o del uso ilícito de este Sitio."><strong>Indemnification:</strong> To the extent permitted by applicable law, you agree to indemnify and hold harmless Tacos Gavilan from third-party claims arising out of your violation of these Terms or your unlawful misuse of this Site.</li>
+                    </ul>
+                </section>
+                <section class="legal-section" id="governing-law">
+                    <h2 data-en="7. Governing Law, Severability &amp; Changes to Terms [REQUIRES LEGAL COUNSEL REVIEW]" data-es="7. Ley Aplicable, Divisibilidad y Cambios a los Términos [REQUIRES LEGAL COUNSEL REVIEW]">7. Governing Law, Severability & Changes to Terms [REQUIRES LEGAL COUNSEL REVIEW]</h2>
+                    <p data-en="These Terms are governed by the laws of the <strong>State of California</strong>, without regard to conflict-of-law principles (<code>[REQUIRES LEGAL COUNSEL REVIEW]</code>). These Terms do not contain a mandatory arbitration clause or class-action waiver unless separately approved and published by legal counsel. If any provision of these Terms is held invalid or unenforceable, the remaining provisions will remain in full force and effect. We may update these Terms periodically by posting the revised Terms and &quot;Last Updated&quot; date on this page." data-es="Estos Términos se rigen por las leyes del <strong>Estado de California</strong>, sin considerar sus principios sobre conflicto de leyes (<code>[REQUIRES LEGAL COUNSEL REVIEW]</code>). Estos Términos no contienen cláusula de arbitraje obligatorio ni renuncia a demandas colectivas a menos que sea aprobada y publicada por separado por asesoría legal. Si alguna disposición de estos Términos se considera inválida o inaplicable, las disposiciones restantes permanecerán en pleno vigor y efecto. Podemos actualizar estos Términos periódicamente publicando la versión revisada y la fecha de &quot;Última Actualización&quot; en esta página.">These Terms are governed by the laws of the <strong>State of California</strong>, without regard to conflict-of-law principles (<code>[REQUIRES LEGAL COUNSEL REVIEW]</code>). These Terms do not contain a mandatory arbitration clause or class-action waiver unless separately approved and published by legal counsel. If any provision of these Terms is held invalid or unenforceable, the remaining provisions will remain in full force and effect. We may update these Terms periodically by posting the revised Terms and "Last Updated" date on this page.</p>
+                </section>
 
                 <div class="legal-contact-box">
-                    <h3 data-en="Questions About These Terms" data-es="Preguntas Sobre Estos Términos">Questions About These Terms</h3>
-                    <p data-en="If you have any questions about these Terms of Use, please contact Tacos Gavilan:<br>Email: <a href=&quot;mailto:info@tacosgavilan.com&quot;>info@tacosgavilan.com</a><br>Web Form: <a href=&quot;/contact/&quot;>https://tacosgavilan.com/contact/</a>" data-es="Si tiene alguna pregunta sobre estos Términos de Uso, por favor comuníquese con Tacos Gavilan:<br>Correo Electrónico: <a href=&quot;mailto:info@tacosgavilan.com&quot;>info@tacosgavilan.com</a><br>Formulario Web: <a href=&quot;/contact/&quot;>https://tacosgavilan.com/contact/</a>">If you have any questions about these Terms of Use, please contact Tacos Gavilan:<br>Email: <a href="mailto:info@tacosgavilan.com">info@tacosgavilan.com</a><br>Web Form: <a href="/contact/">https://tacosgavilan.com/contact/</a></p>
+                    <h3 data-en="Questions About These Terms or an Order?" data-es="¿Preguntas sobre estos Términos o sobre un Pedido?">Questions About These Terms or an Order?</h3>
+                    <p data-en="Contact us via our <a href=&quot;/contact/&quot;>Contact Page</a>, email <a href=&quot;mailto:info@tacosgavilan.com&quot;>info@tacosgavilan.com</a>, or call your local restaurant directly from our <a href=&quot;/locations/&quot;>Locations Page</a>." data-es="Comuníquese con nosotros en nuestra <a href=&quot;/contact/&quot;>Página de Contacto</a>, envíe un correo a <a href=&quot;mailto:info@tacosgavilan.com&quot;>info@tacosgavilan.com</a>, o llame directamente a su sucursal desde nuestra <a href=&quot;/locations/&quot;>Página de Sucursales</a>.">Contact us via our <a href="/contact/">Contact Page</a>, email <a href="mailto:info@tacosgavilan.com">info@tacosgavilan.com</a>, or call your local restaurant directly from our <a href="/locations/">Locations Page</a>.</p>
                 </div>
             </article>
         </div>
@@ -333,13 +400,15 @@
             <div class="container footer-bottom-content">
                 <p>&copy; 2026 Tacos Gavilan. <span data-en="All rights reserved." data-es="Todos los derechos reservados.">All rights reserved.</span></p>
                 <div class="footer-legal-links">
+                    <a href="/privacy/#notice-at-collection" data-en="Notice at Collection" data-es="Aviso de Recopilación">Notice at Collection</a>
+                    <span class="legal-dot" aria-hidden="true">·</span>
                     <a href="/privacy/" data-en="Privacy Policy" data-es="Política de Privacidad">Privacy Policy</a>
                     <span class="legal-dot" aria-hidden="true">·</span>
                     <a href="/terms/" data-en="Terms of Use" data-es="Términos de Uso">Terms of Use</a>
                     <span class="legal-dot" aria-hidden="true">·</span>
                     <a href="/accessibility/" data-en="Accessibility" data-es="Accesibilidad">Accessibility</a>
                     <span class="legal-dot" aria-hidden="true">·</span>
-                    <a href="/privacy-choices/" data-en="Privacy Choices" data-es="Opciones de Privacidad">Privacy Choices</a>
+                    <a href="/privacy-choices/" data-en="Your Privacy Choices" data-es="Sus Opciones de Privacidad">Your Privacy Choices</a>
                     <span class="legal-dot" aria-hidden="true">·</span>
                     <button type="button" id="footer-dns-btn" class="footer-legal-btn" style="background:none;border:none;color:inherit;cursor:pointer;font-size:inherit;font-family:inherit;padding:0;text-decoration:none;" data-en="Do Not Sell or Share My Personal Information" data-es="No Vender ni Compartir Mi Información Personal">Do Not Sell or Share My Personal Information</button>
                 </div>
@@ -347,7 +416,7 @@
         </div>
     </footer>
 
-    <script src="../js/location-page.js?v=29" defer></script>
-    <script src="../js/compliance-a11y.js?v=35" defer></script>
+    <script src="../js/location-page.js?v=36" defer></script>
+    <script src="../js/compliance-a11y.js?v=36" defer></script>
 </body>
 </html>

@@ -211,22 +211,28 @@
         .location-lang-toggle:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
         @media (max-width: 480px) { .header-actions .btn { display: none; } }
     </style>
-    <!-- California CCPA/CPRA & Google Consent Mode v2 Pre-Initialization -->
+    <!-- California CCPA/CPRA & Google Consent Mode v2 Strict Prior-Consent Gate -->
     <script>
     (function() {
         window.dataLayer = window.dataLayer || [];
         function gtag(){window.dataLayer.push(arguments);}
+        window.gtag = gtag;
         var gpc = (typeof navigator !== 'undefined' && navigator.globalPrivacyControl === true);
-        var allowMkt = !gpc;
-        var allowAna = true;
+        var allowMkt = false;
+        var allowAna = false;
         try {
             var raw = localStorage.getItem('tg_cookie_consent') || localStorage.getItem('tacosgavilan_cookie_consent');
-            if (raw === 'declined') {
-                allowMkt = false; allowAna = false;
+            if (raw === 'accepted' && !gpc) {
+                allowMkt = true; allowAna = true;
             } else if (raw && raw.charAt(0) === '{') {
                 var parsed = JSON.parse(raw);
-                if (parsed.doNotSell || gpc) { allowMkt = false; allowAna = false; }
-                else { allowMkt = !!parsed.marketing; allowAna = !!parsed.analytics; }
+                if (parsed.doNotSell || gpc) {
+                    allowMkt = false;
+                    allowAna = !!parsed.analytics;
+                } else {
+                    allowMkt = !!parsed.marketing;
+                    allowAna = !!parsed.analytics;
+                }
             }
         } catch (e) {}
         if (!allowAna) window['ga-disable-UA-74752614-19'] = true;
@@ -235,22 +241,28 @@
             'ad_user_data': allowMkt ? 'granted' : 'denied',
             'ad_personalization': allowMkt ? 'granted' : 'denied',
             'analytics_storage': allowAna ? 'granted' : 'denied',
+            'functionality_storage': 'granted',
+            'security_storage': 'granted',
             'wait_for_update': 500
         });
+        window.__tgLoadGTMIfConsented = function(anaGranted, mktGranted) {
+            if (!anaGranted && !mktGranted) return;
+            if (window.__tgGtmLoaded) return;
+            window.__tgGtmLoaded = true;
+            (function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
+            new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
+            j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
+            'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
+            })(window,document,'script','dataLayer','GTM-WW2N58Z');
+        };
+        if (allowAna || allowMkt) {
+            window.__tgLoadGTMIfConsented(allowAna, allowMkt);
+        }
     })();
     </script>
-    <!-- Google Tag Manager -->
-    <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
-    new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
-    j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
-    'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
-    })(window,document,'script','dataLayer','GTM-WW2N58Z');</script>
     <script>window.location.replace('/locations/?store=la-central');</script>
 </head>
 <body>
-    <!-- Google Tag Manager (noscript) -->
-    <noscript><iframe src="https://www.googletagmanager.com/ns.html?id=GTM-WW2N58Z"
-    height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
 
     <a href="#main-content" class="skip-link" data-en="Skip to main content" data-es="Saltar al contenido principal">Skip to main content</a>
             <header class="header scrolled" id="header">

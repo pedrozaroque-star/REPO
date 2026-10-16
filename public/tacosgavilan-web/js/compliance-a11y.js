@@ -3,7 +3,7 @@
  * @module TacosGavilanCompliance
  * @description Enterprise California CCPA/CPRA 2026 Cookie Consent & ADA Title III / WCAG 2.2 AA Handicap Accessibility Engine
  * @businessRules
- *   - Strictly branded as "Tacos Gavilan" (NEVER "Tacos El Gavilan", zero emojis).
+ *   - Strictly branded as "Tacos Gavilan" (official brand name only, zero emojis).
  *   - California CPRA compliance: Notice at Collection, category consent, persistent "Do Not Sell or Share My Personal Information" opt-out (CPRA § 1798.135).
  *   - Respects Global Privacy Control (GPC) standard (11 CCR § 7025).
  *   - Dynamic tracking pixel enforcement: controls Facebook Pixel (fbq), TikTok Pixel (ttq), and Google Tag Manager (dataLayer).
@@ -100,8 +100,8 @@
             footerA11yLink: 'Declaración de Accesibilidad',
 
             // Statements
-            statementTitle: 'Declaración de Accesibilidad (ADA Title III & California)',
-            statementBody: 'Tacos Gavilan está firmemente comprometido a garantizar que su sitio web y servicios digitales sean plenamente accesibles para todas las personas con discapacidades.\n\nESTÁNDAR DE CUMPLIMIENTO:\nTrabajamos activamente para mantener nuestro sitio web conforme a las Web Content Accessibility Guidelines (WCAG 2.2 Nivel AA), el Título III de la Americans with Disabilities Act (ADA) y el Acta de Derechos Civiles Unruh de California (Cal. Civ. Code § 51 / AB 1757).\n\nASISTENCIA ALTERNATIVA Y PEDIDOS POR TELÉFONO:\nSi usted experimenta cualquier dificultad para navegar, consultar nuestro menú o realizar un pedido en línea, nuestro personal está totalmente capacitado y a su disposición para tomar su pedido por teléfono o brindarle asistencia personalizada con los mismos precios y condiciones:\n\n• • Correo Electrónico: info@tacosgavilan.com\n• Atención al Cliente: 15 Sucursales en el Sur de California\n\nREPORTE DE BARRERAS:\nSi encuentra alguna barrera de accesibilidad, notifíquenos de inmediato para investigar e implementar una solución expedita.'
+            statementTitle: 'Declaración de Accesibilidad',
+            statementBody: 'Tacos Gavilan trabaja continuamente hacia la conformidad con las Pautas de Accesibilidad para el Contenido Web (WCAG) 2.2 Nivel AA y evalúa y mejora constantemente el sitio web para facilitar el acceso a todas las personas.\n\nALCANCE Y MEJORAS CONTINUAS:\nImplementamos estructura HTML5 semántica, navegación por teclado, trampas de foco en modales y menú móvil, etiquetas de formulario accesibles y alternativas de texto para mapas e imágenes.\n\nASISTENCIA TELEFÓNICA Y REPORTE DE BARRERAS:\nSi experimenta alguna dificultad para navegar, consultar nuestro menú o realizar un pedido en línea en order.online (operado por DoorDash, Inc.), puede llamar directamente a cualquiera de nuestras 15 sucursales listadas en /locations/ para recibir asistencia de nuestro personal, o reportar cualquier barrera de accesibilidad:\n\n• Correo Electrónico: info@tacosgavilan.com\n• Formulario de Contacto y Accesibilidad: https://tacosgavilan.com/contact/\n• Directorio de 15 Sucursales: https://tacosgavilan.com/locations/'
         },
         en: {
             // Handicap Accessibility Widget
@@ -130,8 +130,8 @@
 
             // Cookie Banner (California CCPA / CPRA 2026)
             cookieBadge: 'California Privacy (CCPA / CPRA 2026)',
-            cookieText: 'At Tacos Gavilan we value your privacy. We use essential cookies to operate our site and analytics/marketing cookies to enhance your experience. Under California law (CCPA/CPRA § 1798.135), you have the right to opt out of the sale or sharing of your personal information for cross-context behavioral advertising.',
-            cookieLearnMore: 'Privacy Policy',
+            cookieText: 'At Tacos Gavilan we value your privacy. We use essential cookies to operate our site and—only with your consent—analytics and marketing tags. Under California law (CCPA/CPRA), you have the right to opt out of the sale or sharing of your personal information.',
+            cookieLearnMore: 'Notice at Collection',
             btnAcceptAll: 'Accept All',
             btnRejectAll: 'Essential Only',
             btnDns: 'Do Not Sell My Info',
@@ -139,10 +139,10 @@
 
             // Cookie Modal
             modalTitle: 'California Privacy & Cookie Preference Center',
-            modalDesc: 'Manage your privacy settings pursuant to California CCPA and CPRA. Strictly necessary cookies cannot be disabled. You may opt out of non-essential categories or exercise your Do Not Sell rights.',
+            modalDesc: 'Manage your privacy settings pursuant to California CCPA and CPRA. Strictly necessary cookies cannot be disabled. Non-essential analytics and marketing tags remain blocked until you opt in.',
             catNecessaryTitle: 'Strictly Necessary',
             catNecessaryBadge: 'Always Active',
-            catNecessaryDesc: 'Essential for core website functionality, security, and session navigation.',
+            catNecessaryDesc: 'Essential for core website functionality, security, language, and accessibility settings.',
             catAnalyticsTitle: 'Analytics & Performance',
             catAnalyticsDesc: 'Allow us to count visits and traffic sources to measure and improve our site performance.',
             catMarketingTitle: 'Marketing & Social Pixels',
@@ -157,8 +157,8 @@
             footerA11yLink: 'Accessibility Statement',
 
             // Statements
-            statementTitle: 'Accessibility Statement & ADA / California Compliance',
-            statementBody: 'Tacos Gavilan is dedicated to facilitating digital accessibility and usability for all individuals with disabilities.\n\nCONFORMANCE STANDARD:\nWe continually strive to adhere to the Web Content Accessibility Guidelines (WCAG 2.2 Level AA), Title III of the Americans with Disabilities Act (ADA), and the California Unruh Civil Rights Act (Cal. Civ. Code § 51 / AB 1757).\n\nACCESSIBLE ALTERNATIVES & TELEPHONE ORDERING:\nIf you encounter any difficulty accessing our website, reviewing menus, or placing orders online, our staff is prepared to assist you by telephone under identical prices and terms:\n\n• • Email: info@tacosgavilan.com\n• Guest Support: 15 Southern California Locations\n\nBARRIER REPORTING & ACCOMMODATION:\nTo report an accessibility issue, please contact us immediately. We will investigate promptly and implement necessary accommodations.'
+            statementTitle: 'Accessibility Statement',
+            statementBody: 'Tacos Gavilan is working toward Web Content Accessibility Guidelines (WCAG) 2.2 Level AA conformance and continuously evaluates and improves the website to support equal access for all guests.\n\nSCOPE & NATIVE ACCESSIBILITY MEASURES:\nWe implement semantic HTML5 landmarks, keyboard navigation, focus traps on modals and the mobile navigation drawer, accessible form labels, and native HTML store directory alternatives alongside interactive maps.\n\nTELEPHONE ASSISTANCE & BARRIER REPORTING:\nIf you encounter any difficulty accessing our website, reviewing menus, or placing an online order on order.online (operated by DoorDash, Inc.), you may call any of our 15 Southern California restaurant locations listed at /locations/ for direct staff assistance, or report an accessibility barrier:\n\n• Email: info@tacosgavilan.com\n• Online Contact & Accessibility Form: https://tacosgavilan.com/contact/\n• 15 Restaurant Locations Directory: https://tacosgavilan.com/locations/'
         }
     };
 
@@ -183,10 +183,11 @@
         screenReader: false
     };
 
+    // Strict Prior-Consent Default: analytics and marketing are FALSE until explicit user opt-in
     var cookieConsent = {
         necessary: true,
-        analytics: true,
-        marketing: true,
+        analytics: false,
+        marketing: false,
         doNotSell: false,
         timestamp: null,
         answered: false
@@ -225,12 +226,12 @@
                     cookieConsent.marketing = false;
                     cookieConsent.doNotSell = true;
                     cookieConsent.answered = true;
-                } else {
+                } else if (savedConsent.charAt(0) === '{') {
                     var parsed = JSON.parse(savedConsent);
                     cookieConsent.necessary = true;
-                    cookieConsent.analytics = !!parsed.analytics;
-                    cookieConsent.marketing = !!parsed.marketing;
-                    cookieConsent.doNotSell = !!parsed.doNotSell;
+                    cookieConsent.analytics = parsed.analytics === true;
+                    cookieConsent.marketing = parsed.marketing === true;
+                    cookieConsent.doNotSell = parsed.doNotSell === true;
                     cookieConsent.timestamp = parsed.timestamp || Date.now();
                     cookieConsent.answered = true;
                 }
@@ -240,6 +241,7 @@
             if (typeof navigator !== 'undefined' && navigator.globalPrivacyControl === true) {
                 cookieConsent.doNotSell = true;
                 cookieConsent.marketing = false;
+                cookieConsent.analytics = false;
                 cookieConsent.answered = true;
             }
         } catch (e) {
@@ -258,7 +260,7 @@
             cookieConsent.timestamp = Date.now();
             cookieConsent.answered = true;
             safeStorage.setItem('tg_cookie_consent', JSON.stringify(cookieConsent));
-            // Keep legacy tacosgavilan_cookie_consent string in sync for master verifier tests
+            // Keep legacy tacosgavilan_cookie_consent string in sync
             safeStorage.setItem('tacosgavilan_cookie_consent', statusStr || (cookieConsent.marketing && !cookieConsent.doNotSell ? 'accepted' : 'declined'));
         } catch (e) {}
     }
@@ -280,19 +282,41 @@
         });
     }
 
+    function syncModalCheckboxes() {
+        var gpcActive = (typeof navigator !== 'undefined' && navigator.globalPrivacyControl === true);
+        var chkAnalytics = document.getElementById('tg-chk-analytics');
+        var chkMarketing = document.getElementById('tg-chk-marketing');
+        var chkDns = document.getElementById('tg-chk-dns');
+        if (chkAnalytics) chkAnalytics.checked = !!(cookieConsent.answered && cookieConsent.analytics && !cookieConsent.doNotSell && !gpcActive);
+        if (chkMarketing) chkMarketing.checked = !!(cookieConsent.answered && cookieConsent.marketing && !cookieConsent.doNotSell && !gpcActive);
+        if (chkDns) chkDns.checked = !!(cookieConsent.doNotSell || gpcActive);
+    }
+
     function applyTrackingConsent() {
         var gpcActive = (typeof navigator !== 'undefined' && navigator.globalPrivacyControl === true);
-        var allowMarketing = cookieConsent.marketing && !cookieConsent.doNotSell && !gpcActive;
-        var allowAnalytics = cookieConsent.analytics && !cookieConsent.doNotSell;
+        var allowMarketing = cookieConsent.answered && cookieConsent.marketing && !cookieConsent.doNotSell && !gpcActive;
+        var allowAnalytics = cookieConsent.answered && cookieConsent.analytics && !cookieConsent.doNotSell && !gpcActive;
 
-        // Disable Google Analytics tracker directly when analytics/sale is opted out
+        // Disable Google Analytics tracker directly when analytics/sale is not granted
         window['ga-disable-UA-74752614-19'] = !allowAnalytics;
 
         if (!allowMarketing || !allowAnalytics) {
             purgeTrackingCookies();
         }
 
-        // Meta / Facebook Pixel
+        // Dynamically load GTM and homepage marketing pixels ONLY if explicit consent was granted
+        if (allowAnalytics || allowMarketing) {
+            if (typeof window.__tgLoadGTMIfConsented === 'function') {
+                window.__tgLoadGTMIfConsented(allowAnalytics, allowMarketing);
+            }
+        }
+        if (allowMarketing) {
+            if (typeof window.__tgLoadMarketingPixelsIfConsented === 'function') {
+                window.__tgLoadMarketingPixelsIfConsented(true);
+            }
+        }
+
+        // Meta / Facebook Pixel (if already loaded)
         if (typeof window.fbq === 'function') {
             try {
                 window.fbq('consent', allowMarketing ? 'grant' : 'revoke');
@@ -301,7 +325,7 @@
             }
         }
 
-        // TikTok Pixel
+        // TikTok Pixel (if already loaded)
         if (window.ttq) {
             try {
                 if (allowMarketing && typeof window.ttq.enableCookie === 'function') {
@@ -328,26 +352,59 @@
                 event: 'teg_cookie_consent_update',
                 consent_analytics: allowAnalytics ? 'granted' : 'denied',
                 consent_marketing: allowMarketing ? 'granted' : 'denied',
-                do_not_sell_california: (cookieConsent.doNotSell || gpcActive) ? 'opt_out' : 'opt_in'
+                do_not_sell_california: (cookieConsent.doNotSell || gpcActive) ? 'opt_out' : (allowMarketing ? 'opt_in' : 'prior_consent_blocked')
             });
         } catch (err) {
             console.warn('[Tacos Gavilan] GTM dataLayer error:', err);
         }
 
-        // Update interactive status badge on /privacy-choices/ if present
-        var statusEl = document.getElementById('tg-privacy-choices-status');
-        if (statusEl) {
-            var isOptedOut = cookieConsent.doNotSell || gpcActive || !allowMarketing;
+        syncModalCheckboxes();
+
+        // Update interactive status badges on /privacy-choices/, Cookie Modal, and Cookie Banner
+        var isOptedOut = gpcActive || cookieConsent.doNotSell || (cookieConsent.answered && !allowMarketing);
+        var statusIds = ['tg-privacy-choices-status', 'page-dns-status'];
+        statusIds.forEach(function (id) {
+            var statusEl = document.getElementById(id);
+            if (!statusEl) return;
             if (currentLang === 'es') {
-                statusEl.textContent = isOptedOut
-                    ? (gpcActive ? 'Estado Actual: Exclusión Activa (Señal GPC Detectada — No Vender ni Compartir)' : 'Estado Actual: Exclusión Activa (No Vender ni Compartir Mi Información Personal)')
-                    : 'Estado Actual: Preferencias Estándar Activas';
+                if (gpcActive) {
+                    statusEl.textContent = 'Estado Actual: Opt-out request honored — Señal Global Privacy Control (GPC) Activa (Venta/Compartición y Etiquetas Publicitarias Bloqueadas)';
+                } else if (isOptedOut) {
+                    statusEl.textContent = 'Estado Actual: Opt-out request honored — Exclusión Activa (No Vender ni Compartir Mi Información Personal)';
+                } else if (!cookieConsent.answered) {
+                    statusEl.textContent = 'Estado Actual: Bloqueo Previo Activo (Etiquetas no esenciales bloqueadas hasta su consentimiento)';
+                } else {
+                    statusEl.textContent = 'Estado Actual: Consentimiento Personalizado Activo (Analítica: ' + (allowAnalytics ? 'Sí' : 'No') + ', Marketing: ' + (allowMarketing ? 'Sí' : 'No') + ')';
+                }
             } else {
-                statusEl.textContent = isOptedOut
-                    ? (gpcActive ? 'Current Status: Opt-Out Active (Global Privacy Control Signal Detected)' : 'Current Status: Opt-Out Active (Do Not Sell or Share Enabled)')
-                    : 'Current Status: Standard Preferences Active';
+                if (gpcActive) {
+                    statusEl.textContent = 'Current Status: Opt-out request honored — Global Privacy Control (GPC) Signal Active (Sale/Sharing & Ad Tags Blocked)';
+                } else if (isOptedOut) {
+                    statusEl.textContent = 'Current Status: Opt-out request honored — Do Not Sell or Share Active (Non-Essential Ad Tags Blocked)';
+                } else if (!cookieConsent.answered) {
+                    statusEl.textContent = 'Current Status: Prior-Consent Protection Active (Non-essential tags blocked until you opt in)';
+                } else {
+                    statusEl.textContent = 'Current Status: Custom Consent Active (Analytics: ' + (allowAnalytics ? 'On' : 'Off') + ', Marketing: ' + (allowMarketing ? 'On' : 'Off') + ')';
+                }
             }
-        }
+        });
+
+        var honoredBadges = [
+            document.getElementById('page-gpc-honored-badge'),
+            document.getElementById('tg-modal-gpc-status'),
+            document.getElementById('tg-banner-gpc-status')
+        ];
+        honoredBadges.forEach(function (badge) {
+            if (!badge) return;
+            if (isOptedOut) {
+                badge.style.display = 'inline-flex';
+                badge.textContent = currentLang === 'es'
+                    ? (gpcActive ? '✓ Opt-out request honored (Señal GPC Activa)' : '✓ Opt-out request honored (Solicitud de exclusión aplicada)')
+                    : (gpcActive ? '✓ Opt-out request honored (GPC Signal Active)' : '✓ Opt-out request honored');
+            } else {
+                badge.style.display = 'none';
+            }
+        });
     }
 
     /* ==========================================================================
@@ -489,9 +546,9 @@
         }
 
         if (currentLang === 'es') {
-            parts.push('Para asistencia telefónica o realizar pedidos directos, llame a nuestra línea accesible al 310 870 7009.');
+            parts.push('Para asistencia telefónica, visite nuestra sección de Sucursales o escríbanos a info@tacosgavilan.com.');
         } else {
-            parts.push('For phone assistance or direct ordering, please call our accessible hotline at 310 870 7009.');
+            parts.push('For phone assistance, please visit our Locations section or email info@tacosgavilan.com.');
         }
 
         var fullText = parts.join('. ');
@@ -728,7 +785,8 @@
                 '    <button type="button" id="tg-cookie-modal-close" class="tg-close-btn" aria-label="Close">×</button>' +
                 '  </div>' +
                 '  <div class="tg-modal-body">' +
-                '    <p class="tg-modal-lead" id="tg-modal-desc">' + t.modalDesc + '</p>' +
+                '    <div id="tg-modal-gpc-status" role="status" aria-live="polite" style="display:none;align-items:center;gap:6px;background:rgba(34,197,94,0.15);border:1px solid rgba(34,197,94,0.45);color:#4ade80;padding:6px 12px;border-radius:999px;font-size:12px;font-weight:700;margin-bottom:10px;width:fit-content;">✓ Opt-out request honored</div>' +
+                '    <p class="tg-modal-lead" id="tg-modal-desc">' + t.modalDesc + ' <a href="/privacy/#notice-at-collection" style="color:#f4c430;text-decoration:underline;">' + t.cookieLearnMore + '</a></p>' +
                 '    <div class="tg-cookie-category">' +
                 '      <div class="tg-cat-header">' +
                 '        <div>' +
@@ -780,6 +838,16 @@
         // 6. If #cookie-banner exists in HTML, upgrade it; otherwise create #tg-cookie-banner
         var existingBanner = document.getElementById('cookie-banner');
         if (existingBanner) {
+            var contentDiv = existingBanner.querySelector('.cookie-content');
+            if (contentDiv && !existingBanner.querySelector('#tg-banner-gpc-status')) {
+                var gpcBadge = document.createElement('span');
+                gpcBadge.id = 'tg-banner-gpc-status';
+                gpcBadge.setAttribute('role', 'status');
+                gpcBadge.setAttribute('aria-live', 'polite');
+                gpcBadge.style.cssText = 'display:none;align-items:center;gap:6px;background:rgba(34,197,94,0.16);border:1px solid rgba(34,197,94,0.45);color:#4ade80;padding:3px 10px;border-radius:999px;font-size:11px;font-weight:700;margin-bottom:6px;width:fit-content;';
+                gpcBadge.textContent = '✓ Opt-out request honored';
+                contentDiv.insertBefore(gpcBadge, contentDiv.firstChild);
+            }
             // Upgrade existing banner with Do Not Sell and Preferences buttons if not present
             var actions = existingBanner.querySelector('.cookie-actions');
             if (actions && !existingBanner.querySelector('#cookie-dns-btn')) {
@@ -808,7 +876,8 @@
                 '<div class="tg-banner-container">' +
                 '  <div class="tg-banner-content">' +
                 '    <span class="tg-banner-badge" id="tg-banner-badge">' + t.cookieBadge + '</span>' +
-                '    <p class="tg-banner-text" id="tg-banner-text">' + t.cookieText + '</p>' +
+                '    <span id="tg-banner-gpc-status" role="status" aria-live="polite" style="display:none;align-items:center;gap:6px;background:rgba(34,197,94,0.16);border:1px solid rgba(34,197,94,0.45);color:#4ade80;padding:3px 10px;border-radius:999px;font-size:11px;font-weight:700;margin-left:8px;width:fit-content;">✓ Opt-out request honored</span>' +
+                '    <p class="tg-banner-text" id="tg-banner-text">' + t.cookieText + ' <a href="/privacy/#notice-at-collection" style="color:#f4c430;text-decoration:underline;font-weight:600;">' + t.cookieLearnMore + '</a></p>' +
                 '  </div>' +
                 '  <div class="tg-banner-actions">' +
                 '    <button type="button" id="tg-btn-dns" class="tg-btn-dns">' +
@@ -1284,7 +1353,8 @@
         var dnsBtns = [
             document.getElementById('tg-btn-dns'),
             document.getElementById('cookie-dns-btn'),
-            document.getElementById('page-opt-out-dns-btn')
+            document.getElementById('page-opt-out-dns-btn'),
+            document.getElementById('page-optout-now-btn')
         ];
         dnsBtns.forEach(function (btn) {
             if (btn) {
@@ -1296,9 +1366,6 @@
                     saveCookieConsent('declined');
                     applyTrackingConsent();
                     hideCookieBanner();
-                    alert(currentLang === 'es'
-                        ? 'Su solicitud de No Vender ni Compartir su Información Personal ha sido registrada exitosamente.'
-                        : 'Your request to Do Not Sell or Share your personal information has been successfully recorded.');
                 });
             }
         });

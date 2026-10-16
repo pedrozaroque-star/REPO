@@ -4,8 +4,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-    <title>Accessibility Statement (ADA & WCAG 2.2 AA) | Tacos Gavilan</title>
-    <meta name="description" content="Official Accessibility Statement for Tacos Gavilan. Learn about our commitment to ADA Title III, California Unruh Civil Rights Act, WCAG 2.2 Level AA compliance, and assistive tools.">
+    <title>Accessibility Statement | Tacos Gavilan</title>
+    <meta name="description" content="Official Accessibility Statement for Tacos Gavilan. Learn about our ongoing work toward WCAG 2.2 Level AA, native accessibility features, third-party ordering alternatives, and how to report barriers.">
     <link rel="canonical" href="https://tacosgavilan.com/accessibility/">
     <!-- Favicon & Brand Icons (Transparent TEG Logo) -->
     <link rel="icon" type="image/png" href="/logo.png?v=5">
@@ -19,8 +19,8 @@
     <!-- Open Graph -->
     <meta property="og:type" content="website">
     <meta property="og:site_name" content="Tacos Gavilan">
-    <meta property="og:title" content="Accessibility Statement (ADA &amp; WCAG 2.2 AA) | Tacos Gavilan">
-    <meta property="og:description" content="Official Accessibility Statement for Tacos Gavilan. Learn about our commitment to ADA Title III, California Unruh Civil Rights Act, WCAG 2.2 Level AA compliance, and assistive tools.">
+    <meta property="og:title" content="Accessibility Statement | Tacos Gavilan">
+    <meta property="og:description" content="Official Accessibility Statement for Tacos Gavilan. Learn about our ongoing work toward WCAG 2.2 Level AA, native accessibility features, third-party ordering alternatives, and how to report barriers.">
     <meta property="og:url" content="https://tacosgavilan.com/accessibility/">
     <meta property="og:image" content="https://tacosgavilan.com/img/og-tacos-gavilan-1200x630.jpg">
     <meta property="og:image:width" content="1200">
@@ -30,13 +30,13 @@
 
     <!-- Twitter Card -->
     <meta name="twitter:card" content="summary_large_image">
-    <meta name="twitter:title" content="Accessibility Statement (ADA &amp; WCAG 2.2 AA) | Tacos Gavilan">
-    <meta name="twitter:description" content="Official Accessibility Statement for Tacos Gavilan. Learn about our commitment to ADA Title III, California Unruh Civil Rights Act, WCAG 2.2 Level AA compliance, and assistive tools.">
+    <meta name="twitter:title" content="Accessibility Statement | Tacos Gavilan">
+    <meta name="twitter:description" content="Official Accessibility Statement for Tacos Gavilan. Learn about our ongoing work toward WCAG 2.2 Level AA, native accessibility features, third-party ordering alternatives, and how to report barriers.">
     <meta name="twitter:image" content="https://tacosgavilan.com/img/og-tacos-gavilan-1200x630.jpg">
     <meta name="twitter:image:alt" content="Tacos Gavilan authentic Mexican food">
 
-    <link rel="stylesheet" href="../css/style.css?v=35">
-    <link rel="stylesheet" href="../css/compliance-a11y.css?v=28">
+    <link rel="stylesheet" href="../css/style.css?v=36">
+    <link rel="stylesheet" href="../css/compliance-a11y.css?v=36">
     <style>
         .legal-page-wrapper {
             padding-top: calc(var(--header-height, 70px) + 2.5rem);
@@ -44,12 +44,12 @@
             min-height: 80vh;
         }
         .legal-container {
-            max-width: 880px;
+            max-width: 960px;
             margin: 0 auto;
             padding: 0 1.5rem;
         }
         .legal-card {
-            background: rgba(22, 20, 18, 0.92);
+            background: rgba(22, 20, 18, 0.94);
             border: 1px solid rgba(255, 199, 44, 0.22);
             border-radius: var(--radius-lg, 16px);
             padding: 2.75rem 2.25rem;
@@ -67,13 +67,25 @@
             font-family: var(--ff-heading, sans-serif);
             line-height: 1.2;
         }
+        .legal-meta-bar {
+            display: inline-block;
+            background: rgba(255, 199, 44, 0.08);
+            border: 1px solid rgba(255, 199, 44, 0.28);
+            border-radius: 8px;
+            padding: 0.65rem 1rem;
+            margin-bottom: 1rem;
+            font-size: 0.86rem;
+            line-height: 1.55;
+            color: rgba(255, 255, 255, 0.9);
+        }
         .legal-intro {
-            font-size: 1.05rem;
-            line-height: 1.65;
+            font-size: 1.02rem;
+            line-height: 1.68;
             color: rgba(255, 255, 255, 0.88);
         }
         .legal-section {
-            margin-top: 2.1rem;
+            margin-top: 2.25rem;
+            scroll-margin-top: 100px;
         }
         .legal-section h2 {
             font-size: 1.28rem;
@@ -85,9 +97,9 @@
             line-height: 1.35;
         }
         .legal-section p, .legal-section li {
-            font-size: 0.98rem;
+            font-size: 0.96rem;
             line-height: 1.72;
-            color: rgba(255, 255, 255, 0.82);
+            color: rgba(255, 255, 255, 0.84);
             margin-bottom: 0.8rem;
         }
         .legal-section ul {
@@ -98,6 +110,39 @@
         .legal-section a {
             color: var(--clr-gold, #FFC72C);
             text-decoration: underline;
+        }
+        .legal-table-wrap {
+            width: 100%;
+            overflow-x: auto;
+            margin: 1.25rem 0 1.5rem;
+            border: 1px solid rgba(255, 199, 44, 0.22);
+            border-radius: 10px;
+            background: rgba(14, 12, 10, 0.85);
+            -webkit-overflow-scrolling: touch;
+        }
+        .legal-data-table {
+            width: 100%;
+            border-collapse: collapse;
+            min-width: 760px;
+            font-size: 0.86rem;
+            line-height: 1.55;
+        }
+        .legal-data-table th,
+        .legal-data-table td {
+            padding: 0.75rem 0.85rem;
+            text-align: left;
+            vertical-align: top;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            color: rgba(255, 255, 255, 0.86);
+        }
+        .legal-data-table th {
+            background: rgba(255, 199, 44, 0.12);
+            color: var(--clr-gold, #FFC72C);
+            font-weight: 700;
+            white-space: nowrap;
+        }
+        .legal-data-table tr:last-child td {
+            border-bottom: none;
         }
         .legal-contact-box {
             background: rgba(255, 199, 44, 0.08);
@@ -138,6 +183,19 @@
             color: var(--clr-gold, #FFC72C);
             font-size: 0.95rem;
         }
+        .legal-gpc-honored-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            background: rgba(34, 197, 94, 0.14);
+            border: 1px solid rgba(34, 197, 94, 0.45);
+            color: #4ade80;
+            padding: 0.45rem 0.85rem;
+            border-radius: 999px;
+            font-size: 0.85rem;
+            font-weight: 700;
+            width: fit-content;
+        }
         .legal-choices-actions {
             display: flex;
             flex-wrap: wrap;
@@ -145,26 +203,30 @@
         }
         @media (max-width: 600px) {
             .legal-card {
-                padding: 1.75rem 1.25rem;
+                padding: 1.5rem 1.1rem;
+            }
+            .legal-container {
+                padding: 0 1rem;
             }
         }
     </style>
-    <!-- California CCPA/CPRA & Google Consent Mode v2 Pre-Initialization -->
+    <!-- California CCPA/CPRA & Google Consent Mode v2 Strict Prior-Consent Gate -->
     <script>
     (function() {
         window.dataLayer = window.dataLayer || [];
         function gtag(){window.dataLayer.push(arguments);}
+        window.gtag = gtag;
         var gpc = (typeof navigator !== 'undefined' && navigator.globalPrivacyControl === true);
-        var allowMkt = !gpc;
-        var allowAna = true;
+        var allowMkt = false;
+        var allowAna = false;
         try {
             var raw = localStorage.getItem('tg_cookie_consent') || localStorage.getItem('tacosgavilan_cookie_consent');
-            if (raw === 'declined') {
-                allowMkt = false; allowAna = false;
-            } else if (raw && raw.charAt(0) === '{') {
+            if (raw && raw.charAt(0) === '{') {
                 var parsed = JSON.parse(raw);
-                if (parsed.doNotSell || gpc) { allowMkt = false; allowAna = false; }
-                else { allowMkt = !!parsed.marketing; allowAna = !!parsed.analytics; }
+                if (!parsed.doNotSell && !gpc) {
+                    allowMkt = parsed.marketing === true;
+                    allowAna = parsed.analytics === true;
+                }
             }
         } catch (e) {}
         if (!allowAna) window['ga-disable-UA-74752614-19'] = true;
@@ -173,23 +235,30 @@
             'ad_user_data': allowMkt ? 'granted' : 'denied',
             'ad_personalization': allowMkt ? 'granted' : 'denied',
             'analytics_storage': allowAna ? 'granted' : 'denied',
+            'functionality_storage': 'granted',
+            'security_storage': 'granted',
             'wait_for_update': 500
         });
+        if (gpc) {
+            window.dataLayer.push({ 'event': 'gpc_signal_detected', 'global_privacy_control': true });
+        }
+        window.__tgLoadGTMIfConsented = function(ana, mkt) {
+            if (gpc || (!ana && !mkt) || window.__tgGtmLoaded) return;
+            window.__tgGtmLoaded = true;
+            (function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
+            new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
+            j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
+            'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
+            })(window,document,'script','dataLayer','GTM-WW2N58Z');
+        };
+        if (allowAna || allowMkt) {
+            window.__tgLoadGTMIfConsented(allowAna, allowMkt);
+        }
     })();
     </script>
-    <!-- Google Tag Manager -->
-    <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
-    new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
-    j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
-    'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
-    })(window,document,'script','dataLayer','GTM-WW2N58Z');</script>
 </head>
 
 <body>
-    <!-- Google Tag Manager (noscript) -->
-    <noscript><iframe src="https://www.googletagmanager.com/ns.html?id=GTM-WW2N58Z"
-    height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
-
     <a href="#main-content" class="skip-link" data-en="Skip to main content" data-es="Saltar al contenido principal">Skip to main content</a>
     <header class="header scrolled" id="header">
         <div class="scroll-progress" id="scroll-progress" aria-hidden="true"></div>
@@ -243,44 +312,53 @@
         <div class="legal-container">
             <article class="legal-card">
                 <header class="legal-header">
-                    <h1 class="legal-title" data-en="Accessibility Statement (ADA &amp; California Compliance)" data-es="Declaración de Accesibilidad (Cumplimiento ADA y California)">Accessibility Statement (ADA & California Compliance)</h1>
-                    <p class="legal-intro" data-en="Effective Date: April 15, 2019 · Last Updated: October 16, 2026. Tacos Gavilan is committed to facilitating digital accessibility and usability for all guests, including individuals with disabilities." data-es="Fecha de entrada en vigor: 15 de abril de 2019 · Última actualización: 16 de octubre de 2026. Tacos Gavilan está comprometido a facilitar la accesibilidad digital y la facilidad de uso para todos nuestros clientes, incluidas las personas con discapacidad.">Effective Date: April 15, 2019 · Last Updated: October 16, 2026. Tacos Gavilan is committed to facilitating digital accessibility and usability for all guests, including individuals with disabilities.</p>
+                    <h1 class="legal-title" data-en="Accessibility Statement" data-es="Declaración de Accesibilidad">Accessibility Statement</h1>
+                    <div class="legal-meta-bar" data-en="<strong>Effective Date:</strong> <code>[REQUIRES OWNER/LEGAL APPROVAL]</code> &amp;nbsp;·&amp;nbsp; <strong>Last Updated:</strong> October 16, 2026 &amp;nbsp;·&amp;nbsp; <strong>Last Technical Accessibility Review:</strong> October 16, 2026 &amp;nbsp;·&amp;nbsp; <strong>Version:</strong> 2.0 &amp;nbsp;·&amp;nbsp; <strong>Responsible Entity:</strong> Tacos Gavilan (<code>[REQUIRES OWNER/LEGAL APPROVAL: LEGAL ENTITY AND POSTAL ADDRESS]</code>)" data-es="<strong>Fecha de Entrada en Vigor:</strong> <code>[REQUIRES OWNER/LEGAL APPROVAL]</code> &amp;nbsp;·&amp;nbsp; <strong>Última Actualización:</strong> 16 de octubre de 2026 &amp;nbsp;·&amp;nbsp; <strong>Última Revisión Técnica de Accesibilidad:</strong> 16 de octubre de 2026 &amp;nbsp;·&amp;nbsp; <strong>Versión:</strong> 2.0 &amp;nbsp;·&amp;nbsp; <strong>Entidad Responsable:</strong> Tacos Gavilan (<code>[REQUIRES OWNER/LEGAL APPROVAL: LEGAL ENTITY AND POSTAL ADDRESS]</code>)"><strong>Effective Date:</strong> <code>[REQUIRES OWNER/LEGAL APPROVAL]</code> &nbsp;·&nbsp; <strong>Last Updated:</strong> October 16, 2026 &nbsp;·&nbsp; <strong>Last Technical Accessibility Review:</strong> October 16, 2026 &nbsp;·&nbsp; <strong>Version:</strong> 2.0 &nbsp;·&nbsp; <strong>Responsible Entity:</strong> Tacos Gavilan (<code>[REQUIRES OWNER/LEGAL APPROVAL: LEGAL ENTITY AND POSTAL ADDRESS]</code>)</div>
+                    <p class="legal-intro" data-en="Tacos Gavilan is working toward WCAG 2.2 Level AA conformance and continuously evaluates and improves our website so all guests can explore our menu, find our 15 Southern California locations, and contact us." data-es="Tacos Gavilan trabaja hacia la conformidad con WCAG 2.2 Nivel AA y evalúa y mejora continuamente nuestro sitio web para que todos los clientes puedan explorar nuestro menú, encontrar nuestras 15 sucursales en el sur de California y comunicarse con nosotros.">Tacos Gavilan is working toward WCAG 2.2 Level AA conformance and continuously evaluates and improves our website so all guests can explore our menu, find our 15 Southern California locations, and contact us.</p>
                 </header>
 
-                <div class="legal-section">
-                    <h2 data-en="1. General Commitment to Digital Accessibility" data-es="1. Compromiso General con la Accesibilidad Digital">1. General Commitment to Digital Accessibility</h2>
-                    <p data-en="Tacos Gavilan strives to ensure that its digital services and restaurants are welcoming and accessible to all guests, including individuals with disabilities. Tacos Gavilan has invested significant resources to help ensure that https://tacosgavilan.com is made easier to use and more accessible for people with disabilities, with the strong belief that every person has the right to live with dignity, equality, comfort, and independence." data-es="Tacos Gavilan se esfuerza por garantizar que sus servicios digitales y restaurantes sean acogedores y accesibles para todos los clientes, incluidas las personas con discapacidades. Tacos Gavilan ha invertido importantes recursos para asegurar que https://tacosgavilan.com sea más fácil de usar y más accesible para las personas con discapacidad, con la firme convicción de que toda persona tiene derecho a vivir con dignidad, igualdad, comodidad e independencia.">Tacos Gavilan strives to ensure that its digital services and restaurants are welcoming and accessible to all guests, including individuals with disabilities. Tacos Gavilan has invested significant resources to help ensure that https://tacosgavilan.com is made easier to use and more accessible for people with disabilities, with the strong belief that every person has the right to live with dignity, equality, comfort, and independence.</p>
-                </div>
-
-                <div class="legal-section">
-                    <h2 data-en="2. Accessibility Standards &amp; Conformance Status (WCAG 2.1 / 2.2 Level AA)" data-es="2. Estándares de Accesibilidad y Estado de Conformidad (WCAG 2.1 / 2.2 Nivel AA)">2. Accessibility Standards & Conformance Status (WCAG 2.1 / 2.2 Level AA)</h2>
-                    <p data-en="To fulfill this commitment, Tacos Gavilan designs, audits, and maintains its website in alignment with the <strong>Web Content Accessibility Guidelines (WCAG) 2.1 and 2.2 Level AA</strong> published by the World Wide Web Consortium (W3C), Title III of the <strong>Americans with Disabilities Act (ADA)</strong>, and the <strong>California Unruh Civil Rights Act</strong> (Cal. Civ. Code § 51 / AB 1757)." data-es="Para cumplir con este compromiso, Tacos Gavilan diseña, audita y mantiene su sitio web conforme a las <strong>Pautas de Accesibilidad para el Contenido Web (WCAG) 2.1 y 2.2 Nivel AA</strong> publicadas por el Consorcio World Wide Web (W3C), el Título III de la <strong>Ley de Estadounidenses con Discapacidades (ADA)</strong> y el <strong>Acta de Derechos Civiles Unruh de California</strong> (Código Civil de California § 51 / AB 1757).">To fulfill this commitment, Tacos Gavilan designs, audits, and maintains its website in alignment with the <strong>Web Content Accessibility Guidelines (WCAG) 2.1 and 2.2 Level AA</strong> published by the World Wide Web Consortium (W3C), Title III of the <strong>Americans with Disabilities Act (ADA)</strong>, and the <strong>California Unruh Civil Rights Act</strong> (Cal. Civ. Code § 51 / AB 1757).</p>
-                </div>
-
-                <div class="legal-section">
-                    <h2 data-en="3. Accessibility Features &amp; Assistive Toolbar on TacosGavilan.com" data-es="3. Funciones de Accesibilidad y Barra de Asistencia en TacosGavilan.com">3. Accessibility Features & Assistive Toolbar on TacosGavilan.com</h2>
-                    <p data-en="Our website incorporates both native semantic accessibility engineering and a dedicated <strong>ADA Accessibility Toolbar</strong> (available via the floating accessibility icon on every page):" data-es="Nuestro sitio web incorpora tanto ingeniería nativa de accesibilidad semántica como una <strong>Barra de Herramientas de Accesibilidad ADA</strong> dedicada (disponible mediante el botón flotante de accesibilidad en todas las páginas):">Our website incorporates both native semantic accessibility engineering and a dedicated <strong>ADA Accessibility Toolbar</strong> (available via the floating accessibility icon on every page):</p>
+                <section class="legal-section" id="conformance-goal">
+                    <h2 data-en="1. Our Commitment &amp; Conformance Goal" data-es="1. Nuestro Compromiso y Objetivo de Conformidad">1. Our Commitment & Conformance Goal</h2>
+                    <p data-en="<strong>Tacos Gavilan</strong> is committed to facilitating digital usability and equal access to our website (<a href=&quot;https://tacosgavilan.com&quot;>https://tacosgavilan.com</a>) for all guests, including individuals with visual, auditory, motor, or cognitive disabilities. <strong>Tacos Gavilan is working toward Web Content Accessibility Guidelines (WCAG) 2.2 Level AA conformance and continuously evaluates and improves the website.</strong> Because web content, browser technologies, and third-party integrations evolve continuously, we do not represent or warrant that every page or third-party integration is error-free at all times, and we actively welcome guest feedback to resolve any accessibility barriers." data-es="<strong>Tacos Gavilan</strong> está comprometido a facilitar la usabilidad digital y la igualdad de acceso a nuestro sitio web (<a href=&quot;https://tacosgavilan.com&quot;>https://tacosgavilan.com</a>) para todos los clientes, incluidas las personas con discapacidades visuales, auditivas, motoras o cognitivas. <strong>Tacos Gavilan trabaja continuamente hacia la conformidad con las Pautas de Accesibilidad para el Contenido Web (WCAG) 2.2 Nivel AA y evalúa y mejora constantemente el sitio web.</strong> Debido a que el contenido web, las tecnologías de los navegadores y las integraciones de terceros evolucionan continuamente, no declaramos ni garantizamos que cada página o integración externa esté libre de errores en todo momento, y agradecemos activamente los comentarios de nuestros clientes para resolver cualquier barrera de accesibilidad."><strong>Tacos Gavilan</strong> is committed to facilitating digital usability and equal access to our website (<a href="https://tacosgavilan.com">https://tacosgavilan.com</a>) for all guests, including individuals with visual, auditory, motor, or cognitive disabilities. <strong>Tacos Gavilan is working toward Web Content Accessibility Guidelines (WCAG) 2.2 Level AA conformance and continuously evaluates and improves the website.</strong> Because web content, browser technologies, and third-party integrations evolve continuously, we do not represent or warrant that every page or third-party integration is error-free at all times, and we actively welcome guest feedback to resolve any accessibility barriers.</p>
+                </section>
+                <section class="legal-section" id="native-accessibility-measures">
+                    <h2 data-en="2. Scope &amp; Native Accessibility Measures Implemented" data-es="2. Alcance y Medidas de Accesibilidad Nativa Implementadas">2. Scope & Native Accessibility Measures Implemented</h2>
+                    <p data-en="This Accessibility Statement applies to the first-party pages of <code>tacosgavilan.com</code> (including our Homepage, Menu, Fiesta Platter, Locations directory, 15 individual Restaurant Location pages, Blog, Contact page, and Legal pages). Our primary accessibility engineering is built directly into the native HTML, CSS, and JavaScript of the Site:" data-es="Esta Declaración de Accesibilidad aplica a las páginas propias de <code>tacosgavilan.com</code> (incluyendo nuestra Página de Inicio, Menú, Fiesta Platter, Directorio de Sucursales, las 15 páginas individuales de Sucursales, Blog, Página de Contacto y Páginas Legales). Nuestra ingeniería principal de accesibilidad está integrada directamente en el HTML, CSS y JavaScript nativos del Sitio:">This Accessibility Statement applies to the first-party pages of <code>tacosgavilan.com</code> (including our Homepage, Menu, Fiesta Platter, Locations directory, 15 individual Restaurant Location pages, Blog, Contact page, and Legal pages). Our primary accessibility engineering is built directly into the native HTML, CSS, and JavaScript of the Site:</p>
                     <ul>
-                        <li data-en="<strong>Semantic HTML5 &amp;amp; Keyboard Navigation:</strong> Full support for keyboard-only navigation, visible focus rings, a &quot;Skip to main content&quot; link, ARIA landmarks, and keyboard focus traps with <code>Escape</code> key dismissal across all modals and drawers." data-es="<strong>HTML5 Semántico y Navegación por Teclado:</strong> Soporte completo para navegación exclusiva con teclado, indicadores visuales de foco, enlace de &quot;Saltar al contenido principal&quot;, regiones ARIA y control de foco con cierre mediante la tecla <code>Escape</code> en todas las ventanas modales y menús."><strong>Semantic HTML5 &amp; Keyboard Navigation:</strong> Full support for keyboard-only navigation, visible focus rings, a "Skip to main content" link, ARIA landmarks, and keyboard focus traps with <code>Escape</code> key dismissal across all modals and drawers.</li>
-                        <li data-en="<strong>Vision &amp;amp; Contrast Adjustments:</strong> High Contrast mode, Color Inversion, Monochrome/Grayscale mode, and WCAG AA compliant color contrast ratios." data-es="<strong>Ajustes Visuales y de Contraste:</strong> Modo de Alto Contraste, Inversión de Colores, Modo Monocromático/Escala de Grises y relaciones de contraste conformes a WCAG AA."><strong>Vision &amp; Contrast Adjustments:</strong> High Contrast mode, Color Inversion, Monochrome/Grayscale mode, and WCAG AA compliant color contrast ratios.</li>
-                        <li data-en="<strong>Blindness &amp;amp; Audio Screen Reading:</strong> Built-in Text-to-Speech (TTS) click-to-speak reader and Full Page Audio Reader in both English and Spanish, alongside descriptive <code>alt</code> attributes on menu and restaurant photographs." data-es="<strong>Ciegos y Lectura por Voz:</strong> Lector de voz integrado (Text-to-Speech) al tocar cualquier elemento y Lector de Página Completa tanto en inglés como en español, además de atributos <code>alt</code> descriptivos en fotografías del menú y sucursales."><strong>Blindness &amp; Audio Screen Reading:</strong> Built-in Text-to-Speech (TTS) click-to-speak reader and Full Page Audio Reader in both English and Spanish, alongside descriptive <code>alt</code> attributes on menu and restaurant photographs.</li>
-                        <li data-en="<strong>Reading, Typography &amp;amp; Motion Controls:</strong> Multi-step text size scaling, Dyslexia-friendly font mode, increased text spacing, link highlighting, enlarged cursor, reading guide ruler, and one-click animation pause (honoring <code>prefers-reduced-motion</code>)." data-es="<strong>Controles de Lectura, Tipografía y Movimiento:</strong> Ampliación gradual del tamaño de texto, tipografía amigable para dislexia, mayor espaciado de texto, resaltado de enlaces, cursor grande, guía de lectura y pausa de animaciones con un clic (respetando <code>prefers-reduced-motion</code>)."><strong>Reading, Typography &amp; Motion Controls:</strong> Multi-step text size scaling, Dyslexia-friendly font mode, increased text spacing, link highlighting, enlarged cursor, reading guide ruler, and one-click animation pause (honoring <code>prefers-reduced-motion</code>).</li>
+                        <li data-en="<strong>Semantic HTML5 Landmarks &amp;amp; Heading Hierarchy:</strong> Pages are structured with semantic landmarks (<code>&amp;lt;header&amp;gt;</code>, <code>&amp;lt;nav&amp;gt;</code>, <code>&amp;lt;main id=&quot;main-content&quot;&amp;gt;</code>, <code>&amp;lt;footer&amp;gt;</code>), a single primary <code>&amp;lt;h1&amp;gt;</code> per page, and a visible &quot;Skip to main content&quot; link for keyboard and screen-reader users." data-es="<strong>Regiones Semánticas HTML5 y Jerarquía de Encabezados:</strong> Las páginas están estructuradas con regiones semánticas (<code>&amp;lt;header&amp;gt;</code>, <code>&amp;lt;nav&amp;gt;</code>, <code>&amp;lt;main id=&quot;main-content&quot;&amp;gt;</code>, <code>&amp;lt;footer&amp;gt;</code>), un único encabezado principal <code>&amp;lt;h1&amp;gt;</code> por página y un enlace visible de &quot;Saltar al contenido principal&quot; para usuarios de teclado y lectores de pantalla."><strong>Semantic HTML5 Landmarks &amp; Heading Hierarchy:</strong> Pages are structured with semantic landmarks (<code>&lt;header&gt;</code>, <code>&lt;nav&gt;</code>, <code>&lt;main id="main-content"&gt;</code>, <code>&lt;footer&gt;</code>), a single primary <code>&lt;h1&gt;</code> per page, and a visible "Skip to main content" link for keyboard and screen-reader users.</li>
+                        <li data-en="<strong>Keyboard Navigation, Focus Traps &amp;amp; Mobile Navigation Drawer:</strong> Interactive dialogs, modals (Map Modal, Dish Lightbox, Cookie Preference Center, Accessibility Panel), and the Mobile Navigation Drawer (<code>#mobile-navigation</code>) maintain synchronized <code>aria-expanded</code>, <code>aria-controls</code>, and <code>aria-hidden</code> states, trap keyboard Tab/Shift+Tab focus while open, close on the <code>Escape</code> key or outside click, lock background scrolling, and return focus to the triggering button when closed." data-es="<strong>Navegación por Teclado, Trampas de Foco y Menú Móvil:</strong> Los diálogos interactivos, modales (Modal de Mapa, Lightbox de Platillos, Centro de Preferencias de Cookies, Panel de Accesibilidad) y el Menú de Navegación Móvil (<code>#mobile-navigation</code>) mantienen estados sincronizados de <code>aria-expanded</code>, <code>aria-controls</code> y <code>aria-hidden</code>, atrapan el foco del teclado Tab/Shift+Tab mientras están abiertos, se cierran con la tecla <code>Escape</code> o al hacer clic fuera, bloquean el desplazamiento de fondo y devuelven el foco al botón que los abrió al cerrarse."><strong>Keyboard Navigation, Focus Traps &amp; Mobile Navigation Drawer:</strong> Interactive dialogs, modals (Map Modal, Dish Lightbox, Cookie Preference Center, Accessibility Panel), and the Mobile Navigation Drawer (<code>#mobile-navigation</code>) maintain synchronized <code>aria-expanded</code>, <code>aria-controls</code>, and <code>aria-hidden</code> states, trap keyboard Tab/Shift+Tab focus while open, close on the <code>Escape</code> key or outside click, lock background scrolling, and return focus to the triggering button when closed.</li>
+                        <li data-en="<strong>Accessible Forms &amp;amp; Error Announcements:</strong> Contact forms use explicit <code>&amp;lt;label for=&quot;...&quot;&amp;gt;</code> associations, <code>aria-required=&quot;true&quot;</code>, field-level <code>aria-invalid</code> states, and live status regions (<code>role=&quot;status&quot; aria-live=&quot;polite&quot;</code>) so screen readers announce validation errors and submission confirmations." data-es="<strong>Formularios Accesibles y Anuncios de Error:</strong> Los formularios de contacto utilizan asociaciones explícitas <code>&amp;lt;label for=&quot;...&quot;&amp;gt;</code>, <code>aria-required=&quot;true&quot;</code>, estados <code>aria-invalid</code> por campo y regiones de estado en vivo (<code>role=&quot;status&quot; aria-live=&quot;polite&quot;</code>) para que los lectores de pantalla anuncien errores de validación y confirmaciones de envío."><strong>Accessible Forms &amp; Error Announcements:</strong> Contact forms use explicit <code>&lt;label for="..."&gt;</code> associations, <code>aria-required="true"</code>, field-level <code>aria-invalid</code> states, and live status regions (<code>role="status" aria-live="polite"</code>) so screen readers announce validation errors and submission confirmations.</li>
+                        <li data-en="<strong>Touch Target Sizing &amp;amp; Responsive Reflow:</strong> Navigation toggles, language switches, close buttons, and primary calls to action are designed with a minimum <code>44×44px</code> touch target and responsive layouts tested from <code>320px</code> mobile viewports through desktop screens without horizontal text overflow." data-es="<strong>Tamaño de Botones Táctiles y Diseño Responsivo:</strong> Los botones de menú, cambio de idioma, cierre y llamadas a la acción principales están diseñados con un área táctil mínima de <code>44×44px</code> y diseños responsivos probados desde pantallas móviles de <code>320px</code> hasta monitores de escritorio sin desbordamiento horizontal."><strong>Touch Target Sizing &amp; Responsive Reflow:</strong> Navigation toggles, language switches, close buttons, and primary calls to action are designed with a minimum <code>44×44px</code> touch target and responsive layouts tested from <code>320px</code> mobile viewports through desktop screens without horizontal text overflow.</li>
+                        <li data-en="<strong>Accessible Text Alternatives for Maps &amp;amp; Images:</strong> Food and restaurant photographs include descriptive <code>alt</code> attributes (while purely decorative icons are marked <code>aria-hidden=&quot;true&quot;</code>). Alongside our interactive Google Map, all 15 restaurant addresses, cross-streets, operating hours, telephone links, and ordering links are rendered in accessible static HTML cards." data-es="<strong>Alternativas de Texto Accesibles para Mapas e Imágenes:</strong> Las fotografías de alimentos y restaurantes incluyen atributos <code>alt</code> descriptivos (mientras que los íconos decorativos están marcados con <code>aria-hidden=&quot;true&quot;</code>). Junto a nuestro mapa interactivo de Google Maps, las 15 direcciones, intersecciones, horarios, enlaces telefónicos y enlaces de pedido se muestran en tarjetas HTML estáticas accesibles."><strong>Accessible Text Alternatives for Maps &amp; Images:</strong> Food and restaurant photographs include descriptive <code>alt</code> attributes (while purely decorative icons are marked <code>aria-hidden="true"</code>). Alongside our interactive Google Map, all 15 restaurant addresses, cross-streets, operating hours, telephone links, and ordering links are rendered in accessible static HTML cards.</li>
+                        <li data-en="<strong>No-JavaScript Progressive Enhancement:</strong> All legal notices (<a href=&quot;/privacy/&quot;>/privacy/</a>, <a href=&quot;/terms/&quot;>/terms/</a>, <a href=&quot;/accessibility/&quot;>/accessibility/</a>, <a href=&quot;/privacy-choices/&quot;>/privacy-choices/</a>) and core store directory pages render complete, readable HTML content even if JavaScript is disabled in your browser." data-es="<strong>Mejora Progresiva sin JavaScript:</strong> Todos los avisos legales (<a href=&quot;/privacy/&quot;>/privacy/</a>, <a href=&quot;/terms/&quot;>/terms/</a>, <a href=&quot;/accessibility/&quot;>/accessibility/</a>, <a href=&quot;/privacy-choices/&quot;>/privacy-choices/</a>) y las páginas principales de sucursales muestran contenido HTML completo y legible incluso si JavaScript está desactivado en su navegador."><strong>No-JavaScript Progressive Enhancement:</strong> All legal notices (<a href="/privacy/">/privacy/</a>, <a href="/terms/">/terms/</a>, <a href="/accessibility/">/accessibility/</a>, <a href="/privacy-choices/">/privacy-choices/</a>) and core store directory pages render complete, readable HTML content even if JavaScript is disabled in your browser.</li>
                     </ul>
-                </div>
-
-                <div class="legal-section">
-                    <h2 data-en="4. Disclaimer &amp; Ongoing Accessibility Efforts" data-es="4. Aviso Legal y Esfuerzo Continuo de Accesibilidad">4. Disclaimer & Ongoing Accessibility Efforts</h2>
-                    <p data-en="Tacos Gavilan continues its efforts to constantly improve the accessibility of its site and services in the belief that it is our collective moral obligation to allow seamless, accessible, and unhindered use also for those of us with disabilities. Despite our efforts to make all pages and content on https://tacosgavilan.com fully accessible, some content or third-party integrations (such as external online ordering portals on <code>order.online</code> operated by DoorDash, Inc., delivery marketplaces, or third-party interactive map tiles) may not have yet been fully adapted to the strictest accessibility standards or are controlled by external providers." data-es="Tacos Gavilan continúa sus esfuerzos para mejorar constantemente la accesibilidad de su sitio y servicios bajo la convicción de que es nuestra obligación moral colectiva permitir un uso fluido, accesible y sin obstáculos para todas las personas con discapacidad. A pesar de nuestros esfuerzos por hacer que todas las páginas y contenidos en https://tacosgavilan.com sean plenamente accesibles, es posible que algunos contenidos o integraciones de terceros (como portales externos de pedidos en <code>order.online</code> operados por DoorDash, Inc., plataformas de entrega a domicilio o mapas interactivos de terceros) aún no estén completamente adaptados a los estándares más estrictos o dependan técnicamente de proveedores externos.">Tacos Gavilan continues its efforts to constantly improve the accessibility of its site and services in the belief that it is our collective moral obligation to allow seamless, accessible, and unhindered use also for those of us with disabilities. Despite our efforts to make all pages and content on https://tacosgavilan.com fully accessible, some content or third-party integrations (such as external online ordering portals on <code>order.online</code> operated by DoorDash, Inc., delivery marketplaces, or third-party interactive map tiles) may not have yet been fully adapted to the strictest accessibility standards or are controlled by external providers.</p>
-                </div>
-
-                <div class="legal-section">
-                    <h2 data-en="5. Here For You — Personal &amp; Telephone Assistance" data-es="5. Estamos Para Servirle — Asistencia Personal y Pedidos por Teléfono">5. Here For You — Personal & Telephone Assistance</h2>
-                    <p data-en="If you are experiencing difficulty with any content on https://tacosgavilan.com or require assistance with any part of our site, reviewing our menu, or placing an order, please contact us during normal business hours and we will be happy to assist you. You may also call any of our <a href=&quot;/locations/&quot;>15 Southern California restaurant locations</a> directly, where our team will gladly read menu options and take your order by telephone under the exact same pricing and terms." data-es="Si experimenta alguna dificultad con cualquier contenido en https://tacosgavilan.com o requiere asistencia con cualquier parte de nuestro sitio, para consultar nuestro menú o para realizar un pedido, comuníquese con nosotros durante el horario habitual de atención y estaremos encantados de ayudarle. También puede llamar directamente a cualquiera de nuestras <a href=&quot;/locations/&quot;>15 sucursales en el Sur de California</a>, donde nuestro personal con gusto le informará las opciones del menú y tomará su pedido por teléfono bajo los mismos precios y condiciones.">If you are experiencing difficulty with any content on https://tacosgavilan.com or require assistance with any part of our site, reviewing our menu, or placing an order, please contact us during normal business hours and we will be happy to assist you. You may also call any of our <a href="/locations/">15 Southern California restaurant locations</a> directly, where our team will gladly read menu options and take your order by telephone under the exact same pricing and terms.</p>
-                </div>
+                </section>
+                <section class="legal-section" id="optional-toolbar">
+                    <h2 data-en="3. Optional On-Screen Accessibility Toolbar" data-es="3. Barra Opcional de Herramientas de Accesibilidad en Pantalla">3. Optional On-Screen Accessibility Toolbar</h2>
+                    <p data-en="As an optional convenience supplement (and never as a substitute for native semantic HTML accessibility), our Site includes a built-in Accessibility Toolbar (accessible via the floating wheelchair icon button or the <code>Alt + A</code> keyboard shortcut) that allows guests to adjust text size, toggle high contrast or grayscale modes, highlight links and keyboard focus outlines, increase letter/line spacing, pause animations, or use browser speech synthesis." data-es="Como un complemento opcional de conveniencia (y nunca como sustituto de la accesibilidad nativa del HTML semántico), nuestro Sitio incluye una Barra de Herramientas de Accesibilidad integrada (accesible mediante el botón flotante con ícono de accesibilidad o el atajo de teclado <code>Alt + A</code>) que permite a los visitantes ajustar el tamaño del texto, activar modos de alto contraste o escala de grises, resaltar enlaces y contornos de foco de teclado, aumentar el espaciado de letras/líneas, pausar animaciones o utilizar síntesis de voz del navegador.">As an optional convenience supplement (and never as a substitute for native semantic HTML accessibility), our Site includes a built-in Accessibility Toolbar (accessible via the floating wheelchair icon button or the <code>Alt + A</code> keyboard shortcut) that allows guests to adjust text size, toggle high contrast or grayscale modes, highlight links and keyboard focus outlines, increase letter/line spacing, pause animations, or use browser speech synthesis.</p>
+                </section>
+                <section class="legal-section" id="known-limitations">
+                    <h2 data-en="4. Known Limitations &amp; Third-Party Platforms" data-es="4. Limitaciones Conocidas y Plataformas de Terceros">4. Known Limitations & Third-Party Platforms</h2>
+                    <p data-en="While we strive to ensure accessibility across our first-party web pages, certain third-party services linked from or embedded on our Site are operated by independent companies outside of Tacos Gavilan's control:" data-es="Si bien nos esforzamos por garantizar la accesibilidad en nuestras páginas web propias, ciertos servicios de terceros enlazados o integrados en nuestro Sitio son operados por empresas independientes fuera del control de Tacos Gavilan:">While we strive to ensure accessibility across our first-party web pages, certain third-party services linked from or embedded on our Site are operated by independent companies outside of Tacos Gavilan's control:</p>
+                    <ul>
+                        <li data-en="<strong>External Online Ordering Portal (<code>order.online</code> operated by DoorDash, Inc.):</strong> When you click &quot;Order Online,&quot; you are directed to <code>https://order.online</code>, which is developed and maintained by DoorDash, Inc. If you experience any difficulty using <code>order.online</code> with your assistive technology, you may call any of our 15 restaurants directly using the telephone numbers listed on our <a href=&quot;/locations/&quot;>Locations Page (/locations/)</a> for personal assistance from our staff." data-es="<strong>Portal Externo de Pedidos en Línea (<code>order.online</code> operado por DoorDash, Inc.):</strong> Cuando hace clic en &quot;Ordenar en Línea&quot;, usted es dirigido a <code>https://order.online</code>, el cual es desarrollado y mantenido por DoorDash, Inc. Si experimenta alguna dificultad al usar <code>order.online</code> con su tecnología de asistencia, puede llamar directamente a cualquiera de nuestros 15 restaurantes utilizando los números telefónicos publicados en nuestra <a href=&quot;/locations/&quot;>Página de Sucursales (/locations/)</a> para recibir asistencia personal de nuestro equipo."><strong>External Online Ordering Portal (<code>order.online</code> operated by DoorDash, Inc.):</strong> When you click "Order Online," you are directed to <code>https://order.online</code>, which is developed and maintained by DoorDash, Inc. If you experience any difficulty using <code>order.online</code> with your assistive technology, you may call any of our 15 restaurants directly using the telephone numbers listed on our <a href="/locations/">Locations Page (/locations/)</a> for personal assistance from our staff.</li>
+                        <li data-en="<strong>Interactive Map Canvas (Google Maps Platform):</strong> Embedded interactive map canvases rendered by Google Maps may present keyboard or screen-reader limitations inherent to third-party map widgets. To ensure full access to store information without needing the map canvas, every restaurant's full street address, cross-streets, hours, phone number, and Google Maps directions link are provided in native HTML text cards directly above and alongside the map." data-es="<strong>Mapa Interactivo (Google Maps Platform):</strong> Los lienzos de mapas interactivos generados por Google Maps pueden presentar limitaciones de teclado o lector de pantalla inherentes a los widgets de mapas de terceros. Para garantizar el acceso total a la información de las sucursales sin necesidad de usar el mapa interactivo, la dirección completa, intersecciones, horarios, teléfono y enlace de cómo llegar de cada restaurante se proporcionan en tarjetas de texto HTML nativo directamente junto al mapa."><strong>Interactive Map Canvas (Google Maps Platform):</strong> Embedded interactive map canvases rendered by Google Maps may present keyboard or screen-reader limitations inherent to third-party map widgets. To ensure full access to store information without needing the map canvas, every restaurant's full street address, cross-streets, hours, phone number, and Google Maps directions link are provided in native HTML text cards directly above and alongside the map.</li>
+                    </ul>
+                </section>
+                <section class="legal-section" id="reporting-barriers">
+                    <h2 data-en="5. Reporting Accessibility Barriers &amp; Requesting Assistance" data-es="5. Cómo Reportar Barreras de Accesibilidad y Solicitar Asistencia">5. Reporting Accessibility Barriers & Requesting Assistance</h2>
+                    <p data-en="If you encounter an accessibility barrier on any page of <code>tacosgavilan.com</code>, or if you need assistance learning about our menu, checking restaurant hours, or placing a telephone pick-up order, please contact us through any of the following methods:" data-es="Si encuentra una barrera de accesibilidad en cualquier página de <code>tacosgavilan.com</code>, o si necesita asistencia para consultar nuestro menú, verificar horarios de sucursales o realizar un pedido telefónico para recoger en tienda, comuníquese con nosotros a través de cualquiera de los siguientes medios:">If you encounter an accessibility barrier on any page of <code>tacosgavilan.com</code>, or if you need assistance learning about our menu, checking restaurant hours, or placing a telephone pick-up order, please contact us through any of the following methods:</p>
+                    <ul>
+                        <li data-en="<strong>Accessibility Feedback Email:</strong> <a href=&quot;mailto:info@tacosgavilan.com?subject=Website%20Accessibility%20Assistance&quot;>info@tacosgavilan.com</a>" data-es="<strong>Correo Electrónico de Asistencia de Accesibilidad:</strong> <a href=&quot;mailto:info@tacosgavilan.com?subject=Asistencia%20de%20Accesibilidad%20Web&quot;>info@tacosgavilan.com</a>"><strong>Accessibility Feedback Email:</strong> <a href="mailto:info@tacosgavilan.com?subject=Website%20Accessibility%20Assistance">info@tacosgavilan.com</a></li>
+                        <li data-en="<strong>Online Accessibility Form:</strong> Visit our <a href=&quot;/contact/&quot;>Contact Page (/contact/)</a> and select <em>&quot;Accessibility Assistance / Report a Barrier&quot;</em> as the inquiry reason. Please include the web page URL, a description of the barrier encountered, and the assistive technology or browser you were using." data-es="<strong>Formulario de Accesibilidad en Línea:</strong> Visite nuestra <a href=&quot;/contact/&quot;>Página de Contacto (/contact/)</a> y seleccione <em>&quot;Asistencia de Accesibilidad / Reportar una Barrera&quot;</em> como motivo de consulta. Por favor incluya la URL de la página, una descripción de la barrera encontrada y la tecnología de asistencia o navegador que estaba utilizando."><strong>Online Accessibility Form:</strong> Visit our <a href="/contact/">Contact Page (/contact/)</a> and select <em>"Accessibility Assistance / Report a Barrier"</em> as the inquiry reason. Please include the web page URL, a description of the barrier encountered, and the assistive technology or browser you were using.</li>
+                        <li data-en="<strong>Direct Restaurant Telephone Assistance:</strong> Call your nearest Tacos Gavilan restaurant directly using the phone numbers listed on <a href=&quot;/locations/&quot;>/locations/</a> during store operating hours to speak with a team member who can read menu items and prices or assist with a telephone pick-up order." data-es="<strong>Asistencia Telefónica Directa en Sucursal:</strong> Llame directamente a su restaurante Tacos Gavilan más cercano utilizando los números telefónicos publicados en <a href=&quot;/locations/&quot;>/locations/</a> durante el horario de atención para hablar con un miembro de nuestro equipo que pueda leerle los platillos y precios del menú o asistirle con un pedido telefónico para recoger."><strong>Direct Restaurant Telephone Assistance:</strong> Call your nearest Tacos Gavilan restaurant directly using the phone numbers listed on <a href="/locations/">/locations/</a> during store operating hours to speak with a team member who can read menu items and prices or assist with a telephone pick-up order.</li>
+                        <li data-en="<strong>How We Respond:</strong> When you report a website accessibility barrier via email or our Contact Form, your report is logged with a confirmation Reference ID and reviewed by our web and operations team. We will respond to you via email (or telephone if requested) to assist you with the information you need and to evaluate and remediate the reported technical issue." data-es="<strong>Cómo Respondemos:</strong> Cuando usted reporta una barrera de accesibilidad web por correo o mediante nuestro Formulario de Contacto, su reporte se registra con un ID de Referencia de confirmación y es revisado por nuestro equipo web y operativo. Le responderemos por correo electrónico (o por teléfono si así lo solicita) para brindarle la información que necesita y evaluar y corregir el problema técnico reportado."><strong>How We Respond:</strong> When you report a website accessibility barrier via email or our Contact Form, your report is logged with a confirmation Reference ID and reviewed by our web and operations team. We will respond to you via email (or telephone if requested) to assist you with the information you need and to evaluate and remediate the reported technical issue.</li>
+                    </ul>
+                </section>
 
                 <div class="legal-contact-box">
-                    <h3 data-en="Report an Accessibility Barrier or Request Assistance" data-es="Reportar una Barrera de Accesibilidad o Solicitar Asistencia">Report an Accessibility Barrier or Request Assistance</h3>
-                    <p data-en="If you wish to report an accessibility issue, have any questions, or need assistance placing an order, please contact Tacos Gavilan Support:<br>Email: <a href=&quot;mailto:info@tacosgavilan.com&quot;>info@tacosgavilan.com</a><br>Web Form: <a href=&quot;/contact/&quot;>https://tacosgavilan.com/contact/</a><br>Telephone Ordering: <a href=&quot;/locations/&quot;>View All 15 Restaurant Locations &amp;amp; Phone Numbers</a>" data-es="Si desea reportar un problema de accesibilidad, tiene alguna pregunta o necesita asistencia para realizar un pedido, comuníquese con el Soporte de Tacos Gavilan:<br>Correo Electrónico: <a href=&quot;mailto:info@tacosgavilan.com&quot;>info@tacosgavilan.com</a><br>Formulario Web: <a href=&quot;/contact/&quot;>https://tacosgavilan.com/contact/</a><br>Pedidos por Teléfono: <a href=&quot;/locations/&quot;>Ver las 15 Sucursales y Números Telefónicos</a>">If you wish to report an accessibility issue, have any questions, or need assistance placing an order, please contact Tacos Gavilan Support:<br>Email: <a href="mailto:info@tacosgavilan.com">info@tacosgavilan.com</a><br>Web Form: <a href="/contact/">https://tacosgavilan.com/contact/</a><br>Telephone Ordering: <a href="/locations/">View All 15 Restaurant Locations &amp; Phone Numbers</a></p>
+                    <h3 data-en="Need Assistance or Want to Report an Accessibility Barrier?" data-es="¿Necesita Asistencia o Desea Reportar una Barrera de Accesibilidad?">Need Assistance or Want to Report an Accessibility Barrier?</h3>
+                    <p data-en="Email us at <a href=&quot;mailto:info@tacosgavilan.com?subject=Website%20Accessibility%20Assistance&quot;>info@tacosgavilan.com</a>, submit an Accessibility report on our <a href=&quot;/contact/&quot;>Contact Page</a>, or call any of our 15 restaurant locations listed at <a href=&quot;/locations/&quot;>/locations/</a> for direct staff assistance." data-es="Escríbanos a <a href=&quot;mailto:info@tacosgavilan.com?subject=Asistencia%20de%20Accesibilidad%20Web&quot;>info@tacosgavilan.com</a>, envíe un reporte de Accesibilidad en nuestra <a href=&quot;/contact/&quot;>Página de Contacto</a>, o llame a cualquiera de nuestras 15 sucursales listadas en <a href=&quot;/locations/&quot;>/locations/</a> para recibir asistencia directa de nuestro personal.">Email us at <a href="mailto:info@tacosgavilan.com?subject=Website%20Accessibility%20Assistance">info@tacosgavilan.com</a>, submit an Accessibility report on our <a href="/contact/">Contact Page</a>, or call any of our 15 restaurant locations listed at <a href="/locations/">/locations/</a> for direct staff assistance.</p>
                 </div>
             </article>
         </div>
@@ -314,13 +392,15 @@
             <div class="container footer-bottom-content">
                 <p>&copy; 2026 Tacos Gavilan. <span data-en="All rights reserved." data-es="Todos los derechos reservados.">All rights reserved.</span></p>
                 <div class="footer-legal-links">
+                    <a href="/privacy/#notice-at-collection" data-en="Notice at Collection" data-es="Aviso de Recopilación">Notice at Collection</a>
+                    <span class="legal-dot" aria-hidden="true">·</span>
                     <a href="/privacy/" data-en="Privacy Policy" data-es="Política de Privacidad">Privacy Policy</a>
                     <span class="legal-dot" aria-hidden="true">·</span>
                     <a href="/terms/" data-en="Terms of Use" data-es="Términos de Uso">Terms of Use</a>
                     <span class="legal-dot" aria-hidden="true">·</span>
                     <a href="/accessibility/" data-en="Accessibility" data-es="Accesibilidad">Accessibility</a>
                     <span class="legal-dot" aria-hidden="true">·</span>
-                    <a href="/privacy-choices/" data-en="Privacy Choices" data-es="Opciones de Privacidad">Privacy Choices</a>
+                    <a href="/privacy-choices/" data-en="Your Privacy Choices" data-es="Sus Opciones de Privacidad">Your Privacy Choices</a>
                     <span class="legal-dot" aria-hidden="true">·</span>
                     <button type="button" id="footer-dns-btn" class="footer-legal-btn" style="background:none;border:none;color:inherit;cursor:pointer;font-size:inherit;font-family:inherit;padding:0;text-decoration:none;" data-en="Do Not Sell or Share My Personal Information" data-es="No Vender ni Compartir Mi Información Personal">Do Not Sell or Share My Personal Information</button>
                 </div>
@@ -328,7 +408,7 @@
         </div>
     </footer>
 
-    <script src="../js/location-page.js?v=29" defer></script>
-    <script src="../js/compliance-a11y.js?v=35" defer></script>
+    <script src="../js/location-page.js?v=36" defer></script>
+    <script src="../js/compliance-a11y.js?v=36" defer></script>
 </body>
 </html>

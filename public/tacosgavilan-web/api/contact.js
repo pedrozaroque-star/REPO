@@ -112,8 +112,8 @@ function isAutomatedBotSubmission({ name, email, message, userAgent }) {
                 }
                 if (caseTransitions >= 4) return true;
             }
-            // 5+ consecutive consonants (excluding common English/Spanish clusters)
-            if (/^[a-zA-Z]+$/.test(w) && /[bcdfghjklmnpqrstvwxz]{5,}/i.test(w)) {
+            // 7+ consecutive consonants (avoids false positives on English words like "strengths")
+            if (/^[a-zA-Z]+$/.test(w) && /[bcdfghjklmnpqrstvwxz]{7,}/i.test(w)) {
                 return true;
             }
         }
@@ -138,7 +138,14 @@ const ALLOWED_REASONS = new Set([
     'catering',
     'feedback',
     'careers',
+    'employment',
     'accessibility',
+    'ccpa_know',
+    'ccpa_delete',
+    'ccpa_correct',
+    'ccpa_optout',
+    'ccpa_agent',
+    'privacy',
     'other'
 ]);
 
@@ -171,6 +178,33 @@ const STORE_NAME_TO_ID = {
     'Downey': 16
 };
 
+function isAllowedOriginOrReferer(req) {
+    const origin = String(req.headers['origin'] || '').trim().toLowerCase();
+    const referer = String(req.headers['referer'] || '').trim().toLowerCase();
+    const checkUrl = origin || referer;
+    if (!checkUrl) {
+        // Allow same-origin or server-side tests where Origin header is omitted
+        return true;
+    }
+    try {
+        const parsed = new URL(checkUrl);
+        const host = parsed.hostname.toLowerCase();
+        if (
+            host === 'tacosgavilan.com' ||
+            host === 'www.tacosgavilan.com' ||
+            host.endsWith('.tacosgavilan.com') ||
+            host.endsWith('.vercel.app') ||
+            host === 'localhost' ||
+            host === '127.0.0.1'
+        ) {
+            return true;
+        }
+        return false;
+    } catch (_) {
+        return false;
+    }
+}
+
 module.exports = async function handler(req, res) {
     // 1. Method check: only POST
     if (req.method !== 'POST') {
@@ -178,6 +212,14 @@ module.exports = async function handler(req, res) {
         return res.status(405).json({
             ok: false,
             error: 'Method Not Allowed. Please use POST.'
+        });
+    }
+
+    // 1b. Origin / Referer CSRF protection check
+    if (!isAllowedOriginOrReferer(req)) {
+        return res.status(403).json({
+            ok: false,
+            error: 'Forbidden: Cross-origin form submissions are not permitted.'
         });
     }
 
@@ -234,6 +276,8 @@ module.exports = async function handler(req, res) {
             // Silently discard spam submission; do not write to DB
             return res.status(200).json({
                 ok: true,
+                reference_id: 'TG-FILTERED',
+                submitted_at: new Date().toISOString(),
                 message: 'Thank you for your message.'
             });
         }
@@ -242,7 +286,7 @@ module.exports = async function handler(req, res) {
         const name = sanitizeText(body.name);
         const email = sanitizeText(body.email);
         const phone = sanitizeText(body.phone);
-        const rawReasonInput = sanitizeText(body.reason || body.subject || body.type).toLowerCase();
+        const rawReasonInput = sanitizeText(body.reason || body.subject || body.type || body.category).toLowerCase();
         const REASON_ALIASES = {
             'general inquiry': 'general',
             'corporate / general inquiry': 'general',
@@ -250,17 +294,26 @@ module.exports = async function handler(req, res) {
             'catering & fiesta platters': 'catering',
             'customer feedback': 'feedback',
             'customer feedback & guest experience': 'feedback',
+            'employment / careers inquiry': 'employment',
+            'website accessibility / ada assistance': 'accessibility',
+            'privacy request: right to know / access (ccpa)': 'ccpa_know',
+            'privacy request: right to delete (ccpa)': 'ccpa_delete',
+            'privacy request: right to correct (ccpa)': 'ccpa_correct',
+            'privacy request: opt-out of sale/sharing (ccpa)': 'ccpa_optout',
+            'privacy request: authorized agent / appeal': 'ccpa_agent',
             'corporate / media': 'other',
             'corporate & media': 'other'
         };
         const rawReason = REASON_ALIASES[rawReasonInput] || rawReasonInput || 'general';
-        const rawStore = sanitizeText(body.store);
+        const rawStore = sanitizeText(body.store || body.location);
         const message = sanitizeText(body.message);
 
         // 5b. Automated Bot / Gibberish / Scanner Filter (Shadow-Drop)
         if (isAutomatedBotSubmission({ name, email, message, userAgent: req.headers['user-agent'] })) {
             return res.status(200).json({
                 ok: true,
+                reference_id: 'TG-FILTERED',
+                submitted_at: new Date().toISOString(),
                 message: 'Thank you for your message.'
             });
         }
@@ -330,6 +383,11 @@ module.exports = async function handler(req, res) {
         // Resolve store_id (default to Lynwood: 14 if store is not specified)
         const storeId = rawStore ? STORE_NAME_TO_ID[rawStore] : 14;
         const ua = (req.headers['user-agent'] || '').slice(0, 200);
+        const submittedAt = new Date().toISOString();
+        const isCcpaRequest = rawReason.startsWith('ccpa_') || rawReason === 'privacy';
+        const tagPrefix = isCcpaRequest
+            ? `[CCPA/CPRA PRIVACY REQUEST: ${rawReason.toUpperCase()} | 10-Bus-Day Receipt / 45-Day Statutory SLA]`
+            : `[Website Contact Form: ${rawReason}]`;
 
         const dbPayload = {
             store_id: storeId,
@@ -339,11 +397,11 @@ module.exports = async function handler(req, res) {
             comments: message,
             complaint_type: rawReason,
             source: 'website_contact',
-            submission_date: new Date().toISOString(),
+            submission_date: submittedAt,
             requires_follow_up: true,
             review_status: 'pending',
             admin_review_status: 'pendiente',
-            admin_observation: `[Website Contact Form] Store Selected: ${rawStore || 'None (General)'} | Client IP: ${clientIp} | UA: ${ua}`
+            admin_observation: `${tagPrefix} Store Selected: ${rawStore || 'None (General)'} | Submitted UTC: ${submittedAt} | Client IP: ${clientIp} | UA: ${ua}`
         };
 
         const dbRes = await fetch(`${supabaseUrl}/rest/v1/customer_feedback`, {
@@ -375,13 +433,21 @@ module.exports = async function handler(req, res) {
             });
         }
 
+        const recordId = insertedRows[0].id;
+        const confirmedTimestamp = insertedRows[0].submission_date || submittedAt;
+        const dateCompact = confirmedTimestamp.slice(0, 10).replace(/-/g, '');
+        const referenceId = `TG-${dateCompact}-${recordId}`;
+
         // Return HTTP 200 ONLY after confirmed database persistence
         return res.status(200).json({
             ok: true,
             success: true,
-            id: insertedRows[0].id,
-            message: 'Thank you! Your message has been sent to Tacos Gavilan. We will get back to you shortly.',
-            message_es: '¡Gracias! Tu mensaje ha sido enviado a Tacos Gavilan. Nos pondremos en contacto contigo pronto.'
+            id: recordId,
+            reference_id: referenceId,
+            submitted_at: confirmedTimestamp,
+            category: rawReason,
+            message: `Thank you! Your submission has been received by Tacos Gavilan. Confirmation Reference ID: ${referenceId} (Recorded at ${confirmedTimestamp}).`,
+            message_es: `¡Gracias! Tu solicitud ha sido recibida por Tacos Gavilan. ID de Confirmación: ${referenceId} (Registrado el ${confirmedTimestamp}).`
         });
 
     } catch (err) {

@@ -5,22 +5,22 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>Contact Us | Tacos Gavilan Guest Support &amp; Feedback</title>
-    <meta name="description" content="Get in touch with Tacos Gavilan. Contact Tacos Gavilan for guest support, store feedback, catering inquiries, or general questions.">
+    <meta name="description" content="Get in touch with Tacos Gavilan. Contact Tacos Gavilan for guest support, store feedback, catering inquiries, accessibility assistance, or California privacy requests.">
     <link rel="canonical" href="https://tacosgavilan.com/contact/">
-        <!-- Favicon & Brand Icons (Transparent TEG Logo) -->
+    <!-- Favicon & Brand Icons (Transparent TEG Logo) -->
     <link rel="icon" type="image/png" href="/logo.png?v=5">
     <link rel="icon" type="image/png" sizes="32x32" href="/img/favicon-32x32.png?v=5">
     <link rel="icon" type="image/png" sizes="16x16" href="/img/favicon-16x16.png?v=5">
     <link rel="shortcut icon" href="/favicon.ico?v=5">
     <link rel="apple-touch-icon" sizes="180x180" href="/img/apple-touch-icon.png?v=5">
-<link rel="manifest" href="../manifest.webmanifest">
+    <link rel="manifest" href="../manifest.webmanifest">
     <meta name="theme-color" content="#DA291C">
 
     <!-- Open Graph -->
     <meta property="og:type" content="website">
     <meta property="og:site_name" content="Tacos Gavilan">
     <meta property="og:title" content="Contact Us | Tacos Gavilan Guest Support &amp; Feedback">
-    <meta property="og:description" content="We love hearing from our guests! Reach out to Tacos Gavilan for catering inquiries, store feedback, or corporate questions.">
+    <meta property="og:description" content="Reach out to Tacos Gavilan for catering inquiries, store feedback, accessibility assistance, or privacy requests.">
     <meta property="og:url" content="https://tacosgavilan.com/contact/">
     <meta property="og:image" content="https://tacosgavilan.com/img/og-tacos-gavilan-1200x630.jpg">
     <meta property="og:image:width" content="1200">
@@ -31,25 +31,31 @@
     <!-- Twitter Card -->
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:title" content="Contact Us | Tacos Gavilan">
-    <meta name="twitter:description" content="Reach out to Tacos Gavilan for catering inquiries, store feedback, or corporate questions.">
+    <meta name="twitter:description" content="Reach out to Tacos Gavilan for catering inquiries, store feedback, accessibility assistance, or privacy requests.">
     <meta name="twitter:image" content="https://tacosgavilan.com/img/og-tacos-gavilan-1200x630.jpg">
 
-    <!-- California CCPA/CPRA & Google Consent Mode v2 Pre-Initialization -->
+    <!-- California CCPA/CPRA & Google Consent Mode v2 Strict Prior-Consent Gate -->
     <script>
     (function() {
         window.dataLayer = window.dataLayer || [];
         function gtag(){window.dataLayer.push(arguments);}
+        window.gtag = gtag;
         var gpc = (typeof navigator !== 'undefined' && navigator.globalPrivacyControl === true);
-        var allowMkt = !gpc;
-        var allowAna = true;
+        var allowMkt = false;
+        var allowAna = false;
         try {
             var raw = localStorage.getItem('tg_cookie_consent') || localStorage.getItem('tacosgavilan_cookie_consent');
-            if (raw === 'declined') {
-                allowMkt = false; allowAna = false;
+            if (raw === 'accepted' && !gpc) {
+                allowMkt = true; allowAna = true;
             } else if (raw && raw.charAt(0) === '{') {
                 var parsed = JSON.parse(raw);
-                if (parsed.doNotSell || gpc) { allowMkt = false; allowAna = false; }
-                else { allowMkt = !!parsed.marketing; allowAna = !!parsed.analytics; }
+                if (parsed.doNotSell || gpc) {
+                    allowMkt = false;
+                    allowAna = !!parsed.analytics;
+                } else {
+                    allowMkt = !!parsed.marketing;
+                    allowAna = !!parsed.analytics;
+                }
             }
         } catch (e) {}
         if (!allowAna) window['ga-disable-UA-74752614-19'] = true;
@@ -58,16 +64,25 @@
             'ad_user_data': allowMkt ? 'granted' : 'denied',
             'ad_personalization': allowMkt ? 'granted' : 'denied',
             'analytics_storage': allowAna ? 'granted' : 'denied',
+            'functionality_storage': 'granted',
+            'security_storage': 'granted',
             'wait_for_update': 500
         });
+        window.__tgLoadGTMIfConsented = function(anaGranted, mktGranted) {
+            if (!anaGranted && !mktGranted) return;
+            if (window.__tgGtmLoaded) return;
+            window.__tgGtmLoaded = true;
+            (function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
+            new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
+            j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
+            'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
+            })(window,document,'script','dataLayer','GTM-WW2N58Z');
+        };
+        if (allowAna || allowMkt) {
+            window.__tgLoadGTMIfConsented(allowAna, allowMkt);
+        }
     })();
     </script>
-    <!-- Google Tag Manager -->
-    <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
-    new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
-    j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
-    'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
-    })(window,document,'script','dataLayer','GTM-WW2N58Z');</script>
 
     <link rel="stylesheet" href="../css/style.css?v=35">
     <link rel="stylesheet" href="../css/compliance-a11y.css?v=28">
@@ -200,7 +215,7 @@
         "url": "https://tacosgavilan.com/",
         "name": "Tacos Gavilan"
       },
-      "description": "Contact Tacos Gavilan or submit guest feedback.",
+      "description": "Contact Tacos Gavilan, submit guest feedback, or submit a California privacy request.",
       "mainEntity": {
         "@type": "Organization",
         "name": "Tacos Gavilan",
@@ -212,12 +227,8 @@
 </head>
 
 <body>
-    <!-- Google Tag Manager (noscript) -->
-    <noscript><iframe src="https://www.googletagmanager.com/ns.html?id=GTM-WW2N58Z"
-    height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
-
     <!-- Header Navigation -->
-            <header class="header scrolled" id="header">
+    <header class="header scrolled" id="header">
         <div class="scroll-progress" id="scroll-progress" aria-hidden="true"></div>
         <div class="container header-container">
             <!-- Logo (left) -->
@@ -268,8 +279,6 @@
         </div>
     </header>
 
-    
-
     <!-- Main Content -->
     <main class="page-content-wrapper" id="main-content">
         <div class="contact-container">
@@ -277,7 +286,7 @@
                 <span class="section-tag" data-i18n="contact.tag">Get In Touch</span>
                 <h1 class="section-title" data-i18n="contact.title">Contact Tacos Gavilan</h1>
                 <p class="section-desc" style="max-width: 650px; margin: 0 auto;" data-i18n="contact.lead">
-                    Have questions about our menu, catering, or dining experience? Reach out to our corporate headquarters or send us a message below.
+                    Have questions about our menu, catering, dining experience, accessibility, or California privacy rights? Reach out to our corporate team or send us a request below.
                 </p>
             </div>
 
@@ -287,7 +296,7 @@
                     <h2 style="font-size: 1.4rem; color: #ffffff; margin-bottom: 1.5rem; font-family: var(--ff-heading, sans-serif);" data-i18n="contact.guestSupport">Guest Support &amp; Inquiries</h2>
 
                     <div class="contact-detail-block">
-                        <div class="contact-detail-label" data-i18n="contact.emailLabel">Email Inquiries</div>
+                        <div class="contact-detail-label" data-i18n="contact.emailLabel">Email Inquiries &amp; Privacy Requests</div>
                         <p class="contact-detail-value">
                             <a href="mailto:info@tacosgavilan.com">info@tacosgavilan.com</a>
                         </p>
@@ -336,8 +345,8 @@
                                 <input type="email" id="contact-email" name="email" required placeholder="you@example.com" autocomplete="email">
                             </div>
                             <div class="form-group">
-                                <label for="contact-phone" data-i18n="contact.fieldPhone">Phone Number *</label>
-                                <input type="tel" id="contact-phone" name="phone" required placeholder="(555) 000-0000" autocomplete="tel">
+                                <label for="contact-phone" data-i18n="contact.fieldPhone">Phone Number (Optional)</label>
+                                <input type="tel" id="contact-phone" name="phone" placeholder="(555) 000-0000" autocomplete="tel">
                             </div>
                         </div>
 
@@ -364,11 +373,18 @@
                         </div>
 
                         <div class="form-group">
-                            <label for="contact-type" data-i18n="contact.fieldType">Inquiry Subject</label>
+                            <label for="contact-type" data-i18n="contact.fieldType">Inquiry Subject / Privacy Request Type</label>
                             <select id="contact-type" name="reason">
                                 <option value="general" data-i18n="contact.optCorporate">General Inquiry</option>
                                 <option value="catering" data-i18n="contact.optCatering">Catering &amp; Fiesta Platters</option>
                                 <option value="feedback" data-i18n="contact.optFeedback">Customer Feedback &amp; Guest Experience</option>
+                                <option value="employment" data-i18n="contact.reasonEmployment">Employment / Careers Inquiry</option>
+                                <option value="accessibility" data-i18n="contact.reasonAccessibility">Website Accessibility / ADA Assistance</option>
+                                <option value="ccpa_know" data-i18n="contact.reasonCcpaKnow">Privacy Request: Right to Know / Access (CCPA)</option>
+                                <option value="ccpa_delete" data-i18n="contact.reasonCcpaDelete">Privacy Request: Right to Delete (CCPA)</option>
+                                <option value="ccpa_correct" data-i18n="contact.reasonCcpaCorrect">Privacy Request: Right to Correct (CCPA)</option>
+                                <option value="ccpa_optout" data-i18n="contact.reasonCcpaOptOut">Privacy Request: Opt-Out of Sale/Sharing (CCPA)</option>
+                                <option value="ccpa_agent" data-i18n="contact.reasonCcpaAgent">Privacy Request: Authorized Agent / Appeal</option>
                                 <option value="other" data-i18n="contact.optMedia">Corporate &amp; Media</option>
                             </select>
                         </div>
@@ -376,6 +392,10 @@
                         <div class="form-group">
                             <label for="contact-message" data-i18n="contact.fieldMessage">Message *</label>
                             <textarea id="contact-message" name="message" rows="4" required placeholder="How can we help you?" data-i18n-placeholder="contact.fieldMessagePlaceholder"></textarea>
+                        </div>
+
+                        <div class="contact-collection-notice" id="contact-page-collection-notice" style="margin: 0.75rem 0 1.25rem; padding: 0.85rem 1rem; background: rgba(255,199,44,0.06); border-left: 3px solid #FFC72C; border-radius: 6px; font-size: 0.82rem; line-height: 1.5; color: #ddd;">
+                            <span data-i18n="contact.noticeAtCollection"><strong>California Notice at Collection:</strong> We collect the name, email, phone number, store preference, and message you submit solely to respond to your inquiry or process your privacy request. We do not sell or share form submissions for advertising. Please <strong>do not submit sensitive personal information</strong> (such as Social Security numbers, payment card numbers, government IDs, or medical/health details) in this form. Review our <a href="../privacy/#notice-at-collection" style="color:#FFC72C;text-decoration:underline;">Notice at Collection</a>, <a href="../privacy/" style="color:#FFC72C;text-decoration:underline;">Privacy Policy</a>, and <a href="../privacy-choices/" style="color:#FFC72C;text-decoration:underline;">Your Privacy Choices</a>.</span>
                         </div>
 
                         <button type="submit" id="btn-submit-contact" class="btn btn-primary" style="width: 100%; padding: 0.9rem;" data-i18n="contact.submitBtn">
@@ -413,9 +433,10 @@
                     <h4 class="footer-heading" data-i18n="footer.legal">Legal &amp; Privacy</h4>
                     <ul class="footer-links">
                         <li><a href="../privacy/" data-i18n="footer.privacy">Privacy Policy</a></li>
+                        <li><a href="../privacy/#notice-at-collection" data-i18n="footer.noticeAtCollection">Notice at Collection</a></li>
                         <li><a href="../terms/" data-i18n="footer.terms">Terms of Use</a></li>
                         <li><a href="../accessibility/" data-i18n="footer.accessibility">Accessibility Statement</a></li>
-                        <li><a href="../privacy-choices/" data-i18n="footer.privacyChoices">Do Not Sell My Info</a></li>
+                        <li><a href="../privacy-choices/" data-i18n="footer.privacyChoices">Your Privacy Choices</a></li>
                     </ul>
                 </div>
                 <div class="footer-col">
@@ -444,6 +465,21 @@
             const form = document.getElementById('contact-page-form');
             const feedback = document.getElementById('contact-form-feedback');
             const submitBtn = document.getElementById('btn-submit-contact');
+            const typeSelect = document.getElementById('contact-type');
+
+            // Auto-select reason from URL query parameter (e.g. ?reason=ccpa_know)
+            try {
+                const params = new URLSearchParams(window.location.search);
+                const reasonParam = params.get('reason');
+                if (reasonParam && typeSelect) {
+                    for (let i = 0; i < typeSelect.options.length; i++) {
+                        if (typeSelect.options[i].value === reasonParam) {
+                            typeSelect.selectedIndex = i;
+                            break;
+                        }
+                    }
+                }
+            } catch (_) {}
 
             if (!form) return;
 
@@ -487,7 +523,13 @@
                     const data = await res.json();
                     if (res.ok && data.ok) {
                         feedback.className = 'form-feedback-message is-success';
-                        feedback.textContent = isSpanish ? data.message_es || data.message : data.message;
+                        const refInfo = data.reference_id
+                            ? (isSpanish
+                                ? ` (ID de Confirmación: ${data.reference_id} | Fecha/Hora UTC: ${data.submitted_at || ''})`
+                                : ` (Confirmation Reference ID: ${data.reference_id} | UTC Timestamp: ${data.submitted_at || ''})`)
+                            : '';
+                        const baseMsg = isSpanish ? (data.message_es || data.message) : data.message;
+                        feedback.textContent = baseMsg && baseMsg.includes(data.reference_id || 'TG-') ? baseMsg : (baseMsg + refInfo);
                         form.reset();
                     } else {
                         feedback.className = 'form-feedback-message is-error';

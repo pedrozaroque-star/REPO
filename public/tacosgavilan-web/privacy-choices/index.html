@@ -4,8 +4,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-    <title>Your California Privacy Choices (Do Not Sell or Share) | Tacos Gavilan</title>
-    <meta name="description" content="Manage your California CCPA/CPRA privacy preferences, Do Not Sell or Share My Personal Information opt-out, and Global Privacy Control (GPC) settings on Tacos Gavilan.">
+    <title>Your California Privacy Choices (Do Not Sell or Share / GPC) | Tacos Gavilan</title>
+    <meta name="description" content="Exercise your California CCPA/CPRA privacy choices for Tacos Gavilan. Opt out of the sale or sharing of personal information, verify Global Privacy Control (GPC) status, and manage cookies.">
     <link rel="canonical" href="https://tacosgavilan.com/privacy-choices/">
     <!-- Favicon & Brand Icons (Transparent TEG Logo) -->
     <link rel="icon" type="image/png" href="/logo.png?v=5">
@@ -19,8 +19,8 @@
     <!-- Open Graph -->
     <meta property="og:type" content="website">
     <meta property="og:site_name" content="Tacos Gavilan">
-    <meta property="og:title" content="Your California Privacy Choices (Do Not Sell or Share) | Tacos Gavilan">
-    <meta property="og:description" content="Manage your California CCPA/CPRA privacy preferences, Do Not Sell or Share My Personal Information opt-out, and Global Privacy Control (GPC) settings on Tacos Gavilan.">
+    <meta property="og:title" content="Your California Privacy Choices (Do Not Sell or Share / GPC) | Tacos Gavilan">
+    <meta property="og:description" content="Exercise your California CCPA/CPRA privacy choices for Tacos Gavilan. Opt out of the sale or sharing of personal information, verify Global Privacy Control (GPC) status, and manage cookies.">
     <meta property="og:url" content="https://tacosgavilan.com/privacy-choices/">
     <meta property="og:image" content="https://tacosgavilan.com/img/og-tacos-gavilan-1200x630.jpg">
     <meta property="og:image:width" content="1200">
@@ -30,13 +30,13 @@
 
     <!-- Twitter Card -->
     <meta name="twitter:card" content="summary_large_image">
-    <meta name="twitter:title" content="Your California Privacy Choices (Do Not Sell or Share) | Tacos Gavilan">
-    <meta name="twitter:description" content="Manage your California CCPA/CPRA privacy preferences, Do Not Sell or Share My Personal Information opt-out, and Global Privacy Control (GPC) settings on Tacos Gavilan.">
+    <meta name="twitter:title" content="Your California Privacy Choices (Do Not Sell or Share / GPC) | Tacos Gavilan">
+    <meta name="twitter:description" content="Exercise your California CCPA/CPRA privacy choices for Tacos Gavilan. Opt out of the sale or sharing of personal information, verify Global Privacy Control (GPC) status, and manage cookies.">
     <meta name="twitter:image" content="https://tacosgavilan.com/img/og-tacos-gavilan-1200x630.jpg">
     <meta name="twitter:image:alt" content="Tacos Gavilan authentic Mexican food">
 
-    <link rel="stylesheet" href="../css/style.css?v=35">
-    <link rel="stylesheet" href="../css/compliance-a11y.css?v=28">
+    <link rel="stylesheet" href="../css/style.css?v=36">
+    <link rel="stylesheet" href="../css/compliance-a11y.css?v=36">
     <style>
         .legal-page-wrapper {
             padding-top: calc(var(--header-height, 70px) + 2.5rem);
@@ -44,12 +44,12 @@
             min-height: 80vh;
         }
         .legal-container {
-            max-width: 880px;
+            max-width: 960px;
             margin: 0 auto;
             padding: 0 1.5rem;
         }
         .legal-card {
-            background: rgba(22, 20, 18, 0.92);
+            background: rgba(22, 20, 18, 0.94);
             border: 1px solid rgba(255, 199, 44, 0.22);
             border-radius: var(--radius-lg, 16px);
             padding: 2.75rem 2.25rem;
@@ -67,13 +67,25 @@
             font-family: var(--ff-heading, sans-serif);
             line-height: 1.2;
         }
+        .legal-meta-bar {
+            display: inline-block;
+            background: rgba(255, 199, 44, 0.08);
+            border: 1px solid rgba(255, 199, 44, 0.28);
+            border-radius: 8px;
+            padding: 0.65rem 1rem;
+            margin-bottom: 1rem;
+            font-size: 0.86rem;
+            line-height: 1.55;
+            color: rgba(255, 255, 255, 0.9);
+        }
         .legal-intro {
-            font-size: 1.05rem;
-            line-height: 1.65;
+            font-size: 1.02rem;
+            line-height: 1.68;
             color: rgba(255, 255, 255, 0.88);
         }
         .legal-section {
-            margin-top: 2.1rem;
+            margin-top: 2.25rem;
+            scroll-margin-top: 100px;
         }
         .legal-section h2 {
             font-size: 1.28rem;
@@ -85,9 +97,9 @@
             line-height: 1.35;
         }
         .legal-section p, .legal-section li {
-            font-size: 0.98rem;
+            font-size: 0.96rem;
             line-height: 1.72;
-            color: rgba(255, 255, 255, 0.82);
+            color: rgba(255, 255, 255, 0.84);
             margin-bottom: 0.8rem;
         }
         .legal-section ul {
@@ -98,6 +110,39 @@
         .legal-section a {
             color: var(--clr-gold, #FFC72C);
             text-decoration: underline;
+        }
+        .legal-table-wrap {
+            width: 100%;
+            overflow-x: auto;
+            margin: 1.25rem 0 1.5rem;
+            border: 1px solid rgba(255, 199, 44, 0.22);
+            border-radius: 10px;
+            background: rgba(14, 12, 10, 0.85);
+            -webkit-overflow-scrolling: touch;
+        }
+        .legal-data-table {
+            width: 100%;
+            border-collapse: collapse;
+            min-width: 760px;
+            font-size: 0.86rem;
+            line-height: 1.55;
+        }
+        .legal-data-table th,
+        .legal-data-table td {
+            padding: 0.75rem 0.85rem;
+            text-align: left;
+            vertical-align: top;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            color: rgba(255, 255, 255, 0.86);
+        }
+        .legal-data-table th {
+            background: rgba(255, 199, 44, 0.12);
+            color: var(--clr-gold, #FFC72C);
+            font-weight: 700;
+            white-space: nowrap;
+        }
+        .legal-data-table tr:last-child td {
+            border-bottom: none;
         }
         .legal-contact-box {
             background: rgba(255, 199, 44, 0.08);
@@ -138,6 +183,19 @@
             color: var(--clr-gold, #FFC72C);
             font-size: 0.95rem;
         }
+        .legal-gpc-honored-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            background: rgba(34, 197, 94, 0.14);
+            border: 1px solid rgba(34, 197, 94, 0.45);
+            color: #4ade80;
+            padding: 0.45rem 0.85rem;
+            border-radius: 999px;
+            font-size: 0.85rem;
+            font-weight: 700;
+            width: fit-content;
+        }
         .legal-choices-actions {
             display: flex;
             flex-wrap: wrap;
@@ -145,26 +203,30 @@
         }
         @media (max-width: 600px) {
             .legal-card {
-                padding: 1.75rem 1.25rem;
+                padding: 1.5rem 1.1rem;
+            }
+            .legal-container {
+                padding: 0 1rem;
             }
         }
     </style>
-    <!-- California CCPA/CPRA & Google Consent Mode v2 Pre-Initialization -->
+    <!-- California CCPA/CPRA & Google Consent Mode v2 Strict Prior-Consent Gate -->
     <script>
     (function() {
         window.dataLayer = window.dataLayer || [];
         function gtag(){window.dataLayer.push(arguments);}
+        window.gtag = gtag;
         var gpc = (typeof navigator !== 'undefined' && navigator.globalPrivacyControl === true);
-        var allowMkt = !gpc;
-        var allowAna = true;
+        var allowMkt = false;
+        var allowAna = false;
         try {
             var raw = localStorage.getItem('tg_cookie_consent') || localStorage.getItem('tacosgavilan_cookie_consent');
-            if (raw === 'declined') {
-                allowMkt = false; allowAna = false;
-            } else if (raw && raw.charAt(0) === '{') {
+            if (raw && raw.charAt(0) === '{') {
                 var parsed = JSON.parse(raw);
-                if (parsed.doNotSell || gpc) { allowMkt = false; allowAna = false; }
-                else { allowMkt = !!parsed.marketing; allowAna = !!parsed.analytics; }
+                if (!parsed.doNotSell && !gpc) {
+                    allowMkt = parsed.marketing === true;
+                    allowAna = parsed.analytics === true;
+                }
             }
         } catch (e) {}
         if (!allowAna) window['ga-disable-UA-74752614-19'] = true;
@@ -173,23 +235,30 @@
             'ad_user_data': allowMkt ? 'granted' : 'denied',
             'ad_personalization': allowMkt ? 'granted' : 'denied',
             'analytics_storage': allowAna ? 'granted' : 'denied',
+            'functionality_storage': 'granted',
+            'security_storage': 'granted',
             'wait_for_update': 500
         });
+        if (gpc) {
+            window.dataLayer.push({ 'event': 'gpc_signal_detected', 'global_privacy_control': true });
+        }
+        window.__tgLoadGTMIfConsented = function(ana, mkt) {
+            if (gpc || (!ana && !mkt) || window.__tgGtmLoaded) return;
+            window.__tgGtmLoaded = true;
+            (function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
+            new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
+            j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
+            'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
+            })(window,document,'script','dataLayer','GTM-WW2N58Z');
+        };
+        if (allowAna || allowMkt) {
+            window.__tgLoadGTMIfConsented(allowAna, allowMkt);
+        }
     })();
     </script>
-    <!-- Google Tag Manager -->
-    <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
-    new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
-    j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
-    'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
-    })(window,document,'script','dataLayer','GTM-WW2N58Z');</script>
 </head>
 
 <body>
-    <!-- Google Tag Manager (noscript) -->
-    <noscript><iframe src="https://www.googletagmanager.com/ns.html?id=GTM-WW2N58Z"
-    height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
-
     <a href="#main-content" class="skip-link" data-en="Skip to main content" data-es="Saltar al contenido principal">Skip to main content</a>
     <header class="header scrolled" id="header">
         <div class="scroll-progress" id="scroll-progress" aria-hidden="true"></div>
@@ -243,52 +312,41 @@
         <div class="legal-container">
             <article class="legal-card">
                 <header class="legal-header">
-                    <h1 class="legal-title" data-en="Your California Privacy Choices — Do Not Sell or Share My Personal Information" data-es="Sus Opciones de Privacidad en California — No Vender ni Compartir Mi Información Personal">Your California Privacy Choices — Do Not Sell or Share My Personal Information</h1>
-                    <p class="legal-intro" data-en="Last Updated: October 16, 2026. Pursuant to the California Consumer Privacy Act (CCPA) and California Privacy Rights Act (CPRA § 1798.135), Tacos Gavilan provides this page so you can easily manage your cookie preferences and exercise your right to opt out of the sale or sharing of personal information." data-es="Última actualización: 16 de octubre de 2026. De conformidad con la Ley de Privacidad del Consumidor de California (CCPA) y la Ley de Derechos de Privacidad de California (CPRA § 1798.135), Tacos Gavilan pone a su disposición esta página para que gestione fácilmente sus preferencias de cookies y ejerza su derecho a optar por no vender ni compartir su información personal.">Last Updated: October 16, 2026. Pursuant to the California Consumer Privacy Act (CCPA) and California Privacy Rights Act (CPRA § 1798.135), Tacos Gavilan provides this page so you can easily manage your cookie preferences and exercise your right to opt out of the sale or sharing of personal information.</p>
+                    <h1 class="legal-title" data-en="Your California Privacy Choices" data-es="Sus Opciones de Privacidad de California">Your California Privacy Choices</h1>
+                    <div class="legal-meta-bar" data-en="<strong>Effective Date:</strong> <code>[REQUIRES OWNER/LEGAL APPROVAL]</code> &amp;nbsp;·&amp;nbsp; <strong>Last Updated:</strong> October 16, 2026 &amp;nbsp;·&amp;nbsp; <strong>Version:</strong> 2.0 &amp;nbsp;·&amp;nbsp; <strong>Responsible Entity:</strong> Tacos Gavilan (<code>[REQUIRES OWNER/LEGAL APPROVAL: LEGAL ENTITY AND POSTAL ADDRESS]</code>)" data-es="<strong>Fecha de Entrada en Vigor:</strong> <code>[REQUIRES OWNER/LEGAL APPROVAL]</code> &amp;nbsp;·&amp;nbsp; <strong>Última Actualización:</strong> 16 de octubre de 2026 &amp;nbsp;·&amp;nbsp; <strong>Versión:</strong> 2.0 &amp;nbsp;·&amp;nbsp; <strong>Entidad Responsable:</strong> Tacos Gavilan (<code>[REQUIRES OWNER/LEGAL APPROVAL: LEGAL ENTITY AND POSTAL ADDRESS]</code>)"><strong>Effective Date:</strong> <code>[REQUIRES OWNER/LEGAL APPROVAL]</code> &nbsp;·&nbsp; <strong>Last Updated:</strong> October 16, 2026 &nbsp;·&nbsp; <strong>Version:</strong> 2.0 &nbsp;·&nbsp; <strong>Responsible Entity:</strong> Tacos Gavilan (<code>[REQUIRES OWNER/LEGAL APPROVAL: LEGAL ENTITY AND POSTAL ADDRESS]</code>)</div>
+                    <p class="legal-intro" data-en="Use the controls below to manage non-essential cookies, exercise your California CCPA/CPRA Right to Opt-Out of Sale or Sharing, verify Global Privacy Control (GPC) recognition, or submit a formal privacy request." data-es="Utilice los controles a continuación para administrar las cookies no esenciales, ejercer su Derecho de Exclusión (Opt-Out) de Venta o Uso Compartido bajo la CCPA/CPRA de California, verificar el reconocimiento de Global Privacy Control (GPC) o presentar una solicitud formal de privacidad.">Use the controls below to manage non-essential cookies, exercise your California CCPA/CPRA Right to Opt-Out of Sale or Sharing, verify Global Privacy Control (GPC) recognition, or submit a formal privacy request.</p>
                 </header>
 
-                <div class="legal-choices-panel" role="region" aria-label="Interactive Privacy Controls">
-                    <div class="legal-choices-status" id="tg-privacy-choices-status" data-en="Current Status: Checking your browser privacy preferences..." data-es="Estado Actual: Verificando sus preferencias de privacidad en este navegador...">Current Status: Checking your browser privacy preferences...</div>
-                    <p style="margin:0;color:rgba(255,255,255,0.85);font-size:0.95rem;" data-en="Use the buttons below to immediately opt out of the sale or sharing of your personal information (disabling advertising &amp; remarketing tags) or to customize your cookie categories:" data-es="Utilice los botones a continuación para optar de inmediato por no vender ni compartir su información personal (desactivando las etiquetas de publicidad y remarketing) o para personalizar sus categorías de cookies:">Use the buttons below to immediately opt out of the sale or sharing of your personal information (disabling advertising &amp; remarketing tags) or to customize your cookie categories:</p>
+                <div class="legal-choices-panel" role="region" aria-label="Privacy Preference Controls">
+                    <div class="legal-choices-status" id="page-dns-status" data-en="Current Status: Checking your browser privacy settings..." data-es="Estado Actual: Verificando la configuración de privacidad de su navegador...">Current Status: Checking your browser privacy settings...</div>
+                    <div class="legal-gpc-honored-pill" id="page-gpc-honored-badge" style="display:none;" role="status" aria-live="polite" data-en="✓ Opt-out request honored (Global Privacy Control / Do Not Sell or Share Active)" data-es="✓ Solicitud de exclusión aplicada (Global Privacy Control / No Vender ni Compartir Activo)">✓ Opt-out request honored (Global Privacy Control / Do Not Sell or Share Active)</div>
                     <div class="legal-choices-actions">
-                        <button type="button" id="page-opt-out-dns-btn" class="btn btn-primary btn-sm" data-en="Do Not Sell or Share My Personal Information (One-Click Opt-Out)" data-es="No Vender ni Compartir Mi Información Personal (Exclusión en 1 Clic)">Do Not Sell or Share My Personal Information (One-Click Opt-Out)</button>
-                        <button type="button" id="page-open-cookie-prefs-btn" class="btn btn-outline btn-sm" data-en="Open Cookie Preference Center" data-es="Abrir Centro de Preferencias de Cookies">Open Cookie Preference Center</button>
+                        <button type="button" id="page-optout-now-btn" class="btn btn-primary" data-en="Opt-Out of Sale / Sharing Now" data-es="Desactivar Venta / Compartición Ahora">Opt-Out of Sale / Sharing Now</button>
+                        <button type="button" id="page-open-cookie-prefs-btn" class="btn btn-outline" style="border:1px solid var(--clr-gold, #FFC72C);color:var(--clr-gold, #FFC72C);background:transparent;padding:0.75rem 1.25rem;border-radius:8px;cursor:pointer;font-weight:600;" data-en="Open Granular Cookie Preferences" data-es="Abrir Preferencias Granulares de Cookies">Open Granular Cookie Preferences</button>
+                        <a href="/contact/?reason=ccpa_know" class="btn btn-outline" style="border:1px solid rgba(255,255,255,0.35);color:#ffffff;background:transparent;padding:0.75rem 1.25rem;border-radius:8px;text-decoration:none;font-weight:600;display:inline-flex;align-items:center;" data-en="Submit a CCPA Data Request (Know / Delete / Correct)" data-es="Enviar Solicitud de Datos CCPA (Conocer / Eliminar / Corregir)">Submit a CCPA Data Request (Know / Delete / Correct)</a>
                     </div>
                 </div>
-                <div class="legal-section">
-                    <h2 data-en="1. Your Right to Opt Out of &quot;Sale&quot; or &quot;Sharing&quot; (CCPA / CPRA § 1798.135)" data-es="1. Su Derecho a Optar por No &quot;Vender&quot; ni &quot;Compartir&quot; (CCPA / CPRA § 1798.135)">1. Your Right to Opt Out of "Sale" or "Sharing" (CCPA / CPRA § 1798.135)</h2>
-                    <p data-en="Under the California Consumer Privacy Act (CCPA) and California Privacy Rights Act (CPRA), California residents have the right to opt out of the &quot;sale&quot; or &quot;sharing&quot; of their personal information. Tacos Gavilan never sells your personal information for monetary payment. However, under California law, allowing third-party analytics and advertising partners (such as Google Ads / Google Tag Manager, Meta, or TikTok) to collect online device identifiers or browsing activity via cookies and pixels for cross-context behavioral advertising may be considered &quot;sharing&quot; personal information." data-es="Bajo la Ley de Privacidad del Consumidor de California (CCPA) y la Ley de Derechos de Privacidad de California (CPRA), los residentes de California tienen derecho a optar por la exclusión de la &quot;venta&quot; o el &quot;intercambio&quot; (sharing) de su información personal. Tacos Gavilan nunca vende su información personal a cambio de dinero. Sin embargo, bajo la ley de California, permitir que socios externos de analítica y publicidad (como Google Ads / Google Tag Manager, Meta o TikTok) recopilen identificadores de dispositivos en línea o actividad de navegación mediante cookies y píxeles para publicidad conductual entre contextos puede considerarse &quot;compartir&quot; información personal.">Under the California Consumer Privacy Act (CCPA) and California Privacy Rights Act (CPRA), California residents have the right to opt out of the "sale" or "sharing" of their personal information. Tacos Gavilan never sells your personal information for monetary payment. However, under California law, allowing third-party analytics and advertising partners (such as Google Ads / Google Tag Manager, Meta, or TikTok) to collect online device identifiers or browsing activity via cookies and pixels for cross-context behavioral advertising may be considered "sharing" personal information.</p>
-                    <p data-en="When you click <strong>&quot;Do Not Sell or Share My Personal Information&quot;</strong> above (or toggle the option inside our Cookie Preference Center), we immediately record your opt-out preference, enforce Google Consent Mode v2 (setting <code>ad_storage</code>, <code>ad_user_data</code>, <code>ad_personalization</code>, and <code>analytics_storage</code> to <code>denied</code>), disable Google Analytics/Ads tracking, and purge non-essential tracking cookies from your browser." data-es="Cuando usted hace clic en <strong>&quot;No Vender ni Compartir Mi Información Personal&quot;</strong> arriba (o activa la opción dentro de nuestro Centro de Preferencias de Cookies), registramos de inmediato su preferencia de exclusión, aplicamos Google Consent Mode v2 (estableciendo <code>ad_storage</code>, <code>ad_user_data</code>, <code>ad_personalization</code> y <code>analytics_storage</code> en <code>denied</code>), desactivamos el seguimiento de Google Analytics/Ads y eliminamos las cookies de rastreo no esenciales de su navegador.">When you click <strong>"Do Not Sell or Share My Personal Information"</strong> above (or toggle the option inside our Cookie Preference Center), we immediately record your opt-out preference, enforce Google Consent Mode v2 (setting <code>ad_storage</code>, <code>ad_user_data</code>, <code>ad_personalization</code>, and <code>analytics_storage</code> to <code>denied</code>), disable Google Analytics/Ads tracking, and purge non-essential tracking cookies from your browser.</p>
-                </div>
 
-                <div class="legal-section">
-                    <h2 data-en="2. Global Privacy Control (GPC) Automatic Recognition" data-es="2. Reconocimiento Automático del Control Global de Privacidad (GPC)">2. Global Privacy Control (GPC) Automatic Recognition</h2>
-                    <p data-en="In compliance with California CPRA regulations (11 CCR § 7025), our website automatically detects and honors the <strong>Global Privacy Control (GPC)</strong> signal broadcast by your browser or privacy extension (<code>navigator.globalPrivacyControl === true</code>). When a GPC signal is detected, our website automatically treats it as a valid, frictionless opt-out of the sale or sharing of personal information for that browser." data-es="En cumplimiento con las regulaciones CPRA de California (11 CCR § 7025), nuestro sitio web detecta y respeta automáticamente la señal de <strong>Control Global de Privacidad (GPC)</strong> emitida por su navegador o extensión de privacidad (<code>navigator.globalPrivacyControl === true</code>). Cuando se detecta una señal GPC, nuestro sitio web la aplica automáticamente como una solicitud válida y sin fricciones para no vender ni compartir información personal en dicho navegador.">In compliance with California CPRA regulations (11 CCR § 7025), our website automatically detects and honors the <strong>Global Privacy Control (GPC)</strong> signal broadcast by your browser or privacy extension (<code>navigator.globalPrivacyControl === true</code>). When a GPC signal is detected, our website automatically treats it as a valid, frictionless opt-out of the sale or sharing of personal information for that browser.</p>
-                </div>
-
-                <div class="legal-section">
-                    <h2 data-en="3. Essential Storage &amp; Cookies We Use" data-es="3. Almacenamiento Esencial y Cookies que Utilizamos">3. Essential Storage & Cookies We Use</h2>
-                    <p data-en="Even when you opt out of analytics and advertising cookies, our website uses strictly necessary local storage keys so the site functions properly according to your preferences:" data-es="Incluso cuando usted opta por excluir las cookies de analítica y publicidad, nuestro sitio web utiliza claves de almacenamiento local estrictamente necesarias para funcionar correctamente según sus preferencias:">Even when you opt out of analytics and advertising cookies, our website uses strictly necessary local storage keys so the site functions properly according to your preferences:</p>
-                    <ul>
-                        <li data-en="<code>tacosgavilan_lang</code> — Remembers your selected display language (English or Español)." data-es="<code>tacosgavilan_lang</code> — Recuerda su idioma de visualización seleccionado (Inglés o Español)."><code>tacosgavilan_lang</code> — Remembers your selected display language (English or Español).</li>
-                        <li data-en="<code>tg_cookie_consent</code> / <code>tacosgavilan_cookie_consent</code> — Remembers your California privacy and cookie consent status so your opt-out is enforced on every page." data-es="<code>tg_cookie_consent</code> / <code>tacosgavilan_cookie_consent</code> — Recuerda su estado de consentimiento de privacidad y cookies de California para que su exclusión se respete en cada página."><code>tg_cookie_consent</code> / <code>tacosgavilan_cookie_consent</code> — Remembers your California privacy and cookie consent status so your opt-out is enforced on every page.</li>
-                        <li data-en="<code>tg_a11y_prefs</code> — Remembers any ADA accessibility adjustments (such as high contrast or enlarged text) you enable." data-es="<code>tg_a11y_prefs</code> — Recuerda cualquier ajuste de accesibilidad ADA (como alto contraste o texto ampliado) que usted active."><code>tg_a11y_prefs</code> — Remembers any ADA accessibility adjustments (such as high contrast or enlarged text) you enable.</li>
-                    </ul>
-                </div>
-
-                <div class="legal-section">
-                    <h2 data-en="4. How to Submit Requests to Know, Delete, or Correct" data-es="4. Cómo Enviar Solicitudes para Conocer, Eliminar o Corregir sus Datos">4. How to Submit Requests to Know, Delete, or Correct</h2>
-                    <p data-en="In addition to opting out of cookie/pixel sharing above, California residents may request access to, correction of, or deletion of personal information submitted through our website (such as contact form inquiries) through either of the following two designated methods:" data-es="Además de optar por excluir el uso compartido de cookies/píxeles arriba, los residentes de California pueden solicitar el acceso, la corrección o la eliminación de la información personal enviada a través de nuestro sitio web (como consultas del formulario de contacto) mediante cualquiera de los siguientes dos métodos designados:">In addition to opting out of cookie/pixel sharing above, California residents may request access to, correction of, or deletion of personal information submitted through our website (such as contact form inquiries) through either of the following two designated methods:</p>
-                    <ul>
-                        <li data-en="<strong>By Email:</strong> <a href=&quot;mailto:info@tacosgavilan.com&quot;>info@tacosgavilan.com</a> (Please include &quot;California Privacy Request&quot; in the subject line)." data-es="<strong>Por Correo Electrónico:</strong> <a href=&quot;mailto:info@tacosgavilan.com&quot;>info@tacosgavilan.com</a> (Por favor incluya &quot;Solicitud de Privacidad de California&quot; en el asunto)."><strong>By Email:</strong> <a href="mailto:info@tacosgavilan.com">info@tacosgavilan.com</a> (Please include "California Privacy Request" in the subject line).</li>
-                        <li data-en="<strong>By Web Form:</strong> Submit a request through our <a href=&quot;/contact/&quot;>Online Contact Form</a>." data-es="<strong>Por Formulario Web:</strong> Envíe una solicitud a través de nuestro <a href=&quot;/contact/&quot;>Formulario de Contacto en Línea</a>."><strong>By Web Form:</strong> Submit a request through our <a href="/contact/">Online Contact Form</a>.</li>
-                    </ul>
-                    <p data-en="For full details on our data practices, please read our complete <a href=&quot;/privacy/&quot;>Privacy Policy &amp;amp; California Privacy Notice</a>." data-es="Para conocer todos los detalles sobre nuestras prácticas de datos, consulte nuestra <a href=&quot;/privacy/&quot;>Política de Privacidad y Aviso de Privacidad de California</a> completa.">For full details on our data practices, please read our complete <a href="/privacy/">Privacy Policy &amp; California Privacy Notice</a>.</p>
-                </div>
+                <section class="legal-section" id="right-to-opt-out">
+                    <h2 data-en="1. Your Right to Opt-Out of Sale or Sharing (CCPA / CPRA)" data-es="1. Su Derecho de Exclusión (Opt-Out) de Venta o Uso Compartido (CCPA / CPRA)">1. Your Right to Opt-Out of Sale or Sharing (CCPA / CPRA)</h2>
+                    <p data-en="Under the California Consumer Privacy Act (CCPA), as amended by the California Privacy Rights Act (CPRA), California residents have the right to direct a business not to &quot;sell&quot; or &quot;share&quot; their personal information for cross-context behavioral advertising. <strong>Tacos Gavilan does not sell your personal information for monetary consideration.</strong> Furthermore, non-essential analytics and marketing tags (Google Tag Manager <code>GTM-WW2N58Z</code>, Google Analytics, Meta Pixel, and TikTok Pixel) are <strong>blocked by default</strong> prior to your consent. If you previously opted in and wish to revoke consent or record an explicit Opt-Out of Sale/Sharing, click <strong>&quot;Opt-Out of Sale / Sharing Now&quot;</strong> above." data-es="Bajo la Ley de Privacidad del Consumidor de California (CCPA), reformada por la Ley de Derechos de Privacidad de California (CPRA), los residentes de California tienen derecho a indicar a una empresa que no &quot;venda&quot; ni &quot;comparta&quot; su información personal para publicidad conductual entre contextos. <strong>Tacos Gavilan no vende su información personal a cambio de dinero.</strong> Además, las etiquetas no esenciales de analítica y marketing (Google Tag Manager <code>GTM-WW2N58Z</code>, Google Analytics, Meta Pixel y TikTok Pixel) están <strong>bloqueadas por defecto</strong> antes de su consentimiento. Si usted aceptó previamente y desea revocar su consentimiento o registrar una Exclusión explícita de Venta/Uso Compartido, haga clic en <strong>&quot;Desactivar Venta / Compartición Ahora&quot;</strong> arriba.">Under the California Consumer Privacy Act (CCPA), as amended by the California Privacy Rights Act (CPRA), California residents have the right to direct a business not to "sell" or "share" their personal information for cross-context behavioral advertising. <strong>Tacos Gavilan does not sell your personal information for monetary consideration.</strong> Furthermore, non-essential analytics and marketing tags (Google Tag Manager <code>GTM-WW2N58Z</code>, Google Analytics, Meta Pixel, and TikTok Pixel) are <strong>blocked by default</strong> prior to your consent. If you previously opted in and wish to revoke consent or record an explicit Opt-Out of Sale/Sharing, click <strong>"Opt-Out of Sale / Sharing Now"</strong> above.</p>
+                </section>
+                <section class="legal-section" id="gpc-recognition">
+                    <h2 data-en="2. Global Privacy Control (GPC) Signal Recognition" data-es="2. Reconocimiento Automático de la Señal Global Privacy Control (GPC)">2. Global Privacy Control (GPC) Signal Recognition</h2>
+                    <p data-en="Our Site automatically detects and honors the <strong>Global Privacy Control (GPC)</strong> browser signal (<code>navigator.globalPrivacyControl === true</code>) as a valid request to opt out of the sale or sharing of personal information. When GPC is active in your browser or privacy extension, marketing and advertising tags are automatically blocked and you will see the green <strong>&quot;Opt-out request honored&quot;</strong> badge above and in our Cookie Preference Center." data-es="Nuestro Sitio detecta y respeta automáticamente la señal del navegador <strong>Global Privacy Control (GPC)</strong> (<code>navigator.globalPrivacyControl === true</code>) como una solicitud válida para excluir la venta o el uso compartido de información personal. Cuando GPC está activo en su navegador o extensión de privacidad, las etiquetas de marketing y publicidad se bloquean automáticamente y verá el indicador verde <strong>&quot;Solicitud de exclusión aplicada (Opt-out request honored)&quot;</strong> arriba y en nuestro Centro de Preferencias de Cookies.">Our Site automatically detects and honors the <strong>Global Privacy Control (GPC)</strong> browser signal (<code>navigator.globalPrivacyControl === true</code>) as a valid request to opt out of the sale or sharing of personal information. When GPC is active in your browser or privacy extension, marketing and advertising tags are automatically blocked and you will see the green <strong>"Opt-out request honored"</strong> badge above and in our Cookie Preference Center.</p>
+                </section>
+                <section class="legal-section" id="opt-out-effect">
+                    <h2 data-en="3. What Happens When You Opt Out" data-es="3. Qué Sucede Cuando Usted Ejerce su Exclusión (Opt-Out)">3. What Happens When You Opt Out</h2>
+                    <p data-en="When you click &quot;Opt-Out of Sale / Sharing Now&quot; or toggle off Analytics/Marketing in our Preference Center: (1) your choice is saved in your browser's <code>localStorage</code> (<code>tg_cookie_consent</code>); (2) Google Consent Mode v2 immediately updates <code>ad_storage</code>, <code>ad_user_data</code>, <code>ad_personalization</code>, and <code>analytics_storage</code> to <code>denied</code>; (3) accessible third-party tracking cookies (including <code>_ga</code>, <code>_gid</code>, <code>_gat</code>, <code>_fbp</code>, <code>_ttp</code>, and <code>_gcl_au</code>) are deleted from your browser; and (4) non-essential scripts are prevented from firing." data-es="Cuando hace clic en &quot;Desactivar Venta / Compartición Ahora&quot; o desactiva Analítica/Marketing en nuestro Centro de Preferencias: (1) su elección se guarda en el <code>localStorage</code> de su navegador (<code>tg_cookie_consent</code>); (2) Google Consent Mode v2 actualiza de inmediato <code>ad_storage</code>, <code>ad_user_data</code>, <code>ad_personalization</code> y <code>analytics_storage</code> a <code>denied</code> (denegado); (3) las cookies de seguimiento accesibles (incluyendo <code>_ga</code>, <code>_gid</code>, <code>_gat</code>, <code>_fbp</code>, <code>_ttp</code> y <code>_gcl_au</code>) se eliminan de su navegador; y (4) se impide la ejecución de scripts no esenciales.">When you click "Opt-Out of Sale / Sharing Now" or toggle off Analytics/Marketing in our Preference Center: (1) your choice is saved in your browser's <code>localStorage</code> (<code>tg_cookie_consent</code>); (2) Google Consent Mode v2 immediately updates <code>ad_storage</code>, <code>ad_user_data</code>, <code>ad_personalization</code>, and <code>analytics_storage</code> to <code>denied</code>; (3) accessible third-party tracking cookies (including <code>_ga</code>, <code>_gid</code>, <code>_gat</code>, <code>_fbp</code>, <code>_ttp</code>, and <code>_gcl_au</code>) are deleted from your browser; and (4) non-essential scripts are prevented from firing.</p>
+                </section>
+                <section class="legal-section" id="other-ccpa-requests">
+                    <h2 data-en="4. Submitting Requests to Know, Delete, or Correct" data-es="4. Presentación de Solicitudes para Conocer, Eliminar o Corregir Datos">4. Submitting Requests to Know, Delete, or Correct</h2>
+                    <p data-en="To submit a request to Know/Access, Delete, or Correct personal information maintained in our database (such as past Contact Form submissions), please use our <a href=&quot;/contact/&quot;>Contact &amp;amp; Privacy Request Form (/contact/)</a> and select the corresponding CCPA request category, or email <a href=&quot;mailto:info@tacosgavilan.com?subject=California%20CCPA%20Privacy%20Request&quot;>info@tacosgavilan.com</a>. Full details on verification, authorized agents, timelines, and appeals are available in <a href=&quot;/privacy/#request-process&quot;>Section F of our Privacy Policy</a>." data-es="Para presentar una solicitud para Conocer/Acceder, Eliminar o Corregir información personal mantenida en nuestra base de datos (como envíos previos del Formulario de Contacto), utilice nuestro <a href=&quot;/contact/&quot;>Formulario de Contacto y Solicitudes de Privacidad (/contact/)</a> y seleccione la categoría CCPA correspondiente, o envíe un correo a <a href=&quot;mailto:info@tacosgavilan.com?subject=Solicitud%20de%20Privacidad%20CCPA%20California&quot;>info@tacosgavilan.com</a>. Los detalles completos sobre verificación, agentes autorizados, plazos y apelaciones están disponibles en la <a href=&quot;/privacy/#request-process&quot;>Sección F de nuestra Política de Privacidad</a>.">To submit a request to Know/Access, Delete, or Correct personal information maintained in our database (such as past Contact Form submissions), please use our <a href="/contact/">Contact &amp; Privacy Request Form (/contact/)</a> and select the corresponding CCPA request category, or email <a href="mailto:info@tacosgavilan.com?subject=California%20CCPA%20Privacy%20Request">info@tacosgavilan.com</a>. Full details on verification, authorized agents, timelines, and appeals are available in <a href="/privacy/#request-process">Section F of our Privacy Policy</a>.</p>
+                </section>
 
                 <div class="legal-contact-box">
-                    <h3 data-en="Submit a Privacy Request" data-es="Enviar una Solicitud de Privacidad">Submit a Privacy Request</h3>
-                    <p data-en="Email: <a href=&quot;mailto:info@tacosgavilan.com&quot;>info@tacosgavilan.com</a><br>Web Form: <a href=&quot;/contact/&quot;>https://tacosgavilan.com/contact/</a>" data-es="Correo Electrónico: <a href=&quot;mailto:info@tacosgavilan.com&quot;>info@tacosgavilan.com</a><br>Formulario Web: <a href=&quot;/contact/&quot;>https://tacosgavilan.com/contact/</a>">Email: <a href="mailto:info@tacosgavilan.com">info@tacosgavilan.com</a><br>Web Form: <a href="/contact/">https://tacosgavilan.com/contact/</a></p>
+                    <h3 data-en="Need to Submit a Request to Know, Delete, or Correct?" data-es="¿Necesita Presentar una Solicitud para Conocer, Eliminar o Corregir?">Need to Submit a Request to Know, Delete, or Correct?</h3>
+                    <p data-en="Use our <a href=&quot;/contact/&quot;>Contact &amp;amp; Privacy Request Form (/contact/)</a> and select your CCPA request type, or email <a href=&quot;mailto:info@tacosgavilan.com?subject=California%20CCPA%20Privacy%20Request&quot;>info@tacosgavilan.com</a>." data-es="Utilice nuestro <a href=&quot;/contact/&quot;>Formulario de Contacto y Solicitudes de Privacidad (/contact/)</a> y seleccione su tipo de solicitud CCPA, o envíe un correo a <a href=&quot;mailto:info@tacosgavilan.com?subject=Solicitud%20de%20Privacidad%20CCPA%20California&quot;>info@tacosgavilan.com</a>.">Use our <a href="/contact/">Contact &amp; Privacy Request Form (/contact/)</a> and select your CCPA request type, or email <a href="mailto:info@tacosgavilan.com?subject=California%20CCPA%20Privacy%20Request">info@tacosgavilan.com</a>.</p>
                 </div>
             </article>
         </div>
@@ -322,13 +380,15 @@
             <div class="container footer-bottom-content">
                 <p>&copy; 2026 Tacos Gavilan. <span data-en="All rights reserved." data-es="Todos los derechos reservados.">All rights reserved.</span></p>
                 <div class="footer-legal-links">
+                    <a href="/privacy/#notice-at-collection" data-en="Notice at Collection" data-es="Aviso de Recopilación">Notice at Collection</a>
+                    <span class="legal-dot" aria-hidden="true">·</span>
                     <a href="/privacy/" data-en="Privacy Policy" data-es="Política de Privacidad">Privacy Policy</a>
                     <span class="legal-dot" aria-hidden="true">·</span>
                     <a href="/terms/" data-en="Terms of Use" data-es="Términos de Uso">Terms of Use</a>
                     <span class="legal-dot" aria-hidden="true">·</span>
                     <a href="/accessibility/" data-en="Accessibility" data-es="Accesibilidad">Accessibility</a>
                     <span class="legal-dot" aria-hidden="true">·</span>
-                    <a href="/privacy-choices/" data-en="Privacy Choices" data-es="Opciones de Privacidad">Privacy Choices</a>
+                    <a href="/privacy-choices/" data-en="Your Privacy Choices" data-es="Sus Opciones de Privacidad">Your Privacy Choices</a>
                     <span class="legal-dot" aria-hidden="true">·</span>
                     <button type="button" id="footer-dns-btn" class="footer-legal-btn" style="background:none;border:none;color:inherit;cursor:pointer;font-size:inherit;font-family:inherit;padding:0;text-decoration:none;" data-en="Do Not Sell or Share My Personal Information" data-es="No Vender ni Compartir Mi Información Personal">Do Not Sell or Share My Personal Information</button>
                 </div>
@@ -336,7 +396,7 @@
         </div>
     </footer>
 
-    <script src="../js/location-page.js?v=29" defer></script>
-    <script src="../js/compliance-a11y.js?v=35" defer></script>
+    <script src="../js/location-page.js?v=36" defer></script>
+    <script src="../js/compliance-a11y.js?v=36" defer></script>
 </body>
 </html>

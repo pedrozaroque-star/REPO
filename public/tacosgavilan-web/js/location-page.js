@@ -58,24 +58,59 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     /* -------------------------------------------------------------
-       3. Robust Accessible Mobile Navigation Drawer
+       3. Robust Accessible Mobile Navigation Drawer (with Focus Trap)
        ------------------------------------------------------------- */
     const mobileToggle = document.getElementById('mobile-menu-toggle');
     const nav = document.getElementById('mobile-navigation') || document.getElementById('nav');
     const navDrawerClose = document.getElementById('nav-drawer-close');
 
+    let focusTrapCleanup = null;
+    const trapFocus = (container) => {
+        if (focusTrapCleanup) focusTrapCleanup();
+        const getFocusable = () => Array.from(container.querySelectorAll(
+            'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        )).filter(el => el.offsetParent !== null);
+
+        const handleTab = (e) => {
+            if (e.key !== 'Tab') return;
+            const focusable = getFocusable();
+            if (focusable.length === 0) return;
+            const first = focusable[0];
+            const last = focusable[focusable.length - 1];
+            if (e.shiftKey && document.activeElement === first) {
+                e.preventDefault();
+                last.focus();
+            } else if (!e.shiftKey && document.activeElement === last) {
+                e.preventDefault();
+                first.focus();
+            }
+        };
+
+        container.addEventListener('keydown', handleTab);
+        focusTrapCleanup = () => {
+            container.removeEventListener('keydown', handleTab);
+            focusTrapCleanup = null;
+        };
+    };
+
+    const releaseFocus = () => {
+        if (focusTrapCleanup) focusTrapCleanup();
+    };
+
     if (mobileToggle && nav) {
         const navLinks = nav.querySelectorAll('.nav-link, a');
 
         const openMenu = () => {
+            const isEs = document.documentElement.lang === 'es';
             nav.classList.add('is-open', 'nav-open', 'mobile-menu-open');
             mobileToggle.classList.add('active', 'is-open');
             mobileToggle.setAttribute('aria-expanded', 'true');
-            mobileToggle.setAttribute('aria-label', 'Close navigation menu');
+            mobileToggle.setAttribute('aria-label', isEs ? 'Cerrar menú de navegación' : 'Close navigation menu');
             nav.setAttribute('aria-hidden', 'false');
             document.body.classList.add('mobile-menu-open', 'menu-open');
+            trapFocus(nav);
 
-            const firstFocusable = nav.querySelector('a, button');
+            const firstFocusable = nav.querySelector('button, a');
             if (firstFocusable) {
                 setTimeout(() => firstFocusable.focus(), 60);
             }
@@ -83,12 +118,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const closeMenu = () => {
             if (!nav.classList.contains('is-open') && !nav.classList.contains('nav-open')) return;
+            const isEs = document.documentElement.lang === 'es';
             nav.classList.remove('is-open', 'nav-open', 'mobile-menu-open');
             mobileToggle.classList.remove('active', 'is-open');
             mobileToggle.setAttribute('aria-expanded', 'false');
-            mobileToggle.setAttribute('aria-label', 'Open navigation menu');
+            mobileToggle.setAttribute('aria-label', isEs ? 'Abrir menú de navegación' : 'Open navigation menu');
             nav.setAttribute('aria-hidden', 'true');
             document.body.classList.remove('mobile-menu-open', 'menu-open');
+            releaseFocus();
 
             if (mobileToggle) {
                 mobileToggle.focus();

@@ -32,13 +32,55 @@
     <meta name="twitter:title" content="Fiesta Platter & Catering | Tacos Gavilan">
     <meta name="twitter:description" content="Mexican food catering for large groups, birthdays, and family gatherings. Party platters for 15-40 people with same-day ordering.">
     <meta name="twitter:image" content="https://tacosgavilan.com/img/og-tacos-gavilan-1200x630.jpg">
-
-    <!-- Marketing & Analytics Pixels -->
-    <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
-    new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
-    j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
-    'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
-    })(window,document,'script','dataLayer','GTM-WW2N58Z');</script>
+    <!-- California CCPA/CPRA & Google Consent Mode v2 Strict Prior-Consent Gate -->
+    <script>
+    (function() {
+        window.dataLayer = window.dataLayer || [];
+        function gtag(){window.dataLayer.push(arguments);}
+        window.gtag = gtag;
+        var gpc = (typeof navigator !== 'undefined' && navigator.globalPrivacyControl === true);
+        var allowMkt = false;
+        var allowAna = false;
+        try {
+            var raw = localStorage.getItem('tg_cookie_consent') || localStorage.getItem('tacosgavilan_cookie_consent');
+            if (raw === 'accepted' && !gpc) {
+                allowMkt = true; allowAna = true;
+            } else if (raw && raw.charAt(0) === '{') {
+                var parsed = JSON.parse(raw);
+                if (parsed.doNotSell || gpc) {
+                    allowMkt = false;
+                    allowAna = !!parsed.analytics;
+                } else {
+                    allowMkt = !!parsed.marketing;
+                    allowAna = !!parsed.analytics;
+                }
+            }
+        } catch (e) {}
+        if (!allowAna) window['ga-disable-UA-74752614-19'] = true;
+        gtag('consent', 'default', {
+            'ad_storage': allowMkt ? 'granted' : 'denied',
+            'ad_user_data': allowMkt ? 'granted' : 'denied',
+            'ad_personalization': allowMkt ? 'granted' : 'denied',
+            'analytics_storage': allowAna ? 'granted' : 'denied',
+            'functionality_storage': 'granted',
+            'security_storage': 'granted',
+            'wait_for_update': 500
+        });
+        window.__tgLoadGTMIfConsented = function(anaGranted, mktGranted) {
+            if (!anaGranted && !mktGranted) return;
+            if (window.__tgGtmLoaded) return;
+            window.__tgGtmLoaded = true;
+            (function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
+            new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
+            j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
+            'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
+            })(window,document,'script','dataLayer','GTM-WW2N58Z');
+        };
+        if (allowAna || allowMkt) {
+            window.__tgLoadGTMIfConsented(allowAna, allowMkt);
+        }
+    })();
+    </script>
 
     <link rel="stylesheet" href="../css/style.css?v=35">
     <link rel="stylesheet" href="../css/compliance-a11y.css?v=28">
@@ -282,7 +324,6 @@
 </head>
 
 <body>
-    <noscript><iframe src="https://www.googletagmanager.com/ns.html?id=GTM-WW2N58Z" height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
 
             <header class="header scrolled" id="header">
         <div class="scroll-progress" id="scroll-progress" aria-hidden="true"></div>
@@ -530,7 +571,7 @@
                     <p data-i18n="footer.desc">Authentic Mexican food serving Southern California since 1992. From our family to yours — Ya está.</p>
                     <!-- Social Links -->
                     <div class="footer-social" aria-label="Footer Social Links">
-                        <a href="https://www.facebook.com/TacosElGavilan/" target="_blank" rel="noopener noreferrer" aria-label="Tacos Gavilan on Facebook" class="footer-social-link">
+                        <a href="https://www.facebook.com/TacosGavilan/" target="_blank" rel="noopener noreferrer" aria-label="Tacos Gavilan on Facebook" class="footer-social-link">
                             <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>
                         </a>
                         <a href="https://www.instagram.com/tacosgavilan/" target="_blank" rel="noopener noreferrer" aria-label="Tacos Gavilan on Instagram" class="footer-social-link">
