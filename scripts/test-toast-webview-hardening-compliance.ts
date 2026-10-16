@@ -680,6 +680,11 @@ async function runComplianceSuite(): Promise<void> {
     'utf8'
   )
   check(
+    !fs.existsSync(path.join(GAVILAN_APP_ROOT, 'app/index.tsx')) &&
+      fs.existsSync(path.join(GAVILAN_APP_ROOT, 'app/(tabs)/index.tsx')),
+    'No debe existir app/index.tsx en la raíz para evitar colisión de ruta (/) contra app/(tabs)/index.tsx'
+  )
+  check(
     indexHtmlRouteTsx.includes('<Redirect href="/(tabs)" />'),
     'app/index.html.tsx debe redirigir inmediatamente a /(tabs) para no bloquearse en el fondo borgoña después del splash'
   )

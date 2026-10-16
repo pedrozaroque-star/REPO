@@ -3,7 +3,7 @@
  * @description Sirve el audio (WAV) de la voz femenina natural para anunciar una orden lista ("Order 141 is ready." / "Orden 141, ya está.").
  *
  * @businessRules
- * - Parámetros: `n` (1-4 dígitos) y `lang` (`en` | `es`). Cualquier otro valor responde 400 para no gastar la API de Gemini.
+ * - Parámetros: `n` (1-6 dígitos) y `lang` (`en` | `es`). Cualquier otro valor responde 400 para no gastar la API de Gemini.
  * - Respuesta cacheable por un año (`immutable`): el audio de un número+idioma nunca cambia.
  *
  * @dataFlow

@@ -256,9 +256,15 @@ function OrderReadyBoardContent() {
     checkId: string
     storeName: string
     cajeraName: string
+    diningOption?: string
+    openedAt?: string
+    customerName?: string | null
+    previewItems?: Array<{ name: string; quantity: number; modifiers?: string[] }>
     data?: any
     error?: string
   } | null>(null)
+  const orderDetailCacheRef = useRef<Map<string, any>>(new Map())
+  const orderDetailInflightRef = useRef<Map<string, Promise<any>>>(new Map())
   const businessDateRef = useRef<string>(businessDate)
   const fetchOrdersRef = useRef<((syncToast?: boolean) => Promise<void>) | null>(null)
 
@@ -1832,28 +1838,78 @@ function OrderReadyBoardContent() {
     }
   }
 
-  // Helper para clases visuales de Speed of Service (SOS) adaptadas a tema claro y oscuro
-  const getSosBadgeClasses = (color: 'green' | 'yellow' | 'red') => {
+  // Clases sobrias y ejecutivas para el indicador de tiempo (sin colores estridentes ni parpadeos)
+  const getSosBadgeClasses = (_color: 'green' | 'yellow' | 'red') => {
     if (isDark) {
-      if (color === 'green') return 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
-      if (color === 'yellow') return 'bg-amber-500/20 text-amber-300 border-amber-500/40'
-      return 'bg-rose-500/20 text-rose-400 border-rose-500/40 animate-pulse'
+      return 'bg-slate-800/80 text-slate-300 border-slate-700'
     }
-    if (color === 'green') return 'bg-emerald-100 text-emerald-800 border-emerald-300 font-bold'
-    if (color === 'yellow') return 'bg-amber-100 text-amber-800 border-amber-300 font-bold'
-    return 'bg-rose-100 text-rose-800 border-rose-300 font-bold animate-pulse'
+    return 'bg-slate-100 text-slate-600 border-slate-200 font-semibold'
   }
 
-  // Abrir modal de ticket idéntico al módulo de Drive-Thru
+  // Precarga silenciosa del recibo al pasar el cursor (hover) para apertura en 0ms al hacer clic
+  const prefetchOrderDetail = useCallback((order: OrderItem) => {
+    const storeId = order.store_id || STORE_GUID_BY_CODE[order.store_code] || ''
+    const orderGuid = order.order_guid || ''
+    if (!orderGuid || !storeId) return
+    if (orderDetailCacheRef.current.has(orderGuid) || orderDetailInflightRef.current.has(orderGuid)) return
+
+    const req = fetch(`/api/toast-order-detail?guid=${orderGuid}&storeId=${storeId}`)
+      .then(res => res.json())
+      .then(data => {
+        if (data?.order) {
+          orderDetailCacheRef.current.set(orderGuid, data.order)
+        }
+        return data
+      })
+      .catch(() => null)
+      .finally(() => {
+        orderDetailInflightRef.current.delete(orderGuid)
+      })
+
+    orderDetailInflightRef.current.set(orderGuid, req)
+  }, [])
+
+  // Abrir modal de ticket idéntico al módulo de Drive-Thru con caché instantáneo y vista previa inmediata
   const handleOrderClick = useCallback((order: OrderItem) => {
     const storeId = order.store_id || STORE_GUID_BY_CODE[order.store_code] || ''
     const orderGuid = order.order_guid || ''
+
+    // Extraer platillos de items_summary para mostrarlos al instante (0ms) mientras llegan precios/impuestos
+    let previewItems: Array<{ name: string; quantity: number; modifiers?: string[] }> = []
+    if (order.items_summary) {
+      try {
+        const parsed = typeof order.items_summary === 'string' ? JSON.parse(order.items_summary) : order.items_summary
+        if (Array.isArray(parsed)) previewItems = parsed
+      } catch {
+        // Ignorar errores de parseo
+      }
+    }
+
+    const cachedOrder = orderGuid ? orderDetailCacheRef.current.get(orderGuid) : undefined
+    if (cachedOrder) {
+      setOrderDetailData({
+        loading: false,
+        checkId: order.order_number,
+        storeName: order.store_name || selectedStore,
+        cajeraName: order.dining_option === 'DRIVE_THRU' ? 'Drive-Thru' : t('orderReadyBoard.receipt_cashier_fallback'),
+        diningOption: order.dining_option,
+        openedAt: order.created_at,
+        customerName: order.customer_name,
+        previewItems,
+        data: cachedOrder
+      })
+      return
+    }
 
     setOrderDetailData({
       loading: true,
       checkId: order.order_number,
       storeName: order.store_name || selectedStore,
-      cajeraName: order.dining_option === 'DRIVE_THRU' ? 'Drive-Thru' : t('orderReadyBoard.receipt_cashier_fallback')
+      cajeraName: order.dining_option === 'DRIVE_THRU' ? 'Drive-Thru' : t('orderReadyBoard.receipt_cashier_fallback'),
+      diningOption: order.dining_option,
+      openedAt: order.created_at,
+      customerName: order.customer_name,
+      previewItems
     })
 
     if (!orderGuid || !storeId) {
@@ -1869,12 +1925,18 @@ function OrderReadyBoardContent() {
       return
     }
 
-    fetch(`/api/toast-order-detail?guid=${orderGuid}&storeId=${storeId}`)
-      .then(res => res.json())
+    const existingPromise = orderDetailInflightRef.current.get(orderGuid)
+    const promise =
+      existingPromise ||
+      fetch(`/api/toast-order-detail?guid=${orderGuid}&storeId=${storeId}`).then(res => res.json())
+
+    promise
       .then(data => {
+        if (!data) return
         if (data.error) {
           setOrderDetailData(prev => (prev ? { ...prev, loading: false, error: data.error } : null))
         } else {
+          if (data.order) orderDetailCacheRef.current.set(orderGuid, data.order)
           setOrderDetailData(prev => (prev ? { ...prev, loading: false, data: data.order } : null))
         }
       })
@@ -1883,7 +1945,7 @@ function OrderReadyBoardContent() {
       })
   }, [t, selectedStore])
 
-  // Re-anunciar orden manualmente a solicitud del usuario desde la columna LISTAS PARA RECOGER
+  // Re-anunciar orden manualmente a solicitud del usuario
   // Regla de Negocio Tacos Gavilan: Encolar de manera unificada para esperar su turno si ya hay otro audio sonando
   const handleReplayVoice = useCallback(
     (order: OrderItem) => {
@@ -1924,8 +1986,6 @@ function OrderReadyBoardContent() {
       const incomingCalledMs = data.called_at ? Date.parse(data.called_at) : NaN
 
       // 1. Deduplicación exacta por timestamp de toque (called_at) y debounce acústico de 6 segundos por tienda+orden.
-      // Garantiza que las Capas 2, 3 y 4 jamás repitan por segunda vez un llamado que ya sonó en la Capa 1,
-      // permitiendo a la vez que el preparador vuelva a llamar deliberadamente la misma orden pasados >= 6 segundos.
       const lastCallTime = lastImpulseTimeRef.current.get(storeKey) || 0
       const lastAnnMs = lastAnnouncedAtMsRef.current.get(storeKey) || 0
       const isSameTap = !isNaN(incomingCalledMs) && lastAnnMs > 0 && Math.abs(incomingCalledMs - lastAnnMs) < 2500
@@ -1967,7 +2027,7 @@ function OrderReadyBoardContent() {
         items_summary: null
       }
 
-      // Destacar visualmente la orden en el tablero del manager (borde ámbar y badge pulsante por ID y número)
+      // Destacar visualmente la orden en el tablero del manager
       setTabletCalledOrderId(targetOrder.id)
       setTabletCalledOrderNum(orderNumStr)
       setTimeout(() => {
@@ -2000,51 +2060,39 @@ function OrderReadyBoardContent() {
     handleImpulseRef.current = handleImpulseCallFromTablet
   }, [handleImpulseCallFromTablet])
 
-  // Helper para el badge de Dining Option con ícono y traducción
-  const renderDiningBadge = (dining: string) => {
+  // Badge sobrio y profesional para Dining Option: siempre "FOR HERE" o "TO GO"
+  const renderDiningBadge = (dining?: string | null) => {
+    const baseClasses = `inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md text-xs font-bold uppercase tracking-wider border ${
+      isDark
+        ? 'bg-slate-800 text-slate-300 border-slate-700'
+        : 'bg-slate-100 text-slate-700 border-slate-200'
+    }`
     if (dining === 'FOR_HERE') {
       return (
-        <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wider ${
-          isDark
-            ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
-            : 'bg-amber-100 text-amber-800 border border-amber-300'
-        }`}>
-          <Utensils className="w-3.5 h-3.5" />
+        <span className={baseClasses}>
+          <Utensils className="w-3 h-3 opacity-70" />
           <span>{t('orderReadyBoard.for_here_badge')}</span>
         </span>
       )
     }
     if (dining === 'DRIVE_THRU') {
       return (
-        <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wider ${
-          isDark
-            ? 'bg-orange-500/20 text-orange-300 border border-orange-500/40'
-            : 'bg-orange-100 text-orange-800 border border-orange-300'
-        }`}>
-          <Car className="w-3.5 h-3.5" />
+        <span className={baseClasses}>
+          <Car className="w-3 h-3 opacity-70" />
           <span>{t('orderReadyBoard.dt_badge')}</span>
         </span>
       )
     }
     if (dining === 'DELIVERY') {
       return (
-        <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wider ${
-          isDark
-            ? 'bg-purple-500/20 text-purple-300 border border-purple-500/40'
-            : 'bg-purple-100 text-purple-800 border border-purple-300'
-        }`}>
-          <span>🛵</span>
+        <span className={baseClasses}>
           <span>{t('orderReadyBoard.delivery_badge')}</span>
         </span>
       )
     }
     return (
-      <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wider ${
-        isDark
-          ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40'
-          : 'bg-sky-100 text-sky-800 border border-sky-300'
-      }`}>
-        <ShoppingBag className="w-3.5 h-3.5" />
+      <span className={baseClasses}>
+        <ShoppingBag className="w-3 h-3 opacity-70" />
         <span>{t('orderReadyBoard.to_go_badge')}</span>
       </span>
     )
@@ -2060,142 +2108,116 @@ function OrderReadyBoardContent() {
         isFullscreen
           ? 'fixed inset-0 z-50 w-screen h-screen rounded-none border-0'
           : isDark
-            ? 'rounded-2xl border border-slate-800/80 shadow-2xl'
-            : 'rounded-2xl border border-slate-200 shadow-xl'
+            ? 'rounded-2xl border border-slate-800/80 shadow-xl'
+            : 'rounded-2xl border border-slate-200 shadow-sm'
       }`}
     >
       {/* Banner de Activación de Audio (si aún no se ha interactuado) */}
       {!audioUnlocked && (
-        <div className="bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 text-white px-4 py-2.5 text-center text-sm font-semibold flex items-center justify-center gap-2 cursor-pointer shadow-lg animate-pulse z-50">
-          <Bell className="w-4 h-4 animate-bounce" />
+        <div className="bg-slate-900 text-white px-4 py-2.5 text-center text-sm font-semibold flex items-center justify-center gap-2 cursor-pointer shadow-md z-50">
+          <Bell className="w-4 h-4 text-slate-300" />
           <span>{t('orderReadyBoard.enable_audio_prompt')}</span>
-          <span className="underline ml-2 bg-white/20 px-2 py-0.5 rounded text-xs">
+          <span className="underline ml-2 bg-white/15 px-2 py-0.5 rounded text-xs">
             {t('orderReadyBoard.click_to_enable_audio')}
           </span>
         </div>
       )}
 
       {/* Top Header / Barra Superior */}
-      <header className={`px-4 sm:px-6 py-3.5 flex flex-wrap items-center justify-between gap-3 shadow-md backdrop-blur border-b transition-colors ${
-        isDark ? 'bg-slate-900/90 border-slate-800' : 'bg-white/95 border-slate-200'
+      <header className={`px-4 sm:px-6 py-3.5 flex flex-wrap items-center justify-between gap-3 border-b transition-colors ${
+        isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
       }`}>
-        {/* Logo e Identidad */}
-        <div className="flex items-center gap-3.5">
-          <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-red-600 to-amber-600 flex items-center justify-center font-black text-xl text-white shadow-lg border border-amber-500/30 tracking-tight shrink-0">
-            TG
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h1 className={`text-xl sm:text-2xl font-black tracking-tight uppercase ${isDark ? 'text-white' : 'text-slate-900'}`}>
-                Tacos Gavilan
-              </h1>
-              <span className={`text-[11px] font-bold px-2 py-0.5 rounded border uppercase tracking-widest hidden sm:inline ${
-                isDark ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' : 'bg-emerald-50 text-emerald-700 border-emerald-300'
-              }`}>
-                {t('orderReadyBoard.title')}
-              </span>
-            </div>
-            <div className="mt-0.5 flex flex-wrap items-center gap-2">
-              <div className="flex items-center gap-1.5">
-                <Store className="w-3.5 h-3.5 text-emerald-500" />
-                {accessLoaded && visibleStores.length === 0 ? (
-                  <span className="text-xs font-bold text-amber-500">{t('orderReadyBoard.no_store_assigned')}</span>
-                ) : (
-                  <select
-                    value={selectedStore}
-                    onChange={(e) => handleStoreChange(e.target.value)}
-                    onClick={(e) => e.stopPropagation()}
-                    disabled={visibleStores.length <= 1}
-                    className={`font-bold text-xs rounded-lg px-2.5 py-1 border focus:outline-none focus:border-emerald-500 cursor-pointer shadow-sm transition disabled:opacity-80 disabled:cursor-default ${
-                      isDark
-                        ? 'bg-slate-800/90 hover:bg-slate-800 text-slate-200 hover:text-white border-slate-700'
-                        : 'bg-slate-100 hover:bg-slate-200/80 text-slate-800 hover:text-slate-900 border-slate-300'
-                    }`}
-                  >
-                    {visibleStores.map((s) => (
-                      <option key={s.code} value={s.code} className={isDark ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}>
-                        {s.name}
-                      </option>
-                    ))}
-                  </select>
-                )}
-              </div>
+        {/* Título del Módulo, Selector de Sucursal y Voz */}
+        <div className="flex flex-wrap items-center gap-3">
+          <h1 className={`text-lg sm:text-xl font-black tracking-tight uppercase ${isDark ? 'text-white' : 'text-slate-900'}`}>
+            {t('orderReadyBoard.title')}
+          </h1>
 
-              {/* Selector Rápido de Voz en Cabecera (Solo Admin puede cambiarla) */}
-              {isAdmin ? (
-                <div className={`flex items-center gap-1 rounded-lg px-2 py-1 border shadow-sm transition ${
-                  isDark ? 'bg-slate-800/90 hover:bg-slate-800 border-slate-700' : 'bg-slate-100 hover:bg-slate-200/80 border-slate-300'
-                }`}>
-                  <Sparkles className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-                  <select
-                    value={selectedVoice}
-                    onChange={(e) => handleVoiceChange(e.target.value as VoiceId)}
-                    onClick={(e) => e.stopPropagation()}
-                    disabled={isSavingVoice}
-                    title={t('orderReadyBoard.voice_speaker')}
-                    className={`bg-transparent font-bold text-xs focus:outline-none cursor-pointer ${
-                      isDark ? 'text-slate-200 hover:text-white' : 'text-slate-800 hover:text-slate-900'
-                    }`}
-                  >
-                    {AVAILABLE_VOICES.map((v) => (
-                      <option key={v.id} value={v.id} className={isDark ? 'bg-slate-900 text-white font-medium' : 'bg-white text-slate-900 font-medium'}>
-                        {v.gender === 'female' ? '👩' : '👨'} {v.name} ({v.gender === 'female' ? t('orderReadyBoard.voice_female_label') : t('orderReadyBoard.voice_male_label')})
-                      </option>
-                    ))}
-                  </select>
-                </div>
+          <div className={`hidden sm:block h-5 w-px ${isDark ? 'bg-slate-800' : 'bg-slate-200'}`} />
+
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-1.5">
+              <Store className={`w-3.5 h-3.5 ${isDark ? 'text-slate-400' : 'text-slate-500'}`} />
+              {accessLoaded && visibleStores.length === 0 ? (
+                <span className="text-xs font-semibold text-slate-500">{t('orderReadyBoard.no_store_assigned')}</span>
               ) : (
-                <div
-                  className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1 border shadow-sm cursor-help ${
-                    isDark ? 'bg-slate-800/60 border-slate-700/60 text-slate-300' : 'bg-slate-100 border-slate-200 text-slate-700'
+                <select
+                  value={selectedStore}
+                  onChange={(e) => handleStoreChange(e.target.value)}
+                  onClick={(e) => e.stopPropagation()}
+                  disabled={visibleStores.length <= 1}
+                  className={`font-bold text-xs rounded-lg px-2.5 py-1.5 border focus:outline-none cursor-pointer transition disabled:opacity-80 disabled:cursor-default ${
+                    isDark
+                      ? 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
+                      : 'bg-slate-50 hover:bg-slate-100 text-slate-800 border-slate-200'
                   }`}
-                  title={t('orderReadyBoard.voice_locked_hint')}
                 >
-                  <Lock className="w-3 h-3 text-amber-500 shrink-0" />
-                  <span className={`text-xs font-bold ${isDark ? 'text-slate-300' : 'text-slate-800'}`}>
-                    {AVAILABLE_VOICES.find(v => v.id === selectedVoice)?.gender === 'female' ? '👩' : '👨'} {selectedVoice}
-                  </span>
-                  <span className={`text-[9px] uppercase tracking-wider font-extrabold px-1 py-0.5 rounded ${
-                    isDark ? 'text-slate-400 bg-slate-700/50' : 'text-slate-600 bg-slate-200'
-                  }`}>
-                    {t('orderReadyBoard.scope_global_badge')}
-                  </span>
-                </div>
+                  {visibleStores.map((s) => (
+                    <option key={s.code} value={s.code} className={isDark ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}>
+                      {s.name}
+                    </option>
+                  ))}
+                </select>
               )}
             </div>
+
+            {/* Selector Rápido de Voz en Cabecera (Solo Admin puede cambiarla) */}
+            {isAdmin ? (
+              <div className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 border transition ${
+                isDark ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200'
+              }`}>
+                <Volume2 className={`w-3.5 h-3.5 shrink-0 ${isDark ? 'text-slate-400' : 'text-slate-500'}`} />
+                <select
+                  value={selectedVoice}
+                  onChange={(e) => handleVoiceChange(e.target.value as VoiceId)}
+                  onClick={(e) => e.stopPropagation()}
+                  disabled={isSavingVoice}
+                  title={t('orderReadyBoard.voice_speaker')}
+                  className={`bg-transparent font-semibold text-xs focus:outline-none cursor-pointer ${
+                    isDark ? 'text-slate-200 hover:text-white' : 'text-slate-800 hover:text-slate-900'
+                  }`}
+                >
+                  {AVAILABLE_VOICES.map((v) => (
+                    <option key={v.id} value={v.id} className={isDark ? 'bg-slate-900 text-white font-medium' : 'bg-white text-slate-900 font-medium'}>
+                      {v.name} ({v.gender === 'female' ? t('orderReadyBoard.voice_female_label') : t('orderReadyBoard.voice_male_label')})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : (
+              <div
+                className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 border cursor-help ${
+                  isDark ? 'bg-slate-800/60 border-slate-700 text-slate-300' : 'bg-slate-50 border-slate-200 text-slate-700'
+                }`}
+                title={t('orderReadyBoard.voice_locked_hint')}
+              >
+                <Lock className="w-3 h-3 text-slate-400 shrink-0" />
+                <span className={`text-xs font-semibold ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
+                  {selectedVoice}
+                </span>
+              </div>
+            )}
           </div>
         </div>
 
         {/* Reloj, Idioma, Modo Normal/Oscuro, Pantalla Completa y Controles */}
-        <div className="flex items-center gap-2 sm:gap-2.5">
+        <div className="flex items-center gap-2">
           {/* Reloj y Turno de California */}
           <div className={`hidden lg:flex items-center gap-2.5 px-3 py-1.5 rounded-xl border ${
-            isDark ? 'bg-slate-950/80 border-slate-800 text-slate-200' : 'bg-slate-100 border-slate-200 text-slate-800'
+            isDark ? 'bg-slate-800/60 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-200 text-slate-800'
           }`}>
             <div className="flex items-center gap-1.5 font-mono font-bold text-sm tracking-wider">
-              <Clock className="w-3.5 h-3.5 text-emerald-500" />
+              <Clock className={`w-3.5 h-3.5 ${isDark ? 'text-slate-400' : 'text-slate-500'}`} />
               <span>{currentTime || '--:--:--'}</span>
             </div>
-            <div className={`h-4 w-px ${isDark ? 'bg-slate-800' : 'bg-slate-300'}`} />
+            <div className={`h-4 w-px ${isDark ? 'bg-slate-700' : 'bg-slate-200'}`} />
             <div
-              className={`flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider ${
-                shift === 'AM'
-                  ? isDark ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30' : 'bg-amber-100 text-amber-800 border border-amber-300'
-                  : isDark ? 'bg-indigo-500/15 text-indigo-300 border border-indigo-500/30' : 'bg-indigo-100 text-indigo-800 border border-indigo-300'
+              className={`flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
+                isDark ? 'bg-slate-800 text-slate-300 border border-slate-700' : 'bg-white text-slate-700 border border-slate-200'
               }`}
               title={`${t('orderReadyBoard.business_day')}: ${businessDate} • ${shift === 'AM' ? t('orderReadyBoard.shift_am') : t('orderReadyBoard.shift_pm')}`}
             >
-              {shift === 'AM' ? (
-                <>
-                  <Sun className="w-3 h-3 text-amber-500" />
-                  <span>{t('orderReadyBoard.shift_am_short')}</span>
-                </>
-              ) : (
-                <>
-                  <Moon className="w-3 h-3 text-indigo-500" />
-                  <span>{t('orderReadyBoard.shift_pm_short')}</span>
-                </>
-              )}
+              <span>{shift === 'AM' ? t('orderReadyBoard.shift_am_short') : t('orderReadyBoard.shift_pm_short')}</span>
             </div>
           </div>
 
@@ -2206,38 +2228,38 @@ function OrderReadyBoardContent() {
               e.stopPropagation()
               setLanguage(language === 'es' ? 'en' : 'es')
             }}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-black transition shadow-sm ${
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition ${
               isDark
-                ? 'bg-slate-800/90 hover:bg-slate-700 text-slate-200 border-slate-700'
-                : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
+                ? 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
+                : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-200'
             }`}
             title={language === 'es' ? t('orderReadyBoard.switch_to_english') : t('orderReadyBoard.switch_to_spanish')}
           >
-            <Globe className="w-4 h-4 text-emerald-500" />
-            <span className={language === 'en' ? 'text-emerald-500 font-black' : isDark ? 'text-slate-400 font-bold' : 'text-slate-500 font-bold'}>EN</span>
-            <span className={isDark ? 'text-slate-600 font-normal' : 'text-slate-400 font-normal'}>/</span>
-            <span className={language === 'es' ? 'text-emerald-500 font-black' : isDark ? 'text-slate-400 font-bold' : 'text-slate-500 font-bold'}>ES</span>
+            <Globe className={`w-3.5 h-3.5 ${isDark ? 'text-slate-400' : 'text-slate-500'}`} />
+            <span className={language === 'en' ? (isDark ? 'text-white font-black' : 'text-slate-900 font-black') : 'text-slate-400 font-medium'}>EN</span>
+            <span className="text-slate-300 dark:text-slate-600 font-normal">/</span>
+            <span className={language === 'es' ? (isDark ? 'text-white font-black' : 'text-slate-900 font-black') : 'text-slate-400 font-medium'}>ES</span>
           </button>
 
           {/* Botón Selector de Tema: Normal (Claro) vs Oscuro */}
           <button
             type="button"
             onClick={(e) => toggleTheme(e)}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition shadow-sm cursor-pointer ${
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold transition cursor-pointer ${
               isDark
-                ? 'bg-slate-800/90 hover:bg-slate-700 text-slate-200 border-slate-700'
-                : 'bg-slate-100 hover:bg-slate-200 text-slate-800 border-slate-300'
+                ? 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
+                : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-200'
             }`}
             title={isDark ? t('orderReadyBoard.theme_toggle_to_light') : t('orderReadyBoard.theme_toggle_to_dark')}
           >
             {isDark ? (
               <>
-                <Sun className="w-4 h-4 text-amber-400" />
+                <Sun className="w-3.5 h-3.5 text-slate-300" />
                 <span className="hidden sm:inline">{t('orderReadyBoard.theme_normal')}</span>
               </>
             ) : (
               <>
-                <Moon className="w-4 h-4 text-slate-700" />
+                <Moon className="w-3.5 h-3.5 text-slate-600" />
                 <span className="hidden sm:inline">{t('orderReadyBoard.theme_dark')}</span>
               </>
             )}
@@ -2250,17 +2272,17 @@ function OrderReadyBoardContent() {
               e.stopPropagation()
               toggleFullscreen()
             }}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition shadow-sm ${
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold transition ${
               isDark
-                ? 'bg-slate-800/90 hover:bg-slate-700 text-slate-200 border-slate-700'
-                : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
+                ? 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
+                : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-200'
             }`}
             title={isFullscreen ? t('orderReadyBoard.exit_tv_mode_tooltip') : t('orderReadyBoard.tv_mode_tooltip')}
           >
             {isFullscreen ? (
-              <Minimize className="w-4 h-4 text-amber-500" />
+              <Minimize className="w-3.5 h-3.5 text-slate-500" />
             ) : (
-              <Maximize className={`w-4 h-4 ${isDark ? 'text-slate-300' : 'text-slate-600'}`} />
+              <Maximize className={`w-3.5 h-3.5 ${isDark ? 'text-slate-400' : 'text-slate-500'}`} />
             )}
             <span className="hidden xl:inline">{isFullscreen ? t('orderReadyBoard.exit_tv_mode') : t('orderReadyBoard.tv_mode')}</span>
           </button>
@@ -2272,17 +2294,18 @@ function OrderReadyBoardContent() {
               e.stopPropagation()
               setIsMuted(!isMuted)
             }}
-            className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-bold uppercase tracking-wider transition-all ${
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-semibold uppercase tracking-wider transition-all ${
               isMuted
                 ? isDark
-                  ? 'bg-rose-500/10 text-rose-400 border-rose-500/30 hover:bg-rose-500/20'
-                  : 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'
+                  ? 'bg-rose-950/40 text-rose-300 border-rose-800/60'
+                  : 'bg-rose-50 text-rose-700 border-rose-200'
                 : isDark
-                  ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20'
-                  : 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100'
+                  ? 'bg-slate-800 text-slate-200 border-slate-700 hover:bg-slate-700'
+                  : 'bg-white text-slate-800 border-slate-200 hover:bg-slate-50'
             }`}
           >
-            {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+            <span className={`w-2 h-2 rounded-full ${isMuted ? 'bg-rose-500' : 'bg-emerald-500'}`} />
+            {isMuted ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5 text-slate-500" />}
             <span className="hidden md:inline">
               {isMuted ? t('orderReadyBoard.audio_muted') : t('orderReadyBoard.audio_enabled')}
             </span>
@@ -2291,16 +2314,16 @@ function OrderReadyBoardContent() {
           {/* Indicador de Anuncios Periódicos en Cabecera */}
           {announcementEnabled && (
             <div
-              className={`hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all ${
+              className={`hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all ${
                 isPlayingAnnouncement
-                  ? 'bg-amber-500 text-white border-amber-400 shadow animate-pulse'
+                  ? 'bg-slate-900 text-white border-slate-800'
                   : isDark
-                    ? 'bg-amber-500/10 text-amber-400 border-amber-500/30'
-                    : 'bg-amber-50 text-amber-800 border-amber-300'
+                    ? 'bg-slate-800 text-slate-300 border-slate-700'
+                    : 'bg-slate-100 text-slate-700 border-slate-200'
               }`}
               title={`${t('orderReadyBoard.announcement_active_pill_tooltip')} ${announcementIntervalMin} min`}
             >
-              <Megaphone className="w-3.5 h-3.5" />
+              <Megaphone className="w-3.5 h-3.5 text-slate-500" />
               <span>{announcementIntervalMin}m</span>
               {nextAnnouncementSec !== null && !isPlayingAnnouncement && (
                 <span className="text-[10px] opacity-75 font-mono">
@@ -2319,14 +2342,16 @@ function OrderReadyBoardContent() {
             }}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold transition ${
               showControls
-                ? 'bg-emerald-600 text-white border-emerald-500 shadow-md'
+                ? isDark
+                  ? 'bg-slate-100 text-slate-900 border-slate-200'
+                  : 'bg-slate-900 text-white border-slate-900'
                 : isDark
-                  ? 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700'
-                  : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300'
+                  ? 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
+                  : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-200'
             }`}
             title={showControls ? t('orderReadyBoard.hide_controls') : t('orderReadyBoard.show_controls')}
           >
-            <Sliders className="w-4 h-4" />
+            <Sliders className="w-3.5 h-3.5" />
             <span className="hidden lg:inline">{showControls ? t('orderReadyBoard.hide_controls') : t('orderReadyBoard.show_controls')}</span>
             {showControls ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
           </button>
@@ -2335,17 +2360,17 @@ function OrderReadyBoardContent() {
 
       {/* Aviso de falta de conexión a Internet (Offline Banner) */}
       {!isOnline && (
-        <div className="bg-amber-600 text-white px-4 py-1.5 text-center text-xs font-bold flex items-center justify-center gap-2 shadow-md z-40 animate-pulse">
-          <WifiOff className="w-4 h-4 shrink-0" />
+        <div className="bg-slate-900 text-white px-4 py-1.5 text-center text-xs font-semibold flex items-center justify-center gap-2 z-40">
+          <WifiOff className="w-4 h-4 shrink-0 text-amber-400" />
           <span>{t('orderReadyBoard.offline_warning')}</span>
         </div>
       )}
 
       {/* Banner de locutor activo (cuando habla la voz) */}
       {activeSpeech && (
-        <div className="bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 border-b border-emerald-800 px-4 py-2.5 flex items-center justify-center gap-3 text-white font-extrabold text-sm sm:text-base tracking-wide shadow-md">
-          <Volume2 className="w-5 h-5 animate-bounce text-amber-300 shrink-0" />
-          <span className="drop-shadow-sm">🗣️ {activeSpeech}</span>
+        <div className="bg-slate-900 border-b border-slate-800 px-4 py-2.5 flex items-center justify-center gap-3 text-white font-bold text-sm sm:text-base tracking-wide shadow-sm">
+          <Volume2 className="w-4 h-4 text-emerald-400 shrink-0" />
+          <span>{activeSpeech}</span>
         </div>
       )}
 
@@ -3035,59 +3060,55 @@ function OrderReadyBoardContent() {
           <main className={`flex-1 p-6 md:p-8 grid grid-cols-1 md:grid-cols-2 gap-8 w-full min-h-0 ${
             isFullscreen ? 'max-w-full px-8 xl:px-12' : 'max-w-7xl mx-auto'
           }`}>
-            {/* COLUMNA IZQUIERDA: LISTAS PARA RECOGER (READY) */}
-            <section className={`flex flex-col rounded-3xl p-6 relative overflow-hidden backdrop-blur min-h-0 ${
+            {/* COLUMNA IZQUIERDA: ENTREGADAS (DELIVERED / READY) */}
+            <section className={`flex flex-col rounded-2xl p-6 relative overflow-hidden min-h-0 ${
               isDark
-                ? 'bg-slate-900/60 border-2 border-emerald-500/50 shadow-2xl'
-                : 'bg-white border-2 border-emerald-500 shadow-xl'
+                ? 'bg-slate-900/60 border border-slate-800 shadow-xl'
+                : 'bg-white border border-slate-200 shadow-sm'
             }`}>
-              {/* Luz de fondo en verde */}
-              <div className={`absolute -top-32 -left-32 w-80 h-80 rounded-full blur-3xl pointer-events-none ${
-                isDark ? 'bg-emerald-500/10' : 'bg-emerald-500/5'
-              }`} />
-
               {/* Header de la columna */}
-              <div className={`flex items-center justify-between pb-6 border-b relative z-10 ${
-                isDark ? 'border-emerald-500/30' : 'border-emerald-200'
+              <div className={`flex items-center justify-between pb-5 border-b relative z-10 ${
+                isDark ? 'border-slate-800' : 'border-slate-200'
               }`}>
                 <div className="flex items-center gap-3">
-                  <div className={`w-10 h-10 rounded-full flex items-center justify-center shadow-inner ${
-                    isDark ? 'bg-emerald-500/20 border border-emerald-500/40 text-emerald-400' : 'bg-emerald-100 border border-emerald-300 text-emerald-700'
+                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+                    isDark ? 'bg-slate-800 border border-slate-700 text-slate-200' : 'bg-slate-900 text-white'
                   }`}>
-                    <CheckCircle2 className="w-6 h-6" />
+                    <CheckCircle2 className="w-5 h-5" />
                   </div>
                   <div>
-                    <h2 className={`text-3xl lg:text-4xl font-black tracking-tight uppercase flex items-center gap-2 ${
-                      isDark ? 'text-emerald-400' : 'text-emerald-700'
+                    <h2 className={`text-2xl lg:text-3xl font-black tracking-tight uppercase flex items-center gap-2.5 ${
+                      isDark ? 'text-white' : 'text-slate-900'
                     }`}>
                       {t('orderReadyBoard.ready_for_pickup')}
-                      <span className="text-sm font-bold bg-emerald-600 text-white px-3 py-0.5 rounded-full ml-2 shadow-sm">
+                      <span className={`text-sm font-bold px-3 py-0.5 rounded-full border ${
+                        isDark ? 'bg-slate-800 text-slate-200 border-slate-700' : 'bg-slate-900 text-white border-slate-900'
+                      }`}>
                         {displayedReadyOrders.length}
                       </span>
                     </h2>
                     <p className={`text-xs font-medium flex items-center gap-1.5 mt-0.5 ${
-                      isDark ? 'text-emerald-300/70' : 'text-emerald-700'
+                      isDark ? 'text-slate-400' : 'text-slate-500'
                     }`}>
                       <span>{t('orderReadyBoard.proceed_to_counter')}</span>
-                      <span className={isDark ? 'text-slate-600' : 'text-slate-400'}>•</span>
+                      <span className={isDark ? 'text-slate-700' : 'text-slate-300'}>•</span>
                       <span className={`text-[11px] ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
                         {t('orderReadyBoard.retention_note_dynamic').replace('{mins}', String(readyRetentionMinutes))}
                       </span>
                     </p>
                   </div>
                 </div>
-                <Sparkles className="w-6 h-6 text-emerald-500 animate-pulse hidden sm:block" />
               </div>
 
-              {/* Tarjetas de Órdenes Listas */}
-              <div className="flex-1 mt-6 overflow-y-auto space-y-4 pr-1 relative z-10 min-h-0">
+              {/* Tarjetas de Órdenes Entregadas */}
+              <div className="flex-1 mt-5 overflow-y-auto space-y-3.5 pr-1 relative z-10 min-h-0">
                 {displayedReadyOrders.length === 0 ? (
                   <div className={`h-64 flex flex-col items-center justify-center text-center ${
                     isDark ? 'text-slate-500' : 'text-slate-400'
                   }`}>
                     <CheckCircle2 className={`w-12 h-12 mb-3 ${isDark ? 'text-slate-700' : 'text-slate-300'}`} />
                     <p className={`text-lg font-semibold ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>{t('orderReadyBoard.no_orders_ready')}</p>
-                    <p className="text-xs text-emerald-600 font-medium mt-1">
+                    <p className={`text-xs font-medium mt-1 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
                       {STORES_LIST.find(s => s.code === selectedStore)?.name || selectedStore} • {t('orderReadyBoard.kds_bump_notice')}
                     </p>
                   </div>
@@ -3106,32 +3127,33 @@ function OrderReadyBoardContent() {
                     return (
                       <div
                         key={order.id}
-                        className={`rounded-2xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 transform hover:scale-[1.01] transition-all animate-in fade-in zoom-in-95 duration-300 relative ${
+                        className={`rounded-xl p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 transition-all duration-200 relative ${
                           isTabletCalled
-                            ? 'ring-4 ring-amber-400 dark:ring-amber-500 scale-[1.02] shadow-2xl shadow-amber-500/40 border-amber-400'
-                            : ''
-                        } ${
-                          isDark
-                            ? 'bg-gradient-to-r from-emerald-950/80 via-slate-900 to-emerald-950/80 border-2 border-emerald-500/60 shadow-xl shadow-emerald-950/40 text-white'
-                            : 'bg-gradient-to-r from-emerald-50/70 via-white to-emerald-50/70 border-2 border-emerald-500/70 shadow-md shadow-emerald-100/60 text-slate-900 hover:border-emerald-500'
+                            ? isDark
+                              ? 'ring-2 ring-white bg-slate-800/90 border border-slate-600 shadow-lg text-white'
+                              : 'ring-2 ring-slate-900 bg-slate-50 border border-slate-400 shadow-md text-slate-900'
+                            : isDark
+                              ? 'bg-slate-900/90 border border-slate-800 hover:border-slate-700 shadow-sm text-white'
+                              : 'bg-slate-50/70 border border-slate-200 hover:border-slate-300 shadow-sm text-slate-900'
                         }`}
                       >
                         <div className="flex items-center gap-5">
                           {/* Número de Orden en Grande */}
                           <button
                             type="button"
+                            onMouseEnter={() => prefetchOrderDetail(order)}
                             onClick={() => handleOrderClick(order)}
                             title={t('orderReadyBoard.view_ticket')}
-                            className={`text-left text-4xl lg:text-6xl font-black tracking-tight font-mono cursor-pointer transition-colors ${
+                            className={`text-left text-4xl lg:text-5xl font-black tracking-tight font-mono cursor-pointer transition-colors ${
                               isDark
-                                ? 'text-white drop-shadow-[0_2px_12px_rgba(16,185,129,0.5)] hover:text-emerald-300'
-                                : 'text-emerald-900 drop-shadow-sm hover:text-emerald-600'
+                                ? 'text-white hover:text-slate-300'
+                                : 'text-slate-900 hover:text-slate-600'
                             }`}
                           >
                             #{order.order_number}
                           </button>
 
-                          {/* Nombre, Canal y Tiempo de Preparación SOS */}
+                          {/* Nombre, Canal (FOR HERE / TO GO) y Tiempo de Preparación */}
                           <div>
                             {order.customer_name && (
                               <div className={`text-base lg:text-lg font-bold truncate max-w-[200px] ${
@@ -3145,7 +3167,7 @@ function OrderReadyBoardContent() {
 
                               {prepSeconds > 0 && (
                                 <span
-                                  className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold font-mono border ${sosClass}`}
+                                  className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-xs font-semibold font-mono border ${sosClass}`}
                                   title={`${t('orderReadyBoard.prep_duration')}: ${formatDuration(prepSeconds)}`}
                                 >
                                   <Timer className="w-3 h-3" />
@@ -3156,27 +3178,33 @@ function OrderReadyBoardContent() {
                           </div>
                         </div>
 
-                        {/* Info de Cierre / Doble Tap y Acciones */}
+                        {/* Info de Cierre y Acciones */}
                         <div className={`flex sm:flex-col items-center sm:items-end justify-between gap-2 border-t sm:border-t-0 pt-3 sm:pt-0 ${
-                          isDark ? 'border-emerald-500/20' : 'border-emerald-200'
+                          isDark ? 'border-slate-800' : 'border-slate-200'
                         }`}>
                           <div className="text-left sm:text-right">
-                            <div className="flex items-center sm:justify-end gap-2 flex-wrap">
+                            <div className="flex items-center sm:justify-end gap-1.5 flex-wrap">
                               {isTabletCalled && (
-                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-black uppercase tracking-wider bg-amber-500 text-slate-950 animate-pulse shadow-md">
-                                  <Megaphone className="w-3 h-3 animate-bounce" />
+                                <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-xs font-bold uppercase tracking-wider ${
+                                  isDark ? 'bg-white text-slate-900' : 'bg-slate-900 text-white'
+                                }`}>
+                                  <Megaphone className="w-3 h-3" />
                                   {t('orderReadyBoard.called_from_prep')}
                                 </span>
                               )}
-                              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black uppercase tracking-wider bg-emerald-600 text-white shadow-sm">
-                                <CheckCircle2 className="w-3.5 h-3.5" />
+                              <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-xs font-bold uppercase tracking-wider border ${
+                                isDark
+                                  ? 'bg-slate-800 text-slate-200 border-slate-700'
+                                  : 'bg-slate-200/80 text-slate-800 border-slate-300'
+                              }`}>
+                                <CheckCircle2 className="w-3 h-3" />
                                 {t('orderReadyBoard.ready_badge')}
                               </span>
                               {readyTimeStr && (
-                                <span className={`text-xs font-bold px-2 py-0.5 rounded-md border ${
+                                <span className={`text-xs font-semibold px-2 py-0.5 rounded-md border ${
                                   isDark
-                                    ? 'text-emerald-300 bg-emerald-950/60 border-emerald-500/30'
-                                    : 'text-emerald-800 bg-emerald-100 border-emerald-300'
+                                    ? 'text-slate-300 bg-slate-800/60 border-slate-700'
+                                    : 'text-slate-700 bg-white border-slate-200'
                                 }`}>
                                   {readyTimeStr}
                                 </span>
@@ -3184,7 +3212,7 @@ function OrderReadyBoardContent() {
                             </div>
                             {order.ready_at && (
                               <p className={`text-[11px] font-medium mt-1 ${
-                                isDark ? 'text-emerald-400/80' : 'text-emerald-700'
+                                isDark ? 'text-slate-400' : 'text-slate-500'
                               }`}>
                                 {calculateElapsedTime(order.ready_at, t)}
                               </p>
@@ -3198,9 +3226,13 @@ function OrderReadyBoardContent() {
                               onClick={() => handleReplayVoice(order)}
                               disabled={isOrderReplaying}
                               title={t('orderReadyBoard.replay_tooltip').replace('{order}', order.order_number)}
-                              className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm border border-emerald-400/40 transition active:scale-95 disabled:opacity-50 cursor-pointer"
+                              className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold shadow-sm border transition active:scale-95 disabled:opacity-50 cursor-pointer ${
+                                isDark
+                                  ? 'bg-slate-100 hover:bg-white text-slate-900 border-slate-200'
+                                  : 'bg-slate-900 hover:bg-slate-800 text-white border-slate-900'
+                              }`}
                             >
-                              <Volume2 className={`w-3.5 h-3.5 ${isOrderReplaying ? 'animate-bounce text-amber-300' : ''}`} />
+                              <Volume2 className={`w-3.5 h-3.5 ${isOrderReplaying ? 'animate-pulse' : ''}`} />
                               <span>
                                 {isOrderReplaying ? t('orderReadyBoard.replaying') : t('orderReadyBoard.replay_voice')}
                               </span>
@@ -3208,15 +3240,16 @@ function OrderReadyBoardContent() {
 
                             <button
                               type="button"
+                              onMouseEnter={() => prefetchOrderDetail(order)}
                               onClick={() => handleOrderClick(order)}
                               title={t('orderReadyBoard.view_ticket')}
-                              className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold transition active:scale-95 cursor-pointer shadow-sm border ${
+                              className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold transition active:scale-95 cursor-pointer shadow-sm border ${
                                 isDark
                                   ? 'bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white border-slate-700'
                                   : 'bg-white hover:bg-slate-100 text-slate-700 hover:text-slate-900 border-slate-300'
                               }`}
                             >
-                              <Receipt className="w-3.5 h-3.5 text-amber-500" />
+                              <Receipt className="w-3.5 h-3.5 text-slate-500" />
                               <span className="hidden md:inline">{t('orderReadyBoard.view_ticket')}</span>
                             </button>
                           </div>
@@ -3229,33 +3262,33 @@ function OrderReadyBoardContent() {
             </section>
 
             {/* COLUMNA DERECHA: EN PREPARACIÓN (IN PROGRESS) */}
-            <section className={`flex flex-col rounded-3xl p-6 backdrop-blur relative min-h-0 ${
+            <section className={`flex flex-col rounded-2xl p-6 relative min-h-0 ${
               isDark
-                ? 'bg-slate-900/40 border border-slate-800 shadow-xl'
-                : 'bg-white border border-slate-200 shadow-lg'
+                ? 'bg-amber-950/20 border-2 border-amber-500/60 shadow-xl'
+                : 'bg-amber-50/40 border-2 border-amber-400 shadow-sm'
             }`}>
               {/* Header de la columna */}
-              <div className={`flex items-center justify-between pb-6 border-b ${
-                isDark ? 'border-slate-800' : 'border-slate-200'
+              <div className={`flex items-center justify-between pb-5 border-b ${
+                isDark ? 'border-amber-500/30' : 'border-amber-200'
               }`}>
                 <div className="flex items-center gap-3">
-                  <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                    isDark ? 'bg-slate-800 border border-slate-700 text-slate-300' : 'bg-slate-100 border border-slate-200 text-slate-600'
+                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center shadow-sm ${
+                    isDark ? 'bg-amber-500 text-slate-950' : 'bg-amber-500 text-white'
                   }`}>
-                    <Clock className="w-6 h-6" />
+                    <Clock className="w-5 h-5" />
                   </div>
                   <div>
-                    <h2 className={`text-3xl lg:text-4xl font-black tracking-tight uppercase flex items-center gap-2 ${
-                      isDark ? 'text-slate-200' : 'text-slate-800'
+                    <h2 className={`text-2xl lg:text-3xl font-black tracking-tight uppercase flex items-center gap-2.5 ${
+                      isDark ? 'text-amber-400' : 'text-amber-900'
                     }`}>
                       {t('orderReadyBoard.in_progress')}
-                      <span className={`text-sm font-bold px-3 py-0.5 rounded-full ml-2 border ${
-                        isDark ? 'bg-slate-800 text-slate-300 border-slate-700' : 'bg-slate-100 text-slate-700 border-slate-200 shadow-sm'
+                      <span className={`text-sm font-bold px-3 py-0.5 rounded-full border ${
+                        isDark ? 'bg-amber-500 text-slate-950 border-amber-400' : 'bg-amber-500 text-white border-amber-500'
                       }`}>
                         {displayedInProgressOrders.length}
                       </span>
                     </h2>
-                    <p className={`text-xs font-medium ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                    <p className={`text-xs font-medium mt-0.5 ${isDark ? 'text-amber-300/80' : 'text-amber-800/80'}`}>
                       {t('orderReadyBoard.preparing_fresh')}
                     </p>
                   </div>
@@ -3263,14 +3296,14 @@ function OrderReadyBoardContent() {
               </div>
 
               {/* Tarjetas de Órdenes en Preparación */}
-              <div className="flex-1 mt-6 overflow-y-auto space-y-3.5 pr-1 min-h-0">
+              <div className="flex-1 mt-5 overflow-y-auto space-y-3.5 pr-1 min-h-0">
                 {displayedInProgressOrders.length === 0 ? (
                   <div className={`h-64 flex flex-col items-center justify-center text-center ${
                     isDark ? 'text-slate-500' : 'text-slate-400'
                   }`}>
-                    <Clock className={`w-12 h-12 mb-3 ${isDark ? 'text-slate-700' : 'text-slate-300'}`} />
+                    <Clock className={`w-12 h-12 mb-3 ${isDark ? 'text-amber-500/40' : 'text-amber-300'}`} />
                     <p className={`text-lg font-semibold ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>{t('orderReadyBoard.no_orders_in_progress')}</p>
-                    <p className="text-xs text-slate-400 font-medium mt-1">
+                    <p className={`text-xs font-medium mt-1 ${isDark ? 'text-amber-400/70' : 'text-amber-700'}`}>
                       {STORES_LIST.find(s => s.code === selectedStore)?.name || selectedStore} • {t('orderReadyBoard.kitchen_caught_up')}
                     </p>
                   </div>
@@ -3288,33 +3321,34 @@ function OrderReadyBoardContent() {
                     return (
                       <div
                         key={order.id}
-                        className={`rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition ${
+                        className={`rounded-xl p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition ${
                           isInProgressTabletCalled
-                            ? 'ring-4 ring-amber-400 dark:ring-amber-500 scale-[1.01] shadow-2xl shadow-amber-500/40 border-amber-400'
-                            : ''
-                        } ${
-                          isDark
-                            ? 'bg-slate-900/90 border border-slate-800/80 hover:border-slate-700 shadow text-slate-200'
-                            : 'bg-slate-50/90 border border-slate-200 hover:bg-slate-100/80 shadow-sm text-slate-800'
+                            ? isDark
+                              ? 'ring-2 ring-amber-400 bg-slate-800/90 border border-amber-500 shadow-lg text-white'
+                              : 'ring-2 ring-amber-500 bg-amber-50 border border-amber-400 shadow-md text-slate-900'
+                            : isDark
+                              ? 'bg-slate-900/90 border border-amber-500/30 hover:border-amber-500/50 shadow-sm text-slate-200'
+                              : 'bg-white border border-amber-200 hover:border-amber-300 shadow-sm text-slate-800'
                         }`}
                       >
-                        <div className="flex items-center gap-4">
+                        <div className="flex items-center gap-5">
                           {/* Número de Orden */}
                           <button
                             type="button"
+                            onMouseEnter={() => prefetchOrderDetail(order)}
                             onClick={() => handleOrderClick(order)}
                             title={t('orderReadyBoard.view_ticket')}
-                            className={`text-3xl lg:text-5xl font-black tracking-tight font-mono transition-colors text-left cursor-pointer ${
-                              isDark ? 'text-slate-300 hover:text-white' : 'text-slate-800 hover:text-slate-900'
+                            className={`text-4xl lg:text-5xl font-black tracking-tight font-mono transition-colors text-left cursor-pointer ${
+                              isDark ? 'text-slate-200 hover:text-white' : 'text-slate-900 hover:text-amber-700'
                             }`}
                           >
                             #{order.order_number}
                           </button>
 
-                          {/* Nombre, Canal y Cronómetro en Vivo */}
+                          {/* Nombre, Canal (FOR HERE / TO GO) y Cronómetro en Vivo */}
                           <div>
                             {order.customer_name && (
-                              <div className={`text-sm lg:text-base font-bold truncate max-w-[180px] ${
+                              <div className={`text-base lg:text-lg font-bold truncate max-w-[180px] ${
                                 isDark ? 'text-slate-300' : 'text-slate-800'
                               }`}>
                                 {order.customer_name}
@@ -3323,9 +3357,9 @@ function OrderReadyBoardContent() {
                             <div className="mt-1 flex flex-wrap items-center gap-2">
                               {renderDiningBadge(order.dining_option)}
 
-                              {/* Cronómetro en vivo con colores SOS */}
+                              {/* Cronómetro en vivo */}
                               <span
-                                className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold font-mono border ${sosClass}`}
+                                className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-xs font-semibold font-mono border ${sosClass}`}
                                 title={`${t('orderReadyBoard.elapsed')}: ${formatDuration(elapsedSeconds)}`}
                               >
                                 <Timer className="w-3 h-3" />
@@ -3337,22 +3371,24 @@ function OrderReadyBoardContent() {
 
                         {/* Estado y Hora de Envío */}
                         <div className={`flex sm:flex-col items-center sm:items-end justify-between gap-2 border-t sm:border-t-0 pt-2 sm:pt-0 ${
-                          isDark ? 'border-slate-800' : 'border-slate-200'
+                          isDark ? 'border-amber-500/20' : 'border-amber-100'
                         }`}>
                           <div className="text-left sm:text-right">
-                            <div className="flex items-center sm:justify-end gap-2 flex-wrap">
+                            <div className="flex items-center sm:justify-end gap-1.5 flex-wrap">
                               {isInProgressTabletCalled && (
-                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-black uppercase tracking-wider bg-amber-500 text-slate-950 animate-pulse shadow-md">
-                                  <Megaphone className="w-3 h-3 animate-bounce" />
+                                <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-xs font-bold uppercase tracking-wider ${
+                                  isDark ? 'bg-amber-400 text-slate-950' : 'bg-amber-500 text-white'
+                                }`}>
+                                  <Megaphone className="w-3 h-3" />
                                   {t('orderReadyBoard.called_from_prep')}
                                 </span>
                               )}
-                              <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold ${
+                              <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md text-xs font-semibold border ${
                                 isDark
-                                  ? 'text-slate-400 bg-slate-800/80 border border-slate-700/60'
-                                  : 'text-slate-700 bg-slate-200/80 border border-slate-300'
+                                  ? 'text-amber-300 bg-amber-950/60 border-amber-500/40'
+                                  : 'text-amber-800 bg-amber-100 border-amber-300'
                               }`}>
-                                <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping" />
+                                <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
                                 {t('orderReadyBoard.almost_ready')}
                               </span>
                             </div>
@@ -3370,9 +3406,13 @@ function OrderReadyBoardContent() {
                               onClick={() => handleReplayVoice(order)}
                               disabled={isOrderReplaying}
                               title={t('orderReadyBoard.replay_tooltip').replace('{order}', order.order_number)}
-                              className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm border border-emerald-400/40 transition active:scale-95 disabled:opacity-50 cursor-pointer"
+                              className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold shadow-sm border transition active:scale-95 disabled:opacity-50 cursor-pointer ${
+                                isDark
+                                  ? 'bg-slate-100 hover:bg-white text-slate-900 border-slate-200'
+                                  : 'bg-slate-900 hover:bg-slate-800 text-white border-slate-900'
+                              }`}
                             >
-                              <Volume2 className={`w-3.5 h-3.5 ${isOrderReplaying ? 'animate-bounce text-amber-300' : ''}`} />
+                              <Volume2 className={`w-3.5 h-3.5 ${isOrderReplaying ? 'animate-pulse' : ''}`} />
                               <span>
                                 {isOrderReplaying ? t('orderReadyBoard.replaying') : t('orderReadyBoard.replay_voice')}
                               </span>
@@ -3380,15 +3420,16 @@ function OrderReadyBoardContent() {
 
                             <button
                               type="button"
+                              onMouseEnter={() => prefetchOrderDetail(order)}
                               onClick={() => handleOrderClick(order)}
                               title={t('orderReadyBoard.view_ticket')}
-                              className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold transition active:scale-95 cursor-pointer shadow-sm border ${
+                              className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold transition active:scale-95 cursor-pointer shadow-sm border ${
                                 isDark
                                   ? 'bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border-slate-700'
                                   : 'bg-white hover:bg-slate-100 text-slate-700 hover:text-slate-900 border-slate-300'
                               }`}
                             >
-                              <Receipt className="w-3.5 h-3.5 text-amber-500" />
+                              <Receipt className="w-3.5 h-3.5 text-slate-500" />
                               <span className="hidden md:inline">{t('orderReadyBoard.view_ticket')}</span>
                             </button>
                           </div>
@@ -3407,7 +3448,7 @@ function OrderReadyBoardContent() {
       <footer className={`border-t px-6 py-3 text-center text-xs font-medium transition-colors ${
         isDark ? 'bg-slate-950 border-slate-900 text-slate-500' : 'bg-white border-slate-200 text-slate-500 shadow-sm'
       }`}>
-        <span>Tacos Gavilan • {t('orderReadyBoard.subtitle')}</span>
+        <span>{t('orderReadyBoard.subtitle')}</span>
       </footer>
 
       {/* SECONDARY MODAL: VISOR DE RECIBO / TICKET TOAST POS */}
@@ -3433,7 +3474,7 @@ function OrderReadyBoardContent() {
                 {t('orderReadyBoard.receipt_ticket')} #{orderDetailData.checkId}
               </div>
               {orderDetailData.loading && (
-                <p className="text-amber-600 animate-pulse text-xs mt-1">
+                <p className="text-slate-500 animate-pulse text-[11px] mt-1 font-normal">
                   {t('orderReadyBoard.connecting_virtual_cashier')}
                 </p>
               )}
@@ -3444,6 +3485,48 @@ function OrderReadyBoardContent() {
               {orderDetailData.error && (
                 <div className="text-rose-600 text-xs break-all bg-rose-50 p-3 rounded-lg border border-rose-200">
                   {orderDetailData.error}
+                </div>
+              )}
+
+              {/* Vista previa instantánea (0ms) de los platillos mientras cargan precios e impuestos */}
+              {!orderDetailData.data && !orderDetailData.error && orderDetailData.previewItems && orderDetailData.previewItems.length > 0 && (
+                <div className="space-y-4 text-slate-800">
+                  <div className="text-xs text-center border-b border-slate-200 pb-3">
+                    <div className="font-bold text-[14px] uppercase tracking-wider mb-1">
+                      {t('orderReadyBoard.receipt_store')} {orderDetailData.storeName}
+                    </div>
+                    <div>
+                      {orderDetailData.diningOption === 'FOR_HERE'
+                        ? t('orderReadyBoard.for_here_badge')
+                        : t('orderReadyBoard.to_go_badge')}
+                    </div>
+                    {orderDetailData.openedAt && (
+                      <div>
+                        {new Date(orderDetailData.openedAt).toLocaleString('en-US', {
+                          timeZone: 'America/Los_Angeles'
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="border-b-2 border-dashed border-slate-300 pb-3 space-y-2">
+                    <div className="flex justify-between font-bold text-[10px] text-slate-400 mb-2 uppercase tracking-widest">
+                      <span>{t('orderReadyBoard.item')}</span>
+                    </div>
+                    {orderDetailData.previewItems.map((it, i) => (
+                      <div key={i} className="text-xs">
+                        <div className="font-semibold">
+                          {it.quantity || 1}x {it.name}
+                        </div>
+                        {Array.isArray(it.modifiers) &&
+                          it.modifiers.map((mod, mIdx) => (
+                            <div key={mIdx} className="text-slate-500 text-[11px] ml-4">
+                              • {mod}
+                            </div>
+                          ))}
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
 

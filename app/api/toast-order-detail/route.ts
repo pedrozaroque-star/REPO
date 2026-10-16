@@ -15,7 +15,14 @@ const TOAST_API_HOST = process.env.TOAST_API_HOST || 'https://ws-api.toasttab.co
 
 export const dynamic = 'force-dynamic'
 
+const diningOptionsCache = new Map<string, { at: number; map: Record<string, string> }>()
+const DINING_CACHE_TTL_MS = 60 * 60 * 1000 // 60 minutos
+
 async function getDiningOptionsMap(token: string, storeId: string): Promise<Record<string, string>> {
+    const cached = diningOptionsCache.get(storeId)
+    if (cached && Date.now() - cached.at < DINING_CACHE_TTL_MS) {
+        return cached.map
+    }
     try {
         const url = new URL(`${TOAST_API_HOST}/config/v2/diningOptions`)
         const res = await fetch(url.toString(), {
@@ -24,7 +31,7 @@ async function getDiningOptionsMap(token: string, storeId: string): Promise<Reco
                 'Toast-Restaurant-External-ID': storeId
             }
         })
-        if (!res.ok) return {}
+        if (!res.ok) return cached?.map || {}
         const data = await res.json()
         const map: Record<string, string> = {}
         if (Array.isArray(data)) {
@@ -32,9 +39,10 @@ async function getDiningOptionsMap(token: string, storeId: string): Promise<Reco
                 if (opt.guid && opt.name) map[opt.guid] = opt.name
             })
         }
+        diningOptionsCache.set(storeId, { at: Date.now(), map })
         return map
     } catch (e) {
-        return {}
+        return cached?.map || {}
     }
 }
 
@@ -54,13 +62,17 @@ export async function GET(request: Request) {
         }
 
         const url = new URL(`${TOAST_API_HOST}/orders/v2/orders/${orderGuid}`)
-        
-        const res = await fetch(url.toString(), {
-            headers: {
-                'Authorization': `Bearer ${token}`,
-                'Toast-Restaurant-External-ID': storeId!
-            }
-        })
+
+        // Ejecutar consulta de orden y mapa de diningOptions en paralelo (con caché en memoria para diningOptions)
+        const [res, map] = await Promise.all([
+            fetch(url.toString(), {
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Toast-Restaurant-External-ID': storeId!
+                }
+            }),
+            getDiningOptionsMap(token, storeId!)
+        ])
 
         if (!res.ok) {
             const err = await res.text()
@@ -68,10 +80,9 @@ export async function GET(request: Request) {
         }
 
         const data = await res.json()
-        
+
         // Resolver el nombre del Dining Option dinámicamente
         if (data.diningOption) {
-            const map = await getDiningOptionsMap(token, storeId!)
             const optId = data.diningOption.guid || data.diningOption.id
             if (optId && map[optId]) {
                 data.diningOption.name = map[optId]

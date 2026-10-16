@@ -1,5 +1,5 @@
 {
-  "totalHours": 107.6,
+  "totalHours": 112.1,
   "rows": [
     {
       "date": "01-Oct-2026",
@@ -202,43 +202,44 @@
     },
     {
       "date": "15-Oct-2026",
-      "time": "8:27 AM - 8:34 AM & 10:23 AM - 11:25 AM",
-      "hours": 1.2,
+      "time": "8:27 AM - 8:34 AM & 10:23 AM - 11:50 AM & 1:20 PM - 2:11 PM & 2:37 PM - 4:11 PM & 4:45 PM - 6:15 PM",
+      "hours": 5.7,
       "badges": [
-        "Blindaje Delivery Continuidad Cajeras",
-        "7 Blindajes Operativos Slauson #7",
-        "Guardia Chofer & Deshacer Entrega",
-        "Sync Módulos & Reporte Octubre"
+        "Blindaje Delivery Continuidad & 7 Blindajes",
+        "Contabilidad 135 Pantallas Cohesion",
+        "App Clientes GPS, Maps & 800 Tests",
+        "Order Ready Entregadas & 6 Dígitos Offline",
+        "Informe Ejecutivo PDF Gavilan POS"
       ],
-      "descEs": "• <strong>Blindaje Delivery — Continuidad Total Entre Cajeras en Cambio de Turno (Pruebas en Vivo Slauson #7)</strong>: Auditoría forense en Supabase (delivery_packing_audits) del relevo operativo en Slauson #7 entre Jennifer Baltazar y Abigail Mendoza. Desacoplamiento de atribución en base de datos (packed_by_* vs handed_off_by_*) para que una cajera arme y selle la bolsa en el Paso 1 y otra cajera distinta la entregue al repartidor en el Paso 2 sin bloqueos de botones ni entregas fantasma.<br>• <strong>7 Blindajes Operativos en Tableta de Empaque Delivery</strong>: (1) Guardia anti-doble clic '¿Está el chofer frente a ti?' cuando transcurren menos de 45 segundos entre el sellado y la entrega; (2) Botón '↩ Corregir Bolsa / Re-empaque' para regresar una orden de PACKED a PENDING si llega otro platillo de cocina; (3) Ventana de 60 segundos ('↩ Deshacer Entrega') para revertir entregas marcadas por error; (4) Relevos limpios conservando los checks parciales; (5) Sincronización multi-tableta cada 4 segundos; (6) Alerta automática si cocina modifica o agrega ítems en Toast tras el sellado; y (7) Atribución dual Empacó / Entregó en el panel administrativo.<br>• <strong>Sincronización General de Módulos, Pre-Compilación de Servidores y Cierre de Reporte</strong>: Pre-compilación en caliente de los 3 servidores locales (3000, 8080, 8081), sincronización de activos web de tacosgavilan.com y consolidación de commits en todos los módulos del ecosistema.",
-      "descEn": "• <strong>Blindaje Delivery — Seamless Cross-Cashier Shift Changeover Continuity (Live Field Testing at Slauson #7)</strong>: Forensic Supabase audit (delivery_packing_audits) of the live shift handover at Slauson #7 between Jennifer Baltazar and Abigail Mendoza. Decoupled database attribution (packed_by_* vs handed_off_by_*) so Cashier A can pack and seal the bag (Step 1) and Cashier B can hand it off to the driver (Step 2) without UI lockouts or accidental bulk handoffs.<br>• <strong>7 Operational Safeguards on Delivery Packing Tablet</strong>: (1) 'Is the driver in front of you?' anti-double-tap guard when <45s have elapsed since sealing; (2) '↩ Fix Bag / Re-pack' button to return an order from PACKED to PENDING; (3) 60-second '↩ Undo Handoff' window to revert accidental deliveries; (4) Clean cashier shift handovers preserving checked items; (5) 4-second multi-tablet sync; (6) Toast ticket modification alert if new items appear after sealing; and (7) Dual Packed By / Handed Off By attribution in the admin dashboard.<br>• <strong>Full Ecosystem Module Sync, Server Pre-Compilation & Activity Report Consolidation</strong>: Warm pre-compilation of all 3 local servers (3000, 8080, 8081), tacosgavilan.com asset synchronization, and unified commit consolidation across all modules."
+      "descEs": "• <strong>Blindaje Delivery — Continuidad Total Entre Cajeras, 7 Blindajes Operativos y Selección 100% Manual en Slauson #7</strong>: Auditoría forense en Supabase (delivery_packing_audits) del relevo operativo en Slauson #7 entre Jennifer Baltazar y Abigail Mendoza. Desacoplamiento de atribución en base de datos (packed_by_* vs handed_off_by_*) para que una cajera arme y selle la bolsa en el Paso 1 y otra cajera la entregue al repartidor en el Paso 2. Implementación de los 7 blindajes operativos (guardia de chofer presente en mostrador, botón para deshacer empaque, botón para reabrir orden entregada, alerta por anulación en plataforma), eliminación de referencias a códigos QR inexistentes, selección 100% manual de órdenes y deselección al tocar un espacio en blanco.<br>• <strong>Contabilidad — Extracción de las 135 Pantallas de Configuración de Cohesion (15 Tiendas × 9 Pestañas) y Paridad 100%</strong>: Diagnóstico y resolución del caso de Paid In negativo (-$0.99) en LA Broadway (10/14/2026). Extracción completa de las 135 pantallas de configuración de workflow de Cohesion y auditoría matemática línea por línea con 2 subagentes en lib/toast-accounting.ts y lib/accounting-journal.ts para blindar preventivamente todos los escenarios contables.<br>• <strong>App Móvil Clientes (/app y gavilan-app) — Localizador GPS de Sucursales Cercanas, Navegación Apple/Google Maps y Suite de 800 Pruebas</strong>: Incorporación de localizador GPS en primer plano para ordenar las 15 sucursales de la más cercana a la más lejana con distancia en millas, marcación telefónica en 1 toque (tel:) y apertura inteligente de Apple Maps en iOS y Google Maps en Android. Eliminación de textos de redirección externa y referencias a Curbside, rediseño ergonómico de tarjetas sin fatiga visual, corrección de colisión de ruta raíz en Expo Router (liberando >9 GB de RAM) y suite de 800 aserciones para App Store / Google Play.<br>• <strong>Order Ready Board — Columna 'Entregadas', Soporte de Folios Offline de 6 Dígitos (80001+), Rediseño Sobrio y Caché de Recibos</strong>: Actualización de la columna izquierda a 'Entregadas / Delivered' acorde al nuevo flujo operativo, soporte completo para pronunciar y escalar folios offline de 5 y 6 dígitos de Toast POS (ej. 80001 tras cortes de luz/internet), corrección de contraste en barra activa de voz, diseño ejecutivo sobrio con badges explícitos FOR HERE / TO GO (reservando ámbar solo para IN PROGRESS) y apertura instantánea del visor de recibos Toast.<br>• <strong>Informe Ejecutivo en PDF de Gavilan POS y Gestión de Usuarios</strong>: Elaboración del documento ejecutivo en PDF (Informe_Ejecutivo_Gavilan_POS_Tacos_Gavilan.pdf) para Dirección General con marco legal de hardware propio, costos reales de tiendas por uso de Toast, requerimientos de procesamiento de pagos y API directa con plataformas de Delivery. Actualización y aislamiento de permisos de cuenta para Javier Ruiz (javier.ruiz@tacosgavilan.com, Asistente AM en Bell #2).",
+      "descEn": "• <strong>Blindaje Delivery — Cross-Cashier Shift Continuity, 7 Operational Safeguards & Manual-Only Selection at Slauson #7</strong>: Forensic Supabase audit (delivery_packing_audits) of the live shift handover at Slauson #7 between Jennifer Baltazar and Abigail Mendoza. Decoupled database attribution (packed_by_* vs handed_off_by_*) so Cashier A can pack/seal (Step 1) and Cashier B can hand off to the driver (Step 2). Implemented 7 operational safeguards (driver-present counter guard, undo packing, reopen delivered order, voided order alert), removed non-existent QR references, enforced manual-only order selection, and added tap-outside blank-space deselection.<br>• <strong>Accounting — Extraction of All 135 Cohesion Workflow Settings Screens (15 Stores × 9 Tabs) & 100% Parity</strong>: Resolved the negative Paid In (-$0.99) edge case in LA Broadway (10/14/2026). Extracted all 135 Cohesion workflow configuration screens across 15 stores and executed a 2-subagent line-by-line mathematical audit on lib/toast-accounting.ts and lib/accounting-journal.ts.<br>• <strong>Customer Mobile App (/app & gavilan-app) — Foreground GPS Nearest-Branch Locator, Apple/Google Maps Navigation & 800-Assertion Suite</strong>: Added foreground GPS locator sorting all 15 branches from nearest to farthest with distance in miles, 1-tap phone dialing (tel:), and platform-aware navigation (Apple Maps on iOS, Google Maps on Android). Removed external redirect legends and Curbside references, redesigned store cards to eliminate visual fatigue, fixed root route collision in Expo Router (freeing >9 GB RAM), and verified an 800-assertion App Store / Google Play compliance suite.<br>• <strong>Order Ready Board — 'Delivered' Column, 6-Digit Offline Order Numbers (80001+), Executive UI & Instant Receipt Cache</strong>: Renamed the left column to 'Entregadas / Delivered' matching the updated kitchen call workflow, added full voice synthesis and auto-scaling for 5- and 6-digit offline Toast order numbers (e.g., 80001 after power/internet outages), fixed active speech banner contrast, applied a clean executive design with explicit FOR HERE / TO GO badges (keeping amber exclusively on IN PROGRESS), and accelerated Toast receipt modal loading.<br>• <strong>Gavilan POS Executive PDF Report & User Access Scoping</strong>: Authored the executive PDF report (Informe_Ejecutivo_Gavilan_POS_Tacos_Gavilan.pdf) for ownership covering legal hardware ownership rights, real store Toast costs, payment processing requirements, and direct 3PD APIs. Updated and scoped user account permissions for Javier Ruiz (javier.ruiz@tacosgavilan.com, AM Assistant Manager at Bell #2)."
     }
   ],
   "effort": [
     {
       "name": "Order Ready (4,000 Audios), Preparador KDS & Blindaje Delivery",
-      "hours": 35.2,
+      "hours": 36.7,
       "percent": 32.7
     },
     {
       "name": "App Móvil Clientes (/app), Gavilan POS & Sitio Web (tacosgavilan.com)",
-      "hours": 28.4,
-      "percent": 26.4
+      "hours": 30.5,
+      "percent": 27.2
     },
     {
       "name": "Contabilidad, Paridad 100% Cohesion, Candado Toast & Crear Bills",
-      "hours": 21.8,
-      "percent": 20.3
+      "hours": 22.7,
+      "percent": 20.2
     },
     {
       "name": "Inventario, Orden Diaria IA, Uniformes-Caja Fuerte & Viele",
       "hours": 13.2,
-      "percent": 12.3
+      "percent": 11.8
     },
     {
       "name": "MilesIQ Supervisores, Evaluación QR, Ventas y Reportes",
       "hours": 9,
-      "percent": 8.4
+      "percent": 8
     }
   ],
   "parallelActivities": [

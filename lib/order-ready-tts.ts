@@ -7,7 +7,7 @@
  *   caía en voces masculinas/robóticas (ej. Microsoft Raul). Con la voz neuronal el acento es natural y siempre femenino.
  * - Frases: EN "Order 141 is ready." / ES "Orden 141, ¡ya está!" (cada idioma es un clip aparte con su propio prompt para
  *   que el acento sea nativo y alegre con el slogan de Tacos Gavilan).
- * - Solo se aceptan números de 1 a 4 dígitos (evita abuso de la API de pago).
+ * - Se aceptan números de 1 a 6 dígitos (soportando órdenes regulares y numeración offline de Toast como 80001).
  *
  * @dataFlow
  * - GET /api/order-ready/tts?n=141&lang=en|es -> getOrderReadySpeech() -> Supabase Storage (bucket `order-ready-tts`, caché permanente)
